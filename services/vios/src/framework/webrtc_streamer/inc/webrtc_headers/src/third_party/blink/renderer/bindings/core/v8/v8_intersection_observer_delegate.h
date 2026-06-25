@@ -30,18 +30,8 @@ class V8IntersectionObserverDelegate final
 
   void Trace(Visitor*) const override;
 
-  LocalFrameUkmAggregator::MetricId GetUkmMetricId() const override {
-    return LocalFrameUkmAggregator::kJavascriptIntersectionObserver;
-  }
-
   IntersectionObserver::DeliveryBehavior GetDeliveryBehavior() const override {
     return IntersectionObserver::kPostTaskToDeliver;
-  }
-
-  // The IntersectionObserver spec requires that at least one observation be
-  // recorded after observe() is called, even if the target is detached.
-  bool NeedsInitialObservationWithDetachedTarget() const override {
-    return true;
   }
 
   void Deliver(const HeapVector<Member<IntersectionObserverEntry>>&,

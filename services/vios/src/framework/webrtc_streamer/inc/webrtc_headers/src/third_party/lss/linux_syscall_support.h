@@ -1,5 +1,4 @@
-/* Copyright (c) 2005-2011, Google Inc.
- * All rights reserved.
+/* Copyright 2005-2011 Google LLC
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -11,7 +10,7 @@
  * copyright notice, this list of conditions and the following disclaimer
  * in the documentation and/or other materials provided with the
  * distribution.
- *     * Neither the name of Google Inc. nor the names of its
+ *     * Neither the name of Google LLC nor the names of its
  * contributors may be used to endorse or promote products derived from
  * this software without specific prior written permission.
  *
@@ -47,7 +46,7 @@
  *   the necessary definitions.
  *
  * SYS_ERRNO:
- *   All system calls will update "errno" unless overriden by setting the
+ *   All system calls will update "errno" unless overridden by setting the
  *   SYS_ERRNO macro prior to including this file. SYS_ERRNO should be
  *   an l-value.
  *
@@ -140,12 +139,14 @@ extern "C" {
  */
 #pragma push_macro("stat64")
 #pragma push_macro("fstat64")
+#pragma push_macro("fstatat64")
 #pragma push_macro("lstat64")
 #pragma push_macro("pread64")
 #pragma push_macro("pwrite64")
 #pragma push_macro("getdents64")
 #undef stat64
 #undef fstat64
+#undef fstatat64
 #undef lstat64
 #undef pread64
 #undef pwrite64
@@ -1824,7 +1825,7 @@ struct kernel_statx {
 #ifndef __NR_getcpu
 #define __NR_getcpu             302
 #endif
-/* End of powerpc defininitions                                              */
+/* End of powerpc definitions                                              */
 #elif defined(__s390__)
 #ifndef __NR_quotactl
 #define __NR_quotactl           131
@@ -3025,6 +3026,34 @@ struct kernel_statx {
       }
       LSS_RETURN(int, __res);
     }
+    LSS_INLINE void (*LSS_NAME(restore_rt)(void))(void) {
+      /* On aarch64, the kernel does not know how to return from
+       * a signal handler. Instead, it relies on user space to provide a
+       * restorer function that calls the rt_sigreturn() system call.
+       * Unfortunately, we cannot just reference the glibc version of this
+       * function, as glibc goes out of its way to make it inaccessible.
+       *
+       * This is simular to __kernel_rt_sigreturn().
+       */
+      long long res;
+      __asm__ __volatile__("b      2f\n"
+                        "1:\n"
+                          /* NOP required by some unwinder. For details.
+                           * see aarch64's vdso/sigreturn.S in the kernel.
+                           */
+                          "nop\n"
+                          /* Some system softwares recognize this instruction
+                           * sequence to unwind from * signal handlers. Do not
+                           * modify the next two instructions.
+                           */
+                          "mov     x8, %1\n"
+                          "svc     0x0\n"
+                        "2:\n"
+                          "adr     %0, 1b\n"
+                           : "=r" (res)
+                           : "i"  (__NR_rt_sigreturn));
+      return (void (*)(void))(uintptr_t)res;
+    }
   #elif defined(__mips__)
     #undef LSS_REG
     #define LSS_REG(r,a) register unsigned long __r##r __asm__("$"#r) =       \
@@ -3635,7 +3664,7 @@ struct kernel_statx {
       int64_t __res;
       {
         register int64_t __res_a0 __asm__("a0");
-        register uint64_t __flags __asm__("a0") = flags;
+        register uint64_t __flags __asm__("a0") = (uint64_t)flags;
         register void *__stack __asm__("a1") = child_stack;
         register void *__ptid  __asm__("a2") = parent_tidptr;
         register void *__tls   __asm__("a3") = newtls;
@@ -3950,11 +3979,11 @@ struct kernel_statx {
     #undef  LSS_BODY
     #define LSS_BODY(type,name,args...)                                       \
           register int64_t __res_a0 __asm__("a0");                            \
+          register int64_t __a7 __asm__("a7") = __NR_##name;                  \
           int64_t __res;                                                      \
-          __asm__ __volatile__ ("li.d $a7, %1\n"                              \
-                                "syscall 0x0\n"                               \
+          __asm__ __volatile__ ("syscall 0x0\n"                               \
                                 : "=r"(__res_a0)                              \
-                                : "i"(__NR_##name) , ## args                  \
+                                : "r"(__a7), ## args                          \
                                 : LSS_SYSCALL_CLOBBERS);                      \
           __res = __res_a0;                                                   \
           LSS_RETURN(type, __res)
@@ -4056,7 +4085,7 @@ struct kernel_statx {
                              : "r"(fn), "r"(__stack), "r"(__flags), "r"(arg),
                                "r"(__ptid), "r"(__tls), "r"(__ctid),
                                "i"(__NR_clone), "i"(__NR_exit)
-                             : LSS_SYSCALL_CLOBBERS);
+                             : "a7", LSS_SYSCALL_CLOBBERS);
       __res = __res_a0;
       }
       LSS_RETURN(int, __res);
@@ -4425,13 +4454,31 @@ struct kernel_statx {
         return LSS_NAME(rt_sigaction)(signum, act, oldact,
                                       (KERNEL_NSIG+7)/8);
     }
-
     LSS_INLINE int LSS_NAME(sigpending)(struct kernel_sigset_t *set) {
       return LSS_NAME(rt_sigpending)(set, (KERNEL_NSIG+7)/8);
     }
-
     LSS_INLINE int LSS_NAME(sigsuspend)(const struct kernel_sigset_t *set) {
       return LSS_NAME(rt_sigsuspend)(set, (KERNEL_NSIG+7)/8);
+    }
+  #endif
+  #if defined(__aarch64__)
+    LSS_INLINE int LSS_NAME(sigaction)(int signum,
+                                       const struct kernel_sigaction *act,
+                                       struct kernel_sigaction *oldact) {
+      /* On aarch64, the kernel requires us to always set our own
+       * SA_RESTORER in order to be able to return from a signal handler.
+       * This function must have a known "magic" instruction sequence
+       * that system softwares like a stack unwinder can recognize.
+       */
+      if (act != NULL && !(act->sa_flags & SA_RESTORER)) {
+        struct kernel_sigaction a = *act;
+        a.sa_flags   |= SA_RESTORER;
+        a.sa_restorer = LSS_NAME(restore_rt)();
+        return LSS_NAME(rt_sigaction)(signum, &a, oldact,
+                                      (KERNEL_NSIG+7)/8);
+      } else
+        return LSS_NAME(rt_sigaction)(signum, act, oldact,
+                                      (KERNEL_NSIG+7)/8);
     }
   #endif
   #if defined(__NR_rt_sigprocmask)
@@ -4638,7 +4685,7 @@ struct kernel_statx {
       LSS_REG(2, buf);
       LSS_BODY(void*, mmap2, "0"(__r2));
     }
-#else
+#elif defined(__NR_mmap2)
     #define __NR__mmap2 __NR_mmap2
     LSS_INLINE _syscall6(void*, _mmap2,            void*, s,
                          size_t,                   l, int,               p,
@@ -4746,21 +4793,7 @@ struct kernel_statx {
       return rc;
     }
   #endif
-  #if defined(__i386__) ||                                                    \
-      defined(__ARM_ARCH_3__) || defined(__ARM_EABI__) ||                     \
-     (defined(__mips__) && _MIPS_SIM == _MIPS_SIM_ABI32) ||                   \
-      defined(__PPC__) ||                                                     \
-     (defined(__s390__) && !defined(__s390x__))
-    /* On these architectures, implement mmap() with mmap2(). */
-    LSS_INLINE void* LSS_NAME(mmap)(void *s, size_t l, int p, int f, int d,
-                                    int64_t o) {
-      if (o % 4096) {
-        LSS_ERRNO = EINVAL;
-        return (void *) -1;
-      }
-      return LSS_NAME(_mmap2)(s, l, p, f, d, (o / 4096));
-    }
-  #elif defined(__s390x__)
+  #if defined(__s390x__)
     /* On s390x, mmap() arguments are passed in memory. */
     LSS_INLINE void* LSS_NAME(mmap)(void *s, size_t l, int p, int f, int d,
                                     int64_t o) {
@@ -4777,6 +4810,16 @@ struct kernel_statx {
       LSS_BODY(6, void*, mmap, LSS_SYSCALL_ARG(s), LSS_SYSCALL_ARG(l),
                                LSS_SYSCALL_ARG(p), LSS_SYSCALL_ARG(f),
                                LSS_SYSCALL_ARG(d), (uint64_t)(o));
+    }
+  #elif defined(__NR_mmap2)
+    /* On these architectures, implement mmap() with mmap2(). */
+    LSS_INLINE void* LSS_NAME(mmap)(void *s, size_t l, int p, int f, int d,
+                                    int64_t o) {
+      if (o % 4096) {
+        LSS_ERRNO = EINVAL;
+        return (void *) -1;
+      }
+      return LSS_NAME(_mmap2)(s, l, p, f, d, (o / 4096));
     }
   #else
     /* Remaining 64-bit architectures. */
@@ -5321,6 +5364,7 @@ struct kernel_statx {
  * corresponding #pragma push_macro near the top of this file. */
 #pragma pop_macro("stat64")
 #pragma pop_macro("fstat64")
+#pragma pop_macro("fstatat64")
 #pragma pop_macro("lstat64")
 #pragma pop_macro("pread64")
 #pragma pop_macro("pwrite64")

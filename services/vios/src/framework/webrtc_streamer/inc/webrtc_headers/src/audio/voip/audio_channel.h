@@ -11,31 +11,42 @@
 #ifndef AUDIO_VOIP_AUDIO_CHANNEL_H_
 #define AUDIO_VOIP_AUDIO_CHANNEL_H_
 
+#include <cstdint>
 #include <map>
 #include <memory>
-#include <queue>
+#include <optional>
+#include <span>
 #include <utility>
 
-#include "api/task_queue/task_queue_factory.h"
+#include "api/audio/audio_mixer.h"
+#include "api/audio_codecs/audio_decoder_factory.h"
+#include "api/audio_codecs/audio_encoder.h"
+#include "api/audio_codecs/audio_format.h"
+#include "api/environment/environment.h"
+#include "api/ref_count.h"
+#include "api/scoped_refptr.h"
 #include "api/voip/voip_base.h"
 #include "api/voip/voip_statistics.h"
 #include "audio/voip/audio_egress.h"
 #include "audio/voip/audio_ingress.h"
+#include "call/audio_sender.h"
+#include "modules/rtp_rtcp/include/receive_statistics.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_rtcp_impl2.h"
-#include "rtc_base/ref_count.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
 // AudioChannel represents a single media session and provides APIs over
 // AudioIngress and AudioEgress. Note that a single RTP stack is shared with
 // these two classes as it has both sending and receiving capabilities.
-class AudioChannel : public rtc::RefCountInterface {
+class AudioChannel : public RefCountInterface {
  public:
-  AudioChannel(Transport* transport,
+  AudioChannel(const Environment& env,
+               Transport* transport,
                uint32_t local_ssrc,
-               TaskQueueFactory* task_queue_factory,
                AudioMixer* audio_mixer,
-               rtc::scoped_refptr<AudioDecoderFactory> decoder_factory);
+               scoped_refptr<AudioDecoderFactory> decoder_factory);
   ~AudioChannel() override;
 
   // Set and get ChannelId that this audio channel belongs for debugging and
@@ -59,7 +70,7 @@ class AudioChannel : public rtc::RefCountInterface {
                   std::unique_ptr<AudioEncoder> encoder) {
     egress_->SetEncoder(payload_type, encoder_format, std::move(encoder));
   }
-  absl::optional<SdpAudioFormat> GetEncoderFormat() const {
+  std::optional<SdpAudioFormat> GetEncoderFormat() const {
     return egress_->GetEncoderFormat();
   }
   void RegisterTelephoneEventType(int rtp_payload_type, int sample_rate_hz) {
@@ -72,10 +83,10 @@ class AudioChannel : public rtc::RefCountInterface {
 
   // APIs relayed to AudioIngress.
   bool IsPlaying() const { return ingress_->IsPlaying(); }
-  void ReceivedRTPPacket(rtc::ArrayView<const uint8_t> rtp_packet) {
+  void ReceivedRTPPacket(std::span<const uint8_t> rtp_packet) {
     ingress_->ReceivedRTPPacket(rtp_packet);
   }
-  void ReceivedRTCPPacket(rtc::ArrayView<const uint8_t> rtcp_packet) {
+  void ReceivedRTCPPacket(std::span<const uint8_t> rtcp_packet) {
     ingress_->ReceivedRTCPPacket(rtcp_packet);
   }
   void SetReceiveCodecs(const std::map<int, SdpAudioFormat>& codecs) {

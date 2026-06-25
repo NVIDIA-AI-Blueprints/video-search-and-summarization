@@ -5,7 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_RTC_VOID_REQUEST_PROMISE_IMPL_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_RTC_VOID_REQUEST_PROMISE_IMPL_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_session_description_enums.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_void_request.h"
@@ -13,7 +15,6 @@
 
 namespace blink {
 
-class ScriptPromiseResolver;
 class RTCPeerConnection;
 
 // TODO(https://crbug.com/908468): Split up the operation-specific codepaths
@@ -22,9 +23,7 @@ class RTCPeerConnection;
 class RTCVoidRequestPromiseImpl final : public RTCVoidRequest {
  public:
   RTCVoidRequestPromiseImpl(RTCPeerConnection*,
-                            ScriptPromiseResolver*,
-                            const char* interface_name,
-                            const char* property_name);
+                            ScriptPromiseResolver<IDLUndefined>*);
   ~RTCVoidRequestPromiseImpl() override;
 
   // RTCVoidRequest
@@ -37,9 +36,7 @@ class RTCVoidRequestPromiseImpl final : public RTCVoidRequest {
   void Clear();
 
   Member<RTCPeerConnection> requester_;
-  Member<ScriptPromiseResolver> resolver_;
-  const char* interface_name_;
-  const char* property_name_;
+  Member<ScriptPromiseResolver<IDLUndefined>> resolver_;
 };
 
 }  // namespace blink

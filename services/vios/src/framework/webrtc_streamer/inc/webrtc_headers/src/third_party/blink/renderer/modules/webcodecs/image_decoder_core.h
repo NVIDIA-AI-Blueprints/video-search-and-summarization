@@ -17,14 +17,14 @@ namespace blink {
 class SegmentReader;
 
 // A wrapper around a blink::ImageDecoder which is designed to be called on a
-// specific sequence via WTF::SequenceBound.
+// specific sequence via SequenceBound.
 class MODULES_EXPORT ImageDecoderCore {
  public:
   // See ImageDecoder::CreateByMimeType() for parameter definitions.
   ImageDecoderCore(String mime_type,
                    scoped_refptr<SegmentReader> data,
                    bool data_complete,
-                   const ColorBehavior& color_behavior,
+                   ColorBehavior color_behavior,
                    const SkISize& desired_size,
                    ImageDecoder::AnimationOption animation_option);
   ~ImageDecoderCore();
@@ -88,9 +88,7 @@ class MODULES_EXPORT ImageDecoderCore {
 
   // Calls ImageDecoder::SetData() after appending |data| to |stream_buffer_|.
   // May not be called after |data_complete| becomes true.
-  void AppendData(size_t data_size,
-                  std::unique_ptr<uint8_t[]> data,
-                  bool data_complete);
+  void AppendData(Vector<uint8_t> data, bool data_complete);
 
   // Releases |decoder_|. Decode() and DecodeMetadata() may not be called until
   // Reinitialize() has been called.

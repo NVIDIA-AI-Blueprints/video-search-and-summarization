@@ -27,6 +27,9 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/css/resolver/match_result.h"
+#include "third_party/blink/renderer/core/css/resolver/style_adjuster.h"
+#include "third_party/blink/renderer/core/element_type_enum.h"
+#include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/forward.h"
@@ -42,27 +45,75 @@ class StyleResolverState;
 class CORE_EXPORT CachedMatchedProperties final
     : public GarbageCollected<CachedMatchedProperties> {
  public:
-  // Caches data of MatchedProperties. See |MatchedPropertiesCache::Cache| for
-  // semantics.
+  // Caches the result of applying a set of MatchedProperties in order
+  // See |MatchedPropertiesCache::Cache| for semantics.
   // We use UntracedMember<> here because WeakMember<> would require using a
   // HeapHashSet which is slower to iterate.
-  Vector<UntracedMember<CSSPropertyValueSet>> matched_properties;
-  Vector<MatchedProperties::Data> matched_properties_types;
+  struct Key {
+    UntracedMember<CSSPropertyValueSet> properties;
+    UntracedMember<const MixinParameterBindings> mixin_parameter_bindings;
+    MatchedProperties::Data data;
+  };
+  Vector<Key> matched_properties;
 
-  scoped_refptr<const ComputedStyle> computed_style;
-  scoped_refptr<const ComputedStyle> parent_computed_style;
+  struct Entry {
+    DISALLOW_NEW();
 
-  void Set(scoped_refptr<const ComputedStyle>&& style,
-           scoped_refptr<const ComputedStyle>&& parent_style,
-           const MatchedPropertiesVector&);
+   public:
+    Entry(const ComputedStyle* computed_style_arg,
+          const ComputedStyle* parent_computed_style_arg,
+          const ComputedStyle* layout_parent_style_arg,
+          const ComputedStyle* originating_element_computed_style_arg,
+          StyleAdjuster::ElementTypeForCache element_type_arg,
+          unsigned last_used_arg)
+        : computed_style(computed_style_arg),
+          parent_computed_style(parent_computed_style_arg),
+          layout_parent_style(layout_parent_style_arg),
+          originating_element_computed_style(
+              originating_element_computed_style_arg),
+          element_type(element_type_arg),
+          last_used(last_used_arg) {}
+
+    // Note that we don't cache the original ComputedStyle instance. It may be
+    // further modified. The ComputedStyle in the cache is really just a holder
+    // for the substructures and never used as-is.
+    Member<const ComputedStyle> computed_style;
+    Member<const ComputedStyle> parent_computed_style;
+    Member<const ComputedStyle> layout_parent_style;
+    // nullptr except for highlight pseudos.
+    Member<const ComputedStyle> originating_element_computed_style;
+    StyleAdjuster::ElementTypeForCache element_type;
+    unsigned last_used;
+
+    bool HasRunStyleAdjuster() const {
+      return element_type.CacheEntryIsStyleAdjusted();
+    }
+
+    void Trace(Visitor* visitor) const {
+      visitor->Trace(computed_style);
+      visitor->Trace(parent_computed_style);
+      visitor->Trace(layout_parent_style);
+      visitor->Trace(originating_element_computed_style);
+    }
+  };
+
+  HeapVector<Entry, 4> entries;
+
+  CachedMatchedProperties(
+      const ComputedStyle* style,
+      const ComputedStyle* parent_style,
+      const ComputedStyle* layout_parent_style,
+      const ComputedStyle* originating_element_computed_style,
+      const MatchedPropertiesVector&,
+      StyleAdjuster::ElementTypeForCache element_type,
+      unsigned clock);
+
   void Clear();
 
-  bool DependenciesEqual(const StyleResolverState&);
+  void Trace(Visitor* visitor) const { visitor->Trace(entries); }
 
-  void Trace(Visitor*) const {}
-
-  bool operator==(const MatchedPropertiesVector& properties);
-  bool operator!=(const MatchedPropertiesVector& properties);
+  bool CorrespondsTo(const MatchedPropertiesVector& lookup_properties) const;
+  void RefreshKey(const MatchedPropertiesVector& lookup_properties);
 };
 
 class CORE_EXPORT MatchedPropertiesCache {
@@ -78,17 +129,18 @@ class CORE_EXPORT MatchedPropertiesCache {
     STACK_ALLOCATED();
 
    public:
-    explicit Key(const MatchResult&);
+    struct AdditionalHash {
+      unsigned hash;
+    };
+    Key(const MatchResult&, AdditionalHash additional_hash);
 
-    bool IsValid() const {
-      // If hash_ happens to compute to the empty value or the deleted value,
-      // the corresponding MatchResult can't be cached.
-      return !WTF::IsHashTraitsEmptyOrDeletedValue<HashTraits<unsigned>>(hash_);
-    }
+    bool IsCacheable() const { return result_.IsCacheable(); }
 
    private:
     friend class MatchedPropertiesCache;
     friend class MatchedPropertiesCacheTestKey;
+    friend std::ostream& operator<<(std::ostream&,
+                                    MatchedPropertiesCache::Key&);
 
     Key(const MatchResult&, unsigned hash);
 
@@ -96,15 +148,22 @@ class CORE_EXPORT MatchedPropertiesCache {
     unsigned hash_;
   };
 
-  const CachedMatchedProperties* Find(const Key&, const StyleResolverState&);
+  const CachedMatchedProperties::Entry* Find(
+      const Key& key,
+      StyleAdjuster::ElementTypeForCache element_type,
+      PseudoId style_type,
+      const StyleResolverState& state);
   void Add(const Key&,
-           scoped_refptr<const ComputedStyle>&&,
-           scoped_refptr<const ComputedStyle>&& parent_style);
+           StyleAdjuster::ElementTypeForCache element_type,
+           const ComputedStyle*,
+           const ComputedStyle* parent_style,
+           const ComputedStyle* layout_parent_style,
+           const ComputedStyle* originating_element_style);
 
   void Clear();
   void ClearViewportDependent();
 
-  static bool IsCacheable(const StyleResolverState&);
+  static bool IsCacheable(const StyleResolverState& state);
   static bool IsStyleCacheable(const ComputedStyleBuilder&);
 
   void Trace(Visitor*) const;
@@ -112,13 +171,44 @@ class CORE_EXPORT MatchedPropertiesCache {
  private:
   // The cache is mapping a hash to a cached entry where the entry is kept as
   // long as *all* properties referred to by the entry are alive. This requires
-  // custom weakness which is managed through
-  // |RemoveCachedMatchedPropertiesWithDeadEntries|.
-  using Cache = HeapHashMap<unsigned, Member<CachedMatchedProperties>>;
+  // custom weakness which is managed through |CleanMatchedPropertiesCache|.
+  //
+  // Note that this cache is keyed somewhat funny; the actual key is stored
+  // in the value (the first entries of CachedMatchedProperties), while the
+  // HashMap key is the hash of these values. This is because it turned out
+  // to be hard to make this performant in any other way; HashMap does not deal
+  // well with complex keys. Of course, it means we are vulnerable to hash
+  // collisions, in that we cannot store more than one different cache entry
+  // with the same hash.
+  using Cache = HeapHashMap<unsigned,
+                            Member<CachedMatchedProperties>,
+                            AlreadyHashedTraits>;
 
-  void RemoveCachedMatchedPropertiesWithDeadEntries(const LivenessBroker&);
+  void CleanMatchedPropertiesCache(const LivenessBroker&);
+
+  // Erase all MPC entries where the given predicate returns true,
+  // and updates the counter. Removes all keys that have no entries left.
+  template <class Predicate>
+  void EraseEntriesIf(Predicate&& pred);
 
   Cache cache_;
+  unsigned cache_entries_ = 0;
+
+  // Virtual clock for LRU purposes (last_used in each CachedMatchedProperties).
+  // If this wraps (more than four billion lookups or inserts), we will evict
+  // the wrong entries, but this only matters for performance, not correctness.
+  unsigned clock_ = 0;
+};
+
+// For debugging only.
+std::ostream& operator<<(std::ostream&, MatchedPropertiesCache::Key&);
+
+template <>
+struct VectorTraits<CachedMatchedProperties::Entry>
+    : VectorTraitsBase<CachedMatchedProperties::Entry> {
+  static constexpr bool kCanClearUnusedSlotsWithMemset = true;
+  // HeapVector is evidently not concurrent.
+  static constexpr bool kCanTraceConcurrently = false;
 };
 
 }  // namespace blink

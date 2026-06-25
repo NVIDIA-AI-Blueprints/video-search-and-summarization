@@ -120,12 +120,28 @@ inline const char* ProtoSchemaToString(ProtoSchemaType v) {
 // Maximum message size supported: 256 MiB (4 x 7-bit due to varint encoding).
 constexpr size_t kMessageLengthFieldSize = 4;
 constexpr size_t kMaxMessageLength = (1u << (kMessageLengthFieldSize * 7)) - 1;
+constexpr size_t kMaxOneByteMessageLength = (1 << 7) - 1;
 
 // Field tag is encoded as 32-bit varint (5 bytes at most).
 // Largest value of simple (not length-delimited) field is 64-bit varint
 // (10 bytes at most). 15 bytes buffer is enough to store a simple field.
 constexpr size_t kMaxTagEncodedSize = 5;
 constexpr size_t kMaxSimpleFieldEncodedSize = kMaxTagEncodedSize + 10;
+
+constexpr uint8_t kFieldTypeNumBits = 3;
+
+constexpr uint64_t GetTagFieldId(uint64_t tag) {
+  // Since, the least 3 significant bits determine the field type. Skip them and
+  // return the id.
+  return (tag >> kFieldTypeNumBits);
+}
+
+constexpr uint64_t GetTagFieldType(uint64_t tag) {
+  // The least 3 significant bits determine the field type.
+  constexpr uint64_t kFieldTypeMask =
+      (1 << kFieldTypeNumBits) - 1;  // 0000 0111;
+  return (tag & kFieldTypeMask);
+}
 
 // Proto types: (int|uint|sint)(32|64), bool, enum.
 constexpr uint32_t MakeTagVarInt(uint32_t field_id) {

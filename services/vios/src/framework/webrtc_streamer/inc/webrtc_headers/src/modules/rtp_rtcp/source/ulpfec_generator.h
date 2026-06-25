@@ -16,14 +16,20 @@
 
 #include <list>
 #include <memory>
+#include <optional>
 #include <vector>
 
+#include "api/environment/environment.h"
+#include "api/units/data_rate.h"
 #include "modules/include/module_fec_types.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/forward_error_correction.h"
+#include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
 #include "modules/rtp_rtcp/source/video_fec_generator.h"
+#include "rtc_base/bitrate_tracker.h"
 #include "rtc_base/race_checker.h"
-#include "rtc_base/rate_statistics.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -33,13 +39,15 @@ class UlpfecGenerator : public VideoFecGenerator {
   friend class FlexfecSender;
 
  public:
-  UlpfecGenerator(int red_payload_type, int ulpfec_payload_type, Clock* clock);
-  ~UlpfecGenerator();
+  UlpfecGenerator(const Environment& env,
+                  int red_payload_type,
+                  int ulpfec_payload_type);
+  ~UlpfecGenerator() override;
 
   FecType GetFecType() const override {
     return VideoFecGenerator::FecType::kUlpFec;
   }
-  absl::optional<uint32_t> FecSsrc() override { return absl::nullopt; }
+  std::optional<uint32_t> FecSsrc() override { return std::nullopt; }
 
   void SetProtectionParameters(const FecProtectionParams& delta_params,
                                const FecProtectionParams& key_params) override;
@@ -57,7 +65,7 @@ class UlpfecGenerator : public VideoFecGenerator {
   // Current rate of FEC packets generated, including all RTP-level headers.
   DataRate CurrentFecRate() const override;
 
-  absl::optional<RtpState> GetRtpState() override { return absl::nullopt; }
+  std::optional<RtpState> GetRtpState() override { return std::nullopt; }
 
   // Currently used protection params.
   const FecProtectionParams& CurrentParams() const;
@@ -72,7 +80,8 @@ class UlpfecGenerator : public VideoFecGenerator {
     FecProtectionParams keyframe_params;
   };
 
-  UlpfecGenerator(std::unique_ptr<ForwardErrorCorrection> fec, Clock* clock);
+  UlpfecGenerator(const Environment& env,
+                  std::unique_ptr<ForwardErrorCorrection> fec);
 
   // Overhead is defined as relative to the number of media packets, and not
   // relative to total number of packets. This definition is inherited from the
@@ -95,16 +104,16 @@ class UlpfecGenerator : public VideoFecGenerator {
 
   void ResetState();
 
+  const Environment env_;
   const int red_payload_type_;
   const int ulpfec_payload_type_;
-  Clock* const clock_;
 
-  rtc::RaceChecker race_checker_;
+  RaceChecker race_checker_;
   const std::unique_ptr<ForwardErrorCorrection> fec_
       RTC_GUARDED_BY(race_checker_);
   ForwardErrorCorrection::PacketList media_packets_
       RTC_GUARDED_BY(race_checker_);
-  absl::optional<RtpPacketToSend> last_media_packet_
+  std::optional<RtpPacketToSend> last_media_packet_
       RTC_GUARDED_BY(race_checker_);
   std::list<ForwardErrorCorrection::Packet*> generated_fec_packets_
       RTC_GUARDED_BY(race_checker_);
@@ -114,8 +123,8 @@ class UlpfecGenerator : public VideoFecGenerator {
   bool media_contains_keyframe_ RTC_GUARDED_BY(race_checker_);
 
   mutable Mutex mutex_;
-  absl::optional<Params> pending_params_ RTC_GUARDED_BY(mutex_);
-  RateStatistics fec_bitrate_ RTC_GUARDED_BY(mutex_);
+  std::optional<Params> pending_params_ RTC_GUARDED_BY(mutex_);
+  BitrateTracker fec_bitrate_ RTC_GUARDED_BY(mutex_);
 };
 
 }  // namespace webrtc

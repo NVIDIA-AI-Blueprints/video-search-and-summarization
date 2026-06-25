@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -49,6 +50,8 @@ class CORE_EXPORT CSSStyleDeclaration : public ScriptWrappable,
 
   void Trace(Visitor* visitor) const override;
 
+  virtual bool IsAbstractPropertySet() const { return false; }
+
   virtual CSSRule* parentRule() const = 0;
   String cssFloat() { return GetPropertyValueInternal(CSSPropertyID::kFloat); }
   void setCSSFloat(const ExecutionContext* execution_context,
@@ -71,6 +74,10 @@ class CORE_EXPORT CSSStyleDeclaration : public ScriptWrappable,
                            ExceptionState&) = 0;
   virtual String removeProperty(const String& property_name,
                                 ExceptionState&) = 0;
+  // Like removeProperty, but does not cause any invalidation.
+  // Used by Inspector to modify a temporarily inserted "ghost rule"
+  // (see InspectorGhostRules).
+  virtual void QuietlyRemoveProperty(const String& property_name) = 0;
 
   // CSSPropertyID versions of the CSSOM functions to support bindings and
   // editing.

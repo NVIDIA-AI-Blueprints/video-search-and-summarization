@@ -56,6 +56,8 @@ public:
 
     virtual void TestDebug();
 
+    virtual void TestClearMonth();
+
 public: // package
     /**
      * test subroutine used by TestDisambiguation765
@@ -327,6 +329,41 @@ public: // package
     void TestCalendarRollOrdinalMonth();
     void TestLimitsOrdinalMonth();
     void TestActualLimitsOrdinalMonth();
+    void TestMaxActualLimitsWithoutGet23006();
+    void TestDangiOverflowIsLeapMonthBetween22507();
+
+    void TestFWWithISO8601();
+    void TestAddOverflow();
+    void TestRollWeekOfYear();
+    void Test22633ChineseOverflow();
+    void Test22962ChineseOverflow();
+    void Test22962BuddhistOverflow();
+    void Test22633IndianOverflow();
+    void Test22633IslamicUmalquraOverflow();
+    void Test22633PersianOverflow();
+    void Test22633HebrewOverflow();
+    void Test22633AMPMOverflow();
+    void Test22633SetGetTimeOverflow();
+    void Test22633Set2FieldsGetTimeOverflow();
+    void Test22633SetAddGetTimeOverflow();
+    void Test22633SetRollGetTimeOverflow();
+    void Test22633AddTwiceGetTimeOverflow();
+    void Test22633RollTwiceGetTimeOverflow();
+    void Test22730JapaneseOverflow();
+    void Test22730CopticOverflow();
+    void Test22962ComputeJulianDayOverflow();
+    void Test22962MonthAddOneOverflow();
+
+    void Test22750Roll();
+
+    void RunTestOnCalendars(void(TestFunc)(Calendar*, UCalendarDateFields));
+
+    void verifyFirstDayOfWeek(const char* locale, UCalendarDaysOfWeek expected);
+    void TestFirstDayOfWeek();
+
+    void TestChineseCalendarComputeMonthStart();
+    void Test22633HebrewLargeNegativeDay();
+    void Test23069HebrewHanukkah();
 
     void RunChineseCalendarInTemporalLeapYearTest(Calendar* cal);
     void RunIslamicCalendarInTemporalLeapYearTest(Calendar* cal);

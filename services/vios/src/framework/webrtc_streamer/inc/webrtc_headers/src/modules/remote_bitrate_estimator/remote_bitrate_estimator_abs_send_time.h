@@ -17,29 +17,29 @@
 #include <list>
 #include <map>
 #include <memory>
-#include <vector>
 
-#include "api/rtp_headers.h"
-#include "api/transport/field_trial_based_config.h"
+#include "absl/base/nullability.h"
+#include "api/environment/environment.h"
 #include "api/units/data_rate.h"
 #include "api/units/data_size.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "modules/remote_bitrate_estimator/aimd_rate_control.h"
+#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
 #include "modules/remote_bitrate_estimator/inter_arrival.h"
 #include "modules/remote_bitrate_estimator/overuse_detector.h"
 #include "modules/remote_bitrate_estimator/overuse_estimator.h"
-#include "rtc_base/checks.h"
-#include "rtc_base/rate_statistics.h"
-#include "system_wrappers/include/clock.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/bitrate_tracker.h"
 
 namespace webrtc {
 
 class RemoteBitrateEstimatorAbsSendTime : public RemoteBitrateEstimator {
  public:
-  RemoteBitrateEstimatorAbsSendTime(RemoteBitrateObserver* observer,
-                                    Clock* clock);
+  RemoteBitrateEstimatorAbsSendTime(const Environment& env,
+                                    RemoteBitrateObserver* absl_nonnull
+                                        observer);
 
   RemoteBitrateEstimatorAbsSendTime() = delete;
   RemoteBitrateEstimatorAbsSendTime(const RemoteBitrateEstimatorAbsSendTime&) =
@@ -49,9 +49,7 @@ class RemoteBitrateEstimatorAbsSendTime : public RemoteBitrateEstimator {
 
   ~RemoteBitrateEstimatorAbsSendTime() override;
 
-  void IncomingPacket(int64_t arrival_time_ms,
-                      size_t payload_size,
-                      const RTPHeader& header) override;
+  void IncomingPacket(const RtpPacketReceived& rtp_packet) override;
   TimeDelta Process() override;
   void OnRttUpdate(int64_t avg_rtt_ms, int64_t max_rtt_ms) override;
   void RemoveStream(uint32_t ssrc) override;
@@ -89,11 +87,6 @@ class RemoteBitrateEstimatorAbsSendTime : public RemoteBitrateEstimator {
   static void MaybeAddCluster(const Cluster& cluster_aggregate,
                               std::list<Cluster>& clusters);
 
-  void IncomingPacketInfo(Timestamp arrival_time,
-                          uint32_t send_time_24bits,
-                          DataSize payload_size,
-                          uint32_t ssrc);
-
   std::list<Cluster> ComputeClusters() const;
 
   const Cluster* FindBestProbe(const std::list<Cluster>& clusters) const;
@@ -105,13 +98,12 @@ class RemoteBitrateEstimatorAbsSendTime : public RemoteBitrateEstimator {
 
   void TimeoutStreams(Timestamp now);
 
-  Clock* const clock_;
-  const FieldTrialBasedConfig field_trials_;
-  RemoteBitrateObserver* const observer_;
+  const Environment env_;
+  RemoteBitrateObserver* absl_nonnull const observer_;
   std::unique_ptr<InterArrival> inter_arrival_;
   std::unique_ptr<OveruseEstimator> estimator_;
   OveruseDetector detector_;
-  RateStatistics incoming_bitrate_{kBitrateWindowMs, 8000};
+  BitrateTracker incoming_bitrate_{kBitrateWindow};
   bool incoming_bitrate_initialized_ = false;
   std::list<Probe> probes_;
   size_t total_probes_received_ = 0;

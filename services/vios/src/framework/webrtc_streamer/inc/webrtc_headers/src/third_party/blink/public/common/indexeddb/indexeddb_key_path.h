@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "third_party/blink/public/common/common_export.h"
-#include "third_party/blink/public/common/indexeddb/web_idb_types.h"
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-shared.h"
 
 namespace blink {
@@ -17,8 +16,8 @@ namespace blink {
 class BLINK_COMMON_EXPORT IndexedDBKeyPath {
  public:
   IndexedDBKeyPath();  // Defaults to blink::WebIDBKeyPathTypeNull.
-  explicit IndexedDBKeyPath(const std::u16string&);
-  explicit IndexedDBKeyPath(const std::vector<std::u16string>&);
+  explicit IndexedDBKeyPath(std::u16string);
+  explicit IndexedDBKeyPath(std::vector<std::u16string>);
   IndexedDBKeyPath(const IndexedDBKeyPath& other);
   IndexedDBKeyPath(IndexedDBKeyPath&& other);
   ~IndexedDBKeyPath();

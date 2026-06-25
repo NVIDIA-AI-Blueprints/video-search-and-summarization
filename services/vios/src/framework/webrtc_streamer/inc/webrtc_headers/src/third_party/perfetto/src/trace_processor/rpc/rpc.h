@@ -17,25 +17,28 @@
 #ifndef SRC_TRACE_PROCESSOR_RPC_RPC_H_
 #define SRC_TRACE_PROCESSOR_RPC_RPC_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include "perfetto/base/status.h"
+#include "perfetto/ext/base/flat_hash_map.h"
+#include "perfetto/ext/protozero/proto_ring_buffer.h"
+#include "perfetto/protozero/field.h"
 #include "perfetto/trace_processor/basic_types.h"
-#include "perfetto/trace_processor/status.h"
-#include "src/protozero/proto_ring_buffer.h"
+#include "perfetto/trace_processor/summarizer.h"
+#include "protos/perfetto/trace_processor/trace_processor.pbzero.h"
 
 namespace perfetto {
 
-namespace protos {
-namespace pbzero {
+namespace protos::pbzero {
 class ComputeMetricResult;
 class DisableAndReadMetatraceResult;
-}  // namespace pbzero
-}  // namespace protos
+}  // namespace protos::pbzero
 
 namespace trace_processor {
 
@@ -61,7 +64,10 @@ class Rpc {
   // The unique_ptr argument is optional. If non-null it will adopt the passed
   // instance and allow to directly query that. If null, a new instanace will be
   // created internally by calling Parse().
-  explicit Rpc(std::unique_ptr<TraceProcessor>);
+  explicit Rpc(std::unique_ptr<TraceProcessor>,
+               bool has_preloaded_eof,
+               Config default_config,
+               std::function<void(TraceProcessor*)> on_trace_processor_created);
   Rpc();
   ~Rpc();
 
@@ -83,8 +89,11 @@ class Rpc {
   // with Wasm, where size_t = uint32_t.
   // (nullptr, 0) has the semantic of "close the channel" and is issued when an
   // unrecoverable wire-protocol framing error is detected.
-  using RpcResponseFunction = void (*)(const void* /*data*/, uint32_t /*len*/);
-  void SetRpcResponseFunction(RpcResponseFunction f) { rpc_response_fn_ = f; }
+  using RpcResponseFunction =
+      std::function<void(const void* /*data*/, uint32_t /*len*/)>;
+  void SetRpcResponseFunction(RpcResponseFunction f) {
+    rpc_response_fn_ = std::move(f);
+  }
 
   // 2. TraceProcessor legacy RPC endpoints.
   // The methods below are exposed for the old RPC interfaces, where each RPC
@@ -100,12 +109,12 @@ class Rpc {
   // The methods of this class are mirrors (modulo {un,}marshalling of args) of
   // the corresponding names in trace_processor.h . See that header for docs.
 
-  util::Status Parse(const uint8_t* data, size_t len);
-  void NotifyEndOfFile();
-  void ResetTraceProcessor(const uint8_t* args, size_t len);
+  base::Status Parse(const uint8_t*, size_t);
+  base::Status NotifyEndOfFile();
   std::string GetCurrentTraceName();
-  std::vector<uint8_t> ComputeMetric(const uint8_t* data, size_t len);
-  void EnableMetatrace(const uint8_t* data, size_t len);  // EnableMetatraceArgs
+  std::vector<uint8_t> ComputeMetric(const uint8_t*, size_t);
+  std::vector<uint8_t> ComputeTraceSummary(const uint8_t*, size_t);
+  void EnableMetatrace(const uint8_t*, size_t);
   std::vector<uint8_t> DisableAndReadMetatrace();
   std::vector<uint8_t> GetStatus();
 
@@ -122,27 +131,32 @@ class Rpc {
   //   ...
   //   callback(..., has_more=false)
   //   (Query() returns at this point).
-  // TODO(primiano): long-term this API should change and be turned into a
-  // bidirectional streaming api (see go/imperative-metrics). The problem with
-  // the current design is that it holds the callstack until the query is done
-  // and makes nested query hard as they cause re-entrancy. It's okay for now
-  // but will change soon.
   using QueryResultBatchCallback = std::function<
       void(const uint8_t* /*buf*/, size_t /*len*/, bool /*has_more*/)>;
-  void Query(const uint8_t* args, size_t len, QueryResultBatchCallback);
+  void Query(const uint8_t*, size_t, const QueryResultBatchCallback&);
+
+  TraceProcessor* trace_processor() const { return trace_processor_.get(); }
 
  private:
-  void ParseRpcRequest(const uint8_t* data, size_t len);
-  void ResetTraceProcessorInternal(const Config& config);
+  void ParseRpcRequest(const uint8_t*, size_t);
+  void ResetTraceProcessor(const uint8_t*, size_t);
+  base::Status RegisterSqlPackage(protozero::ConstBytes);
+  void ResetTraceProcessorInternal(const Config&);
   void MaybePrintProgress();
-  Iterator QueryInternal(const uint8_t* args, size_t len);
-  void ComputeMetricInternal(const uint8_t* args,
-                             size_t len,
+  Iterator QueryInternal(const uint8_t*, size_t);
+  void ComputeMetricInternal(const uint8_t*,
+                             size_t,
                              protos::pbzero::ComputeMetricResult*);
+  void ComputeTraceSummaryInternal(const uint8_t*,
+                                   size_t,
+                                   protos::pbzero::TraceSummaryResult*);
   void DisableAndReadMetatraceInternal(
       protos::pbzero::DisableAndReadMetatraceResult*);
 
-  Config trace_processor_config_;
+  Config default_config_;
+  std::function<void(TraceProcessor*)> on_trace_processor_created_;
+
+  Config current_config_;
   std::unique_ptr<TraceProcessor> trace_processor_;
   RpcResponseFunction rpc_response_fn_;
   protozero::ProtoRingBuffer rxbuf_;
@@ -152,6 +166,9 @@ class Rpc {
   int64_t t_parse_started_ = 0;
   size_t bytes_last_progress_ = 0;
   size_t bytes_parsed_ = 0;
+
+  // Manages Summarizer instances keyed by caller-provided ID.
+  base::FlatHashMap<std::string, std::unique_ptr<Summarizer>> summarizers_;
 };
 
 }  // namespace trace_processor

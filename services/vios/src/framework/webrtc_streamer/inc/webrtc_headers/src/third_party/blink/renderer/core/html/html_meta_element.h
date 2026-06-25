@@ -23,8 +23,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_HTML_META_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_HTML_META_ELEMENT_H_
 
+#include <optional>
+
 #include "services/network/public/cpp/client_hints.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/page/viewport_description.h"
@@ -60,9 +61,13 @@ class CORE_EXPORT HTMLMetaElement final : public HTMLElement {
 
   explicit HTMLMetaElement(Document&, const CreateElementFlags);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLMetaElement;
+  }
+
   // Encoding computed from processing the http-equiv, charset and content
   // attributes.
-  WTF::TextEncoding ComputeEncoding() const;
+  TextEncoding ComputeEncoding() const;
 
   const AtomicString& Content() const;
   const AtomicString& HttpEquiv() const;
@@ -74,8 +79,8 @@ class CORE_EXPORT HTMLMetaElement final : public HTMLElement {
  private:
   static void ProcessViewportKeyValuePair(Document*,
                                           bool report_warnings,
-                                          const String& key,
-                                          const String& value,
+                                          const StringView& key,
+                                          const StringView& value,
                                           bool viewport_meta_zero_values_quirk,
                                           ViewportDescription&);
   static void ParseViewportContentAttribute(
@@ -91,42 +96,43 @@ class CORE_EXPORT HTMLMetaElement final : public HTMLElement {
 
   static float ParsePositiveNumber(Document*,
                                    bool report_warnings,
-                                   const String& key,
-                                   const String& value,
+                                   const StringView& key,
+                                   const StringView& value,
                                    bool* ok = nullptr);
 
-  static Length ParseViewportValueAsLength(Document*,
-                                           bool report_warnings,
-                                           const String& key,
-                                           const String& value);
+  static ViewportLength ParseViewportValueAsLength(Document*,
+                                                   bool report_warnings,
+                                                   const StringView& key,
+                                                   const StringView& value);
   static float ParseViewportValueAsZoom(
       Document*,
       bool report_warnings,
-      const String& key,
-      const String& value,
+      const StringView& key,
+      const StringView& value,
       bool& computed_value_matches_parsed_value,
       bool viewport_meta_zero_values_quirk);
   static bool ParseViewportValueAsUserZoom(
       Document*,
       bool report_warnings,
-      const String& key,
-      const String& value,
+      const StringView& key,
+      const StringView& value,
       bool& computed_value_matches_parsed_value);
   static float ParseViewportValueAsDPI(Document*,
                                        bool report_warnings,
-                                       const String& key,
-                                       const String& value);
+                                       const StringView& key,
+                                       const StringView& value);
 
-  static mojom::ViewportFit ParseViewportFitValueAsEnum(bool& unknown_value,
-                                                        const String& value);
+  static mojom::ViewportFit ParseViewportFitValueAsEnum(
+      bool& unknown_value,
+      const StringView& value);
 
-  static absl::optional<ui::mojom::blink::VirtualKeyboardMode>
-  ParseVirtualKeyboardValueAsEnum(const String& value);
+  static std::optional<ui::mojom::blink::VirtualKeyboardMode>
+  ParseVirtualKeyboardValueAsEnum(const StringView& value);
 
   static void ReportViewportWarning(Document*,
                                     ViewportErrorCode,
-                                    const String& replacement1,
-                                    const String& replacement2);
+                                    const StringView& replacement1,
+                                    const StringView& replacement2);
 
   void ProcessContent();
   void ProcessHttpEquiv();

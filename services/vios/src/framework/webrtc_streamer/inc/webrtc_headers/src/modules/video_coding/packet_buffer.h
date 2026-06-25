@@ -11,20 +11,19 @@
 #ifndef MODULES_VIDEO_CODING_PACKET_BUFFER_H_
 #define MODULES_VIDEO_CODING_PACKET_BUFFER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <queue>
+#include <optional>
 #include <set>
 #include <vector>
 
 #include "absl/base/attributes.h"
-#include "api/rtp_packet_info.h"
-#include "api/units/timestamp.h"
-#include "api/video/encoded_image.h"
+#include "api/video/video_codec_type.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "modules/rtp_rtcp/source/rtp_video_header.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/numerics/sequence_number_util.h"
-#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 namespace video_coding {
@@ -34,6 +33,7 @@ class PacketBuffer {
   struct Packet {
     Packet() = default;
     Packet(const RtpPacketReceived& rtp_packet,
+           int64_t sequence_number,
            const RTPVideoHeader& video_header);
     Packet(const Packet&) = delete;
     Packet(Packet&&) = delete;
@@ -51,17 +51,18 @@ class PacketBuffer {
     bool is_last_packet_in_frame() const {
       return video_header.is_last_packet_in_frame;
     }
+    uint16_t seq_num() const { return static_cast<uint16_t>(sequence_number); }
 
     // If all its previous packets have been inserted into the packet buffer.
     // Set and used internally by the PacketBuffer.
     bool continuous = false;
     bool marker_bit = false;
     uint8_t payload_type = 0;
-    uint16_t seq_num = 0;
+    int64_t sequence_number = 0;
     uint32_t timestamp = 0;
     int times_nacked = -1;
 
-    rtc::CopyOnWriteBuffer video_payload;
+    CopyOnWriteBuffer video_payload;
     RTPVideoHeader video_header;
   };
   struct InsertResult {
@@ -115,7 +116,7 @@ class PacketBuffer {
   // determine continuity between them.
   std::vector<std::unique_ptr<Packet>> buffer_;
 
-  absl::optional<uint16_t> newest_inserted_seq_num_;
+  std::optional<uint16_t> newest_inserted_seq_num_;
   std::set<uint16_t, DescendingSeqNumComp<uint16_t>> missing_packets_;
 
   std::set<uint16_t, DescendingSeqNumComp<uint16_t>> received_padding_;

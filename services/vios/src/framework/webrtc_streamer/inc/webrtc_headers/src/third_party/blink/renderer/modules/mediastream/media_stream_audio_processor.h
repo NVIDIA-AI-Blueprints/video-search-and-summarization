@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_STREAM_AUDIO_PROCESSOR_H_
 
 #include <memory>
+#include <optional>
 
 #include "base/files/file.h"
 #include "base/memory/scoped_refptr.h"
@@ -14,7 +15,6 @@
 #include "base/time/time.h"
 #include "media/base/audio_parameters.h"
 #include "media/webrtc/audio_processor.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/mediastream/aec_dump_agent_impl.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_processor_options.h"
@@ -72,8 +72,7 @@ class MODULES_EXPORT MediaStreamAudioProcessor
   void ProcessCapturedAudio(const media::AudioBus& audio_source,
                             base::TimeTicks audio_capture_time,
                             int num_preferred_channels,
-                            double volume,
-                            bool key_pressed);
+                            double volume);
 
   // Stops the audio processor. The caller guarantees that there will be no more
   // calls to ProcessCapturedAudio(). Calling Stop() stops any ongoing aecdump
@@ -96,12 +95,6 @@ class MODULES_EXPORT MediaStreamAudioProcessor
   void OnStartDump(base::File dump_file) override;
   void OnStopDump() override;
 
-  // Returns true if MediaStreamAudioProcessor would modify the audio signal,
-  // based on |properties|. If the audio signal would not be modified, there is
-  // no need to instantiate a MediaStreamAudioProcessor and feed audio through
-  // it. Doing so would waste a non-trivial amount of memory and CPU resources.
-  static bool WouldModifyAudio(const AudioProcessingProperties& properties);
-
  protected:
   ~MediaStreamAudioProcessor() override;
 
@@ -119,7 +112,7 @@ class MODULES_EXPORT MediaStreamAudioProcessor
   void OnPlayoutDataSourceChanged() override;
   void OnRenderThreadChanged() override;
 
-  absl::optional<webrtc::AudioProcessing::Config>
+  std::optional<webrtc::AudioProcessing::Config>
   GetAudioProcessingModuleConfigForTesting() const {
     return audio_processor_->GetAudioProcessingModuleConfigForTesting();
   }

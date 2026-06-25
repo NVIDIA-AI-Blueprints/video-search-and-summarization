@@ -20,32 +20,33 @@
 #include <sqlite3.h>
 
 #include <atomic>
-#include <functional>
-#include <map>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include "perfetto/ext/base/flat_hash_map.h"
-#include "perfetto/ext/base/string_view.h"
+#include "perfetto/base/status.h"
 #include "perfetto/trace_processor/basic_types.h"
-#include "perfetto/trace_processor/status.h"
+#include "perfetto/trace_processor/summarizer.h"
+#include "perfetto/trace_processor/trace_blob.h"
+#include "perfetto/trace_processor/trace_blob_view.h"
 #include "perfetto/trace_processor/trace_processor.h"
-#include "src/trace_processor/perfetto_sql/engine/perfetto_sql_engine.h"
+#include "src/trace_processor/core/plugin/plugin.h"
+#include "src/trace_processor/iterator_impl.h"
+#include "src/trace_processor/metrics/metrics.h"
+#include "src/trace_processor/perfetto_sql/engine/perfetto_sql_connection.h"
 #include "src/trace_processor/perfetto_sql/intrinsics/functions/create_function.h"
 #include "src/trace_processor/perfetto_sql/intrinsics/functions/create_view_function.h"
-#include "src/trace_processor/perfetto_sql/intrinsics/functions/import.h"
-#include "src/trace_processor/sqlite/db_sqlite_table.h"
-#include "src/trace_processor/sqlite/query_cache.h"
-#include "src/trace_processor/sqlite/scoped_db.h"
-#include "src/trace_processor/sqlite/sqlite_engine.h"
+#include "src/trace_processor/perfetto_sql/intrinsics/table_functions/static_table_function.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/trace_processor_storage_impl.h"
-#include "src/trace_processor/util/sql_modules.h"
-
-#include "src/trace_processor/metrics/metrics.h"
+#include "src/trace_processor/types/trace_processor_context.h"
 #include "src/trace_processor/util/descriptors.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 // Coordinates the loading of traces from an arbitrary source and allows
 // execution of SQL queries on the events in these traces.
@@ -62,21 +63,62 @@ class TraceProcessorImpl : public TraceProcessor,
 
   ~TraceProcessorImpl() override;
 
-  // TraceProcessorStorage implementation:
+  // =================================================================
+  // |        TraceProcessorStorage implementation starts here       |
+  // =================================================================
+
   base::Status Parse(TraceBlobView) override;
   void Flush() override;
-  void NotifyEndOfFile() override;
+  base::Status NotifyEndOfFile() override;
 
-  // TraceProcessor implementation:
+  // =================================================================
+  // |        PerfettoSQL related functionality starts here          |
+  // =================================================================
+
   Iterator ExecuteQuery(const std::string& sql) override;
+
+  base::Status RegisterSqlPackage(SqlPackage) override;
+
+  // =================================================================
+  // |  Trace-based metrics (v2) related functionality starts here   |
+  // =================================================================
+
+  base::Status Summarize(const TraceSummaryComputationSpec& computation,
+                         const std::vector<TraceSummarySpecBytes>& specs,
+                         std::vector<uint8_t>* output,
+                         const TraceSummaryOutputSpec& output_spec) override;
+
+  // =================================================================
+  // |        Metatracing related functionality starts here          |
+  // =================================================================
+
+  void EnableMetatrace(MetatraceConfig config) override;
+
+  base::Status DisableAndReadMetatrace(
+      std::vector<uint8_t>* trace_proto) override;
+
+  // =================================================================
+  // |              Advanced functionality starts here               |
+  // =================================================================
+
+  std::string GetCurrentTraceName() override;
+  void SetCurrentTraceName(const std::string&) override;
+
+  base::Status RegisterFileContent(const std::string& path,
+                                   TraceBlob content) override;
+
+  void InterruptQuery() override;
+
+  size_t RestoreInitialTables() override;
+
+  // =================================================================
+  // |  Trace-based metrics (v1) related functionality starts here   |
+  // =================================================================
 
   base::Status RegisterMetric(const std::string& path,
                               const std::string& sql) override;
 
-  base::Status RegisterSqlModule(SqlModule sql_module) override;
-
   base::Status ExtendMetricsProto(const uint8_t* data, size_t size) override;
-
   base::Status ExtendMetricsProto(
       const uint8_t* data,
       size_t size,
@@ -84,60 +126,75 @@ class TraceProcessorImpl : public TraceProcessor,
 
   base::Status ComputeMetric(const std::vector<std::string>& metric_names,
                              std::vector<uint8_t>* metrics) override;
-
   base::Status ComputeMetricText(const std::vector<std::string>& metric_names,
                                  TraceProcessor::MetricResultFormat format,
                                  std::string* metrics_string) override;
 
   std::vector<uint8_t> GetMetricDescriptors() override;
 
-  void InterruptQuery() override;
+  // ===================
+  // |   Summarizer    |
+  // ===================
 
-  size_t RestoreInitialTables() override;
-
-  std::string GetCurrentTraceName() override;
-  void SetCurrentTraceName(const std::string&) override;
-
-  void EnableMetatrace(MetatraceConfig config) override;
-
-  base::Status DisableAndReadMetatrace(
-      std::vector<uint8_t>* trace_proto) override;
+  base::Status CreateSummarizer(std::unique_ptr<Summarizer>* out) override;
 
  private:
   // Needed for iterators to be able to access the context.
   friend class IteratorImpl;
 
-  template <typename Table>
-  void RegisterDbTable(const Table& table) {
-    engine_.RegisterTable(table, Table::Name());
-  }
-
-  void RegisterTableFunction(std::unique_ptr<TableFunction> fn) {
-    engine_.RegisterTableFunction(std::move(fn));
-  }
-
-  template <typename View>
-  void RegisterView(const View& view);
-
   bool IsRootMetricField(const std::string& metric_name);
 
-  PerfettoSqlEngine engine_;
+  void CacheBoundsAndBuildTable();
 
-  DescriptorPool pool_;
+  struct InitPerfettoSqlConnectionArgs {
+    TraceProcessorContext* context;
+    TraceStorage* storage;
+    const Config& config;
+    const std::vector<SqlPackage>& packages;
+    std::vector<metrics::SqlMetricFile>& sql_metrics;
+    const DescriptorPool* metrics_descriptor_pool;
+    std::unordered_map<std::string, std::string>* proto_fn_name_to_path;
+    TraceProcessor* trace_processor;
+    bool notify_eof_called;
+    std::pair<int64_t, int64_t> cached_trace_bounds;
+    std::vector<std::unique_ptr<PluginBase>>& plugins;
+  };
 
-  // Map from module name to module contents. Used for IMPORT function.
-  base::FlatHashMap<std::string, sql_modules::RegisteredModule> sql_modules_;
+  static std::unique_ptr<PerfettoSqlConnection> InitPerfettoSqlConnection(
+      const InitPerfettoSqlConnectionArgs& args);
+
+  static std::vector<PerfettoSqlConnection::StaticTable> GetStaticTables(
+      TraceStorage* storage);
+
+  static std::vector<std::unique_ptr<StaticTableFunction>>
+  CreateStaticTableFunctions(TraceProcessorContext* context,
+                             TraceStorage* storage,
+                             const Config& config,
+                             PerfettoSqlConnection* connection);
+
+  static void IncludeAfterEofPrelude(PerfettoSqlConnection*);
+
+  const Config config_;
+
+  // Registered plugins, topologically sorted by dependency order.
+  std::vector<std::unique_ptr<PluginBase>> plugins_;
+
+  std::unique_ptr<PerfettoSqlConnection> engine_;
+
+  DescriptorPool metrics_descriptor_pool_;
+
   std::vector<metrics::SqlMetricFile> sql_metrics_;
+  std::vector<SqlPackage> registered_sql_packages_;
+
   std::unordered_map<std::string, std::string> proto_field_to_sql_metric_path_;
+  std::unordered_map<std::string, std::string> proto_fn_name_to_path_;
 
   // This is atomic because it is set by the CTRL-C signal handler and we need
   // to prevent single-flow compiler optimizations in ExecuteQuery().
   std::atomic<bool> query_interrupted_{false};
 
-  // Keeps track of the tables created by the ingestion process. This is used
-  // by RestoreInitialTables() to delete all the tables/view that have been
-  // created after that point.
-  std::vector<std::string> initial_tables_;
+  // Track the number of objects registered with SQLite post prelude.
+  uint64_t sqlite_objects_post_prelude_ = 0;
 
   std::string current_trace_name_;
   uint64_t bytes_parsed_ = 0;
@@ -145,9 +202,20 @@ class TraceProcessorImpl : public TraceProcessor,
   // NotifyEndOfFile should only be called once. Set to true whenever it is
   // called.
   bool notify_eof_called_ = false;
+
+  // Cached trace timestamp bounds. This is set in NotifyEndOfFile before
+  // tables are finalized and reused in RestoreInitialTables to avoid
+  // iterating over finalized dataframes.
+  std::pair<int64_t, int64_t> cached_trace_bounds_ = {0, 0};
+
+  // Tracks the sum of mutations across all tables used by
+  // CacheBoundsAndBuildTable to avoid recomputing bounds when unchanged.
+  uint64_t bounds_tables_mutations_ = 0;
+
+  // Auto-incrementing counter for generating unique summarizer ids.
+  uint32_t next_summarizer_id_ = 0;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_TRACE_PROCESSOR_IMPL_H_

@@ -5,10 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PUSH_MESSAGING_PUSH_SUBSCRIPTION_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PUSH_MESSAGING_PUSH_SUBSCRIPTION_H_
 
+#include <optional>
+
 #include "base/gtest_prod_util.h"
-#include "base/memory/scoped_refptr.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/push_messaging/push_messaging.mojom-blink-forward.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/dom/dom_time_stamp.h"
@@ -24,6 +25,7 @@ namespace blink {
 class PushSubscriptionOptions;
 class ServiceWorkerRegistration;
 class ScriptState;
+class V8PushEncryptionKeyName;
 
 class MODULES_EXPORT PushSubscription final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -35,23 +37,23 @@ class MODULES_EXPORT PushSubscription final : public ScriptWrappable {
 
   PushSubscription(const KURL& endpoint,
                    bool user_visible_only,
-                   const WTF::Vector<uint8_t>& application_server_key,
-                   const WTF::Vector<unsigned char>& p256dh,
-                   const WTF::Vector<unsigned char>& auth,
-                   const absl::optional<DOMTimeStamp>& expiration_time,
+                   const Vector<uint8_t>& application_server_key,
+                   const Vector<unsigned char>& p256dh,
+                   const Vector<unsigned char>& auth,
+                   const std::optional<DOMTimeStamp>& expiration_time,
                    ServiceWorkerRegistration* service_worker_registration);
 
   ~PushSubscription() override;
 
   KURL endpoint() const { return endpoint_; }
-  absl::optional<DOMTimeStamp> expirationTime() const;
+  std::optional<DOMTimeStamp> expirationTime() const;
 
   PushSubscriptionOptions* options() const { return options_.Get(); }
 
-  DOMArrayBuffer* getKey(const AtomicString& name) const;
-  ScriptPromise unsubscribe(ScriptState* script_state);
+  DOMArrayBuffer* getKey(const V8PushEncryptionKeyName& name) const;
+  ScriptPromise<IDLBoolean> unsubscribe(ScriptState* script_state);
 
-  ScriptValue toJSONForBinding(ScriptState* script_state);
+  ScriptObject toJSONForBinding(ScriptState* script_state);
 
   void Trace(Visitor* visitor) const override;
 
@@ -66,7 +68,7 @@ class MODULES_EXPORT PushSubscription final : public ScriptWrappable {
   Member<DOMArrayBuffer> p256dh_;
   Member<DOMArrayBuffer> auth_;
 
-  absl::optional<DOMTimeStamp> expiration_time_;
+  std::optional<DOMTimeStamp> expiration_time_;
 
   Member<ServiceWorkerRegistration> service_worker_registration_;
 };

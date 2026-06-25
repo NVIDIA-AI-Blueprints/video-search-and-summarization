@@ -5,39 +5,34 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_IME_EDIT_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_IME_EDIT_CONTEXT_H_
 
-#include "third_party/blink/public/platform/web_text_input_mode.h"
+#include "third_party/blink/public/mojom/input/input_handler.mojom-blink.h"
 #include "third_party/blink/public/platform/web_text_input_type.h"
 #include "third_party/blink/public/web/web_input_method_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_edit_context_input_panel_policy.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/element_rare_data_field.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "ui/base/ime/ime_text_span.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace blink {
 
-using EditContextInputPanelPolicy = V8EditContextInputPanelPolicy::Enum;
-
 class DOMRect;
 class EditContext;
 class EditContextInit;
-class Element;
+class HTMLElement;
 class ExceptionState;
 class InputMethodController;
-class V8EditContextEnterKeyHint;
-class V8EditContextInputMode;
 
 // The goal of the EditContext is to expose the lower-level APIs provided by
 // modern operating systems to facilitate various input modalities to unlock
 // advanced editing scenarios. For more information please refer
 // https://github.com/MicrosoftEdge/MSEdgeExplainers/blob/master/EditContext/explainer.md.
 
-class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
+class CORE_EXPORT EditContext final : public EventTarget,
                                       public ActiveScriptWrappable<EditContext>,
-                                      public ExecutionContextClient,
                                       public WebInputMethodController,
                                       public ElementRareDataField {
   DEFINE_WRAPPERTYPEINFO();
@@ -83,8 +78,9 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // CharacterBoundsUpdateEvent. The arguments to this method describe a
   // sequence of bounding boxes that are requested by
   // CharacterBoundsUpdateEvent.
-  void updateCharacterBounds(unsigned long range_start,
-                             HeapVector<Member<DOMRect>>& character_bounds);
+  void updateCharacterBounds(
+      uint32_t range_start,
+      const HeapVector<Member<DOMRect>>& character_bounds);
 
   // Updates to the text driven by the webpage/javascript are performed
   // by calling this API on the EditContext. It accepts a range (start and end
@@ -100,7 +96,7 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
                   ExceptionState& exception_state);
 
   // Get elements that are associated with this EditContext.
-  const HeapVector<Member<Element>>& attachedElements();
+  const HeapVector<Member<HTMLElement>>& attachedElements();
 
   // Returns the text of the EditContext.
   String text() const;
@@ -118,43 +114,15 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // Returns the current cached character bounds.
   const HeapVector<Member<DOMRect>> characterBounds();
 
-  // Returns the InputMode of the EditContext.
-  V8EditContextInputMode inputMode() const;
-
-  // Returns the EnterKeyHint of the EditContext.
-  V8EditContextEnterKeyHint enterKeyHint() const;
-
-  // Returns the InputPanelPolicy of the EditContext.
-  V8EditContextInputPanelPolicy inputPanelPolicy() const;
-
-  // Sets the text of the EditContext which is used to display suggestions.
-  void setText(const String& text);
-
-  // Sets the selectionStart of the EditContext.
-  void setSelectionStart(uint32_t selection_start,
-                         ExceptionState& exception_state);
-
-  // Sets the selectionEnd of the EditContext.
-  void setSelectionEnd(uint32_t selection_end, ExceptionState& exception_state);
-
-  // Sets an input mode defined in EditContextInputMode.
-  // This relates to the inputMode attribute defined for input element:
-  // https://html.spec.whatwg.org/multipage/interaction.html#input-modalities:-the-inputmode-attribute.
-  void setInputMode(const V8EditContextInputMode& input_mode);
-
-  // Sets a specific action related to Enter key defined in
-  // https://html.spec.whatwg.org/multipage/interaction.html#input-modalities:-the-enterkeyhint-attribute.
-  void setEnterKeyHint(const V8EditContextEnterKeyHint& enter_key_hint);
-
-  // Sets a policy that determines whether the VK should be raised or dismissed.
-  // Auto raises the VK automatically, Manual suppresses it.
-  void setInputPanelPolicy(const V8EditContextInputPanelPolicy& input_policy);
-
   // Internal APIs (called from Blink).
 
   // EventTarget overrides
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
+
+  void SetExecutionContext(ExecutionContext* context);
+
+  LocalDOMWindow* DomWindow() const;
 
   // ActiveScriptWrappable overrides.
   bool HasPendingActivity() const override;
@@ -163,22 +131,28 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
 
   // WebInputMethodController overrides.
   bool SetComposition(const WebString& text,
-                      const WebVector<ui::ImeTextSpan>& ime_text_spans,
+                      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+                      const WebRange& replacement_range,
+                      int selection_start,
+                      int selection_end,
+                      mojom::blink::ImeState ime_state) override;
+  bool SetComposition(const WebString& text,
+                      const std::vector<ui::ImeTextSpan>& ime_text_spans,
                       const WebRange& replacement_range,
                       int selection_start,
                       int selection_end) override;
   bool CommitText(const WebString& text,
-                  const WebVector<ui::ImeTextSpan>& ime_text_spans,
+                  const std::vector<ui::ImeTextSpan>& ime_text_spans,
                   const WebRange& replacement_range,
                   int relative_caret_position) override;
   bool FinishComposingText(
       ConfirmCompositionBehavior selection_behavior) override;
   WebTextInputInfo TextInputInfo() override;
   int ComputeWebTextInputNextPreviousFlags() override { return 0; }
-  WebTextInputType TextInputType() override;
-  int TextInputFlags() const;
   WebRange CompositionRange() const override;
-  bool GetCompositionCharacterBounds(WebVector<gfx::Rect>& bounds) override;
+  // Populate `bounds` with the bounds of each item in EditContext's
+  // stored character bounds, scaled to physical pixels.
+  bool GetCompositionCharacterBounds(std::vector<gfx::Rect>& bounds) override;
   WebRange GetSelectionOffsets() const override;
 
   // When focus is called on an EditContext, it sets the active EditContext in
@@ -193,7 +167,7 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   void Blur();
 
   // Populate |control_bounds| and |selection_bounds| with the bounds fetched
-  // from the active EditContext.
+  // from the active EditContext, in physical pixels.
   void GetLayoutBounds(gfx::Rect* control_bounds,
                        gfx::Rect* selection_bounds) override;
 
@@ -202,17 +176,24 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   bool SetCompositionFromExistingText(
       int composition_start,
       int composition_end,
-      const WebVector<ui::ImeTextSpan>& ime_text_spans);
+      const std::vector<ui::ImeTextSpan>& ime_text_spans);
 
   // For English typing.
   bool InsertText(const WebString& text);
 
+  // Clamps `selection_start_` and `selection_end_` to be within `text_` length.
+  // This is necessary because `updateText` can shorten the text buffer without
+  // adjusting selection offsets leaving stale offsets that exceed the `text_`
+  // length. Must be called before delete operations to prevent out-of-bounds
+  // access.
+  // TODO(crbug.com/379170477): This can be removed when `updateText` adjusts
+  // the selection offsets to stay within `text_` bounds.
+  void EnsureSelectionWithinTextBounds();
   void DeleteBackward();
   void DeleteForward();
   void DeleteWordBackward();
   void DeleteWordForward();
 
-  bool IsVirtualKeyboardPolicyManual() const override;
   bool IsEditContextActive() const override;
   // Returns whether show()/hide() API is called from virtualkeyboard or not.
   ui::mojom::VirtualKeyboardVisibilityRequest
@@ -226,8 +207,19 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // Extends the current selection range and removes the
   // characters from the buffer.
   void ExtendSelectionAndDelete(int before, int after);
+  // Delete `before` characters preceding the current `selection_start_` and
+  // `after` characters following the current `selection_end_`.
+  void DeleteSurroundingText(int before, int after);
 
-  // Sets rect_in_viewport to the surrounding rect, in CSS pixels,
+  // Change the selection range.
+  // Optionally dispatch TextInputEvent to notify the
+  // page that the selection has changed.
+  void SetSelection(int start,
+                    int end,
+                    bool sync_selection = true,
+                    bool dispatch_text_update_event = false);
+
+  // Sets rect_in_viewport to the surrounding rect, in physical pixels,
   // for the character range specified by `location` and `length`.
   // Returns true on success, false on failure (in which case
   // rect_in_viewport) is not changed.
@@ -235,16 +227,10 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
                                   uint32_t length,
                                   gfx::Rect& rect_in_viewport);
 
-  void AttachElement(Element* element_to_attach);
-  void DetachElement(Element* element_to_detach);
+  void AttachElement(HTMLElement* element_to_attach);
+  void DetachElement(HTMLElement* element_to_detach);
 
  private:
-  // Returns the enter key action attribute set in the EditContext.
-  ui::TextInputAction GetEditContextEnterKeyHint() const;
-
-  // Returns the inputMode of the EditContext from enterKeyHint property.
-  WebTextInputMode GetInputModeOfEditContext() const;
-
   InputMethodController& GetInputMethodController() const;
 
   void DeleteCurrentSelection();
@@ -264,7 +250,7 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // consumer of the EditContext should update their view accordingly to provide
   // the user with visual feedback as prescribed by the software keyboard.
   void DispatchTextFormatEvent(
-      const WebVector<ui::ImeTextSpan>& ime_text_spans);
+      const std::vector<ui::ImeTextSpan>& ime_text_spans);
 
   // The textupdate event will be fired on the EditContext when user input has
   // resulted in characters being applied to the editable region. The event
@@ -297,17 +283,36 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
 
   bool HasValidCompositionBounds() const;
 
+  // Notify browser process to cancel the ongoing composition.
+  void CancelComposition();
+  // Delete the characters in the existing composition range and end the
+  // composition.
+  void OnCancelComposition();
+
+  void ClearCompositionState();
+
+  // Returns selection_start_ if selection_start_ <= selection_end_,
+  // otherwise returns selection_end_.
+  uint32_t OrderedSelectionStart() const;
+  // Returns selection_end_ if selection_end_ >= selection_start_,
+  // otherwise returns selection_start_.
+  uint32_t OrderedSelectionEnd() const;
+
   // EditContext member variables.
   String text_;
+
+  // It is possible that selection_start > selection_end_,
+  // indicating a "backwards" selection (e.g. when the user
+  // drags the selection from right to left).
+  // These should always be modified via SetSelection() to ensure
+  // that the proper notifications are fired.
   uint32_t selection_start_ = 0;
   uint32_t selection_end_ = 0;
-  WebTextInputMode input_mode_ = WebTextInputMode::kWebTextInputModeText;
-  ui::TextInputAction enter_key_hint_ = ui::TextInputAction::kEnter;
-  EditContextInputPanelPolicy input_panel_policy_ =
-      EditContextInputPanelPolicy::kManual;
+
+  // The following bounds are in CSS pixels.
   gfx::Rect control_bounds_;
   gfx::Rect selection_bounds_;
-  WebVector<gfx::Rect> character_bounds_;
+  Vector<gfx::Rect> character_bounds_;
   uint32_t character_bounds_range_start_ = 0;
 
   // This flag is set when the input method controller receives a
@@ -316,10 +321,19 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   bool has_composition_ = false;
   // This is used to keep track of the active composition text range.
   // It is reset once the composition ends.
+  // composition_range_end_ should always be >= composition_range_start_.
   uint32_t composition_range_start_ = 0;
   uint32_t composition_range_end_ = 0;
+  // This flag tracks whether `FinishComposingText` is currently in progress.
+  // This is used to guard against re-entrant calls to `FinishComposingText`
+  // when editContext associations are changed during compositionend or
+  // textformatupdate event dispatch.
+  bool finish_composing_in_progress_ = false;
+
   // Elements that are associated with this EditContext.
-  HeapVector<Member<Element>> attached_elements_;
+  HeapVector<Member<HTMLElement>> attached_elements_;
+
+  WeakMember<ExecutionContext> execution_context_;
 };
 
 }  // namespace blink

@@ -11,7 +11,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -47,32 +47,10 @@ RTC_OBJC_EXPORT
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)new NS_UNAVAILABLE;
 
-/** Initialize an RTCVideoFrame from a pixel buffer, rotation, and timestamp.
- *  Deprecated - initialize with a RTCCVPixelBuffer instead
- */
-- (instancetype)initWithPixelBuffer:(CVPixelBufferRef)pixelBuffer
-                           rotation:(RTCVideoRotation)rotation
-                        timeStampNs:(int64_t)timeStampNs
-    DEPRECATED_MSG_ATTRIBUTE("use initWithBuffer instead");
-
-/** Initialize an RTCVideoFrame from a pixel buffer combined with cropping and
- *  scaling. Cropping will be applied first on the pixel buffer, followed by
- *  scaling to the final resolution of scaledWidth x scaledHeight.
- */
-- (instancetype)initWithPixelBuffer:(CVPixelBufferRef)pixelBuffer
-                        scaledWidth:(int)scaledWidth
-                       scaledHeight:(int)scaledHeight
-                          cropWidth:(int)cropWidth
-                         cropHeight:(int)cropHeight
-                              cropX:(int)cropX
-                              cropY:(int)cropY
-                           rotation:(RTCVideoRotation)rotation
-                        timeStampNs:(int64_t)timeStampNs
-    DEPRECATED_MSG_ATTRIBUTE("use initWithBuffer instead");
-
 /** Initialize an RTCVideoFrame from a frame buffer, rotation, and timestamp.
  */
-- (instancetype)initWithBuffer:(id<RTC_OBJC_TYPE(RTCVideoFrameBuffer)>)frameBuffer
+- (instancetype)initWithBuffer:
+                    (id<RTC_OBJC_TYPE(RTCVideoFrameBuffer)>)frameBuffer
                       rotation:(RTCVideoRotation)rotation
                    timeStampNs:(int64_t)timeStampNs;
 

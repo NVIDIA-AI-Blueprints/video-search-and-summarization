@@ -22,37 +22,118 @@
 #ifndef AVCODEC_AACENC_H
 #define AVCODEC_AACENC_H
 
+#include <stdint.h>
+
 #include "libavutil/channel_layout.h"
 #include "libavutil/float_dsp.h"
 #include "libavutil/mem_internal.h"
+#include "libavutil/tx.h"
 
 #include "avcodec.h"
 #include "put_bits.h"
 
 #include "aac.h"
+#include "aacencdsp.h"
 #include "audio_frame_queue.h"
 #include "psymodel.h"
 
 #include "lpc.h"
 
+#define CLIP_AVOIDANCE_FACTOR 0.95f
+
 typedef enum AACCoder {
-    AAC_CODER_ANMR = 0,
     AAC_CODER_TWOLOOP,
     AAC_CODER_FAST,
 
     AAC_CODER_NB,
 }AACCoder;
 
+/**
+ * Predictor State
+ */
+typedef struct PredictorState {
+    float cor0;
+    float cor1;
+    float var0;
+    float var1;
+    float r0;
+    float r1;
+    float k1;
+    float x_est;
+} PredictorState;
+
 typedef struct AACEncOptions {
     int coder;
     int pns;
     int tns;
-    int ltp;
     int pce;
-    int pred;
     int mid_side;
     int intensity_stereo;
 } AACEncOptions;
+
+/**
+ * Individual Channel Stream
+ */
+typedef struct IndividualChannelStream {
+    uint8_t max_sfb;            ///< number of scalefactor bands per group
+    enum WindowSequence window_sequence[2];
+    uint8_t use_kb_window[2];   ///< If set, use Kaiser-Bessel window, otherwise use a sine window.
+    uint8_t group_len[8];
+    const uint16_t *swb_offset; ///< table of offsets to the lowest spectral coefficient of a scalefactor band, sfb, for a particular window
+    const uint8_t *swb_sizes;   ///< table of scalefactor band sizes for a particular window
+    int num_swb;                ///< number of scalefactor window bands
+    int num_windows;
+    int tns_max_bands;
+    uint8_t window_clipping[8]; ///< set if a certain window is near clipping
+    float clip_avoidance_factor; ///< set if any window is near clipping to the necessary atennuation factor to avoid it
+} IndividualChannelStream;
+
+/**
+ * Temporal Noise Shaping
+ */
+typedef struct TemporalNoiseShaping {
+    int present;
+    int n_filt[8];
+    int length[8][4];
+    int direction[8][4];
+    int order[8][4];
+    int coef_idx[8][4][TNS_MAX_ORDER];
+    float coef[8][4][TNS_MAX_ORDER];
+} TemporalNoiseShaping;
+
+/**
+ * Single Channel Element - used for both SCE and LFE elements.
+ */
+typedef struct SingleChannelElement {
+    IndividualChannelStream ics;
+    TemporalNoiseShaping tns;
+    Pulse pulse;
+    enum BandType band_type[128];                   ///< band types
+    enum BandType band_alt[128];                    ///< alternative band type
+    int sf_idx[128];                                ///< scalefactor indices
+    uint8_t zeroes[128];                            ///< band is not coded
+    uint8_t can_pns[128];                           ///< band is allowed to PNS (informative)
+    float  is_ener[128];                            ///< Intensity stereo pos
+    float pns_ener[128];                            ///< Noise energy values
+    DECLARE_ALIGNED(32, float, pcoeffs)[1024];      ///< coefficients for IMDCT, pristine
+    DECLARE_ALIGNED(32, float, coeffs)[1024];       ///< coefficients for IMDCT, maybe processed
+    DECLARE_ALIGNED(32, float, ret_buf)[2048];      ///< PCM output buffer
+    PredictorState predictor_state[MAX_PREDICTORS];
+} SingleChannelElement;
+
+/**
+ * channel element - generic struct for SCE/CPE/CCE/LFE
+ */
+typedef struct ChannelElement {
+    // CPE specific
+    int common_window;        ///< Set if channels share a common 'IndividualChannelStream' in bitstream.
+    int     ms_mode;          ///< Signals mid/side stereo flags coding mode
+    uint8_t is_mode;          ///< Set if any bands have been encoded using intensity stereo
+    uint8_t ms_mask[128];     ///< Set if mid/side stereo is used for each scalefactor window band
+    uint8_t is_mask[128];     ///< Set if intensity stereo is used
+    // shared
+    SingleChannelElement ch[2];
+} ChannelElement;
 
 struct AACEncContext;
 
@@ -64,22 +145,13 @@ typedef struct AACCoefficientsEncoder {
     void (*quantize_and_encode_band)(struct AACEncContext *s, PutBitContext *pb, const float *in, float *out, int size,
                                      int scale_idx, int cb, const float lambda, int rtz);
     void (*encode_tns_info)(struct AACEncContext *s, SingleChannelElement *sce);
-    void (*encode_ltp_info)(struct AACEncContext *s, SingleChannelElement *sce, int common_window);
-    void (*encode_main_pred)(struct AACEncContext *s, SingleChannelElement *sce);
-    void (*adjust_common_pred)(struct AACEncContext *s, ChannelElement *cpe);
-    void (*adjust_common_ltp)(struct AACEncContext *s, ChannelElement *cpe);
-    void (*apply_main_pred)(struct AACEncContext *s, SingleChannelElement *sce);
     void (*apply_tns_filt)(struct AACEncContext *s, SingleChannelElement *sce);
-    void (*update_ltp)(struct AACEncContext *s, SingleChannelElement *sce);
-    void (*ltp_insert_new_frame)(struct AACEncContext *s);
     void (*set_special_band_scalefactors)(struct AACEncContext *s, SingleChannelElement *sce);
     void (*search_for_pns)(struct AACEncContext *s, AVCodecContext *avctx, SingleChannelElement *sce);
     void (*mark_pns)(struct AACEncContext *s, AVCodecContext *avctx, SingleChannelElement *sce);
     void (*search_for_tns)(struct AACEncContext *s, SingleChannelElement *sce);
-    void (*search_for_ltp)(struct AACEncContext *s, SingleChannelElement *sce, int common_window);
     void (*search_for_ms)(struct AACEncContext *s, ChannelElement *cpe);
     void (*search_for_is)(struct AACEncContext *s, AVCodecContext *avctx, ChannelElement *cpe);
-    void (*search_for_pred)(struct AACEncContext *s, SingleChannelElement *sce);
 } AACCoefficientsEncoder;
 
 extern const AACCoefficientsEncoder ff_aac_coders[];
@@ -127,7 +199,6 @@ typedef struct AACEncContext {
 
     ChannelElement *cpe;                         ///< channel elements
     FFPsyContext psy;
-    struct FFPsyPreprocessContext* psypp;
     const AACCoefficientsEncoder *coder;
     int cur_channel;                             ///< current channel for coder context
     int random_state;
@@ -138,24 +209,19 @@ typedef struct AACEncContext {
     enum RawDataBlockType cur_type;              ///< channel group type cur_channel belongs to
 
     AudioFrameQueue afq;
-    DECLARE_ALIGNED(16, int,   qcoefs)[96];      ///< quantized coefficients
+    DECLARE_ALIGNED(32, int,   qcoefs)[96];      ///< quantized coefficients
     DECLARE_ALIGNED(32, float, scoefs)[1024];    ///< scaled coefficients
 
     uint16_t quantize_band_cost_cache_generation;
     AACQuantizeBandCostCacheEntry quantize_band_cost_cache[256][128]; ///< memoization area for quantize_band_cost
 
-    void (*abs_pow34)(float *out, const float *in, const int size);
-    void (*quant_bands)(int *out, const float *in, const float *scaled,
-                        int size, int is_signed, int maxval, const float Q34,
-                        const float rounding);
+    AACEncDSPContext aacdsp;
 
     struct {
         float *samples;
     } buffer;
 } AACEncContext;
 
-void ff_aac_dsp_init_x86(AACEncContext *s);
-void ff_aac_coder_init_mips(AACEncContext *c);
 void ff_quantize_band_cost_cache_init(struct AACEncContext *s);
 
 

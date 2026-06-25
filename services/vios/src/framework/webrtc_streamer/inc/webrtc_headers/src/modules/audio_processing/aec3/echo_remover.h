@@ -11,11 +11,14 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_ECHO_REMOVER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_ECHO_REMOVER_H_
 
-#include <vector>
+#include <cstddef>
+#include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "api/audio/echo_canceller3_config.h"
 #include "api/audio/echo_control.h"
+#include "api/audio/neural_residual_echo_estimator.h"
+#include "api/environment/environment.h"
 #include "modules/audio_processing/aec3/block.h"
 #include "modules/audio_processing/aec3/delay_estimate.h"
 #include "modules/audio_processing/aec3/echo_path_variability.h"
@@ -26,10 +29,13 @@ namespace webrtc {
 // Class for removing the echo from the capture signal.
 class EchoRemover {
  public:
-  static EchoRemover* Create(const EchoCanceller3Config& config,
-                             int sample_rate_hz,
-                             size_t num_render_channels,
-                             size_t num_capture_channels);
+  static std::unique_ptr<EchoRemover> Create(
+      const Environment& env,
+      const EchoCanceller3Config& config,
+      int sample_rate_hz,
+      size_t num_render_channels,
+      size_t num_capture_channels,
+      NeuralResidualEchoEstimator* neural_residual_echo_estimator);
   virtual ~EchoRemover() = default;
 
   // Get current metrics.
@@ -41,7 +47,7 @@ class EchoRemover {
   virtual void ProcessCapture(
       EchoPathVariability echo_path_variability,
       bool capture_signal_saturation,
-      const absl::optional<DelayEstimate>& external_delay,
+      const std::optional<DelayEstimate>& external_delay,
       RenderBuffer* render_buffer,
       Block* linear_output,
       Block* capture) = 0;

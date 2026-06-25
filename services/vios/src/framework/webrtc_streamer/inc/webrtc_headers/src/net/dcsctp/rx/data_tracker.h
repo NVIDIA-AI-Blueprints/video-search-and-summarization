@@ -10,20 +10,16 @@
 #ifndef NET_DCSCTP_RX_DATA_TRACKER_H_
 #define NET_DCSCTP_RX_DATA_TRACKER_H_
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
 #include <cstdint>
 #include <set>
-#include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/common/sequence_numbers.h"
 #include "net/dcsctp/packet/chunk/data_common.h"
 #include "net/dcsctp/packet/chunk/sack_chunk.h"
-#include "net/dcsctp/packet/data.h"
 #include "net/dcsctp/public/dcsctp_handover_state.h"
 #include "net/dcsctp/timer/timer.h"
 
@@ -74,8 +70,9 @@ class DataTracker {
   // Called at the end of processing an SCTP packet.
   void ObservePacketEnd();
 
-  // Called for incoming FORWARD-TSN/I-FORWARD-TSN chunks
-  void HandleForwardTsn(TSN new_cumulative_ack);
+  // Called for incoming FORWARD-TSN/I-FORWARD-TSN chunks. Indicates if the
+  // chunk had any effect.
+  bool HandleForwardTsn(TSN new_cumulative_ack);
 
   // Indicates if a SACK should be sent. There may be other reasons to send a
   // SACK, but if this function indicates so, it should be sent as soon as
@@ -90,6 +87,10 @@ class DataTracker {
   // value before any packet loss was detected.
   TSN last_cumulative_acked_tsn() const {
     return TSN(last_cumulative_acked_tsn_.Wrap());
+  }
+
+  bool IsLaterThanCumulativeAckedTsn(TSN tsn) const {
+    return tsn_unwrapper_.PeekUnwrap(tsn) > last_cumulative_acked_tsn_;
   }
 
   // Returns true if the received `tsn` would increase the cumulative ack TSN.

@@ -11,6 +11,9 @@
 #ifndef MODULES_AUDIO_CODING_ACM2_ACM_REMIXING_H_
 #define MODULES_AUDIO_CODING_ACM2_ACM_REMIXING_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <span>
 #include <vector>
 
 #include "api/audio/audio_frame.h"
@@ -19,7 +22,7 @@ namespace webrtc {
 
 // Stereo-to-mono downmixing. The length of the output must equal to the number
 // of samples per channel in the input.
-void DownMixFrame(const AudioFrame& input, rtc::ArrayView<int16_t> output);
+void DownMixFrame(const AudioFrame& input, std::span<int16_t> output);
 
 // Remixes the interleaved input frame to an interleaved output data vector. The
 // remixed data replaces the data in the output vector which is resized if

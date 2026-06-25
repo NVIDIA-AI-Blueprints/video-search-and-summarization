@@ -10,14 +10,14 @@
 #ifndef NET_DCSCTP_TESTING_TESTING_MACROS_H_
 #define NET_DCSCTP_TESTING_TESTING_MACROS_H_
 
-#include <utility>
+#include <utility>  // IWYU pragma: keep
 
 namespace dcsctp {
 
 #define DCSCTP_CONCAT_INNER_(x, y) x##y
 #define DCSCTP_CONCAT_(x, y) DCSCTP_CONCAT_INNER_(x, y)
 
-// Similar to ASSERT_OK_AND_ASSIGN, this works with an absl::optional<> instead
+// Similar to ASSERT_OK_AND_ASSIGN, this works with an std::optional<> instead
 // of an absl::StatusOr<>.
 #define ASSERT_HAS_VALUE_AND_ASSIGN(lhs, rexpr)                     \
   auto DCSCTP_CONCAT_(tmp_opt_val__, __LINE__) = rexpr;             \

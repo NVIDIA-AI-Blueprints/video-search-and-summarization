@@ -11,32 +11,29 @@
 #include "third_party/blink/renderer/platform/graphics/color.h"
 
 namespace blink {
+struct PaintInfo;
 
 class CORE_EXPORT ScrollbarThemeOverlayMobile : public ScrollbarThemeOverlay {
  public:
   static ScrollbarThemeOverlayMobile& GetInstance();
 
-  void PaintThumb(GraphicsContext&,
+  void PaintThumb(const PaintInfo&,
                   const Scrollbar&,
                   const gfx::Rect&) override;
-  bool AllowsHitTest() const override { return false; }
+  bool AllowsHitTest() const override;
   bool IsSolidColor() const override { return true; }
+  SkColor4f ThumbColor(const Scrollbar& scrollbar) const override;
   bool UsesNinePatchThumbResource() const override { return false; }
 
- protected:
-  ScrollbarThemeOverlayMobile(int thumb_thickness_default,
-                              int scrollbar_margin_default,
-                              int thumb_thickness_thin,
-                              int scrollbar_margin_thin,
-                              Color);
+  const Color& DefaultColor() { return default_color_; }
 
-  ScrollbarPart HitTest(const Scrollbar&, const gfx::Point&) override {
-    NOTREACHED();
-    return kNoPart;
-  }
+ protected:
+  ScrollbarThemeOverlayMobile(int thumb_thickness, int scrollbar_margin);
+
+  ScrollbarPart HitTest(const Scrollbar&, const gfx::Point&) const override;
 
  private:
-  Color color_;
+  Color default_color_;
 };
 
 }  // namespace blink

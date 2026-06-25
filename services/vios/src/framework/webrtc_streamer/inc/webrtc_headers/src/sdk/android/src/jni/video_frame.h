@@ -13,14 +13,17 @@
 
 #include <jni.h>
 
+#include <cstdint>
+
+#include "api/scoped_refptr.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_frame_buffer.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
 namespace jni {
 
-rtc::scoped_refptr<VideoFrameBuffer> JavaToNativeFrameBuffer(
+scoped_refptr<VideoFrameBuffer> JavaToNativeFrameBuffer(
     JNIEnv* jni,
     const JavaRef<jobject>& j_video_frame_buffer);
 

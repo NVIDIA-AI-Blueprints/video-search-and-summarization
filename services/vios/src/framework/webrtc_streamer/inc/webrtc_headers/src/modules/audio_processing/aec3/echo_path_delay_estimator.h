@@ -11,10 +11,9 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_ECHO_PATH_DELAY_ESTIMATOR_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_ECHO_PATH_DELAY_ESTIMATOR_H_
 
-#include <stddef.h>
+#include <cstddef>
+#include <optional>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "modules/audio_processing/aec3/alignment_mixer.h"
 #include "modules/audio_processing/aec3/block.h"
 #include "modules/audio_processing/aec3/clockdrift_detector.h"
@@ -45,7 +44,7 @@ class EchoPathDelayEstimator {
   void Reset(bool reset_delay_confidence);
 
   // Produce a delay estimate if such is avaliable.
-  absl::optional<DelayEstimate> EstimateDelay(
+  std::optional<DelayEstimate> EstimateDelay(
       const DownsampledRenderBuffer& render_buffer,
       const Block& capture);
 
@@ -68,7 +67,7 @@ class EchoPathDelayEstimator {
   Decimator capture_decimator_;
   MatchedFilter matched_filter_;
   MatchedFilterLagAggregator matched_filter_lag_aggregator_;
-  absl::optional<DelayEstimate> old_aggregated_lag_;
+  std::optional<DelayEstimate> old_aggregated_lag_;
   size_t consistent_estimate_counter_ = 0;
   ClockdriftDetector clockdrift_detector_;
 

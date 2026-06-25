@@ -23,26 +23,25 @@
 /* Order is significant.  For example, some B&H fonts are hinted by
    URW++, and both strings appear in the notice. */
 
-static const char *FcNoticeFoundries[][2] =
-    {
-     {"Adobe", "adobe"},
-     {"Bigelow", "b&h"},
-     {"Bitstream", "bitstream"},
-     {"Gnat", "culmus"},
-     {"Iorsh", "culmus"},
-     {"HanYang System", "hanyang"},
-     {"Font21", "hwan"},
-     {"IBM", "ibm"},
-     {"International Typeface Corporation", "itc"},
-     {"Linotype", "linotype"},
-     {"LINOTYPE-HELL", "linotype"},
-     {"Microsoft", "microsoft"},
-     {"Monotype", "monotype"},
-     {"Omega", "omega"},
-     {"Tiro Typeworks", "tiro"},
-     {"URW", "urw"},
-     {"XFree86", "xfree86"},
-     {"Xorg", "xorg"},
+static const char *FcNoticeFoundries[][2] = {
+    { "Adobe",			      "adobe"     },
+    { "Bigelow",			    "b&h"       },
+    { "Bitstream",			  "bitstream" },
+    { "Gnat",			       "culmus"    },
+    { "Iorsh",			      "culmus"    },
+    { "HanYang System",                     "hanyang"   },
+    { "Font21",			     "hwan"      },
+    { "IBM",				"ibm"       },
+    { "International Typeface Corporation", "itc"       },
+    { "Linotype",			   "linotype"  },
+    { "LINOTYPE-HELL",                      "linotype"  },
+    { "Microsoft",			  "microsoft" },
+    { "Monotype",			   "monotype"  },
+    { "Omega",			      "omega"     },
+    { "Tiro Typeworks",                     "tiro"      },
+    { "URW",				"urw"       },
+    { "XFree86",			    "xfree86"   },
+    { "Xorg",			       "xorg"      },
 };
 
-#define NUM_NOTICE_FOUNDRIES	(int) (sizeof (FcNoticeFoundries) / sizeof (FcNoticeFoundries[0]))
+#define NUM_NOTICE_FOUNDRIES (int)(sizeof (FcNoticeFoundries) / sizeof (FcNoticeFoundries[0]))

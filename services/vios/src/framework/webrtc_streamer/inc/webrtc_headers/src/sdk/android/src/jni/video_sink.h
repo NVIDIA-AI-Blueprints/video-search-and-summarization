@@ -13,13 +13,14 @@
 
 #include <jni.h>
 
-#include "api/media_stream_interface.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_sink_interface.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
 namespace jni {
 
-class VideoSinkWrapper : public rtc::VideoSinkInterface<VideoFrame> {
+class VideoSinkWrapper : public VideoSinkInterface<VideoFrame> {
  public:
   VideoSinkWrapper(JNIEnv* jni, const JavaRef<jobject>& j_sink);
   ~VideoSinkWrapper() override;

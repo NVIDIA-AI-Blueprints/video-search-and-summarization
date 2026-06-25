@@ -29,7 +29,7 @@ MediaStreamComponent* CreateMediaStreamComponent(
 
 class FakeRTCRtpSenderImpl : public blink::RTCRtpSenderPlatform {
  public:
-  FakeRTCRtpSenderImpl(absl::optional<String> track_id,
+  FakeRTCRtpSenderImpl(String track_id,
                        Vector<String> stream_ids,
                        scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   FakeRTCRtpSenderImpl(const FakeRTCRtpSenderImpl&);
@@ -38,7 +38,8 @@ class FakeRTCRtpSenderImpl : public blink::RTCRtpSenderPlatform {
 
   std::unique_ptr<blink::RTCRtpSenderPlatform> ShallowCopy() const override;
   uintptr_t Id() const override;
-  rtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport() override;
+  webrtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport()
+      override;
   webrtc::DtlsTransportInformation DtlsTransportInformation() override;
   MediaStreamComponent* Track() const override;
   Vector<String> StreamIds() const override;
@@ -47,13 +48,13 @@ class FakeRTCRtpSenderImpl : public blink::RTCRtpSenderPlatform {
   std::unique_ptr<blink::RtcDtmfSenderHandler> GetDtmfSender() const override;
   std::unique_ptr<webrtc::RtpParameters> GetParameters() const override;
   void SetParameters(Vector<webrtc::RtpEncodingParameters>,
-                     absl::optional<webrtc::DegradationPreference>,
+                     std::optional<webrtc::DegradationPreference>,
                      blink::RTCVoidRequest*) override;
   void GetStats(RTCStatsReportCallback) override;
   void SetStreams(const Vector<String>& stream_ids) override;
 
  private:
-  absl::optional<String> track_id_;
+  String track_id_;
   Vector<String> stream_ids_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 };
@@ -70,7 +71,8 @@ class FakeRTCRtpReceiverImpl : public RTCRtpReceiverPlatform {
 
   std::unique_ptr<RTCRtpReceiverPlatform> ShallowCopy() const override;
   uintptr_t Id() const override;
-  rtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport() override;
+  webrtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport()
+      override;
   webrtc::DtlsTransportInformation DtlsTransportInformation() override;
   MediaStreamComponent* Track() const override;
   Vector<String> StreamIds() const override;
@@ -78,7 +80,7 @@ class FakeRTCRtpReceiverImpl : public RTCRtpReceiverPlatform {
   void GetStats(RTCStatsReportCallback) override;
   std::unique_ptr<webrtc::RtpParameters> GetParameters() const override;
   void SetJitterBufferMinimumDelay(
-      absl::optional<double> delay_seconds) override;
+      std::optional<double> delay_seconds) override;
 
  private:
   Persistent<MediaStreamComponent> component_;
@@ -92,7 +94,7 @@ class FakeRTCRtpTransceiverImpl : public RTCRtpTransceiverPlatform {
       FakeRTCRtpSenderImpl sender,
       FakeRTCRtpReceiverImpl receiver,
       webrtc::RtpTransceiverDirection direction,
-      absl::optional<webrtc::RtpTransceiverDirection> current_direction);
+      std::optional<webrtc::RtpTransceiverDirection> current_direction);
   ~FakeRTCRtpTransceiverImpl() override;
 
   uintptr_t Id() const override;
@@ -102,9 +104,9 @@ class FakeRTCRtpTransceiverImpl : public RTCRtpTransceiverPlatform {
   webrtc::RtpTransceiverDirection Direction() const override;
   webrtc::RTCError SetDirection(
       webrtc::RtpTransceiverDirection direction) override;
-  absl::optional<webrtc::RtpTransceiverDirection> CurrentDirection()
+  std::optional<webrtc::RtpTransceiverDirection> CurrentDirection()
       const override;
-  absl::optional<webrtc::RtpTransceiverDirection> FiredDirection()
+  std::optional<webrtc::RtpTransceiverDirection> FiredDirection()
       const override;
 
   webrtc::RTCError Stop() override;
@@ -122,7 +124,7 @@ class FakeRTCRtpTransceiverImpl : public RTCRtpTransceiverPlatform {
   FakeRTCRtpSenderImpl sender_;
   FakeRTCRtpReceiverImpl receiver_;
   webrtc::RtpTransceiverDirection direction_;
-  absl::optional<webrtc::RtpTransceiverDirection> current_direction_;
+  std::optional<webrtc::RtpTransceiverDirection> current_direction_;
 };
 
 }  // namespace blink

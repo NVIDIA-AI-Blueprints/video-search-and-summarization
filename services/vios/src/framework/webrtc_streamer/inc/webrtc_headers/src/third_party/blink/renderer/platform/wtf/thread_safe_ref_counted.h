@@ -32,9 +32,8 @@
 
 #include "base/memory/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 
-namespace WTF {
+namespace blink {
 
 template <typename T, typename Traits>
 class ThreadSafeRefCounted;
@@ -42,8 +41,8 @@ class ThreadSafeRefCounted;
 template <typename T>
 struct DefaultThreadSafeRefCountedTraits {
   static void Destruct(const T* x) {
-    WTF::ThreadSafeRefCounted<
-        T, DefaultThreadSafeRefCountedTraits>::DeleteInternal(x);
+    ThreadSafeRefCounted<T, DefaultThreadSafeRefCountedTraits>::DeleteInternal(
+        x);
   }
 };
 
@@ -66,8 +65,6 @@ class ThreadSafeRefCounted : public base::RefCountedThreadSafe<T, Traits> {
   }
 };
 
-}  // namespace WTF
-
-using WTF::ThreadSafeRefCounted;
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_THREAD_SAFE_REF_COUNTED_H_

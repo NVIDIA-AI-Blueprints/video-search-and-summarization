@@ -25,9 +25,9 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_PLATFORM_MODULES_MEDIASTREAM_WEB_MEDIA_STREAM_H_
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_MODULES_MEDIASTREAM_WEB_MEDIA_STREAM_H_
 
+#include "base/memory/weak_ptr.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_private_ptr.h"
-#include "third_party/blink/public/platform/web_vector.h"
 
 namespace blink {
 
@@ -47,14 +47,19 @@ class BLINK_PLATFORM_EXPORT WebMediaStreamObserver {
   // active or inactive.
   virtual void ActiveStateChanged(bool is_active) {}
 
+  // EnabledStateChangedForWebRtcAudio is called only when the observed
+  // MediaStream that has a WebRTC remote audio track and that track is enabled
+  // or disabled.
+  virtual void EnabledStateChangedForWebRtcAudio(bool is_enabled) {}
+
  protected:
   virtual ~WebMediaStreamObserver() = default;
 };
 
 class BLINK_PLATFORM_EXPORT WebMediaStream {
  public:
-  WebMediaStream();
-  WebMediaStream(const WebMediaStream& other);
+  WebMediaStream() = default;
+  WebMediaStream(const WebMediaStream& other) { Assign(other); }
   ~WebMediaStream() { Reset(); }
 
   WebMediaStream& operator=(const WebMediaStream& other) {
@@ -80,8 +85,8 @@ class BLINK_PLATFORM_EXPORT WebMediaStream {
   // the WebMediaStream. Observers cannot be null, cannot be added or removed
   // more than once, and cannot invoke AddObserver/RemoveObserver in their
   // TrackAdded/TrackRemoved callbacks.
-  void AddObserver(WebMediaStreamObserver*);
-  void RemoveObserver(WebMediaStreamObserver*);
+  void AddObserver(base::WeakPtr<WebMediaStreamObserver>);
+  void RemoveObserver(base::WeakPtr<WebMediaStreamObserver>);
 
 #if INSIDE_BLINK
   explicit WebMediaStream(MediaStreamDescriptor*);
@@ -90,7 +95,7 @@ class BLINK_PLATFORM_EXPORT WebMediaStream {
 #endif
 
  private:
-  WebPrivatePtr<MediaStreamDescriptor> private_;
+  WebPrivatePtrForGC<MediaStreamDescriptor> private_;
 };
 
 }  // namespace blink

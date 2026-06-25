@@ -11,7 +11,11 @@
 #ifndef PC_TEST_FAKE_VIDEO_TRACK_SOURCE_H_
 #define PC_TEST_FAKE_VIDEO_TRACK_SOURCE_H_
 
+#include "api/make_ref_counted.h"
 #include "api/media_stream_interface.h"
+#include "api/scoped_refptr.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_source_interface.h"
 #include "media/base/video_broadcaster.h"
 #include "pc/video_track_source.h"
 
@@ -21,15 +25,25 @@ namespace webrtc {
 // injection of frames.
 class FakeVideoTrackSource : public VideoTrackSource {
  public:
-  static rtc::scoped_refptr<FakeVideoTrackSource> Create(bool is_screencast) {
-    return rtc::make_ref_counted<FakeVideoTrackSource>(is_screencast);
+  static scoped_refptr<FakeVideoTrackSource> Create(bool is_screencast) {
+    return make_ref_counted<FakeVideoTrackSource>(is_screencast);
   }
 
-  static rtc::scoped_refptr<FakeVideoTrackSource> Create() {
-    return Create(false);
-  }
+  static scoped_refptr<FakeVideoTrackSource> Create() { return Create(false); }
 
   bool is_screencast() const override { return is_screencast_; }
+  bool GetStats(VideoTrackSourceInterface::Stats* stats) override {
+    if (!stats)
+      return false;
+    stats->input_width = width_;
+    stats->input_height = height_;
+    return true;
+  }
+
+  void SetSize(int width, int height) {
+    width_ = width;
+    height_ = height;
+  }
 
   void InjectFrame(const VideoFrame& frame) {
     video_broadcaster_.OnFrame(frame);
@@ -40,13 +54,15 @@ class FakeVideoTrackSource : public VideoTrackSource {
       : VideoTrackSource(false /* remote */), is_screencast_(is_screencast) {}
   ~FakeVideoTrackSource() override = default;
 
-  rtc::VideoSourceInterface<VideoFrame>* source() override {
+  VideoSourceInterface<VideoFrame>* source() override {
     return &video_broadcaster_;
   }
 
  private:
   const bool is_screencast_;
-  rtc::VideoBroadcaster video_broadcaster_;
+  int width_ = 0;
+  int height_ = 0;
+  VideoBroadcaster video_broadcaster_;
 };
 
 }  // namespace webrtc

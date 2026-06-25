@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,13 @@
 
 namespace blink {
 
-class ExceptionState;
-
 namespace bindings {
 
 // SyncIteratorBase is the common base class of all sync iterator classes.
 // Most importantly this class provides a way of type dispatching (e.g.
 // overload resolutions, SFINAE technique, etc.) so that it's possible to
-// distinguish sync pair iterators from anything else.  Also it provides
-// common implementation of sync pair iterators.
+// distinguish sync iterators from anything else. Also it provides common
+// implementation of sync iterators.
 class PLATFORM_EXPORT SyncIteratorBase : public ScriptWrappable {
  public:
   // https://webidl.spec.whatwg.org/#default-iterator-object-kind
@@ -37,16 +35,14 @@ class PLATFORM_EXPORT SyncIteratorBase : public ScriptWrappable {
     IterationSourceBase& operator=(const IterationSourceBase&) = delete;
 
     virtual v8::Local<v8::Object> Next(ScriptState* script_state,
-                                       Kind kind,
-                                       ExceptionState& exception_state) = 0;
+                                       Kind kind) = 0;
 
     virtual void Trace(Visitor* visitor) const {}
   };
 
   ~SyncIteratorBase() override = default;
 
-  v8::Local<v8::Object> next(ScriptState* script_state,
-                             ExceptionState& exception_state);
+  v8::Local<v8::Object> next(ScriptState* script_state);
 
   void Trace(Visitor* visitor) const override;
 
@@ -60,6 +56,9 @@ class PLATFORM_EXPORT SyncIteratorBase : public ScriptWrappable {
 
 }  // namespace bindings
 
+// This class template is specialized by the bindings code generator for each
+// class T which implements an IDL interface declared to be iterable, maplike,
+// or setlike.
 template <typename T>
 class SyncIterator;
 

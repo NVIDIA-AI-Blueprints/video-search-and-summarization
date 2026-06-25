@@ -74,7 +74,7 @@ class PLATFORM_EXPORT MediaStreamDescriptor final
                         const MediaStreamComponentVector& audio_components,
                         const MediaStreamComponentVector& video_components);
 
-  MediaStreamDescriptorClient* Client() const { return client_; }
+  MediaStreamDescriptorClient* Client() const { return client_.Get(); }
   void SetClient(MediaStreamDescriptorClient* client) { client_ = client; }
 
   // This is the same as the id of the |MediaStream|. It is unique in most
@@ -110,22 +110,31 @@ class PLATFORM_EXPORT MediaStreamDescriptor final
   bool Active() const { return active_; }
   void SetActive(bool active);
 
-  void AddObserver(WebMediaStreamObserver*);
-  void RemoveObserver(WebMediaStreamObserver*);
+  void NotifyEnabledStateChangeForWebRtcAudio(bool enabled);
+
+  void AddObserver(base::WeakPtr<WebMediaStreamObserver>);
+  void RemoveObserver(base::WeakPtr<WebMediaStreamObserver>);
 
   void Trace(Visitor*) const;
 
  private:
+  // Removes null entries and returns a copy of `observers_`.
+  // To avoid reentrancy issues, use this method when iterating over the
+  // observers and making calls that might change `observers_`.
+  Vector<base::WeakPtr<WebMediaStreamObserver>> CleanedUpObservers();
+
   Member<MediaStreamDescriptorClient> client_;
   String id_;
   int unique_id_;
   HeapVector<Member<MediaStreamComponent>> audio_components_;
   HeapVector<Member<MediaStreamComponent>> video_components_;
-  Vector<WebMediaStreamObserver*> observers_;
+  Vector<base::WeakPtr<WebMediaStreamObserver>> observers_;
   bool active_;
 };
 
-typedef HeapVector<Member<MediaStreamDescriptor>> MediaStreamDescriptorVector;
+using MediaStreamDescriptorVector = HeapVector<Member<MediaStreamDescriptor>>;
+using GCedMediaStreamDescriptorVector =
+    GCedHeapVector<Member<MediaStreamDescriptor>>;
 
 }  // namespace blink
 

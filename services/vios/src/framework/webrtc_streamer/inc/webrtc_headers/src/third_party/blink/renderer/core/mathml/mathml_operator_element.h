@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_MATHML_MATHML_OPERATOR_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_MATHML_MATHML_OPERATOR_ELEMENT_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/mathml/mathml_token_element.h"
 
@@ -23,6 +24,10 @@ constexpr double kMathUnitFraction = 1.0 / 18.0;
 class CORE_EXPORT MathMLOperatorElement final : public MathMLTokenElement {
  public:
   explicit MathMLOperatorElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kMathMLOperatorElement;
+  }
 
   enum OperatorPropertyFlag {
     kStretchy = 0x1,
@@ -51,7 +56,7 @@ class CORE_EXPORT MathMLOperatorElement final : public MathMLTokenElement {
  private:
   // Whether the operator stretches along the block or inline axis.
   // https://w3c.github.io/mathml-core/#dfn-stretch-axis
-  absl::optional<bool> is_vertical_;
+  std::optional<bool> is_vertical_;
   // Operator properties calculated from dictionary and attributes.
   // It contains dirty flags to allow efficient dictionary updating.
   // https://w3c.github.io/mathml-core/#dictionary-based-attributes

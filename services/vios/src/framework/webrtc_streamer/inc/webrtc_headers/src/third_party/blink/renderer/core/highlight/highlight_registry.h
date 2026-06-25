@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/maplike.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_sync_iterator_highlight_registry.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/live_collection_iterator.h"
 #include "third_party/blink/renderer/core/highlight/highlight.h"
 #include "third_party/blink/renderer/core/highlight/highlight_registry_map_entry.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -26,7 +27,10 @@ namespace blink {
 using HighlightRegistryMap =
     HeapLinkedHashSet<Member<HighlightRegistryMapEntry>>;
 using HighlightRegistryMapIterable = Maplike<HighlightRegistry>;
+class HighlightHitResult;
+class HighlightsFromPointOptions;
 class LocalFrame;
+class Text;
 
 class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
                                       public Supplement<LocalDOMWindow>,
@@ -42,6 +46,8 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
 
   void Trace(blink::Visitor*) const override;
 
+  static HighlightRegistry* GetHighlightRegistry(const Node* node);
+
   void SetForTesting(AtomicString, Highlight*);
   void RemoveForTesting(AtomicString, Highlight*);
   HighlightRegistry* setForBinding(ScriptState*,
@@ -53,8 +59,13 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
   wtf_size_t size() const { return highlights_.size(); }
 
   const HighlightRegistryMap& GetHighlights() const { return highlights_; }
+  const HashSet<AtomicString>& GetActiveHighlights(const Text& node) const;
   void ValidateHighlightMarkers();
   void ScheduleRepaint();
+
+  bool GetForceMarkersValidationForTesting() const {
+    return force_markers_validation_;
+  }
 
   enum OverlayStackingPosition {
     kOverlayStackingPositionBelow = -1,
@@ -62,43 +73,68 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
     kOverlayStackingPositionAbove = 1,
   };
 
-  int8_t CompareOverlayStackingPosition(const AtomicString& highlight_name1,
-                                        const Highlight* highlight1,
-                                        const AtomicString& highlight_name2,
-                                        const Highlight* highlight2) const;
+  // Compares Highlights by priority and breaks ties by order of insertion to
+  // the registry: a higher priority takes precedence, and in the case
+  // priorities are the same, the most recently registered Highlight takes
+  // precedence.
+  int8_t CompareOverlayStackingPosition(
+      const AtomicString& highlight_name1,
+      const AtomicString& highlight_name2) const;
 
-  class IterationSource final
-      : public HighlightRegistryMapIterable::IterationSource {
+  // HighlightRegistryMapIterable implements live iteration following Map
+  // semantics.
+  using RegistryLiveIterator =
+      LiveCollectionIterator<HighlightRegistryMapEntry>;
+
+  class CORE_EXPORT IterationSource final
+      : public HighlightRegistryMapIterable::IterationSource,
+        public RegistryLiveIterator {
    public:
-    explicit IterationSource(const HighlightRegistry& highlight_registry);
+    explicit IterationSource(HighlightRegistry& highlight_registry);
 
     bool FetchNextItem(ScriptState* script_state,
                        String& key,
-                       Highlight*& value,
-                       ExceptionState& exception_state) override;
+                       Highlight*& value) override;
 
     void Trace(blink::Visitor*) const override;
 
    private:
-    wtf_size_t index_;
-    HeapVector<Member<HighlightRegistryMapEntry>> highlights_snapshot_;
+    Member<HighlightRegistry> registry_;
   };
 
+  HeapVector<Member<HighlightHitResult>> highlightsFromPoint(
+      float x,
+      float y,
+      const HighlightsFromPointOptions* options);
+
  private:
+  bool IsAbstractRangePaintable(AbstractRange*, Document*) const;
+
   HighlightRegistryMap highlights_;
   Member<LocalFrame> frame_;
+  // Active iteration sources that need to be notified of mutations.
+  // WeakMember ensures GC automatically cleans up unreferenced iterators.
+  HeapHashSet<WeakMember<RegistryLiveIterator>> active_iterators_;
+  void NotifyIteratorsWillRemoveEntry(HighlightRegistryMapEntry* entry);
+  void NotifyIteratorsWillClear();
+  // Only valid after ValidateHighlightMarkers(), used to optimize painting.
+  HeapHashMap<WeakMember<const Text>, HashSet<AtomicString>>
+      active_highlights_in_node_;
   uint64_t dom_tree_version_for_validate_highlight_markers_ = 0;
   uint64_t style_version_for_validate_highlight_markers_ = 0;
   bool force_markers_validation_ = true;
+  // Number of Highlights registered so far during the lifetime of this
+  // HighlightRegistry. Used to store this information for every Highlight
+  // registered in order to break ties when determining Highlight precedence.
+  uint64_t highlights_registered_ = 0;
 
-  HighlightRegistryMap::iterator GetMapIterator(const AtomicString& key) {
+  HighlightRegistryMap::iterator GetMapIterator(const AtomicString& key) const {
     return highlights_.Find<HighlightRegistryMapEntryNameTranslator>(key);
   }
 
   bool GetMapEntry(ScriptState*,
                    const String& key,
-                   Highlight*& value,
-                   ExceptionState&) override {
+                   Highlight*& value) override {
     auto iterator = GetMapIterator(AtomicString(key));
     if (iterator == highlights_.end())
       return false;
@@ -108,8 +144,7 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
   }
 
   HighlightRegistryMapIterable::IterationSource* CreateIterationSource(
-      ScriptState*,
-      ExceptionState&) override;
+      ScriptState*) override;
 };
 
 }  // namespace blink

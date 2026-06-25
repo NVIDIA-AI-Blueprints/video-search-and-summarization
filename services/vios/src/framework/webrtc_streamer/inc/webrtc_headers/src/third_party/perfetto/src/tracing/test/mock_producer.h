@@ -20,12 +20,14 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "perfetto/ext/tracing/core/producer.h"
 #include "perfetto/ext/tracing/core/shared_memory.h"
 #include "perfetto/ext/tracing/core/trace_writer.h"
 #include "perfetto/ext/tracing/core/tracing_service.h"
+#include "protos/perfetto/protovm/vm_program.gen.h"
 #include "test/gtest_and_gmock.h"
 
 namespace perfetto {
@@ -49,13 +51,19 @@ class MockProducer : public Producer {
                const std::string& producer_name,
                uid_t uid = 42,
                pid_t pid = 1025,
+               MachineID machine_id = kDefaultMachineID,
+               const std::string& machine_name = {},
                size_t shared_memory_size_hint_bytes = 0,
                size_t shared_memory_page_size_hint_bytes = 0,
-               std::unique_ptr<SharedMemory> shm = nullptr);
+               std::unique_ptr<SharedMemory> shm = nullptr,
+               bool in_process = true);
   void RegisterDataSource(const std::string& name,
                           bool ack_stop = false,
                           bool ack_start = false,
-                          bool handle_incremental_state_clear = false);
+                          bool handle_incremental_state_clear = false,
+                          bool no_flush = false,
+                          const std::optional<perfetto::protos::gen::VmProgram>&
+                              protovm_program = std::nullopt);
   void UnregisterDataSource(const std::string& name);
   void RegisterTrackEventDataSource(
       const std::initializer_list<std::string>& categories,
@@ -72,14 +80,19 @@ class MockProducer : public Producer {
   DataSourceInstanceID GetDataSourceInstanceId(const std::string& name);
   const EnabledDataSource* GetDataSourceInstance(const std::string& name);
   std::unique_ptr<TraceWriter> CreateTraceWriter(
-      const std::string& data_source_name);
+      const std::string& data_source_name,
+      BufferExhaustedPolicy buffer_exhausted_policy =
+          BufferExhaustedPolicy::kStall);
 
   // Expect a flush. Flushes |writer_to_flush| if non-null. If |reply| is true,
   // replies to the flush request, otherwise ignores it and doesn't reply.
-  void WaitForFlush(TraceWriter* writer_to_flush, bool reply = true);
+  void ExpectFlush(TraceWriter* writer_to_flush,
+                   bool reply = true,
+                   FlushFlags expected_flags = FlushFlags());
   // Same as above, but with a vector of writers.
-  void WaitForFlush(std::vector<TraceWriter*> writers_to_flush,
-                    bool reply = true);
+  void ExpectFlush(std::vector<TraceWriter*> writers_to_flush,
+                   bool reply = true,
+                   FlushFlags expected_flags = FlushFlags());
 
   TracingService::ProducerEndpoint* endpoint() {
     return service_endpoint_.get();
@@ -100,7 +113,7 @@ class MockProducer : public Producer {
   MOCK_METHOD(void, OnTracingSetup, (), (override));
   MOCK_METHOD(void,
               Flush,
-              (FlushRequestID, const DataSourceInstanceID*, size_t),
+              (FlushRequestID, const DataSourceInstanceID*, size_t, FlushFlags),
               (override));
   MOCK_METHOD(void,
               ClearIncrementalState,

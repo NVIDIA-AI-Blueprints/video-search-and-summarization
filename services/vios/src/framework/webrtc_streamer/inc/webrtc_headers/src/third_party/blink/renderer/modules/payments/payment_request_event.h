@@ -7,6 +7,8 @@
 
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/mojom/payments/payment_handler_host.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_address_init.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_payment_request_event_init.h"
@@ -16,17 +18,14 @@
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 
-namespace WTF {
-class AtomicString;
-}
-
 namespace blink {
 
 class ExceptionState;
-class RespondWithObserver;
-class ScriptPromiseResolver;
+class PaymentHandlerResponse;
+class PaymentRequestDetailsUpdate;
+class PaymentRequestRespondWithObserver;
 class ScriptState;
-class ScriptValue;
+class ServiceWorkerWindowClient;
 
 class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
   DEFINE_WRAPPERTYPEINFO();
@@ -37,7 +36,7 @@ class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
       const PaymentRequestEventInit*,
       mojo::PendingRemote<payments::mojom::blink::PaymentHandlerHost> host =
           mojo::NullRemote(),
-      RespondWithObserver* respond_with_observer = nullptr,
+      PaymentRequestRespondWithObserver* respond_with_observer = nullptr,
       WaitUntilObserver* wait_until_observer = nullptr,
       ExecutionContext* execution_context = nullptr);
 
@@ -45,7 +44,7 @@ class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
       const AtomicString& type,
       const PaymentRequestEventInit*,
       mojo::PendingRemote<payments::mojom::blink::PaymentHandlerHost> host,
-      RespondWithObserver*,
+      PaymentRequestRespondWithObserver*,
       WaitUntilObserver*,
       ExecutionContext* execution_context);
 
@@ -60,28 +59,30 @@ class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
   const String& paymentRequestOrigin() const;
   const String& paymentRequestId() const;
   const HeapVector<Member<PaymentMethodData>>& methodData() const;
-  const ScriptValue total(ScriptState*) const;
+  const ScriptObject total(ScriptState*) const;
   const HeapVector<Member<PaymentDetailsModifier>>& modifiers() const;
   const String& instrumentKey() const;
-  const ScriptValue paymentOptions(ScriptState*) const;
-  absl::optional<HeapVector<Member<PaymentShippingOption>>> shippingOptions()
+  const ScriptObject paymentOptions(ScriptState*) const;
+  std::optional<HeapVector<Member<PaymentShippingOption>>> shippingOptions()
       const;
 
-  ScriptPromise openWindow(ScriptState*, const String& url);
-  ScriptPromise changePaymentMethod(ScriptState*,
-                                    const String& method_name,
-                                    ExceptionState& exception_state);
-  ScriptPromise changePaymentMethod(ScriptState*,
-                                    const String& method_name,
-                                    const ScriptValue& method_details,
-                                    ExceptionState& exception_state);
-  ScriptPromise changeShippingAddress(ScriptState*,
-                                      AddressInit*,
-                                      ExceptionState&);
-  ScriptPromise changeShippingOption(ScriptState*,
-                                     const String& shipping_option_id,
-                                     ExceptionState&);
-  void respondWith(ScriptState*, ScriptPromise, ExceptionState&);
+  ScriptPromise<IDLNullable<ServiceWorkerWindowClient>> openWindow(
+      ScriptState*,
+      const String& url);
+  ScriptPromise<IDLNullable<PaymentRequestDetailsUpdate>> changePaymentMethod(
+      ScriptState*,
+      const String& method_name,
+      const ScriptObject& method_details,
+      ExceptionState& exception_state);
+  ScriptPromise<IDLNullable<PaymentRequestDetailsUpdate>>
+  changeShippingAddress(ScriptState*, AddressInit*, ExceptionState&);
+  ScriptPromise<IDLNullable<PaymentRequestDetailsUpdate>> changeShippingOption(
+      ScriptState*,
+      const String& shipping_option_id,
+      ExceptionState&);
+  void respondWith(ScriptState*,
+                   ScriptPromise<PaymentHandlerResponse>,
+                   ExceptionState&);
 
   void Trace(Visitor*) const override;
 
@@ -100,8 +101,9 @@ class MODULES_EXPORT PaymentRequestEvent final : public ExtendableEvent {
   Member<const PaymentOptions> payment_options_;
   HeapVector<Member<PaymentShippingOption>> shipping_options_;
 
-  Member<ScriptPromiseResolver> change_payment_request_details_resolver_;
-  Member<RespondWithObserver> observer_;
+  Member<ScriptPromiseResolver<IDLNullable<PaymentRequestDetailsUpdate>>>
+      change_payment_request_details_resolver_;
+  Member<PaymentRequestRespondWithObserver> observer_;
   HeapMojoRemote<payments::mojom::blink::PaymentHandlerHost>
       payment_handler_host_;
 };

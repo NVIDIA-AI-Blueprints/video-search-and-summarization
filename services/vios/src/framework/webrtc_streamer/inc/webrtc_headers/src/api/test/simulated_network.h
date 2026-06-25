@@ -14,30 +14,58 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
-#include <queue>
+#include <functional>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "rtc_base/random.h"
-#include "rtc_base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
+#include "api/transport/ecn_marking.h"
+#include "api/units/data_rate.h"
+#include "api/units/data_size.h"
+#include "api/units/timestamp.h"
 
 namespace webrtc {
 
 struct PacketInFlightInfo {
+  PacketInFlightInfo(size_t size,
+                     int64_t send_time_us,
+                     uint64_t packet_id,
+                     EcnMarking ecn)
+      : size(size),
+        send_time_us(send_time_us),
+        packet_id(packet_id),
+        ecn(ecn) {}
+  PacketInFlightInfo(DataSize size,
+                     Timestamp send_time,
+                     uint64_t packet_id,
+                     EcnMarking ecn)
+      : PacketInFlightInfo(size.bytes(), send_time.us(), packet_id, ecn) {}
+  PacketInFlightInfo(DataSize size, Timestamp send_time, uint64_t packet_id)
+      : PacketInFlightInfo(size.bytes(),
+                           send_time.us(),
+                           packet_id,
+                           EcnMarking::kNotEct) {}
+
   PacketInFlightInfo(size_t size, int64_t send_time_us, uint64_t packet_id)
-      : size(size), send_time_us(send_time_us), packet_id(packet_id) {}
+      : PacketInFlightInfo(size, send_time_us, packet_id, EcnMarking::kNotEct) {
+  }
+
+  DataSize packet_size() const { return DataSize::Bytes(size); }
+  Timestamp send_time() const { return Timestamp::Micros(send_time_us); }
 
   size_t size;
   int64_t send_time_us;
   // Unique identifier for the packet in relation to other packets in flight.
   uint64_t packet_id;
+  EcnMarking ecn;
 };
 
 struct PacketDeliveryInfo {
   static constexpr int kNotReceived = -1;
   PacketDeliveryInfo(PacketInFlightInfo source, int64_t receive_time_us)
-      : receive_time_us(receive_time_us), packet_id(source.packet_id) {}
+      : receive_time_us(receive_time_us),
+        packet_id(source.packet_id),
+        ecn(source.ecn) {}
 
   bool operator==(const PacketDeliveryInfo& other) const {
     return receive_time_us == other.receive_time_us &&
@@ -46,6 +74,7 @@ struct PacketDeliveryInfo {
 
   int64_t receive_time_us;
   uint64_t packet_id;
+  EcnMarking ecn;
 };
 
 // BuiltInNetworkBehaviorConfig is a built-in network behavior configuration
@@ -58,16 +87,19 @@ struct BuiltInNetworkBehaviorConfig {
   int queue_delay_ms = 0;
   // Standard deviation of the extra delay.
   int delay_standard_deviation_ms = 0;
-  // Link capacity in kbps.
-  int link_capacity_kbps = 0;
-  // Random packet loss.
-  int loss_percent = 0;
+  // Link capacity.
+  DataRate link_capacity = DataRate::Infinity();
+  // Random packet loss, range 0 to 100.
+  double loss_percent = 0.;
   // If packets are allowed to be reordered.
   bool allow_reordering = false;
   // The average length of a burst of lost packets.
   int avg_burst_loss_length = -1;
   // Additional bytes to add to packet size.
   int packet_overhead = 0;
+  // Forward ECN from previous nodes in the network. If false, ECN bits
+  // are set to not ECT. See https://www.rfc-editor.org/rfc/rfc9331.html.
+  bool forward_ecn = true;
 };
 
 // Interface that represents a Network behaviour.
@@ -114,7 +146,15 @@ class NetworkBehaviorInterface {
   // possible that no packet will be delivered by that time (e.g. in case of
   // random extra delay), in such case this method should be called again to get
   // the updated estimated delivery time.
-  virtual absl::optional<int64_t> NextDeliveryTimeUs() const = 0;
+  virtual std::optional<int64_t> NextDeliveryTimeUs() const = 0;
+  // Registers a callback that should be triggered by an implementation if the
+  // next NextDeliveryTimeUs() has changed between a call to NextDeliveryTimeUs
+  // and DequeueDeliverablePackets.
+  // The intended usage is to invoke NextDeliveryTimeUs and reschedule the
+  // DequeueDeliverablePackets call when network parameters (such as link
+  // capacity) changes.
+  virtual void RegisterDeliveryTimeChangedCallback(
+      absl::AnyInvocable<void()> /* callback */) {}
   virtual ~NetworkBehaviorInterface() = default;
 };
 

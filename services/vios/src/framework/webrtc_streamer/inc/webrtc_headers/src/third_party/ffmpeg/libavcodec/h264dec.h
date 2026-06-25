@@ -28,8 +28,6 @@
 #ifndef AVCODEC_H264DEC_H
 #define AVCODEC_H264DEC_H
 
-#include "libavutil/buffer.h"
-#include "libavutil/intreadwrite.h"
 #include "libavutil/mem_internal.h"
 
 #include "cabac.h"
@@ -42,9 +40,8 @@
 #include "h264dsp.h"
 #include "h264pred.h"
 #include "h264qpel.h"
-#include "h274.h"
 #include "mpegutils.h"
-#include "rectangle.h"
+#include "threadframe.h"
 #include "videodsp.h"
 
 #define H264_MAX_PICTURE_COUNT 36
@@ -94,6 +91,14 @@
 
 #define IS_REF0(a)         ((a) & MB_TYPE_REF0)
 #define IS_8x8DCT(a)       ((a) & MB_TYPE_8x8DCT)
+#define IS_SUB_8X8(a)      ((a) & MB_TYPE_16x16) // note reused
+#define IS_SUB_8X4(a)      ((a) & MB_TYPE_16x8)  // note reused
+#define IS_SUB_4X8(a)      ((a) & MB_TYPE_8x16)  // note reused
+#define IS_SUB_4X4(a)      ((a) & MB_TYPE_8x8)   // note reused
+#define IS_DIR(a, part, list) ((a) & (MB_TYPE_P0L0 << ((part) + 2 * (list))))
+
+// does this mb use listX, note does not work if subMBs
+#define USES_LIST(a, list) ((a) & ((MB_TYPE_P0L0 | MB_TYPE_P1L0) << (2 * (list))))
 
 /**
  * Memory management control operation.
@@ -110,20 +115,19 @@ typedef struct H264Picture {
 
     AVFrame *f_grain;
 
-    AVBufferRef *qscale_table_buf;
+    int8_t *qscale_table_base;        ///< RefStruct reference
     int8_t *qscale_table;
 
-    AVBufferRef *motion_val_buf[2];
+    int16_t (*motion_val_base[2])[2]; ///< RefStruct reference
     int16_t (*motion_val[2])[2];
 
-    AVBufferRef *mb_type_buf;
+    uint32_t *mb_type_base;           ///< RefStruct reference
     uint32_t *mb_type;
 
-    AVBufferRef *hwaccel_priv_buf;
-    void *hwaccel_picture_private; ///< hardware accelerator private data
+    /// RefStruct reference for hardware accelerator private data
+    void *hwaccel_picture_private;
 
-    AVBufferRef *ref_index_buf[2];
-    int8_t *ref_index[2];
+    int8_t *ref_index[2];   ///< RefStruct reference
 
     int field_poc[2];       ///< top/bottom POC
     int poc;                ///< frame POC
@@ -149,11 +153,15 @@ typedef struct H264Picture {
     int sei_recovery_frame_cnt;
     int needs_fg;           ///< whether picture needs film grain synthesis (see `f_grain`)
 
-    AVBufferRef *pps_buf;
     const PPS   *pps;
 
     int mb_width, mb_height;
     int mb_stride;
+
+    /// RefStruct reference; its pointee is shared between decoding threads.
+    atomic_int *decode_error_flags;
+
+    int gray;
 } H264Picture;
 
 typedef struct H264Ref {
@@ -164,7 +172,7 @@ typedef struct H264Ref {
     int poc;
     int pic_id;
 
-    H264Picture *parent;
+    const H264Picture *parent;
 } H264Ref;
 
 typedef struct H264SliceContext {
@@ -295,11 +303,11 @@ typedef struct H264SliceContext {
 
     DECLARE_ALIGNED(8, uint16_t, sub_mb_type)[4];
 
-    ///< as a DCT coefficient is int32_t in high depth, we need to reserve twice the space.
+    /// as a DCT coefficient is int32_t in high depth, we need to reserve twice the space.
     DECLARE_ALIGNED(16, int16_t, mb)[16 * 48 * 2];
     DECLARE_ALIGNED(16, int16_t, mb_luma_dc)[3][16 * 2];
-    ///< as mb is addressed by scantable[i] and scantable is uint8_t we can either
-    ///< check that i is not too large or ensure that there is some unused stuff after mb
+    /// as mb is addressed by scantable[i] and scantable is uint8_t we can either
+    /// check that i is not too large or ensure that there is some unused stuff after mb
     int16_t mb_padding[256 * 2];
 
     uint8_t (*mvd_table[2])[2];
@@ -334,7 +342,6 @@ typedef struct H264Context {
     H264DSPContext h264dsp;
     H264ChromaContext h264chroma;
     H264QpelContext h264qpel;
-    H274FilmGrainDatabase h274db;
 
     H264Picture DPB[H264_MAX_PICTURE_COUNT];
     H264Picture *cur_pic_ptr;
@@ -354,7 +361,6 @@ typedef struct H264Context {
     int chroma_x_shift, chroma_y_shift;
 
     int droppable;
-    int coded_picture_number;
 
     int context_initialized;
     int flags;
@@ -519,8 +525,22 @@ typedef struct H264Context {
  * so all the following frames in presentation order are correct.
  */
 #define FRAME_RECOVERED_SEI  (1 << 1)
+/**
+ * Recovery point detected by heuristic
+ */
+#define FRAME_RECOVERED_HEURISTIC  (1 << 2)
 
-    int frame_recovered;    ///< Initial frame has been completely recovered
+    /**
+     * Initial frame has been completely recovered.
+     *
+     * Once this is set, all following decoded as well as displayed frames will be marked as recovered
+     * If a frame is marked as recovered frame_recovered will be set once this frame is output and thus
+     * all subsequently output fraames are also marked as recovered
+     *
+     * In effect, if you want all subsequent DECODED frames marked as recovered, set frame_recovered
+     * If you want all subsequent DISPLAYED frames marked as recovered, set the frame->recovered
+     */
+    int frame_recovered;
 
     int has_recovery_point;
 
@@ -547,11 +567,16 @@ typedef struct H264Context {
 
     H264SEIContext sei;
 
-    AVBufferPool *qscale_table_pool;
-    AVBufferPool *mb_type_pool;
-    AVBufferPool *motion_val_pool;
-    AVBufferPool *ref_index_pool;
+    struct AVRefStructPool *qscale_table_pool;
+    struct AVRefStructPool *mb_type_pool;
+    struct AVRefStructPool *motion_val_pool;
+    struct AVRefStructPool *ref_index_pool;
+    struct AVRefStructPool *decode_error_flags_pool;
     int ref2frm[MAX_SLICES][2][64];     ///< reference to frame number lists, used in the loop filter, the first 2 are for -2,-1
+
+    int non_gray;                       ///< Did we encounter a intra frame after a gray gap frame
+    int noref_gray;
+    int skip_gray;
 } H264Context;
 
 extern const uint16_t ff_h264_mb_sizes[4];
@@ -649,141 +674,11 @@ static av_always_inline int get_chroma_qp(const PPS *pps, int t, int qscale)
     return pps->chroma_qp_table[t][qscale];
 }
 
-/**
- * Get the predicted intra4x4 prediction mode.
- */
-static av_always_inline int pred_intra_mode(const H264Context *h,
-                                            H264SliceContext *sl, int n)
-{
-    const int index8 = scan8[n];
-    const int left   = sl->intra4x4_pred_mode_cache[index8 - 1];
-    const int top    = sl->intra4x4_pred_mode_cache[index8 - 8];
-    const int min    = FFMIN(left, top);
-
-    ff_tlog(h->avctx, "mode:%d %d min:%d\n", left, top, min);
-
-    if (min < 0)
-        return DC_PRED;
-    else
-        return min;
-}
-
-static av_always_inline void write_back_intra_pred_mode(const H264Context *h,
-                                                        H264SliceContext *sl)
-{
-    int8_t *i4x4       = sl->intra4x4_pred_mode + h->mb2br_xy[sl->mb_xy];
-    int8_t *i4x4_cache = sl->intra4x4_pred_mode_cache;
-
-    AV_COPY32(i4x4, i4x4_cache + 4 + 8 * 4);
-    i4x4[4] = i4x4_cache[7 + 8 * 3];
-    i4x4[5] = i4x4_cache[7 + 8 * 2];
-    i4x4[6] = i4x4_cache[7 + 8 * 1];
-}
-
-static av_always_inline void write_back_non_zero_count(const H264Context *h,
-                                                       H264SliceContext *sl)
-{
-    const int mb_xy    = sl->mb_xy;
-    uint8_t *nnz       = h->non_zero_count[mb_xy];
-    uint8_t *nnz_cache = sl->non_zero_count_cache;
-
-    AV_COPY32(&nnz[ 0], &nnz_cache[4 + 8 * 1]);
-    AV_COPY32(&nnz[ 4], &nnz_cache[4 + 8 * 2]);
-    AV_COPY32(&nnz[ 8], &nnz_cache[4 + 8 * 3]);
-    AV_COPY32(&nnz[12], &nnz_cache[4 + 8 * 4]);
-    AV_COPY32(&nnz[16], &nnz_cache[4 + 8 * 6]);
-    AV_COPY32(&nnz[20], &nnz_cache[4 + 8 * 7]);
-    AV_COPY32(&nnz[32], &nnz_cache[4 + 8 * 11]);
-    AV_COPY32(&nnz[36], &nnz_cache[4 + 8 * 12]);
-
-    if (!h->chroma_y_shift) {
-        AV_COPY32(&nnz[24], &nnz_cache[4 + 8 * 8]);
-        AV_COPY32(&nnz[28], &nnz_cache[4 + 8 * 9]);
-        AV_COPY32(&nnz[40], &nnz_cache[4 + 8 * 13]);
-        AV_COPY32(&nnz[44], &nnz_cache[4 + 8 * 14]);
-    }
-}
-
-static av_always_inline void write_back_motion_list(const H264Context *h,
-                                                    H264SliceContext *sl,
-                                                    int b_stride,
-                                                    int b_xy, int b8_xy,
-                                                    int mb_type, int list)
-{
-    int16_t(*mv_dst)[2] = &h->cur_pic.motion_val[list][b_xy];
-    int16_t(*mv_src)[2] = &sl->mv_cache[list][scan8[0]];
-    AV_COPY128(mv_dst + 0 * b_stride, mv_src + 8 * 0);
-    AV_COPY128(mv_dst + 1 * b_stride, mv_src + 8 * 1);
-    AV_COPY128(mv_dst + 2 * b_stride, mv_src + 8 * 2);
-    AV_COPY128(mv_dst + 3 * b_stride, mv_src + 8 * 3);
-    if (CABAC(h)) {
-        uint8_t (*mvd_dst)[2] = &sl->mvd_table[list][FMO ? 8 * sl->mb_xy
-                                                        : h->mb2br_xy[sl->mb_xy]];
-        uint8_t(*mvd_src)[2]  = &sl->mvd_cache[list][scan8[0]];
-        if (IS_SKIP(mb_type)) {
-            AV_ZERO128(mvd_dst);
-        } else {
-            AV_COPY64(mvd_dst, mvd_src + 8 * 3);
-            AV_COPY16(mvd_dst + 3 + 3, mvd_src + 3 + 8 * 0);
-            AV_COPY16(mvd_dst + 3 + 2, mvd_src + 3 + 8 * 1);
-            AV_COPY16(mvd_dst + 3 + 1, mvd_src + 3 + 8 * 2);
-        }
-    }
-
-    {
-        int8_t *ref_index = &h->cur_pic.ref_index[list][b8_xy];
-        int8_t *ref_cache = sl->ref_cache[list];
-        ref_index[0 + 0 * 2] = ref_cache[scan8[0]];
-        ref_index[1 + 0 * 2] = ref_cache[scan8[4]];
-        ref_index[0 + 1 * 2] = ref_cache[scan8[8]];
-        ref_index[1 + 1 * 2] = ref_cache[scan8[12]];
-    }
-}
-
-static av_always_inline void write_back_motion(const H264Context *h,
-                                               H264SliceContext *sl,
-                                               int mb_type)
-{
-    const int b_stride      = h->b_stride;
-    const int b_xy  = 4 * sl->mb_x + 4 * sl->mb_y * h->b_stride; // try mb2b(8)_xy
-    const int b8_xy = 4 * sl->mb_xy;
-
-    if (USES_LIST(mb_type, 0)) {
-        write_back_motion_list(h, sl, b_stride, b_xy, b8_xy, mb_type, 0);
-    } else {
-        fill_rectangle(&h->cur_pic.ref_index[0][b8_xy],
-                       2, 2, 2, (uint8_t)LIST_NOT_USED, 1);
-    }
-    if (USES_LIST(mb_type, 1))
-        write_back_motion_list(h, sl, b_stride, b_xy, b8_xy, mb_type, 1);
-
-    if (sl->slice_type_nos == AV_PICTURE_TYPE_B && CABAC(h)) {
-        if (IS_8X8(mb_type)) {
-            uint8_t *direct_table = &h->direct_table[4 * sl->mb_xy];
-            direct_table[1] = sl->sub_mb_type[1] >> 1;
-            direct_table[2] = sl->sub_mb_type[2] >> 1;
-            direct_table[3] = sl->sub_mb_type[3] >> 1;
-        }
-    }
-}
-
-static av_always_inline int get_dct8x8_allowed(const H264Context *h, H264SliceContext *sl)
-{
-    if (h->ps.sps->direct_8x8_inference_flag)
-        return !(AV_RN64A(sl->sub_mb_type) &
-                 ((MB_TYPE_16x8 | MB_TYPE_8x16 | MB_TYPE_8x8) *
-                  0x0001000100010001ULL));
-    else
-        return !(AV_RN64A(sl->sub_mb_type) &
-                 ((MB_TYPE_16x8 | MB_TYPE_8x16 | MB_TYPE_8x8 | MB_TYPE_DIRECT2) *
-                  0x0001000100010001ULL));
-}
-
 int ff_h264_field_end(H264Context *h, H264SliceContext *sl, int in_setup);
 
-int ff_h264_ref_picture(H264Context *h, H264Picture *dst, H264Picture *src);
-int ff_h264_replace_picture(H264Context *h, H264Picture *dst, const H264Picture *src);
-void ff_h264_unref_picture(H264Context *h, H264Picture *pic);
+int ff_h264_ref_picture(H264Picture *dst, const H264Picture *src);
+int ff_h264_replace_picture(H264Picture *dst, const H264Picture *src);
+void ff_h264_unref_picture(H264Picture *pic);
 
 void ff_h264_slice_context_init(H264Context *h, H264SliceContext *sl);
 
@@ -806,6 +701,6 @@ void ff_h264_flush_change(H264Context *h);
 
 void ff_h264_free_tables(H264Context *h);
 
-void ff_h264_set_erpic(ERPicture *dst, H264Picture *src);
+void ff_h264_set_erpic(ERPicture *dst, const H264Picture *src);
 
 #endif /* AVCODEC_H264DEC_H */

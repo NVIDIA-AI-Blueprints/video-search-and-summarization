@@ -26,9 +26,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_SPEECH_SPEECH_RECOGNITION_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_SPEECH_SPEECH_RECOGNITION_CONTROLLER_H_
 
+#include <optional>
+
+#include "media/base/audio_parameters.h"
+#include "media/mojo/mojom/speech_recognition_audio_forwarder.mojom-blink.h"
+#include "media/mojo/mojom/speech_recognizer.mojom-blink.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "third_party/blink/public/mojom/speech/speech_recognizer.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_observable_array_speech_recognition_phrase.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
@@ -40,33 +45,66 @@ namespace blink {
 class LocalDOMWindow;
 class SpeechGrammarList;
 
-class SpeechRecognitionController final
+class MODULES_EXPORT SpeechRecognitionController final
     : public GarbageCollected<SpeechRecognitionController>,
       public Supplement<LocalDOMWindow> {
  public:
   static const char kSupplementName[];
 
   explicit SpeechRecognitionController(LocalDOMWindow&);
-  virtual ~SpeechRecognitionController();
+  ~SpeechRecognitionController();
 
-  void Start(mojo::PendingReceiver<mojom::blink::SpeechRecognitionSession>
-                 session_receiver,
-             mojo::PendingRemote<mojom::blink::SpeechRecognitionSessionClient>
-                 session_client,
-             const SpeechGrammarList& grammars,
-             const String& lang,
-             bool continuous,
-             bool interim_results,
-             uint32_t max_alternatives);
+  // Builds the speech recognition request params. If `audio_forwarder` and
+  // `audio_parameters` are not defined, speech recognition will use audio from
+  // the user's default audio input device instead. `on_device` defines whether
+  // on-device speech recognition should be used. `allow_cloud_fallback` defines
+  // whether a server-based speech recognition service may be used if on-device
+  // speech recognition is not available.
+  media::mojom::blink::StartSpeechRecognitionRequestParamsPtr
+  BuildStartSpeechRecognitionRequestParams(
+      mojo::PendingReceiver<media::mojom::blink::SpeechRecognitionSession>
+          session_receiver,
+      mojo::PendingRemote<media::mojom::blink::SpeechRecognitionSessionClient>
+          session_client,
+      const SpeechGrammarList& grammars,
+      const V8ObservableArraySpeechRecognitionPhrase* phrases,
+      const String& lang,
+      bool continuous,
+      bool interim_results,
+      uint32_t max_alternatives,
+      bool on_device,
+      bool allow_cloud_fallback,
+      media::mojom::blink::SpeechRecognitionQuality quality,
+      mojo::PendingReceiver<
+          media::mojom::blink::SpeechRecognitionAudioForwarder>
+          audio_forwarder = mojo::NullReceiver(),
+      std::optional<media::AudioParameters> audio_parameters = std::nullopt);
+
+  // Starts speech recognition with the given params.
+  void Start(
+      media::mojom::blink::StartSpeechRecognitionRequestParamsPtr params);
+
+  void AvailableOnDevice(
+      const Vector<String>& languages,
+      media::mojom::blink::SpeechRecognitionQuality quality,
+      base::OnceCallback<void(media::mojom::blink::AvailabilityStatus)>
+          callback);
+  void Install(const Vector<String>& languages,
+               media::mojom::blink::SpeechRecognitionQuality quality,
+               base::OnceCallback<void(bool)> callback);
 
   static SpeechRecognitionController* From(LocalDOMWindow&);
 
   void Trace(Visitor* visitor) const override;
 
  private:
-  mojom::blink::SpeechRecognizer* GetSpeechRecognizer();
+  media::mojom::blink::SpeechRecognizer* GetSpeechRecognizer();
+  media::mojom::blink::OnDeviceSpeechRecognition*
+  GetOnDeviceSpeechRecognition();
 
-  HeapMojoRemote<mojom::blink::SpeechRecognizer> speech_recognizer_;
+  HeapMojoRemote<media::mojom::blink::SpeechRecognizer> speech_recognizer_;
+  HeapMojoRemote<media::mojom::blink::OnDeviceSpeechRecognition>
+      on_device_speech_recognition_;
 };
 
 }  // namespace blink

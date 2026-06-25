@@ -31,12 +31,13 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_URL_ERROR_H_
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_URL_ERROR_H_
 
+#include <optional>
+
 #include "net/dns/public/resolve_error_info.h"
 #include "services/network/public/cpp/cors/cors_error_status.h"
 #include "services/network/public/mojom/blocked_by_response_reason.mojom-shared.h"
 #include "services/network/public/mojom/cors.mojom-shared.h"
 #include "services/network/public/mojom/trust_tokens.mojom-shared.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_url.h"
 
@@ -100,14 +101,10 @@ struct BLINK_PLATFORM_EXPORT WebURLError {
   bool has_copy_in_cache() const { return has_copy_in_cache_; }
   bool is_web_security_violation() const { return is_web_security_violation_; }
   const WebURL& url() const { return url_; }
-  const absl::optional<network::CorsErrorStatus> cors_error_status() const {
+  const std::optional<network::CorsErrorStatus> cors_error_status() const {
     return cors_error_status_;
   }
-  network::mojom::PrivateNetworkAccessPreflightResult
-  private_network_access_preflight_result() const {
-    return private_network_access_preflight_result_;
-  }
-  const absl::optional<network::mojom::BlockedByResponseReason>
+  const std::optional<network::mojom::BlockedByResponseReason>
   blocked_by_response_reason() const {
     return blocked_by_response_reason_;
   }
@@ -139,19 +136,14 @@ struct BLINK_PLATFORM_EXPORT WebURLError {
   WebURL url_;
 
   // Optional CORS error details.
-  absl::optional<network::CorsErrorStatus> cors_error_status_;
-
-  // Details about any Private Network Access preflight.
-  network::mojom::PrivateNetworkAccessPreflightResult
-      private_network_access_preflight_result_ =
-          network::mojom::PrivateNetworkAccessPreflightResult::kNone;
+  std::optional<network::CorsErrorStatus> cors_error_status_;
 
   // True if the initiator of this request should be collapsed.
   bool should_collapse_initiator_ = false;
 
   // More detailed reason for failing the response with
   // ERR_net::ERR_BLOCKED_BY_RESPONSE |error_code|.
-  absl::optional<network::mojom::BlockedByResponseReason>
+  std::optional<network::mojom::BlockedByResponseReason>
       blocked_by_response_reason_;
 
   // More detailed reason for failing the response with

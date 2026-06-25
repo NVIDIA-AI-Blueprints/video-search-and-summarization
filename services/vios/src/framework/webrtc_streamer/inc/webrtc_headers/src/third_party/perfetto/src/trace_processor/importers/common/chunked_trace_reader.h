@@ -17,21 +17,15 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_CHUNKED_TRACE_READER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_CHUNKED_TRACE_READER_H_
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
 
-#include <memory>
+#include "perfetto/base/status.h"
 
-#include "perfetto/trace_processor/basic_types.h"
-#include "perfetto/trace_processor/status.h"
-
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TraceBlobView;
 
-// Base interface for first stage of parsing pipeline
-// (JsonTraceParser, ProtoTraceReader).
+// Base interface for first stage of parsing pipeline (ProtoTraceReader).
 class ChunkedTraceReader {
  public:
   virtual ~ChunkedTraceReader();
@@ -40,13 +34,20 @@ class ChunkedTraceReader {
   // caller to match line/protos boundaries. The parser class has to deal with
   // intermediate buffering lines/protos that span across different chunks.
   // The buffer size is guaranteed to be > 0.
-  virtual util::Status Parse(TraceBlobView) = 0;
+  virtual base::Status Parse(TraceBlobView) = 0;
 
-  // Called after the last Parse() call.
-  virtual void NotifyEndOfFile() = 0;
+  // Phase 1: Push accumulated data to sorter or storage.
+  // For proto traces, this pushes deferred packets to the sorter.
+  // For other trace formats, this may write directly to storage tables.
+  [[nodiscard]] virtual base::Status OnPushDataToSorter() = 0;
+
+  // Phase 2 (implicit): TraceSorter extracts and sorts all pushed events.
+
+  // Phase 3: Called after events are extracted from sorter.
+  // Parsers do post-extraction processing and cleanup here.
+  virtual void OnEventsFullyExtracted() = 0;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_COMMON_CHUNKED_TRACE_READER_H_

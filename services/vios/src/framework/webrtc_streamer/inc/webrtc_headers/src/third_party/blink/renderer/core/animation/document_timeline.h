@@ -31,7 +31,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_DOCUMENT_TIMELINE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_DOCUMENT_TIMELINE_H_
 
-#include "base/memory/scoped_refptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/animation/animation_timeline.h"
@@ -71,7 +71,7 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
   void ScheduleNextService() override;
 
   bool IsActive() const override;
-  absl::optional<base::TimeDelta> InitialStartTimeForAnimations() override;
+  std::optional<base::TimeDelta> InitialStartTimeForAnimations() override;
   bool HasPendingUpdates() const { return !animations_needing_update_.empty(); }
 
   // The zero time of DocumentTimeline is computed by adding a separate
@@ -86,7 +86,8 @@ class CORE_EXPORT DocumentTimeline : public AnimationTimeline {
 
   void PauseAnimationsForTesting(AnimationTimeDelta);
 
-  void InvalidateKeyframeEffects(const TreeScope&);
+  void InvalidateKeyframeEffects(const TreeScope&,
+                                 const StyleChangeReasonForTracing&);
 
   void SetPlaybackRate(double);
   double PlaybackRate() const;

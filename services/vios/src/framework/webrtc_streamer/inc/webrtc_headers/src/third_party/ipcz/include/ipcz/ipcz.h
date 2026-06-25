@@ -210,6 +210,11 @@ typedef uint32_t IpczTransportActivityFlags;
 extern "C" {
 #endif
 
+struct IpczTransportActivityOptions {
+  size_t size;                // Size of this struct, for extensibility.
+  IpczDriverHandle envelope;  // Optional driver envelope.
+};
+
 // Notifies ipcz of activity on a transport. `listener` must be a handle to an
 // active transport's listener, as provided to the driver by ipcz via
 // ActivateTransport().
@@ -229,13 +234,13 @@ extern "C" {
 // `listener` are mutually exclusive. Overlapping calls are unsafe and will
 // result in undefined behavior.
 typedef IpczResult(IPCZ_API* IpczTransportActivityHandler)(
-    IpczHandle listener,                     // in
-    const void* data,                        // in
-    size_t num_bytes,                        // in
-    const IpczDriverHandle* driver_handles,  // in
-    size_t num_driver_handles,               // in
-    IpczTransportActivityFlags flags,        // in
-    const void* options);                    // in
+    IpczHandle listener,                                  // in
+    const void* data,                                     // in
+    size_t num_bytes,                                     // in
+    const IpczDriverHandle* driver_handles,               // in
+    size_t num_driver_handles,                            // in
+    IpczTransportActivityFlags flags,                     // in
+    const struct IpczTransportActivityOptions* options);  // in
 
 // Structure to be filled in by a driver's GetSharedMemoryInfo().
 struct IPCZ_ALIGN(8) IpczSharedMemoryInfo {
@@ -550,6 +555,14 @@ typedef uint32_t IpczMemoryFlags;
 // links as needed.
 #define IPCZ_MEMORY_FIXED_PARCEL_CAPACITY ((IpczMemoryFlags)(1 << 0))
 
+// Feature identifiers which may be passed through IpczCreateNodeOptions to
+// control dynamic runtime features.
+typedef uint32_t IpczFeature;
+
+// When this feature is enabled, ipcz will use alternative shared memory layout
+// and allocation behavior intended to be more efficient than the v1 scheme.
+#define IPCZ_FEATURE_MEM_V2 ((IpczFeature)0xA110C002)
+
 // Options given to CreateNode() to configure the new node's behavior.
 struct IPCZ_ALIGN(8) IpczCreateNodeOptions {
   // The exact size of this structure in bytes. Must be set accurately before
@@ -558,6 +571,15 @@ struct IPCZ_ALIGN(8) IpczCreateNodeOptions {
 
   // See IpczMemoryFlags above.
   IpczMemoryFlags memory_flags;
+
+  // List of features to enable for this node.
+  const IpczFeature* enabled_features;
+  size_t num_enabled_features;
+
+  // List of features to disable for this node. Note that if a feature is listed
+  // both in `enabled_features` and `disabled_features`, it is disabled.
+  const IpczFeature* disabled_features;
+  size_t num_disabled_features;
 };
 
 // See CreateNode() and the IPCZ_CREATE_NODE_* flag descriptions below.
@@ -737,7 +759,9 @@ struct IPCZ_ALIGN(8) IpczBoxContents {
 
   // Used only for IPCZ_BOX_TYPE_APPLICATION_OBJECT. ipcz may use these
   // functions to serialize and/or destroy the opaque object identified by
-  // `object.application_object` above.
+  // `object.application_object` above. Either may be null, which is the same as
+  // a function returning IPCZ_RESULT_FAILED_PRECONDITION or a no-op function,
+  // respectively.
   IpczApplicationObjectSerializer serializer;
   IpczApplicationObjectDestructor destructor;
 };
@@ -972,8 +996,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // If `flags` contains IPCZ_CREATE_NODE_AS_BROKER then the node will act as
   // the broker in its cluster of connected nodes. See details on that flag
   // description above.
-  //
-  // `options` is ignored and must be null.
   //
   // Returns:
   //

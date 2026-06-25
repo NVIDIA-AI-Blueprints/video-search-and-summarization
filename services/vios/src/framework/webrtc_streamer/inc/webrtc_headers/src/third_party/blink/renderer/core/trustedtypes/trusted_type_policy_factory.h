@@ -10,11 +10,13 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 class ExceptionState;
+class ScriptObject;
 class ScriptState;
 class ScriptValue;
 class TrustedHTML;
@@ -23,7 +25,7 @@ class TrustedTypePolicy;
 class TrustedTypePolicyOptions;
 
 class CORE_EXPORT TrustedTypePolicyFactory final
-    : public EventTargetWithInlineData,
+    : public EventTarget,
       public ExecutionContextClient {
   DEFINE_WRAPPERTYPEINFO();
 
@@ -43,7 +45,6 @@ class CORE_EXPORT TrustedTypePolicyFactory final
   bool isHTML(ScriptState*, const ScriptValue&);
   bool isScript(ScriptState*, const ScriptValue&);
   bool isScriptURL(ScriptState*, const ScriptValue&);
-  bool isURL(ScriptState*, const ScriptValue&);
 
   TrustedHTML* emptyHTML() const;
 
@@ -57,8 +58,8 @@ class CORE_EXPORT TrustedTypePolicyFactory final
                           const String& tagNS,
                           const String& attributeNS) const;
 
-  ScriptValue getTypeMapping(ScriptState*) const;
-  ScriptValue getTypeMapping(ScriptState*, const String& ns) const;
+  ScriptObject getTypeMapping(ScriptState*) const;
+  ScriptObject getTypeMapping(ScriptState*, const String& ns) const;
 
   // Count whether a Trusted Type error occured during DOM operations.
   // (We aggregate this here to get a count per document, so that we can
@@ -77,8 +78,9 @@ class CORE_EXPORT TrustedTypePolicyFactory final
   static bool IsEventHandlerAttributeName(const AtomicString& attributeName);
 
  private:
-  const WrapperTypeInfo* GetWrapperTypeInfoFromScriptValue(ScriptState*,
-                                                           const ScriptValue&);
+  friend class CoreInitializer;
+
+  static void EagerlyInitializeOnMainThread();
 
   Member<TrustedHTML> empty_html_;
   Member<TrustedScript> empty_script_;

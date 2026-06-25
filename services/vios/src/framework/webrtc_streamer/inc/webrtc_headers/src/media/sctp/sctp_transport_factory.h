@@ -11,25 +11,32 @@
 #ifndef MEDIA_SCTP_SCTP_TRANSPORT_FACTORY_H_
 #define MEDIA_SCTP_SCTP_TRANSPORT_FACTORY_H_
 
+#include <cstdint>
 #include <memory>
+#include <vector>
 
+#include "api/environment/environment.h"
 #include "api/transport/sctp_transport_factory_interface.h"
 #include "media/sctp/sctp_transport_internal.h"
 #include "rtc_base/thread.h"
 
-namespace cricket {
+namespace webrtc {
 
-class SctpTransportFactory : public webrtc::SctpTransportFactoryInterface {
+class SctpTransportFactory : public SctpTransportFactoryInterface {
  public:
-  explicit SctpTransportFactory(rtc::Thread* network_thread);
+  explicit SctpTransportFactory(Thread* network_thread);
 
   std::unique_ptr<SctpTransportInternal> CreateSctpTransport(
-      rtc::PacketTransportInternal* transport) override;
+      const Environment& env,
+      DtlsTransportInternal* transport) override;
+
+  std::vector<uint8_t> GenerateConnectionToken(const Environment& env) override;
 
  private:
-  rtc::Thread* network_thread_;
+  Thread* network_thread_;
 };
 
-}  // namespace cricket
+}  //  namespace webrtc
+
 
 #endif  // MEDIA_SCTP_SCTP_TRANSPORT_FACTORY_H__

@@ -43,6 +43,8 @@ using FlushRequestID = uint64_t;
 // hashtables and other data structures.
 using ProducerAndWriterID = uint32_t;
 
+using PendingCloneID = uint64_t;
+
 inline ProducerAndWriterID MkProducerAndWriterID(ProducerID p, WriterID w) {
   static_assert(
       sizeof(ProducerID) + sizeof(WriterID) == sizeof(ProducerAndWriterID),
@@ -62,9 +64,10 @@ inline void GetProducerAndWriterID(ProducerAndWriterID x,
 // open in the service.
 static constexpr ProducerID kMaxProducerID = static_cast<ProducerID>(-1);
 
-// 1024 Writers per producer seems a resonable bound. This reduces the ability
-// to memory-DoS the service by having to keep track of too many writer IDs.
-static constexpr WriterID kMaxWriterID = static_cast<WriterID>((1 << 10) - 1);
+// 32k Writers per producer seems a resonable bound. This reduces the ability
+// to memory-DoS the service by having to keep track of too many writer IDs,
+// but enough to run certain known benchmark workloads.
+static constexpr WriterID kMaxWriterID = static_cast<WriterID>((1 << 15) - 1);
 
 // Unique within the scope of a {ProducerID, WriterID} tuple.
 using ChunkID = uint32_t;
@@ -91,14 +94,18 @@ static constexpr PacketSequenceID kServicePacketSequenceID = 1;
 static constexpr PacketSequenceID kMaxPacketSequenceID =
     static_cast<PacketSequenceID>(-1);
 
-constexpr uid_t kInvalidUid = ::perfetto::base::kInvalidUid;
-
 constexpr uint32_t kDefaultFlushTimeoutMs = 5000;
 
 // The special id 0xffff..ffff represents the tracing session with the highest
 // bugreport score. This is used for CloneSession(kBugreportSessionId).
 constexpr TracingSessionID kBugreportSessionId =
     static_cast<TracingSessionID>(-1);
+
+// The ID of a machine in a multi-machine tracing session.
+using MachineID = base::MachineID;
+constexpr MachineID kDefaultMachineID = base::kDefaultMachineID;
+
+constexpr uint32_t kDataSourceStopTimeoutMs = 5000;
 
 }  // namespace perfetto
 

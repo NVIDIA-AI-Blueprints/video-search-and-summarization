@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -12,6 +12,7 @@
 #ifndef AOM_AOM_DSP_SIMD_V256_INTRINSICS_C_H_
 #define AOM_AOM_DSP_SIMD_V256_INTRINSICS_C_H_
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,7 +96,7 @@ SIMD_INLINE void c_v256_store_aligned(void *p, c_v256 a) {
   c_v256_store_unaligned(p, a);
 }
 
-SIMD_INLINE c_v256 c_v256_zero() {
+SIMD_INLINE c_v256 c_v256_zero(void) {
   c_v256 t;
   t.u64[3] = t.u64[2] = t.u64[1] = t.u64[0] = 0;
   return t;
@@ -176,7 +177,7 @@ SIMD_INLINE uint32_t c_v256_sad_u8_sum(c_sad256_internal s) { return s.val; }
 
 typedef uint32_t c_ssd256_internal;
 
-SIMD_INLINE c_ssd256_internal c_v256_ssd_u8_init() { return 0; }
+SIMD_INLINE c_ssd256_internal c_v256_ssd_u8_init(void) { return 0; }
 
 /* Implementation dependent return value.  Result must be finalised with
  * v256_ssd_u8_sum(). */
@@ -693,11 +694,13 @@ SIMD_INLINE c_v256 c_v256_shuffle_8(c_v256 a, c_v256 pattern) {
 SIMD_INLINE c_v256 c_v256_wideshuffle_8(c_v256 a, c_v256 b, c_v256 pattern) {
   c_v256 t;
   int c;
-  for (c = 0; c < 32; c++)
-    t.u8[c] = (pattern.u8[c] < 32
-                   ? b.u8
-                   : a.u8)[CONFIG_BIG_ENDIAN ? 31 - (pattern.u8[c] & 31)
-                                             : pattern.u8[c] & 31];
+  for (c = 0; c < 32; c++) {
+    const bool from_b_flag = pattern.u8[c] < 32;
+    const uint8_t *const src = from_b_flag ? b.u8 : a.u8;
+    const int idx =
+        CONFIG_BIG_ENDIAN ? 31 - (pattern.u8[c] & 31) : (pattern.u8[c] & 31);
+    t.u8[c] = src[idx];
+  }
   return t;
 }
 
@@ -929,7 +932,7 @@ SIMD_INLINE c_v256 c_v256_shl_n_word(c_v256 a, const unsigned int n) {
 
 typedef uint32_t c_sad256_internal_u16;
 
-SIMD_INLINE c_sad256_internal_u16 c_v256_sad_u16_init() { return 0; }
+SIMD_INLINE c_sad256_internal_u16 c_v256_sad_u16_init(void) { return 0; }
 
 /* Implementation dependent return value.  Result must be finalised with
    v256_sad_u16_sum(). */
@@ -945,7 +948,7 @@ SIMD_INLINE uint32_t c_v256_sad_u16_sum(c_sad256_internal_u16 s) { return s; }
 
 typedef uint64_t c_ssd256_internal_s16;
 
-SIMD_INLINE c_ssd256_internal_s16 c_v256_ssd_s16_init() { return 0; }
+SIMD_INLINE c_ssd256_internal_s16 c_v256_ssd_s16_init(void) { return 0; }
 
 /* Implementation dependent return value.  Result must be finalised with
  * v256_ssd_s16_sum(). */

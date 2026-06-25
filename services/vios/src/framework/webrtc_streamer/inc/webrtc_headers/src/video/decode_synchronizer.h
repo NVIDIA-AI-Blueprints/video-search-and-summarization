@@ -13,18 +13,16 @@
 
 #include <stdint.h>
 
-#include <functional>
 #include <memory>
+#include <optional>
 #include <set>
-#include <utility>
 
-#include "absl/types/optional.h"
 #include "api/metronome/metronome.h"
-#include "api/sequence_checker.h"
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/units/timestamp.h"
-#include "rtc_base/checks.h"
 #include "rtc_base/thread_annotations.h"
+#include "system_wrappers/include/clock.h"
 #include "video/frame_decode_scheduler.h"
 #include "video/frame_decode_timing.h"
 
@@ -103,7 +101,7 @@ class DecodeSynchronizer {
     Timestamp LatestDecodeTime();
 
     // FrameDecodeScheduler implementation.
-    absl::optional<uint32_t> ScheduledRtpTimestamp() override;
+    std::optional<uint32_t> ScheduledRtpTimestamp() override;
     void ScheduleFrame(uint32_t rtp,
                        FrameDecodeTiming::FrameSchedule schedule,
                        FrameReleaseCallback cb) override;
@@ -112,7 +110,7 @@ class DecodeSynchronizer {
 
    private:
     DecodeSynchronizer* sync_;
-    absl::optional<ScheduledFrame> next_frame_;
+    std::optional<ScheduledFrame> next_frame_;
     bool stopped_ = false;
   };
 

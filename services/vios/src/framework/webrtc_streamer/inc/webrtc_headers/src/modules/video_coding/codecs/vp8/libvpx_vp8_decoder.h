@@ -11,25 +11,31 @@
 #ifndef MODULES_VIDEO_CODING_CODECS_VP8_LIBVPX_VP8_DECODER_H_
 #define MODULES_VIDEO_CODING_CODECS_VP8_LIBVPX_VP8_DECODER_H_
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
+#include "api/environment/environment.h"
+#include "api/video/color_space.h"
 #include "api/video/encoded_image.h"
 #include "api/video_codecs/video_decoder.h"
 #include "common_video/include/video_frame_buffer_pool.h"
-#include "modules/video_coding/codecs/vp8/include/vp8.h"
-#include "modules/video_coding/include/video_codec_interface.h"
-#include "vpx/vp8dx.h"
-#include "vpx/vpx_decoder.h"
+#include "third_party/libvpx/source/libvpx/vpx/vpx_decoder.h"
+#include "third_party/libvpx/source/libvpx/vpx/vpx_image.h"
 
 namespace webrtc {
 
 class LibvpxVp8Decoder : public VideoDecoder {
  public:
-  LibvpxVp8Decoder();
+  explicit LibvpxVp8Decoder(const Environment& env);
   ~LibvpxVp8Decoder() override;
 
   bool Configure(const Settings& settings) override;
+  int Decode(const EncodedImage& input_image,
+             int64_t /*render_time_ms*/) override;
+
+  // TODO(bugs.webrtc.org/15444): Remove once all subclasses have been migrated
+  // to expecting calls Decode without a missing_frames param.
   int Decode(const EncodedImage& input_image,
              bool missing_frames,
              int64_t /*render_time_ms*/) override;
@@ -51,10 +57,11 @@ class LibvpxVp8Decoder : public VideoDecoder {
 
  private:
   class QpSmoother;
+
   int ReturnFrame(const vpx_image_t* img,
                   uint32_t timeStamp,
                   int qp,
-                  const webrtc::ColorSpace* explicit_color_space,
+                  const ColorSpace* explicit_color_space,
                   int64_t start_time);
   const bool use_postproc_;
 
@@ -62,11 +69,10 @@ class LibvpxVp8Decoder : public VideoDecoder {
   DecodedImageCallback* decode_complete_callback_;
   bool inited_;
   vpx_codec_ctx_t* decoder_;
-  int propagation_cnt_;
   int last_frame_width_;
   int last_frame_height_;
   bool key_frame_required_;
-  const absl::optional<DeblockParams> deblock_params_;
+  const std::optional<DeblockParams> deblock_params_;
   const std::unique_ptr<QpSmoother> qp_smoother_;
 };
 

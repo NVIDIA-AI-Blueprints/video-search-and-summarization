@@ -10,16 +10,20 @@
 #ifndef TEST_PEER_SCENARIO_SCENARIO_CONNECTION_H_
 #define TEST_PEER_SCENARIO_SCENARIO_CONNECTION_H_
 
-#include <functional>
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "api/candidate.h"
+#include "api/environment/environment.h"
 #include "api/jsep.h"
+#include "api/test/network_emulation/network_emulation_interfaces.h"
 #include "p2p/base/transport_description.h"
+#include "rtc_base/copy_on_write_buffer.h"
 #include "test/network/network_emulation_manager.h"
-#include "test/scoped_key_value_config.h"
 
 namespace webrtc {
 
@@ -31,34 +35,31 @@ class ScenarioIceConnection {
   class IceConnectionObserver {
    public:
     // Called on network thread.
-    virtual void OnPacketReceived(rtc::CopyOnWriteBuffer packet) = 0;
+    virtual void OnPacketReceived(CopyOnWriteBuffer packet) = 0;
     // Called on signaling thread.
-    virtual void OnIceCandidates(
-        const std::string& mid,
-        const std::vector<cricket::Candidate>& candidates) = 0;
+    virtual void OnIceCandidates(absl::string_view mid,
+                                 const std::vector<Candidate>& candidates) = 0;
 
    protected:
     ~IceConnectionObserver() = default;
   };
   static std::unique_ptr<ScenarioIceConnection> Create(
+      const Environment& env,
       test::NetworkEmulationManagerImpl* net,
       IceConnectionObserver* observer);
 
   virtual ~ScenarioIceConnection() = default;
 
   // Posts tasks to send packets to network thread.
-  virtual void SendRtpPacket(rtc::ArrayView<const uint8_t> packet_view) = 0;
-  virtual void SendRtcpPacket(rtc::ArrayView<const uint8_t> packet_view) = 0;
+  virtual void SendRtpPacket(std::span<const uint8_t> packet_view) = 0;
+  virtual void SendRtcpPacket(std::span<const uint8_t> packet_view) = 0;
 
   // Used for ICE configuration, called on signaling thread.
   virtual void SetRemoteSdp(SdpType type, const std::string& remote_sdp) = 0;
   virtual void SetLocalSdp(SdpType type, const std::string& local_sdp) = 0;
 
   virtual EmulatedEndpoint* endpoint() = 0;
-  virtual const cricket::TransportDescription& transport_description()
-      const = 0;
-
-  webrtc::test::ScopedKeyValueConfig field_trials;
+  virtual const TransportDescription& transport_description() const = 0;
 };
 
 }  // namespace webrtc

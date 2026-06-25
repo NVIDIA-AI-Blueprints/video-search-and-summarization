@@ -34,7 +34,11 @@ class HTMLLegendElement final : public HTMLElement {
  public:
   explicit HTMLLegendElement(Document&);
 
-  HTMLFormElement* form() const;
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLLegendElement;
+  }
+
+  HTMLElement* formForBinding() const override;
 
  private:
   void DetachLayoutTree(bool performing_reattach) override;

@@ -11,43 +11,51 @@
 #ifndef PC_TEST_RTC_STATS_OBTAINER_H_
 #define PC_TEST_RTC_STATS_OBTAINER_H_
 
+#include <utility>
+
+#include "absl/functional/any_invocable.h"
 #include "api/make_ref_counted.h"
+#include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtc_stats_report.h"
-#include "rtc_base/gunit.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
 class RTCStatsObtainer : public RTCStatsCollectorCallback {
  public:
-  static rtc::scoped_refptr<RTCStatsObtainer> Create(
-      rtc::scoped_refptr<const RTCStatsReport>* report_ptr = nullptr) {
-    return rtc::make_ref_counted<RTCStatsObtainer>(report_ptr);
+  static scoped_refptr<RTCStatsObtainer> Create(
+      scoped_refptr<const RTCStatsReport>* report_ptr = nullptr,
+      absl::AnyInvocable<void() &&> callback = nullptr) {
+    return make_ref_counted<RTCStatsObtainer>(report_ptr, std::move(callback));
   }
 
   void OnStatsDelivered(
-      const rtc::scoped_refptr<const RTCStatsReport>& report) override {
+      const scoped_refptr<const RTCStatsReport>& report) override {
     EXPECT_TRUE(thread_checker_.IsCurrent());
     report_ = report;
     if (report_ptr_)
       *report_ptr_ = report_;
+    if (callback_)
+      std::move(callback_)();
   }
 
-  rtc::scoped_refptr<const RTCStatsReport> report() const {
+  scoped_refptr<const RTCStatsReport> report() const {
     EXPECT_TRUE(thread_checker_.IsCurrent());
     return report_;
   }
 
  protected:
-  explicit RTCStatsObtainer(
-      rtc::scoped_refptr<const RTCStatsReport>* report_ptr)
-      : report_ptr_(report_ptr) {}
+  RTCStatsObtainer(scoped_refptr<const RTCStatsReport>* report_ptr,
+                   absl::AnyInvocable<void() &&> callback)
+      : report_ptr_(report_ptr), callback_(std::move(callback)) {}
 
  private:
   SequenceChecker thread_checker_;
-  rtc::scoped_refptr<const RTCStatsReport> report_;
-  rtc::scoped_refptr<const RTCStatsReport>* report_ptr_;
+  scoped_refptr<const RTCStatsReport> report_;
+  scoped_refptr<const RTCStatsReport>* report_ptr_;
+  absl::AnyInvocable<void() &&> callback_;
 };
 
 }  // namespace webrtc

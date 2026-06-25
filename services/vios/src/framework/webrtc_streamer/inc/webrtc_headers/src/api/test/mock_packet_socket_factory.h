@@ -11,39 +11,55 @@
 #ifndef API_TEST_MOCK_PACKET_SOCKET_FACTORY_H_
 #define API_TEST_MOCK_PACKET_SOCKET_FACTORY_H_
 
+#include <cstdint>
 #include <memory>
-#include <string>
+#include <type_traits>
 
+#include "api/async_dns_resolver.h"
+#include "api/environment/environment.h"
 #include "api/packet_socket_factory.h"
+#include "rtc_base/async_packet_socket.h"
+#include "rtc_base/socket_address.h"
 #include "test/gmock.h"
 
-namespace rtc {
+namespace webrtc {
 class MockPacketSocketFactory : public PacketSocketFactory {
  public:
-  MOCK_METHOD(AsyncPacketSocket*,
+  MOCK_METHOD(std::unique_ptr<AsyncPacketSocket>,
               CreateUdpSocket,
-              (const SocketAddress&, uint16_t, uint16_t),
+              (const Environment&, const SocketAddress&, uint16_t, uint16_t),
               (override));
-  MOCK_METHOD(AsyncListenSocket*,
-              CreateServerTcpSocket,
-              (const SocketAddress&, uint16_t, uint16_t, int opts),
-              (override));
-  MOCK_METHOD(AsyncPacketSocket*,
+  MOCK_METHOD(
+      std::unique_ptr<AsyncListenSocket>,
+      CreateServerTcpSocket,
+      (const Environment&, const SocketAddress&, uint16_t, uint16_t, int opts),
+      (override));
+  MOCK_METHOD(std::unique_ptr<AsyncPacketSocket>,
               CreateClientTcpSocket,
-              (const SocketAddress& local_address,
+              (const Environment&,
+               const SocketAddress& local_address,
                const SocketAddress&,
-               const ProxyInfo&,
-               const std::string&,
                const PacketSocketTcpOptions&),
               (override));
-  MOCK_METHOD(std::unique_ptr<webrtc::AsyncDnsResolverInterface>,
+  MOCK_METHOD(std::unique_ptr<AsyncDnsResolverInterface>,
               CreateAsyncDnsResolver,
               (),
+              (override));
+
+  MOCK_METHOD(std::unique_ptr<AsyncPacketSocket>,
+              CreateClientUdpSocket,
+              (const Environment&,
+               const SocketAddress&,
+               const SocketAddress&,
+               uint16_t,
+               uint16_t,
+               const PacketSocketTcpOptions&),
               (override));
 };
 
 static_assert(!std::is_abstract_v<MockPacketSocketFactory>, "");
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // API_TEST_MOCK_PACKET_SOCKET_FACTORY_H_

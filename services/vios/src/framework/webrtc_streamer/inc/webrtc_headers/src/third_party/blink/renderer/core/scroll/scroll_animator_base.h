@@ -59,15 +59,19 @@ class CORE_EXPORT ScrollAnimatorBase
 
   // A possibly animated scroll. The base class implementation always scrolls
   // immediately, never animates. If the scroll is animated and currently the
-  // animator has an in-progress animation, the ScrollResult will always return
-  // no unusedDelta and didScroll=true, i.e. fully consuming the scroll request.
-  // This makes animations latch to a single scroller. Note, the semantics are
-  // currently somewhat different on Mac - see ScrollAnimatorMac.mm.
-  virtual ScrollResult UserScroll(ui::ScrollGranularity,
-                                  const ScrollOffset& delta,
-                                  ScrollableArea::ScrollCallback on_finish);
+  // animator has an in-progress animation, the ScrollConsumption will always
+  // return no unusedDelta and didScroll=true, i.e. fully consuming the scroll
+  // request. This makes animations latch to a single scroller. Note, the
+  // semantics are currently somewhat different on Mac - see
+  // ScrollAnimatorMac.mm.
+  virtual ScrollConsumption UserScroll(
+      ui::ScrollGranularity,
+      const ScrollOffset& delta,
+      cc::ScrollSourceType,
+      ScrollableArea::ScrollCallback on_finish);
 
-  virtual void ScrollToOffsetWithoutAnimation(const ScrollOffset&);
+  virtual void ScrollToOffsetWithoutAnimation(const ScrollOffset&,
+                                              cc::ScrollSourceType);
 
   void SetCurrentOffset(const ScrollOffset&);
   ScrollOffset CurrentOffset() const;
@@ -79,11 +83,9 @@ class CORE_EXPORT ScrollAnimatorBase
 
   virtual void AdjustAnimation(const gfx::Vector2d& adjustment) {}
 
-  virtual bool HasRunningAnimation() const { return false; }
-
   // ScrollAnimatorCompositorCoordinator implementation.
   ScrollableArea* GetScrollableArea() const override {
-    return scrollable_area_;
+    return scrollable_area_.Get();
   }
   void TickAnimation(base::TimeTicks monotonic_time) override {}
   void CancelAnimation() override {}
@@ -91,14 +93,18 @@ class CORE_EXPORT ScrollAnimatorBase
   void UpdateCompositorAnimations() override {}
   void NotifyCompositorAnimationFinished(int group_id) override {}
   void NotifyCompositorAnimationAborted(int group_id) override {}
-  void MainThreadScrollingDidChange() override {}
 
   void Trace(Visitor*) const override;
+
+  cc::ScrollSourceType GetScrollSourceType() const { return source_type_; }
 
  protected:
   Member<ScrollableArea> scrollable_area_;
 
   ScrollOffset current_offset_;
+
+  // https://drafts.csswg.org/css-scroll-snap-1/#scroll-types
+  cc::ScrollSourceType source_type_;
 };
 
 }  // namespace blink

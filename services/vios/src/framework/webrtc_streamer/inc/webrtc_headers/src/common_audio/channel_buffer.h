@@ -11,17 +11,54 @@
 #ifndef COMMON_AUDIO_CHANNEL_BUFFER_H_
 #define COMMON_AUDIO_CHANNEL_BUFFER_H_
 
-#include <string.h>
-
+#include <cstdint>
+#include <cstring>
 #include <memory>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
-#include "common_audio/include/audio_util.h"
+#include "api/audio/audio_view.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/gtest_prod_util.h"
 
 namespace webrtc {
+
+// TODO: b/335805780 - Remove this method. Instead, use Deinterleave() from
+// audio_util.h which requires size checked buffer views.
+template <typename T>
+void Deinterleave(const T* interleaved,
+                  size_t samples_per_channel,
+                  size_t num_channels,
+                  T* const* deinterleaved) {
+  for (size_t i = 0; i < num_channels; ++i) {
+    T* channel = deinterleaved[i];
+    size_t interleaved_idx = i;
+    for (size_t j = 0; j < samples_per_channel; ++j) {
+      channel[j] = interleaved[interleaved_idx];
+      interleaved_idx += num_channels;
+    }
+  }
+}
+
+// `Interleave()` variant for cases where the deinterleaved channels aren't
+// represented by a `DeinterleavedView`.
+// TODO: b/335805780 - Remove this method. Instead, use Deinterleave() from
+// audio_util.h which requires size checked buffer views.
+template <typename T>
+void Interleave(const T* const* deinterleaved,
+                size_t samples_per_channel,
+                size_t num_channels,
+                InterleavedView<T>& interleaved) {
+  RTC_DCHECK_EQ(NumChannels(interleaved), num_channels);
+  RTC_DCHECK_EQ(SamplesPerChannel(interleaved), samples_per_channel);
+  for (size_t i = 0; i < num_channels; ++i) {
+    const T* channel = deinterleaved[i];
+    size_t interleaved_idx = i;
+    for (size_t j = 0; j < samples_per_channel; ++j) {
+      interleaved[interleaved_idx] = channel[j];
+      interleaved_idx += num_channels;
+    }
+  }
+}
 
 // Helper to encapsulate a contiguous data buffer, full or split into frequency
 // bands, with access to a pointer arrays of the deinterleaved channels and
@@ -52,22 +89,20 @@ class ChannelBuffer {
         num_channels_(num_channels),
         num_bands_(num_bands),
         bands_view_(num_allocated_channels_,
-                    std::vector<rtc::ArrayView<T>>(num_bands_)),
-        channels_view_(
-            num_bands_,
-            std::vector<rtc::ArrayView<T>>(num_allocated_channels_)) {
+                    std::vector<std::span<T>>(num_bands_)),
+        channels_view_(num_bands_,
+                       std::vector<std::span<T>>(num_allocated_channels_)) {
     // Temporarily cast away const_ness to allow populating the array views.
     auto* bands_view =
-        const_cast<std::vector<std::vector<rtc::ArrayView<T>>>*>(&bands_view_);
+        const_cast<std::vector<std::vector<std::span<T>>>*>(&bands_view_);
     auto* channels_view =
-        const_cast<std::vector<std::vector<rtc::ArrayView<T>>>*>(
-            &channels_view_);
+        const_cast<std::vector<std::vector<std::span<T>>>*>(&channels_view_);
 
     for (size_t ch = 0; ch < num_allocated_channels_; ++ch) {
       for (size_t band = 0; band < num_bands_; ++band) {
-        (*channels_view)[band][ch] = rtc::ArrayView<T>(
-            &data_[ch * num_frames_ + band * num_frames_per_band_],
-            num_frames_per_band_);
+        (*channels_view)[band][ch] =
+            std::span<T>(&data_[ch * num_frames_ + band * num_frames_per_band_],
+                         num_frames_per_band_);
         (*bands_view)[ch][band] = channels_view_[band][ch];
         channels_[band * num_allocated_channels_ + ch] =
             channels_view_[band][ch].data();
@@ -98,10 +133,10 @@ class ChannelBuffer {
     const ChannelBuffer<T>* t = this;
     return const_cast<T* const*>(t->channels(band));
   }
-  rtc::ArrayView<const rtc::ArrayView<T>> channels_view(size_t band = 0) {
+  std::span<const std::span<T>> channels_view(size_t band = 0) {
     return channels_view_[band];
   }
-  rtc::ArrayView<const rtc::ArrayView<T>> channels_view(size_t band = 0) const {
+  std::span<const std::span<T>> channels_view(size_t band = 0) const {
     return channels_view_[band];
   }
 
@@ -122,10 +157,10 @@ class ChannelBuffer {
     return const_cast<T* const*>(t->bands(channel));
   }
 
-  rtc::ArrayView<const rtc::ArrayView<T>> bands_view(size_t channel) {
+  std::span<const std::span<T>> bands_view(size_t channel) {
     return bands_view_[channel];
   }
-  rtc::ArrayView<const rtc::ArrayView<T>> bands_view(size_t channel) const {
+  std::span<const std::span<T>> bands_view(size_t channel) const {
     return bands_view_[channel];
   }
 
@@ -169,8 +204,8 @@ class ChannelBuffer {
   // Number of channels the user sees.
   size_t num_channels_;
   const size_t num_bands_;
-  const std::vector<std::vector<rtc::ArrayView<T>>> bands_view_;
-  const std::vector<std::vector<rtc::ArrayView<T>>> channels_view_;
+  const std::vector<std::vector<std::span<T>>> bands_view_;
+  const std::vector<std::vector<std::span<T>>> channels_view_;
 };
 
 // One int16_t and one float ChannelBuffer that are kept in sync. The sync is

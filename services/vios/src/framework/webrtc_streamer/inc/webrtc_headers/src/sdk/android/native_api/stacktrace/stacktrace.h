@@ -11,6 +11,7 @@
 #ifndef SDK_ANDROID_NATIVE_API_STACKTRACE_STACKTRACE_H_
 #define SDK_ANDROID_NATIVE_API_STACKTRACE_STACKTRACE_H_
 
+#include <cstdint>
 #include <string>
 #include <vector>
 

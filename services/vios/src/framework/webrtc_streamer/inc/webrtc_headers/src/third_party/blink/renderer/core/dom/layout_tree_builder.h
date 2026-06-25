@@ -28,7 +28,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_LAYOUT_TREE_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_LAYOUT_TREE_BUILDER_H_
 
-#include "base/memory/scoped_refptr.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/node.h"
@@ -41,20 +41,14 @@ namespace blink {
 
 class ComputedStyle;
 
-// The LayoutTreeBuilder class uses the DOM tree and CSS style rules as input to
-// form a LayoutObject Tree which is then used for layout computations in a
-// later stage.
-
-// To construct the LayoutObject tree, the LayoutTreeBuilder does the following:
-// 1. Starting at the root of the DOM tree, traverse each visible node.
-//    Visibility is determined by
-//    LayoutTreeBuilderFor{Element,Text}::ShouldCreateLayoutObject() functions.
-// 2. For each visible node, ensure that the style has been resolved (either by
-//    getting the ComputedStyle passed on to the LayoutTreeBuilder or by forcing
-//    style resolution). This is done in LayoutTreeBuilderForElement::Style().
-// 3. Emit visible LayoutObjects with content and their computed styles.
-//    This is dealt with by the
-//    LayoutTreeBuilderFor{Element,Text}::CreateLayoutObject() functions.
+// The LayoutTreeBuilder class uses takes a DOM node and its computed CSS styles
+// as input to create a LayoutObject which is then used as input to layout.
+//
+// The layout tree building is done traversing the flattened DOM tree from
+// StyleEngine::RebuildLayoutTree() which calls AttachLayoutTree for the nodes
+// which need to have their layout boxes re-attached. AttachLayoutTree then
+// calls CreateLayoutObject on LayoutTreeBuilderForElement and
+// LayoutTreeBuilderForText for elements and text nodes respectively.
 template <typename NodeType>
 class LayoutTreeBuilder {
   STACK_ALLOCATED();
@@ -65,7 +59,8 @@ class LayoutTreeBuilder {
                     const ComputedStyle* style)
       : node_(&node), context_(context), style_(style) {
     DCHECK(!node.GetLayoutObject());
-    DCHECK(node.GetDocument().InStyleRecalc());
+    DCHECK(node.GetDocument().InStyleRecalc() ||
+           node.GetDocument().GetStyleEngine().InScrollMarkersAttachment());
     DCHECK(node.InActiveDocument());
     DCHECK(context.parent);
   }
@@ -76,33 +71,12 @@ class LayoutTreeBuilder {
           LayoutTreeBuilderTraversal::NextSiblingLayoutObject(*node_);
       context_.next_sibling_valid = true;
     }
-    LayoutObject* next = context_.next_sibling;
-    // If a text node is wrapped in an anonymous inline for display:contents
-    // (see CreateInlineWrapperForDisplayContents()), use the wrapper as the
-    // next layout object. Otherwise we would need to add code to various
-    // AddChild() implementations to walk up the tree to find the correct
-    // layout tree parent/siblings.
-    if (!next || !next->IsText())
-      return next;
-    auto* const parent = next->Parent();
-    if (!IsAnonymousInline(parent))
-      return next;
-    if (!LIKELY(parent->IsLayoutNGTextCombine()))
-      return parent;
-    auto* const text_combine_parent = parent->Parent();
-    if (IsAnonymousInline(text_combine_parent))
-      return text_combine_parent;
-    return parent;
-  }
-
-  static bool IsAnonymousInline(const LayoutObject* layout_object) {
-    return layout_object && layout_object->IsAnonymous() &&
-           layout_object->IsInline();
+    return context_.next_sibling;
   }
 
   NodeType* node_;
   Node::AttachContext& context_;
-  scoped_refptr<const ComputedStyle> style_;
+  const ComputedStyle* style_;
 };
 
 class LayoutTreeBuilderForElement : public LayoutTreeBuilder<Element> {
@@ -128,8 +102,8 @@ class LayoutTreeBuilderForText : public LayoutTreeBuilder<Text> {
   void CreateLayoutObject();
 
  private:
-  scoped_refptr<const ComputedStyle>
-  CreateInlineWrapperStyleForDisplayContentsIfNeeded() const;
+  const ComputedStyle* CreateInlineWrapperStyleForDisplayContentsIfNeeded()
+      const;
   LayoutObject* CreateInlineWrapperForDisplayContentsIfNeeded(
       const ComputedStyle* wrapper_style) const;
 };

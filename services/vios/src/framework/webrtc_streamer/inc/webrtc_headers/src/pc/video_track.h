@@ -13,7 +13,7 @@
 
 #include <string>
 
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "api/media_stream_interface.h"
 #include "api/media_stream_track.h"
 #include "api/scoped_refptr.h"
@@ -34,17 +34,17 @@ namespace webrtc {
 // conflicting access, so we'd need to override those methods anyway in this
 // class in order to make sure things are correctly checked.
 class VideoTrack : public MediaStreamTrack<VideoTrackInterface>,
-                   public rtc::VideoSourceBaseGuarded,
+                   public VideoSourceBaseGuarded,
                    public ObserverInterface {
  public:
-  static rtc::scoped_refptr<VideoTrack> Create(
+  static scoped_refptr<VideoTrack> Create(
       absl::string_view label,
-      rtc::scoped_refptr<VideoTrackSourceInterface> source,
-      rtc::Thread* worker_thread);
+      scoped_refptr<VideoTrackSourceInterface> source,
+      Thread* worker_thread);
 
-  void AddOrUpdateSink(rtc::VideoSinkInterface<VideoFrame>* sink,
-                       const rtc::VideoSinkWants& wants) override;
-  void RemoveSink(rtc::VideoSinkInterface<VideoFrame>* sink) override;
+  void AddOrUpdateSink(VideoSinkInterface<VideoFrame>* sink,
+                       const VideoSinkWants& wants) override;
+  void RemoveSink(VideoSinkInterface<VideoFrame>* sink) override;
   void RequestRefreshFrame() override;
   VideoTrackSourceInterface* GetSource() const override;
 
@@ -61,18 +61,18 @@ class VideoTrack : public MediaStreamTrack<VideoTrackInterface>,
  protected:
   VideoTrack(
       absl::string_view id,
-      rtc::scoped_refptr<
+      scoped_refptr<
           VideoTrackSourceProxyWithInternal<VideoTrackSourceInterface>> source,
-      rtc::Thread* worker_thread);
-  ~VideoTrack();
+      Thread* worker_thread);
+  ~VideoTrack() override;
 
  private:
   // Implements ObserverInterface. Observes `video_source_` state.
   void OnChanged() override;
 
-  RTC_NO_UNIQUE_ADDRESS webrtc::SequenceChecker signaling_thread_;
-  rtc::Thread* const worker_thread_;
-  const rtc::scoped_refptr<
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker signaling_thread_;
+  Thread* const worker_thread_;
+  const scoped_refptr<
       VideoTrackSourceProxyWithInternal<VideoTrackSourceInterface>>
       video_source_;
   ContentHint content_hint_ RTC_GUARDED_BY(&signaling_thread_);

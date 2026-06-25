@@ -10,9 +10,9 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
 #import "RTCVideoCodecInfo.h"
 #import "RTCVideoEncoder.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -23,16 +23,37 @@ RTC_OBJC_EXPORT
 @protocol RTC_OBJC_TYPE
 (RTCVideoEncoderSelector)<NSObject>
 
-    - (void)registerCurrentEncoderInfo : (RTC_OBJC_TYPE(RTCVideoCodecInfo) *)info;
-- (nullable RTC_OBJC_TYPE(RTCVideoCodecInfo) *)encoderForBitrate:(NSInteger)bitrate;
+    - (void)registerCurrentEncoderInfo
+    : (RTC_OBJC_TYPE(RTCVideoCodecInfo) *)info;
+- (nullable RTC_OBJC_TYPE(RTCVideoCodecInfo) *)encoderForBitrate:
+    (NSInteger)bitrate;
 - (nullable RTC_OBJC_TYPE(RTCVideoCodecInfo) *)encoderForBrokenEncoder;
 
 @optional
-- (nullable RTC_OBJC_TYPE(RTCVideoCodecInfo) *)encoderForResolutionChangeBySize:(CGSize)size;
+- (nullable RTC_OBJC_TYPE(RTCVideoCodecInfo) *)encoderForResolutionChangeBySize:
+    (CGSize)size;
 
 @end
 
-/** RTCVideoEncoderFactory is an Objective-C version of webrtc::VideoEncoderFactory.
+/** RTCVideoEncoderCodecSupport is an Objective-C version of
+ * webrtc::VideoEncoderFactory::CodecSupport. */
+RTC_OBJC_EXPORT
+@interface RTC_OBJC_TYPE (RTCVideoEncoderCodecSupport) : NSObject
+
+- (instancetype)init NS_UNAVAILABLE;
+
+- (instancetype)initWithSupported:(bool)isSupported;
+- (instancetype)initWithSupported:(bool)isSupported
+                 isPowerEfficient:(bool)isPowerEfficient
+    NS_DESIGNATED_INITIALIZER;
+
+@property(nonatomic, readonly) bool isSupported;
+@property(nonatomic, readonly) bool isPowerEfficient;
+
+@end
+
+/** RTCVideoEncoderFactory is an Objective-C version of
+ * webrtc::VideoEncoderFactory.
  */
 RTC_OBJC_EXPORT
 @protocol RTC_OBJC_TYPE
@@ -46,6 +67,11 @@ RTC_OBJC_EXPORT
 @optional
 - (NSArray<RTC_OBJC_TYPE(RTCVideoCodecInfo) *> *)implementations;
 - (nullable id<RTC_OBJC_TYPE(RTCVideoEncoderSelector)>)encoderSelector;
+/* TODO: b/299588022 - move to non-optional section when implemented by all
+ * derived classes. */
+- (RTC_OBJC_TYPE(RTCVideoEncoderCodecSupport) *)
+    queryCodecSupport:(RTC_OBJC_TYPE(RTCVideoCodecInfo) *)info
+      scalabilityMode:(nullable NSString *)scalabilityMode;
 
 @end
 

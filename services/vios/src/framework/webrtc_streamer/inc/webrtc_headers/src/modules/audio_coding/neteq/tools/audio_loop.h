@@ -11,11 +11,12 @@
 #ifndef MODULES_AUDIO_CODING_NETEQ_TOOLS_AUDIO_LOOP_H_
 #define MODULES_AUDIO_CODING_NETEQ_TOOLS_AUDIO_LOOP_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <string>
+#include <span>
 
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 
 namespace webrtc {
 namespace test {
@@ -43,7 +44,7 @@ class AudioLoop {
 
   // Returns a (pointer,size) pair for the next block of audio. The size is
   // equal to the `block_length_samples` Init() argument.
-  rtc::ArrayView<const int16_t> GetNextBlock();
+  std::span<const int16_t> GetNextBlock();
 
  private:
   size_t next_index_;

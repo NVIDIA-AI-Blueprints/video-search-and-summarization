@@ -11,17 +11,19 @@
 #ifndef AUDIO_DEVICE_FILE_AUDIO_DEVICE_H_
 #define AUDIO_DEVICE_FILE_AUDIO_DEVICE_H_
 
-#include <stdio.h>
-
-#include <memory>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "api/audio/audio_device.h"
+#include "api/audio/audio_device_defines.h"
+#include "api/environment/environment.h"
+#include "modules/audio_device/audio_device_buffer.h"
 #include "modules/audio_device/audio_device_generic.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/system/file_wrapper.h"
-#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -35,9 +37,10 @@ class FileAudioDevice : public AudioDeviceGeneric {
   // The input file should be a readable 48k stereo raw file, and the output
   // file should point to a writable location. The output format will also be
   // 48k stereo raw audio.
-  FileAudioDevice(absl::string_view inputFilename,
+  FileAudioDevice(const Environment& env,
+                  absl::string_view inputFilename,
                   absl::string_view outputFilename);
-  virtual ~FileAudioDevice();
+  ~FileAudioDevice() override;
 
   // Retrieve the currently utilized audio layer
   int32_t ActiveAudioLayer(
@@ -131,6 +134,7 @@ class FileAudioDevice : public AudioDeviceGeneric {
   bool RecThreadProcess();
   bool PlayThreadProcess();
 
+  const Environment env_;
   int32_t _playout_index;
   int32_t _record_index;
   AudioDeviceBuffer* _ptrAudioBuffer;
@@ -144,8 +148,8 @@ class FileAudioDevice : public AudioDeviceGeneric {
   size_t _recordingFramesIn10MS;
   size_t _playoutFramesIn10MS;
 
-  rtc::PlatformThread _ptrThreadRec;
-  rtc::PlatformThread _ptrThreadPlay;
+  PlatformThread _ptrThreadRec;
+  PlatformThread _ptrThreadPlay;
 
   bool _playing;
   bool _recording;

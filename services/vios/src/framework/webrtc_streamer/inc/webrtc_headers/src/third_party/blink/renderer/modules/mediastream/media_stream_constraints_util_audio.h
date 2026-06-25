@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_STREAM_CONSTRAINTS_UTIL_AUDIO_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_STREAM_CONSTRAINTS_UTIL_AUDIO_H_
 
+#include "base/memory/raw_ptr.h"
+#include "base/types/expected.h"
 #include "third_party/blink/public/mojom/mediastream/media_stream.mojom-blink-forward.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -14,9 +16,16 @@
 namespace blink {
 class MediaConstraints;
 class MediaStreamAudioSource;
+class V8UnionBooleanOrString;
 }  // namespace blink
 
 namespace blink {
+
+V8UnionBooleanOrString* EchoCancellationModeToBooleanOrString(
+    EchoCancellationMode);
+Vector<EchoCancellationMode> GetSupportedEchoCancellationModes(
+    int platform_effects,
+    mojom::blink::MediaStreamType);
 
 // This class represents the capability of an audio-capture device.
 // It may represent three different things:
@@ -76,7 +85,7 @@ class MODULES_EXPORT AudioDeviceCaptureCapability {
   const media::AudioParameters& Parameters() const;
 
  private:
-  blink::MediaStreamAudioSource* source_ = nullptr;
+  raw_ptr<blink::MediaStreamAudioSource> source_ = nullptr;
   String device_id_;
   String group_id_;
   media::AudioParameters parameters_;
@@ -121,9 +130,6 @@ using AudioDeviceCaptureCapabilities = Vector<AudioDeviceCaptureCapability>;
 //        the same name. "System" is selected only if the device supports it.
 //        If constraint is not specified, "system" is selected if supported,
 //        with exception for experimental system echo cancellation.
-//      - goog_audio_mirroring: This property is mapped directly from the final
-//        value of the goog_audio_mirroring constraint. If no value is
-//        explicitly specified, the default value is false.
 //    The remaining audio-processing properties are directly mapped from the
 //    final value of the corresponding constraints. If no value is explicitly
 //    specified, the default value is the same as the final value of the
@@ -136,10 +142,9 @@ using AudioDeviceCaptureCapabilities = Vector<AudioDeviceCaptureCapability>;
 //    constraints. Constraints are an input to SelectSettings, while properties
 //    are part of the output. The value for most boolean properties comes
 //    directly from a corresponding boolean constraint, but this is not true for
-//    all constraints and properties. For example, the echo_cancellation and
-//    goog_echo_cancellation constraints  are not directly mapped to any
-//    property, but they, together with hardware characteristics, influence the
-//    selection of echo cancellation type.
+//    all constraints and properties. For example, the echo_cancellation is not
+//    directly mapped to any property, but, together with hardware
+//    characteristics, influence the selection of echo cancellation type.
 //    Moreover, the echo_cancellation constraint influences most other
 //    audio-processing properties for which no explicit value is provided in
 //    their corresponding constraints.
@@ -151,8 +156,7 @@ MODULES_EXPORT blink::AudioCaptureSettings SelectSettingsAudioCapture(
     const AudioDeviceCaptureCapabilities& capabilities,
     const MediaConstraints& constraints,
     mojom::blink::MediaStreamType stream_type,
-    bool should_disable_hardware_noise_suppression,
-    bool is_reconfiguration_allowed = false);
+    bool is_reconfiguration_allowed);
 
 // This variant of SelectSettings takes an existing MediaStreamAudioSource
 // as input in order to determine settings that are compatible with it.
@@ -164,6 +168,16 @@ MODULES_EXPORT blink::AudioCaptureSettings SelectSettingsAudioCapture(
 MODULES_EXPORT blink::AudioCaptureSettings SelectSettingsAudioCapture(
     blink::MediaStreamAudioSource* source,
     const MediaConstraints& constraints);
+
+// Selects settings for each eligible device in `capabilities` in isolation and
+// returns them as a vector. If none of the devices are eligible, then the name
+// of one of the failed constraints is returned.
+MODULES_EXPORT base::expected<Vector<blink::AudioCaptureSettings>, std::string>
+SelectEligibleSettingsAudioCapture(
+    const AudioDeviceCaptureCapabilities& capabilities,
+    const MediaConstraints& constraints,
+    mojom::blink::MediaStreamType stream_type,
+    bool is_reconfiguration_allowed);
 
 // Return a tuple with <min,max> representing the min and max buffer sizes or
 // latencies that can be provided by the given AudioParameters. The min and max

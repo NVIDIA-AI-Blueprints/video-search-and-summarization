@@ -10,8 +10,11 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
+#import "RTCVideoCodecInfo.h"
 #import "RTCVideoEncoder.h"
+#import "sdk/objc/base/RTCMacros.h"
+
+NS_ASSUME_NONNULL_BEGIN
 
 RTC_OBJC_EXPORT
 @interface RTC_OBJC_TYPE (RTCVideoEncoderAV1) : NSObject
@@ -22,6 +25,17 @@ RTC_OBJC_EXPORT
  */
 + (id<RTC_OBJC_TYPE(RTCVideoEncoder)>)av1Encoder;
 
+/* Returns list of scalability modes supported by the encoder that can be
+ * created with `av1Encoder` method above.
+ */
++ (NSArray<NSString *> *)supportedScalabilityModes;
+
+/** Returns the list of supported codec formats (profiles) for the AV1 encoder.
+ */
++ (NSArray<RTC_OBJC_TYPE(RTCVideoCodecInfo) *> *)supportedCodecs;
+
 + (bool)isSupported;
 
 @end
+
+NS_ASSUME_NONNULL_END

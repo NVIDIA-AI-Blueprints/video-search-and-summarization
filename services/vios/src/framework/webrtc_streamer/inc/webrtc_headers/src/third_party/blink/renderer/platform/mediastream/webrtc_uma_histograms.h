@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_MEDIASTREAM_WEBRTC_UMA_HISTOGRAMS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_MEDIASTREAM_WEBRTC_UMA_HISTOGRAMS_H_
 
+#include <array>
+
 #include "base/memory/singleton.h"
 #include "base/threading/thread_checker.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
@@ -13,25 +15,6 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 
 namespace blink {
-
-// Used to investigate where UserMediaRequests end up.
-// Only UserMediaRequests that do not log with LogUserMediaRequestResult
-// should call LogUserMediaRequestWithNoResult.
-//
-// Elements in this enum should not be deleted or rearranged; the only
-// permitted operation is to add new elements before
-// NUM_MEDIA_STREAM_REQUEST_WITH_NO_RESULT.
-enum MediaStreamRequestState {
-  MEDIA_STREAM_REQUEST_EXPLICITLY_CANCELLED = 0,
-  MEDIA_STREAM_REQUEST_NOT_GENERATED = 1,
-  MEDIA_STREAM_REQUEST_PENDING_MEDIA_TRACKS = 2,
-  NUM_MEDIA_STREAM_REQUEST_WITH_NO_RESULT
-};
-
-PLATFORM_EXPORT void LogUserMediaRequestWithNoResult(
-    MediaStreamRequestState state);
-PLATFORM_EXPORT void LogUserMediaRequestResult(
-    mojom::MediaStreamRequestResult result);
 
 // Helper method used to collect information about the number of times
 // different WebRTC APIs are called from JavaScript.
@@ -88,7 +71,7 @@ class PLATFORM_EXPORT PerSessionWebRTCAPIMetrics {
   void ResetUsage();
 
   int num_streams_;
-  bool has_used_api_[static_cast<int>(RTCAPIName::kInvalidName)];
+  std::array<bool, static_cast<int>(RTCAPIName::kInvalidName)> has_used_api_;
 
   THREAD_CHECKER(thread_checker_);
 };

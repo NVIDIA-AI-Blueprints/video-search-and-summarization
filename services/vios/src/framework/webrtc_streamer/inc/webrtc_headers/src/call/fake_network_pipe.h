@@ -11,18 +11,19 @@
 #ifndef CALL_FAKE_NETWORK_PIPE_H_
 #define CALL_FAKE_NETWORK_PIPE_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <map>
 #include <memory>
-#include <queue>
-#include <set>
-#include <string>
-#include <vector>
+#include <optional>
+#include <span>
 
 #include "api/call/transport.h"
 #include "api/test/simulated_network.h"
 #include "call/simulated_packet_receiver.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 
@@ -34,13 +35,13 @@ enum class MediaType;
 
 class NetworkPacket {
  public:
-  NetworkPacket(rtc::CopyOnWriteBuffer packet,
+  NetworkPacket(CopyOnWriteBuffer packet,
                 int64_t send_time,
                 int64_t arrival_time,
-                absl::optional<PacketOptions> packet_options,
+                std::optional<PacketOptions> packet_options,
                 bool is_rtcp,
                 MediaType media_type,
-                absl::optional<int64_t> packet_time_us,
+                std::optional<int64_t> packet_time_us,
                 Transport* transport);
 
   NetworkPacket(RtpPacketReceived packet,
@@ -58,7 +59,7 @@ class NetworkPacket {
 
   const uint8_t* data() const { return packet_.data(); }
   size_t data_length() const { return packet_.size(); }
-  rtc::CopyOnWriteBuffer* raw_packet() { return &packet_; }
+  CopyOnWriteBuffer* raw_packet() { return &packet_; }
   int64_t send_time() const { return send_time_; }
   int64_t arrival_time() const { return arrival_time_; }
   void IncrementArrivalTime(int64_t extra_delay) {
@@ -69,32 +70,32 @@ class NetworkPacket {
   }
   bool is_rtcp() const { return is_rtcp_; }
   MediaType media_type() const { return media_type_; }
-  absl::optional<int64_t> packet_time_us() const { return packet_time_us_; }
+  std::optional<int64_t> packet_time_us() const { return packet_time_us_; }
   RtpPacketReceived* packet_received() {
     return packet_received_ ? &packet_received_.value() : nullptr;
   }
-  absl::optional<RtpPacketReceived> packet_received() const {
+  std::optional<RtpPacketReceived> packet_received() const {
     return packet_received_;
   }
   Transport* transport() const { return transport_; }
 
  private:
-  rtc::CopyOnWriteBuffer packet_;
+  CopyOnWriteBuffer packet_;
   // The time the packet was sent out on the network.
   int64_t send_time_;
   // The time the packet should arrive at the receiver.
   int64_t arrival_time_;
   // If using a Transport for outgoing degradation, populate with
   // PacketOptions (transport-wide sequence number) for RTP.
-  absl::optional<PacketOptions> packet_options_;
+  std::optional<PacketOptions> packet_options_;
   bool is_rtcp_;
   // If using a PacketReceiver for incoming degradation, populate with
   // appropriate MediaType and packet time. This type/timing will be kept and
   // forwarded. The packet time might be altered to reflect time spent in fake
   // network pipe.
   MediaType media_type_;
-  absl::optional<int64_t> packet_time_us_;
-  absl::optional<RtpPacketReceived> packet_received_;
+  std::optional<int64_t> packet_time_us_;
+  std::optional<RtpPacketReceived> packet_received_;
   Transport* transport_;
 };
 
@@ -113,11 +114,6 @@ class FakeNetworkPipe : public SimulatedPacketReceiverInterface {
                   PacketReceiver* receiver,
                   uint64_t seed);
 
-  // Use this constructor if you plan to insert packets using SendRt[c?]p().
-  FakeNetworkPipe(Clock* clock,
-                  std::unique_ptr<NetworkBehaviorInterface> network_behavior,
-                  Transport* transport);
-
   ~FakeNetworkPipe() override;
 
   FakeNetworkPipe(const FakeNetworkPipe&) = delete;
@@ -134,23 +130,13 @@ class FakeNetworkPipe : public SimulatedPacketReceiverInterface {
   void AddActiveTransport(Transport* transport);
   void RemoveActiveTransport(Transport* transport);
 
-  // Implements Transport interface. When/if packets are delivered, they will
-  // be passed to the transport instance given in SetReceiverTransport(). These
-  // methods should only be called if a Transport instance was provided in the
-  // constructor.
-  bool SendRtp(const uint8_t* packet,
-               size_t length,
-               const PacketOptions& options);
-  bool SendRtcp(const uint8_t* packet, size_t length);
-
   // Methods for use with Transport interface. When/if packets are delivered,
   // they will be passed to the instance specified by the `transport` parameter.
   // Note that that instance must be in the map of active transports.
-  bool SendRtp(const uint8_t* packet,
-               size_t length,
+  bool SendRtp(std::span<const uint8_t> packet,
                const PacketOptions& options,
                Transport* transport);
-  bool SendRtcp(const uint8_t* packet, size_t length, Transport* transport);
+  bool SendRtcp(std::span<const uint8_t> packet, Transport* transport);
 
   // Implements the PacketReceiver interface. When/if packets are delivered,
   // they will be passed directly to the receiver instance given in
@@ -160,12 +146,12 @@ class FakeNetworkPipe : public SimulatedPacketReceiverInterface {
       MediaType media_type,
       RtpPacketReceived packet,
       OnUndemuxablePacketHandler undemuxable_packet_handler) override;
-  void DeliverRtcpPacket(rtc::CopyOnWriteBuffer packet) override;
+  void DeliverRtcpPacket(CopyOnWriteBuffer packet) override;
 
   // Processes the network queues and trigger PacketReceiver::IncomingPacket for
   // packets ready to be delivered.
   void Process() override;
-  absl::optional<int64_t> TimeUntilNextProcess() override;
+  std::optional<int64_t> TimeUntilNextProcess() override;
 
   // Get statistics.
   float PercentageLoss();
@@ -193,16 +179,16 @@ class FakeNetworkPipe : public SimulatedPacketReceiverInterface {
 
   // Returns true if enqueued, or false if packet was dropped. Use this method
   // when enqueueing packets that should be received by PacketReceiver instance.
-  bool EnqueuePacket(rtc::CopyOnWriteBuffer packet,
-                     absl::optional<PacketOptions> options,
+  bool EnqueuePacket(CopyOnWriteBuffer packet,
+                     std::optional<PacketOptions> options,
                      bool is_rtcp,
                      MediaType media_type,
-                     absl::optional<int64_t> packet_time_us);
+                     std::optional<int64_t> packet_time_us);
 
   // Returns true if enqueued, or false if packet was dropped. Use this method
   // when enqueueing packets that should be received by Transport instance.
-  bool EnqueuePacket(rtc::CopyOnWriteBuffer packet,
-                     absl::optional<PacketOptions> options,
+  bool EnqueuePacket(CopyOnWriteBuffer packet,
+                     std::optional<PacketOptions> options,
                      bool is_rtcp,
                      Transport* transport);
 
@@ -218,7 +204,6 @@ class FakeNetworkPipe : public SimulatedPacketReceiverInterface {
   mutable Mutex config_lock_;
   const std::unique_ptr<NetworkBehaviorInterface> network_behavior_;
   PacketReceiver* receiver_ RTC_GUARDED_BY(config_lock_);
-  Transport* const global_transport_;
 
   // `process_lock` guards the data structures involved in delay and loss
   // processes, such as the packet queues.

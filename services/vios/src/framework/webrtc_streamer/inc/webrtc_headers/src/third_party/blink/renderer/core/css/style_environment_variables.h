@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_variable_data.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
@@ -20,6 +21,7 @@ class FeatureContext;
 // a single dimension.
 // When adding a new variable the string equivalent needs to be added to
 // |GetVariableName|.
+// LINT.IfChange(UADefinedVariable)
 enum class UADefinedVariable {
   // The safe area insets are four environment variables that define a
   // rectangle by its top, right, bottom, and left insets from the edge of
@@ -28,6 +30,14 @@ enum class UADefinedVariable {
   kSafeAreaInsetLeft,
   kSafeAreaInsetBottom,
   kSafeAreaInsetRight,
+
+  // When safe-area-inset-* values can change dynamically during the browsing
+  // session, their maximum values are expressed as safe-area-max-inset-*.
+  // Currently only the bottom inset is dynamic, for Android edge-to-edge UI.
+  kSafeAreaMaxInsetTop,
+  kSafeAreaMaxInsetLeft,
+  kSafeAreaMaxInsetBottom,
+  kSafeAreaMaxInsetRight,
 
   // The keyboard area insets are six environment variables that define a
   // virtual keyboard rectangle by its top, right, bottom, left, width and
@@ -50,8 +60,12 @@ enum class UADefinedVariable {
   kTitlebarAreaX,
   kTitlebarAreaY,
   kTitlebarAreaWidth,
-  kTitlebarAreaHeight
+  kTitlebarAreaHeight,
+
+  // The text scale as chosen by the user in the OS accessibility settings.
+  kPreferredTextScale,
 };
+// LINT.ThenChange(//third_party/blink/renderer/core/inspector/inspector_css_agent.cc:EnvironmentVariables)
 
 enum class UADefinedTwoDimensionalVariable {
   // The viewport segment variables describe logically distinct regions of the
@@ -71,7 +85,7 @@ enum class UADefinedTwoDimensionalVariable {
 // UADefinedVariable. Note that UADefinedVariables are not always set/defined,
 // as they depend on the environment.
 class CORE_EXPORT StyleEnvironmentVariables
-    : public RefCounted<StyleEnvironmentVariables> {
+    : public GarbageCollected<StyleEnvironmentVariables> {
  public:
   static StyleEnvironmentVariables& GetRootInstance();
 
@@ -85,11 +99,23 @@ class CORE_EXPORT StyleEnvironmentVariables
       UADefinedTwoDimensionalVariable variable,
       const FeatureContext* feature_context);
 
-  // Create a new instance bound to |parent|.
-  static scoped_refptr<StyleEnvironmentVariables> Create(
-      StyleEnvironmentVariables& parent);
+  // Create a new root instance.
+  StyleEnvironmentVariables();
 
-  virtual ~StyleEnvironmentVariables();
+  // Create a new instance bound to |parent|.
+  StyleEnvironmentVariables(StyleEnvironmentVariables& parent)
+      : parent_(parent) {
+    parent.children_.push_back(this);
+  }
+
+  virtual ~StyleEnvironmentVariables() = default;
+
+  virtual void Trace(Visitor* visitor) const {
+    visitor->Trace(children_);
+    visitor->Trace(data_);
+    visitor->Trace(two_dimension_data_);
+    visitor->Trace(parent_);
+  }
 
   // Tokenize |value| and set it. This will invalidate any dependents.
   void SetVariable(UADefinedVariable variable, const String& value);
@@ -98,24 +124,27 @@ class CORE_EXPORT StyleEnvironmentVariables
   void SetVariable(UADefinedTwoDimensionalVariable variable,
                    unsigned first_dimension,
                    unsigned second_dimenison,
-                   const String& value);
+                   const String& value,
+                   const FeatureContext* feature_context);
 
   // Remove the variable |name| and invalidate any dependents.
   void RemoveVariable(UADefinedVariable variable);
   // Remove all the indexed variables referenced by the enum, and invalidate any
   // dependents.
-  void RemoveVariable(UADefinedTwoDimensionalVariable variable);
+  void RemoveVariable(UADefinedTwoDimensionalVariable variable,
+                      const FeatureContext* feature_context);
 
   // Resolve the variable |name| by traversing the tree of
   // |StyleEnvironmentVariables|.
   virtual CSSVariableData* ResolveVariable(const AtomicString& name,
-                                           WTF::Vector<unsigned> indices);
+                                           Vector<unsigned> indices);
 
   // Detach |this| from |parent|.
   void DetachFromParent();
 
   // Stringify |value| and append 'px'. Helper for setting variables that are
   // CSS lengths.
+  static String FormatFloatPx(float value);
   static String FormatPx(int value);
 
   virtual const FeatureContext* GetFeatureContext() const;
@@ -135,28 +164,22 @@ class CORE_EXPORT StyleEnvironmentVariables
 
   void ClearForTesting();
 
-  // Bind this instance to a |parent|. This should only be called once.
-  void BindToParent(StyleEnvironmentVariables& parent);
-
   // Called by the parent to tell the child that variable |name| has changed.
   void ParentInvalidatedVariable(const AtomicString& name);
-
-  StyleEnvironmentVariables() : parent_(nullptr) {}
 
   // Called when variable |name| is changed. This will notify any children that
   // this variable has changed.
   virtual void InvalidateVariable(const AtomicString& name);
 
  private:
-  class RootOwner;
+  using TwoDimensionVariableValues =
+      GCedHeapVector<HeapVector<Member<CSSVariableData>>>;
 
-  typedef WTF::Vector<WTF::Vector<scoped_refptr<CSSVariableData>>>
-      TwoDimensionVariableValues;
-
-  Vector<scoped_refptr<StyleEnvironmentVariables>> children_;
-  HashMap<AtomicString, scoped_refptr<CSSVariableData>> data_;
-  HashMap<AtomicString, TwoDimensionVariableValues> two_dimension_data_;
-  scoped_refptr<StyleEnvironmentVariables> parent_;
+  HeapVector<Member<StyleEnvironmentVariables>> children_;
+  HeapHashMap<AtomicString, Member<CSSVariableData>> data_;
+  HeapHashMap<AtomicString, Member<TwoDimensionVariableValues>>
+      two_dimension_data_;
+  Member<StyleEnvironmentVariables> parent_;
 };
 
 }  // namespace blink

@@ -76,11 +76,13 @@ class CORE_EXPORT UIEvent : public Event {
                            int detail,
                            InputDeviceCapabilities* source_capabilities);
 
-  AbstractView* view() const { return view_; }
+  AbstractView* view() const { return view_.Get(); }
   int detail() const { return detail_; }
   InputDeviceCapabilities* sourceCapabilities() const {
-    return source_capabilities_;
+    return source_capabilities_.Get();
   }
+
+  CSSPseudoElement* pseudoTarget() const { return Event::pseudoTarget(); }
 
   const AtomicString& InterfaceName() const override;
   bool IsUIEvent() const final;

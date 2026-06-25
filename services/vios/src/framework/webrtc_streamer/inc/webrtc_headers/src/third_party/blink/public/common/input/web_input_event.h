@@ -34,10 +34,10 @@
 #include <string.h>
 
 #include <memory>
+#include <optional>
 
 #include "base/notreached.h"
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/mojom/input/input_event.mojom-shared.h"
 #include "ui/events/event_latency_metadata.h"
@@ -141,11 +141,20 @@ class BLINK_COMMON_EXPORT WebInputEvent {
     // ancestor frames moved within its embedding page's viewport recently.
     kTargetFrameMovedRecently = 1 << 24,
 
+    // TODO(szager): This is the same as kTargetFrameMovedRecently, but it
+    // overrides that value for iframes that are using IntersectionObserver V2
+    // features (i.e. occlusion detection). The purpose of this distinction is
+    // to preserve existing behavior for IOv2-using iframes while dialing in the
+    // feature parameters for kDiscardInputEventsToRecentlyMovedFrames, which is
+    // broader in scope. At the end of that process, this flag should be removed
+    // in favor of kTargetFrameMovedRecently.
+    kTargetFrameMovedRecentlyForIOv2 = 1 << 25,
+
     // When an event is forwarded to the main thread, this modifier will tell if
     // the event was already handled by the compositor thread or not. Based on
     // this, the decision of whether or not the main thread should handle this
     // event for the scrollbar can then be made.
-    kScrollbarManipulationHandledOnCompositorThread = 1 << 25,
+    kScrollbarManipulationHandledOnCompositorThread = 1 << 26,
 
     // The set of non-stateful modifiers that specifically change the
     // interpretation of the key being pressed. For example; IsLeft,
@@ -160,14 +169,7 @@ class BLINK_COMMON_EXPORT WebInputEvent {
 
   using DispatchType = mojom::DispatchType;
 
-  // The rail mode for a wheel event specifies the axis on which scrolling is
-  // expected to stick. If this axis is set to Free, then scrolling is not
-  // stuck to any axis.
-  enum RailsMode {
-    kRailsModeFree = 0,
-    kRailsModeHorizontal = 1,
-    kRailsModeVertical = 2,
-  };
+  using RailsMode = mojom::RailsMode;
 
   static const int kInputModifiers =
       kShiftKey | kControlKey | kAltKey | kMetaKey;
@@ -207,6 +209,35 @@ class BLINK_COMMON_EXPORT WebInputEvent {
   // Returns true if the WebInputEvent |type| is a pointer event.
   static bool IsPointerEventType(WebInputEvent::Type type) {
     return Type::kPointerTypeFirst <= type && type <= Type::kPointerTypeLast;
+  }
+
+  // Returns true if the WebInputEvent |type| will potentially be considered
+  // part of a "web interaction" for responsiveness metrics, e.g.
+  // Interaction-to-Next-Paint (INP). This, for example, includes clicks and
+  // key presses, but excludes continuous input like scrolling.
+  //
+  // This list includes `WebInputEvent::Type`s that can result in dispatching
+  // relevant events [1] considered by blink::ResponsivenessMetrics (see
+  // IsEventTypeForInteractionId() in window_performance.cc). For example the
+  // handling of kPointerUp, kMouseUp, and kTouchEnd `WebInputEvent::Type` raw
+  // events can all lead to dispatching a "pointerup" event, which is used in
+  // computing responsiveness metrics.
+  //
+  // [1] Note this excludes some events that are used for responsiveness metrics
+  // state tracking, e.g. "pointercancel".
+  static bool IsWebInteractionEvent(WebInputEvent::Type type) {
+    return type == WebInputEvent::Type::kMouseDown ||
+           type == WebInputEvent::Type::kMouseUp ||
+           type == WebInputEvent::Type::kKeyDown ||
+           type == WebInputEvent::Type::kRawKeyDown ||
+           type == WebInputEvent::Type::kKeyUp ||
+           type == WebInputEvent::Type::kChar ||
+           type == WebInputEvent::Type::kGestureTapDown ||
+           type == WebInputEvent::Type::kGestureTap ||
+           type == WebInputEvent::Type::kPointerDown ||
+           type == WebInputEvent::Type::kPointerUp ||
+           type == WebInputEvent::Type::kTouchStart ||
+           type == WebInputEvent::Type::kTouchEnd;
   }
 
   bool IsSameEventClass(const WebInputEvent& other) const {
@@ -278,6 +309,8 @@ class BLINK_COMMON_EXPORT WebInputEvent {
       CASE_TYPE(GestureShortPress);
       CASE_TYPE(GestureLongPress);
       CASE_TYPE(GestureLongTap);
+      CASE_TYPE(GestureBegin);
+      CASE_TYPE(GestureEnd);
       CASE_TYPE(GesturePinchBegin);
       CASE_TYPE(GesturePinchEnd);
       CASE_TYPE(GesturePinchUpdate);
@@ -295,7 +328,6 @@ class BLINK_COMMON_EXPORT WebInputEvent {
     }
 #undef CASE_TYPE
     NOTREACHED();
-    return "";
   }
 
   float FrameScale() const { return frame_scale_; }
@@ -307,13 +339,22 @@ class BLINK_COMMON_EXPORT WebInputEvent {
   }
 
   Type GetType() const { return type_; }
-  void SetType(Type type_param) { type_ = type_param; }
+  void SetType(Type type_param) {
+    type_ = type_param;
+    CheckEventType();
+  }
 
   int GetModifiers() const { return modifiers_; }
   void SetModifiers(int modifiers_param) { modifiers_ = modifiers_param; }
 
+  // Event time since platform start with microsecond resolution.
   base::TimeTicks TimeStamp() const { return time_stamp_; }
   void SetTimeStamp(base::TimeTicks time_stamp) { time_stamp_ = time_stamp; }
+  // Event time when queued by compositor on main thread.
+  base::TimeTicks QueuedTimeStamp() const { return queued_time_stamp_; }
+  void SetQueuedTimeStamp(base::TimeTicks time_stamp) {
+    queued_time_stamp_ = time_stamp;
+  }
 
   const ui::EventLatencyMetadata& GetEventLatencyMetadata() const {
     return event_latency_metadata_;
@@ -324,6 +365,10 @@ class BLINK_COMMON_EXPORT WebInputEvent {
 
   void SetTargetFrameMovedRecently() {
     modifiers_ |= kTargetFrameMovedRecently;
+  }
+
+  void SetTargetFrameMovedRecentlyForIOv2() {
+    modifiers_ |= kTargetFrameMovedRecentlyForIOv2;
   }
 
   void SetScrollbarManipulationHandledOnCompositorThread() {
@@ -338,35 +383,71 @@ class BLINK_COMMON_EXPORT WebInputEvent {
   // |event|.
   virtual bool CanCoalesce(const blink::WebInputEvent& event) const = 0;
 
-  // Merge the current event with attributes from |event|.
+  // Merges the current event with attributes from |event|.
   virtual void Coalesce(const WebInputEvent& event) = 0;
 
-  // Convert this WebInputEvent::Type to a ui::EventType. Note that this is
+  // Converts this WebInputEvent::Type to a ui::EventType. Note that this is
   // not a 1:1 relationship. Multiple blink types convert to the same
   // ui::EventType and not all types do convert.
   ui::EventType GetTypeAsUiEventType() const;
 
+  // For the events that are received during an active scroll/fling, we don't
+  // count them into the INP metrics. Set by the renderer compositor based on
+  // its current gesture-handling state.
+  bool GetPreventCountingAsInteraction() const {
+    return prevent_counting_as_interaction_;
+  }
+  void SetPreventCountingAsInteractionTrue() {
+    prevent_counting_as_interaction_ = true;
+  }
+
  protected:
+  static DispatchType MergeDispatchTypes(DispatchType type_1,
+                                         DispatchType type_2);
+
+  WebInputEvent(Type type,
+                Type type_range_min,
+                Type type_range_max,
+                int modifiers = kNoModifiers,
+                base::TimeTicks time_stamp = base::TimeTicks())
+      : time_stamp_(time_stamp),
+        type_(type),
+        type_range_min_(type_range_min),
+        type_range_max_(type_range_max),
+        modifiers_(modifiers) {
+    CHECK(type_range_min <= type_range_max);
+    CheckEventType();
+  }
+
   // The root frame scale.
   float frame_scale_ = 1;
 
   // The root frame translation (applied post scale).
   gfx::Vector2dF frame_translate_;
 
-  WebInputEvent(Type type, int modifiers, base::TimeTicks time_stamp)
-      : time_stamp_(time_stamp), type_(type), modifiers_(modifiers) {}
-
-  WebInputEvent() { time_stamp_ = base::TimeTicks(); }
-
-  static DispatchType MergeDispatchTypes(DispatchType type_1,
-                                         DispatchType type_2);
-
-  // Event time since platform start with microsecond resolution.
   base::TimeTicks time_stamp_;
+  base::TimeTicks queued_time_stamp_;
+
   Type type_ = Type::kUndefined;
+
+  // The range of `type_` values allowed in the class; `kUndefined` is always
+  // allowed even if outside the range.
+  Type type_range_min_ = Type::kUndefined;
+  Type type_range_max_ = Type::kUndefined;
+
   int modifiers_ = kNoModifiers;
 
+ private:
+  // Checks that `type_` conforms to the class of this `WebInputEvent`.
+  void CheckEventType() const {
+    DCHECK(type_ == Type::kUndefined ||
+           (type_range_min_ <= type_ && type_ <= type_range_max_))
+        << WebInputEvent::GetName(type_);
+  }
+
   ui::EventLatencyMetadata event_latency_metadata_;
+
+  bool prevent_counting_as_interaction_ = false;
 };
 
 }  // namespace blink

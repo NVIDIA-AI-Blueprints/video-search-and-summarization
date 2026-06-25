@@ -34,8 +34,10 @@
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_impl.h"
 
-namespace WTF {
+namespace blink {
 
+// StringBuffer is a thin wrapper of StringImpl::CreateUninitialized().
+// It is helpful if the length and Is8Bit flag are known when creating a string.
 template <typename CharType>
 class StringBuffer {
   DISALLOW_NEW();
@@ -43,50 +45,44 @@ class StringBuffer {
  public:
   StringBuffer() = default;
 
-  explicit StringBuffer(unsigned length) {
-    CharType* characters;
-    data_ = StringImpl::CreateUninitialized(length, characters);
-  }
+  explicit StringBuffer(StringImpl::size_type length)
+      : data_(Allocate(length)) {}
 
   StringBuffer(const StringBuffer&) = delete;
   StringBuffer& operator=(const StringBuffer&) = delete;
 
   ~StringBuffer() = default;
 
-  void Shrink(unsigned new_length);
+  void Shrink(StringImpl::size_type new_length);
 
-  // Prefer Span() to length()/Characters().
   base::span<CharType> Span() {
-    return base::span<CharType>(Characters(), length());
+    return data_ ? data_->Span<CharType>() : base::span<CharType>();
   }
 
-  unsigned length() const { return data_ ? data_->length() : 0; }
-  CharType* Characters() {
-    return length() ? const_cast<CharType*>(data_->GetCharacters<CharType>())
-                    : nullptr;
-  }
+  StringImpl::size_type length() const { return data_ ? data_->length() : 0; }
 
-  CharType& operator[](unsigned i) {
-    SECURITY_DCHECK(i < length());
-    return Characters()[i];
+  CharType& operator[](StringImpl::size_type i) {
+    return data_->Span<CharType>()[i];
   }
 
   scoped_refptr<StringImpl> Release() { return std::move(data_); }
 
  private:
+  static scoped_refptr<StringImpl> Allocate(StringImpl::size_type length) {
+    base::span<CharType> characters;
+    return StringImpl::CreateUninitialized(length, characters);
+  }
   scoped_refptr<StringImpl> data_;
 };
 
 template <typename CharType>
-void StringBuffer<CharType>::Shrink(unsigned new_length) {
+void StringBuffer<CharType>::Shrink(StringImpl::size_type new_length) {
   DCHECK(data_);
   if (data_->length() == new_length)
     return;
   data_ = data_->Substring(0, new_length);
 }
 
-}  // namespace WTF
-
-using WTF::StringBuffer;
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_STRING_BUFFER_H_

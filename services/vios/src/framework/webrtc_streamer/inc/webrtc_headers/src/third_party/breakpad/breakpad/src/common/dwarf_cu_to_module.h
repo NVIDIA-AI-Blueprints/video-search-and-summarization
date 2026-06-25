@@ -40,6 +40,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -47,8 +48,6 @@
 #include "common/module.h"
 #include "common/dwarf/dwarf2diehandler.h"
 #include "common/dwarf/dwarf2reader.h"
-#include "common/scoped_ptr.h"
-#include "common/using_std_string.h"
 
 namespace google_breakpad {
 
@@ -73,19 +72,16 @@ class DwarfCUToModule: public RootDIEHandler {
   // to true to handle debugging symbols with DW_FORM_ref_addr entries.
   class FileContext {
    public:
-    FileContext(const string& filename,
-                Module* module,
+    FileContext(const std::string& filename, Module* module,
                 bool handle_inter_cu_refs);
     ~FileContext();
 
     // Add CONTENTS of size LENGTH to the section map as NAME.
-    void AddSectionToSectionMap(const string& name,
-                                const uint8_t* contents,
-                                uint64_t length);
+    void AddSectionToSectionMap(const std::string& name,
+                                const uint8_t* contents, uint64_t length);
 
-    void AddManagedSectionToSectionMap(const string& name,
-                                uint8_t* contents,
-                                uint64_t length);
+    void AddManagedSectionToSectionMap(const std::string& name,
+                                       uint8_t* contents, uint64_t length);
 
     // Clear the section map for testing.
     void ClearSectionMapForTest();
@@ -105,7 +101,7 @@ class DwarfCUToModule: public RootDIEHandler {
                                      uint64_t compilation_unit_start) const;
 
     // The name of this file, for use in error messages.
-    const string filename_;
+    const std::string filename_;
 
     // A map of this file's sections, used for finding other DWARF
     // sections that the .debug_info section may refer to.
@@ -118,7 +114,7 @@ class DwarfCUToModule: public RootDIEHandler {
     const bool handle_inter_cu_refs_;
 
     // Inter-compilation unit data used internally by the handlers.
-    scoped_ptr<FilePrivate> file_private_;
+    std::unique_ptr<FilePrivate> file_private_;
     std::vector<uint8_t *> uncompressed_sections_;
   };
 
@@ -150,7 +146,7 @@ class DwarfCUToModule: public RootDIEHandler {
     // ReadProgram(). compilation_dir will indicate the path that the
     // current compilation unit was compiled in, consistent with the
     // DW_AT_comp_dir DIE.
-    virtual void StartCompilationUnit(const string& compilation_dir) = 0;
+    virtual void StartCompilationUnit(const std::string& compilation_dir) = 0;
 
     // Populate MODULE and LINES with source file names and code/line
     // mappings, given a pointer to some DWARF line number data
@@ -173,14 +169,16 @@ class DwarfCUToModule: public RootDIEHandler {
    public:
     // Warn about problems in the DWARF file FILENAME, in the
     // compilation unit at OFFSET.
-    WarningReporter(const string& filename, uint64_t cu_offset)
-        : filename_(filename), cu_offset_(cu_offset), printed_cu_header_(false),
+    WarningReporter(const std::string& filename, uint64_t cu_offset)
+        : filename_(filename),
+          cu_offset_(cu_offset),
+          printed_cu_header_(false),
           printed_unpaired_header_(false),
-          uncovered_warnings_enabled_(false) { }
+          uncovered_warnings_enabled_(false) {}
     virtual ~WarningReporter() { }
 
     // Set the name of the compilation unit we're processing to NAME.
-    virtual void SetCUName(const string& name) { cu_name_ = name; }
+    virtual void SetCUName(const std::string& name) { cu_name_ = name; }
 
     // Accessor and setter for uncovered_warnings_enabled_.
     // UncoveredFunction and UncoveredLine only report a problem if that is
@@ -203,7 +201,7 @@ class DwarfCUToModule: public RootDIEHandler {
     virtual void UnknownAbstractOrigin(uint64_t offset, uint64_t target);
 
     // We were unable to find the DWARF section named SECTION_NAME.
-    virtual void MissingSection(const string& section_name);
+    virtual void MissingSection(const std::string& section_name);
 
     // The CU's DW_AT_stmt_list offset OFFSET is bogus.
     virtual void BadLineInfoOffset(uint64_t offset);
@@ -221,7 +219,7 @@ class DwarfCUToModule: public RootDIEHandler {
     virtual void UnnamedFunction(uint64_t offset);
 
     // __cxa_demangle() failed to demangle INPUT.
-    virtual void DemangleError(const string& input);
+    virtual void DemangleError(const std::string& input);
 
     // The DW_FORM_ref_addr at OFFSET to TARGET was not handled because
     // FilePrivate did not retain the inter-CU specification data.
@@ -240,9 +238,9 @@ class DwarfCUToModule: public RootDIEHandler {
     }
 
    protected:
-    const string filename_;
+    const std::string filename_;
     const uint64_t cu_offset_;
-    string cu_name_;
+    std::string cu_name_;
     bool printed_cu_header_;
     bool printed_unpaired_header_;
     bool uncovered_warnings_enabled_;
@@ -252,6 +250,63 @@ class DwarfCUToModule: public RootDIEHandler {
     void CUHeading();
     // Print an unpaired function/line heading, once.
     void UncoveredHeading();
+  };
+
+  class NullWarningReporter : public WarningReporter {
+   public:
+    NullWarningReporter(const std::string& filename, uint64_t cu_offset)
+        : WarningReporter(filename, cu_offset) {}
+
+    // Set the name of the compilation unit we're processing to NAME.
+    void SetCUName(const std::string& name) {}
+
+    // Accessor and setter for uncovered_warnings_enabled_.
+    // UncoveredFunction and UncoveredLine only report a problem if that is
+    // true. By default, these warnings are disabled, because those
+    // conditions occur occasionally in healthy code.
+    void set_uncovered_warnings_enabled(bool value) {}
+
+    // A DW_AT_specification in the DIE at OFFSET refers to a DIE we
+    // haven't processed yet, or that wasn't marked as a declaration,
+    // at TARGET.
+    void UnknownSpecification(uint64_t offset, uint64_t target) {}
+
+    // A DW_AT_abstract_origin in the DIE at OFFSET refers to a DIE we
+    // haven't processed yet, or that wasn't marked as inline, at TARGET.
+    void UnknownAbstractOrigin(uint64_t offset, uint64_t target) {}
+
+    // We were unable to find the DWARF section named SECTION_NAME.
+    void MissingSection(const std::string& section_name) {}
+
+    // The CU's DW_AT_stmt_list offset OFFSET is bogus.
+    void BadLineInfoOffset(uint64_t offset) {}
+
+    // FUNCTION includes code covered by no line number data.
+    void UncoveredFunction(const Module::Function& function) {}
+
+    // Line number NUMBER in LINE_FILE, of length LENGTH, includes code
+    // covered by no function.
+    void UncoveredLine(const Module::Line& line) {}
+
+    // The DW_TAG_subprogram DIE at OFFSET has no name specified directly
+    // in the DIE, nor via a DW_AT_specification or DW_AT_abstract_origin
+    // link.
+    void UnnamedFunction(uint64_t offset) {}
+
+    // __cxa_demangle() failed to demangle INPUT.
+    void DemangleError(const std::string& input) {}
+
+    // The DW_FORM_ref_addr at OFFSET to TARGET was not handled because
+    // FilePrivate did not retain the inter-CU specification data.
+    void UnhandledInterCUReference(uint64_t offset, uint64_t target) {}
+
+    // The DW_AT_ranges at offset is malformed (truncated or outside of the
+    // .debug_ranges section's bound).
+    void MalformedRangeList(uint64_t offset) {}
+
+    // A DW_AT_ranges attribute was encountered but the no .debug_ranges
+    // section was found.
+    void MissingRanges() {}
   };
 
   // Create a DWARF debugging info handler for a compilation unit
@@ -277,9 +332,8 @@ class DwarfCUToModule: public RootDIEHandler {
   void ProcessAttributeUnsigned(enum DwarfAttribute attr,
                                 enum DwarfForm form,
                                 uint64_t data);
-  void ProcessAttributeString(enum DwarfAttribute attr,
-                              enum DwarfForm form,
-                              const string& data);
+  void ProcessAttributeString(enum DwarfAttribute attr, enum DwarfForm form,
+                              const std::string& data);
   bool EndAttributes();
   DIEHandler* FindChildHandler(uint64_t offset, enum DwarfTag tag);
 
@@ -300,6 +354,7 @@ class DwarfCUToModule: public RootDIEHandler {
   struct Specification;
   class GenericDIEHandler;
   class FuncHandler;
+  class LexicalBlockHandler;
   class InlineHandler;
   class NamedScopeHandler;
 
@@ -333,10 +388,10 @@ class DwarfCUToModule: public RootDIEHandler {
   LineToModuleHandler* line_reader_;
 
   // This compilation unit's context.
-  scoped_ptr<CUContext> cu_context_;
+  std::unique_ptr<CUContext> cu_context_;
 
   // A context for our children.
-  scoped_ptr<DIEContext> child_context_;
+  std::unique_ptr<DIEContext> child_context_;
 
   // True if this compilation unit has source line information.
   bool has_source_line_info_;

@@ -24,10 +24,8 @@ class CORE_EXPORT OffscreenFontSelector : public CSSFontSelectorBase {
   explicit OffscreenFontSelector(WorkerGlobalScope*);
   ~OffscreenFontSelector() override;
 
-  unsigned Version() const override { return 1; }
-
-  scoped_refptr<FontData> GetFontData(const FontDescription&,
-                                      const FontFamily&) override;
+  const FontData* GetFontData(const FontDescription&,
+                              const FontFamily&) override;
 
   void RegisterForInvalidationCallbacks(FontSelectorClient*) override;
   void UnregisterForInvalidationCallbacks(FontSelectorClient*) override;
@@ -36,12 +34,11 @@ class CORE_EXPORT OffscreenFontSelector : public CSSFontSelectorBase {
     return generic_font_family_settings_;
   }
 
-  void FontCacheInvalidated() override;
-  void FontFaceInvalidated(FontInvalidationReason) override;
+  void FontCacheInvalidated() override {}
 
   void UpdateGenericFontFamilySettings(const GenericFontFamilySettings&);
 
-  FontFaceCache* GetFontFaceCache() override { return font_face_cache_; }
+  FontFaceCache* GetFontFaceCache() override { return font_face_cache_.Get(); }
 
   ExecutionContext* GetExecutionContext() const override {
     return worker_ ? worker_->GetExecutionContext() : nullptr;
@@ -53,7 +50,6 @@ class CORE_EXPORT OffscreenFontSelector : public CSSFontSelectorBase {
   void DispatchInvalidationCallbacks();
 
   // `CSSFontSelectorBase` overrides
-  FontMatchingMetrics* GetFontMatchingMetrics() const override;
   UseCounter* GetUseCounter() const override;
 
  private:

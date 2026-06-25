@@ -11,13 +11,20 @@
 #ifndef VIDEO_END_TO_END_TESTS_MULTI_STREAM_TESTER_H_
 #define VIDEO_END_TO_END_TESTS_MULTI_STREAM_TESTER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 
-#include "api/task_queue/task_queue_base.h"
+#include "api/environment/environment.h"
+#include "api/media_types.h"
 #include "call/call.h"
+#include "call/video_receive_stream.h"
+#include "call/video_send_stream.h"
+#include "rtc_base/thread.h"
 #include "test/direct_transport.h"
 #include "test/frame_generator_capturer.h"
+#include "video/config/video_encoder_config.h"
 
 namespace webrtc {
 // Test sets up a Call multiple senders with different resolutions and SSRCs.
@@ -54,10 +61,12 @@ class MultiStreamTester {
       size_t stream_index,
       VideoReceiveStreamInterface::Config* receive_config);
   virtual std::unique_ptr<test::DirectTransport> CreateSendTransport(
-      TaskQueueBase* task_queue,
+      const Environment& env,
+      Thread* network_thread,
       Call* sender_call);
   virtual std::unique_ptr<test::DirectTransport> CreateReceiveTransport(
-      TaskQueueBase* task_queue,
+      const Environment& env,
+      Thread* network_thread,
       Call* receiver_call);
 };
 }  // namespace webrtc

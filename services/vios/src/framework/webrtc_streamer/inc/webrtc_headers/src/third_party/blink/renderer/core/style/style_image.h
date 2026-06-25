@@ -25,25 +25,31 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_STYLE_IMAGE_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/layout/natural_sizing_info.h"
 #include "third_party/blink/renderer/platform/graphics/image_orientation.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace gfx {
 class SizeF;
-}
+}  // namespace gfx
 
 namespace blink {
 
 class CSSValue;
 class Image;
 class ImageResourceContent;
-class SVGImage;
 class Document;
 class ComputedStyle;
 class ImageResourceObserver;
+class Node;
+enum class CSSValuePhase;
 
-typedef void* WrappedImagePtr;
+// A const pointer to either an ImageResource or a CSSImageGeneratorValue. It is
+// used as a handle when checking whether ImageResources and generated images
+// like gradients which have changed their backings are used in ComputedStyle
+// objects for LayoutObjects. Use to decide if we need to do paint invalidation.
+using WrappedImagePtr = const void*;
 
 // This class represents a CSS <image> value in ComputedStyle. The underlying
 // object can be an image, a gradient or anything else defined as an <image>
@@ -53,7 +59,6 @@ class CORE_EXPORT StyleImage : public GarbageCollected<StyleImage> {
   virtual ~StyleImage() = default;
 
   bool operator==(const StyleImage& other) const { return IsEqual(other); }
-  bool operator!=(const StyleImage& other) const { return !(*this == other); }
 
   // Returns a CSSValue representing the origin <image> value. May not be the
   // actual CSSValue from which this StyleImage was originally created if the
@@ -61,11 +66,13 @@ class CORE_EXPORT StyleImage : public GarbageCollected<StyleImage> {
   // contain per-client state (like for StyleGeneratedImage.)
   virtual CSSValue* CssValue() const = 0;
 
-  // Returns a CSSValue suitable for using as part of a computed style
-  // value. This often means that any URLs have been made absolute, and similar
-  // actions described by a "Computed value" in the relevant specification.
+  // Returns a CSSValue suitable for using as part of a computed or resolved
+  // style value. This often means that any URLs have been made absolute, and
+  // similar actions described by a "Computed value" in the relevant
+  // specification.
   virtual CSSValue* ComputedCSSValue(const ComputedStyle&,
-                                     bool allow_visited_style) const = 0;
+                                     bool allow_visited_style,
+                                     CSSValuePhase value_phase) const = 0;
 
   // An Image can be provided for rendering by GetImage.
   virtual bool CanRender() const { return true; }
@@ -79,10 +86,17 @@ class CORE_EXPORT StyleImage : public GarbageCollected<StyleImage> {
   // Any underlying resources this <image> references failed to load.
   virtual bool ErrorOccurred() const { return false; }
 
-  // Is the <image> considered same-origin? Can only be called if IsLoaded()
-  // returns true. |failing_url| is set to the (potentially formatted) URL of
-  // the first non-same-origin <image>.
-  virtual bool IsAccessAllowed(String& failing_url) const = 0;
+  // Is the <image> considered same-origin?
+  virtual bool IsCorsSameOrigin() const = 0;
+
+  // Determine the natural dimensions (width, height, aspect ratio) of this
+  // <image>, scaled by `multiplier`.
+  //
+  // The size will respect the image orientation if requested and if the image
+  // supports it.
+  virtual NaturalSizingInfo GetNaturalSizingInfo(
+      float multiplier,
+      RespectImageOrientationEnum) const = 0;
 
   // Determine the concrete object size of this <image>, scaled by multiplier,
   // using the specified default object size. Return value as a gfx::SizeF
@@ -121,12 +135,12 @@ class CORE_EXPORT StyleImage : public GarbageCollected<StyleImage> {
   // and can have a variety of relationships to the container's size. Hence
   // it requires float resolution.
   //
-  // Note that the |target_size| is in the effective zoom level of the
+  // Note that the `target_size` is in the effective zoom level of the
   // computed style, i.e if the style has an effective zoom level of 1.0 the
-  // |target_size| is not zoomed.
+  // `target_size` is not zoomed.
   virtual scoped_refptr<Image> GetImage(
       const ImageResourceObserver&,
-      const Document&,
+      const Node&,
       const ComputedStyle&,
       const gfx::SizeF& target_size) const = 0;
 
@@ -147,10 +161,11 @@ class CORE_EXPORT StyleImage : public GarbageCollected<StyleImage> {
 
   // Correct the image orientation preference for potentially cross-origin
   // content.
-  virtual RespectImageOrientationEnum ForceOrientationIfNecessary(
-      RespectImageOrientationEnum default_orientation) const {
-    return default_orientation;
-  }
+  RespectImageOrientationEnum ForceOrientationIfNecessary(
+      RespectImageOrientationEnum) const;
+
+  // Whether this <image> depends on the current color.
+  virtual bool DependsOnCurrentColor() const { return false; }
 
   ALWAYS_INLINE bool IsImageResource() const { return is_image_resource_; }
   ALWAYS_INLINE bool IsPendingImage() const { return is_pending_image_; }
@@ -159,12 +174,11 @@ class CORE_EXPORT StyleImage : public GarbageCollected<StyleImage> {
   ALWAYS_INLINE bool IsImageResourceSet() const {
     return is_image_resource_set_;
   }
+  ALWAYS_INLINE bool IsMaskSource() const { return is_mask_source_; }
   ALWAYS_INLINE bool IsPaintImage() const { return is_paint_image_; }
   ALWAYS_INLINE bool IsCrossfadeImage() const { return is_crossfade_; }
 
-  bool IsLazyloadPossiblyDeferred() const {
-    return is_lazyload_possibly_deferred_;
-  }
+  virtual bool IsLoadedAfterMouseover() const { return false; }
 
   virtual void Trace(Visitor* visitor) const {}
 
@@ -175,23 +189,19 @@ class CORE_EXPORT StyleImage : public GarbageCollected<StyleImage> {
         is_generated_image_(false),
         is_image_resource_set_(false),
         is_crossfade_(false),
-        is_paint_image_(false),
-        is_lazyload_possibly_deferred_(false) {}
+        is_mask_source_(false),
+        is_paint_image_(false) {}
   bool is_image_resource_ : 1;
   bool is_pending_image_ : 1;
   bool is_generated_image_ : 1;
   bool is_image_resource_set_ : 1;
   bool is_crossfade_ : 1;
+  bool is_mask_source_ : 1;
   bool is_paint_image_ : 1;
-  bool is_lazyload_possibly_deferred_ : 1;
 
   virtual bool IsEqual(const StyleImage&) const = 0;
 
   static gfx::SizeF ApplyZoom(const gfx::SizeF&, float multiplier);
-  static gfx::SizeF ImageSizeForSVGImage(const SVGImage&,
-                                         float multiplier,
-                                         const gfx::SizeF& default_object_size);
-  static bool HasIntrinsicDimensionsForSVGImage(const SVGImage&);
 };
 
 constexpr bool EqualResolutions(const float res1, const float res2) {

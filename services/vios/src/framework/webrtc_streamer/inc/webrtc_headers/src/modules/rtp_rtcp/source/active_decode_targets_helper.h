@@ -14,9 +14,8 @@
 #include <stdint.h>
 
 #include <bitset>
-
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include <optional>
+#include <span>
 
 namespace webrtc {
 
@@ -34,16 +33,16 @@ class ActiveDecodeTargetsHelper {
 
   // Decides if active decode target bitmask should be attached to the frame
   // that is about to be sent.
-  void OnFrame(rtc::ArrayView<const int> decode_target_protected_by_chain,
+  void OnFrame(std::span<const int> decode_target_protected_by_chain,
                std::bitset<32> active_decode_targets,
                bool is_keyframe,
                int64_t frame_id,
-               rtc::ArrayView<const int> chain_diffs);
+               std::span<const int> chain_diffs);
 
   // Returns active decode target to attach to the dependency descriptor.
-  absl::optional<uint32_t> ActiveDecodeTargetsBitmask() const {
+  std::optional<uint32_t> ActiveDecodeTargetsBitmask() const {
     if (unsent_on_chain_.none())
-      return absl::nullopt;
+      return std::nullopt;
     return last_active_decode_targets_.to_ulong();
   }
 

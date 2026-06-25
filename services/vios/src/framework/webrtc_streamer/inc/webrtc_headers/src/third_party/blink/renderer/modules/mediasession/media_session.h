@@ -5,8 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASESSION_MEDIA_SESSION_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASESSION_MEDIA_SESSION_H_
 
-#include "mojo/public/cpp/bindings/remote.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/public/mojom/mediasession/media_session.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_session_action.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
@@ -29,6 +30,7 @@ class MediaMetadata;
 class MediaPositionState;
 class Navigator;
 class V8MediaSessionActionHandler;
+class V8MediaSessionPlaybackState;
 
 class MODULES_EXPORT MediaSession final
     : public ScriptWrappable,
@@ -41,13 +43,13 @@ class MODULES_EXPORT MediaSession final
   static MediaSession* mediaSession(Navigator&);
   explicit MediaSession(Navigator&);
 
-  void setPlaybackState(const String&);
-  String playbackState();
+  void setPlaybackState(const V8MediaSessionPlaybackState&);
+  V8MediaSessionPlaybackState playbackState();
 
   void setMetadata(MediaMetadata*);
   MediaMetadata* metadata() const;
 
-  void setActionHandler(const String& action,
+  void setActionHandler(const V8MediaSessionAction& action,
                         V8MediaSessionActionHandler*,
                         ExceptionState&);
 
@@ -72,7 +74,7 @@ class MODULES_EXPORT MediaSession final
     kActionDisabled,
   };
 
-  void NotifyActionChange(const String& action, ActionChangeType);
+  void NotifyActionChange(V8MediaSessionAction::Enum action, ActionChangeType);
 
   base::TimeDelta GetPositionNow() const;
 
@@ -85,13 +87,14 @@ class MODULES_EXPORT MediaSession final
   // Returns null if the associated window is detached.
   mojom::blink::MediaSessionService* GetService();
 
-  const base::TickClock* clock_ = nullptr;
+  raw_ptr<const base::TickClock, DanglingUntriaged> clock_ = nullptr;
 
   mojom::blink::MediaSessionPlaybackState playback_state_;
   media_session::mojom::blink::MediaPositionPtr position_state_;
   double declared_playback_rate_ = 0.0;
   Member<MediaMetadata> metadata_;
-  HeapHashMap<String, Member<V8MediaSessionActionHandler>> action_handlers_;
+  HeapHashMap<V8MediaSessionAction::Enum, Member<V8MediaSessionActionHandler>>
+      action_handlers_;
   HeapMojoRemote<mojom::blink::MediaSessionService> service_;
   HeapMojoReceiver<blink::mojom::blink::MediaSessionClient, MediaSession>
       client_receiver_;

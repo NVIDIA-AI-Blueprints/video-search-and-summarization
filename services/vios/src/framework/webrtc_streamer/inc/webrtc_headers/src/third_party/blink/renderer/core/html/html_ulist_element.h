@@ -33,12 +33,16 @@ class HTMLUListElement final : public HTMLElement {
  public:
   explicit HTMLUListElement(Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLUListElement;
+  }
+
  private:
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 };
 
 }  // namespace blink

@@ -12,9 +12,9 @@
 #define MODULES_AUDIO_PROCESSING_TEST_CONVERSATIONAL_SPEECH_MOCK_WAVREADER_H_
 
 #include <cstddef>
-#include <string>
+#include <cstdint>
+#include <span>
 
-#include "api/array_view.h"
 #include "modules/audio_processing/test/conversational_speech/wavreader_interface.h"
 #include "test/gmock.h"
 
@@ -25,11 +25,10 @@ namespace conversational_speech {
 class MockWavReader : public WavReaderInterface {
  public:
   MockWavReader(int sample_rate, size_t num_channels, size_t num_samples);
-  ~MockWavReader();
+  ~MockWavReader() override;
 
-  // TODO(alessiob): use ON_CALL to return random samples if needed.
-  MOCK_METHOD(size_t, ReadFloatSamples, (rtc::ArrayView<float>), (override));
-  MOCK_METHOD(size_t, ReadInt16Samples, (rtc::ArrayView<int16_t>), (override));
+  MOCK_METHOD(size_t, ReadFloatSamples, (std::span<float>), (override));
+  MOCK_METHOD(size_t, ReadInt16Samples, (std::span<int16_t>), (override));
 
   MOCK_METHOD(int, SampleRate, (), (const, override));
   MOCK_METHOD(size_t, NumChannels, (), (const, override));

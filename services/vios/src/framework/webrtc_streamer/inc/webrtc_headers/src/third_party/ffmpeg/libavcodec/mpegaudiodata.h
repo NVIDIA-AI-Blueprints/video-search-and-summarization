@@ -31,11 +31,13 @@
 
 #include "config.h"
 
+#include "libavutil/attributes_internal.h"
 #include "vlc.h"
 
 #define MODE_EXT_MS_STEREO 2
 #define MODE_EXT_I_STEREO  1
 
+FF_VISIBILITY_PUSH_HIDDEN
 extern const uint16_t ff_mpa_bitrate_tab[2][3][15];
 extern const uint16_t ff_mpa_freq_tab[3];
 extern const int ff_mpa_sblimit_table[5];
@@ -53,7 +55,7 @@ extern uint32_t ff_table_4_3_value[TABLE_4_3_SIZE];
 #endif
 
 /* VLCs for decoding layer 3 huffman tables */
-extern VLC ff_huff_vlc[16];
+extern const VLCElem *ff_huff_vlc[16];
 extern VLC ff_huff_quad_vlc[2];
 
 /* layer3 scale factor size */
@@ -78,5 +80,6 @@ extern const uint8_t ff_mpa_pretab[2][22];
 /* Initialize tables shared between the fixed and
  * floating point MPEG audio decoders. */
 void ff_mpegaudiodec_common_init_static(void);
+FF_VISIBILITY_POP_HIDDEN
 
 #endif /* AVCODEC_MPEGAUDIODATA_H */

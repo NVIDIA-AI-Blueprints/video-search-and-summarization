@@ -5,12 +5,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_PEER_CONNECTION_DEPENDENCY_FACTORY_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_PEER_CONNECTION_DEPENDENCY_FACTORY_H_
 
-#include "base/feature_list.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_checker.h"
 #include "base/types/pass_key.h"
+#include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -19,9 +21,9 @@
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/mojo/mojo_binding_context.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
-#include "third_party/blink/renderer/platform/wtf/gc_plugin.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/webrtc/api/async_dns_resolver.h"
 #include "third_party/webrtc/api/peer_connection_interface.h"
 #include "third_party/webrtc_overrides/metronome_source.h"
 
@@ -29,21 +31,17 @@ namespace base {
 class WaitableEvent;
 }
 
-namespace cricket {
-class PortAllocator;
-}
-
 namespace media {
-class DecoderFactory;
 class GpuVideoAcceleratorFactories;
-}
-
-namespace rtc {
-class Thread;
+class MojoVideoEncoderMetricsProviderFactory;
 }
 
 namespace gfx {
 class ColorSpace;
+}
+
+namespace webrtc {
+class LocalNetworkAccessPermissionFactoryInterface;
 }
 
 namespace blink {
@@ -56,6 +54,25 @@ class RTCPeerConnectionHandlerClient;
 class RTCPeerConnectionHandler;
 class WebLocalFrame;
 class WebRtcAudioDeviceImpl;
+
+// The enum is used for logging. Entries should not be renumbered or reused.
+// Keep in sync with the corresponding enum in
+// tools/metrics/histograms/metadata/web_rtc/enums.xml.
+// LINT.IfChange(LocalNetworkAccessRequestType)
+enum class LocalNetworkAccessRequestType {
+  kUnknown = 0,
+  kLoopbackToLoopback = 1,
+  kLoopbackToLocal = 2,
+  kLoopbackToPublic = 3,
+  kLocalToLoopback = 4,
+  kLocalToLocal = 5,
+  kLocalToPublic = 6,
+  kPublicToLoopback = 7,
+  kPublicToLocal = 8,
+  kPublicToPublic = 9,
+  kMaxValue = kPublicToPublic,
+};
+// LINT.ThenChange(//tools/metrics/histograms/metadata/web_rtc/enums.xml:LocalNetworkAccessRequestType)
 
 // Object factory for RTC PeerConnections.
 class MODULES_EXPORT PeerConnectionDependencyFactory
@@ -103,7 +120,7 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
   // Asks the libjingle PeerConnection factory to create a libjingle
   // PeerConnection object.
   // The PeerConnection object is owned by PeerConnectionHandler.
-  virtual rtc::scoped_refptr<webrtc::PeerConnectionInterface>
+  virtual webrtc::scoped_refptr<webrtc::PeerConnectionInterface>
   CreatePeerConnection(
       const webrtc::PeerConnectionInterface::RTCConfiguration& config,
       blink::WebLocalFrame* web_frame,
@@ -112,18 +129,17 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
 
   // Creates a PortAllocator that uses Chrome IPC sockets and enforces privacy
   // controls according to the permissions granted on the page.
-  virtual std::unique_ptr<cricket::PortAllocator> CreatePortAllocator(
+  virtual std::unique_ptr<webrtc::PortAllocator> CreatePortAllocator(
       blink::WebLocalFrame* web_frame);
 
-  // Creates an AsyncResolverFactory that uses the networking Mojo service.
-  virtual std::unique_ptr<webrtc::AsyncResolverFactory>
-  CreateAsyncResolverFactory();
+  // Creates an AsyncDnsResolverFactory that uses the networking Mojo service.
+  virtual std::unique_ptr<webrtc::AsyncDnsResolverFactoryInterface>
+  CreateAsyncDnsResolverFactory();
 
   // Creates a libjingle representation of an ice candidate.
-  virtual webrtc::IceCandidateInterface* CreateIceCandidate(
-      const String& sdp_mid,
-      int sdp_mline_index,
-      const String& sdp);
+  virtual webrtc::IceCandidate* CreateIceCandidate(const String& sdp_mid,
+                                                   int sdp_mline_index,
+                                                   const String& sdp);
 
   // Returns the most optimistic view of the capabilities of the system for
   // sending or receiving media of the given kind ("audio" or "video").
@@ -137,8 +153,8 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
   void EnsureInitialized();
 
   // Returns the SingleThreadTaskRunner corresponding to the WebRTC worker or
-  // network threads (rtc::Thread), if they exist. These threads are ensured to
-  // exist after an RTCPeerConnectionHandler has been Initialized().
+  // network threads (webrtc::Thread), if they exist. These threads are ensured
+  // to exist after an RTCPeerConnectionHandler has been Initialized().
   scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcWorkerTaskRunner();
   virtual scoped_refptr<base::SingleThreadTaskRunner>
   GetWebRtcNetworkTaskRunner();
@@ -148,13 +164,26 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
 
   media::GpuVideoAcceleratorFactories* GetGpuFactories();
 
+  // Create a webrtc Metronome driven by the same source as the decode metronome
+  // passed to the WebRTC PeerConnection, allowing blink events to be coalesced
+  // around the same ticks.
+  virtual std::unique_ptr<webrtc::Metronome> CreateDecodeMetronome();
+
+  void BindPermissionService(
+      mojo::PendingReceiver<mojom::blink::PermissionService>
+          permission_service);
+  void CountLocalNetworkAccess(LocalNetworkAccessRequestType);
+
+  std::unique_ptr<webrtc::LocalNetworkAccessPermissionFactoryInterface>
+  CreateLocalNetworkAccessPermissionFactoryForTesting();
+
   void Trace(Visitor*) const override;
 
  protected:
   // Ctor for tests.
   PeerConnectionDependencyFactory();
 
-  virtual const rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface>&
+  virtual const webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface>&
   GetPcFactory();
   virtual bool PeerConnectionFactoryCreated();
 
@@ -175,9 +204,9 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
 
   void InitializeSignalingThread(
       const gfx::ColorSpace& render_color_space,
-      scoped_refptr<base::SequencedTaskRunner> media_task_runner,
       media::GpuVideoAcceleratorFactories* gpu_factories,
-      base::WeakPtr<media::DecoderFactory> media_decoder_factory,
+      scoped_refptr<media::MojoVideoEncoderMetricsProviderFactory>
+          video_encoder_metrics_provider_factory,
       base::WaitableEvent* event);
 
   void CreateIpcNetworkManagerOnNetworkThread(
@@ -188,22 +217,28 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
       base::WaitableEvent* event);
   void CleanupPeerConnectionFactory();
 
+  void DoGetDevtoolsThrottlingToken(
+      base::OnceCallback<void(std::optional<base::UnguessableToken>)> then);
+  std::optional<base::UnguessableToken> GetDevtoolsThrottlingToken();
+  scoped_refptr<base::SequencedTaskRunner> context_task_runner_;
+
   // network_manager_ must be deleted on the network thread. The network manager
   // uses |p2p_socket_dispatcher_|.
   std::unique_ptr<IpcNetworkManager> network_manager_;
   std::unique_ptr<IpcPacketSocketFactory> socket_factory_;
 
-  rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
+  Member<WebrtcVideoPerfReporter> webrtc_video_perf_reporter_;
+
+  webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
 
   // Dispatches all P2P sockets.
   Member<P2PSocketDispatcher> p2p_socket_dispatcher_;
 
   scoped_refptr<blink::WebRtcAudioDeviceImpl> audio_device_;
 
-  media::GpuVideoAcceleratorFactories* gpu_factories_;
+  raw_ptr<media::GpuVideoAcceleratorFactories> gpu_factories_;
 
-  GC_PLUGIN_IGNORE("https://crbug.com/1381979")
-  WebrtcVideoPerfReporter webrtc_video_perf_reporter_;
+  bool encode_decode_capabilities_reported_ = false;
 
   THREAD_CHECKER(thread_checker_);
 };

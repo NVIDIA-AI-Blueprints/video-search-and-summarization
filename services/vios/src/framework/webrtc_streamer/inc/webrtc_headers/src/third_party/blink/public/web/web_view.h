@@ -31,16 +31,18 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_VIEW_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_VIEW_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/public/common/dom_storage/session_storage_namespace_id.h"
 #include "third_party/blink/public/common/fenced_frame/redacted_fenced_frame_config.h"
-#include "third_party/blink/public/common/page/browsing_context_group_info.h"
+#include "third_party/blink/public/common/fingerprinting_protection/noise_token.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom-shared.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom-shared.h"
 #include "third_party/blink/public/mojom/page/page.mojom-shared.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom-shared.h"
+#include "third_party/blink/public/mojom/page/prerender_page_param.mojom-forward.h"
 #include "third_party/blink/public/mojom/renderer_preference_watcher.mojom-shared.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
@@ -58,18 +60,17 @@ class PaintCanvas;
 
 namespace gfx {
 class ColorSpace;
-class Point;
 class PointF;
 class Rect;
 class Size;
 class SizeF;
-}
+}  // namespace gfx
 
 namespace blink {
+struct ColorProviderColorMaps;
 class PageScheduler;
 class WebFrame;
 class WebFrameWidget;
-class WebHitTestResult;
 class WebLocalFrame;
 class WebNoStatePrefetchClient;
 class WebPagePopup;
@@ -106,9 +107,9 @@ class BLINK_EXPORT WebView {
   //
   // clients may be null, but should both be null or not together.
   // |is_hidden| defines the initial visibility of the page.
-  // |is_prerendering| defines whether the page is being prerendered by the
-  // Prerender2 feature (see content/browser/preloading/prerender/README.md).
-  // [is_inside_portal] defines whether the page is inside_portal.
+  // |prerender_param| defines a set of parameters for prerendering views. It is
+  // set iff the view is created for a prerendering page. (see
+  // content/browser/preloading/prerender/README.md).
   // [is_fenced_frame] defines whether the page is for a fenced frame.
   // |compositing_enabled| dictates whether accelerated compositing should be
   // enabled for the page. It must be false if no clients are provided, or if a
@@ -129,12 +130,16 @@ class BLINK_EXPORT WebView {
   // frame. Set on create to avoid races. Passing in nullopt indicates the
   // default base background color should be used.
   // TODO(yuzus): Remove |is_hidden| and start using |PageVisibilityState|.
+  // |color_provider_colors| is used to create color providers that live in the
+  // Page. Passing in nullptr indicates the default color maps should be used.
+  // |history_index| and |history_length| are information about the frame tree's
+  // history list at the point when this view was created. These values are
+  // updated again at navigation commit time.
   static WebView* Create(
       WebViewClient*,
       bool is_hidden,
-      bool is_prerendering,
-      bool is_inside_portal,
-      absl::optional<blink::FencedFrame::DeprecatedFencedFrameMode>
+      blink::mojom::PrerenderParamPtr prerender_param,
+      std::optional<blink::FencedFrame::DeprecatedFencedFrameMode>
           fenced_frame_mode,
       bool compositing_enabled,
       bool widgets_never_composited,
@@ -143,8 +148,11 @@ class BLINK_EXPORT WebView {
           page_handle,
       scheduler::WebAgentGroupScheduler& agent_group_scheduler,
       const SessionStorageNamespaceId& session_storage_namespace_id,
-      absl::optional<SkColor> page_base_background_color,
-      const BrowsingContextGroupInfo& browsing_context_group_info);
+      std::optional<SkColor> page_base_background_color,
+      const base::UnguessableToken& browsing_context_group_token,
+      const ColorProviderColorMaps* color_provider_colors,
+      int32_t history_index,
+      int32_t history_length);
 
   // Destroys the WebView synchronously.
   virtual void Close() = 0;
@@ -220,20 +228,6 @@ class BLINK_EXPORT WebView {
   // previous element in the tab sequence (if reverse is true).
   virtual void AdvanceFocus(bool reverse) {}
 
-  // Zoom ----------------------------------------------------------------
-
-  // Returns the current zoom level.  0 is "original size", and each increment
-  // above or below represents zooming 20% larger or smaller to default limits
-  // of 300% and 50% of original size, respectively.  Only plugins use
-  // non whole-numbers, since they might choose to have specific zoom level so
-  // that fixed-width content is fit-to-page-width, for example.
-  virtual double ZoomLevel() = 0;
-
-  // Changes the zoom level to the specified level, clamping at the limits
-  // noted above, and returns the current zoom level after applying the
-  // change.
-  virtual double SetZoomLevel(double) = 0;
-
   // Gets the scale factor of the page, where 1.0 is the normal size, > 1.0
   // is scaled up, < 1.0 is scaled down.
   virtual float PageScaleFactor() const = 0;
@@ -299,7 +293,7 @@ class BLINK_EXPORT WebView {
 
   // Override the screen orientation override.
   virtual void SetScreenOrientationOverrideForTesting(
-      absl::optional<display::mojom::ScreenOrientation> orientation) = 0;
+      std::optional<display::mojom::ScreenOrientation> orientation) = 0;
 
   // Set the window rect synchronously for testing. The normal flow is an
   // asynchronous request to the browser.
@@ -318,13 +312,6 @@ class BLINK_EXPORT WebView {
   // Disable auto resize.
   virtual void DisableAutoResizeForTesting(const gfx::Size& new_size) = 0;
 
-  // Data exchange -------------------------------------------------------
-
-  // Do a hit test equivalent to what would be done for a GestureTap event
-  // that has width/height corresponding to the supplied |tapArea|.
-  virtual WebHitTestResult HitTestResultForTap(const gfx::Point& tap_point,
-                                               const gfx::Size& tap_area) = 0;
-
   // Developer tools -----------------------------------------------------
 
   // Enables device emulation as specified in params.
@@ -341,9 +328,6 @@ class BLINK_EXPORT WebView {
   virtual void DidCloseContextMenu() = 0;
 
   // Popup menu ----------------------------------------------------------
-
-  // Sets whether select popup menus should be rendered by the browser.
-  static void SetUseExternalPopupMenus(bool);
 
   // Cancels and hides the current popup (datetime, select...) if any.
   virtual void CancelPagePopup() = 0;
@@ -406,7 +390,7 @@ class BLINK_EXPORT WebView {
   // third_party/blink/public/platform/autoplay.mojom
   virtual void AddAutoplayFlags(int32_t flags) = 0;
   virtual void ClearAutoplayFlags() = 0;
-  virtual int32_t AutoplayFlagsForTest() = 0;
+  virtual int32_t AutoplayFlagsForTest() const = 0;
   virtual gfx::Size GetPreferredSizeForTest() = 0;
 
   // Non-composited support -----------------------------------------------
@@ -458,8 +442,8 @@ class BLINK_EXPORT WebView {
 
   // History list ---------------------------------------------------------
   virtual void SetHistoryListFromNavigation(
-      int32_t history_offset,
-      absl::optional<int32_t> history_length) = 0;
+      int32_t history_index,
+      std::optional<int32_t> history_length) = 0;
   virtual void IncreaseHistoryListFromNavigation() = 0;
 
   // Session history -----------------------------------------------------
@@ -475,6 +459,11 @@ class BLINK_EXPORT WebView {
 
   // Returns the number of live WebView instances in this process.
   static size_t GetWebViewCount();
+
+  // Sets whether web or OS-level Attribution Reporting is supported. See
+  // https://github.com/WICG/attribution-reporting-api/blob/main/app_to_web.md
+  virtual void SetPageAttributionSupport(
+      network::mojom::AttributionSupport support) = 0;
 
  protected:
   ~WebView() = default;

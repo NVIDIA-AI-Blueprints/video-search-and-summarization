@@ -8,7 +8,6 @@
 #include "cc/input/browser_controls_state.h"
 #include "cc/trees/browser_controls_params.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 
@@ -26,7 +25,7 @@ class Page;
 class CORE_EXPORT BrowserControls final
     : public GarbageCollected<BrowserControls> {
  public:
-  explicit BrowserControls(const Page&);
+  explicit BrowserControls(Page&);
 
   void Trace(Visitor*) const;
 
@@ -59,22 +58,15 @@ class CORE_EXPORT BrowserControls final
   void UpdateConstraintsAndState(cc::BrowserControlsState constraints,
                                  cc::BrowserControlsState current);
 
-  void ScrollBegin();
-
-  // Scrolls browser controls vertically if possible and returns the remaining
-  // scroll amount.
-  ScrollOffset ScrollBy(ScrollOffset scroll_delta);
-
-  void ScrollEnd();
-
   cc::BrowserControlsState PermittedState() const { return permitted_state_; }
 
  private:
+  void DidUpdateBrowserControls(bool update_safe_area_inset);
   void ResetBaseline();
   float TopMinShownRatio();
   float BottomMinShownRatio();
 
-  Member<const Page> page_;
+  Member<Page> page_;
 
   // The browser controls params such as heights, min-height etc.
   cc::BrowserControlsParams params_;

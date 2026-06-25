@@ -27,8 +27,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_INDEXEDDB_IDB_ANY_H_
 
 #include <memory>
+#include <optional>
 
 #include "third_party/blink/renderer/modules/indexeddb/idb_key.h"
+#include "third_party/blink/renderer/modules/indexeddb/idb_record_array.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_value.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -48,7 +50,7 @@ class IDBObjectStore;
 //  * source of IDBCursor (IDBObjectStore or IDBIndex)
 //  * source of IDBRequest (IDBObjectStore, IDBIndex, IDBCursor, or null)
 //  * result of IDBRequest (IDBDatabase, IDBCursor, undefined, integer,
-//    key or value)
+//    key, value, array of values or array of records)
 //
 // This allows for lazy conversion to script values (via IDBBindingUtilities),
 // and avoids the need for many dedicated union types.
@@ -65,7 +67,7 @@ class MODULES_EXPORT IDBAny final : public GarbageCollected<IDBAny> {
     kKeyType,
     kIDBValueType,
     kIDBValueArrayType,
-    kIDBValueArrayArrayType,
+    kIDBRecordArrayType,
   };
 
   explicit IDBAny(Type);
@@ -73,9 +75,9 @@ class MODULES_EXPORT IDBAny final : public GarbageCollected<IDBAny> {
   explicit IDBAny(IDBDatabase*);
   explicit IDBAny(std::unique_ptr<IDBKey>);
   explicit IDBAny(Vector<std::unique_ptr<IDBValue>>);
-  explicit IDBAny(Vector<Vector<std::unique_ptr<IDBValue>>>);
   explicit IDBAny(std::unique_ptr<IDBValue>);
   explicit IDBAny(int64_t);
+  explicit IDBAny(IDBRecordArray);
   ~IDBAny();
 
   void Trace(Visitor*) const;
@@ -88,9 +90,16 @@ class MODULES_EXPORT IDBAny final : public GarbageCollected<IDBAny> {
   IDBDatabase* IdbDatabase() const;
   IDBValue* Value() const;
   const Vector<std::unique_ptr<IDBValue>>& Values() const;
-  const Vector<Vector<std::unique_ptr<IDBValue>>>& ValuesArray() const;
+  const IDBRecordArray& Records() const;
   int64_t Integer() const;
   const IDBKey* Key() const;
+
+  // IDBAny is a variant type used to hold the values produced by the |result|
+  // attribute of IDBRequest and (as a convenience) the |source| attribute of
+  // IDBRequest and IDBCursor.
+  // TODO(jsbell): Replace the use of IDBAny for |source| attributes (which are
+  // ScriptWrappable types) using unions per IDL.
+  v8::Local<v8::Value> ToV8(ScriptState* script_state);
 
  private:
   const Type type_;
@@ -101,7 +110,7 @@ class MODULES_EXPORT IDBAny final : public GarbageCollected<IDBAny> {
   const std::unique_ptr<IDBKey> idb_key_;
   const std::unique_ptr<IDBValue> idb_value_;
   const Vector<std::unique_ptr<IDBValue>> idb_values_;
-  const Vector<Vector<std::unique_ptr<IDBValue>>> idb_values_array_;
+  std::optional<IDBRecordArray> idb_records_;
   const int64_t integer_ = 0;
 };
 

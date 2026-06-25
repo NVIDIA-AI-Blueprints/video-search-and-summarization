@@ -11,16 +11,22 @@
 #ifndef MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_
 #define MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_
 
+#include <cstdint>
 #include <memory>
-#include <vector>
 
-#include "api/transport/network_control.h"
+#include "api/environment/environment.h"
+#include "api/media_types.h"
+#include "api/rtp_parameters.h"
+#include "api/sequence_checker.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "modules/congestion_controller/remb_throttler.h"
-#include "modules/pacing/packet_router.h"
-#include "modules/remote_bitrate_estimator/remote_estimator_proxy.h"
+#include "modules/congestion_controller/rtp/congestion_controller_feedback_stats.h"
+#include "modules/include/module_common_types.h"
+#include "modules/remote_bitrate_estimator/congestion_control_feedback_generator.h"
+#include "modules/remote_bitrate_estimator/transport_sequence_number_feedback_generator.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/containers/flat_map.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 
@@ -35,12 +41,13 @@ class RemoteBitrateEstimator;
 class ReceiveSideCongestionController : public CallStatsObserver {
  public:
   ReceiveSideCongestionController(
-      Clock* clock,
-      RemoteEstimatorProxy::TransportFeedbackSender feedback_sender,
-      RembThrottler::RembSender remb_sender,
-      NetworkStateEstimator* network_state_estimator);
+      const Environment& env,
+      TransportSequenceNumberFeedbackGenenerator::RtcpSender feedback_sender,
+      RembThrottler::RembSender remb_sender);
 
-  ~ReceiveSideCongestionController() override {}
+  ~ReceiveSideCongestionController() override = default;
+
+  void SetPreferredRtcpCcAckType(RtcpFeedbackType preferred_rtcp_cc_ack_type);
 
   void OnReceivedPacket(const RtpPacketReceived& packet, MediaType media_type);
 
@@ -54,11 +61,12 @@ class ReceiveSideCongestionController : public CallStatsObserver {
   // `bitrate` using RTCP REMB.
   void SetMaxDesiredReceiveBitrate(DataRate bitrate);
 
-  void SetTransportOverhead(DataSize overhead_per_packet);
-
   // Returns latest receive side bandwidth estimation.
   // Returns zero if receive side bandwidth estimation is unavailable.
   DataRate LatestReceiveSideEstimate() const;
+
+  flat_map<uint32_t, SentCongestionControllerFeedbackStats>
+  GetCongestionControllerStatsPerSsrc() const;
 
   // Removes stream from receive side bandwidth estimation.
   // Noop if receive side bwe is not used or stream doesn't participate in it.
@@ -72,9 +80,20 @@ class ReceiveSideCongestionController : public CallStatsObserver {
   void PickEstimator(bool has_absolute_send_time)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-  Clock& clock_;
+  const Environment env_;
   RembThrottler remb_throttler_;
-  RemoteEstimatorProxy remote_estimator_proxy_;
+
+  // TODO: bugs.webrtc.org/42224904 - Use sequence checker for all usage of
+  // ReceiveSideCongestionController. At the time of
+  // writing OnReceivedPacket and MaybeProcess can unfortunately be called on an
+  // arbitrary thread by external projects.
+  SequenceChecker sequence_checker_;
+
+  bool send_rfc8888_congestion_feedback_ = false;
+  TransportSequenceNumberFeedbackGenenerator
+      transport_sequence_number_feedback_generator_;
+  CongestionControlFeedbackGenerator congestion_control_feedback_generator_
+      RTC_GUARDED_BY(sequence_checker_);
 
   mutable Mutex mutex_;
   std::unique_ptr<RemoteBitrateEstimator> rbe_ RTC_GUARDED_BY(mutex_);

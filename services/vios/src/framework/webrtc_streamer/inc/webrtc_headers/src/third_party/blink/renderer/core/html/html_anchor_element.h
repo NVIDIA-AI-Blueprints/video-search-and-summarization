@@ -27,48 +27,31 @@
 #include "base/time/time.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/execution_context/security_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html/rel_list.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/loader/navigation_policy.h"
+#include "third_party/blink/renderer/core/url/dom_origin_utils.h"
 #include "third_party/blink/renderer/core/url/dom_url_utils.h"
 #include "third_party/blink/renderer/platform/link_hash.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 
 namespace blink {
 
-// Link relation bitmask values.
-// FIXME: Uncomment as the various link relations are implemented.
-enum {
-  //     RelationAlternate   = 0x00000001,
-  //     RelationArchives    = 0x00000002,
-  //     RelationAuthor      = 0x00000004,
-  //     RelationBoomark     = 0x00000008,
-  //     RelationExternal    = 0x00000010,
-  //     RelationFirst       = 0x00000020,
-  //     RelationHelp        = 0x00000040,
-  //     RelationIndex       = 0x00000080,
-  //     RelationLast        = 0x00000100,
-  //     RelationLicense     = 0x00000200,
-  //     RelationNext        = 0x00000400,
-  //     RelationNoFolow    = 0x00000800,
-  kRelationNoReferrer = 0x00001000,
-  //     RelationPrev        = 0x00002000,
-  //     RelationSearch      = 0x00004000,
-  //     RelationSidebar     = 0x00008000,
-  //     RelationTag         = 0x00010000,
-  //     RelationUp          = 0x00020000,
-  kRelationNoOpener = 0x00040000,
-  kRelationOpener = 0x00080000
-};
+class MouseEvent;
 
-class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
-  DEFINE_WRAPPERTYPEINFO();
-
+// Base class for <a> and <area> (HTMLAnchorElement and HTMLAreaElement).
+// Note: If a new element needs to use this as a base, existing callsites and
+// features that use this class should be audited (to see if the new element
+// should also support these features).
+class CORE_EXPORT HTMLAnchorElementBase : public HTMLElement,
+                                          public DOMURLUtils,
+                                          public DOMOriginUtils {
  public:
-  HTMLAnchorElement(Document& document);
-  HTMLAnchorElement(const QualifiedName&, Document&);
-  ~HTMLAnchorElement() override;
+  ~HTMLAnchorElementBase() override;
 
   KURL Href() const;
   void SetHref(const AtomicString&);
@@ -81,7 +64,12 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
   const AtomicString& GetEffectiveTarget() const;
 
   KURL Url() const final;
+
+  // DOMURLUtils overrides:
   void SetURL(const KURL&) final;
+
+  // DOMOriginUtils overrides:
+  DOMOrigin* GetDOMOrigin(LocalDOMWindow*) const final;
 
   String Input() const final;
 
@@ -89,28 +77,34 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
 
   bool WillRespondToMouseClickEvents() final;
 
-  bool HasRel(uint32_t relation) const;
-  void SetRel(const AtomicString&);
+  uint32_t GetLinkRelations() const { return link_relations_; }
+
   DOMTokenList& relList() const {
     return static_cast<DOMTokenList&>(*rel_list_);
   }
 
   LinkHash VisitedLinkHash() const;
+  LinkHash PartitionedVisitedLinkFingerprint() const;
   void InvalidateCachedVisitedLinkHash() { cached_visited_link_hash_ = 0; }
 
-  void SendPings(const KURL& destination_url) const;
+  bool IsValidInterestInvoker(Element& target) const override;
 
   void Trace(Visitor*) const override;
 
  protected:
+  HTMLAnchorElementBase(const QualifiedName& tag_name, Document&);
+
   void ParseAttribute(const AttributeModificationParams&) override;
-  bool SupportsFocus() const override;
+  FocusableState SupportsFocus(UpdateBehavior update_behavior) const override;
+
+  void FinishParsingChildren() final;
 
  private:
   void AttributeChanged(const AttributeModificationParams&) override;
   bool ShouldHaveFocusAppearance() const final;
-  bool IsMouseFocusable() const override;
-  bool IsKeyboardFocusable() const override;
+  FocusableState IsFocusableState(
+      UpdateBehavior update_behavior) const override;
+  bool IsKeyboardFocusableSlow(UpdateBehavior update_behavior) const override;
   void DefaultEventHandler(Event&) final;
   bool HasActivationBehavior() const override;
   void SetActive(bool active) final;
@@ -127,17 +121,66 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
                            bool is_trusted,
                            base::TimeTicks platform_time_stamp,
                            KURL);
-  void HandleClick(Event&);
+  void HandleClick(MouseEvent&);
 
   unsigned link_relations_ : 31;
   mutable LinkHash cached_visited_link_hash_;
   Member<RelList> rel_list_;
 };
 
-inline LinkHash HTMLAnchorElement::VisitedLinkHash() const {
+class CORE_EXPORT HTMLAnchorElement : public HTMLAnchorElementBase {
+  DEFINE_WRAPPERTYPEINFO();
+
+ public:
+  explicit HTMLAnchorElement(Document& document);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLAnchorElement;
+  }
+
+  void AttachLayoutTree(AttachContext& context) override;
+  void DetachLayoutTree(bool performing_reattach) override;
+
+  // Updates the anchor's membership in scroll-target-group scopes.
+  // Called when the href attribute changes to re-evaluate the scroll target.
+  void UpdateScrollTargetGroupMembership();
+
+  // Gets the element which is referenced by this anchor fragment
+  // (#scroll-target), or nullptr if not found.
+  Element* ScrollTargetElement() const;
+};
+
+template <>
+struct DowncastTraits<HTMLAnchorElementBase> {
+  static bool AllowFrom(const Element& element) {
+    return element.HasTagName(html_names::kATag) ||
+           element.HasTagName(html_names::kAreaTag);
+  }
+
+  static bool AllowFrom(const Node& node) {
+    return node.IsHTMLElement() &&
+           IsA<HTMLAnchorElementBase>(UnsafeTo<HTMLElement>(node));
+  }
+};
+
+inline LinkHash HTMLAnchorElementBase::VisitedLinkHash() const {
   if (!cached_visited_link_hash_) {
     cached_visited_link_hash_ = blink::VisitedLinkHash(
         GetDocument().BaseURL(), FastGetAttribute(html_names::kHrefAttr));
+  }
+  return cached_visited_link_hash_;
+}
+
+inline LinkHash HTMLAnchorElementBase::PartitionedVisitedLinkFingerprint()
+    const {
+  if (!cached_visited_link_hash_) {
+    // Obtain all the elements of the partition key.
+    cached_visited_link_hash_ = blink::PartitionedVisitedLinkFingerprint(
+        /*base_link_url=*/GetDocument().BaseURL(),
+        /*relative_link_url=*/FastGetAttribute(html_names::kHrefAttr),
+        /*top_level_site=*/
+        GetDocument().GetCachedTopFrameSite(Document::VisitedLinkPassKey()),
+        /*frame_origin=*/GetDocument().domWindow()->GetSecurityOrigin());
   }
   return cached_visited_link_hash_;
 }

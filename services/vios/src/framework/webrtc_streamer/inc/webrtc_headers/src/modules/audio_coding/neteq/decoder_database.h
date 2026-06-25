@@ -11,16 +11,23 @@
 #ifndef MODULES_AUDIO_CODING_NETEQ_DECODER_DATABASE_H_
 #define MODULES_AUDIO_CODING_NETEQ_DECODER_DATABASE_H_
 
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "absl/strings/string_view.h"
+#include "api/audio_codecs/audio_codec_pair_id.h"
+#include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/audio_format.h"
+#include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
 #include "modules/audio_coding/codecs/cng/webrtc_cng.h"
 #include "modules/audio_coding/neteq/packet.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -39,13 +46,9 @@ class DecoderDatabase {
   // Class that stores decoder info in the database.
   class DecoderInfo {
    public:
-    DecoderInfo(const SdpAudioFormat& audio_format,
-                absl::optional<AudioCodecPairId> codec_pair_id,
-                AudioDecoderFactory* factory,
-                absl::string_view codec_name);
-    explicit DecoderInfo(const SdpAudioFormat& audio_format,
-                         absl::optional<AudioCodecPairId> codec_pair_id,
-                         AudioDecoderFactory* factory = nullptr);
+    DecoderInfo(const Environment& env,
+                const SdpAudioFormat& audio_format,
+                AudioDecoderFactory* factory);
     DecoderInfo(DecoderInfo&&);
     ~DecoderInfo();
 
@@ -83,25 +86,21 @@ class DecoderDatabase {
     // Returns true if the decoder's format is named `name`.
     bool IsType(absl::string_view name) const;
 
-    const std::string& get_name() const { return name_; }
+    const std::string& get_name() const { return audio_format_.name; }
 
    private:
-    // TODO(ossu): `name_` is kept here while we retain the old external
-    //             decoder interface. Remove this once using an
-    //             AudioDecoderFactory has supplanted the old functionality.
-    const std::string name_;
-
+    const Environment env_;
     const SdpAudioFormat audio_format_;
-    const absl::optional<AudioCodecPairId> codec_pair_id_;
+    const std::optional<AudioCodecPairId> codec_pair_id_;
     AudioDecoderFactory* const factory_;
     mutable std::unique_ptr<AudioDecoder> decoder_;
 
     // Set iff this is a comfort noise decoder.
     struct CngDecoder {
-      static absl::optional<CngDecoder> Create(const SdpAudioFormat& format);
+      static std::optional<CngDecoder> Create(const SdpAudioFormat& format);
       int sample_rate_hz;
     };
-    const absl::optional<CngDecoder> cng_decoder_;
+    const std::optional<CngDecoder> cng_decoder_;
 
     enum class Subtype : int8_t { kNormal, kComfortNoise, kDtmf, kRed };
 
@@ -114,9 +113,8 @@ class DecoderDatabase {
   // only 7 bits).
   static const uint8_t kRtpPayloadTypeError = 0xFF;
 
-  DecoderDatabase(
-      const rtc::scoped_refptr<AudioDecoderFactory>& decoder_factory,
-      absl::optional<AudioCodecPairId> codec_pair_id);
+  DecoderDatabase(const Environment& env,
+                  scoped_refptr<AudioDecoderFactory> decoder_factory);
 
   virtual ~DecoderDatabase();
 
@@ -192,12 +190,13 @@ class DecoderDatabase {
  private:
   typedef std::map<uint8_t, DecoderInfo> DecoderMap;
 
+  const Environment env_;
   DecoderMap decoders_;
   int active_decoder_type_;
   int active_cng_decoder_type_;
   mutable std::unique_ptr<ComfortNoiseDecoder> active_cng_decoder_;
-  rtc::scoped_refptr<AudioDecoderFactory> decoder_factory_;
-  const absl::optional<AudioCodecPairId> codec_pair_id_;
+  scoped_refptr<AudioDecoderFactory> decoder_factory_;
+  const std::optional<AudioCodecPairId> codec_pair_id_;
 };
 
 }  // namespace webrtc

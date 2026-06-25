@@ -58,7 +58,7 @@ class PLATFORM_EXPORT HTTPHeaderMap final {
 
   typedef HashMap<AtomicString,
                   AtomicString,
-                  CaseFoldingHashTraits<AtomicString>>
+                  DeprecatedCaseFoldingHashTraits<AtomicString>>
       MapType;
   typedef MapType::AddResult AddResult;
   typedef MapType::const_iterator const_iterator;
@@ -76,22 +76,21 @@ class PLATFORM_EXPORT HTTPHeaderMap final {
     return it->value;
   }
   AddResult Set(const AtomicString& k, const AtomicString& v) {
-    SECURITY_DCHECK(!k.Contains('\n') && !k.Contains('\r'));
-    SECURITY_DCHECK(!v.Contains('\n') && !v.Contains('\r'));
+    SECURITY_DCHECK(!k.contains('\n') && !k.contains('\r'));
+    SECURITY_DCHECK(!v.contains('\n') && !v.contains('\r'));
     return headers_.Set(k, v);
   }
   AddResult Add(const AtomicString& k, const AtomicString& v) {
-    SECURITY_DCHECK(!k.Contains('\n') && !k.Contains('\r'));
-    SECURITY_DCHECK(!v.Contains('\n') && !v.Contains('\r'));
+    SECURITY_DCHECK(!k.contains('\n') && !k.contains('\r'));
+    SECURITY_DCHECK(!v.contains('\n') && !v.contains('\r'));
     return headers_.insert(k, v);
   }
   void Remove(const AtomicString& k) { headers_.erase(k); }
-  bool operator!=(const HTTPHeaderMap& rhs) const {
-    return headers_ != rhs.headers_;
-  }
   bool operator==(const HTTPHeaderMap& rhs) const {
     return headers_ == rhs.headers_;
   }
+
+  String GetAsRawString(int status_code, String status_message) const;
 
  private:
   MapType headers_;

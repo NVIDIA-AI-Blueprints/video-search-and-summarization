@@ -5,10 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_COMPUTE_PRESSURE_PRESSURE_OBSERVER_MANAGER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_COMPUTE_PRESSURE_PRESSURE_OBSERVER_MANAGER_H_
 
-#include "services/device/public/mojom/pressure_manager.mojom-blink.h"
-#include "services/device/public/mojom/pressure_update.mojom-blink.h"
+#include "services/device/public/mojom/pressure_update.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/compute_pressure/web_pressure_manager.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_pressure_source.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_state_observer.h"
 #include "third_party/blink/renderer/modules/compute_pressure/pressure_client_impl.h"
 #include "third_party/blink/renderer/modules/compute_pressure/pressure_observer.h"
@@ -51,22 +52,19 @@ class MODULES_EXPORT PressureObserverManager final
   void Trace(Visitor*) const override;
 
  private:
-  void EnsureServiceConnection();
+  void EnsureConnection(scoped_refptr<base::SingleThreadTaskRunner>);
 
   // Called when `pressure_manager_` is disconnected.
-  void OnServiceConnectionError();
-
-  // Called to reset `pressure_manager_` when all PressureClientImpl are reset.
-  void ResetPressureManagerIfNeeded();
+  void OnConnectionError();
 
   // Called to reset for all PressureSources.
   void Reset();
 
   void DidAddClient(V8PressureSource::Enum,
-                    device::mojom::blink::PressureStatus);
+                    device::mojom::blink::PressureManagerAddClientResult);
 
-  // Connection to the services side implementation.
-  HeapMojoRemote<device::mojom::blink::PressureManager> pressure_manager_;
+  // Connection to the browser side implementation.
+  HeapMojoRemote<mojom::blink::WebPressureManager> pressure_manager_;
 
   HeapHashMap<V8PressureSource::Enum, Member<PressureClientImpl>>
       source_to_client_;

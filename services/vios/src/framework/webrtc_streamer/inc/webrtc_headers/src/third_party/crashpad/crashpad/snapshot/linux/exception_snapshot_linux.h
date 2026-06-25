@@ -53,6 +53,9 @@ class ExceptionSnapshotLinux final : public ExceptionSnapshot {
   //! \param[in] context_address The address in the target process' address
   //!     space of the ucontext_t passed to the signal handler.
   //! \param[in] thread_id The thread ID of the thread that received the signal.
+  //! \param[inout] gather_indirectly_referenced_memory_cap The remaining budget
+  //!     for indirectly referenced memory, honored on entry and updated on
+  //!     return.
   //!
   //! \return `true` if the snapshot could be created, `false` otherwise with
   //!     an appropriate message logged.
@@ -89,6 +92,8 @@ class ExceptionSnapshotLinux final : public ExceptionSnapshot {
 #elif defined(ARCH_CPU_MIPS_FAMILY)
     CPUContextMIPS mipsel;
     CPUContextMIPS64 mips64;
+#elif defined(ARCH_CPU_RISCV64)
+    CPUContextRISCV64 riscv64;
 #endif
   } context_union_;
   CPUContext context_;

@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_MAIN_THREAD_RENDER_WIDGET_SIGNALS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_MAIN_THREAD_RENDER_WIDGET_SIGNALS_H_
 
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
@@ -28,11 +29,6 @@ class PLATFORM_EXPORT RenderWidgetSignals {
     // process has become visible and the renderer is no longer hidden.
     // Will be called on the main thread.
     virtual void SetAllRenderWidgetsHidden(bool hidden) = 0;
-
-    // Tells the observer whether or not we have at least one touch handler on
-    // a visible render widget. Will be called on the main thread.
-    virtual void SetHasVisibleRenderWidgetWithTouchHandler(
-        bool has_visible_render_widget_with_touch_handler) = 0;
   };
 
   explicit RenderWidgetSignals(Observer* observer);
@@ -44,12 +40,9 @@ class PLATFORM_EXPORT RenderWidgetSignals {
 
   void IncNumVisibleRenderWidgets();
   void DecNumVisibleRenderWidgets();
-  void IncNumVisibleRenderWidgetsWithTouchHandlers();
-  void DecNumVisibleRenderWidgetsWithTouchHandlers();
 
-  Observer* observer_;  // NOT OWNED
-  int num_visible_render_widgets_;
-  int num_visible_render_widgets_with_touch_handlers_;
+  raw_ptr<Observer> observer_;  // NOT OWNED
+  int num_visible_render_widgets_ = 0;
 };
 
 }  // namespace scheduler

@@ -14,10 +14,10 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include "modules/include/module_common_types.h"
-#include "api/array_view.h"
 #include "modules/rtp_rtcp/source/rtp_video_header.h"
 #include "rtc_base/copy_on_write_buffer.h"
 
@@ -32,15 +32,24 @@ class H265VpsSpsPpsTracker {
   enum PacketAction { kInsert, kDrop, kRequestKeyframe };
   struct FixedBitstream {
     PacketAction action;
-    rtc::CopyOnWriteBuffer bitstream;
+    CopyOnWriteBuffer bitstream;
   };
 
-  FixedBitstream CopyAndFixBitstream(rtc::ArrayView<const uint8_t> bitstream,
+  H265VpsSpsPpsTracker() = default;
+  H265VpsSpsPpsTracker(const H265VpsSpsPpsTracker& other) = default;
+  H265VpsSpsPpsTracker& operator=(const H265VpsSpsPpsTracker& other) = default;
+  ~H265VpsSpsPpsTracker() = default;
+
+  std::vector<uint8_t> pps;
+  std::vector<uint8_t> vps;
+  std::vector<uint8_t> sps;
+
+  FixedBitstream CopyAndFixBitstream(std::span<const uint8_t> bitstream,
                                      RTPVideoHeader* video_header);
 
-  void InsertVpsSpsPpsNalus(const std::vector<uint8_t>& vps,
-                            const std::vector<uint8_t>& sps,
-                            const std::vector<uint8_t>& pps);
+  void InsertVpsSpsPpsNalus(const std::vector<uint8_t>& vps_nalu,
+                            const std::vector<uint8_t>& sps_nalu,
+                            const std::vector<uint8_t>& pps_nalu);
 
  private:
   struct VpsInfo {
@@ -70,4 +79,4 @@ class H265VpsSpsPpsTracker {
 }  // namespace video_coding
 }  // namespace webrtc
 
-#endif  // MODULES_VIDEO_CODING_H264_SPS_PPS_TRACKER_H_
+#endif  // MODULES_VIDEO_CODING_H265_VPS_SPS_PPS_TRACKER_H_

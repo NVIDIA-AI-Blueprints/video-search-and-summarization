@@ -27,14 +27,16 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_SELECT_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_SELECT_ELEMENT_H_
 
-#include "base/gtest_prod_util.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
+#include "third_party/blink/renderer/core/dom/tree_ordered_list.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element_with_state.h"
-#include "third_party/blink/renderer/core/html/forms/html_options_collection.h"
+#include "third_party/blink/renderer/core/html/forms/html_selected_content_element.h"
 #include "third_party/blink/renderer/core/html/forms/option_list.h"
 #include "third_party/blink/renderer/core/html/forms/type_ahead.h"
+#include "third_party/blink/renderer/core/html/html_div_element.h"
+#include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -45,11 +47,18 @@ class ExceptionState;
 class HTMLHRElement;
 class HTMLOptGroupElement;
 class HTMLOptionElement;
-class LayoutUnit;
+class HTMLOptionsCollection;
 class PopupMenu;
 class SelectType;
 class V8UnionHTMLElementOrLong;
 class V8UnionHTMLOptGroupElementOrHTMLOptionElement;
+class HTMLSelectedContentElement;
+class SelectMutationObserver;
+
+enum class SelectPopupHideBehavior {
+  kNormal,
+  kNoEventsOrFocusing,
+};
 
 class CORE_EXPORT HTMLSelectElement final
     : public HTMLFormControlElementWithState,
@@ -57,8 +66,25 @@ class CORE_EXPORT HTMLSelectElement final
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  class SelectAutofillPreviewElement : public HTMLDivElement {
+   public:
+    SelectAutofillPreviewElement(Document& document, HTMLSelectElement* select);
+
+    const ComputedStyle* CustomStyleForLayoutObject(
+        const StyleRecalcContext& style_recalc_context) override;
+
+    void Trace(Visitor*) const override;
+
+   private:
+    Member<HTMLSelectElement> select_;
+  };
+
   explicit HTMLSelectElement(Document&);
   ~HTMLSelectElement() override;
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLSelectElement;
+  }
 
   int selectedIndex() const;
   void setSelectedIndex(int);
@@ -83,6 +109,8 @@ class CORE_EXPORT HTMLSelectElement final
   unsigned ListBoxSize() const;
   bool IsMultiple() const { return is_multiple_; }
 
+  void showPicker(ExceptionState&);
+
   bool UsesMenuList() const { return uses_menu_list_; }
 
   void add(const V8UnionHTMLOptGroupElementOrHTMLOptionElement* element,
@@ -93,27 +121,42 @@ class CORE_EXPORT HTMLSelectElement final
   void remove(int index);
 
   String Value() const;
-  void SetValue(const String&,
-                bool send_events = false,
-                WebAutofillState = WebAutofillState::kNotFilled);
+  void SelectOptionByValue(const String&,
+                           bool send_events = false,
+                           WebAutofillState = WebAutofillState::kNotFilled);
   String valueForBinding() const { return Value(); }
   void setValueForBinding(const String&);
+
+  void SelectOptionByElement(HTMLOptionElement* option,
+                             bool send_events,
+                             WebAutofillState autofill_state);
 
   // It is possible to pass WebAutofillState::kNotFilled here in case we need
   // to simulate a reset of a <select> element.
   void SetAutofillValue(const String& value, WebAutofillState);
+  void SetAutofillOption(HTMLOptionElement* option, WebAutofillState);
 
   String SuggestedValue() const;
   // Sets the suggested value and puts the element into
   // WebAutofillState::kPreviewed state if the value exists, or
   // WebAutofillState::kNotFilled otherwise.
   void SetSuggestedValue(const String&);
+  void SetSuggestedOption(HTMLOptionElement*);
 
   // |options| and |selectedOptions| are not safe to be used in in
   // HTMLOptionElement::removedFrom() and insertedInto() because their cache
   // is inconsistent in these functions.
   HTMLOptionsCollection* options();
   HTMLCollection* selectedOptions();
+
+  // Returns the first selected OPTION, or nullptr.
+  HTMLOptionElement* SelectedOption() const;
+
+  // Returns true if any of the <select>'s descendants are disallowed
+  // interactive elements.
+  bool IsInDialogMode() const;
+  void IncreaseContentModelViolationCount();
+  void DecreaseContentModelViolationCount();
 
   // This is similar to |options| HTMLCollection.  But this is safe in
   // HTMLOptionElement::removedFrom() and insertedInto().
@@ -128,12 +171,30 @@ class CORE_EXPORT HTMLSelectElement final
   // We prefer |optionList()| to |listItems()|.
   const ListItems& GetListItems() const;
 
+  // NearestAncestorSelectNoNesting is called with <hr>, <option>, and
+  // <optgroup> elements to determine if they have an ancestor <select> or
+  // <datalist> which they are associated with. An ancestor <select> will not be
+  // returned in some cases, such as nested <option>s, in order to match the
+  // logic in RecalcListItems and OptionList. This method also returns an
+  // <optgroup> if there is an <optgroup> in between the provided element and
+  // the returned <select>.
+  struct SelectOptgroupDatalist {
+    STACK_ALLOCATED();
+
+   public:
+    HTMLSelectElement* select;
+    HTMLOptGroupElement* optgroup;
+    HTMLDataListElement* datalist;
+  };
+  static SelectOptgroupDatalist AssociatedSelectAndOptgroupAndDatalist(
+      const Element&);
+
   void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
   void SelectOptionByAccessKey(HTMLOptionElement*);
 
   void SetOption(unsigned index, HTMLOptionElement*, ExceptionState&);
 
-  Element* namedItem(const AtomicString& name);
+  HTMLOptionElement* namedItem(const AtomicString& name);
   HTMLOptionElement* item(unsigned index);
 
   bool CanSelectAll() const;
@@ -143,11 +204,14 @@ class CORE_EXPORT HTMLSelectElement final
 
   // For use in the implementation of HTMLOptionElement.
   void OptionSelectionStateChanged(HTMLOptionElement*, bool option_is_selected);
+  void ElementInserted(Node& node);
   void OptionInserted(HTMLOptionElement&, bool option_is_selected);
   void OptionRemoved(HTMLOptionElement&);
   IndexedPropertySetterResult AnonymousIndexedSetter(unsigned,
                                                      HTMLOptionElement*,
                                                      ExceptionState&);
+
+  bool WasOptionInserted() const { return was_option_inserted_; }
 
   void OptGroupInsertedOrRemoved(HTMLOptGroupElement&);
   void HrInsertedOrRemoved(HTMLHRElement&);
@@ -158,16 +222,27 @@ class CORE_EXPORT HTMLSelectElement final
 
   // Helper functions for popup menu implementations.
   String ItemText(const Element&) const;
-  bool ItemIsDisplayNone(Element&) const;
-  // itemComputedStyle() returns nullptr only if the owner Document is not
-  // active.  So, It returns a valid object when we open a popup.
+  bool ItemIsDisplayNone(Element&, bool ensure_style) const;
+  // ItemComputedStyle() may return nullptr if the element is not rendered.
   const ComputedStyle* ItemComputedStyle(Element&) const;
   // Text starting offset in LTR.
   LayoutUnit ClientPaddingLeft() const;
   // Text starting offset in RTL.
   LayoutUnit ClientPaddingRight() const;
   void SelectOptionByPopup(int list_index);
-  void SelectMultipleOptionsByPopup(const Vector<int>& list_indices);
+  void SelectOptionByPopup(HTMLOptionElement* option);
+  void SelectMultipleOptions(const Vector<int>& list_indices);
+  // SelectOptionFromPopoverPickerOrListbox is called when an option element
+  // is clicked in the following modes:
+  // - When UsesPopoverPickerElement() returns true
+  // - When ListBoxSelectType is being used and appearance:base-select is
+  //   applied
+  // - When this element is a listbox and is being controlled by a filtering
+  //   input for the FilterableSelect feature.
+  // TODO(crbug.com/357649033): This method has a lot of duplicated logic with
+  // HTMLSelectElement::SelectOption. These two methods should probably be
+  // merged.
+  void SelectOptionFromPopoverPickerOrListbox(HTMLOptionElement* option);
   // A popup is canceled when the popup was hidden without selecting an item.
   void PopupDidCancel();
   // Provisional selection is a selection made using arrow keys or type ahead.
@@ -180,7 +255,7 @@ class CORE_EXPORT HTMLSelectElement final
   // the menulist mode.
   const ComputedStyle* OptionStyle() const;
   void ShowPopup();
-  void HidePopup();
+  void HidePopup(SelectPopupHideBehavior);
   PopupMenu* PopupForTesting() const;
 
   void ResetTypeAheadSessionForTesting();
@@ -189,16 +264,151 @@ class CORE_EXPORT HTMLSelectElement final
 
   void Trace(Visitor*) const override;
   void CloneNonAttributePropertiesFrom(const Element&,
-                                       CloneChildrenFlag) override;
+                                       NodeCloningData&) override;
 
-  // These should be called only if UsesMenuList().
+  // InnerElement and PopupRootAXObject should be called only if UsesMenuList().
+  // InnerElement is the in-page <div> element in the UA shadowroot for MenuList
+  // rendering. It is excluded from the layout tree if the author sets
+  // appearance:base-select on this <select> and provides their own child
+  // <button>.
   Element& InnerElement() const;
   AXObject* PopupRootAXObject() const;
 
   bool IsRichlyEditableForAccessibility() const override { return false; }
 
+  bool IsValidBuiltinCommand(HTMLElement& invoker,
+                             CommandEventType command) override;
+  bool HandleCommandInternal(HTMLElement& invoker,
+                             CommandEventType command) override;
+
+  // SlottedButton returns the first child <button> in the light dom tree. If
+  // this select is in a state where the <button> can't be rendered, such as a
+  // <select multiple>, then nullptr will be returned. Since this method is
+  // called during style calculation to compute internal pseudo-classes, the
+  // value of the appearance property is not checked.
+  HTMLButtonElement* SlottedButton() const;
+
+  // Returns true if the provided node is some select element's SlottedButton.
+  static bool IsSlottedButton(const Node*);
+
+  // This method returns the UA popover element which is used to render the
+  // picker of options when PickerIsPopover() returns true. If
+  // PickerIsPopover() returns false, then this method will return null.
+  HTMLElement* PopoverPickerElement() const;
+
+  // Returns true if the provided element is some select element's
+  // PopoverPickerElement. There are overrides for Node and Element because some
+  // callers already have an Element instead of a Node, and if we only had the
+  // Node version then there would be an extra call to DynamicTo<Element> every
+  // time.
+  static bool IsPopoverPickerElement(const Node*);
+  static bool IsPopoverPickerElement(const Element*);
+
+  // Returns true if this select element supports being rendered with base
+  // appearance. Otherwise, applying appearance:base-select to this element
+  // should not enable base appearance or do anything different from
+  // appearance:auto.
+  bool SupportsBaseAppearanceInternal(BaseAppearanceValue) const override;
+
+  // <select> supports appearance:base-select on both the main element and
+  // ::picker(select). Element::IsAppearanceBase returns true if the main
+  // element has base appearance, and IsAppearanceBasePicker returns true if
+  // ::picker(select) has base appearance.
+  //
+  // If this select is rendered as an in-page list of options, where
+  // ListBoxSelectType is used and UsesMenuList() returns false,
+  // IsAppearanceBasePicker will always return false because there is no picker.
+  // Element::IsAppearanceBase is used to control all base appearance behavior
+  // in this case.
+  //
+  // If this select is rendered as a button with a popup, where
+  // MenuListSelectType is used and UsesMenuList() returns true,
+  // IsAppearanceBasePicker will only return true if both the select element and
+  // its ::picker(select) have appearance:base-select. Element::IsAppearanceBase
+  // should be used for code which is concerned with the in-page button part,
+  // and IsAppearanceBasePicker should be used for code which is concerned with
+  // the popup that shows options.
+  bool IsAppearanceBasePicker() const;
+
+  // Depending on the HTML and CSS set on this element, as well as the
+  // platform, a popover in the UA shadowroot of this element will be used to
+  // render the picker. If a popover is going to be used, then this method
+  // returns true, otherwise false.
+  bool PickerIsPopover() const;
+
+  // SetIsAppearanceBasePickerForDisplayNone is called during style recalc for
+  // the case where the picker is closed and is therefore display:none and
+  // doesn't have a computed style to look at inside IsAppearanceBasePicker.
+  // This should only be called when UsesMenuList() returns true.
+  void SetIsAppearanceBasePickerForDisplayNone(bool);
+
+  void SelectedContentElementInsertedLegacy(
+      HTMLSelectedContentElement* selectedcontent);
+  void SelectedContentElementInserted(
+      HTMLSelectedContentElement* selectedcontent);
+  void SelectedContentElementRemoved(
+      HTMLSelectedContentElement* selectedcontent);
+
+  // This will only return an element if IsAppearanceBase(). The element
+  // is a popover inside the UA shadowroot which is used to show the user a
+  // preview of what is going to be autofilled. This should only be called if
+  SelectAutofillPreviewElement* GetAutofillPreviewElement() const;
+
+  // Getter and setter for the selectedcontentelement attribute
+  HTMLSelectedContentElement* selectedContentElement() const;
+  void setSelectedContentElement(HTMLSelectedContentElement*);
+
+  void DefaultEventHandler(Event&) override;
+  void ChildrenChanged(const ChildrenChange&) override;
+
+  // UpdateAllSelectedcontentsSingle and UpdateAllSelectedcontentsMultiple both
+  // clone the selected option(s) into all descendant selectedcontent elements.
+  // the Single method is for single-selects, and the Multiple method is for
+  // multi-selects. These methods are separate because the single-select case
+  // can use the cached currently-selected option element as an optimization.
+  void UpdateAllSelectedcontentsSingle(HTMLOptionElement*);
+  void UpdateAllSelectedcontentsMultiple();
+  // UpdateAllSelectedcontents calls either UpdateAllSelectedcontentsSingle or
+  // UpdateAllSelectedcontentsMultiple based on whether this element IsMultiple
+  // or not. Using the other two UpdateAllSelectedcontents methods is preferred
+  // since they are more optimized.
+  void UpdateAllSelectedcontents();
+  // UpdateSelectedcontent clones the contents of all selected option
+  // elements into the provided selectedcontent element. This is called when the
+  // provided selectedcontent is added to the subtree of this select element.
+  void UpdateIndividualSelectedcontent(HTMLSelectedContentElement&);
+
+  // Returns the localized "X selected" text used for MenuList multiple select
+  // elements.
+  String MultipleOptionsSelectedText(unsigned selected_count) const;
+
+  // Returns true if the provided element's descendants should be skipped during
+  // traversals which look for option elements inside of a select, such as <hr>
+  // and <datalist> elements.
+  static bool ShouldIgnoreDescendantsForOptionTraversals(Element* element);
+
+  HTMLOptionElement* ActiveOption() { return active_option_; }
+  // Called when an input element targeting a select for filtering is focused,
+  // which makes an option start matching :active-option if possible.
+  void StartFiltering();
+  // Called when an input element targeting a select element is blurred, which
+  // makes the options stop matching :active-option.
+  void StopFiltering();
+  // Called when the user presses the down arrow in the input element while
+  // filtering a select element to move the :active-option forwards in the list
+  // of options.
+  void MoveActiveOptionForwards();
+  // Called when the user presses the up arrow in the input element while
+  // filtering a select element to move the :active-option backwards in the list
+  // of options.
+  void MoveActiveOptionBackwards();
+  // Called when the user presses the enter key in the input element while
+  // filtering a select element to toggle the selectedness of the active option.
+  void ToggleActiveOption(Event&);
+
  private:
-  const AtomicString& FormControlType() const override;
+  mojom::blink::FormControlType FormControlType() const override;
+  const AtomicString& FormControlTypeAsString() const override;
 
   bool MayTriggerVirtualKeyboard() const override;
 
@@ -211,17 +421,18 @@ class CORE_EXPORT HTMLSelectElement final
   void DispatchBlurEvent(Element* new_focused_element,
                          mojom::blink::FocusType,
                          InputDeviceCapabilities* source_capabilities) override;
+  FocusableState SupportsFocus(UpdateBehavior update_behavior) const override;
 
   bool CanStartSelection() const override { return false; }
 
   bool IsEnumeratable() const override { return true; }
   bool IsInteractiveContent() const override;
   bool IsLabelable() const override { return true; }
+  FocusgroupFlags NativeArrowKeyAxes() const final;
 
   FormControlState SaveFormControlState() const override;
   void RestoreFormControlState(const FormControlState&) override;
 
-  void ChildrenChanged(const ChildrenChange& change) override;
   bool ChildrenChangedAllChildrenRemovedNeedsList() const override;
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const override;
@@ -229,20 +440,21 @@ class CORE_EXPORT HTMLSelectElement final
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
   void DidRecalcStyle(const StyleRecalcChange) override;
   void AttachLayoutTree(AttachContext&) override;
-  void DetachLayoutTree(bool performing_reattach = false) override;
+  void DetachLayoutTree(bool performing_reattach) override;
+  void RemovedFrom(ContainerNode&) override;
   void AppendToFormData(FormData&) override;
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
   void ManuallyAssignSlots() override;
 
-  void DefaultEventHandler(Event&) override;
-
   void SetRecalcListItems();
   void RecalcListItems() const;
-  enum ResetReason { kResetReasonSelectedOptionRemoved, kResetReasonOthers };
+  enum ResetReason {
+    kResetReasonSelectedOptionRemoved,
+    kResetReasonOptionInsertedOrRemoved,
+    kResetReasonOthers
+  };
   void ResetToDefaultSelection(ResetReason = kResetReasonOthers);
   void TypeAheadFind(const KeyboardEvent&);
-  // Returns the first selected OPTION, or nullptr.
-  HTMLOptionElement* SelectedOption() const;
 
   bool IsOptionalFormControl() const override {
     return !IsRequiredFormControl();
@@ -255,6 +467,11 @@ class CORE_EXPORT HTMLSelectElement final
     kDeselectOtherOptionsFlag = 1 << 0,
     kDispatchInputAndChangeEventFlag = 1 << 1,
     kMakeOptionDirtyFlag = 1 << 2,
+    // The kDontUpdateSelectedcontentFlag was added in order to defer the DOM of
+    // selectedcontent elements from being updated in the case that options are
+    // inserted or removed because we shouldn't be updating the DOM during
+    // insertion or removal steps.
+    kDontUpdateSelectedcontentFlag = 1 << 3,
   };
   typedef unsigned SelectOptionFlags;
   void SelectOption(HTMLOptionElement*,
@@ -268,7 +485,6 @@ class CORE_EXPORT HTMLSelectElement final
                                    wtf_size_t list_index_start,
                                    wtf_size_t list_index_end) const;
   void SetIndexToSelectOnCancel(int list_index);
-  void SetSuggestedOption(HTMLOptionElement*);
 
   // Returns nullptr if listIndex is out of bounds, or it doesn't point an
   // HTMLOptionElement.
@@ -278,7 +494,6 @@ class CORE_EXPORT HTMLSelectElement final
   LayoutBox* AutoscrollBox() override;
   void StopAutoscroll() override;
 
-  bool AreAuthorShadowsAllowed() const override { return false; }
   void FinishParsingChildren() override;
 
   // TypeAheadDataSource functions.
@@ -292,20 +507,49 @@ class CORE_EXPORT HTMLSelectElement final
   void ChangeRendering();
   void UpdateUserAgentShadowTree(ShadowRoot& root);
 
+  // Helper to update the select descendants' mutation observer.
+  void UpdateMutationObserver();
+
+  void DidChangeIsCanvasOrInCanvasSubtree() final;
+
+  // last_on_change_option_ is the currently selected option. It provides faster
+  // access to the currently selected option than iterating through each option
+  // element to see which one is selected. When this element has the multiple
+  // attribute, last_on_change_option_ is not used.
+  Member<HTMLOptionElement> last_on_change_option_;
+
+  // Option to display in the select element without actually changing its
+  // `last_on_change_option_`. This is introduced to be able to display
+  // information on an element without leaking it to JavaScript. Reasons for
+  // that could be previewing a value to be filled before getting explicit user
+  // consent for going ahead and filling.
+  Member<HTMLOptionElement> suggested_option_;
+
+  Member<SelectType> select_type_;
+  Member<SelectMutationObserver> descendants_observer_;
+  TreeOrderedList<HTMLSelectedContentElement> descendant_selectedcontents_;
+  TypeAhead type_ahead_;
   // list_items_ contains HTMLOptionElement, HTMLOptGroupElement, and
   // HTMLHRElement objects.
   mutable ListItems list_items_;
-  TypeAhead type_ahead_;
-  unsigned size_;
-  Member<HTMLSlotElement> option_slot_;
-  Member<HTMLOptionElement> last_on_change_option_;
-  Member<HTMLOptionElement> suggested_option_;
+  // size_ is the display size of the select element which is generated from the
+  // size attribute on this element.
+  unsigned size_ = 0;
+  // content_model_violations_count_ is incremented every time a descendant node
+  // is added which violates the content model, and decremented every time such
+  // a node is removed. It is only used when descendants_observer_ is
+  // initialized.
+  unsigned content_model_violations_count_ = 0U;
+  int index_to_select_on_cancel_ = -1;
   bool uses_menu_list_ = true;
-  bool is_multiple_;
-  mutable bool should_recalc_list_items_;
+  bool is_multiple_ = false;
+  mutable bool should_recalc_list_items_ = false;
+  // was_option_inserted_ is set to true the first time that OptionInserted is
+  // called, and never gets set back to false again. It is used for parsing
+  // <input> in <select>.
+  bool was_option_inserted_ = false;
 
-  Member<SelectType> select_type_;
-  int index_to_select_on_cancel_;
+  Member<HTMLOptionElement> active_option_;
 
   friend class ListBoxSelectType;
   friend class MenuListSelectType;

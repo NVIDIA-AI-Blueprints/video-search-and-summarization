@@ -11,18 +11,44 @@
 #ifndef RTC_BASE_SERVER_SOCKET_ADAPTERS_H_
 #define RTC_BASE_SERVER_SOCKET_ADAPTERS_H_
 
-#include "rtc_base/socket_adapters.h"
+#include <cstddef>
+#include <utility>
 
-namespace rtc {
+#include "absl/functional/any_invocable.h"
+#include "rtc_base/callback_list.h"
+#include "rtc_base/socket.h"
+#include "rtc_base/socket_adapters.h"
+#include "rtc_base/socket_address.h"
+
+namespace webrtc {
 
 // Interface for implementing proxy server sockets.
 class AsyncProxyServerSocket : public BufferedReadAdapter {
  public:
   AsyncProxyServerSocket(Socket* socket, size_t buffer_size);
   ~AsyncProxyServerSocket() override;
-  sigslot::signal2<AsyncProxyServerSocket*, const SocketAddress&>
-      SignalConnectRequest;
+
+  [[deprecated]] void SubscribeConnectRequest(
+      absl::AnyInvocable<void(AsyncProxyServerSocket*, const SocketAddress&)>
+          callback) {
+    connect_request_callbacks_.AddReceiver(std::move(callback));
+  }
+  void SubscribeConnectRequest(
+      void* tag,
+      absl::AnyInvocable<void(AsyncProxyServerSocket*, const SocketAddress&)>
+          callback) {
+    connect_request_callbacks_.AddReceiver(tag, std::move(callback));
+  }
+  void NotifyConnectRequest(AsyncProxyServerSocket* socket,
+                            const SocketAddress& socket_address) {
+    connect_request_callbacks_.Send(socket, socket_address);
+  }
+
   virtual void SendConnectResult(int err, const SocketAddress& addr) = 0;
+
+ private:
+  CallbackList<AsyncProxyServerSocket*, const SocketAddress&>
+      connect_request_callbacks_;
 };
 
 // Implements a socket adapter that performs the server side of a
@@ -38,40 +64,7 @@ class AsyncSSLServerSocket : public BufferedReadAdapter {
   void ProcessInput(char* data, size_t* len) override;
 };
 
-// Implements a proxy server socket for the SOCKS protocol.
-class AsyncSocksProxyServerSocket : public AsyncProxyServerSocket {
- public:
-  explicit AsyncSocksProxyServerSocket(Socket* socket);
+}  //  namespace webrtc
 
-  AsyncSocksProxyServerSocket(const AsyncSocksProxyServerSocket&) = delete;
-  AsyncSocksProxyServerSocket& operator=(const AsyncSocksProxyServerSocket&) =
-      delete;
-
- private:
-  void ProcessInput(char* data, size_t* len) override;
-  void DirectSend(const ByteBufferWriter& buf);
-
-  void HandleHello(ByteBufferReader* request);
-  void SendHelloReply(uint8_t method);
-  void HandleAuth(ByteBufferReader* request);
-  void SendAuthReply(uint8_t result);
-  void HandleConnect(ByteBufferReader* request);
-  void SendConnectResult(int result, const SocketAddress& addr) override;
-
-  void Error(int error);
-
-  static const int kBufferSize = 1024;
-  enum State {
-    SS_HELLO,
-    SS_AUTH,
-    SS_CONNECT,
-    SS_CONNECT_PENDING,
-    SS_TUNNEL,
-    SS_ERROR
-  };
-  State state_;
-};
-
-}  // namespace rtc
 
 #endif  // RTC_BASE_SERVER_SOCKET_ADAPTERS_H_

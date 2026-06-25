@@ -29,9 +29,10 @@
 #include <memory>
 
 #include "base/dcheck_is_on.h"
-#include "third_party/blink/public/common/indexeddb/web_idb_types.h"
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_idb_transaction_mode.h"
 #include "third_party/blink/renderer/core/dom/dom_string_list.h"
 #include "third_party/blink/renderer/core/dom/events/event_listener.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
@@ -39,12 +40,11 @@
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_metadata.h"
 #include "third_party/blink/renderer/modules/indexeddb/indexed_db.h"
-#include "third_party/blink/renderer/modules/indexeddb/web_idb_database.h"
-#include "third_party/blink/renderer/modules/indexeddb/web_idb_transaction.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_linked_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_remote.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
@@ -53,7 +53,6 @@
 namespace blink {
 
 class DOMException;
-class EventQueue;
 class ExecutionContext;
 class ExceptionState;
 class IDBDatabase;
@@ -63,25 +62,32 @@ class IDBOpenDBRequest;
 class IDBRequest;
 class IDBRequestQueueItem;
 class ScriptState;
+class V8IDBTransactionDurability;
 
 class MODULES_EXPORT IDBTransaction final
-    : public EventTargetWithInlineData,
+    : public EventTarget,
       public ActiveScriptWrappable<IDBTransaction>,
       public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  // `Commit` can be called after the context is destroyed, so at least for now
+  // the mojo connection has to outlive context destruction.
+  using TransactionMojoRemote = HeapMojoAssociatedRemote<
+      mojom::blink::IDBTransaction,
+      HeapMojoWrapperMode::kForceWithoutContextObserver>;
+
   static IDBTransaction* CreateNonVersionChange(
       ScriptState* script_state,
-      std::unique_ptr<WebIDBTransaction> transaction_backend,
+      TransactionMojoRemote remote,
       int64_t transaction_id,
       const HashSet<String>& scope,
-      mojom::IDBTransactionMode,
-      mojom::IDBTransactionDurability,
+      mojom::blink::IDBTransactionMode,
+      mojom::blink::IDBTransactionDurability,
       IDBDatabase* database);
   static IDBTransaction* CreateVersionChange(
       ExecutionContext*,
-      std::unique_ptr<WebIDBTransaction> transaction_backend,
+      TransactionMojoRemote remote,
       int64_t transaction_id,
       IDBDatabase*,
       IDBOpenDBRequest*,
@@ -89,15 +95,15 @@ class MODULES_EXPORT IDBTransaction final
 
   // For non-upgrade transactions.
   IDBTransaction(ScriptState*,
-                 std::unique_ptr<WebIDBTransaction> transaction_backend,
+                 TransactionMojoRemote remote,
                  int64_t,
                  const HashSet<String>& scope,
-                 mojom::IDBTransactionMode,
-                 mojom::IDBTransactionDurability,
+                 mojom::blink::IDBTransactionMode,
+                 mojom::blink::IDBTransactionDurability,
                  IDBDatabase*);
   // For upgrade transactions.
   IDBTransaction(ExecutionContext*,
-                 std::unique_ptr<WebIDBTransaction> transaction_backend,
+                 TransactionMojoRemote remote,
                  int64_t,
                  IDBDatabase*,
                  IDBOpenDBRequest*,
@@ -106,10 +112,8 @@ class MODULES_EXPORT IDBTransaction final
 
   void Trace(Visitor*) const override;
 
-  static mojom::IDBTransactionMode StringToMode(const String&);
-
-  // When the connection is closed backend will be 0.
-  WebIDBDatabase* BackendDB() const;
+  static mojom::blink::IDBTransactionMode EnumToMode(
+      V8IDBTransactionMode::Enum);
 
   int64_t Id() const { return id_; }
   bool IsActive() const { return state_ == kActive; }
@@ -118,20 +122,20 @@ class MODULES_EXPORT IDBTransaction final
     return state_ == kCommitting || state_ == kAborting;
   }
   bool IsReadOnly() const {
-    return mode_ == mojom::IDBTransactionMode::ReadOnly;
+    return mode_ == mojom::blink::IDBTransactionMode::ReadOnly;
   }
   bool IsVersionChange() const {
-    return mode_ == mojom::IDBTransactionMode::VersionChange;
+    return mode_ == mojom::blink::IDBTransactionMode::VersionChange;
   }
   int64_t NumErrorsHandled() const { return num_errors_handled_; }
   void IncrementNumErrorsHandled() { ++num_errors_handled_; }
 
   // Implement the IDBTransaction IDL
-  const String& mode() const;
-  const String& durability() const;
+  V8IDBTransactionMode mode() const;
+  V8IDBTransactionDurability durability() const;
   DOMStringList* objectStoreNames() const;
-  IDBDatabase* db() const { return database_.Get(); }
-  DOMException* error() const { return error_; }
+  IDBDatabase& db() { return *database_; }
+  DOMException* error() const { return error_.Get(); }
   IDBObjectStore* objectStore(const String& name, ExceptionState&);
   void abort(ExceptionState&);
   void commit(ExceptionState&);
@@ -173,8 +177,32 @@ class MODULES_EXPORT IDBTransaction final
   DEFINE_ATTRIBUTE_EVENT_LISTENER(complete, kComplete)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(error, kError)
 
+  // The backend aborted/completed.
   void OnAbort(DOMException*);
   void OnComplete();
+
+  // Start aborting if not already aborting. This is called when either the
+  // site initiates the abort via `abort()`, or frontend logic necessitates an
+  // abort.
+  void StartAborting(DOMException* error, bool from_frontend = true);
+
+  // Methods that operate on the backend.
+  void CreateObjectStore(int64_t object_store_id,
+                         const String& name,
+                         const IDBKeyPath&,
+                         bool auto_increment);
+  void DeleteObjectStore(int64_t object_store_id);
+  void Put(int64_t object_store_id,
+           std::unique_ptr<IDBValue> value,
+           std::unique_ptr<IDBKey> primary_key,
+           mojom::blink::IDBPutMode put_mode,
+           Vector<IDBIndexKeys> index_keys,
+           mojom::blink::IDBTransaction::PutCallback callback);
+  void SetIndexKeys(int64_t object_store_id,
+                    std::unique_ptr<IDBKey> primary_key,
+                    IDBIndexKeys);
+  void SetIndexReady(int64_t object_store_id);
+  void FlushForTesting();
 
   // EventTarget
   const AtomicString& InterfaceName() const override;
@@ -182,6 +210,9 @@ class MODULES_EXPORT IDBTransaction final
 
   // ScriptWrappable
   bool HasPendingActivity() const final;
+
+  // ExecutionContextLifecycleObserver
+  void ContextDestroyed() override {}
 
   // For use in IDBObjectStore::IsNewlyCreated(). The rest of the code should
   // use IDBObjectStore::IsNewlyCreated() instead of calling this method
@@ -195,11 +226,9 @@ class MODULES_EXPORT IDBTransaction final
   // depending on whether the transaction is just inactive or has finished.
   const char* InactiveErrorMessage() const;
 
-  WebIDBTransaction* transaction_backend() {
-    return transaction_backend_.get();
+  void set_max_put_value_size_for_testing(size_t size) {
+    max_put_value_size_override_ = size;
   }
-
-  void ContextDestroyed() override {}
 
  protected:
   // EventTarget
@@ -208,10 +237,14 @@ class MODULES_EXPORT IDBTransaction final
  private:
   using IDBObjectStoreMap = HeapHashMap<String, Member<IDBObjectStore>>;
 
-  void EnqueueEvent(Event*);
+  // Maximum size (in bytes) of value/key pair allowed for put requests. Any
+  // requests larger than this size will be rejected.
+  // Used by unit tests to exercise behavior without allocating huge chunks
+  // of memory.
+  std::optional<size_t> max_put_value_size_override_;
 
   // Called when a transaction is aborted.
-  void AbortOutstandingRequests();
+  void AbortOutstandingRequests(bool queue_tasks);
   void RevertDatabaseMetadata();
 
   // Called when a transaction is completed (committed or aborted).
@@ -225,12 +258,13 @@ class MODULES_EXPORT IDBTransaction final
     kFinished,    // No more events will fire and no new requests may be filed.
   };
 
-  std::unique_ptr<WebIDBTransaction> transaction_backend_;
+  TransactionMojoRemote remote_;
+
   const int64_t id_;
   Member<IDBDatabase> database_;
   Member<IDBOpenDBRequest> open_db_request_;
-  const mojom::IDBTransactionMode mode_;
-  const mojom::IDBTransactionDurability durability_;
+  const mojom::blink::IDBTransactionMode mode_;
+  const mojom::blink::IDBTransactionDurability durability_;
 
   // The names of the object stores that make up this transaction's scope.
   //
@@ -245,7 +279,8 @@ class MODULES_EXPORT IDBTransaction final
   // transactions.
   const HashSet<String> scope_;
 
-  State state_ = kActive;
+  // The initial state depends on the type of transaction --- see constructors.
+  State state_;
   bool has_pending_activity_ = true;
   int64_t num_errors_handled_ = 0;
   Member<DOMException> error_;
@@ -264,6 +299,9 @@ class MODULES_EXPORT IDBTransaction final
 #if DCHECK_IS_ON()
   bool finish_called_ = false;
 #endif  // DCHECK_IS_ON()
+
+  // Whether `this` is already inside a call to `OnResultReady`.
+  bool handling_ready_ = false;
 
   // Caches the IDBObjectStore instances returned by the objectStore() method.
   //
@@ -307,8 +345,6 @@ class MODULES_EXPORT IDBTransaction final
   //
   // Only valid for versionchange transactions.
   IDBDatabaseMetadata old_database_metadata_;
-
-  Member<EventQueue> event_queue_;
 };
 
 }  // namespace blink

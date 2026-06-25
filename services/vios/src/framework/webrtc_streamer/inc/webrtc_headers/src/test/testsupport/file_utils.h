@@ -8,17 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <stdio.h>
-
 #ifndef TEST_TESTSUPPORT_FILE_UTILS_H_
 #define TEST_TESTSUPPORT_FILE_UTILS_H_
 
+#include <cstdio>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 
 namespace webrtc {
 namespace test {
@@ -41,6 +40,11 @@ ABSL_CONST_INIT extern const absl::string_view kPathDelimiter;
 // Returns the path WITH a trailing path delimiter. If the project root is not
 // found, the current working directory ("./") is returned as a fallback.
 std::string OutputPath();
+
+// Same as the above but appends a randomly named folder at the end of the path
+// Primerly used to provide a solution for stress testing environments to
+// prevent colission of files and folders.
+std::string OutputPathWithRandomDirectory();
 
 // Generates an empty file with a unique name in the specified directory and
 // returns the file name and path.
@@ -75,7 +79,7 @@ std::string WorkingDir();
 // of strings with one element for each found file or directory. Each element is
 // a path created by prepending `dir` to the file/directory name. "." and ".."
 // are never added in the returned vector.
-absl::optional<std::vector<std::string>> ReadDirectory(absl::string_view path);
+std::optional<std::vector<std::string>> ReadDirectory(absl::string_view path);
 
 // Creates a directory if it not already exists.
 // Returns true if successful. Will print an error message to stderr and return
@@ -84,6 +88,9 @@ bool CreateDir(absl::string_view directory_name);
 
 // Removes a directory, which must already be empty.
 bool RemoveDir(absl::string_view directory_name);
+
+// Removes all the files inside a non-empty directory and the directory itself.
+bool RemoveNonEmptyDir(absl::string_view directory_name);
 
 // Removes a file.
 bool RemoveFile(absl::string_view file_name);
@@ -98,6 +105,9 @@ bool DirExists(absl::string_view directory_name);
 
 // Strips the rightmost path segment from a path.
 std::string DirName(absl::string_view path);
+
+// Returns the rightmost path segment from a path.
+absl::string_view FileName(absl::string_view path);
 
 // File size of the supplied file in bytes. Will return 0 if the file is
 // empty or if the file does not exist/is readable.

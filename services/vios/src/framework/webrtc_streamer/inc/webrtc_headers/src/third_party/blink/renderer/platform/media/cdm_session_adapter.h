@@ -7,19 +7,21 @@
 
 #include <stdint.h>
 
-#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "media/base/cdm_config.h"
+#include "media/base/cdm_factory.h"
 #include "media/base/content_decryption_module.h"
+#include "media/base/key_systems.h"
 #include "third_party/blink/public/platform/web_content_decryption_module_session.h"
+#include "third_party/blink/renderer/platform/allow_discouraged_type.h"
 #include "third_party/blink/renderer/platform/media/web_content_decryption_module_impl.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 
 namespace base {
 class Time;
@@ -39,10 +41,9 @@ class WebContentDecryptionModuleSessionImpl;
 // Forwards the session ID-based callbacks of the media::ContentDecryptionModule
 // interface to the appropriate session object. Callers should hold references
 // to this class as long as they need the CDM instance.
-class PLATFORM_EXPORT CdmSessionAdapter
-    : public base::RefCounted<CdmSessionAdapter> {
+class PLATFORM_EXPORT CdmSessionAdapter : public RefCounted<CdmSessionAdapter> {
  public:
-  CdmSessionAdapter();
+  explicit CdmSessionAdapter(media::KeySystems* key_systems);
   CdmSessionAdapter(const CdmSessionAdapter&) = delete;
   CdmSessionAdapter& operator=(const CdmSessionAdapter&) = delete;
 
@@ -118,7 +119,7 @@ class PLATFORM_EXPORT CdmSessionAdapter
   const media::CdmConfig& GetCdmConfig() const;
 
  private:
-  friend class base::RefCounted<CdmSessionAdapter>;
+  friend class RefCounted<CdmSessionAdapter>;
 
   // Session ID to WebContentDecryptionModuleSessionImpl mapping.
   typedef std::unordered_map<
@@ -132,7 +133,7 @@ class PLATFORM_EXPORT CdmSessionAdapter
   void OnCdmCreated(const media::CdmConfig& cdm_config,
                     base::TimeTicks start_time,
                     const scoped_refptr<media::ContentDecryptionModule>& cdm,
-                    const std::string& error_message);
+                    media::CreateCdmStatus status);
 
   // Callbacks for firing session events.
   void OnSessionMessage(const std::string& session_id,
@@ -150,9 +151,14 @@ class PLATFORM_EXPORT CdmSessionAdapter
   WebContentDecryptionModuleSessionImpl* GetSession(
       const std::string& session_id);
 
+  // Non-owned
+  raw_ptr<media::KeySystems> key_systems_;
+
   scoped_refptr<media::ContentDecryptionModule> cdm_;
 
-  SessionMap sessions_;
+  SessionMap sessions_ ALLOW_DISCOURAGED_TYPE(
+      "HashTable doesn't support std::string keys. Avoid string conversion "
+      "from media code.");
 
   std::string key_system_uma_prefix_;
 

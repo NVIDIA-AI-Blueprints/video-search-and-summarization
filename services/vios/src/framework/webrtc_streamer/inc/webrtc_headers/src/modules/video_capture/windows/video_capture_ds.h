@@ -14,6 +14,7 @@
 #include "api/scoped_refptr.h"
 #include "modules/video_capture/video_capture_impl.h"
 #include "modules/video_capture/windows/device_info_ds.h"
+#include "system_wrappers/include/clock.h"
 
 #define CAPTURE_FILTER_NAME L"VideoCaptureFilter"
 #define SINK_FILTER_NAME L"SinkFilter"
@@ -25,7 +26,7 @@ class CaptureSinkFilter;
 
 class VideoCaptureDS : public VideoCaptureImpl {
  public:
-  VideoCaptureDS();
+  explicit VideoCaptureDS(Clock* clock);
 
   virtual int32_t Init(const char* deviceUniqueIdUTF8);
 
@@ -60,7 +61,7 @@ class VideoCaptureDS : public VideoCaptureImpl {
   IBaseFilter* _captureFilter RTC_GUARDED_BY(api_checker_);
   IGraphBuilder* _graphBuilder RTC_GUARDED_BY(api_checker_);
   IMediaControl* _mediaControl RTC_GUARDED_BY(api_checker_);
-  rtc::scoped_refptr<CaptureSinkFilter> sink_filter_
+  webrtc::scoped_refptr<CaptureSinkFilter> sink_filter_
       RTC_GUARDED_BY(api_checker_);
   IPin* _inputSendPin RTC_GUARDED_BY(api_checker_);
   IPin* _outputCapturePin RTC_GUARDED_BY(api_checker_);

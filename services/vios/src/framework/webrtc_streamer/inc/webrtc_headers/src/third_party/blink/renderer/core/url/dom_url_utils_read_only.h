@@ -28,9 +28,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_URL_DOM_URL_UTILS_READ_ONLY_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/text/strcat.h"
 
 namespace blink {
 
@@ -46,25 +46,27 @@ class CORE_EXPORT DOMURLUtilsReadOnly {
   static String origin(const KURL&);
   String origin() { return origin(Url()); }
 
-  static String protocol(const KURL& url) { return url.Protocol() + ":"; }
+  static String protocol(const KURL& url) {
+    return StrCat({url.Protocol(), ":"});
+  }
   String protocol() { return protocol(Url()); }
 
-  static String username(const KURL& url) { return url.User(); }
+  static String username(const KURL& url) { return url.User().ToString(); }
   String username() { return username(Url()); }
 
-  static String password(const KURL& url) { return url.Pass(); }
+  static String password(const KURL& url) { return url.Pass().ToString(); }
   String password() { return password(Url()); }
 
   static String host(const KURL&);
   String host() { return host(Url()); }
 
-  static String hostname(const KURL& url) { return url.Host(); }
+  static String hostname(const KURL& url) { return url.Host().ToString(); }
   String hostname() { return hostname(Url()); }
 
   static String port(const KURL&);
   String port() { return port(Url()); }
 
-  static String pathname(const KURL& url) { return url.GetPath(); }
+  static String pathname(const KURL& url) { return url.GetPath().ToString(); }
   String pathname() { return pathname(Url()); }
 
   static String search(const KURL&);

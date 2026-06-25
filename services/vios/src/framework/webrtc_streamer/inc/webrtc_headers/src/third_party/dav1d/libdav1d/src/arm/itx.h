@@ -28,34 +28,6 @@
 #include "src/cpu.h"
 #include "src/itx.h"
 
-#define decl_itx2_fns(w, h, opt) \
-decl_itx_fn(BF(dav1d_inv_txfm_add_dct_dct_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_identity_identity_##w##x##h, opt))
-
-#define decl_itx12_fns(w, h, opt) \
-decl_itx2_fns(w, h, opt); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_dct_adst_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_dct_flipadst_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_dct_identity_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_adst_dct_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_adst_adst_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_adst_flipadst_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_flipadst_dct_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_flipadst_adst_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_flipadst_flipadst_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_identity_dct_##w##x##h, opt))
-
-#define decl_itx16_fns(w, h, opt) \
-decl_itx12_fns(w, h, opt); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_adst_identity_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_flipadst_identity_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_identity_adst_##w##x##h, opt)); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_identity_flipadst_##w##x##h, opt))
-
-#define decl_itx17_fns(w, h, opt) \
-decl_itx16_fns(w, h, opt); \
-decl_itx_fn(BF(dav1d_inv_txfm_add_wht_wht_##w##x##h, opt))
-
 decl_itx17_fns( 4,  4, neon);
 decl_itx16_fns( 4,  8, neon);
 decl_itx16_fns( 4, 16, neon);
@@ -77,49 +49,18 @@ decl_itx_fn(BF(dav1d_inv_txfm_add_dct_dct_64x16, neon));
 decl_itx_fn(BF(dav1d_inv_txfm_add_dct_dct_64x32, neon));
 decl_itx_fn(BF(dav1d_inv_txfm_add_dct_dct_64x64, neon));
 
-static ALWAYS_INLINE void itx_dsp_init_arm(Dav1dInvTxfmDSPContext *const c, int bpc) {
-#define assign_itx_fn(pfx, w, h, type, type_enum, ext) \
-    c->itxfm_add[pfx##TX_##w##X##h][type_enum] = \
-        BF(dav1d_inv_txfm_add_##type##_##w##x##h, ext)
-
-#define assign_itx1_fn(pfx, w, h, ext) \
-    assign_itx_fn(pfx, w, h, dct_dct,           DCT_DCT,           ext)
-
-#define assign_itx2_fn(pfx, w, h, ext) \
-    assign_itx1_fn(pfx, w, h, ext); \
-    assign_itx_fn(pfx, w, h, identity_identity, IDTX,              ext)
-
-#define assign_itx12_fn(pfx, w, h, ext) \
-    assign_itx2_fn(pfx, w, h, ext); \
-    assign_itx_fn(pfx, w, h, dct_adst,          ADST_DCT,          ext); \
-    assign_itx_fn(pfx, w, h, dct_flipadst,      FLIPADST_DCT,      ext); \
-    assign_itx_fn(pfx, w, h, dct_identity,      H_DCT,             ext); \
-    assign_itx_fn(pfx, w, h, adst_dct,          DCT_ADST,          ext); \
-    assign_itx_fn(pfx, w, h, adst_adst,         ADST_ADST,         ext); \
-    assign_itx_fn(pfx, w, h, adst_flipadst,     FLIPADST_ADST,     ext); \
-    assign_itx_fn(pfx, w, h, flipadst_dct,      DCT_FLIPADST,      ext); \
-    assign_itx_fn(pfx, w, h, flipadst_adst,     ADST_FLIPADST,     ext); \
-    assign_itx_fn(pfx, w, h, flipadst_flipadst, FLIPADST_FLIPADST, ext); \
-    assign_itx_fn(pfx, w, h, identity_dct,      V_DCT,             ext)
-
-#define assign_itx16_fn(pfx, w, h, ext) \
-    assign_itx12_fn(pfx, w, h, ext); \
-    assign_itx_fn(pfx, w, h, adst_identity,     H_ADST,            ext); \
-    assign_itx_fn(pfx, w, h, flipadst_identity, H_FLIPADST,        ext); \
-    assign_itx_fn(pfx, w, h, identity_adst,     V_ADST,            ext); \
-    assign_itx_fn(pfx, w, h, identity_flipadst, V_FLIPADST,        ext)
-
-#define assign_itx17_fn(pfx, w, h, ext) \
-    assign_itx16_fn(pfx, w, h, ext); \
-    assign_itx_fn(pfx, w, h, wht_wht,           WHT_WHT,           ext)
-
+static ALWAYS_INLINE void itx_dsp_init_arm(Dav1dInvTxfmDSPContext *const c, int bpc,
+                                           int *const all_simd)
+{
     const unsigned flags = dav1d_get_cpu_flags();
 
     if (!(flags & DAV1D_ARM_CPU_FLAG_NEON)) return;
 
+    assign_itx_fn( , 4, 4, wht_wht,           WHT_WHT,           neon);
+
     if (BITDEPTH == 16 && bpc != 10) return;
 
-    assign_itx17_fn( ,  4,  4, neon);
+    assign_itx16_fn( ,  4,  4, neon);
     assign_itx16_fn(R,  4,  8, neon);
     assign_itx16_fn(R,  4, 16, neon);
     assign_itx16_fn(R,  8,  4, neon);
@@ -138,4 +79,5 @@ static ALWAYS_INLINE void itx_dsp_init_arm(Dav1dInvTxfmDSPContext *const c, int 
     assign_itx1_fn (R, 64, 16, neon);
     assign_itx1_fn (R, 64, 32, neon);
     assign_itx1_fn ( , 64, 64, neon);
+    *all_simd = 1;
 }

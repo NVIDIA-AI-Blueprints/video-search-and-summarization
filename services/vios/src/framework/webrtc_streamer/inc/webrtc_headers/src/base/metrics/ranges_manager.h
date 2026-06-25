@@ -36,7 +36,7 @@ class BASE_EXPORT RangesManager {
 
   // Gets all registered BucketRanges. The order of returned BucketRanges is not
   // guaranteed.
-  std::vector<const BucketRanges*> GetBucketRanges() const;
+  std::vector<const BucketRanges*> GetBucketRanges();
 
   // Some tests may instantiate temporary StatisticsRecorders, each having their
   // own RangesManager. During the tests, ranges may get registered with a

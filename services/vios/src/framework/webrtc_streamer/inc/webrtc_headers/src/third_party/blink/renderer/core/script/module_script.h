@@ -24,11 +24,19 @@
 
 namespace blink {
 
+class BoxedV8Module;
+
+static constexpr char kWasmImportInEvaluationPhaseError[] =
+    " cannot be imported. Wasm module imports are only supported in the "
+    "source phase.";
+static constexpr char kNonWasmImportInSourcePhaseError[] =
+    " cannot be imported. Only Wasm module imports are supported in the "
+    "source phase.";
+
 // ModuleScript is a model object for the "module script" spec concept.
 // https://html.spec.whatwg.org/C/#module-script
 class CORE_EXPORT ModuleScript : public Script {
  public:
-  v8::Local<v8::Module> V8Module() const;
   bool HasEmptyRecord() const;
 
   // Note: ParseError-related methods should only be used from ModuleTreeLinker
@@ -52,6 +60,12 @@ class CORE_EXPORT ModuleScript : public Script {
   void Trace(Visitor*) const override;
 
   virtual void ProduceCache() {}
+  virtual v8::Local<v8::Module> V8Module() const;
+  virtual BoxedV8Module* BoxModuleRecord() const;
+  virtual v8::Local<v8::WasmModuleObject> WasmModule() const { NOTREACHED(); }
+  virtual bool IsWasmModuleRecord() const { return false; }
+  virtual Vector<ModuleRequest> GetModuleRecordRequests() const;
+  virtual ScriptValue Instantiate() const;
 
   [[nodiscard]] ScriptEvaluationResult RunScriptOnScriptStateAndReturnValue(
       ScriptState*,
@@ -60,15 +74,31 @@ class CORE_EXPORT ModuleScript : public Script {
       V8ScriptRunner::RethrowErrorsOption =
           V8ScriptRunner::RethrowErrorsOption::DoNotRethrow()) override;
 
-  Modulator* SettingsObject() const { return settings_object_; }
+  // Evaluates the module with the given import phase. Used by dynamic import
+  // to support import.defer (kDefer phase) which calls V8's
+  // EvaluateForImportDefer instead of Evaluate.
+  [[nodiscard]] ScriptEvaluationResult
+  RunScriptOnScriptStateAndReturnValueWithImportPhase(
+      ScriptState*,
+      V8ScriptRunner::RethrowErrorsOption,
+      v8::ModuleImportPhase phase);
+
+  Modulator* SettingsObject() const { return settings_object_.Get(); }
 
  protected:
   ModuleScript(Modulator*,
-               v8::Local<v8::Module>,
+               v8::Local<v8::Data>,
                const KURL& source_url,
                const KURL& base_url,
                const ScriptFetchOptions&,
                const TextPosition& start_position);
+
+  // https://html.spec.whatwg.org/C/#settings-object
+  Member<Modulator> settings_object_;
+
+  // https://html.spec.whatwg.org/C/#concept-script-record
+  // Must be either `v8::Module` or `v8::WasmModuleObject`.
+  TraceWrapperV8Reference<v8::Data> record_;
 
  private:
   mojom::blink::ScriptType GetScriptType() const override {
@@ -76,12 +106,6 @@ class CORE_EXPORT ModuleScript : public Script {
   }
 
   friend class ModuleTreeLinkerTestModulator;
-
-  // https://html.spec.whatwg.org/C/#settings-object
-  Member<Modulator> settings_object_;
-
-  // https://html.spec.whatwg.org/C/#concept-script-record
-  TraceWrapperV8Reference<v8::Module> record_;
 
   // https://html.spec.whatwg.org/C/#concept-script-parse-error
   //

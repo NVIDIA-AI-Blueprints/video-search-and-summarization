@@ -5,9 +5,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_DOCUMENT_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_DOCUMENT_DATA_H_
 
+#include <optional>
+
+#include "base/time/time.h"
 #include "services/network/public/mojom/trust_tokens.mojom-blink.h"
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_regexp.h"
+#include "third_party/blink/renderer/platform/bindings/script_regexp.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 
@@ -51,27 +54,28 @@ class DocumentData final : public GarbageCollected<DocumentData> {
   // In order to be able to answer promises when the Mojo remote disconnects,
   // maintain all pending promises here, deleting them on successful completion
   // or on connection error, whichever comes first.
-  HeapHashSet<Member<ScriptPromiseResolver>>
+  HeapHashSet<Member<ScriptPromiseResolverBase>>
       pending_trust_token_query_resolvers_;
 
   // To do email regex checks.
   Member<ScriptRegexp> email_regexp_;
 
-  // The total number of per-page ad frames that are eligible for the LazyAds
-  // interventions by AutomaticLazyFrameLoadingToAds. This is used to report
-  // UKM.
-  int64_t lazy_ads_frame_count_ = 0;
-  // The total number of per-page frames that are eligible for the LazyEmbeds
-  // interventions by AutomaticLazyFrameLoadingToEmbeds. This is used to report
-  // UKM.
-  int64_t lazy_embeds_frame_count_ = 0;
-  // |Document::Shutdown()| is called multiple times. The following flag
-  // prevents sending UKM multiple times.
-  bool already_sent_automatic_lazy_load_frame_ukm_ = false;
-
   // The number of immediate child frames created within this document so far.
   // This count doesn't include this document's frame nor descendant frames.
   int immediate_child_frame_creation_count_ = 0;
+
+  // LCPP's LCP ElementLocator was matched against a tag against html
+  // during preload scanning.
+  bool lcpp_encountered_lcp_in_html = false;
+
+  // Measures SVGImage performance per document.
+  int svg_image_processed_count_ = 0;
+  base::TimeDelta accumulated_svg_image_elapsed_time_;
+
+  // Start time of XML parser. Used for benchmarking XML parsing performance.
+  std::optional<base::TimeTicks> xml_parser_start_time_;
+  // Whether the Rust XML parser is used.
+  bool using_rust_xml_parser_ = false;
 
   friend class Document;
 };

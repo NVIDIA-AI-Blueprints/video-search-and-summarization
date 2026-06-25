@@ -6,11 +6,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_TEST_WEB_SCHEDULING_TEST_HELPER_H_
 
 #include <memory>
+#include <variant>
 
+#include "base/memory/raw_ref.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_queue_type.h"
@@ -46,7 +47,7 @@ class WebSchedulingTestHelper {
 
   struct TestTaskSpecEntry {
     String descriptor;
-    absl::variant<TaskType, WebSchedulingParams> type_info;
+    std::variant<TaskType, WebSchedulingParams> type_info;
     base::TimeDelta delay = base::TimeDelta();
   };
 
@@ -64,7 +65,7 @@ class WebSchedulingTestHelper {
                      const Vector<TestTaskSpecEntry>& test_spec);
 
  private:
-  Delegate& delegate_;
+  const raw_ref<Delegate> delegate_;
   Vector<std::unique_ptr<WebSchedulingTaskQueue>> task_queues_;
   Vector<std::unique_ptr<WebSchedulingTaskQueue>> continuation_task_queues_;
 };

@@ -46,6 +46,8 @@ class SharedMemoryArbiter;
 // IPC channel to the remote Service. This class is the glue layer between the
 // generic Service interface exposed to the clients of the library and the
 // actual IPC transport.
+// If create_socket_async is set, it will be called to create and connect to a
+// socket to the service. If unset, the producer will create and connect itself.
 class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
                               public ipc::ServiceProxy::EventListener {
  public:
@@ -57,7 +59,8 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
                         size_t shared_memory_size_hint_bytes,
                         size_t shared_memory_page_size_hint_bytes,
                         std::unique_ptr<SharedMemory> shm,
-                        std::unique_ptr<SharedMemoryArbiter> shm_arbiter);
+                        std::unique_ptr<SharedMemoryArbiter> shm_arbiter,
+                        CreateSocketAsync create_socket_async);
   ~ProducerIPCClientImpl() override;
 
   // TracingService::ProducerEndpoint implementation.
@@ -100,7 +103,8 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   // Invoked soon after having established the connection with the service.
   void OnConnectionInitialized(bool connection_succeeded,
                                bool using_shmem_provided_by_producer,
-                               bool direct_smb_patching_supported);
+                               bool direct_smb_patching_supported,
+                               bool use_shmem_emulation);
 
   // Invoked when the remote Service sends an IPC to tell us to do something
   // (e.g. start/stop a data source).
@@ -120,6 +124,13 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   // to |ipc_channel_| and (de)serializes method invocations over the wire.
   std::unique_ptr<protos::gen::ProducerPortProxy> producer_port_;
 
+  // Maps registered TraceWriter IDs to their target buffers as registered
+  // by the producer. When using shmem emulation, the producer internally
+  // needs the mapping of writer to buffer in order to do producer-side
+  // SMB scraping as it cannot rely on the map stored in the tracing
+  // service.
+  std::map<WriterID, BufferID> writers_for_scraping_;
+
   std::unique_ptr<SharedMemory> shared_memory_;
   std::unique_ptr<SharedMemoryArbiter> shared_memory_arbiter_;
   size_t shared_buffer_page_size_kb_ = 0;
@@ -131,6 +142,7 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   TracingService::ProducerSMBScrapingMode const smb_scraping_mode_;
   bool is_shmem_provided_by_producer_ = false;
   bool direct_smb_patching_supported_ = false;
+  bool use_shmem_emulation_ = false;
   std::vector<std::function<void()>> pending_sync_reqs_;
   base::WeakPtrFactory<ProducerIPCClientImpl> weak_factory_{this};
   PERFETTO_THREAD_CHECKER(thread_checker_)

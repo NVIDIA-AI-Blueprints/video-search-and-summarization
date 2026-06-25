@@ -15,8 +15,9 @@
 #include <stdint.h>
 
 #include <list>
+#include <optional>
 
-#include "absl/types/optional.h"
+#include "api/environment/environment.h"
 #include "api/video/video_frame.h"
 
 namespace webrtc {
@@ -24,7 +25,7 @@ namespace webrtc {
 // Class definitions
 class VideoRenderFrames {
  public:
-  explicit VideoRenderFrames(uint32_t render_delay_ms);
+  VideoRenderFrames(const Environment& env, uint32_t render_delay_ms);
   VideoRenderFrames(const VideoRenderFrames&) = delete;
   ~VideoRenderFrames();
 
@@ -32,7 +33,7 @@ class VideoRenderFrames {
   int32_t AddFrame(VideoFrame&& new_frame);
 
   // Get a frame for rendering, or false if it's not time to render.
-  absl::optional<VideoFrame> FrameToRender();
+  std::optional<VideoFrame> FrameToRender();
 
   // Returns the number of ms to next frame to render
   uint32_t TimeToNextFrameRelease();
@@ -40,6 +41,8 @@ class VideoRenderFrames {
   bool HasPendingFrames() const;
 
  private:
+  const Environment env_;
+
   // Sorted list with framed to be rendered, oldest first.
   std::list<VideoFrame> incoming_frames_;
 

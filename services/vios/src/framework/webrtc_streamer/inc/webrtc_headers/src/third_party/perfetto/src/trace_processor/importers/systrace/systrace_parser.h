@@ -17,8 +17,11 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_SYSTRACE_SYSTRACE_PARSER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_SYSTRACE_SYSTRACE_PARSER_H_
 
-#include <ostream>
+#include <cstddef>
+#include <cstdint>
+#include <tuple>
 
+#include "src/trace_processor/types/destructible.h"
 #include "src/trace_processor/types/trace_processor_context.h"
 
 #include "perfetto/base/logging.h"
@@ -109,15 +112,6 @@ struct SystraceTracePoint {
 
   // For phase = N, G, H (track name)
   base::StringView str_value;
-
-  // Visible for unittesting.
-  friend std::ostream& operator<<(std::ostream& os,
-                                  const SystraceTracePoint& point) {
-    return os << "SystraceTracePoint{'" << point.phase << "', " << point.tgid
-              << ", \"" << point.name.ToStdString() << "\", " << point.int_value
-              << ", \"" << point.str_value.ToStdString() << "\""
-              << "}";
-  }
 };
 
 // We have to handle trace_marker events of a few different types:
@@ -150,7 +144,6 @@ inline SystraceParseResult ParseSystraceTracePoint(
       break;
   }
   base::StringView str = str_untrimmed.substr(0, len);
-
   size_t off = 0;
 
   // This function reads the next field up to the next '|', '\0' or end(). It
@@ -317,9 +310,11 @@ class SystraceParser : public Destructible {
 
   TraceProcessorContext* const context_;
   const StringId lmk_id_;
-  const StringId oom_score_adj_id_;
-  const StringId screen_state_id_;
   const StringId cookie_id_;
+  const StringId utid_id_;
+  const StringId end_utid_id_;
+  // temp string used to store trace events after removing non UTF-8 chars
+  std::string temp_string_utf8_;
 };
 
 }  // namespace trace_processor

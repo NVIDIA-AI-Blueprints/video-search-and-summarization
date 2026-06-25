@@ -10,9 +10,11 @@
 #ifndef TEST_VIDEO_TEST_CONSTANTS_H_
 #define TEST_VIDEO_TEST_CONSTANTS_H_
 
+#include <cstddef>
 #include <cstdint>
 
 #include "api/units/time_delta.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 
 namespace webrtc {
 namespace test {
@@ -31,12 +33,10 @@ class VideoTestConstants {
     kRtxRedPayloadType = 99,
     kVideoSendPayloadType = 100,
     kAudioSendPayloadType = 103,
+    kPayloadTypeH265 = 117,
     kRedPayloadType = 118,
     kUlpfecPayloadType = 119,
     kFlexfecPayloadType = 120,
-#ifndef DISABLE_H265
-    kPayloadTypeH265 = 121,
-#endif
     kPayloadTypeH264 = 122,
     kPayloadTypeVP8 = 123,
     kPayloadTypeVP9 = 124,
@@ -49,8 +49,10 @@ class VideoTestConstants {
       0xC0FFED, 0xC0FFEE, 0xC0FFEF, 0xC0FFF0, 0xC0FFF1, 0xC0FFF2};
   static constexpr uint32_t kAudioSendSsrc = 0xDEADBEEF;
   static constexpr uint32_t kFlexfecSendSsrc = 0xBADBEEF;
-  static constexpr uint32_t kReceiverLocalVideoSsrc = 0x123456;
-  static constexpr uint32_t kReceiverLocalAudioSsrc = 0x1234567;
+  // When there is no send stream, the SSRC of receiver RTCP reports
+  // will always send from these two values.
+  static constexpr uint32_t kReceiverLocalVideoSsrc = kFallbackRtcpSsrcForVideo;
+  static constexpr uint32_t kReceiverLocalAudioSsrc = kFallbackRtcpSsrcForAudio;
   static constexpr int kNackRtpHistoryMs = 1000;
 
  private:

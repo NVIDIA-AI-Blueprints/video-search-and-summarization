@@ -30,29 +30,47 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_PATH_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_PATH_H_
 
+#include "base/check.h"
+#include "base/check_op.h"
+#include "base/compiler_specific.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_dompointinit_unrestricteddouble.h"
-#include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
-#include "third_party/blink/renderer/modules/canvas/canvas2d/identifiability_study_helper.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
-#include "third_party/blink/renderer/platform/bindings/no_alloc_direct_call_host.h"
-#include "third_party/blink/renderer/platform/graphics/path.h"
+#include "third_party/blink/renderer/platform/geometry/path.h"
+#include "third_party/blink/renderer/platform/geometry/path_builder.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
+#include "third_party/blink/renderer/platform/heap/forward.h"  // IWYU pragma: keep (blink::Visitor)
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
+#include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/transforms/affine_transform.h"
-#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/rect_f.h"
+
+// https://github.com/include-what-you-use/include-what-you-use/issues/1546
+// IWYU pragma: no_forward_declare internal::__thisIsHereToForceASemicolonAfterThisMacro
+
+// IWYU pragma: no_include "third_party/blink/renderer/platform/heap/visitor.h"
 
 namespace blink {
 
 class ExceptionState;
+class ExecutionContext;
 
-class MODULES_EXPORT CanvasPath : public GarbageCollectedMixin,
-                                  public NoAllocDirectCallHost {
-  DISALLOW_NEW();
-
+class MODULES_EXPORT CanvasPath : public GarbageCollectedMixin {
  public:
   struct PLATFORM_EXPORT Line {
     gfx::PointF start;
     gfx::PointF end;
+  };
+
+  struct PLATFORM_EXPORT Arc {
+    float x;
+    float y;
+    float radius;
+    float start_angle_radians;
+    float sweep_angle_radians;
+    // Whether the path was closed.
+    bool closed;
   };
 
   virtual ~CanvasPath() = default;
@@ -117,18 +135,11 @@ class MODULES_EXPORT CanvasPath : public GarbageCollectedMixin,
     return AffineTransform();
   }
 
-  IdentifiableToken GetIdentifiableToken() const {
-    return identifiability_study_helper_.GetToken();
-  }
-
   virtual ExecutionContext* GetTopExecutionContext() const = 0;
-  virtual CanvasRenderingContextHost* GetCanvasRenderingContextHost() {
-    return nullptr;
-  }
 
-  const Path& GetPath() const {
-    UpdatePathFromLineIfNecessary();
-    return path_;
+  Path GetPath() const {
+    UpdatePathFromLineOrArcIfNecessary();
+    return path_builder_.CurrentPath();
   }
 
   // Returns true if the CanvasPath represents a line. In some cases (such as
@@ -136,22 +147,38 @@ class MODULES_EXPORT CanvasPath : public GarbageCollectedMixin,
   // path is a line.
   bool IsLine() const { return line_builder_.HasLineTo(); }
 
+  // Returns true if the CanvasPath represents an arc. In some cases (such as
+  // using constructor that takes a Path) this can return false even though the
+  // path is an arc
+  bool IsArc() const { return arc_builder_.HasArcOrIsClosed(); }
+
   // Returns the points that make up the line. Only valid if IsLine() is true.
-  const Line line() const {
+  const Line& line() const {
     DCHECK(IsLine());
     return line_builder_.line();
   }
 
-  bool IsEmpty() const { return line_builder_.IsEmpty() && path_.IsEmpty(); }
+  // Returns the details of an arc. Only valid if IsArc() is true.
+  const Arc& arc() const {
+    DCHECK(IsArc());
+    return arc_builder_.arc();
+  }
 
+  bool IsEmpty() const {
+    return line_builder_.IsEmpty() && arc_builder_.IsEmpty() &&
+           path_builder_.IsEmpty();
+  }
+
+  // The returned rectangle is not necessarily exact, and may contain much more
+  // than if you extract the SkPath and get the bounding rectangle from it. This
+  // function is intended for clipping, where it's ok if the result is larger
+  // than necessary.
   gfx::RectF BoundingRect() const;
 
-  void Trace(Visitor*) const override;
-
  protected:
-  CanvasPath() { path_.SetIsVolatile(true); }
-  explicit CanvasPath(const Path& path) : path_(path) {
-    path_.SetIsVolatile(true);
+  CanvasPath() { path_builder_.SetIsVolatile(true); }
+  explicit CanvasPath(const Path& path) : path_builder_(path) {
+    path_builder_.SetIsVolatile(true);
   }
   ALWAYS_INLINE void SetIsTransformInvertible(bool val) {
     is_transform_invertible_ = val;
@@ -159,12 +186,13 @@ class MODULES_EXPORT CanvasPath : public GarbageCollectedMixin,
 
   void Clear() {
     line_builder_.Clear();
-    path_.Clear();
+    arc_builder_.Clear();
+    path_builder_.Reset();
   }
 
-  Path& GetModifiablePath() {
-    UpdatePathFromLineIfNecessaryForMutation();
-    return path_;
+  PathBuilder& GetModifiablePath() {
+    UpdatePathFromLineOrArcIfNecessaryForMutation();
+    return path_builder_;
   }
 
   // This mirrors state that is stored in CanvasRenderingContext2DState.  We
@@ -173,8 +201,6 @@ class MODULES_EXPORT CanvasPath : public GarbageCollectedMixin,
   // GetTransform() remains virtual, which is okay because it is only called in
   // code paths that handle non-invertible transforms.
   bool is_transform_invertible_ = true;
-
-  IdentifiabilityStudyHelper identifiability_study_helper_;
 
  private:
   // Used to build up a line.
@@ -229,22 +255,82 @@ class MODULES_EXPORT CanvasPath : public GarbageCollectedMixin,
     Line line_;
   };
 
-  bool DoesPathNeedUpdatingFromLine() const {
-    return !line_builder_.IsEmpty() && path_.IsEmpty();
+  // Tracks building an arc.
+  class ArcBuilder {
+   public:
+    bool IsEmpty() const { return state_ == State::kEmpty; }
+
+    ALWAYS_INLINE void Clear() { state_ = State::kEmpty; }
+
+    // Returns true if ArcTo() may be called.
+    bool CanCreateArcTo() const { return state_ == State::kEmpty; }
+
+    bool IsClosed() const { return state_ == State::kClosed; }
+
+    void Close() {
+      // Close() may be called multiple times.
+      DCHECK(state_ == State::kClosed || state_ == State::kArc);
+      state_ = State::kClosed;
+      arc_.closed = true;
+    }
+
+    void ArcTo(float x,
+               float y,
+               float radius,
+               float start_angle_radians,
+               float sweep_angle_radians) {
+      DCHECK(CanCreateArcTo());
+      state_ = State::kArc;
+      arc_.x = x;
+      arc_.y = y;
+      arc_.radius = radius;
+      arc_.start_angle_radians = start_angle_radians;
+      arc_.sweep_angle_radians = sweep_angle_radians;
+      arc_.closed = false;
+    }
+
+    bool HasArcOrIsClosed() const {
+      return state_ == State::kArc || state_ == State::kClosed;
+    }
+
+    gfx::RectF BoundingRect() const;
+
+    ALWAYS_INLINE const Arc& arc() const {
+      DCHECK_NE(state_, State::kEmpty);
+      return arc_;
+    }
+
+    void UpdatePath(PathBuilder& path) const;
+
+   private:
+    enum class State {
+      kEmpty,
+      kArc,     // ArcTo() was called.
+      kClosed,  // Close() was called after ArcTo().
+    };
+
+    State state_ = State::kEmpty;
+    Arc arc_;
+  };
+
+  bool DoesPathNeedUpdatingFromLineOrArc() const {
+    return (!line_builder_.IsEmpty() || !arc_builder_.IsEmpty()) &&
+           path_builder_.IsEmpty();
   }
 
-  // Updates `path_` from `line_builder_` if necessary. Returns true if `path_`
-  // changed (false means `path_` was already up to date).
-  bool UpdatePathFromLineIfNecessary() const;
+  // Updates `path_builder_` from one of the builders if necessary.
+  void UpdatePathFromLineOrArcIfNecessary() const;
 
-  // Same as UpdatePathFromLineIfNecessary(), but also clears resets
-  //`line_builder_`
-  void UpdatePathFromLineIfNecessaryForMutation();
+  // Same as UpdatePathFromLineOrArcIfNecessary(), but also clears the builders.
+  void UpdatePathFromLineOrArcIfNecessaryForMutation();
 
   LineBuilder line_builder_;
 
-  // `path_` is lazily updated from `line_builder_`, so it needs to be mutable.
-  mutable Path path_;
+  ArcBuilder arc_builder_;
+
+  // `path_builder_` may be lazily updated from one of the builders. As such, it
+  // needs to be mutable.
+  mutable PathBuilder path_builder_;
 };
 
 ALWAYS_INLINE bool CanvasPath::IsTransformInvertible() const {

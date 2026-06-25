@@ -15,8 +15,6 @@
 #include <stdint.h>
 
 #include <map>
-#include <memory>
-#include <set>
 
 #include "api/units/timestamp.h"
 #include "call/video_send_stream.h"
@@ -34,10 +32,10 @@ namespace webrtc {
 // TODO(bugs.webrtc.org/11993): OnSendPacket and OnSentPacket will eventually
 // be called consistently on the same thread. Once we're there, we should be
 // able to avoid locking (at least for the fast path).
-class SendDelayStats : public SendPacketObserver {
+class SendDelayStats {
  public:
   explicit SendDelayStats(Clock* clock);
-  ~SendDelayStats() override;
+  ~SendDelayStats();
 
   // Adds the configured ssrcs for the rtp streams.
   // Stats will be calculated for these streams.
@@ -46,12 +44,8 @@ class SendDelayStats : public SendPacketObserver {
   // Called when a packet is sent (leaving socket).
   bool OnSentPacket(int packet_id, Timestamp time);
 
- protected:
-  // From SendPacketObserver.
   // Called when a packet is sent to the transport.
-  void OnSendPacket(uint16_t packet_id,
-                    Timestamp capture_time,
-                    uint32_t ssrc) override;
+  void OnSendPacket(uint16_t packet_id, Timestamp capture_time, uint32_t ssrc);
 
  private:
   // Map holding sent packets (mapped by sequence number).
@@ -61,32 +55,24 @@ class SendDelayStats : public SendPacketObserver {
     }
   };
   struct Packet {
-    Packet(uint32_t ssrc, Timestamp capture_time, Timestamp send_time)
-        : ssrc(ssrc), capture_time(capture_time), send_time(send_time) {}
-    uint32_t ssrc;
+    AvgCounter* send_delay;
     Timestamp capture_time;
     Timestamp send_time;
   };
-  typedef std::map<uint16_t, Packet, SequenceNumberOlderThan> PacketMap;
 
   void UpdateHistograms();
-  void RemoveOld(Timestamp now, PacketMap* packets)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-  AvgCounter* GetSendDelayCounter(uint32_t ssrc)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void RemoveOld(Timestamp now) RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   Clock* const clock_;
   Mutex mutex_;
 
-  PacketMap packets_ RTC_GUARDED_BY(mutex_);
+  std::map<uint16_t, Packet, SequenceNumberOlderThan> packets_
+      RTC_GUARDED_BY(mutex_);
   size_t num_old_packets_ RTC_GUARDED_BY(mutex_);
   size_t num_skipped_packets_ RTC_GUARDED_BY(mutex_);
 
-  std::set<uint32_t> ssrcs_ RTC_GUARDED_BY(mutex_);
-
   // Mapped by SSRC.
-  std::map<uint32_t, std::unique_ptr<AvgCounter>> send_delay_counters_
-      RTC_GUARDED_BY(mutex_);
+  std::map<uint32_t, AvgCounter> send_delay_counters_ RTC_GUARDED_BY(mutex_);
 };
 
 }  // namespace webrtc

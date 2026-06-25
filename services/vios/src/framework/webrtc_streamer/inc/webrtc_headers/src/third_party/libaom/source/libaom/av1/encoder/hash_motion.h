@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -13,8 +13,6 @@
 #define AOM_AV1_ENCODER_HASH_MOTION_H_
 
 #include <stdbool.h>
-
-#include "config/aom_config.h"
 
 #include "aom/aom_integer.h"
 #include "aom_scale/yv12config.h"
@@ -37,6 +35,7 @@ typedef struct _block_hash {
 } block_hash;
 
 typedef struct _hash_table {
+  // a dynamically allocated array of kMaxAddr elements
   Vector **p_lookup_table;
 } hash_table;
 
@@ -45,40 +44,31 @@ struct intrabc_hash_info;
 typedef struct intrabc_hash_info {
   // buffer for hash value calculation of a block
   // used only in av1_get_block_hash_value()
-  // [first hash/second hash]
   // [two buffers used ping-pong]
-  uint32_t *hash_value_buffer[2][2];
+  // buffers are AOM_BUFFER_SIZE_FOR_BLOCK_HASH elements long
+  uint32_t *hash_value_buffer[2];
   hash_table intrabc_hash_table;
 
-  CRC_CALCULATOR crc_calculator1;
-  CRC_CALCULATOR crc_calculator2;
-  int g_crc_initialized;
+  CRC32C crc_calculator;
+  int crc_initialized;
 } IntraBCHashInfo;
 
 void av1_hash_table_init(IntraBCHashInfo *intra_bc_hash_info);
-void av1_hash_table_clear_all(hash_table *p_hash_table);
 void av1_hash_table_destroy(hash_table *p_hash_table);
 bool av1_hash_table_create(hash_table *p_hash_table);
 int32_t av1_hash_table_count(const hash_table *p_hash_table,
                              uint32_t hash_value);
 Iterator av1_hash_get_first_iterator(hash_table *p_hash_table,
                                      uint32_t hash_value);
-int32_t av1_has_exact_match(hash_table *p_hash_table, uint32_t hash_value1,
-                            uint32_t hash_value2);
-void av1_generate_block_2x2_hash_value(IntraBCHashInfo *intra_bc_hash_info,
-                                       const YV12_BUFFER_CONFIG *picture,
-                                       uint32_t *pic_block_hash[2],
-                                       int8_t *pic_block_same_info[3]);
+void av1_generate_block_2x2_hash_value(const YV12_BUFFER_CONFIG *picture,
+                                       uint32_t *pic_block_hash);
 void av1_generate_block_hash_value(IntraBCHashInfo *intra_bc_hash_info,
                                    const YV12_BUFFER_CONFIG *picture,
                                    int block_size,
-                                   uint32_t *src_pic_block_hash[2],
-                                   uint32_t *dst_pic_block_hash[2],
-                                   int8_t *src_pic_block_same_info[3],
-                                   int8_t *dst_pic_block_same_info[3]);
+                                   const uint32_t *src_pic_block_hash,
+                                   uint32_t *dst_pic_block_hash);
 bool av1_add_to_hash_map_by_row_with_precal_data(hash_table *p_hash_table,
-                                                 uint32_t *pic_hash[2],
-                                                 int8_t *pic_is_same,
+                                                 const uint32_t *pic_hash,
                                                  int pic_width, int pic_height,
                                                  int block_size);
 
@@ -91,7 +81,7 @@ int av1_hash_is_horizontal_perfect(const YV12_BUFFER_CONFIG *picture,
 int av1_hash_is_vertical_perfect(const YV12_BUFFER_CONFIG *picture,
                                  int block_size, int x_start, int y_start);
 
-void av1_get_block_hash_value(IntraBCHashInfo *intrabc_hash_info,
+void av1_get_block_hash_value(IntraBCHashInfo *intra_bc_hash_info,
                               const uint8_t *y_src, int stride, int block_size,
                               uint32_t *hash_value1, uint32_t *hash_value2,
                               int use_highbitdepth);

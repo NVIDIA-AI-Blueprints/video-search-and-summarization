@@ -13,8 +13,14 @@
 
 #include <jni.h>
 
+#include <memory>
+#include <vector>
+
+#include "api/environment/environment.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_decoder_factory.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
 namespace jni {
@@ -28,8 +34,8 @@ class VideoDecoderFactoryWrapper : public VideoDecoderFactory {
   ~VideoDecoderFactoryWrapper() override;
 
   std::vector<SdpVideoFormat> GetSupportedFormats() const override;
-  std::unique_ptr<VideoDecoder> CreateVideoDecoder(
-      const SdpVideoFormat& format) override;
+  std::unique_ptr<VideoDecoder> Create(const Environment& env,
+                                       const SdpVideoFormat& format) override;
 
  private:
   const ScopedJavaGlobalRef<jobject> decoder_factory_;

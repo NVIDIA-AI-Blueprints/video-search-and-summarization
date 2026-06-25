@@ -11,69 +11,33 @@
 #ifndef MODULES_AUDIO_PROCESSING_AGC2_SPEECH_LEVEL_ESTIMATOR_H_
 #define MODULES_AUDIO_PROCESSING_AGC2_SPEECH_LEVEL_ESTIMATOR_H_
 
-#include <stddef.h>
+#include <memory>
 
-#include <type_traits>
-
-#include "modules/audio_processing/agc2/agc2_common.h"
-#include "modules/audio_processing/include/audio_processing.h"
+#include "api/audio/audio_processing.h"
+#include "api/field_trials_view.h"
 
 namespace webrtc {
 class ApmDataDumper;
 
 // Active speech level estimator based on the analysis of the following
-// framewise properties: RMS level (dBFS), peak level (dBFS), speech
-// probability.
+// framewise properties: RMS level (dBFS), speech probability.
 class SpeechLevelEstimator {
  public:
-  SpeechLevelEstimator(
+  virtual ~SpeechLevelEstimator() {}
+  // Updates the level estimation.
+  virtual void Update(float rms_dbfs, float speech_probability) = 0;
+  // Returns the estimated speech plus noise level.
+  virtual float GetLevelDbfs() const = 0;
+  // Returns true if the estimator is confident on its current estimate.
+  virtual bool IsConfident() const = 0;
+
+  virtual void Reset() = 0;
+
+  static std::unique_ptr<SpeechLevelEstimator> Create(
+      const FieldTrialsView& field_trials,
       ApmDataDumper* apm_data_dumper,
       const AudioProcessing::Config::GainController2::AdaptiveDigital& config,
       int adjacent_speech_frames_threshold);
-  SpeechLevelEstimator(const SpeechLevelEstimator&) = delete;
-  SpeechLevelEstimator& operator=(const SpeechLevelEstimator&) = delete;
-
-  // Updates the level estimation.
-  void Update(float rms_dbfs, float peak_dbfs, float speech_probability);
-  // Returns the estimated speech plus noise level.
-  float level_dbfs() const { return level_dbfs_; }
-  // Returns true if the estimator is confident on its current estimate.
-  bool is_confident() const { return is_confident_; }
-
-  void Reset();
-
- private:
-  // Part of the level estimator state used for check-pointing and restore ops.
-  struct LevelEstimatorState {
-    bool operator==(const LevelEstimatorState& s) const;
-    inline bool operator!=(const LevelEstimatorState& s) const {
-      return !(*this == s);
-    }
-    // TODO(bugs.webrtc.org/7494): Remove `time_to_confidence_ms` if redundant.
-    int time_to_confidence_ms;
-    struct Ratio {
-      float numerator;
-      float denominator;
-      float GetRatio() const;
-    } level_dbfs;
-  };
-  static_assert(std::is_trivially_copyable<LevelEstimatorState>::value, "");
-
-  void UpdateIsConfident();
-
-  void ResetLevelEstimatorState(LevelEstimatorState& state) const;
-
-  void DumpDebugData() const;
-
-  ApmDataDumper* const apm_data_dumper_;
-
-  const float initial_speech_level_dbfs_;
-  const int adjacent_speech_frames_threshold_;
-  LevelEstimatorState preliminary_state_;
-  LevelEstimatorState reliable_state_;
-  float level_dbfs_;
-  bool is_confident_;
-  int num_adjacent_speech_frames_;
 };
 
 }  // namespace webrtc

@@ -27,16 +27,16 @@
 
 namespace webrtc {
 
-class ObjCNetworkMonitorFactory : public rtc::NetworkMonitorFactory {
+class ObjCNetworkMonitorFactory : public webrtc::NetworkMonitorFactory {
  public:
   ObjCNetworkMonitorFactory() = default;
   ~ObjCNetworkMonitorFactory() override = default;
 
-  rtc::NetworkMonitorInterface* CreateNetworkMonitor(
+  webrtc::NetworkMonitorInterface* CreateNetworkMonitor(
       const FieldTrialsView& field_trials) override;
 };
 
-class ObjCNetworkMonitor : public rtc::NetworkMonitorInterface,
+class ObjCNetworkMonitor : public webrtc::NetworkMonitorInterface,
                            public NetworkMonitorObserver {
  public:
   ObjCNetworkMonitor();
@@ -50,15 +50,15 @@ class ObjCNetworkMonitor : public rtc::NetworkMonitorInterface,
   // NetworkMonitorObserver override.
   // Fans out updates to observers on the correct thread.
   void OnPathUpdate(
-      std::map<std::string, rtc::AdapterType, rtc::AbslStringViewCmp>
+      std::map<std::string, webrtc::AdapterType, webrtc::AbslStringViewCmp>
           adapter_type_by_name) override;
 
  private:
-  rtc::Thread* thread_ = nullptr;
+  webrtc::Thread* thread_ = nullptr;
   bool started_ = false;
-  std::map<std::string, rtc::AdapterType, rtc::AbslStringViewCmp>
+  std::map<std::string, webrtc::AdapterType, webrtc::AbslStringViewCmp>
       adapter_type_by_name_ RTC_GUARDED_BY(thread_);
-  rtc::scoped_refptr<PendingTaskSafetyFlag> safety_flag_;
+  webrtc::scoped_refptr<PendingTaskSafetyFlag> safety_flag_;
   RTCNetworkMonitor* network_monitor_ = nil;
 };
 

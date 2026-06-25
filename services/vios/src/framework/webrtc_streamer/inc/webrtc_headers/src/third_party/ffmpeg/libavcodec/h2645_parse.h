@@ -93,6 +93,12 @@ typedef struct H2645Packet {
 int ff_h2645_extract_rbsp(const uint8_t *src, int length, H2645RBSP *rbsp,
                           H2645NAL *nal, int small_padding);
 
+enum {
+    H2645_FLAG_IS_NALFF =         (1 << 0),
+    H2645_FLAG_SMALL_PADDING =    (1 << 1),
+    H2645_FLAG_USE_REF =          (1 << 2),
+};
+
 /**
  * Split an input packet into NAL units.
  *
@@ -103,18 +109,23 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length, H2645RBSP *rbsp,
  * packet's H2645RBSP.
  *
  * If the packet's rbsp_buffer_ref is not NULL, the underlying AVBuffer must
- * own rbsp_buffer. If not and rbsp_buffer is not NULL, use_ref must be 0.
- * If use_ref is set, rbsp_buffer will be reference-counted and owned by
- * the underlying AVBuffer of rbsp_buffer_ref.
+ * own rbsp_buffer. If not and rbsp_buffer is not NULL, H2645_FLAG_USE_REF
+ * must not be set in flags.
+ * If H2645_FLAG_USE_REF is set in flags, rbsp_buffer will be reference-counted
+ * and owned by the underlying AVBuffer of rbsp_buffer_ref.
  */
 int ff_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
-                          void *logctx, int is_nalff, int nal_length_size,
-                          enum AVCodecID codec_id, int small_padding, int use_ref);
+                          void *logctx, int nal_length_size,
+                          enum AVCodecID codec_id, int flags);
 
 /**
  * Free all the allocated memory in the packet.
  */
 void ff_h2645_packet_uninit(H2645Packet *pkt);
+
+int ff_h2645_unit_requires_zero_byte(enum AVCodecID codec_id,
+                                     unsigned int type,
+                                     int nal_unit_index);
 
 static inline int get_nalsize(int nal_length_size, const uint8_t *buf,
                               int buf_size, int *buf_index, void *logctx)
@@ -123,7 +134,7 @@ static inline int get_nalsize(int nal_length_size, const uint8_t *buf,
 
     if (*buf_index >= buf_size - nal_length_size) {
         // the end of the buffer is reached, refill it
-        return AVERROR(EAGAIN);
+        return AVERROR_INVALIDDATA;
     }
 
     for (i = 0; i < nal_length_size; i++)

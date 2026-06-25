@@ -12,8 +12,9 @@
 #define MODULES_AUDIO_PROCESSING_NS_SPEECH_PROBABILITY_ESTIMATOR_H_
 
 #include <array>
+#include <cstdint>
+#include <span>
 
-#include "api/array_view.h"
 #include "modules/audio_processing/ns/ns_common.h"
 #include "modules/audio_processing/ns/signal_model_estimator.h"
 
@@ -30,15 +31,15 @@ class SpeechProbabilityEstimator {
   // Compute speech probability.
   void Update(
       int32_t num_analyzed_frames,
-      rtc::ArrayView<const float, kFftSizeBy2Plus1> prior_snr,
-      rtc::ArrayView<const float, kFftSizeBy2Plus1> post_snr,
-      rtc::ArrayView<const float, kFftSizeBy2Plus1> conservative_noise_spectrum,
-      rtc::ArrayView<const float, kFftSizeBy2Plus1> signal_spectrum,
+      std::span<const float, kFftSizeBy2Plus1> prior_snr,
+      std::span<const float, kFftSizeBy2Plus1> post_snr,
+      std::span<const float, kFftSizeBy2Plus1> conservative_noise_spectrum,
+      std::span<const float, kFftSizeBy2Plus1> signal_spectrum,
       float signal_spectral_sum,
       float signal_energy);
 
   float get_prior_probability() const { return prior_speech_prob_; }
-  rtc::ArrayView<const float> get_probability() { return speech_probability_; }
+  std::span<const float> get_probability() { return speech_probability_; }
 
  private:
   SignalModelEstimator signal_model_estimator_;

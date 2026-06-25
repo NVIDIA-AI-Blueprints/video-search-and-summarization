@@ -11,9 +11,12 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC_DUMP_MOCK_AEC_DUMP_H_
 #define MODULES_AUDIO_PROCESSING_AEC_DUMP_MOCK_AEC_DUMP_H_
 
-#include <memory>
+#include <cstdint>
 
+#include "api/audio/audio_processing.h"
+#include "api/audio/audio_view.h"
 #include "modules/audio_processing/include/aec_dump.h"
+#include "modules/audio_processing/include/audio_frame_view.h"
 #include "test/gmock.h"
 
 namespace webrtc {
@@ -23,7 +26,7 @@ namespace test {
 class MockAecDump : public AecDump {
  public:
   MockAecDump();
-  virtual ~MockAecDump();
+  ~MockAecDump() override;
 
   MOCK_METHOD(void,
               WriteInitMessage,
@@ -35,8 +38,16 @@ class MockAecDump : public AecDump {
               (const AudioFrameView<const float>& src),
               (override));
   MOCK_METHOD(void,
+              AddCaptureStreamInput,
+              (MonoView<const float> channel),
+              (override));
+  MOCK_METHOD(void,
               AddCaptureStreamOutput,
               (const AudioFrameView<const float>& src),
+              (override));
+  MOCK_METHOD(void,
+              AddCaptureStreamOutput,
+              (MonoView<const float> channel),
               (override));
   MOCK_METHOD(void,
               AddCaptureStreamInput,
@@ -65,6 +76,12 @@ class MockAecDump : public AecDump {
   MOCK_METHOD(void,
               WriteRenderStreamMessage,
               (const AudioFrameView<const float>& src),
+              (override));
+  MOCK_METHOD(void,
+              WriteRenderStreamMessage,
+              (const float* const* data,
+               int num_channels,
+               int samples_per_channel),
               (override));
 
   MOCK_METHOD(void, WriteConfig, (const InternalAPMConfig& config), (override));

@@ -11,6 +11,9 @@
 #ifndef TEST_MOCK_AUDIO_DECODER_H_
 #define TEST_MOCK_AUDIO_DECODER_H_
 
+#include <cstddef>
+#include <cstdint>
+
 #include "api/audio_codecs/audio_decoder.h"
 #include "test/gmock.h"
 
@@ -19,7 +22,7 @@ namespace webrtc {
 class MockAudioDecoder : public AudioDecoder {
  public:
   MockAudioDecoder();
-  ~MockAudioDecoder();
+  ~MockAudioDecoder() override;
   MOCK_METHOD(void, Die, ());
   MOCK_METHOD(int,
               DecodeInternal,

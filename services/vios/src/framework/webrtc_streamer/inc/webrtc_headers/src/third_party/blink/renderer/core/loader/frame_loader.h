@@ -34,10 +34,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_FRAME_LOADER_H_
 
 #include <memory>
+#include <optional>
 
-#include "base/functional/callback_helpers.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink-forward.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom-blink-forward.h"
@@ -52,7 +51,6 @@
 #include "third_party/blink/renderer/core/frame/frame_types.h"
 #include "third_party/blink/renderer/core/loader/frame_loader_types.h"
 #include "third_party/blink/renderer/core/loader/history_item.h"
-#include "third_party/blink/renderer/core/loader/old_document_info_for_commit.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/loader_freeze_mode.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -62,7 +60,6 @@ namespace blink {
 
 class DocumentLoader;
 class FetchClientSettingsObject;
-class Frame;
 class LocalFrame;
 class LocalFrameClient;
 class PolicyContainer;
@@ -76,6 +73,7 @@ struct WebNavigationParams;
 
 CORE_EXPORT bool IsBackForwardLoadType(WebFrameLoadType);
 CORE_EXPORT bool IsReloadLoadType(WebFrameLoadType);
+CORE_EXPORT bool IsBackForwardOrRestore(WebFrameLoadType);
 
 class CORE_EXPORT FrameLoader final {
   DISALLOW_NEW();
@@ -90,7 +88,8 @@ class CORE_EXPORT FrameLoader final {
             std::unique_ptr<PolicyContainer> policy_container,
             const StorageKey& storage_key,
             ukm::SourceId document_ukm_source_id,
-            const KURL& creator_base_url);
+            const KURL& creator_base_url,
+            std::unique_ptr<base::UnguessableToken> sandbox_origin_token);
 
   ResourceRequest ResourceRequestForReload(
       WebFrameLoadType,
@@ -148,7 +147,7 @@ class CORE_EXPORT FrameLoader final {
   void DidExplicitOpen();
 
   String UserAgent() const;
-  absl::optional<blink::UserAgentMetadata> UserAgentMetadata() const;
+  std::optional<blink::UserAgentMetadata> UserAgentMetadata() const;
 
   void DispatchDidClearWindowObjectInMainWorld();
   void DispatchDidClearDocumentOfWindowObject();
@@ -171,9 +170,6 @@ class CORE_EXPORT FrameLoader final {
       LocalDOMWindow* window_for_logging,
       mojom::RequestContextFrameType) const;
 
-  Frame* Opener();
-  void SetOpener(LocalFrame*);
-
   void Detach();
 
   void FinishedParsing();
@@ -183,15 +179,19 @@ class CORE_EXPORT FrameLoader final {
   void ProcessScrollForSameDocumentNavigation(
       const KURL&,
       WebFrameLoadType,
-      absl::optional<HistoryItem::ViewState>,
-      mojom::blink::ScrollRestorationType);
+      std::optional<HistoryItem::ViewState>,
+      mojom::blink::ScrollRestorationType,
+      mojom::blink::ScrollBehavior scroll_behavior);
 
   // This will attempt to detach the current document. It will dispatch unload
   // events and abort XHR requests. Returns true if the frame is ready to
   // receive the next document commit, or false otherwise.
   bool DetachDocument();
 
-  bool ShouldClose(bool is_reload = false);
+  bool ShouldClose(bool is_reload,
+                   bool force_to_proceed,
+                   base::TimeTicks& out_before_unload_dialog_opened_time,
+                   base::TimeTicks& out_before_unload_dialog_closed_time);
 
   // Dispatches the Unload event for the current document and fills in this
   // document's info in OldDocumentInfoForCommit if
@@ -207,6 +207,7 @@ class CORE_EXPORT FrameLoader final {
   void SaveScrollState();
   void RestoreScrollPositionAndViewState();
 
+  bool IsCommittingNavigation() const { return committing_navigation_; }
   bool HasProvisionalNavigation() const {
     return committing_navigation_ || client_navigation_.get();
   }
@@ -257,15 +258,13 @@ class CORE_EXPORT FrameLoader final {
 
   void WriteIntoTrace(perfetto::TracedValue context) const;
 
-  mojo::PendingRemote<mojom::blink::CodeCacheHost> CreateWorkerCodeCacheHost();
-
-  bool CoopForbidsDocumentToBeCrossOriginIsolated() const {
-    return coop_forbids_document_to_be_cross_origin_isolated_;
-  }
-
- private:
   bool AllowRequestForThisFrame(const FrameLoadRequest&);
 
+  mojo::PendingRemote<mojom::blink::CodeCacheHost> CreateWorkerCodeCacheHost();
+
+  void ProcessPendingCrossDocumentFragment();
+
+ private:
   bool ShouldPerformFragmentNavigation(bool is_form_submission,
                                        const String& http_method,
                                        WebFrameLoadType,
@@ -278,9 +277,11 @@ class CORE_EXPORT FrameLoader final {
   // Clears any information about client navigation, see client_navigation_.
   void ClearClientNavigation();
 
-  void RestoreScrollPositionAndViewState(WebFrameLoadType,
-                                         const HistoryItem::ViewState&,
-                                         mojom::blink::ScrollRestorationType);
+  void RestoreScrollPositionAndViewState(
+      WebFrameLoadType,
+      const HistoryItem::ViewState&,
+      mojom::blink::ScrollRestorationType,
+      mojom::blink::ScrollBehavior scroll_behavior);
 
   void DetachDocumentLoader(Member<DocumentLoader>&,
                             bool flush_microtask_queue = false);
@@ -351,8 +352,9 @@ class CORE_EXPORT FrameLoader final {
   // size of this set is capped, after which no more warnings are printed.
   HashSet<String> tls_version_warning_origins_;
 
-  // If this is true, the frame cannot be crossOriginIsolated.
-  bool coop_forbids_document_to_be_cross_origin_isolated_ = true;
+  // True if we skipped processing a fragment and may need to do it again when
+  // asked.
+  bool has_pending_cross_document_fragment_ = false;
 };
 
 }  // namespace blink

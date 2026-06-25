@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_FETCH_PARAMETERS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_FETCH_PARAMETERS_H_
 
+#include "base/memory/stack_allocated.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-shared.h"
@@ -105,7 +106,7 @@ class PLATFORM_EXPORT FetchParameters {
       TextResourceDecoderOptions::ContentType content_type) {
     decoder_options_.OverrideContentType(content_type);
   }
-  void SetCharset(const WTF::TextEncoding& charset) {
+  void SetCharset(const TextEncoding& charset) {
     SetDecoderOptions(TextResourceDecoderOptions(
         TextResourceDecoderOptions::kPlainTextContent, charset));
   }
@@ -116,11 +117,11 @@ class PLATFORM_EXPORT FetchParameters {
   DeferOption Defer() const { return defer_; }
   void SetDefer(DeferOption defer) { defer_ = defer; }
 
-  absl::optional<float> GetResourceWidth() const { return resource_width_; }
-  void SetResourceWidth(const absl::optional<float> resource_width);
+  std::optional<float> GetResourceWidth() const { return resource_width_; }
+  void SetResourceWidth(const std::optional<float> resource_width);
 
-  absl::optional<float> GetResourceHeight() const { return resource_height_; }
-  void SetResourceHeight(const absl::optional<float> resource_height);
+  std::optional<float> GetResourceHeight() const { return resource_height_; }
+  void SetResourceHeight(const std::optional<float> resource_height);
 
   bool IsSpeculativePreload() const {
     return speculative_preload_type_ != SpeculativePreloadType::kNotSpeculative;
@@ -133,6 +134,11 @@ class PLATFORM_EXPORT FetchParameters {
   bool IsLinkPreload() const { return options_.initiator_info.is_link_preload; }
   void SetLinkPreload(bool is_link_preload) {
     options_.initiator_info.is_link_preload = is_link_preload;
+  }
+
+  std::optional<CrossOriginAttributeValue> GetCrossOriginAttributeValue()
+      const {
+    return cross_origin_attribute_value_;
   }
 
   bool IsStaleRevalidation() const { return is_stale_revalidation_; }
@@ -152,7 +158,7 @@ class PLATFORM_EXPORT FetchParameters {
   // credentials mode.
   void SetCrossOriginAccessControl(const SecurityOrigin*,
                                    network::mojom::CredentialsMode);
-  const IntegrityMetadataSet IntegrityMetadata() const {
+  const IntegrityMetadataSet GetIntegrityMetadata() const {
     return options_.integrity_metadata;
   }
   void SetIntegrityMetadata(const IntegrityMetadataSet& metadata) {
@@ -206,11 +212,21 @@ class PLATFORM_EXPORT FetchParameters {
     render_blocking_behavior_ = render_blocking_behavior;
   }
 
-  void SetDiscoveryTime(base::TimeTicks discovery_time) {
-    discovery_time_ = discovery_time;
+  void SetIsPotentiallyLCPElement(bool flag) {
+    is_potentially_lcp_element_ = flag;
   }
 
-  base::TimeTicks DiscoveryTime() { return discovery_time_; }
+  void SetIsPotentiallyLCPInfluencer(bool flag) {
+    is_potentially_lcp_influencer_ = flag;
+  }
+
+  bool IsPotentiallyLCPElement() const { return is_potentially_lcp_element_; }
+
+  bool IsPotentiallyLCPInfluencer() const {
+    return is_potentially_lcp_influencer_;
+  }
+
+  void Trace(Visitor* visitor) const { visitor->Trace(options_); }
 
  private:
   ResourceRequest resource_request_;
@@ -222,15 +238,19 @@ class PLATFORM_EXPORT FetchParameters {
   SpeculativePreloadType speculative_preload_type_ =
       SpeculativePreloadType::kNotSpeculative;
   DeferOption defer_ = DeferOption::kNoDefer;
-  absl::optional<float> resource_width_;
-  absl::optional<float> resource_height_;
+  std::optional<float> resource_width_;
+  std::optional<float> resource_height_;
   ImageRequestBehavior image_request_behavior_ = ImageRequestBehavior::kNone;
   mojom::blink::ScriptType script_type_ = mojom::blink::ScriptType::kClassic;
   bool is_stale_revalidation_ = false;
+  // Stored for the SpeculationMeasurement API, which reports the crossorigin
+  // attribute value of <link rel=preload> elements.
+  std::optional<CrossOriginAttributeValue> cross_origin_attribute_value_;
   bool is_from_origin_dirty_style_sheet_ = false;
   RenderBlockingBehavior render_blocking_behavior_ =
       RenderBlockingBehavior::kUnset;
-  base::TimeTicks discovery_time_;
+  bool is_potentially_lcp_element_ = false;
+  bool is_potentially_lcp_influencer_ = false;
 };
 
 }  // namespace blink

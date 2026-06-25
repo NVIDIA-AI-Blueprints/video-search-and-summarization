@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
+#include "third_party/blink/renderer/core/css/css_value_clamping_utils.h"
 
 namespace blink {
 
@@ -35,6 +36,8 @@ class CORE_EXPORT CSSNumericLiteralValue : public CSSPrimitiveValue {
       case UnitType::kChs:
       case UnitType::kIcs:
       case UnitType::kLhs:
+      case UnitType::kCaps:
+      case UnitType::kRcaps:
       case UnitType::kRexs:
       case UnitType::kRchs:
       case UnitType::kRics:
@@ -61,16 +64,25 @@ class CORE_EXPORT CSSNumericLiteralValue : public CSSPrimitiveValue {
   }
   bool IsFlex() const { return CSSPrimitiveValue::IsFlex(GetType()); }
 
-  bool IsZero() const { return !DoubleValue(); }
-
   bool IsComputationallyIndependent() const;
 
   double DoubleValue() const { return num_; }
+  double ClampedDoubleValue() const {
+    return CSSValueClampingUtils::ClampDouble(num_);
+  }
+
   double ComputeSeconds() const;
   double ComputeDegrees() const;
   double ComputeDotsPerPixel() const;
   double ComputeInCanonicalUnit() const;
+  double ComputeInCanonicalUnit(const CSSLengthResolver&) const;
+  std::optional<double> GetValueIfKnown() const {
+    return ComputeInCanonicalUnit();
+  }
 
+  int ComputeInteger() const;
+  double ComputeNumber() const;
+  double ComputePercentage() const;
   double ComputeLengthPx(const CSSLengthResolver&) const;
   bool AccumulateLengthArray(CSSLengthArray& length_array,
                              double multiplier) const;
@@ -78,6 +90,7 @@ class CORE_EXPORT CSSNumericLiteralValue : public CSSPrimitiveValue {
 
   String CustomCSSText() const;
   bool Equals(const CSSNumericLiteralValue& other) const;
+  unsigned CustomHash() const;
 
   UnitType CanonicalUnit() const;
   CSSNumericLiteralValue* CreateCanonicalUnitValue() const;

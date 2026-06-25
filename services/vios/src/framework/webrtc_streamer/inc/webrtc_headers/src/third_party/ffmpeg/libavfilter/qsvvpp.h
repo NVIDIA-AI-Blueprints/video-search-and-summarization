@@ -52,11 +52,20 @@ typedef struct QSVFrame {
     int queued;
 } QSVFrame;
 
+#define QSVVPP_MAX_FRAME_EXTBUFS        8
+
+typedef struct QSVVPPFrameParam {
+    /* To fill with MFX enhanced filter configurations */
+    int num_ext_buf;
+    mfxExtBuffer **ext_buf;
+} QSVVPPFrameParam;
+
 typedef struct QSVVPPContext {
     const AVClass      *class;
 
     mfxSession          session;
     int (*filter_frame) (AVFilterLink *outlink, AVFrame *frame); /**< callback */
+    int (*set_frame_ext_params)(AVFilterContext *ctx, const AVFrame *in, AVFrame *out, QSVVPPFrameParam *fp); /**< callback */
     enum AVPixelFormat  out_sw_format;   /**< Real output format */
     mfxVideoParam       vpp_param;
     mfxFrameInfo       *frame_infos;     /**< frame info for each input */
@@ -74,15 +83,23 @@ typedef struct QSVVPPContext {
 #if QSV_HAVE_OPAQUE
     /** MFXVPP extern parameters */
     mfxExtOpaqueSurfaceAlloc opaque_alloc;
+#endif
+    /** store sequence parameters */
+    mfxExtBuffer      **seq_buffers;
+    int                 nb_seq_buffers;
+
+    /** store all parameters for vpp execution, including parameters per frame */
     mfxExtBuffer      **ext_buffers;
     int                 nb_ext_buffers;
-#endif
 
     int got_frame;
     int async_depth;
     int eof;
     /** order with frame_out, sync */
     AVFifo *async_fifo;
+
+    mfxVersion ver;
+    int vpp_initted;
 } QSVVPPContext;
 
 typedef struct QSVVPPCrop {
@@ -93,6 +110,7 @@ typedef struct QSVVPPCrop {
 typedef struct QSVVPPParam {
     /* default is ff_filter_frame */
     int (*filter_frame)(AVFilterLink *outlink, AVFrame *frame);
+    int (*set_frame_ext_params)(AVFilterContext *ctx, const AVFrame *in, AVFrame *out, QSVVPPFrameParam *fp); /**< callback */
 
     /* To fill with MFX enhanced filter configurations */
     int num_ext_buf;
@@ -113,7 +131,7 @@ int ff_qsvvpp_init(AVFilterContext *avctx, QSVVPPParam *param);
 int ff_qsvvpp_close(AVFilterContext *avctx);
 
 /* vpp filter frame and call the cb if needed */
-int ff_qsvvpp_filter_frame(QSVVPPContext *vpp, AVFilterLink *inlink, AVFrame *frame);
+int ff_qsvvpp_filter_frame(QSVVPPContext *vpp, AVFilterLink *inlink, AVFrame *frame, AVFrame *propref);
 
 int ff_qsvvpp_print_iopattern(void *log_ctx, int mfx_iopattern,
                               const char *extra_string);

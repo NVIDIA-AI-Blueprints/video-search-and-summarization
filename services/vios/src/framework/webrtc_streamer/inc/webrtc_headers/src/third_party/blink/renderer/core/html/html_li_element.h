@@ -35,13 +35,17 @@ class HTMLLIElement final : public HTMLElement {
  public:
   explicit HTMLLIElement(Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLLIElement;
+  }
+
  private:
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
 
   void AttachLayoutTree(AttachContext&) override;
 

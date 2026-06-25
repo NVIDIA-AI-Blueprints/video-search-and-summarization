@@ -13,18 +13,30 @@
 
 #include <jni.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <memory>
-#include <string>
+#include <optional>
+#include <span>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/video/encoded_image.h"
+#include "api/video/video_bitrate_allocation.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_frame_type.h"
+#include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
 #include "common_video/h264/h264_bitstream_parser.h"
 #include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 #include "modules/video_coding/svc/scalable_video_controller_no_layering.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "sdk/android/src/jni/jni_helpers.h"
+#include "rtc_base/thread_annotations.h"
+#include "sdk/android/native_api/jni/scoped_java_ref.h"
+
+#ifdef RTC_ENABLE_H265
+#include "common_video/h265/h265_bitstream_parser.h"
+#endif
 
 namespace webrtc {
 namespace jni {
@@ -68,7 +80,7 @@ class VideoEncoderWrapper : public VideoEncoder {
                            const JavaRef<jobject>& j_value,
                            const char* method_name);
 
-  int ParseQp(rtc::ArrayView<const uint8_t> buffer);
+  int ParseQp(std::span<const uint8_t> buffer);
 
   CodecSpecificInfo ParseCodecSpecificInfo(const EncodedImage& frame);
 
@@ -98,11 +110,14 @@ class VideoEncoderWrapper : public VideoEncoder {
   EncodedImageCallback* callback_;
   bool initialized_;
   int num_resets_;
-  absl::optional<VideoEncoder::Capabilities> capabilities_;
+  std::optional<VideoEncoder::Capabilities> capabilities_;
   int number_of_cores_;
   VideoCodec codec_settings_;
   EncoderInfo encoder_info_;
   H264BitstreamParser h264_bitstream_parser_;
+#ifdef RTC_ENABLE_H265
+  H265BitstreamParser h265_bitstream_parser_;
+#endif
 
   // Fills frame dependencies in codec-agnostic format.
   ScalableVideoControllerNoLayering svc_controller_;
@@ -117,7 +132,8 @@ class VideoEncoderWrapper : public VideoEncoder {
  */
 std::unique_ptr<VideoEncoder> JavaToNativeVideoEncoder(
     JNIEnv* jni,
-    const JavaRef<jobject>& j_encoder);
+    const JavaRef<jobject>& j_encoder,
+    jlong webrtcEnvRef);
 
 bool IsHardwareVideoEncoder(JNIEnv* jni, const JavaRef<jobject>& j_encoder);
 

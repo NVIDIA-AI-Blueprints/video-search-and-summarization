@@ -17,43 +17,41 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_JSON_JSON_TRACE_PARSER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_JSON_JSON_TRACE_PARSER_H_
 
-#include <stdint.h>
+#include <cstdint>
 
-#include <memory>
-#include <tuple>
-
-#include "src/trace_processor/importers/common/trace_parser.h"
+#include "src/trace_processor/containers/string_pool.h"
+#include "src/trace_processor/importers/common/parser_types.h"
 #include "src/trace_processor/importers/systrace/systrace_line.h"
 #include "src/trace_processor/importers/systrace/systrace_line_parser.h"
+#include "src/trace_processor/storage/trace_storage.h"
+#include "src/trace_processor/util/json_parser.h"
 
-namespace Json {
-class Value;
-}
-
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TraceProcessorContext;
 
 // Parses legacy chrome JSON traces. The support for now is extremely rough
 // and supports only explicit TRACE_EVENT_BEGIN/END events.
-class JsonTraceParser : public TraceParser {
+class JsonTraceParser {
  public:
   explicit JsonTraceParser(TraceProcessorContext*);
-  ~JsonTraceParser() override;
+  ~JsonTraceParser();
 
-  // TraceParser implementation.
-  void ParseJsonPacket(int64_t timestamp, std::string string_value) override;
-  void ParseSystraceLine(int64_t timestamp, SystraceLine line) override;
+  void ParseJsonPacket(int64_t, JsonEvent);
+  void ParseSystraceLine(int64_t, SystraceLine);
 
  private:
   TraceProcessorContext* const context_;
   SystraceLineParser systrace_line_parser_;
+  json::Iterator it_;
 
-  void MaybeAddFlow(TrackId track_id, const Json::Value& event);
+  StringId process_sort_index_hint_id_;
+  StringId thread_sort_index_hint_id_;
+  StringId running_string_id_;
+
+  void MaybeAddFlow(StringPool* pool, TrackId track_id, const JsonEvent& event);
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_JSON_JSON_TRACE_PARSER_H_

@@ -26,8 +26,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_MEDIA_STREAM_AUDIO_DESTINATION_NODE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_MEDIA_STREAM_AUDIO_DESTINATION_NODE_H_
 
+#include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream.h"
-#include "third_party/blink/renderer/modules/webaudio/audio_basic_inspector_node.h"
+#include "third_party/blink/renderer/modules/webaudio/audio_node.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 
@@ -36,8 +37,14 @@ namespace blink {
 class AudioContext;
 class AudioNodeOptions;
 class ExceptionState;
+class MediaStreamAudioDestinationHandler;
 
-class MediaStreamAudioDestinationNode final : public AudioBasicInspectorNode {
+// MediaStreamAudioDestinationNode is an AudioNode that represents an endpoint
+// in the Web Audio graph and also functions as an audio stream source for
+// MediaStream ecosystem. (e.g., WebRTC, MediaRecorder)
+class MODULES_EXPORT MediaStreamAudioDestinationNode final
+    : public AudioNode,
+      public ActiveScriptWrappable<MediaStreamAudioDestinationNode> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -50,9 +57,10 @@ class MediaStreamAudioDestinationNode final : public AudioBasicInspectorNode {
 
   MediaStreamAudioDestinationNode(AudioContext&, uint32_t number_of_channels);
 
-  MediaStream* stream() const { return stream_; }
-  MediaStreamSource* source() const { return source_; }
+  MediaStream* stream() const { return stream_.Get(); }
+  MediaStreamSource* source() const { return source_.Get(); }
 
+  bool HasPendingActivity() const final;
   void Trace(Visitor*) const final;
 
   // InspectorHelperMixin
@@ -60,8 +68,13 @@ class MediaStreamAudioDestinationNode final : public AudioBasicInspectorNode {
   void ReportWillBeDestroyed() final;
 
  private:
-  const Member<MediaStreamSource> source_;
-  const Member<MediaStream> stream_;
+  MediaStreamAudioDestinationHandler& GetOwnHandler() const;
+
+  // https://chromium.googlesource.com/chromium/src/+/refs/heads/main/docs/media/capture/README.md#logs
+  void SendLogMessage(const String& function_name, const String& message);
+
+  Member<MediaStreamSource> source_;
+  Member<MediaStream> stream_;
 };
 
 }  // namespace blink

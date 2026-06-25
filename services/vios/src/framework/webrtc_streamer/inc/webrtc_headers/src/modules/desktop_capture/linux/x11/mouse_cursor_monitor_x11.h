@@ -13,6 +13,10 @@
 
 #include <X11/X.h>
 
+// X11 creates a CurrentTime macro, which causes compilation errors when
+// including webrtc::Clock.
+#undef CurrentTime
+
 #include <memory>
 
 #include "api/scoped_refptr.h"
@@ -51,7 +55,7 @@ class MouseCursorMonitorX11 : public MouseCursorMonitor,
   // Captures current cursor shape and stores it in `cursor_shape_`.
   void CaptureCursor();
 
-  rtc::scoped_refptr<SharedXDisplay> x_display_;
+  scoped_refptr<SharedXDisplay> x_display_;
   Callback* callback_;
   Mode mode_;
   Window window_;

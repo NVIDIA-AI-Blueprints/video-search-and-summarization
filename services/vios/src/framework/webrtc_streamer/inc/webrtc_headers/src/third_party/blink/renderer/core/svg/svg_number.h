@@ -48,7 +48,6 @@ class SVGNumber : public SVGListablePropertyBase {
   explicit SVGNumber(float = 0.0f);
 
   virtual SVGNumber* Clone() const;
-  SVGPropertyBase* CloneForAnimation(const String&) const override;
 
   float Value() const { return value_; }
   void SetValue(float value) { value_ = value; }
@@ -56,7 +55,7 @@ class SVGNumber : public SVGListablePropertyBase {
   String ValueAsString() const override;
   virtual SVGParsingError SetValueAsString(const String&);
 
-  void Add(const SVGPropertyBase*, const SVGElement*) override;
+  bool Add(const SVGPropertyBase*, const SVGElement*) override;
   void CalculateAnimatedValue(
       const SMILAnimationEffectParameters&,
       float percentage,
@@ -76,7 +75,7 @@ class SVGNumber : public SVGListablePropertyBase {
 
  protected:
   template <typename CharType>
-  SVGParsingError Parse(const CharType* ptr, const CharType* end);
+  SVGParsingError Parse(base::span<const CharType> span);
 
   float value_;
 };

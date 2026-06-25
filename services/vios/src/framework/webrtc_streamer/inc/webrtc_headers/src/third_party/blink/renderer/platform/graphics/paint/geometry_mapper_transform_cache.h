@@ -5,11 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PAINT_GEOMETRY_MAPPER_TRANSFORM_CACHE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_PAINT_GEOMETRY_MAPPER_TRANSFORM_CACHE_H_
 
+#include <optional>
+
 #include "base/check_op.h"
 #include "base/dcheck_is_on.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "ui/gfx/geometry/transform.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
@@ -20,13 +22,21 @@ class TransformPaintPropertyNode;
 // A GeometryMapperTransformCache hangs off a TransformPaintPropertyNode.
 // It stores useful intermediate results such as screen matrix for geometry
 // queries.
-class PLATFORM_EXPORT GeometryMapperTransformCache {
-  USING_FAST_MALLOC(GeometryMapperTransformCache);
+class PLATFORM_EXPORT GeometryMapperTransformCache
+    : public GarbageCollected<GeometryMapperTransformCache> {
  public:
   GeometryMapperTransformCache() = default;
   GeometryMapperTransformCache(const GeometryMapperTransformCache&) = delete;
   GeometryMapperTransformCache& operator=(const GeometryMapperTransformCache&) =
       delete;
+
+  void Trace(Visitor* visitor) const {
+    visitor->Trace(root_of_2d_translation_);
+    visitor->Trace(plane_root_transform_);
+    visitor->Trace(nearest_scroll_translation_);
+    visitor->Trace(scroll_translation_state_);
+    visitor->Trace(nearest_directly_composited_ancestor_);
+  }
 
   static void ClearCache();
   bool IsValid() const;
@@ -61,27 +71,33 @@ class PLATFORM_EXPORT GeometryMapperTransformCache {
   }
   bool projection_from_screen_is_valid() const {
     DCHECK(screen_transform_updated_);
-    return LIKELY(!screen_transform_) ||
-           screen_transform_->projection_from_screen_is_valid;
+    if (!screen_transform_) [[likely]] {
+      return true;
+    }
+    return screen_transform_->projection_from_screen_is_valid;
   }
   void ApplyToScreen(gfx::Transform& m) const {
     DCHECK(screen_transform_updated_);
-    if (UNLIKELY(screen_transform_))
+    if (screen_transform_) [[unlikely]] {
       m.PreConcat(to_screen());
-    else
+    } else {
       ApplyToPlaneRoot(m);
+    }
   }
   void ApplyProjectionFromScreen(gfx::Transform& m) const {
     DCHECK(screen_transform_updated_);
-    if (UNLIKELY(screen_transform_))
+    if (screen_transform_) [[unlikely]] {
       m.PreConcat(projection_from_screen());
-    else
+    } else {
       ApplyFromPlaneRoot(m);
+    }
   }
   bool has_animation_to_screen() const {
     DCHECK(screen_transform_updated_);
-    return UNLIKELY(screen_transform_) ? screen_transform_->has_animation
-                                       : has_animation_to_plane_root();
+    if (screen_transform_) [[unlikely]] {
+      return screen_transform_->has_animation;
+    }
+    return has_animation_to_plane_root();
   }
 
   const gfx::Transform& to_plane_root() const {
@@ -93,30 +109,34 @@ class PLATFORM_EXPORT GeometryMapperTransformCache {
     return plane_root_transform_->from_plane_root;
   }
   void ApplyToPlaneRoot(gfx::Transform& m) const {
-    if (UNLIKELY(plane_root_transform_)) {
+    if (plane_root_transform_) [[unlikely]] {
       m.PreConcat(to_plane_root());
     } else {
       m.Translate(to_2d_translation_root_.x(), to_2d_translation_root_.y());
     }
   }
   void ApplyFromPlaneRoot(gfx::Transform& m) const {
-    if (UNLIKELY(plane_root_transform_)) {
+    if (plane_root_transform_) [[unlikely]] {
       m.PreConcat(from_plane_root());
     } else {
       m.Translate(-to_2d_translation_root_.x(), -to_2d_translation_root_.y());
     }
   }
   const TransformPaintPropertyNode* plane_root() const {
-    return UNLIKELY(plane_root_transform_) ? plane_root_transform_->plane_root
-                                           : root_of_2d_translation();
+    if (plane_root_transform_) [[unlikely]] {
+      return plane_root_transform_->plane_root.Get();
+    }
+    return root_of_2d_translation();
   }
   bool has_animation_to_plane_root() const {
-    return UNLIKELY(plane_root_transform_) &&
-           plane_root_transform_->has_animation;
+    if (plane_root_transform_) [[unlikely]] {
+      return plane_root_transform_->has_animation;
+    }
+    return false;
   }
 
-  bool has_sticky_or_anchor_scroll() const {
-    return has_sticky_or_anchor_scroll_;
+  bool has_sticky_or_anchor_position() const {
+    return has_sticky_or_anchor_position_;
   }
 
   bool is_backface_hidden() const { return is_backface_hidden_; }
@@ -124,6 +144,10 @@ class PLATFORM_EXPORT GeometryMapperTransformCache {
   const TransformPaintPropertyNode& nearest_scroll_translation() const {
     DCHECK(nearest_scroll_translation_);
     return *nearest_scroll_translation_;
+  }
+  const TransformPaintPropertyNode& scroll_translation_state() const {
+    DCHECK(scroll_translation_state_);
+    return *scroll_translation_state_;
   }
 
   const TransformPaintPropertyNode* nearest_directly_composited_ancestor()
@@ -144,7 +168,7 @@ class PLATFORM_EXPORT GeometryMapperTransformCache {
   // The parent of the root of consecutive identity or 2d translations from the
   // transform node, or the root of the tree if the whole path from the
   // transform node to the root contains identity or 2d translations only.
-  const TransformPaintPropertyNode* root_of_2d_translation_;
+  Member<const TransformPaintPropertyNode> root_of_2d_translation_;
 
   // The cached values here can be categorized in two logical groups:
   //
@@ -202,30 +226,32 @@ class PLATFORM_EXPORT GeometryMapperTransformCache {
   //     = flatten(parent.to_screen) * local
   //     = flatten(parent.plane_root.to_screen) * parent.to_plane_root * local
   //     = flatten(plane_root.to_screen) * to_plane_root
-  struct PlaneRootTransform {
+  struct PlaneRootTransform : public GarbageCollected<PlaneRootTransform> {
     gfx::Transform to_plane_root;
     gfx::Transform from_plane_root;
-    const TransformPaintPropertyNode* plane_root = nullptr;
+    Member<const TransformPaintPropertyNode> plane_root;
     bool has_animation = false;
-    USING_FAST_MALLOC(PlaneRootTransform);
+
+    void Trace(Visitor* visitor) const { visitor->Trace(plane_root); }
   };
-  absl::optional<PlaneRootTransform> plane_root_transform_;
+  Member<PlaneRootTransform> plane_root_transform_;
 
   struct ScreenTransform {
     gfx::Transform to_screen;
     gfx::Transform projection_from_screen;
     bool projection_from_screen_is_valid = false;
     bool has_animation = false;
-    USING_FAST_MALLOC(ScreenTransform);
   };
-  absl::optional<ScreenTransform> screen_transform_;
+  std::optional<ScreenTransform> screen_transform_;
 
-  const TransformPaintPropertyNode* nearest_scroll_translation_ = nullptr;
-  const TransformPaintPropertyNode* nearest_directly_composited_ancestor_ =
-      nullptr;
+  Member<const TransformPaintPropertyNode> nearest_scroll_translation_;
+  Member<const TransformPaintPropertyNode> scroll_translation_state_;
+  Member<const TransformPaintPropertyNode>
+      nearest_directly_composited_ancestor_;
 
-  // Whether or not there is a sticky or anchor-scroll translation to the root.
-  bool has_sticky_or_anchor_scroll_ = false;
+  // Whether or not there is a sticky or anchor position scroll translation to
+  // the root.
+  bool has_sticky_or_anchor_position_ = false;
 
   bool is_backface_hidden_ = false;
 

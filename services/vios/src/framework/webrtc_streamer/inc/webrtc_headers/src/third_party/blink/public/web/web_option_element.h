@@ -41,7 +41,9 @@ class WebString;
 
 class BLINK_EXPORT WebOptionElement final : public WebElement {
  public:
-  WebOptionElement() : WebElement() {}
+  explicit WebOptionElement(
+      cppgc::SourceLocation loc = BLINK_WEB_NODE_LOCATION_FROM_HERE)
+      : WebElement(loc) {}
   WebOptionElement(const WebOptionElement& element) = default;
 
   WebOptionElement& operator=(const WebOptionElement& element) {
@@ -53,6 +55,11 @@ class BLINK_EXPORT WebOptionElement final : public WebElement {
   WebString Value() const;
   WebString GetText() const;
   WebString Label() const;
+
+  bool IsEnabled() const;
+
+  // Returns whether the option is currently selected.
+  bool IsSelected() const;
 
 #if INSIDE_BLINK
   WebOptionElement(HTMLOptionElement*);

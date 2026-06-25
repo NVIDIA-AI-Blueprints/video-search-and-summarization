@@ -32,6 +32,10 @@ class HTMLMenuElement final : public HTMLElement {
 
  public:
   explicit HTMLMenuElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLMenuElement;
+  }
 };
 
 }  // namespace blink

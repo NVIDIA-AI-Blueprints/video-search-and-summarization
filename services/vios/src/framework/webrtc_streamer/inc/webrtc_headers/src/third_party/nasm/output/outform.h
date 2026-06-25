@@ -1,35 +1,5 @@
-/* ----------------------------------------------------------------------- *
- *
- *   Copyright 1996-2011 The NASM Authors - All Rights Reserved
- *   See the file AUTHORS included with the NASM distribution for
- *   the specific copyright holders.
- *
- *   Redistribution and use in source and binary forms, with or without
- *   modification, are permitted provided that the following
- *   conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above
- *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
- *
- *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- *     MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *     DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- *     CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- *     SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- *     NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- *     LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- *     HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *     CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- *     OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- *     EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * ----------------------------------------------------------------------- */
+/* SPDX-License-Identifier: BSD-2-Clause */
+/* Copyright 1996-2022 The NASM Authors - All Rights Reserved */
 
 /*
  * outform.h    header file for binding output format drivers to the
@@ -45,7 +15,7 @@
  * OF_ONLY                -- only include specified object formats
  * OF_name                -- ensure that output format 'name' is included
  * OF_NO_name             -- remove output format 'name'
- * OF_DOS                 -- ensure that 'obj', 'bin', 'win32' & 'win64' are included.
+ * OF_DOS                 -- ensure that 'obj', 'obj2', 'bin', 'win32' & 'win64' are included.
  * OF_UNIX                -- ensure that 'aout', 'aoutb', 'coff', 'elf32' & 'elf64' are in.
  * OF_OTHERS              -- ensure that 'bin', 'as86', 'rdf' 'macho32' & 'macho64' are in.
  * OF_ALL                 -- ensure that all formats are included.
@@ -86,7 +56,7 @@
 
 /* ====configurable info begins here==== */
 /* formats configurable:
- * bin,obj,elf32,elf64,aout,aoutb,coff,win32,as86,rdf2,macho32,macho64 */
+ * bin,obj,obj2,elf32,elf64,aout,aoutb,coff,win32,as86,rdf2,macho32,macho64 */
 
 /* process options... */
 
@@ -102,6 +72,9 @@
 #endif
 #ifndef OF_OBJ
 #define OF_OBJ
+#endif
+#ifndef OF_OBJ2
+#define OF_OBJ2
 #endif
 #ifndef OF_ELF32
 #define OF_ELF32
@@ -130,9 +103,6 @@
 #ifndef OF_AS86
 #define OF_AS86
 #endif
-#ifndef OF_RDF2
-#define OF_RDF2
-#endif
 #ifndef OF_IEEE
 #define OF_IEEE
 #endif
@@ -151,6 +121,9 @@
 #ifdef OF_DOS
 #ifndef OF_OBJ
 #define OF_OBJ
+#endif
+#ifndef OF_OBJ2
+#define OF_OBJ2
 #endif
 #ifndef OF_BIN
 #define OF_BIN
@@ -194,9 +167,6 @@
 #ifndef OF_AS86
 #define OF_AS86
 #endif
-#ifndef OF_RDF2
-#define OF_RDF2
-#endif
 #ifndef OF_IEEE
 #define OF_IEEE
 #endif
@@ -214,6 +184,9 @@
 #endif
 #ifdef OF_NO_OBJ
 #undef OF_OBJ
+#endif
+#ifdef OF_NO_OBJ2
+#undef OF_OBJ2
 #endif
 #ifdef OF_NO_ELF32
 #undef OF_ELF32
@@ -241,9 +214,6 @@
 #endif
 #ifdef OF_NO_AS86
 #undef OF_AS86
-#endif
-#ifdef OF_NO_RDF2
-#undef OF_RDF2
 #endif
 #ifdef OF_NO_IEEE
 #undef OF_IEEE
@@ -273,9 +243,9 @@ extern const struct ofmt of_elfx32;
 extern const struct ofmt of_elf64;
 extern const struct ofmt of_as86;
 extern const struct ofmt of_obj;
+extern const struct ofmt of_obj2;
 extern const struct ofmt of_win32;
 extern const struct ofmt of_win64;
-extern const struct ofmt of_rdf2;
 extern const struct ofmt of_ieee;
 extern const struct ofmt of_macho32;
 extern const struct ofmt of_macho64;
@@ -318,14 +288,14 @@ static const struct ofmt * const drivers[] = {
 #ifdef OF_OBJ
     &of_obj,
 #endif
+#ifdef OF_OBJ2
+    &of_obj2,
+#endif
 #ifdef OF_WIN32
     &of_win32,
 #endif
 #ifdef OF_WIN64
     &of_win64,
-#endif
-#ifdef OF_RDF2
-    &of_rdf2,
 #endif
 #ifdef OF_IEEE
     &of_ieee,
@@ -359,7 +329,7 @@ static const struct ofmt_alias ofmt_aliases[] = {
 #endif /* BUILD_DRIVERS_ARRAY */
 
 const struct ofmt *ofmt_find(const char *name, const struct ofmt_alias **ofmt_alias);
-const struct dfmt *dfmt_find(const struct ofmt *, const char *);
+const struct dfmt * pure_func dfmt_find(const struct ofmt *, const char *);
 void ofmt_list(const struct ofmt *, FILE *);
 void dfmt_list(FILE *);
 extern const struct dfmt null_debug_form;

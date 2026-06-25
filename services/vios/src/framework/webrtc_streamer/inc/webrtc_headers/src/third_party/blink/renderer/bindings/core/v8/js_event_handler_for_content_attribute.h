@@ -6,7 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_JS_EVENT_HANDLER_FOR_CONTENT_ATTRIBUTE_H_
 
 #include "third_party/blink/renderer/bindings/core/v8/js_event_handler.h"
+#include "third_party/blink/renderer/core/ad_tracker/ad_script_identifier.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 
 namespace blink {
@@ -33,9 +35,14 @@ class JSEventHandlerForContentAttribute final : public JSEventHandler {
 
   // blink::JSBasedEventListener overrides:
   v8::Local<v8::Value> GetListenerObject(EventTarget&) override;
-  std::unique_ptr<SourceLocation> GetSourceLocation(EventTarget&) override;
+  SourceLocation* GetSourceLocation(EventTarget&) override;
 
   const String& ScriptBody() const override { return script_body_; }
+
+  void SetAdRelated(const std::optional<AdScriptIdentifier>& ad_script) {
+    is_ad_related_ = true;
+    parent_ad_script_ = ad_script;
+  }
 
  protected:
   // blink::JSBasedEventListener override:
@@ -51,7 +58,7 @@ class JSEventHandlerForContentAttribute final : public JSEventHandler {
   // In case of the content scripts, Blink runs script in the main world instead
   // of the isolated world for the content script by design.
   DOMWrapperWorld& GetWorld() const override {
-    return DOMWrapperWorld::MainWorld();
+    return DOMWrapperWorld::MainWorld(isolate_);
   }
 
  private:
@@ -72,6 +79,8 @@ class JSEventHandlerForContentAttribute final : public JSEventHandler {
   String source_url_;
   TextPosition position_;
   v8::Isolate* isolate_;
+  bool is_ad_related_ = false;
+  std::optional<AdScriptIdentifier> parent_ad_script_;
 };
 
 }  // namespace blink

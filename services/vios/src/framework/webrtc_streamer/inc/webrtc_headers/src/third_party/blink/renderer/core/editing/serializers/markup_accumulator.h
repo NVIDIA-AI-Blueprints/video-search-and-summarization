@@ -29,9 +29,11 @@
 
 #include <utility>
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/editing_strategy.h"
 #include "third_party/blink/renderer/core/editing/serializers/markup_formatter.h"
 #include "third_party/blink/renderer/core/editing/serializers/serialization.h"
+#include "third_party/blink/renderer/core/html/html_template_element.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -40,30 +42,64 @@ class Attribute;
 class Element;
 class Node;
 
-class MarkupAccumulator {
+class CORE_EXPORT MarkupAccumulator {
   STACK_ALLOCATED();
 
  public:
+  enum class AttributesMode : uint8_t {
+    // Correctly represent the current attributes.
+    kSynchronized,
+    // Generate possibly incorrect results, avoiding heap modification.
+    kUnsynchronized,
+  };
+
   MarkupAccumulator(AbsoluteURLs,
                     SerializationType,
-                    IncludeShadowRoots,
-                    ClosedRootsSet = ClosedRootsSet());
+                    const ShadowRootInclusion&,
+                    AttributesMode = AttributesMode::kSynchronized);
   MarkupAccumulator(const MarkupAccumulator&) = delete;
   MarkupAccumulator& operator=(const MarkupAccumulator&) = delete;
   virtual ~MarkupAccumulator();
 
   template <typename Strategy>
-  String SerializeNodes(const Node&, ChildrenOnly);
+  CORE_EXPORT String SerializeNodes(const Node&, ChildrenOnly);
 
  protected:
+  // Determines whether an attribute is emitted as markup.
+  enum class EmitAttributeChoice {
+    // Emit the attribute as markup.
+    kEmit,
+    // Do not emit the attribute.
+    kIgnore,
+  };
+
+  // Determines whether an element is emitted as markup.
+  enum class EmitElementChoice {
+    // Emit it as markup.
+    kEmit,
+    // Do not emit the element or any children.
+    kIgnore,
+    // Emit the element, but not its children.
+    kEmitButIgnoreChildren,
+  };
+
   // Returns serialized prefix. It should be passed to AppendEndTag().
   virtual AtomicString AppendElement(const Element&);
+  virtual void AppendEndTag(const Element&, const AtomicString& prefix);
   virtual void AppendAttribute(const Element&, const Attribute&);
+
+  // This is called just before emitting markup for `element`. Derived classes
+  // may emit markup here, i.e., if they want to provide a substitute for this
+  // element.
+  virtual EmitElementChoice WillProcessElement(const Element& element);
+  // Called just before closing a <template> element used to serialize a
+  // shadow root. `auxiliary_tree` is the shadow root that has just been
+  // serialized into the <template> element.
+  virtual void WillCloseSyntheticTemplateElement(ShadowRoot& auxiliary_tree) {}
 
   MarkupFormatter formatter_;
   StringBuilder markup_;
-  IncludeShadowRoots include_shadow_roots_;
-  ClosedRootsSet include_closed_roots_;
+  ShadowRootInclusion shadow_root_inclusion_;
 
  private:
   bool SerializeAsHTML() const;
@@ -81,15 +117,12 @@ class MarkupAccumulator {
   ElementSerializationData AppendStartTagOpen(const Element&);
   void AppendStartTagClose(const Element&);
   void AppendNamespace(const AtomicString& prefix,
-                       const AtomicString& namespace_uri,
-                       const Document& document);
+                       const AtomicString& namespace_uri);
   void AppendAttributeAsXMLWithNamespace(const Element& element,
                                          const Attribute& attribute,
                                          const String& value);
   bool ShouldAddNamespaceAttribute(const Attribute& attribute,
                                    const AtomicString& candidate_prefix);
-
-  void AppendEndTag(const Element&, const AtomicString& prefix);
 
   EntityMask EntityMaskForText(const Text&) const;
 
@@ -103,17 +136,16 @@ class MarkupAccumulator {
   AtomicString GeneratePrefix(const AtomicString& new_namespace);
 
   virtual void AppendCustomAttributes(const Element&);
-  virtual bool ShouldIgnoreAttribute(const Element&, const Attribute&) const;
-  virtual bool ShouldIgnoreElement(const Element&) const;
+  virtual EmitAttributeChoice WillProcessAttribute(const Element&,
+                                                   const Attribute&) const;
 
-  // Returns an auxiliary DOM tree, i.e. shadow tree, that needs also to be
-  // serialized. The root of auxiliary DOM tree is returned as an 1st element
-  // in the pair. It can be null if no auxiliary DOM tree exists. An additional
-  // element used to enclose the serialized content of auxiliary DOM tree
-  // can be returned as 2nd element in the pair. It can be null if this is not
-  // needed. For shadow tree, a <template> element is needed to wrap the shadow
-  // tree content.
-  virtual std::pair<Node*, Element*> GetAuxiliaryDOMTree(const Element&) const;
+  // Returns a shadow tree that needs also to be serialized. The ShadowRoot is
+  // returned as the 1st element in the pair, and can be null if no shadow tree
+  // exists. To serialize a ShadowRoot, an enclosing <template shadowrootmode>
+  // must be used, and this is returned as the 2nd element in the pair. It can
+  // be null if the first element is null.
+  virtual std::pair<ShadowRoot*, HTMLTemplateElement*> GetShadowTree(
+      const Element&) const;
 
   template <typename Strategy>
   void SerializeNodesWithNamespaces(const Node& target_node,
@@ -124,6 +156,8 @@ class MarkupAccumulator {
 
   // https://w3c.github.io/DOM-Parsing/#dfn-generated-namespace-prefix-index
   uint32_t prefix_index_;
+
+  AttributesMode attributes_mode_;
 };
 
 extern template String MarkupAccumulator::SerializeNodes<EditingStrategy>(

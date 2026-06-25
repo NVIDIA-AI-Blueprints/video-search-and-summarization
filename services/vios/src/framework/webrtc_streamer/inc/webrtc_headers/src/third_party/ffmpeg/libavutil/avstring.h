@@ -24,7 +24,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "attributes.h"
-#include "version.h"
 
 /**
  * @addtogroup lavu_string
@@ -265,7 +264,7 @@ int av_strncasecmp(const char *a, const char *b, size_t n);
 
 /**
  * Locale-independent strings replace.
- * @note This means only ASCII-range characters are replace
+ * @note This means only ASCII-range characters are replaced.
  */
 char *av_strireplace(const char *str, const char *from, const char *to);
 
@@ -421,7 +420,7 @@ int av_match_list(const char *name, const char *list, char separator);
  * Locale-independent sscanf implementation.
  */
 #if 0
-int av_sscanf(const char *string, const char *format, ...);
+int av_sscanf(const char *string, const char *format, ...) av_scanf_format(2, 3);
 #else
 // Chromium: av_sscanf() is ~8kb in implementation and isn't used by any
 // methods needed for Chromium; drop to save binary size.

@@ -47,7 +47,8 @@ class StyleImageSet final : public StyleImage {
 
   CSSValue* CssValue() const override;
   CSSValue* ComputedCSSValue(const ComputedStyle&,
-                             bool allow_visited_style) const override;
+                             bool allow_visited_style,
+                             CSSValuePhase value_phase) const override;
 
   WrappedImagePtr Data() const override;
 
@@ -55,8 +56,11 @@ class StyleImageSet final : public StyleImage {
   bool IsLoading() const override;
   bool IsLoaded() const override;
   bool ErrorOccurred() const override;
-  bool IsAccessAllowed(String& failing_url) const override;
+  bool IsCorsSameOrigin() const override;
 
+  NaturalSizingInfo GetNaturalSizingInfo(
+      float multiplier,
+      RespectImageOrientationEnum) const override;
   gfx::SizeF ImageSize(float multiplier,
                        const gfx::SizeF& default_object_size,
                        RespectImageOrientationEnum) const override;
@@ -66,7 +70,7 @@ class StyleImageSet final : public StyleImage {
   void RemoveClient(ImageResourceObserver*) override;
 
   scoped_refptr<Image> GetImage(const ImageResourceObserver&,
-                                const Document&,
+                                const Node&,
                                 const ComputedStyle&,
                                 const gfx::SizeF& target_size) const override;
 
@@ -75,9 +79,6 @@ class StyleImageSet final : public StyleImage {
   bool KnownToBeOpaque(const Document&, const ComputedStyle&) const override;
 
   ImageResourceContent* CachedImage() const override;
-
-  RespectImageOrientationEnum ForceOrientationIfNecessary(
-      RespectImageOrientationEnum default_orientation) const override;
 
   void Trace(Visitor*) const override;
 
@@ -98,4 +99,4 @@ struct DowncastTraits<StyleImageSet> {
 
 }  // namespace blink
 
-#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_STYLE_FETCHED_IMAGE_SET_H_
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_STYLE_IMAGE_SET_H_

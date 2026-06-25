@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
-#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/script/script.h"
@@ -69,8 +69,8 @@ class CORE_EXPORT PreloadRequest {
       const network::mojom::ReferrerPolicy referrer_policy,
       ResourceFetcher::IsImageSet is_image_set,
       const ExclusionInfo* exclusion_info,
-      const absl::optional<float> resource_width = absl::nullopt,
-      const absl::optional<float> resource_height = absl::nullopt,
+      const std::optional<float> resource_width = std::nullopt,
+      const std::optional<float> resource_height = std::nullopt,
       RequestType request_type = kRequestTypePreload);
 
   Resource* Start(Document*);
@@ -135,6 +135,10 @@ class CORE_EXPORT PreloadRequest {
     render_blocking_behavior_ = render_blocking_behavior;
   }
 
+  RenderBlockingBehavior GetRenderBlockingBehavior() {
+    return render_blocking_behavior_;
+  }
+
   bool IsAttributionReportingEligibleImgOrScript() const {
     return is_attribution_reporting_eligible_img_or_script_;
   }
@@ -143,16 +147,42 @@ class CORE_EXPORT PreloadRequest {
     is_attribution_reporting_eligible_img_or_script_ = eligible;
   }
 
-  absl::optional<float> GetResourceWidth() const { return resource_width_; }
-  absl::optional<float> GetResourceHeight() const { return resource_height_; }
+  void SetIsPotentiallyLCPElement(bool flag) {
+    is_potentially_lcp_element_ = flag;
+  }
+
+  void SetIsPotentiallyLCPInfluencer(bool flag) {
+    is_potentially_lcp_influencer_ = flag;
+  }
+
+  void SetSharedStorageWritableOptedIn(bool opted_in) {
+    shared_storage_writable_opted_in_ = opted_in;
+  }
+
+  // Set whether the preload request is eligible for the Browsing Topics API.
+  //
+  // See https://github.com/patcg-individual-drafts/topics/blob/main/README.md
+  // for the latest version of the Topics API explainer.
+  void SetBrowsingTopicsEligible(bool flag) {
+    browsing_topics_eligible_ = flag;
+  }
+
+  bool IsPotentiallyLCPElement() const { return is_potentially_lcp_element_; }
+
+  bool IsPotentiallyLCPInfluencer() const {
+    return is_potentially_lcp_influencer_;
+  }
+
+  std::optional<float> GetResourceWidth() const { return resource_width_; }
+  std::optional<float> GetResourceHeight() const { return resource_height_; }
 
  private:
   PreloadRequest(const String& initiator_name,
                  const String& resource_url,
                  const KURL& base_url,
                  ResourceType resource_type,
-                 const absl::optional<float> resource_width,
-                 const absl::optional<float> resource_height,
+                 const std::optional<float> resource_width,
+                 const std::optional<float> resource_height,
                  RequestType request_type,
                  const network::mojom::ReferrerPolicy referrer_policy,
                  ResourceFetcher::IsImageSet is_image_set)
@@ -180,8 +210,8 @@ class CORE_EXPORT PreloadRequest {
       mojom::blink::FetchPriorityHint::kAuto;
   String nonce_;
   FetchParameters::DeferOption defer_ = FetchParameters::kNoDefer;
-  const absl::optional<float> resource_width_;
-  const absl::optional<float> resource_height_;
+  const std::optional<float> resource_width_;
+  const std::optional<float> resource_height_;
   const RequestType request_type_;
   const network::mojom::ReferrerPolicy referrer_policy_;
   IntegrityMetadataSet integrity_metadata_;
@@ -192,6 +222,10 @@ class CORE_EXPORT PreloadRequest {
   bool is_lazy_load_image_enabled_ = false;
   base::TimeTicks creation_time_ = base::TimeTicks::Now();
   bool is_attribution_reporting_eligible_img_or_script_ = false;
+  bool is_potentially_lcp_element_ = false;
+  bool is_potentially_lcp_influencer_ = false;
+  bool shared_storage_writable_opted_in_ = false;
+  bool browsing_topics_eligible_ = false;
 };
 
 typedef Vector<std::unique_ptr<PreloadRequest>> PreloadRequestStream;

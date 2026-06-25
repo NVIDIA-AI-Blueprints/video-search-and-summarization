@@ -13,10 +13,13 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 
+#include "api/environment/environment.h"
 #include "api/sequence_checker.h"
 #include "call/rtp_packet_sink_interface.h"
 #include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -26,7 +29,14 @@ class ReceiveStatistics;
 // are passed on to a sink representing the associated media stream.
 class RtxReceiveStream : public RtpPacketSinkInterface {
  public:
-  RtxReceiveStream(RtpPacketSinkInterface* media_sink,
+  // TODO: b/305890678 - Remove when downstream users have been updated.
+  [[deprecated("Use other ctor")]] RtxReceiveStream(
+      RtpPacketSinkInterface* media_sink,
+      std::map<int, int> associated_payload_types,
+      uint32_t media_ssrc,
+      ReceiveStatistics* rtp_receive_statistics = nullptr);
+  RtxReceiveStream(const Environment& env,
+                   RtpPacketSinkInterface* media_sink,
                    std::map<int, int> associated_payload_types,
                    uint32_t media_ssrc,
                    // TODO(nisse): Delete this argument, and
@@ -44,6 +54,10 @@ class RtxReceiveStream : public RtpPacketSinkInterface {
   void OnRtpPacket(const RtpPacketReceived& packet) override;
 
  private:
+  void LogRtpPacketToEventLog(const RtpPacketReceived& packet,
+                              std::optional<uint16_t> osn);
+
+  const std::optional<Environment> env_;
   RTC_NO_UNIQUE_ADDRESS SequenceChecker packet_checker_;
   RtpPacketSinkInterface* const media_sink_;
   // Map from rtx payload type -> media payload type.

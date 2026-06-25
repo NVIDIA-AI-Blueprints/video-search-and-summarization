@@ -6,13 +6,13 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_IMAGE_ENCODERS_IMAGE_ENCODER_H_
 
 #include "base/check_op.h"
-#include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkStream.h"
 #include "third_party/skia/include/encode/SkJpegEncoder.h"
-#include "third_party/skia/include/encode/SkPngEncoder.h"
+#include "third_party/skia/include/encode/SkPngRustEncoder.h"
 #include "third_party/skia/include/encode/SkWebpEncoder.h"
 
 namespace blink {
@@ -26,7 +26,9 @@ class VectorWStream : public SkWStream {
 
   bool write(const void* buffer, size_t size) override {
     DCHECK_LE(size, std::numeric_limits<wtf_size_t>::max());
-    dst_->Append((const unsigned char*)buffer, static_cast<wtf_size_t>(size));
+    // SAFETY: Skia encoders guarantees `buffer` and `size` are safe.
+    dst_->append_range(UNSAFE_BUFFERS(
+        base::span(reinterpret_cast<const unsigned char*>(buffer), size)));
     return true;
   }
 
@@ -34,7 +36,13 @@ class VectorWStream : public SkWStream {
 
  private:
   // Does not have ownership.
-  Vector<unsigned char>* dst_;
+  raw_ptr<Vector<unsigned char>> dst_;
+};
+
+enum ImageEncodingMimeType {
+  kMimeTypePng,
+  kMimeTypeJpeg,
+  kMimeTypeWebp,
 };
 
 class PLATFORM_EXPORT ImageEncoder {
@@ -47,11 +55,16 @@ class PLATFORM_EXPORT ImageEncoder {
 
   static bool Encode(Vector<unsigned char>* dst,
                      const SkPixmap& src,
-                     const SkPngEncoder::Options&);
+                     SkPngRustEncoder::CompressionLevel);
 
   static bool Encode(Vector<unsigned char>* dst,
                      const SkPixmap& src,
                      const SkWebpEncoder::Options&);
+
+  static bool Encode(Vector<unsigned char>* dst,
+                     const SkPixmap& src,
+                     ImageEncodingMimeType mime_type,
+                     double quality);
 
   static int MaxDimension(ImageEncodingMimeType mime_type);
 
@@ -59,9 +72,10 @@ class PLATFORM_EXPORT ImageEncoder {
                                               const SkPixmap& src,
                                               const SkJpegEncoder::Options&);
 
-  static std::unique_ptr<ImageEncoder> Create(Vector<unsigned char>* dst,
-                                              const SkPixmap& src,
-                                              const SkPngEncoder::Options&);
+  static std::unique_ptr<ImageEncoder> Create(
+      Vector<unsigned char>* dst,
+      const SkPixmap& src,
+      SkPngRustEncoder::CompressionLevel);
 
   bool encodeRows(int numRows) { return encoder_->encodeRows(numRows); }
 

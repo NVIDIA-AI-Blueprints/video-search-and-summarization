@@ -14,7 +14,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "api/array_view.h"
+#include <span>
+
 #include "modules/include/module_fec_types.h"
 
 namespace webrtc {
@@ -43,8 +44,7 @@ class PacketMaskTable {
   PacketMaskTable(FecMaskType fec_mask_type, int num_media_packets);
   ~PacketMaskTable();
 
-  rtc::ArrayView<const uint8_t> LookUp(int num_media_packets,
-                                       int num_fec_packets);
+  std::span<const uint8_t> LookUp(int num_media_packets, int num_fec_packets);
 
  private:
   static const uint8_t* PickTable(FecMaskType fec_mask_type,
@@ -53,9 +53,9 @@ class PacketMaskTable {
   uint8_t fec_packet_mask_[kFECPacketMaskMaxSize];
 };
 
-rtc::ArrayView<const uint8_t> LookUpInFecTable(const uint8_t* table,
-                                               int media_packet_index,
-                                               int fec_index);
+std::span<const uint8_t> LookUpInFecTable(const uint8_t* table,
+                                          int media_packet_index,
+                                          int fec_index);
 
 // Returns an array of packet masks. The mask of a single FEC packet
 // corresponds to a number of mask bytes. The mask indicates which

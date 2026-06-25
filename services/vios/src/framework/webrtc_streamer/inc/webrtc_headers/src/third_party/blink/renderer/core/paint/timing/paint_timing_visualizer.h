@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_TIMING_PAINT_TIMING_VISUALIZER_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
 
 namespace gfx {
@@ -24,10 +25,11 @@ class KURL;
 // purpose. This helper class generates debugging traces that contains these
 // intermediate rects. These debugging events, as well as their intermediate
 // rects, can be visualized by third-party visualization tools.
-class CORE_EXPORT PaintTimingVisualizer {
-  DISALLOW_NEW();
-
+class CORE_EXPORT PaintTimingVisualizer
+    : public trace_event::TraceSessionObserver {
  public:
+  PaintTimingVisualizer();
+  ~PaintTimingVisualizer() override;
   static bool IsTracingEnabled();
 
   void DumpTextDebuggingRect(const LayoutObject&, const gfx::RectF&);
@@ -37,6 +39,9 @@ class CORE_EXPORT PaintTimingVisualizer {
                               const KURL& url);
   void RecordMainFrameViewport(LocalFrameView& frame_view);
   inline void OnViewportChanged() { need_recording_viewport = true; }
+
+  // trace_event::TraceSessionObserver implementation:
+  void OnStart(const perfetto::DataSourceBase::StartArgs&) override;
 
  private:
   void RecordObject(const LayoutObject&, std::unique_ptr<TracedValue>&);

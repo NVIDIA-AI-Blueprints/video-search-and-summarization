@@ -44,7 +44,6 @@
 
 #include "common/module.h"
 #include "common/stabs_reader.h"
-#include "common/using_std_string.h"
 
 namespace google_breakpad {
 
@@ -66,19 +65,19 @@ class StabsToModule: public google_breakpad::StabsHandler {
       module_(module),
       in_compilation_unit_(false),
       comp_unit_base_address_(0),
-      current_function_(NULL),
-      current_source_file_(NULL),
-      current_source_file_name_(NULL) { }
+      current_function_(nullptr),
+      current_source_file_(nullptr),
+      current_source_file_name_(nullptr) { }
   ~StabsToModule();
 
   // The standard StabsHandler virtual member functions.
   bool StartCompilationUnit(const char *name, uint64_t address,
                             const char *build_directory);
   bool EndCompilationUnit(uint64_t address);
-  bool StartFunction(const string& name, uint64_t address);
+  bool StartFunction(const std::string& name, uint64_t address);
   bool EndFunction(uint64_t address);
   bool Line(uint64_t address, const char *name, int number);
-  bool Extern(const string& name, uint64_t address);
+  bool Extern(const std::string& name, uint64_t address);
   void Warning(const char *format, ...);
 
   // Do any final processing necessary to make module_ contain all the

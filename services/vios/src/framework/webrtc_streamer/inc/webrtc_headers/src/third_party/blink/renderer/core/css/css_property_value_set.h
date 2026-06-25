@@ -17,12 +17,11 @@
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_PROPERTY_VALUE_SET_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_PROPERTY_VALUE_SET_H_
 
 #include "base/bits.h"
-
+#include "base/types/pass_key.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_property_name.h"
@@ -31,6 +30,7 @@
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
 #include "third_party/blink/renderer/core/css/property_set_css_style_declaration.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/wtf/bit_field.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -45,6 +45,70 @@ class StyleSheetContents;
 enum class CSSValueID;
 enum class SecureContextMode;
 
+// Handling of the CSS 'all' property:
+//
+// Per the CSS spec, 'all' is a shorthand that expands to nearly all longhand
+// properties. However, expanding it into individual longhands would be
+// expensive in both storage and insertion time, so we instead store 'all' as
+// a single entry alongside regular longhands. (Expansion into actual
+// longhands happens only during cascade resolution, not here.)
+//
+// This choice has the following consequences:
+//
+//   setProperty("all"):
+//     When SetLonghandProperty("all") is called, existing affected longhands
+//     are removed via RemovePropertiesAffectedByAll(), since 'all' overrides
+//     them. This ensures that any property set after 'all' is appended to
+//     the end of the set, preserving the intended order of appearance.
+//     e.g.: setProperty("width", "50px")  -> [width:50px]
+//           setProperty("all", "revert")  -> [all:revert]
+//           setProperty("width", "100px") -> [all:revert, width:100px]
+//
+//   getPropertyValue("all"):
+//     Since 'all' is treated as a longhand, it is not serialized by
+//     StylePropertySerializer::SerializeShorthand(). Instead,
+//     SerializeShorthand() in css_property_value_set.cc checks whether any
+//     affected longhand after 'all' has a different value. If they all have
+//     the same value as 'all', returns 'all's value. Otherwise, returns an
+//     empty string.
+//     e.g.: [all:revert, width:50px, height:100px]
+//             -> getPropertyValue("all") == ""
+//           [width:50px, height:100px, all:revert]
+//             -> getPropertyValue("all") == "revert"
+//           [width:50px, all:revert, height:100px]
+//             -> getPropertyValue("all") == ""
+//
+//   getPropertyValue(shorthand):
+//     Shorthands are handled within StylePropertySerializer and
+//     CSSPropertyValueSetForSerializer by accounting for the 'all' property.
+//     See the comments in
+//     CSSPropertyValueSetForSerializer::IsIndexInPropertySet() for further
+//     details.
+//     e.g.: [all:revert, overflow-x:hidden, overflow-y:auto]
+//             -> getPropertyValue("overflow") == "hidden auto"
+//           [overflow-x:hidden, overflow-y:auto, all:revert]
+//             -> getPropertyValue("overflow") == "revert"
+//           [overflow-x:hidden, all:revert, overflow-y:auto]
+//             -> getPropertyValue("overflow") == ""
+//
+//   getPropertyValue(longhand):
+//     Since 'all' is stored as a single entry instead of expanded into
+//     individual longhands, GetPropertyValue() in css_property_value_set.cc
+//     compares the order of appearance between 'all' and the longhand,
+//     returning the value of whichever appears later. If the longhand has
+//     no entry in the set, 'all's value is returned.
+//     e.g.: [all:revert, width:50px, height:100px]
+//             -> getPropertyValue("width") == "50px"
+//           [width:50px, height:100px, all:revert]
+//             -> getPropertyValue("width") == "revert"
+//           [all:revert, height:100px]
+//             -> getPropertyValue("width") == "revert"
+//
+//   HasAllField bit flag:
+//     A bit flag is used to quickly check for the presence of 'all' without
+//     performing a full search of the property set. It is set to true when
+//     'all' is added to the set and reset to false when the property is
+//     removed or the set is cleared.
 class CORE_EXPORT CSSPropertyValueSet
     : public GarbageCollected<CSSPropertyValueSet> {
   friend class PropertyReference;
@@ -55,45 +119,11 @@ class CORE_EXPORT CSSPropertyValueSet
 
   void FinalizeGarbageCollectedObject();
 
-  class PropertyReference {
-    STACK_ALLOCATED();
-
-   public:
-    PropertyReference(const CSSPropertyValueSet& property_set, unsigned index)
-        : property_set_(&property_set), index_(index) {}
-
-    CSSPropertyID Id() const {
-      return static_cast<CSSPropertyID>(PropertyMetadata().PropertyID());
-    }
-    CSSPropertyID ShorthandID() const {
-      return PropertyMetadata().ShorthandID();
-    }
-
-    CSSPropertyName Name() const { return PropertyMetadata().Name(); }
-
-    bool IsImportant() const { return PropertyMetadata().important_; }
-    bool IsImplicit() const { return PropertyMetadata().implicit_; }
-    bool IsAffectedByAll() const {
-      return Id() != CSSPropertyID::kVariable &&
-             CSSProperty::Get(Id()).IsAffectedByAll();
-    }
-
-    const CSSValue& Value() const { return PropertyValue(); }
-
-    const CSSPropertyValueMetadata& PropertyMetadata() const;
-
-   private:
-    const CSSValue& PropertyValue() const;
-
-    const CSSPropertyValueSet* property_set_;
-    unsigned index_;
-  };
-
   unsigned PropertyCount() const;
   bool IsEmpty() const;
-  PropertyReference PropertyAt(unsigned index) const {
-    return PropertyReference(*this, index);
-  }
+
+  const CSSPropertyValue& PropertyAt(unsigned index) const;
+  base::span<const CSSPropertyValue> Properties() const;
 
   template <typename T>  // CSSPropertyID or AtomicString
   int FindPropertyIndex(const T& property) const;
@@ -128,7 +158,7 @@ class CORE_EXPORT CSSPropertyValueSet
   bool IsPropertyImplicit(CSSPropertyID) const;
 
   CSSParserMode CssParserMode() const {
-    return static_cast<CSSParserMode>(css_parser_mode_);
+    return static_cast<CSSParserMode>(bits_.get<CSSParserModeField>());
   }
 
   MutableCSSPropertyValueSet* MutableCopy() const;
@@ -139,7 +169,52 @@ class CORE_EXPORT CSSPropertyValueSet
 
   String AsText() const;
 
-  bool IsMutable() const { return is_mutable_; }
+  bool IsMutable() const { return bits_.get<IsMutableField>(); }
+  bool ContainsCursorHand() const {
+    return bits_.get<ContainsCursorHandField>();
+  }
+
+  bool HasAllProperty() const { return bits_.get<HasAllField>(); }
+
+  // Computes a hash of the contents of this property value set
+  // (cached after first call). Note that hash equality may have
+  // false negatives (there is no guarantee that a.AsText() == b.AsText()
+  // implies a.GetHash() == b.GetHash()), because not all CSSValues are
+  // easily hashed and may fall back to using the pointer value.
+  //
+  // The hash value has a second task, namely to mark property sets that have
+  // been modified after we've stored them into the MPC
+  // (MatchedPropertiesCache). If you call GetHash() and then later modify the
+  // property set (in any way that would change the hash), all future calls to
+  // GetHash() for this object will return HashTraits<unsigned>::DeletedValue(),
+  // making them invalid for cache lookup uses. (This status can be reset if you
+  // clone the object, such as calling ImmutableCopyIfNeeded().) This protects
+  // the MPC from returning false positives when a mutable CSSPropertyValueSet
+  // has changed, such as for SVG objects' “direct update” of the presentation
+  // attribute style.
+  //
+  // Can never return HashTraits<unsigned>::EmptyValue() (it is used
+  // internally).
+  unsigned GetHash() const {
+    if (hash_ == HashTraits<unsigned>::EmptyValue()) {
+      hash_ = ComputeHash();
+    }
+    return hash_;
+  }
+  unsigned GetExistingHash() const {
+    DCHECK_NE(hash_, HashTraits<unsigned>::EmptyValue());
+    return hash_;
+  }
+  bool ModifiedSinceHashing() const {
+    return hash_ == HashTraits<unsigned>::DeletedValue();
+  }
+
+  bool Equals(const CSSPropertyValueSet& other) {
+    if (this == &other) {
+      return true;
+    }
+    return Properties() == other.Properties();
+  }
 
   bool HasFailedOrCanceledSubresources() const;
 
@@ -151,85 +226,115 @@ class CORE_EXPORT CSSPropertyValueSet
 
   bool PropertyMatches(CSSPropertyID, const CSSValue&) const;
 
+  // ShorthandPropertyMatches() returns true if the shorthand property
+  // serializes to the same text as the given style's value for that shorthand,
+  // which is a sufficient (but not necessary) condition for the two to be
+  // considered equivalent for cascade purposes.
+  bool ShorthandPropertyMatches(CSSPropertyID shorthand_id,
+                                const CSSPropertyValueSet& style) const;
+  bool ShorthandPropertyMatches(CSSPropertyID shorthand_id,
+                                const CSSStyleDeclaration& style) const;
+
   void Trace(Visitor*) const;
   void TraceAfterDispatch(blink::Visitor* visitor) const {}
 
  protected:
-  enum { kMaxArraySize = (1 << 28) - 1 };
+  static constexpr unsigned kMaxArraySize = (1 << 24) - 1;
 
   explicit CSSPropertyValueSet(CSSParserMode css_parser_mode)
-      : array_size_(0), css_parser_mode_(css_parser_mode), is_mutable_(true) {}
+      : bits_(ArraySizeField::encode(0) |
+              CSSParserModeField::encode(css_parser_mode) |
+              IsMutableField::encode(true) |
+              ContainsCursorHandField::encode(false)) {}
 
   CSSPropertyValueSet(CSSParserMode css_parser_mode,
-                      unsigned immutable_array_size)
+                      unsigned immutable_array_size,
+                      bool contains_cursor_hand)
       // Avoid min()/max() from std here in the header, because that would
       // require inclusion of <algorithm>, which is slow to compile.
-      : array_size_((immutable_array_size < unsigned(kMaxArraySize))
-                        ? immutable_array_size
-                        : unsigned(kMaxArraySize)),
-        css_parser_mode_(css_parser_mode),
-        is_mutable_(false) {}
+      : bits_(ArraySizeField::encode((immutable_array_size < kMaxArraySize)
+                                         ? immutable_array_size
+                                         : kMaxArraySize) |
+              CSSParserModeField::encode(css_parser_mode) |
+              IsMutableField::encode(false) |
+              ContainsCursorHandField::encode(contains_cursor_hand)) {}
 
-  const uint32_t array_size_ : 28;
-  const uint32_t css_parser_mode_ : 3;
-  const uint32_t is_mutable_ : 1;
+  unsigned ComputeHash() const;
+
+  // Trace() branches on is_mutable_,
+  // other member functions modify may_have_logical_properties_,
+  // and these could happen concurrently. This trips up TSan,
+  // even though the race is benign, so use an atomic read
+  // instead of C++ bitfields.
+  using BitField = ConcurrentlyReadBitField<uint32_t>;
+  using ArraySizeField =
+      BitField::DefineFirstValue<uint32_t, 24>;  // Only for immutable sets.
+  using CSSParserModeField = ArraySizeField::DefineNextValue<uint32_t, 4>;
+  using IsMutableField = CSSParserModeField::DefineNextValue<bool, 1>;
+  using ContainsCursorHandField = IsMutableField::DefineNextValue<bool, 1>;
+  using MayHaveLogicalPropertiesField =
+      ContainsCursorHandField::DefineNextValue<bool,
+                                               1>;  // Only for mutable sets.
+  using HasAllField = MayHaveLogicalPropertiesField::DefineNextValue<bool, 1>;
+  BitField bits_;
+
+  // EmptyValue() means “not computed yet”. DeletedValue() means “invalid”
+  // (see GetHash()).
+  mutable unsigned hash_ = HashTraits<unsigned>::EmptyValue();
 
   friend class PropertySetCSSStyleDeclaration;
 };
 
-// Used for lazily parsing properties.
-class CSSLazyPropertyParser : public GarbageCollected<CSSLazyPropertyParser> {
+class CORE_EXPORT alignas(CSSPropertyName) ImmutableCSSPropertyValueSet
+    : public CSSPropertyValueSet {
  public:
-  CSSLazyPropertyParser() = default;
-  CSSLazyPropertyParser(const CSSLazyPropertyParser&) = delete;
-  CSSLazyPropertyParser& operator=(const CSSLazyPropertyParser&) = delete;
-  virtual ~CSSLazyPropertyParser() = default;
-  virtual CSSPropertyValueSet* ParseProperties() = 0;
-  virtual void Trace(Visitor*) const;
-};
+  // The value and metadata arrays are allocated in-line with the containing
+  // ImmutableCSSPropertyValueSet. In order to guarantee safety when accessing
+  // those arrays, we must ensure that ImmutableCSSPropertyValueSet can only
+  // be constructed via the Create() method, which allocates the correct amount
+  // of space.
+  using PassKey = base::PassKey<ImmutableCSSPropertyValueSet>;
+  ImmutableCSSPropertyValueSet(PassKey,
+                               base::span<const CSSPropertyValue>,
+                               CSSParserMode,
+                               bool contains_cursor_hand = false);
 
-class CORE_EXPORT ALIGNAS(std::max(alignof(Member<const CSSValue>),
-                                   alignof(CSSPropertyValueMetadata)))
-    ImmutableCSSPropertyValueSet : public CSSPropertyValueSet {
- public:
-  ImmutableCSSPropertyValueSet(const CSSPropertyValue*,
-                               unsigned count,
-                               CSSParserMode);
+  static ImmutableCSSPropertyValueSet* Create(
+      base::span<const CSSPropertyValue>,
+      CSSParserMode,
+      bool contains_cursor_hand = false);
 
-  static ImmutableCSSPropertyValueSet*
-  Create(const CSSPropertyValue* properties, unsigned count, CSSParserMode);
+  unsigned PropertyCount() const { return bits_.get<ArraySizeField>(); }
 
-  unsigned PropertyCount() const { return array_size_; }
-
-  const Member<const CSSValue>* ValueArray() const;
-  const CSSPropertyValueMetadata* MetadataArray() const;
+  base::span<const CSSPropertyValue> Properties() const;
 
   template <typename T>  // CSSPropertyID or AtomicString
   int FindPropertyIndex(const T& property) const;
 
   void TraceAfterDispatch(blink::Visitor*) const;
+
+ private:
+  const CSSPropertyValue* ArrayBase() const;
 };
 
-inline const Member<const CSSValue>* ImmutableCSSPropertyValueSet::ValueArray()
-    const {
+inline const CSSPropertyValue* ImmutableCSSPropertyValueSet::ArrayBase() const {
   static_assert(
-      sizeof(ImmutableCSSPropertyValueSet) % alignof(Member<const CSSValue>) ==
-          0,
+      sizeof(ImmutableCSSPropertyValueSet) % alignof(CSSPropertyName) == 0,
       "ValueArray may be improperly aligned");
-  return reinterpret_cast<const Member<const CSSValue>*>(this + 1);
+  // SAFETY: By funneling all allocation of ImmutableCSSPropertyValueSet through
+  // Create(), we guarantee that the array will exist where we expect it.
+  CHECK_GT(bits_.get<ArraySizeField>(), 0u);
+  return UNSAFE_BUFFERS(reinterpret_cast<const CSSPropertyValue*>(this + 1));
 }
 
-inline const CSSPropertyValueMetadata*
-ImmutableCSSPropertyValueSet::MetadataArray() const {
-  static_assert(sizeof(ImmutableCSSPropertyValueSet) %
-                        alignof(CSSPropertyValueMetadata) ==
-                    0,
-                "MetadataArray may be improperly aligned");
-  // Size of Member<> can be smaller than that of CSSPropertyValueMetadata.
-  // Align it up.
-  return reinterpret_cast<const CSSPropertyValueMetadata*>(base::bits::AlignUp(
-      reinterpret_cast<const uint8_t*>(ValueArray() + array_size_),
-      alignof(CSSPropertyValueMetadata)));
+inline base::span<const CSSPropertyValue>
+ImmutableCSSPropertyValueSet::Properties() const {
+  if (bits_.get<ArraySizeField>() == 0) {
+    return base::span<CSSPropertyValue>();
+  }
+  // SAFETY: By funneling all allocation of ImmutableCSSPropertyValueSet through
+  // Create(), we guarantee that the array will have the size we expect.
+  return UNSAFE_BUFFERS(base::span(ArrayBase(), bits_.get<ArraySizeField>()));
 }
 
 template <>
@@ -243,11 +348,14 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
  public:
   explicit MutableCSSPropertyValueSet(CSSParserMode);
   explicit MutableCSSPropertyValueSet(const CSSPropertyValueSet&);
-  MutableCSSPropertyValueSet(const CSSPropertyValue* properties,
-                             unsigned count);
+  explicit MutableCSSPropertyValueSet(
+      base::span<const CSSPropertyValue> properties);
   ~MutableCSSPropertyValueSet() = default;
 
   unsigned PropertyCount() const { return property_vector_.size(); }
+  const HeapVector<CSSPropertyValue, 4>& Properties() const {
+    return property_vector_;
+  }
 
   enum SetResult {
     // The value failed to parse correctly, and thus, there was no change.
@@ -269,7 +377,7 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
 
   // Wrapper around SetLonghandProperty() for setting multiple properties
   // at a time.
-  SetResult AddParsedProperties(const HeapVector<CSSPropertyValue, 64>&);
+  SetResult AddParsedProperties(base::span<CSSPropertyValue>);
 
   // Wrapper around SetLonghandProperty() that does nothing if the same property
   // already exists with an !important declaration.
@@ -323,9 +431,18 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
 
   template <typename T>  // CSSPropertyID or AtomicString
   bool RemoveProperty(const T& property, String* return_text = nullptr);
-  bool RemovePropertiesInSet(const CSSProperty* const set[], unsigned length);
+  bool RemovePropertiesInSet(base::span<const CSSProperty* const> set);
+  bool RemovePropertiesAffectedByAll();
+  // TODO (crbug.com/488310961): We may want to refactor these functions
+  // including the logic about shorthand.
   void RemoveEquivalentProperties(const CSSPropertyValueSet*);
   void RemoveEquivalentProperties(const CSSStyleDeclaration*);
+  // Instead of comparing isolated longhand properties,
+  // RemoveEquivalentPropertiesPreservingShorthands evaluates a serialized
+  // shorthand so it's only removed if all its associated longhand properties
+  // are equivalent.
+  void RemoveEquivalentPropertiesPreservingShorthands(
+      const CSSStyleDeclaration*);
 
   void MergeAndOverrideOnConflict(const CSSPropertyValueSet*);
 
@@ -361,12 +478,18 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
     return false;
   }
   CSSPropertyValue* FindCSSPropertyWithName(const CSSPropertyName&);
+
+  void InvalidateHashIfComputed() {
+    if (hash_ != HashTraits<unsigned>::EmptyValue()) {
+      hash_ = HashTraits<unsigned>::DeletedValue();
+    }
+  }
+
   Member<PropertySetCSSStyleDeclaration> cssom_wrapper_;
 
   friend class CSSPropertyValueSet;
 
   HeapVector<CSSPropertyValue, 4> property_vector_;
-  bool may_have_logical_properties_{false};
 };
 
 template <>
@@ -376,23 +499,22 @@ struct DowncastTraits<MutableCSSPropertyValueSet> {
   }
 };
 
-inline const CSSPropertyValueMetadata&
-CSSPropertyValueSet::PropertyReference::PropertyMetadata() const {
+inline const CSSPropertyValue& CSSPropertyValueSet::PropertyAt(
+    unsigned index) const {
   if (auto* mutable_property_set =
-          DynamicTo<MutableCSSPropertyValueSet>(property_set_)) {
-    return mutable_property_set->property_vector_.at(index_).Metadata();
+          DynamicTo<MutableCSSPropertyValueSet>(this)) {
+    return mutable_property_set->property_vector_.at(index);
   }
-  return To<ImmutableCSSPropertyValueSet>(*property_set_)
-      .MetadataArray()[index_];
+  return To<ImmutableCSSPropertyValueSet>(*this).Properties()[index];
 }
 
-inline const CSSValue& CSSPropertyValueSet::PropertyReference::PropertyValue()
+inline base::span<const CSSPropertyValue> CSSPropertyValueSet::Properties()
     const {
   if (auto* mutable_property_set =
-          DynamicTo<MutableCSSPropertyValueSet>(property_set_)) {
-    return *mutable_property_set->property_vector_.at(index_).Value();
+          DynamicTo<MutableCSSPropertyValueSet>(this)) {
+    return mutable_property_set->Properties();
   }
-  return *To<ImmutableCSSPropertyValueSet>(*property_set_).ValueArray()[index_];
+  return To<ImmutableCSSPropertyValueSet>(*this).Properties();
 }
 
 inline unsigned CSSPropertyValueSet::PropertyCount() const {
@@ -400,7 +522,7 @@ inline unsigned CSSPropertyValueSet::PropertyCount() const {
           DynamicTo<MutableCSSPropertyValueSet>(this)) {
     return mutable_property_set->property_vector_.size();
   }
-  return array_size_;
+  return bits_.get<ArraySizeField>();
 }
 
 inline bool CSSPropertyValueSet::IsEmpty() const {

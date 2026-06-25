@@ -28,12 +28,14 @@ class MockScriptElementBase : public GarbageCollected<MockScriptElementBase>,
   MOCK_CONST_METHOD0(EventAttributeValue, String());
   MOCK_CONST_METHOD0(ForAttributeValue, String());
   MOCK_CONST_METHOD0(IntegrityAttributeValue, String());
+  MOCK_CONST_METHOD0(SignatureAttributeValue, String());
   MOCK_CONST_METHOD0(ReferrerPolicyAttributeValue, String());
   MOCK_CONST_METHOD0(FetchPriorityAttributeValue, String());
   MOCK_CONST_METHOD0(LanguageAttributeValue, String());
   MOCK_CONST_METHOD0(NomoduleAttributeValue, bool());
   MOCK_CONST_METHOD0(SourceAttributeValue, String());
   MOCK_CONST_METHOD0(TypeAttributeValue, String());
+  MOCK_CONST_METHOD0(CacheHintAttributeValue, String());
   MOCK_METHOD0(ChildTextContent, String());
   MOCK_CONST_METHOD0(ScriptTextInternalSlot, String());
   MOCK_CONST_METHOD0(HasSourceAttribute, bool());
@@ -45,9 +47,7 @@ class MockScriptElementBase : public GarbageCollected<MockScriptElementBase>,
   MOCK_CONST_METHOD0(InitiatorName, AtomicString());
   MOCK_CONST_METHOD0(IsPotentiallyRenderBlocking, bool());
   MOCK_METHOD3(AllowInlineScriptForCSP,
-               bool(const AtomicString&,
-                    const WTF::OrdinalNumber&,
-                    const String&));
+               bool(const AtomicString&, const OrdinalNumber&, const String&));
   MOCK_CONST_METHOD0(GetDocument, Document&());
   MOCK_CONST_METHOD0(GetExecutionContext, ExecutionContext*());
   MOCK_METHOD0(AsV8HTMLOrSVGScriptElement, V8HTMLOrSVGScriptElement*());

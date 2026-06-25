@@ -1,35 +1,5 @@
-/* ----------------------------------------------------------------------- *
- *
- *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
- *   See the file AUTHORS included with the NASM distribution for
- *   the specific copyright holders.
- *
- *   Redistribution and use in source and binary forms, with or without
- *   modification, are permitted provided that the following
- *   conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above
- *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
- *
- *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
- *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- *     MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- *     DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- *     CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- *     SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- *     NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- *     LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- *     HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *     CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- *     OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- *     EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * ----------------------------------------------------------------------- */
+/* SPDX-License-Identifier: BSD-2-Clause */
+/* Copyright 1996-2018 The NASM Authors - All Rights Reserved */
 
 #ifndef OUTPUT_ELF_H
 #define OUTPUT_ELF_H
@@ -88,9 +58,9 @@
 #define EM_X86_64	62
 #define EM_CRIS		76
 #define EM_V850		87
-#define EM_ALPHA	0x9026	/* Interrim Alpha that stuck around */
+#define EM_ALPHA	0x9026	/* Interim Alpha that stuck around */
 #define EM_CYGNUS_V850	0x9080	/* Old v850 ID used by Cygnus */
-#define EM_S390_OLD	0xA390	/* Obsolete interrim value for S/390 */
+#define EM_S390_OLD	0xA390	/* Obsolete interim value for S/390 */
 
 /* Dynamic type values */
 #define DT_NULL		0
@@ -120,7 +90,7 @@
 #define DT_LOPROC	0x70000000
 #define DT_HIPROC	0x7fffffff
 
-/* Auxilliary table entries */
+/* Auxiliary table entries */
 #define AT_NULL		0	/* end of vector */
 #define AT_IGNORE	1	/* entry should be ignored */
 #define AT_EXECFD	2	/* file descriptor of program */
@@ -205,7 +175,7 @@
 /* Section align flag */
 #define SHA_ANY		1	/* No alignment constraint */
 
-/* Lenght of magic at the start of a file */
+/* Length of magic at the start of a file */
 #define EI_NIDENT	16
 
 /* Magic number constants... */

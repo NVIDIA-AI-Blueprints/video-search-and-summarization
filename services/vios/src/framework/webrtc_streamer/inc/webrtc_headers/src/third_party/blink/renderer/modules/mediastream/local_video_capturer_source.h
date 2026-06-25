@@ -9,13 +9,14 @@
 #include <string>
 
 #include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/token.h"
 #include "base/unguessable_token.h"
 #include "media/capture/video_capture_types.h"
-#include "third_party/blink/public/common/media/video_capture.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
+#include "third_party/blink/public/platform/media/video_capture.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/video_capture/video_capturer_source.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -53,14 +54,12 @@ class MODULES_EXPORT LocalVideoCapturerSource : public VideoCapturerSource {
   // VideoCaptureSource Implementation.
   media::VideoCaptureFormats GetPreferredFormats() override;
   void StartCapture(const media::VideoCaptureParams& params,
-                    const VideoCaptureDeliverFrameCB& new_frame_callback,
-                    const VideoCaptureCropVersionCB& crop_version_callback,
-                    const RunningCallback& running_callback) override;
+                    VideoCaptureCallbacks video_capture_callbacks,
+                    VideoCaptureRunningCallbackCB running_callback) override;
   void RequestRefreshFrame() override;
   void MaybeSuspend() override;
   void Resume() override;
   void StopCapture() override;
-  void OnFrameDropped(media::VideoCaptureFrameDropReason reason) override;
   void OnLog(const std::string& message) override;
   media::VideoCaptureFeedbackCB GetFeedbackCallback() const override;
 
@@ -70,7 +69,7 @@ class MODULES_EXPORT LocalVideoCapturerSource : public VideoCapturerSource {
   // |session_id_| identifies the capture device used for this capture session.
   const media::VideoCaptureSessionId session_id_;
 
-  WebVideoCaptureImplManager* const manager_;
+  const raw_ptr<WebVideoCaptureImplManager> manager_;
 
   LocalFrameToken frame_token_;
   base::OnceClosure release_device_cb_;
@@ -78,7 +77,7 @@ class MODULES_EXPORT LocalVideoCapturerSource : public VideoCapturerSource {
   // These two are valid between StartCapture() and StopCapture().
   // |running_call_back_| is run when capture is successfully started, and when
   // it is stopped or error happens.
-  RunningCallback running_callback_;
+  VideoCaptureRunningCallbackCB running_callback_;
   base::OnceClosure stop_capture_cb_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;

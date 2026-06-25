@@ -7,14 +7,17 @@
  * license agreement from NVIDIA CORPORATION is strictly prohibited.
  */
 
-#ifndef API_VIDEO_CODECS_VIDEO_ENCODER_FACTORY_TEMPLATE_LIBNV_ADAPTER_H_
-#define API_VIDEO_CODECS_VIDEO_ENCODER_FACTORY_TEMPLATE_LIBNV_ADAPTER_H_
+#ifndef API_VIDEO_CODECS_VIDEO_ENCODER_FACTORY_TEMPLATE_LIBNV_PASSTHROUGH_ADAPTER_H_
+#define API_VIDEO_CODECS_VIDEO_ENCODER_FACTORY_TEMPLATE_LIBNV_PASSTHROUGH_ADAPTER_H_
 
 #include <memory>
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "api/environment/environment.h"
+#include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/sdp_video_format.h"
+#include "media/base/media_constants.h"
 #include "modules/video_coding/codecs/nvidia/libnv_passthrough_encoder.h"
 
 namespace webrtc {
@@ -35,14 +38,14 @@ struct LibNvPassthroughVideoEncoderTemplateAdapter {
     {
         supported_codecs.push_back(format);
     }
-#ifndef DISABLE_H265
-    supported_codecs.push_back(SdpVideoFormat(cricket::kH265CodecName));
-#endif
+    supported_codecs.push_back(SdpVideoFormat(webrtc::kH265CodecName));
     return supported_codecs;
   }
 
   static std::unique_ptr<VideoEncoder> CreateEncoder(
+      const Environment& env,
       const SdpVideoFormat& format) {
+    (void)env;
     std::unique_ptr<VideoEncoder> nvEncoder = nullptr;
     if (IsFormatSupported (SupportedFormats(), format))
     {
@@ -57,5 +60,5 @@ struct LibNvPassthroughVideoEncoderTemplateAdapter {
 };
 }  // namespace webrtc
 
-#endif  // API_VIDEO_CODECS_VIDEO_ENCODER_FACTORY_TEMPLATE_LIBNV_ADAPTER_H_
+#endif  // API_VIDEO_CODECS_VIDEO_ENCODER_FACTORY_TEMPLATE_LIBNV_PASSTHROUGH_ADAPTER_H_
 

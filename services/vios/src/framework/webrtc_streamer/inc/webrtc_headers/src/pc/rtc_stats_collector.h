@@ -16,52 +16,85 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "absl/functional/any_invocable.h"
+#include "api/audio/audio_device.h"
 #include "api/data_channel_interface.h"
+#include "api/environment/environment.h"
 #include "api/media_types.h"
+#include "api/rtp_parameters.h"
+#include "api/rtp_transceiver_direction.h"
 #include "api/scoped_refptr.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtc_stats_report.h"
-#include "api/stats/rtcstats_objects.h"
+#include "api/task_queue/pending_task_safety_flag.h"
+#include "api/task_queue/task_queue_base.h"
+#include "api/units/timestamp.h"
 #include "call/call.h"
 #include "media/base/media_channel.h"
-#include "modules/audio_device/include/audio_device.h"
 #include "pc/data_channel_utils.h"
 #include "pc/peer_connection_internal.h"
 #include "pc/rtp_receiver.h"
 #include "pc/rtp_sender.h"
 #include "pc/rtp_transceiver.h"
-#include "pc/sctp_data_channel.h"
 #include "pc/track_media_info_map.h"
 #include "pc/transport_stats.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/containers/flat_set.h"
-#include "rtc_base/event.h"
-#include "rtc_base/ref_count.h"
 #include "rtc_base/ssl_certificate.h"
-#include "rtc_base/ssl_identity.h"
-#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/thread_annotations.h"
 #include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
 class RtpSenderInternal;
 class RtpReceiverInternal;
+class ScopedOperationsBatcher;
+
+// Structure for tracking stats about each RtpTransceiver managed by the
+// PeerConnection. This can either by a Plan B style or Unified Plan style
+// transceiver (i.e., can have 0 or many senders and receivers).
+// Some fields are copied from the RtpTransceiver/BaseChannel object so that
+// they can be accessed safely on threads other than the signaling thread.
+// If a BaseChannel is not available (e.g., if signaling has not started),
+// then `mid` and `transport_name` will be null.
+struct RtpTransceiverStatsInfo {
+  const MediaType media_type;
+  const std::optional<std::string> mid;
+  std::optional<std::string> transport_name;
+  std::vector<TrackMediaInfoMap::RtpSenderSignalInfo> sender_infos;
+  std::vector<TrackMediaInfoMap::RtpReceiverSignalInfo> receiver_infos;
+  std::unique_ptr<TrackMediaInfoMap> track_media_info_map;
+  const std::optional<RtpTransceiverDirection> current_direction;
+  bool has_receivers = false;
+  const bool has_channel;
+};
+
+// References to objects used on the signaling and worker threads for populating
+// RtpTransceiverStatsInfo but must always be released on the signaling thread
+struct TransceiverReferences {
+  scoped_refptr<RtpTransceiver> transceiver;
+  std::vector<scoped_refptr<RtpReceiverInternal>> receivers;
+  absl::AnyInvocable<std::optional<VoiceMediaSendInfo>()> get_send_stats_voice;
+  absl::AnyInvocable<std::optional<VideoMediaSendInfo>()> get_send_stats_video;
+  absl::AnyInvocable<std::optional<VoiceMediaReceiveInfo>()>
+      get_receive_stats_voice;
+  absl::AnyInvocable<std::optional<VideoMediaReceiveInfo>()>
+      get_receive_stats_video;
+  absl::AnyInvocable<RtpParameters(uint32_t ssrc)> get_send_parameters;
+};
 
 // All public methods of the collector are to be called on the signaling thread.
 // Stats are gathered on the signaling, worker and network threads
 // asynchronously. The callback is invoked on the signaling thread. Resulting
 // reports are cached for `cache_lifetime_` ms.
-class RTCStatsCollector : public rtc::RefCountInterface {
+class RTCStatsCollector {
  public:
-  static rtc::scoped_refptr<RTCStatsCollector> Create(
-      PeerConnectionInternal* pc,
-      int64_t cache_lifetime_us = 50 * rtc::kNumMicrosecsPerMillisec);
-
   // Gets a recent stats report. If there is a report cached that is still fresh
   // it is returned, otherwise new stats are gathered and returned. A report is
   // considered fresh for `cache_lifetime_` ms. const RTCStatsReports are safe
@@ -69,15 +102,15 @@ class RTCStatsCollector : public rtc::RefCountInterface {
   // If the optional selector argument is used, stats are filtered according to
   // stats selection algorithm before delivery.
   // https://w3c.github.io/webrtc-pc/#dfn-stats-selection-algorithm
-  void GetStatsReport(rtc::scoped_refptr<RTCStatsCollectorCallback> callback);
+  void GetStatsReport(scoped_refptr<RTCStatsCollectorCallback> callback);
   // If `selector` is null the selection algorithm is still applied (interpreted
   // as: no RTP streams are sent by selector). The result is empty.
-  void GetStatsReport(rtc::scoped_refptr<RtpSenderInternal> selector,
-                      rtc::scoped_refptr<RTCStatsCollectorCallback> callback);
+  void GetStatsReport(scoped_refptr<RtpSenderInternal> selector,
+                      scoped_refptr<RTCStatsCollectorCallback> callback);
   // If `selector` is null the selection algorithm is still applied (interpreted
   // as: no RTP streams are received by selector). The result is empty.
-  void GetStatsReport(rtc::scoped_refptr<RtpReceiverInternal> selector,
-                      rtc::scoped_refptr<RTCStatsCollectorCallback> callback);
+  void GetStatsReport(scoped_refptr<RtpReceiverInternal> selector,
+                      scoped_refptr<RTCStatsCollectorCallback> callback);
   // Clears the cache's reference to the most recent stats report. Subsequently
   // calling `GetStatsReport` guarantees fresh stats. This method must be called
   // any time the PeerConnection visibly changes as a result of an API call as
@@ -86,21 +119,28 @@ class RTCStatsCollector : public rtc::RefCountInterface {
   // and it must be called any time negotiation happens.
   void ClearCachedStatsReport();
 
-  // If there is a `GetStatsReport` requests in-flight, waits until it has been
-  // completed. Must be called on the signaling thread.
-  void WaitForPendingRequest();
+  // Cancels pending stats gathering operations and prepares for shutdown.
+  // This method adds tasks that the caller needs to make sure is executed
+  // on the worker and network threads before the RTCStatsCollector instance is
+  // deleted.
+  void CancelPendingRequestAndGetShutdownTasks(
+      ScopedOperationsBatcher& network_tasks,
+      ScopedOperationsBatcher& worker_tasks);
 
   // Called by the PeerConnection instance when data channel states change.
   void OnSctpDataChannelStateChanged(int channel_id,
                                      DataChannelInterface::DataState state);
 
- protected:
-  RTCStatsCollector(PeerConnectionInternal* pc, int64_t cache_lifetime_us);
-  ~RTCStatsCollector();
+  virtual ~RTCStatsCollector();
 
+  RTCStatsCollector(PeerConnectionInternal* pc,
+                    const Environment& env,
+                    int64_t cache_lifetime_us = 50 * kNumMicrosecsPerMillisec);
+
+ protected:
   struct CertificateStatsPair {
-    std::unique_ptr<rtc::SSLCertificateStats> local;
-    std::unique_ptr<rtc::SSLCertificateStats> remote;
+    std::unique_ptr<SSLCertificateStats> local;
+    std::unique_ptr<SSLCertificateStats> remote;
 
     CertificateStatsPair Copy() const;
   };
@@ -108,192 +148,185 @@ class RTCStatsCollector : public rtc::RefCountInterface {
   // Stats gathering on a particular thread. Virtual for the sake of testing.
   virtual void ProducePartialResultsOnSignalingThreadImpl(
       Timestamp timestamp,
+      const std::vector<RtpTransceiverStatsInfo>& transceiver_stats_infos,
+      const std::vector<TransceiverReferences>& transceiver_references,
+      const std::optional<AudioDeviceModule::Stats>& audio_device_stats,
       RTCStatsReport* partial_report);
-  virtual void ProducePartialResultsOnNetworkThreadImpl(
+
+  void ProcessResultsFromNetworkThread(
       Timestamp timestamp,
-      const std::map<std::string, cricket::TransportStats>&
-          transport_stats_by_name,
-      const std::map<std::string, CertificateStatsPair>& transport_cert_stats,
+      std::map<std::string, TransportStats> transport_stats_by_name,
+      std::map<std::string, CertificateStatsPair> transport_cert_stats,
+      std::vector<RtpTransceiverStatsInfo> transceiver_stats_infos,
+      Call::Stats call_stats,
+      std::optional<AudioDeviceModule::Stats> audio_device_stats,
       RTCStatsReport* partial_report);
 
  private:
+  struct StatsGatheringResults {
+    std::vector<RtpTransceiverStatsInfo> transceiver_stats_infos;
+    Call::Stats call_stats;
+    std::optional<AudioDeviceModule::Stats> audio_device_stats;
+  };
+
+  struct WorkerThreadResult {
+    StatsGatheringResults results;
+    std::vector<std::vector<RtpParameters>> sender_parameters;
+    std::vector<TransceiverReferences> transceiver_references;
+  };
+  struct CollectionContext;
   class RequestInfo {
    public:
     enum class FilterMode { kAll, kSenderSelector, kReceiverSelector };
 
     // Constructs with FilterMode::kAll.
-    explicit RequestInfo(
-        rtc::scoped_refptr<RTCStatsCollectorCallback> callback);
+    explicit RequestInfo(scoped_refptr<RTCStatsCollectorCallback> callback);
     // Constructs with FilterMode::kSenderSelector. The selection algorithm is
     // applied even if `selector` is null, resulting in an empty report.
-    RequestInfo(rtc::scoped_refptr<RtpSenderInternal> selector,
-                rtc::scoped_refptr<RTCStatsCollectorCallback> callback);
+    RequestInfo(scoped_refptr<RtpSenderInternal> selector,
+                scoped_refptr<RTCStatsCollectorCallback> callback);
     // Constructs with FilterMode::kReceiverSelector. The selection algorithm is
     // applied even if `selector` is null, resulting in an empty report.
-    RequestInfo(rtc::scoped_refptr<RtpReceiverInternal> selector,
-                rtc::scoped_refptr<RTCStatsCollectorCallback> callback);
+    RequestInfo(scoped_refptr<RtpReceiverInternal> selector,
+                scoped_refptr<RTCStatsCollectorCallback> callback);
 
     FilterMode filter_mode() const { return filter_mode_; }
-    rtc::scoped_refptr<RTCStatsCollectorCallback> callback() const {
+    scoped_refptr<RTCStatsCollectorCallback> callback() const {
       return callback_;
     }
-    rtc::scoped_refptr<RtpSenderInternal> sender_selector() const {
+    scoped_refptr<RtpSenderInternal> sender_selector() const {
       RTC_DCHECK(filter_mode_ == FilterMode::kSenderSelector);
       return sender_selector_;
     }
-    rtc::scoped_refptr<RtpReceiverInternal> receiver_selector() const {
+    scoped_refptr<RtpReceiverInternal> receiver_selector() const {
       RTC_DCHECK(filter_mode_ == FilterMode::kReceiverSelector);
       return receiver_selector_;
     }
 
    private:
     RequestInfo(FilterMode filter_mode,
-                rtc::scoped_refptr<RTCStatsCollectorCallback> callback,
-                rtc::scoped_refptr<RtpSenderInternal> sender_selector,
-                rtc::scoped_refptr<RtpReceiverInternal> receiver_selector);
+                scoped_refptr<RTCStatsCollectorCallback> callback,
+                scoped_refptr<RtpSenderInternal> sender_selector,
+                scoped_refptr<RtpReceiverInternal> receiver_selector);
 
     FilterMode filter_mode_;
-    rtc::scoped_refptr<RTCStatsCollectorCallback> callback_;
-    rtc::scoped_refptr<RtpSenderInternal> sender_selector_;
-    rtc::scoped_refptr<RtpReceiverInternal> receiver_selector_;
+    scoped_refptr<RTCStatsCollectorCallback> callback_;
+    scoped_refptr<RtpSenderInternal> sender_selector_;
+    scoped_refptr<RtpReceiverInternal> receiver_selector_;
   };
 
   void GetStatsReportInternal(RequestInfo request);
 
-  // Structure for tracking stats about each RtpTransceiver managed by the
-  // PeerConnection. This can either by a Plan B style or Unified Plan style
-  // transceiver (i.e., can have 0 or many senders and receivers).
-  // Some fields are copied from the RtpTransceiver/BaseChannel object so that
-  // they can be accessed safely on threads other than the signaling thread.
-  // If a BaseChannel is not available (e.g., if signaling has not started),
-  // then `mid` and `transport_name` will be null.
-  struct RtpTransceiverStatsInfo {
-    rtc::scoped_refptr<RtpTransceiver> transceiver;
-    cricket::MediaType media_type;
-    absl::optional<std::string> mid;
-    absl::optional<std::string> transport_name;
-    TrackMediaInfoMap track_media_info_map;
-    absl::optional<RtpTransceiverDirection> current_direction;
-  };
-
-  void DeliverCachedReport(
-      rtc::scoped_refptr<const RTCStatsReport> cached_report,
-      std::vector<RequestInfo> requests);
+  // Invokes the completion callback for a pending request.
+  void DeliverReport(const RequestInfo& request,
+                     const scoped_refptr<const RTCStatsReport>& report);
 
   // Produces `RTCCertificateStats`.
-  void ProduceCertificateStats_n(
+  void ProduceCertificateStats_s(
       Timestamp timestamp,
       const std::map<std::string, CertificateStatsPair>& transport_cert_stats,
       RTCStatsReport* report) const;
   // Produces `RTCDataChannelStats`.
-  void ProduceDataChannelStats_n(Timestamp timestamp,
-                                 RTCStatsReport* report) const;
-  // Produces `RTCIceCandidatePairStats` and `RTCIceCandidateStats`.
-  void ProduceIceCandidateAndPairStats_n(
+  void ProduceDataChannelStats_s(
       Timestamp timestamp,
-      const std::map<std::string, cricket::TransportStats>&
-          transport_stats_by_name,
+      const std::vector<DataChannelStats>& data_channel_stats,
+      RTCStatsReport* report) const;
+  // Produces `RTCIceCandidatePairStats` and `RTCIceCandidateStats`.
+  void ProduceIceCandidateAndPairStats_s(
+      Timestamp timestamp,
+      const std::map<std::string, TransportStats>& transport_stats_by_name,
       const Call::Stats& call_stats,
       RTCStatsReport* report) const;
   // Produces RTCMediaSourceStats, including RTCAudioSourceStats and
   // RTCVideoSourceStats.
-  void ProduceMediaSourceStats_s(Timestamp timestamp,
-                                 RTCStatsReport* report) const;
+  void ProduceMediaSourceStats_s(
+      Timestamp timestamp,
+      const std::vector<RtpTransceiverStatsInfo>& transceiver_stats_infos,
+      const std::vector<TransceiverReferences>& transceiver_references,
+      RTCStatsReport* report) const;
   // Produces `RTCPeerConnectionStats`.
   void ProducePeerConnectionStats_s(Timestamp timestamp,
                                     RTCStatsReport* report) const;
   // Produces `RTCAudioPlayoutStats`.
-  void ProduceAudioPlayoutStats_s(Timestamp timestamp,
-                                  RTCStatsReport* report) const;
+  void ProduceAudioPlayoutStats_s(
+      Timestamp timestamp,
+      const std::optional<AudioDeviceModule::Stats>& audio_device_stats,
+      RTCStatsReport* report) const;
   // Produces `RTCInboundRtpStreamStats`, `RTCOutboundRtpStreamStats`,
   // `RTCRemoteInboundRtpStreamStats`, `RTCRemoteOutboundRtpStreamStats` and any
   // referenced `RTCCodecStats`. This has to be invoked after transport stats
   // have been created because some metrics are calculated through lookup of
   // other metrics.
-  void ProduceRTPStreamStats_n(
+  void ProduceRTPStreamStats_s(
       Timestamp timestamp,
       const std::vector<RtpTransceiverStatsInfo>& transceiver_stats_infos,
+      const Call::Stats& call_stats,
+      const std::optional<AudioDeviceModule::Stats>& audio_device_stats,
       RTCStatsReport* report) const;
-  void ProduceAudioRTPStreamStats_n(Timestamp timestamp,
+  void ProduceAudioRTPStreamStats_s(
+      Timestamp timestamp,
+      const RtpTransceiverStatsInfo& stats,
+      const Call::Stats& call_stats,
+      const std::optional<AudioDeviceModule::Stats>& audio_device_stats,
+      RTCStatsReport* report) const;
+  void ProduceVideoRTPStreamStats_s(Timestamp timestamp,
                                     const RtpTransceiverStatsInfo& stats,
-                                    RTCStatsReport* report) const;
-  void ProduceVideoRTPStreamStats_n(Timestamp timestamp,
-                                    const RtpTransceiverStatsInfo& stats,
+                                    const Call::Stats& call_stats,
                                     RTCStatsReport* report) const;
   // Produces `RTCTransportStats`.
-  void ProduceTransportStats_n(
+  void ProduceTransportStats_s(
       Timestamp timestamp,
-      const std::map<std::string, cricket::TransportStats>&
-          transport_stats_by_name,
+      const std::map<std::string, TransportStats>& transport_stats_by_name,
       const std::map<std::string, CertificateStatsPair>& transport_cert_stats,
+      const Call::Stats& call_stats,
       RTCStatsReport* report) const;
 
   // Helper function to stats-producing functions.
   std::map<std::string, CertificateStatsPair>
   PrepareTransportCertificateStats_n(
-      const std::map<std::string, cricket::TransportStats>&
-          transport_stats_by_name);
+      const std::map<std::string, TransportStats>& transport_stats_by_name);
   // The results are stored in `transceiver_stats_infos_` and `call_stats_`.
-  void PrepareTransceiverStatsInfosAndCallStats_s_w_n();
+  // Prepares the transceiver stats infos and call stats.
+  // Returns a callback that should be executed on the worker thread to populate
+  // the stats.
+  absl::AnyInvocable<WorkerThreadResult()>
+  PrepareTransceiverStatsInfosAndCallStats_s_w();
 
   // Stats gathering on a particular thread.
-  void ProducePartialResultsOnSignalingThread(Timestamp timestamp);
+  void ProducePartialResultsOnSignalingThread(
+      const std::vector<RtpTransceiverStatsInfo>& transceiver_stats_infos,
+      const std::vector<TransceiverReferences>& transceiver_references,
+      const std::optional<AudioDeviceModule::Stats>& audio_device_stats);
   void ProducePartialResultsOnNetworkThread(
+      scoped_refptr<PendingTaskSafetyFlag> signaling_safety,
       Timestamp timestamp,
-      absl::optional<std::string> sctp_transport_name);
-  // Merges `network_report_` into `partial_report_` and completes the request.
-  // This is a NO-OP if `network_report_` is null.
-  void MergeNetworkReport_s();
+      std::set<std::string> transport_names,
+      StatsGatheringResults results);
+  // Merges `network_report` into `partial_report_` and completes the request.
+  void OnNetworkReportReady(scoped_refptr<RTCStatsReport> network_report,
+                            std::vector<DataChannelStats> data_channel_stats);
 
-  rtc::scoped_refptr<RTCStatsReport> CreateReportFilteredBySelector(
+  scoped_refptr<RTCStatsReport> CreateReportFilteredBySelector(
       bool filter_by_sender_selector,
-      rtc::scoped_refptr<const RTCStatsReport> report,
-      rtc::scoped_refptr<RtpSenderInternal> sender_selector,
-      rtc::scoped_refptr<RtpReceiverInternal> receiver_selector);
+      scoped_refptr<const RTCStatsReport> report,
+      scoped_refptr<RtpSenderInternal> sender_selector,
+      scoped_refptr<RtpReceiverInternal> receiver_selector);
 
   PeerConnectionInternal* const pc_;
-  rtc::Thread* const signaling_thread_;
-  rtc::Thread* const worker_thread_;
-  rtc::Thread* const network_thread_;
+  const bool is_unified_plan_;
+  const Environment env_;
+  const bool stats_timestamp_with_environment_clock_;
+  TaskQueueBase* const signaling_thread_;
+  Thread* const worker_thread_;
+  Thread* const network_thread_;
 
-  int num_pending_partial_reports_;
-  int64_t partial_report_timestamp_us_;
-  // Reports that are produced on the signaling thread or the network thread are
-  // merged into this report. It is only touched on the signaling thread. Once
-  // all partial reports are merged this is the result of a request.
-  rtc::scoped_refptr<RTCStatsReport> partial_report_;
-  std::vector<RequestInfo> requests_;
-  // Holds the result of ProducePartialResultsOnNetworkThread(). It is merged
-  // into `partial_report_` on the signaling thread and then nulled by
-  // MergeNetworkReport_s(). Thread-safety is ensured by using
-  // `network_report_event_`.
-  rtc::scoped_refptr<RTCStatsReport> network_report_;
-  // If set, it is safe to touch the `network_report_` on the signaling thread.
-  // This is reset before async-invoking ProducePartialResultsOnNetworkThread()
-  // and set when ProducePartialResultsOnNetworkThread() is complete, after it
-  // has updated the value of `network_report_`.
-  rtc::Event network_report_event_;
+  std::vector<RequestInfo> requests_ RTC_GUARDED_BY(signaling_thread_);
 
-  // Cleared and set in `PrepareTransceiverStatsInfosAndCallStats_s_w_n`,
-  // starting out on the signaling thread, then network. Later read on the
-  // network and signaling threads as part of collecting stats and finally
-  // reset when the work is done. Initially this variable was added and not
-  // passed around as an arguments to avoid copies. This is thread safe due to
-  // how operations are sequenced and we don't start the stats collection
-  // sequence if one is in progress. As a future improvement though, we could
-  // now get rid of the variable and keep the data scoped within a stats
-  // collection sequence.
-  std::vector<RtpTransceiverStatsInfo> transceiver_stats_infos_;
-  // This cache avoids having to call rtc::SSLCertChain::GetStats(), which can
-  // relatively expensive. ClearCachedStatsReport() needs to be called on
+  // This cache avoids having to call webrtc::SSLCertChain::GetStats(), which
+  // can relatively expensive. ClearCachedStatsReport() needs to be called on
   // negotiation to ensure the cache is not obsolete.
-  Mutex cached_certificates_mutex_;
   std::map<std::string, CertificateStatsPair> cached_certificates_by_transport_
-      RTC_GUARDED_BY(cached_certificates_mutex_);
-
-  Call::Stats call_stats_;
-
-  absl::optional<AudioDeviceModule::Stats> audio_device_stats_;
+      RTC_GUARDED_BY(network_thread_);
 
   // A timestamp, in microseconds, that is based on a timer that is
   // monotonically increasing. That is, even if the system clock is modified the
@@ -301,7 +334,8 @@ class RTCStatsCollector : public rtc::RefCountInterface {
   // report is.
   int64_t cache_timestamp_us_;
   int64_t cache_lifetime_us_;
-  rtc::scoped_refptr<const RTCStatsReport> cached_report_;
+  scoped_refptr<const RTCStatsReport> cached_report_
+      RTC_GUARDED_BY(signaling_thread_);
 
   // Data recorded and maintained by the stats collector during its lifetime.
   // Some stats are produced from this record instead of other components.
@@ -317,15 +351,16 @@ class RTCStatsCollector : public rtc::RefCountInterface {
     uint32_t data_channels_closed;
     // Identifies channels that have been opened, whose internal id is stored in
     // the set until they have been fully closed.
-    webrtc::flat_set<int> opened_data_channels;
+    flat_set<int> opened_data_channels;
   };
   InternalRecord internal_record_;
-};
+  const scoped_refptr<PendingTaskSafetyFlag> signaling_safety_;
+  const scoped_refptr<PendingTaskSafetyFlag> worker_safety_;
+  const scoped_refptr<PendingTaskSafetyFlag> network_safety_;
 
-const char* CandidateTypeToRTCIceCandidateTypeForTesting(
-    const std::string& type);
-const char* DataStateToRTCDataChannelStateForTesting(
-    DataChannelInterface::DataState state);
+  std::unique_ptr<CollectionContext> collection_context_
+      RTC_GUARDED_BY(signaling_thread_);
+};
 
 }  // namespace webrtc
 

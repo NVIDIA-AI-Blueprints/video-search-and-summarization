@@ -10,14 +10,14 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
 #import "RTCVideoEncoderFactory.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-/** This encoder factory include support for all codecs bundled with WebRTC. If using custom
- *  codecs, create custom implementations of RTCVideoEncoderFactory and
- *  RTCVideoDecoderFactory.
+/** This encoder factory include support for all codecs bundled with WebRTC. If
+ * using custom codecs, create custom implementations of RTCVideoEncoderFactory
+ * and RTCVideoDecoderFactory.
  */
 RTC_OBJC_EXPORT
 @interface RTC_OBJC_TYPE (RTCDefaultVideoEncoderFactory) : NSObject <RTC_OBJC_TYPE(RTCVideoEncoderFactory)>

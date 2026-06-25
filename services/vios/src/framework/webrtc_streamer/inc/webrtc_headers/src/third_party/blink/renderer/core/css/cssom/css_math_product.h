@@ -5,7 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSSOM_CSS_MATH_PRODUCT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSSOM_CSS_MATH_PRODUCT_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
+#include "third_party/blink/renderer/bindings/core/v8/v8_css_math_operator.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/cssom/css_math_variadic.h"
 
@@ -21,14 +23,17 @@ class CORE_EXPORT CSSMathProduct final : public CSSMathVariadic {
   static CSSMathProduct* Create(const HeapVector<Member<V8CSSNumberish>>& args,
                                 ExceptionState& exception_state);
   // Blink internal-constructor.
-  static CSSMathProduct* Create(CSSNumericValueVector);
+  static CSSMathProduct* Create(CSSNumericValueVector,
+                                ExceptionState& = IGNORE_EXCEPTION);
 
   CSSMathProduct(CSSNumericArray* values, const CSSNumericValueType& type)
       : CSSMathVariadic(values, type) {}
   CSSMathProduct(const CSSMathProduct&) = delete;
   CSSMathProduct& operator=(const CSSMathProduct&) = delete;
 
-  String getOperator() const final { return "product"; }
+  V8CSSMathOperator getOperator() const final {
+    return V8CSSMathOperator(V8CSSMathOperator::Enum::kProduct);
+  }
 
   // From CSSStyleValue.
   StyleValueType GetType() const final { return CSSStyleValue::kProductType; }
@@ -38,7 +43,7 @@ class CORE_EXPORT CSSMathProduct final : public CSSMathVariadic {
  private:
   void BuildCSSText(Nested, ParenLess, StringBuilder&) const final;
 
-  absl::optional<CSSNumericSumValue> SumValue() const final;
+  std::optional<CSSNumericSumValue> SumValue() const final;
 };
 
 }  // namespace blink

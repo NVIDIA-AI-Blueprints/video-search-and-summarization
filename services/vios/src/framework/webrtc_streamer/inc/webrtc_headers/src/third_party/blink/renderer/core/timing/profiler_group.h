@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_TIMING_PROFILER_GROUP_H_
 
 #include "base/time/time.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
@@ -20,27 +21,25 @@ namespace blink {
 
 class ExceptionState;
 class ExecutionContext;
-class LocalDOMWindow;
 class Profiler;
 class ProfilerInitOptions;
-class ScriptPromiseResolver;
+class ProfilerTrace;
 class ScriptState;
 
 // A ProfilerGroup represents a set of profilers sharing an underlying
 // v8::CpuProfiler attached to a common isolate.
-class CORE_EXPORT ProfilerGroup
-    : public V8PerIsolateData::GarbageCollectedData {
+class CORE_EXPORT ProfilerGroup : public V8PerIsolateData::UserData {
  public:
   // Determines whether or not the given frame can profile. Logs an exception
   // in the given ExceptionState (if non-null) if profiling is not permitted,
   // and returns false.
-  static bool CanProfile(LocalDOMWindow*,
+  static bool CanProfile(ExecutionContext*,
                          ExceptionState* = nullptr,
                          ReportOptions = ReportOptions::kDoNotReport);
 
-  // Initializes logging for the given LocalDOMWindow if CanProfile returns
+  // Initializes logging for the given ExecutionContext if CanProfile returns
   // true.
-  static void InitializeIfEnabled(LocalDOMWindow*);
+  static void InitializeIfEnabled(ExecutionContext*);
 
   static ProfilerGroup* From(v8::Isolate*);
 
@@ -73,7 +72,9 @@ class CORE_EXPORT ProfilerGroup
   void InitV8Profiler();
   void TeardownV8Profiler();
 
-  void StopProfiler(ScriptState*, Profiler*, ScriptPromiseResolver*);
+  void StopProfiler(ScriptState*,
+                    Profiler*,
+                    ScriptPromiseResolver<ProfilerTrace>*);
 
   // Cancels a profiler, discarding its associated trace.
   void CancelProfiler(Profiler*);

@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_MEDIASTREAM_AUDIO_SERVICE_AUDIO_PROCESSOR_PROXY_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_MEDIASTREAM_AUDIO_SERVICE_AUDIO_PROCESSOR_PROXY_H_
 
-#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
@@ -52,7 +52,7 @@ class PLATFORM_EXPORT AudioServiceAudioProcessorProxy
   // Normally called on the audio capture thread (the thread may changes, the
   // caller must guarantee that it's not called concurrently from multiple
   // threads.
-  void MaybeUpdateNumPreferredCaptureChannels(uint32_t num_channels);
+  void MaybeUpdateNumPreferredCaptureChannels(int32_t num_channels);
 
  protected:
   ~AudioServiceAudioProcessorProxy() override;
@@ -60,11 +60,11 @@ class PLATFORM_EXPORT AudioServiceAudioProcessorProxy
  private:
   void RequestStats();
   void UpdateStats(const media::AudioProcessingStats& new_stats);
-  void SetPreferredNumCaptureChannelsOnMainThread(uint32_t num_channels);
+  void SetPreferredNumCaptureChannelsOnMainThread(int32_t num_channels);
 
   const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
 
-  media::AudioProcessorControls* processor_controls_
+  raw_ptr<media::AudioProcessorControls> processor_controls_
       GUARDED_BY_CONTEXT(main_thread_checker_) = nullptr;
 
   base::Lock stats_lock_;
@@ -74,7 +74,7 @@ class PLATFORM_EXPORT AudioServiceAudioProcessorProxy
       GUARDED_BY_CONTEXT(main_thread_checker_);
 
   // Accessed only in MaybeUpdateNumPreferredCaptureChannels().
-  uint32_t num_preferred_capture_channels_ = 1;
+  int32_t num_preferred_capture_channels_ = 1;
 
   THREAD_CHECKER(main_thread_checker_);
   base::WeakPtr<AudioServiceAudioProcessorProxy> weak_this_;

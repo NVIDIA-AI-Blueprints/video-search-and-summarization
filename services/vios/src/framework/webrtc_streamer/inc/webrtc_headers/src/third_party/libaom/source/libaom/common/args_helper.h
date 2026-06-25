@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2020, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -33,8 +33,7 @@ struct arg_enum_list {
   const char *name;
   int val;
 };
-#define ARG_ENUM_LIST_END \
-  { 0 }
+#define ARG_ENUM_LIST_END { 0 }
 
 typedef struct arg_def {
   const char *short_name;
@@ -45,14 +44,9 @@ typedef struct arg_def {
   const char *desc;
   const struct arg_enum_list *enums;
 } arg_def_t;
-#define ARG_DEF(s, l, v, d) \
-  { s, l, v, d, NULL }
-#define ARG_DEF_ENUM(s, l, v, d, e) \
-  { s, l, v, d, e }
-#define ARG_DEF_LIST_END \
-  { 0 }
-
-struct arg arg_init(char **argv);
+#define ARG_DEF(s, l, v, d) { s, l, v, d, NULL }
+#define ARG_DEF_ENUM(s, l, v, d, e) { s, l, v, d, e }
+#define ARG_DEF_LIST_END { 0 }
 
 /*
  * The helper functions below all take an optional parameter err_msg for
@@ -63,6 +57,8 @@ struct arg arg_init(char **argv);
  */
 int arg_match_helper(struct arg *arg_, const struct arg_def *def, char **argv,
                      char *err_msg);
+
+// Note: arg_match_helper() must be called before invoking these functions.
 unsigned int arg_parse_uint_helper(const struct arg *arg, char *err_msg);
 int arg_parse_int_helper(const struct arg *arg, char *err_msg);
 struct aom_rational arg_parse_rational_helper(const struct arg *arg,

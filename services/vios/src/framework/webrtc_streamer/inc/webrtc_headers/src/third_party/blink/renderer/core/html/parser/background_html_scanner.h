@@ -60,6 +60,9 @@ class CORE_EXPORT BackgroundHTMLScanner {
     void set_first_script_in_scan(bool value) { first_script_in_scan_ = value; }
 
    private:
+    // Careful this isolate doesn't belong to the sequence that this class
+    // executes on.
+    v8::Isolate* isolate_;
     CrossThreadWeakPersistent<ScriptableDocumentParser> parser_;
     scoped_refptr<base::SequencedTaskRunner> task_runner_;
     wtf_size_t min_script_size_;
@@ -71,7 +74,7 @@ class CORE_EXPORT BackgroundHTMLScanner {
 
   // Creates a sequence bound BackgroundHTMLScanner which will live on a
   // background thread. Methods can be called using SequenceBound::AsyncCall().
-  static WTF::SequenceBound<BackgroundHTMLScanner> Create(
+  static SequenceBound<BackgroundHTMLScanner> Create(
       const HTMLParserOptions& options,
       ScriptableDocumentParser* parser);
   BackgroundHTMLScanner(std::unique_ptr<HTMLTokenizer> tokenizer,

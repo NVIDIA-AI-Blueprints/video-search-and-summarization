@@ -12,17 +12,18 @@
 #define RTC_BASE_PROXY_SERVER_H_
 
 #include <memory>
+#include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"
+#include "absl/functional/any_invocable.h"
+#include "rtc_base/callback_list.h"
 #include "rtc_base/memory/fifo_buffer.h"
 #include "rtc_base/server_socket_adapters.h"
 #include "rtc_base/socket.h"
 #include "rtc_base/socket_address.h"
+#include "rtc_base/socket_factory.h"
 
-namespace rtc {
-
-class SocketFactory;
+namespace webrtc {
 
 // ProxyServer is a base class that allows for easy construction of proxy
 // servers. With its helper class ProxyBinding, it contains all the necessary
@@ -31,15 +32,26 @@ class SocketFactory;
 // class; children of ProxyServer implement WrapSocket appropriately to return
 // the correct protocol handler.
 
-class ProxyBinding : public sigslot::has_slots<> {
+class ProxyBinding {
  public:
   ProxyBinding(AsyncProxyServerSocket* in_socket, Socket* out_socket);
-  ~ProxyBinding() override;
+  virtual ~ProxyBinding();
 
   ProxyBinding(const ProxyBinding&) = delete;
   ProxyBinding& operator=(const ProxyBinding&) = delete;
 
-  sigslot::signal1<ProxyBinding*> SignalDestroyed;
+  [[deprecated]] void SubscribeDestroyed(
+      absl::AnyInvocable<void(ProxyBinding* proxy)> callback) {
+    destroyed_callbacks_.AddReceiver(std::move(callback));
+  }
+  void SubscribeDestroyed(
+      void* tag,
+      absl::AnyInvocable<void(ProxyBinding* proxy)> callback) {
+    destroyed_callbacks_.AddReceiver(tag, std::move(callback));
+  }
+  void NotifyDestroyed(ProxyBinding* proxy) {
+    destroyed_callbacks_.Send(proxy);
+  }
 
  private:
   void OnConnectRequest(AsyncProxyServerSocket* socket,
@@ -62,15 +74,17 @@ class ProxyBinding : public sigslot::has_slots<> {
   bool connected_;
   FifoBuffer out_buffer_;
   FifoBuffer in_buffer_;
+
+  CallbackList<ProxyBinding*> destroyed_callbacks_;
 };
 
-class ProxyServer : public sigslot::has_slots<> {
+class ProxyServer {
  public:
   ProxyServer(SocketFactory* int_factory,
               const SocketAddress& int_addr,
               SocketFactory* ext_factory,
               const SocketAddress& ext_ip);
-  ~ProxyServer() override;
+  virtual ~ProxyServer();
 
   ProxyServer(const ProxyServer&) = delete;
   ProxyServer& operator=(const ProxyServer&) = delete;
@@ -89,22 +103,6 @@ class ProxyServer : public sigslot::has_slots<> {
   std::vector<std::unique_ptr<ProxyBinding>> bindings_;
 };
 
-// SocksProxyServer is a simple extension of ProxyServer to implement SOCKS.
-class SocksProxyServer : public ProxyServer {
- public:
-  SocksProxyServer(SocketFactory* int_factory,
-                   const SocketAddress& int_addr,
-                   SocketFactory* ext_factory,
-                   const SocketAddress& ext_ip)
-      : ProxyServer(int_factory, int_addr, ext_factory, ext_ip) {}
-
-  SocksProxyServer(const SocksProxyServer&) = delete;
-  SocksProxyServer& operator=(const SocksProxyServer&) = delete;
-
- protected:
-  AsyncProxyServerSocket* WrapSocket(Socket* socket) override;
-};
-
-}  // namespace rtc
+}  //  namespace webrtc
 
 #endif  // RTC_BASE_PROXY_SERVER_H_

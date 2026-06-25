@@ -5,24 +5,30 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBCODECS_FUZZER_UTILS_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBCODECS_FUZZER_UTILS_H_
 
+#include <string>
+
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_aac_bitstream_format.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_decoder_config.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_encoder_config.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_encoded_audio_chunk_type.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_encoded_video_chunk_type.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_opus_application.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_opus_signal.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_decoder_config.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_decoder_init.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_encoder_config.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_encoder_encode_options.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
-#include "third_party/blink/renderer/modules/webcodecs/allow_shared_buffer_source_util.h"
+#include "third_party/blink/renderer/modules/webcodecs/array_buffer_util.h"
 #include "third_party/blink/renderer/modules/webcodecs/audio_data.h"
 #include "third_party/blink/renderer/modules/webcodecs/encoded_audio_chunk.h"
 #include "third_party/blink/renderer/modules/webcodecs/encoded_video_chunk.h"
 #include "third_party/blink/renderer/modules/webcodecs/fuzzer_inputs.pb.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-
-#include <string>
+#include "v8/include/v8-forward.h"
 
 namespace base {
 class ScopedClosureRunner;
@@ -30,12 +36,16 @@ class ScopedClosureRunner;
 
 namespace blink {
 
+// Maximum fuzzer proto length. Value chosen arbitrarily to avoid timeouts and
+// out of memory issues; see discussion at https://crbug.com/496070681.
+static constexpr int kMaxFuzzerProtoLength = 4096;
+
 class DOMRectInit;
 class PlaneLayout;
 
-base::ScopedClosureRunner MakeScopedGarbageCollectionRequest();
+base::ScopedClosureRunner MakeScopedGarbageCollectionRequest(v8::Isolate*);
 
-class FakeFunction : public ScriptFunction::Callable {
+class FakeFunction : public ScriptFunction {
  public:
   explicit FakeFunction(std::string name);
 
@@ -58,17 +68,27 @@ AudioEncoderConfig* MakeAudioEncoderConfig(
     const wc_fuzzer::ConfigureAudioEncoder& proto);
 
 EncodedVideoChunk* MakeEncodedVideoChunk(
+    ScriptState* script_state,
     const wc_fuzzer::EncodedVideoChunk& proto);
 
 EncodedAudioChunk* MakeEncodedAudioChunk(
+    ScriptState* script_state,
     const wc_fuzzer::EncodedAudioChunk& proto);
 
-AllowSharedBufferSource* MakeAllowSharedBufferSource(
+struct BufferAndSource {
+  UntracedMember<DOMArrayBuffer> buffer;
+  UntracedMember<AllowSharedBufferSource> source;
+};
+
+BufferAndSource MakeAllowSharedBufferSource(
     const wc_fuzzer::AllowSharedBufferSource& proto);
 
 PlaneLayout* MakePlaneLayout(const wc_fuzzer::PlaneLayout& proto);
 
 DOMRectInit* MakeDOMRectInit(const wc_fuzzer::DOMRectInit& proto);
+
+VideoColorSpaceInit* MakeVideoColorSpaceInit(
+    const wc_fuzzer::VideoColorSpaceInit& proto);
 
 VideoFrame* MakeVideoFrame(
     ScriptState* script_state,
@@ -77,7 +97,8 @@ VideoFrame* MakeVideoFrame(
 VideoFrame* MakeVideoFrame(ScriptState* script_state,
                            const wc_fuzzer::VideoFrameBitmapInit& proto);
 
-AudioData* MakeAudioData(const wc_fuzzer::AudioDataInit& proto);
+AudioData* MakeAudioData(ScriptState* script_state,
+                         const wc_fuzzer::AudioDataInit& proto);
 
 AudioDataCopyToOptions* MakeAudioDataCopyToOptions(
     const wc_fuzzer::AudioDataCopyToOptions& proto);
@@ -85,21 +106,36 @@ AudioDataCopyToOptions* MakeAudioDataCopyToOptions(
 VideoEncoderEncodeOptions* MakeEncodeOptions(
     const wc_fuzzer::EncodeVideo_EncodeOptions& proto);
 
-String ToBitrateMode(
+V8VideoEncoderBitrateMode::Enum ToBitrateMode(
     wc_fuzzer::ConfigureVideoEncoder_VideoEncoderBitrateMode mode);
 
 String ToScalabilityMode(wc_fuzzer::ConfigureVideoEncoder_ScalabilityMode mode);
 
-String ToLatencyMode(wc_fuzzer::ConfigureVideoEncoder_LatencyMode mode);
+V8LatencyMode::Enum ToLatencyMode(
+    wc_fuzzer::ConfigureVideoEncoder_LatencyMode mode);
 
-String ToAlphaOption(wc_fuzzer::ConfigureVideoEncoder_AlphaOption option);
+String ToContentHint(wc_fuzzer::ConfigureVideoEncoder_ContentHint hint);
 
-String ToAacFormat(wc_fuzzer::AacFormat format);
+V8AlphaOption::Enum ToAlphaOption(
+    wc_fuzzer::ConfigureVideoEncoder_AlphaOption option);
 
-String ToAccelerationType(
+V8BitrateMode::Enum ToBitrateMode(wc_fuzzer::BitrateMode bitrate_mode);
+
+V8OpusSignal::Enum ToOpusSignal(wc_fuzzer::OpusSignal opus_signal);
+
+V8OpusApplication::Enum ToOpusApplication(
+    wc_fuzzer::OpusApplication opus_application);
+
+V8AacBitstreamFormat::Enum ToAacFormat(wc_fuzzer::AacFormat format);
+
+V8HardwarePreference::Enum ToAccelerationType(
     wc_fuzzer::ConfigureVideoEncoder_EncoderAccelerationPreference type);
 
-String ToChunkType(wc_fuzzer::EncodedChunkType type);
+V8EncodedAudioChunkType::Enum ToAudioChunkType(
+    wc_fuzzer::EncodedChunkType type);
+
+V8EncodedVideoChunkType::Enum ToVideoChunkType(
+    wc_fuzzer::EncodedChunkType type);
 
 }  // namespace blink
 

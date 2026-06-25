@@ -7,12 +7,11 @@
 
 #include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/platform/graphics/dom_node_id.h"
-#include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+#include "third_party/blink/renderer/platform/graphics/paint/display_item_client_types.h"
 #include "third_party/blink/renderer/platform/graphics/paint_invalidation_reason.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "ui/gfx/geometry/rect.h"
 
 namespace blink {
 
@@ -39,7 +38,12 @@ class PLATFORM_EXPORT DisplayItemClient : public GarbageCollectedMixin {
 
   // Returns the id of the DOM node associated with this DisplayItemClient, or
   // kInvalidDOMNodeId if there is no associated DOM node.
-  virtual DOMNodeId OwnerNodeId() const { return kInvalidDOMNodeId; }
+  // If `is_internal_content` is true, the node id will assume the content
+  // is generated internally by the browser and not the web page, and look
+  // for special internal DOM node ids.
+  virtual DOMNodeId OwnerNodeId(bool is_internal_content) const {
+    return kInvalidDOMNodeId;
+  }
 
   // The outset will be used to inflate visual rect after the visual rect is
   // mapped into the space of the composited layer, for any special raster
@@ -92,6 +96,7 @@ class PLATFORM_EXPORT DisplayItemClient : public GarbageCollectedMixin {
   friend class PaintChunker;
   friend class PaintController;
   friend class PaintControllerCycleScope;
+  friend class ClipPathPaintDefinitionTest;
 
   void MarkForValidation() const { marked_for_validation_ = 1; }
   bool IsMarkedForValidation() const { return marked_for_validation_; }
@@ -105,14 +110,32 @@ class PLATFORM_EXPORT DisplayItemClient : public GarbageCollectedMixin {
   mutable uint8_t marked_for_validation_ : 1;
 };
 
-inline bool operator==(const DisplayItemClient& client1,
-                       const DisplayItemClient& client2) {
-  return &client1 == &client2;
-}
-inline bool operator!=(const DisplayItemClient& client1,
-                       const DisplayItemClient& client2) {
-  return &client1 != &client2;
-}
+class StaticDisplayItemClient
+    : public GarbageCollected<StaticDisplayItemClient>,
+      public DisplayItemClient {
+ public:
+  explicit StaticDisplayItemClient(const char* name) : name_(name) {}
+
+  String DebugName() const override { return name_; }
+  void Trace(Visitor* visitor) const override {
+    DisplayItemClient::Trace(visitor);
+  }
+
+ private:
+  const char* name_;
+};
+
+// Defines a StaticDisplayItemClient instance which can be used where a
+// DisplayItemClient is needed but DisplayItem::Id uniqueness is guaranteed
+// or not required, e.g.
+// - when recording a a foreign layer,
+// - when recording a DisplayItem that appears only once in the painted result,
+// - when painting with a transient PaintController.
+// Note: debug_name must be a literal string.
+#define DEFINE_STATIC_DISPLAY_ITEM_CLIENT(name, debug_name) \
+  DEFINE_STATIC_LOCAL(                                      \
+      Persistent<StaticDisplayItemClient>, name,            \
+      (MakeGarbageCollected<StaticDisplayItemClient>(debug_name)))
 
 PLATFORM_EXPORT std::ostream& operator<<(std::ostream&,
                                          const DisplayItemClient*);

@@ -5,8 +5,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PRESENTATION_PRESENTATION_RECEIVER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PRESENTATION_PRESENTATION_RECEIVER_H_
 
-#include "mojo/public/cpp/bindings/pending_receiver.h"
-#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/mojom/presentation/presentation.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
@@ -31,15 +29,14 @@ class MODULES_EXPORT PresentationReceiver final
       public mojom::blink::PresentationReceiver {
   DEFINE_WRAPPERTYPEINFO();
   using ConnectionListProperty =
-      ScriptPromiseProperty<Member<PresentationConnectionList>,
-                            Member<DOMException>>;
+      ScriptPromiseProperty<PresentationConnectionList, DOMException>;
 
  public:
   explicit PresentationReceiver(LocalDOMWindow*);
   ~PresentationReceiver() override = default;
 
   // PresentationReceiver.idl implementation
-  ScriptPromise connectionList(ScriptState*);
+  ScriptPromise<PresentationConnectionList> connectionList(ScriptState*);
 
   // mojom::blink::PresentationReceiver
   void OnReceiverConnectionAvailable(
@@ -49,7 +46,7 @@ class MODULES_EXPORT PresentationReceiver final
   void RemoveConnection(ReceiverPresentationConnection*);
   void Terminate();
 
-  LocalDOMWindow* GetWindow() const { return window_; }
+  LocalDOMWindow* GetWindow() const { return window_.Get(); }
 
   void Trace(Visitor*) const override;
 

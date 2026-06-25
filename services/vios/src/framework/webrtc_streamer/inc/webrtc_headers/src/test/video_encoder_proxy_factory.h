@@ -11,18 +11,30 @@
 #ifndef TEST_VIDEO_ENCODER_PROXY_FACTORY_H_
 #define TEST_VIDEO_ENCODER_PROXY_FACTORY_H_
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
+#include "api/environment/environment.h"
+#include "api/fec_controller_override.h"
+#include "api/units/data_rate.h"
+#include "api/video/render_resolution.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_frame_type.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 namespace test {
 
 namespace {
 const VideoEncoder::Capabilities kCapabilities(false);
-}
+}  // namespace
 
 // An encoder factory with a single underlying VideoEncoder object,
 // intended for test purposes. Each call to CreateVideoEncoder returns
@@ -45,8 +57,8 @@ class VideoEncoderProxyFactory : public VideoEncoderFactory {
     return {};
   }
 
-  std::unique_ptr<VideoEncoder> CreateVideoEncoder(
-      const SdpVideoFormat& format) override {
+  std::unique_ptr<VideoEncoder> Create(const Environment& env,
+                                       const SdpVideoFormat& format) override {
     ++num_simultaneous_encoder_instances_;
     max_num_simultaneous_encoder_instances_ =
         std::max(max_num_simultaneous_encoder_instances_,
@@ -80,7 +92,7 @@ class VideoEncoderProxyFactory : public VideoEncoderFactory {
     explicit EncoderProxy(VideoEncoder* encoder,
                           VideoEncoderProxyFactory* encoder_factory)
         : encoder_(encoder), encoder_factory_(encoder_factory) {}
-    ~EncoderProxy() { encoder_factory_->OnDestroyVideoEncoder(); }
+    ~EncoderProxy() override { encoder_factory_->OnDestroyVideoEncoder(); }
 
    private:
     void SetFecControllerOverride(
@@ -126,17 +138,17 @@ class VideoEncoderProxyFactory : public VideoEncoderFactory {
       encoder_selector_->OnCurrentEncoder(format);
     }
 
-    absl::optional<SdpVideoFormat> OnAvailableBitrate(
+    std::optional<SdpVideoFormat> OnAvailableBitrate(
         const DataRate& rate) override {
       return encoder_selector_->OnAvailableBitrate(rate);
     }
 
-    absl::optional<SdpVideoFormat> OnResolutionChange(
+    std::optional<SdpVideoFormat> OnResolutionChange(
         const RenderResolution& resolution) override {
       return encoder_selector_->OnResolutionChange(resolution);
     }
 
-    absl::optional<SdpVideoFormat> OnEncoderBroken() override {
+    std::optional<SdpVideoFormat> OnEncoderBroken() override {
       return encoder_selector_->OnEncoderBroken();
     }
 

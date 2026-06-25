@@ -9,17 +9,17 @@
 
 namespace blink {
 
-class FloatRoundedRect;
+class ContouredRect;
 class GraphicsContext;
 struct PhysicalRect;
 
 class RoundedInnerRectClipper {
-  DISALLOW_NEW();
+  STACK_ALLOCATED();
 
  public:
   RoundedInnerRectClipper(GraphicsContext&,
                           const PhysicalRect&,
-                          const FloatRoundedRect& clip_rect);
+                          const ContouredRect& clip_rect);
   ~RoundedInnerRectClipper();
 
  private:

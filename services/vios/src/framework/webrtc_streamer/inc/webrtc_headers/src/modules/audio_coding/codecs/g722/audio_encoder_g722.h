@@ -11,10 +11,14 @@
 #ifndef MODULES_AUDIO_CODING_CODECS_G722_AUDIO_ENCODER_G722_H_
 #define MODULES_AUDIO_CODING_CODECS_G722_AUDIO_ENCODER_G722_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <utility>
+#include <vector>
 
-#include "absl/types/optional.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/audio_codecs/g722/audio_encoder_g722_config.h"
 #include "api/units/time_delta.h"
@@ -38,20 +42,20 @@ class AudioEncoderG722Impl final : public AudioEncoder {
   size_t Max10MsFramesInAPacket() const override;
   int GetTargetBitrate() const override;
   void Reset() override;
-  absl::optional<std::pair<TimeDelta, TimeDelta>> GetFrameLengthRange()
+  std::optional<std::pair<TimeDelta, TimeDelta>> GetFrameLengthRange()
       const override;
 
  protected:
   EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
-                         rtc::ArrayView<const int16_t> audio,
-                         rtc::Buffer* encoded) override;
+                         std::span<const int16_t> audio,
+                         Buffer* encoded) override;
 
  private:
   // The encoder state for one channel.
   struct EncoderState {
     G722EncInst* encoder;
     std::unique_ptr<int16_t[]> speech_buffer;  // Queued up for encoding.
-    rtc::Buffer encoded_buffer;                // Already encoded.
+    Buffer encoded_buffer;                     // Already encoded.
     EncoderState();
     ~EncoderState();
   };
@@ -64,7 +68,10 @@ class AudioEncoderG722Impl final : public AudioEncoder {
   size_t num_10ms_frames_buffered_;
   uint32_t first_timestamp_in_buffer_;
   const std::unique_ptr<EncoderState[]> encoders_;
-  rtc::Buffer interleave_buffer_;
+  // This vector is used for temporary storage in the
+  // EncodeImpl function. Having it allocated here might
+  // improve locality of reference.
+  std::vector<uint8_t> interleave_buffer_;
 };
 
 }  // namespace webrtc

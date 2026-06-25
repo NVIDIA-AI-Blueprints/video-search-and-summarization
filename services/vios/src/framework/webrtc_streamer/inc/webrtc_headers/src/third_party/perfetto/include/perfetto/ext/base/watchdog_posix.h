@@ -17,10 +17,12 @@
 #ifndef INCLUDE_PERFETTO_EXT_BASE_WATCHDOG_POSIX_H_
 #define INCLUDE_PERFETTO_EXT_BASE_WATCHDOG_POSIX_H_
 
+#include "perfetto/base/thread_annotations.h"
 #include "perfetto/base/time.h"
 #include "perfetto/ext/base/scoped_file.h"
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -28,7 +30,10 @@
 namespace perfetto {
 namespace base {
 
+class TaskRunner;
+
 enum class WatchdogCrashReason;  // Defined in watchdog.h.
+struct WatchdogCrashInfo;        // Defined in watchdog.h.
 
 struct ProcStat {
   unsigned long int utime = 0l;
@@ -47,6 +52,11 @@ class Watchdog {
     TimeMillis deadline{};  // Absolute deadline, CLOCK_MONOTONIC.
     int thread_id = 0;      // The tid we'll send a SIGABRT to on expiry.
     WatchdogCrashReason crash_reason{};  // Becomes a crash key.
+
+    // The fields below are for debugging / logging purposes only.
+    TimeMillis ctime_mono{};  // Creation time in CLOCK_MONOTONIC.
+    TimeMillis ctime_boot{};  // Creation time in CLOCK_BOOTTIME.
+    TimeMillis ctime_cpu{};   // Creation time in CLOCK_PROCESS_CPUTIME_ID.
 
     TimerData() = default;
     TimerData(TimeMillis d, int t) : deadline(d), thread_id(t) {}
@@ -89,7 +99,15 @@ class Watchdog {
 
   // Starts the watchdog thread which monitors the memory and CPU usage
   // of the program.
-  void Start();
+  // If |fatal_handler| is non-empty, it will be invoked on |task_runner|
+  // before the watchdog force-kills the process due to a fatal timer expiry
+  // (CreateFatalTimer) or a cpu/memory guardrail violation. The handler gets
+  // a kFatalHandlerGraceMs (60s) grace period to crash the process on its
+  // own (e.g. via PERFETTO_FATAL); if it doesn't, the watchdog force-kills.
+  // |task_runner| must outlive the watchdog (typically the main task runner
+  // of a process-singleton).
+  void Start(TaskRunner* task_runner = nullptr,
+             std::function<void(WatchdogCrashInfo)> fatal_handler = {});
 
   // Sets a limit on the memory (defined as the RSS) used by the program
   // averaged over the last |window_ms| milliseconds. If |kb| is 0, any
@@ -154,13 +172,15 @@ class Watchdog {
 
   // Check each type of resource every |polling_interval_ms_| miillis.
   // Returns true if the threshold is exceeded and the process should be killed.
-  bool CheckMemory_Locked(uint64_t rss_bytes);
-  bool CheckCpu_Locked(uint64_t cpu_time);
+  bool CheckMemory_Locked(uint64_t rss_bytes)
+      PERFETTO_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  bool CheckCpu_Locked(uint64_t cpu_time)
+      PERFETTO_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   void AddFatalTimer(TimerData);
   void RemoveFatalTimer(TimerData);
-  void RearmTimerFd_Locked();
-  void SerializeLogsAndKillThread(int tid, WatchdogCrashReason);
+  void RearmTimerFd_Locked() PERFETTO_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void SerializeLogsAndKillThread(int tid, const WatchdogCrashInfo&);
 
   // Computes the time interval spanned by a given ring buffer with respect
   // to |polling_interval_ms_|.
@@ -171,24 +191,27 @@ class Watchdog {
   std::thread thread_;
   ScopedPlatformHandle timer_fd_;
 
-  // --- Begin lock-protected members ---
-
   std::mutex mutex_;
 
-  uint64_t memory_limit_bytes_ = 0;
-  WindowedInterval memory_window_bytes_;
+  uint64_t memory_limit_bytes_ PERFETTO_GUARDED_BY(mutex_) = 0;
+  WindowedInterval memory_window_bytes_ PERFETTO_GUARDED_BY(mutex_);
 
-  uint32_t cpu_limit_percentage_ = 0;
-  WindowedInterval cpu_window_time_ticks_;
+  uint32_t cpu_limit_percentage_ PERFETTO_GUARDED_BY(mutex_) = 0;
+  WindowedInterval cpu_window_time_ticks_ PERFETTO_GUARDED_BY(mutex_);
 
   // Outstanding timers created via CreateFatalTimer() and not yet destroyed.
   // The vector is not sorted. In most cases there are only 1-2 timers, we can
   // afford O(N) operations.
   // All the timers in the list share the same |timer_fd_|, which is keeped
   // armed on the min(timers_) through RearmTimerFd_Locked().
-  std::vector<TimerData> timers_;
+  std::vector<TimerData> timers_ PERFETTO_GUARDED_BY(mutex_);
 
-  // --- End lock-protected members ---
+  // See Start(). Set once in Start() before the watchdog thread is created.
+  // After Start() returns these are only ever accessed by the watchdog
+  // thread, which clears them after invoking the handler so subsequent
+  // expirations during the grace period don't re-post it. No locking needed.
+  TaskRunner* fatal_handler_task_runner_ = nullptr;
+  std::function<void(WatchdogCrashInfo)> fatal_handler_;
 
  protected:
   // Protected for testing.

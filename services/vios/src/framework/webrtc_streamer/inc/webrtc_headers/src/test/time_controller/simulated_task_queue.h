@@ -12,13 +12,18 @@
 
 #include <deque>
 #include <map>
-#include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/functional/any_invocable.h"
+#include "absl/strings/string_view.h"
+#include "api/location.h"
+#include "api/task_queue/task_queue_base.h"
 #include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "test/time_controller/simulated_time_controller.h"
+#include "rtc_base/thread_annotations.h"
+#include "test/time_controller/simulated_time_controller_impl.h"
 
 namespace webrtc {
 
@@ -28,7 +33,7 @@ class SimulatedTaskQueue : public TaskQueueBase,
   SimulatedTaskQueue(sim_time_impl::SimulatedTimeControllerImpl* handler,
                      absl::string_view name);
 
-  ~SimulatedTaskQueue();
+  ~SimulatedTaskQueue() override;
 
   void RunReady(Timestamp at_time) override;
 
@@ -39,6 +44,7 @@ class SimulatedTaskQueue : public TaskQueueBase,
   TaskQueueBase* GetAsTaskQueue() override { return this; }
 
   // TaskQueueBase interface
+  absl::string_view queue_name() const override { return name_; }
   void Delete() override;
   void PostTaskImpl(absl::AnyInvocable<void() &&> task,
                     const PostTaskTraits& traits,
@@ -50,8 +56,7 @@ class SimulatedTaskQueue : public TaskQueueBase,
 
  private:
   sim_time_impl::SimulatedTimeControllerImpl* const handler_;
-  // Using char* to be debugger friendly.
-  char* name_;
+  const std::string name_;
 
   mutable Mutex lock_;
 

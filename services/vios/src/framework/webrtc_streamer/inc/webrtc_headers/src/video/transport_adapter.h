@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <span>
 
 #include "api/call/transport.h"
 
@@ -25,10 +26,10 @@ class TransportAdapter : public Transport {
   explicit TransportAdapter(Transport* transport);
   ~TransportAdapter() override;
 
-  bool SendRtp(const uint8_t* packet,
-               size_t length,
+  bool SendRtp(std::span<const uint8_t> packet,
                const PacketOptions& options) override;
-  bool SendRtcp(const uint8_t* packet, size_t length) override;
+  bool SendRtcp(std::span<const uint8_t> packet,
+                const PacketOptions& options) override;
 
   void Enable();
   void Disable();
