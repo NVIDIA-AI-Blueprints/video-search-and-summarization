@@ -271,6 +271,10 @@ void NvLLOverlay::setOptions(const std::map<std::string, std::string, std::less<
     {
         m_overlayParams.m_bboxDebug = opts.at("overlayDebug") == "true" ? true: false;
     }
+    if ( opts.find("overlayDebugFontSize") != opts.end() && !opts.at("overlayDebugFontSize").empty() )
+    {
+        m_overlayParams.m_bboxDebugFontSize = stringToInt(opts.at("overlayDebugFontSize"), 0);
+    }
     if ( opts.find("bboxShowObjId") != opts.end() )
     {
         LOG(info) << "bboxShowObjId = " << opts.at("bboxShowObjId") << endl;
@@ -1071,6 +1075,12 @@ bool NvLLOverlay::streamSettings(const std::unordered_map<std::string, std::stri
     {
         m_overlayParams.m_bboxDebug = (it->second == "true") ? true : false;
         m_overlay->setBboxDebug(m_overlayParams.m_bboxDebug);
+    }
+    it = opts.find("overlayDebugFontSize");
+    if (it != opts.end() && !it->second.empty())
+    {
+        m_overlayParams.m_bboxDebugFontSize = stringToInt(it->second, 0);
+        m_overlay->setBboxDebugFontSize(m_overlayParams.m_bboxDebugFontSize);
     }
     it = opts.find("bboxShowObjId");
     if (it != opts.end() && !it->second.empty())

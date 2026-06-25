@@ -58,6 +58,7 @@ struct OverlayBBoxParams
     uint8_t                 m_bboxOpacity;
     std::string             m_bboxColor;
     bool                    m_bboxDebug;
+    int                     m_bboxDebugFontSize;
     bool                    m_enableBbox;
     bool                    m_enableTripwire;
     bool                    m_enableROI;
@@ -83,6 +84,7 @@ struct OverlayBBoxParams
                         , m_bboxOpacity(DEFAULT_BBOX_OPACITY)
                         , m_bboxColor("")
                         , m_bboxDebug(false)
+                        , m_bboxDebugFontSize(0)
                         , m_enableBbox(false)
                         , m_enableTripwire(false)
                         , m_enableROI(false)
@@ -107,6 +109,7 @@ struct OverlayBBoxParams
     {
         this->m_bboxColor = params.m_bboxColor;
         this->m_bboxDebug = params.m_bboxDebug;
+        this->m_bboxDebugFontSize = params.m_bboxDebugFontSize;
         this->m_bboxOpacity = params.m_bboxOpacity;
         this->m_bboxThickness = params.m_bboxThickness;
         this->m_enableTripwire = params.m_enableTripwire;
