@@ -9,28 +9,37 @@ It contains:
 - `scripts/run_cross.py`: cross-conversation memory eval with locator, follow-up, and comparison turns.
 - `scripts/compare.py` and `scripts/compare_total.py`: result comparison helpers.
 
-## Environment
+Two types of evals run here:
 
-This harness is managed with `uv` and intentionally has no third-party Python package
-dependencies. It uses Python 3.13 to match the repo's uv-managed agent service
-Python range.
+- Single: they test recall from the working memory / hot context (per conversation), asking questions scoped to a single video.
+- Cross: they test recall from a durable memory system (across conversations), asking questions that can span multiple past videos that were analyzed
 
-From this folder:
+## Getting started
 
+### Environment setup
+
+This harness is managed with `uv`, we will iterate and add 3rd party packages when needed. 
+It uses Python 3.13 to match the VSS repo's uv-managed agent service Python range.
+
+1. Launch a Brev or Colossus machine
+
+2. Install `uv`
+
+3. From this folder:
 ```bash
 uv sync
 ```
 
-On Brev hosts, `uv` may be installed under `~/.local/bin`. If `uv` is not on PATH in
-non-interactive SSH sessions, use `~/.local/bin/uv` or export that directory first.
-
-Create a local `.env` from the template in this folder and fill values on the machine where you run the eval.
+4. Create a local `.env` from the template in this folder and fill values on the machine where you run the eval.
 
 Required for judging:
 
 ```bash
-OPENAI_API_KEY=
+OPENAI_API_KEY=<provide key>
+LVS_BACKEND_URL=http://127.0.0.1:38112
 ```
+where `LVS_BACKEND_URL` corresponds to a fake/frozen summarization endpoint that replays deterministic body-cam summary outputs 
+for the eval, instead of calling a live VSS summarization service.
 
 Optional:
 
@@ -38,23 +47,34 @@ Optional:
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENCLAW_MODEL=openai/gpt-5.5
 JUDGE_MODEL=gpt-5.5
-LVS_BACKEND_URL=http://127.0.0.1:38112
 VIDEO_URL_TEMPLATE=
 VLM_NAME=cosmos-reason1
 ```
 
-`run_cross.py` also needs access to summary JSON files through `--summary-dir`.
+5. Chosoe and copy over eval tasks from `./example/questions` into `./questions`. Or generate/create your own questions in this format, and place them in `./questions`.
 
-## Run
+### Run evals
 
 From this folder, point `--eval-root` here so scripts use the local `questions/` and write local `results/`.
 
+1. Run evals scoped to a single video. Also save summaries to openclaw memory as these run:
 ```bash
-uv run python scripts/run_single.py --eval-root .
-uv run python scripts/run_cross.py --eval-root . --summary-dir /path/to/body-cam-summaries
+uv run python scripts/run_single.py --eval-root . --save-memory
 ```
 
-Useful modes:
+2. Run evals that are cross-conversations and use memory from early conversations:
+```
+uv run python scripts/run_cross.py \
+  --eval-root . \
+  --summary-dir /home/ubuntu/frozen-summarization-endpoint/data \
+  --skip-ingest
+```
+
+Generated outputs go under `results/` and should not be committed.
+View `total.md`, `report.md` for the summary of the results.
+For details, view the machine-readable data `total.json`, `report.json`.
+
+Other modes:
 
 ```bash
 uv run python scripts/run_single.py --eval-root . --save-memory
@@ -62,9 +82,9 @@ uv run python scripts/run_cross.py --eval-root . --reset-memory --summary-dir /p
 uv run python scripts/run_cross.py --eval-root . --skip-ingest
 ```
 
-Generated outputs go under `results/` and should not be committed.
+## References
 
-## Output Layout
+### Output Layout
 
 Single-video runs write one folder per video plus aggregate reports:
 
@@ -100,4 +120,3 @@ results/cross/run_<run_id>/
 ```
 
 `raw.json` is the detailed source of truth for per-question/per-turn records.
-The scripts no longer write default raw TSV files such as `*_raw.tsv` or `cross_raw.tsv`.
