@@ -221,7 +221,7 @@ REAL_JSON_COOKBOOK_CONFIG = {
 # (loaded from disk to prove we're using the exact file shipped in the MR).
 _CLASSIFICATION_FIXTURE_PATH = (
     Path(__file__).resolve().parents[1]
-    / "test" / "sim_scripts" / "nim" / "classification_response.txt"
+    / "sim_scripts" / "nim" / "classification_response.txt"
 )
 REAL_CLASSIFICATION_PAYLOAD = _CLASSIFICATION_FIXTURE_PATH.read_text()
 
