@@ -5,6 +5,7 @@ Small eval harness for VSS/OpenClaw memory experiments.
 It contains:
 
 - `questions/`: TSV eval questions for single-video QA and cross-conversation memory scenarios.
+- `frozen_summarization_server/`: LVS-compatible frozen summary replay server and BWC fixtures.
 - `scripts/run_single.py`: single-video summary + follow-up QA eval.
 - `scripts/run_cross.py`: cross-conversation memory eval with locator, follow-up, and comparison turns.
 - `scripts/compare.py` and `scripts/compare_total.py`: result comparison helpers.
@@ -12,7 +13,7 @@ It contains:
 Two types of evals run here:
 
 - Single: they test recall from the working memory / hot context (per conversation), asking questions scoped to a single video.
-- Cross: they test recall from a durable memory system (across conversations), asking questions that can span multiple past videos that were analyzed
+- Cross: they test recall from a durable memory system (across conversations), asking questions that span multiple past videos that were analyzed.
 
 ## Getting started
 
@@ -32,14 +33,15 @@ uv sync
 
 4. Create a local `.env` from the template in this folder and fill values on the machine where you run the eval.
 
-Required for judging:
+Required:
 
 ```bash
+# Required for judging:
 OPENAI_API_KEY=<provide key>
+
+# Frozen summarization server
 LVS_BACKEND_URL=http://127.0.0.1:38112
 ```
-where `LVS_BACKEND_URL` corresponds to a fake/frozen summarization endpoint that replays deterministic body-cam summary outputs 
-for the eval, instead of calling a live VSS summarization service.
 
 Optional:
 
@@ -47,11 +49,53 @@ Optional:
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENCLAW_MODEL=openai/gpt-5.5
 JUDGE_MODEL=gpt-5.5
-VIDEO_URL_TEMPLATE=
+VIDEO_URL_TEMPLATE={video_name}.mp4
 VLM_NAME=cosmos-reason1
 ```
 
-5. Chosoe and copy over eval tasks from `./example/questions` into `./questions`. Or generate/create your own questions in this format, and place them in `./questions`.
+5. Choose and copy over eval tasks from `./example/questions` into `./questions`. Or generate/create your own questions in this format, and place them in `./questions`.
+
+### Launch frozen summarization server
+
+The single-video eval expects an LVS-compatible summarization endpoint at `LVS_BACKEND_URL`.
+For reproducible evals, launch the bundled frozen summarization server. It replays deterministic
+BWC summary/event JSON from `frozen_summarization_server/data`.
+
+1. Prepare ground truth summaries:
+```
+# Pull down data:
+export NVDATASET_TENANTID=...
+export NVDATASET_GROUPID=...
+export NGC_API_KEY=...
+nvdataset download external-chicago-copa-body-worn-camera ~/downloads/
+
+# Choose summarizations to include in these evals from this download
+# Move them to the server data in `frozen_summarization_server/data/`:
+log_1083757_body-cam_video_1.json
+log_1083757_body-cam_video_2.json
+log_1083757_body-cam_video_3.json
+log_1083757_body-cam_video_4.json
+log_1083757_body-cam_video_5.json
+```
+
+2. Run endpoint:
+
+```bash
+uv run uvicorn frozen_summarization_server.app:app \
+  --host 127.0.0.1 \
+  --port 38112
+```
+
+Useful commands:
+
+```bash
+# Run it in the background:
+nohup uv run uvicorn frozen_summarization_server.app:app \
+  --host 127.0.0.1 \
+  --port 38112 \
+  > frozen_summarization_server/server.log 2>&1 &
+```
+
 
 ### Run evals
 
@@ -62,11 +106,10 @@ From this folder, point `--eval-root` here so scripts use the local `questions/`
 uv run python scripts/run_single.py --eval-root . --save-memory
 ```
 
-2. Run evals that are cross-conversations and use memory from early conversations:
+2. Run evals that are cross-conversations and use memory from earlier conversations:
 ```
 uv run python scripts/run_cross.py \
   --eval-root . \
-  --summary-dir /home/ubuntu/frozen-summarization-endpoint/data \
   --skip-ingest
 ```
 
@@ -78,7 +121,7 @@ Other modes:
 
 ```bash
 uv run python scripts/run_single.py --eval-root . --save-memory
-uv run python scripts/run_cross.py --eval-root . --reset-memory --summary-dir /path/to/body-cam-summaries
+uv run python scripts/run_cross.py --eval-root . --reset-memory
 uv run python scripts/run_cross.py --eval-root . --skip-ingest
 ```
 

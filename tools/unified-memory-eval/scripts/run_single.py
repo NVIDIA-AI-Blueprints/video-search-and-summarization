@@ -26,7 +26,7 @@ from typing import Any
 # =============================================================================
 
 DEFAULT_LVS_BACKEND_URL = "http://127.0.0.1:38112"
-DEFAULT_VIDEO_URL_TEMPLATE = "http://172.17.0.1:39080/{video_name}.mp4"
+DEFAULT_VIDEO_URL_TEMPLATE = "{video_name}.mp4"
 DEFAULT_VLM_MODEL = "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 

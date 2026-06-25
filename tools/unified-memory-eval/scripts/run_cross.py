@@ -27,7 +27,7 @@ from typing import Any
 # Section 0 - Constants And Small Utilities
 # =============================================================================
 
-DEFAULT_SUMMARY_DIR = Path("/home/ubuntu/frozen-summarization-endpoint/data")
+DEFAULT_SUMMARY_DIR = Path(__file__).resolve().parents[1] / "frozen_summarization_server" / "data"
 DEFAULT_QUESTION_FILE = Path("questions/cross-incidents.tsv")
 
 
