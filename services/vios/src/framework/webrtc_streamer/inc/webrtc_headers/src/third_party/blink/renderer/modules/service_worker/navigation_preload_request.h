@@ -7,8 +7,8 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/dispatch_fetch_event_params.mojom-blink.h"
@@ -44,7 +44,7 @@ class NavigationPreloadRequest final : public WebNavigationPreloadRequest,
   void OnReceiveResponse(
       network::mojom::URLResponseHeadPtr response_head,
       mojo::ScopedDataPipeConsumerHandle body,
-      absl::optional<mojo_base::BigBuffer> cached_metadata) override;
+      std::optional<mojo_base::BigBuffer> cached_metadata) override;
   void OnReceiveRedirect(
       const net::RedirectInfo& redirect_info,
       network::mojom::URLResponseHeadPtr response_head) override;
@@ -59,11 +59,13 @@ class NavigationPreloadRequest final : public WebNavigationPreloadRequest,
   void ReportErrorToOwner(const WebString& message,
                           WebServiceWorkerError::Mode error_mode);
 
-  WebServiceWorkerContextClient* owner_ = nullptr;
+  raw_ptr<WebServiceWorkerContextClient> owner_ = nullptr;
 
   const int fetch_event_id_ = -1;
   const WebURL url_;
   mojo::Receiver<network::mojom::URLLoaderClient> receiver_;
+
+  mojo::PendingRemote<network::mojom::URLLoader> decoder_loader_;
 
   std::unique_ptr<WebURLResponse> response_;
   mojo::ScopedDataPipeConsumerHandle body_;

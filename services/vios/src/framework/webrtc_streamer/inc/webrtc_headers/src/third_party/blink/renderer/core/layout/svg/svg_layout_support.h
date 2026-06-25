@@ -26,7 +26,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
-#include "third_party/blink/renderer/platform/graphics/dash_array.h"
+#include "third_party/blink/renderer/platform/geometry/dash_array.h"
 #include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -37,11 +37,9 @@ class RectF;
 
 namespace blink {
 
-class AffineTransform;
-class LayoutBoxModelObject;
-class LayoutObject;
 class ComputedStyle;
-class SVGLengthContext;
+class LayoutBoxModelObject;
+class SVGViewportResolver;
 class StrokeData;
 class TransformState;
 
@@ -65,14 +63,6 @@ class CORE_EXPORT SVGLayoutSupport {
   // Compute the visual rect for the a text content LayoutObject.
   static gfx::RectF ComputeVisualRectForText(const LayoutObject&,
                                              const gfx::RectF& text_bounds);
-
-  // Determine whether the passed location intersects a clip path referenced by
-  // the passed LayoutObject.
-  // |reference_box| is used to resolve 'objectBoundingBox' units/percentages,
-  // and can differ from the reference box of the passed LayoutObject.
-  static bool IntersectsClipPath(const LayoutObject&,
-                                 const gfx::RectF& reference_box,
-                                 const HitTestLocation&);
 
   // Important functions used by nearly all SVG layoutObjects centralizing
   // coordinate transformations / visual rect calculations
@@ -102,15 +92,9 @@ class CORE_EXPORT SVGLayoutSupport {
                                            const LayoutObject&,
                                            float dash_scale_factor);
 
-  static DashArray ResolveSVGDashArray(const SVGDashArray&,
+  static DashArray ResolveSVGDashArray(const SVGDashArray*,
                                        const ComputedStyle&,
-                                       const SVGLengthContext&);
-
-  // Determines if any ancestor has adjusted the scale factor.
-  static bool ScreenScaleFactorChanged(const LayoutObject*);
-
-  // Determines if any ancestor's layout size has changed.
-  static bool LayoutSizeOfNearestViewportChanged(const LayoutObject*);
+                                       const SVGViewportResolver&);
 
   // Helper method for determining if a LayoutObject marked as text (isText()==
   // true) can/will be laid out as part of a <text>.
@@ -123,7 +107,7 @@ class CORE_EXPORT SVGLayoutSupport {
 
   static float CalculateScreenFontSizeScalingFactor(const LayoutObject*);
 
-  // This returns a LayoutSVGText, a LayoutNGSVGText, or nullptr.
+  // This returns a LayoutSVGText or nullptr.
   static LayoutObject* FindClosestLayoutSVGText(const LayoutObject*,
                                                 const gfx::PointF&);
 };

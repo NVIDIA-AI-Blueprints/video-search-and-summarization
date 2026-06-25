@@ -17,6 +17,6 @@
  * kCVPixelFormatType_32ARGB.
  */
 NS_AVAILABLE(10_11, 9_0)
-@interface RTCMTLRGBRenderer : RTCMTLRenderer
+@interface RTC_OBJC_TYPE (RTCMTLRGBRenderer) : RTC_OBJC_TYPE (RTCMTLRenderer)
 
 @end

@@ -18,17 +18,47 @@ enum directive {
     D_CPU,
     D_DEBUG,
     D_DEFAULT,
+    D_DOLLARHEX,
     D_EXTERN,
     D_FLOAT,
     D_GLOBAL,
-    D_STATIC,
     D_LIST,
-    D_SECTION,
-    D_SEGMENT,
-    D_WARNING,
-    D_SECTALIGN,
     D_PRAGMA,
     D_REQUIRED,
+    D_SECTALIGN,
+    D_SECTION,
+    D_SEGMENT,
+    D_STATIC,
+    D_WARNING,
+    D_PREFIX,
+    D_SUFFIX,
+    D_POSTFIX,
+    D_GPREFIX,
+    D_GSUFFIX,
+    D_GPOSTFIX,
+    D_LPREFIX,
+    D_LSUFFIX,
+    D_LPOSTFIX,
+    D_pseudo_ops,
+    D_DB,
+    D_DW,
+    D_DD,
+    D_DQ,
+    D_DT,
+    D_DO,
+    D_DY,
+    D_DZ,
+    D_RESB,
+    D_RESW,
+    D_RESD,
+    D_RESQ,
+    D_REST,
+    D_RESO,
+    D_RESY,
+    D_RESZ,
+    D_INCBIN,
+    D_EQU,
+    D_ofmt,
     D_EXPORT,
     D_GROUP,
     D_IMPORT,
@@ -39,12 +69,7 @@ enum directive {
     D_OSABI,
     D_SAFESEH,
     D_UPPERCASE,
-    D_PREFIX,
-    D_SUFFIX,
-    D_GPREFIX,
-    D_GSUFFIX,
-    D_LPREFIX,
-    D_LSUFFIX,
+    D_pragma_tokens,
     D_LIMIT,
     D_OPTIONS,
     D_SUBSECTIONS_VIA_SYMBOLS,
@@ -55,7 +80,7 @@ enum directive {
 };
 
 extern const struct perfect_hash directive_hash;
-extern const char * const directive_tbl[40];
+extern const char * const directive_tbl[65];
 
 static inline enum directive directive_find(const char *str)
 {
@@ -65,7 +90,7 @@ static inline enum directive directive_find(const char *str)
 static inline const char * directive_name(enum directive x)
 {
     size_t ix = (size_t)x - (3);
-    if (ix >= 40)
+    if (ix >= 65)
         return NULL;
     return directive_tbl[ix];
 }

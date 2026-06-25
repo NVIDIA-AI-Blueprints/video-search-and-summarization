@@ -11,19 +11,20 @@
 #ifndef RTC_TOOLS_NETWORK_TESTER_PACKET_SENDER_H_
 #define RTC_TOOLS_NETWORK_TESTER_PACKET_SENDER_H_
 
-#include <memory>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
+#include "api/environment/environment.h"
+#include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/pending_task_safety_flag.h"
-#include "api/task_queue/task_queue_factory.h"
-#include "rtc_base/ignore_wundef.h"
+#include "api/task_queue/task_queue_base.h"
 #include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/thread_annotations.h"
 
 #ifdef WEBRTC_NETWORK_TESTER_PROTO
-RTC_PUSH_IGNORING_WUNDEF()
 #include "rtc_tools/network_tester/network_tester_packet.pb.h"
-RTC_POP_IGNORING_WUNDEF()
 using webrtc::network_tester::packet::NetworkTesterPacket;
 #else
 class NetworkTesterPacket;
@@ -35,11 +36,11 @@ class TestController;
 
 class PacketSender {
  public:
-  PacketSender(
-      TestController* test_controller,
-      webrtc::TaskQueueBase* worker_queue,
-      rtc::scoped_refptr<webrtc::PendingTaskSafetyFlag> task_safety_flag,
-      const std::string& config_file_path);
+  PacketSender(const Environment& env,
+               TestController* test_controller,
+               TaskQueueBase* worker_queue,
+               scoped_refptr<PendingTaskSafetyFlag> task_safety_flag,
+               const std::string& config_file_path);
   ~PacketSender();
 
   PacketSender(const PacketSender&) = delete;
@@ -55,6 +56,7 @@ class PacketSender {
   void UpdateTestSetting(size_t packet_size, int64_t send_interval_ms);
 
  private:
+  Environment env_;
   RTC_NO_UNIQUE_ADDRESS SequenceChecker worker_queue_checker_;
   size_t packet_size_ RTC_GUARDED_BY(worker_queue_checker_);
   int64_t send_interval_ms_ RTC_GUARDED_BY(worker_queue_checker_);
@@ -62,8 +64,8 @@ class PacketSender {
   bool sending_ RTC_GUARDED_BY(worker_queue_checker_);
   const std::string config_file_path_;
   TestController* const test_controller_;
-  webrtc::TaskQueueBase* worker_queue_;
-  rtc::scoped_refptr<webrtc::PendingTaskSafetyFlag> task_safety_flag_;
+  TaskQueueBase* worker_queue_;
+  scoped_refptr<PendingTaskSafetyFlag> task_safety_flag_;
 };
 
 }  // namespace webrtc

@@ -6,17 +6,15 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_AUDIO_WORKLET_NODE_H_
 
 #include "base/memory/scoped_refptr.h"
-#include "base/memory/weak_ptr.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_worklet_node_options.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_param_map.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_handler.h"
-#include "third_party/blink/renderer/modules/webaudio/audio_worklet_processor_error_state.h"
+#include "third_party/blink/renderer/modules/webaudio/audio_worklet_processor_error_details.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
 
 namespace blink {
 
-class AudioNodeInput;
 class AudioWorkletProcessor;
 class BaseAudioContext;
 class CrossThreadAudioParamInfo;
@@ -57,7 +55,8 @@ class AudioWorkletNode final : public AudioNode,
   MessagePort* port() const;
   DEFINE_ATTRIBUTE_EVENT_LISTENER(processorerror, kError)
 
-  void FireProcessorError(AudioWorkletProcessorErrorState);
+  void FireProcessorError(
+      const AudioWorkletProcessorErrorDetails& error_details);
 
   void Trace(Visitor*) const override;
 

@@ -23,7 +23,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_MARKERS_DOCUMENT_MARKER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_MARKERS_DOCUMENT_MARKER_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <bit>
+#include <optional>
+
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -47,6 +49,8 @@ class CORE_EXPORT DocumentMarker : public GarbageCollected<DocumentMarker> {
     kSuggestionMarkerIndex,
     kTextFragmentMarkerIndex,
     kCustomHighlightMarkerIndex,
+    kGlicMarkerIndex,
+    kPreviewStylusGestureMarkerIndex,
     kMarkerTypeIndexesCount
   };
 
@@ -58,7 +62,9 @@ class CORE_EXPORT DocumentMarker : public GarbageCollected<DocumentMarker> {
     kActiveSuggestion = 1 << kActiveSuggestionMarkerIndex,
     kSuggestion = 1 << kSuggestionMarkerIndex,
     kTextFragment = 1 << kTextFragmentMarkerIndex,
-    kCustomHighlight = 1 << kCustomHighlightMarkerIndex
+    kCustomHighlight = 1 << kCustomHighlightMarkerIndex,
+    kGlic = 1 << kGlicMarkerIndex,
+    kPreviewStylusGesture = 1 << kPreviewStylusGestureMarkerIndex,
   };
 
   class MarkerTypesIterator {
@@ -75,9 +81,6 @@ class CORE_EXPORT DocumentMarker : public GarbageCollected<DocumentMarker> {
 
     bool operator==(const MarkerTypesIterator& other) const {
       return remaining_types_ == other.remaining_types_;
-    }
-    bool operator!=(const MarkerTypesIterator& other) const {
-      return !operator==(other);
     }
 
     MarkerTypesIterator& operator++() {
@@ -129,6 +132,9 @@ class CORE_EXPORT DocumentMarker : public GarbageCollected<DocumentMarker> {
       return MarkerTypes(kActiveSuggestion);
     }
     static MarkerTypes Composition() { return MarkerTypes(kComposition); }
+    static MarkerTypes PreviewStylusGesture() {
+      return MarkerTypes(kPreviewStylusGesture);
+    }
     static MarkerTypes Grammar() { return MarkerTypes(kGrammar); }
     static MarkerTypes Misspelling() {
       return MarkerTypes(kSpelling | kGrammar);
@@ -140,10 +146,17 @@ class CORE_EXPORT DocumentMarker : public GarbageCollected<DocumentMarker> {
     static MarkerTypes CustomHighlight() {
       return MarkerTypes(kCustomHighlight);
     }
+    static MarkerTypes Glic() { return MarkerTypes(kGlic); }
 
     bool Contains(MarkerType type) const { return mask_ & type; }
     bool Intersects(const MarkerTypes& types) const {
       return (mask_ & types.mask_);
+    }
+    std::optional<MarkerType> IsOneMarkerType() {
+      if (std::has_single_bit(mask_)) {
+        return static_cast<MarkerType>(mask_);
+      }
+      return std::nullopt;
     }
     bool operator==(const MarkerTypes& other) const {
       return mask_ == other.mask_;
@@ -177,7 +190,7 @@ class CORE_EXPORT DocumentMarker : public GarbageCollected<DocumentMarker> {
     unsigned end_offset;
   };
 
-  absl::optional<MarkerOffsets> ComputeOffsetsAfterShift(
+  std::optional<MarkerOffsets> ComputeOffsetsAfterShift(
       unsigned offset,
       unsigned old_length,
       unsigned new_length) const;

@@ -13,8 +13,9 @@
 
 #include <stddef.h>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include <optional>
+#include <span>
+
 #include "modules/audio_processing/aec3/block_buffer.h"
 #include "modules/audio_processing/aec3/render_buffer.h"
 #include "modules/audio_processing/aec3/spectrum_buffer.h"
@@ -32,12 +33,12 @@ class EchoAudibility {
 
   // Feed new render data to the echo audibility estimator.
   void Update(const RenderBuffer& render_buffer,
-              rtc::ArrayView<const float> average_reverb,
+              std::span<const float> average_reverb,
               int min_channel_delay_blocks,
               bool external_delay_seen);
   // Get the residual echo scaling.
   void GetResidualEchoScaling(bool filter_has_had_time_to_converge,
-                              rtc::ArrayView<float> residual_scaling) const {
+                              std::span<float> residual_scaling) const {
     for (size_t band = 0; band < residual_scaling.size(); ++band) {
       if (render_stationarity_.IsBandStationary(band) &&
           (filter_has_had_time_to_converge ||
@@ -60,7 +61,7 @@ class EchoAudibility {
 
   // Updates the render stationarity flags for the current frame.
   void UpdateRenderStationarityFlags(const RenderBuffer& render_buffer,
-                                     rtc::ArrayView<const float> average_reverb,
+                                     std::span<const float> average_reverb,
                                      int delay_blocks);
 
   // Updates the noise estimator with the new render data since the previous
@@ -73,7 +74,7 @@ class EchoAudibility {
   // values.
   bool IsRenderTooLow(const BlockBuffer& block_buffer);
 
-  absl::optional<int> render_spectrum_write_prev_;
+  std::optional<int> render_spectrum_write_prev_;
   int render_block_write_prev_;
   bool non_zero_render_seen_;
   const bool use_render_stationarity_at_init_;

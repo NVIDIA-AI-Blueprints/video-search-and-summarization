@@ -10,13 +10,16 @@
 #ifndef API_TEST_NETWORK_EMULATION_NETWORK_EMULATION_INTERFACES_H_
 #define API_TEST_NETWORK_EMULATION_NETWORK_EMULATION_INTERFACES_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
-#include <memory>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include "absl/functional/any_invocable.h"
 #include "api/numerics/samples_stats_counter.h"
+#include "api/test/network_emulation/ecn_marking_counter.h"
+#include "api/transport/ecn_marking.h"
 #include "api/units/data_rate.h"
 #include "api/units/data_size.h"
 #include "api/units/timestamp.h"
@@ -28,11 +31,12 @@ namespace webrtc {
 
 struct EmulatedIpPacket {
  public:
-  EmulatedIpPacket(const rtc::SocketAddress& from,
-                   const rtc::SocketAddress& to,
-                   rtc::CopyOnWriteBuffer data,
+  EmulatedIpPacket(const SocketAddress& from,
+                   const SocketAddress& to,
+                   CopyOnWriteBuffer data,
                    Timestamp arrival_time,
-                   uint16_t application_overhead = 0);
+                   uint16_t application_overhead = 0,
+                   EcnMarking ecn = EcnMarking::kNotEct);
   ~EmulatedIpPacket() = default;
   // This object is not copyable or assignable.
   EmulatedIpPacket(const EmulatedIpPacket&) = delete;
@@ -45,12 +49,13 @@ struct EmulatedIpPacket {
   const uint8_t* cdata() const { return data.cdata(); }
 
   size_t ip_packet_size() const { return size() + headers_size; }
-  rtc::SocketAddress from;
-  rtc::SocketAddress to;
+  SocketAddress from;
+  SocketAddress to;
   // Holds the UDP payload.
-  rtc::CopyOnWriteBuffer data;
+  CopyOnWriteBuffer data;
   uint16_t headers_size;
   Timestamp arrival_time;
+  EcnMarking ecn;
 };
 
 // Interface for handling IP packets from an emulated network. This is used with
@@ -78,6 +83,8 @@ struct EmulatedNetworkOutgoingStats {
 
   // Time of the last packet sent or infinite value if no packets were sent.
   Timestamp last_packet_sent_time = Timestamp::MinusInfinity();
+
+  EcnMarkingCounter ecn_count;
 
   // Returns average send rate. Requires that at least 2 packets were sent.
   DataRate AverageSendRate() const;
@@ -113,6 +120,8 @@ struct EmulatedNetworkIncomingStats {
   // Time of the last packet received or infinite value if no packets were
   // received.
   Timestamp last_packet_received_time = Timestamp::MinusInfinity();
+
+  EcnMarkingCounter ecn_count;
 
   DataRate AverageReceiveRate() const;
 };
@@ -206,7 +215,7 @@ struct EmulatedNetworkStats {
 
   // List of IP addresses that were used to send data considered in this stats
   // object.
-  std::vector<rtc::IPAddress> local_addresses;
+  std::vector<IPAddress> local_addresses;
 
   // Overall outgoing stats for all IP addresses which were requested.
   EmulatedNetworkOutgoingStats overall_outgoing_stats;
@@ -215,10 +224,9 @@ struct EmulatedNetworkStats {
   // on requested interfaces.
   EmulatedNetworkIncomingStats overall_incoming_stats;
 
-  std::map<rtc::IPAddress, EmulatedNetworkOutgoingStats>
+  std::map<IPAddress, EmulatedNetworkOutgoingStats>
       outgoing_stats_per_destination;
-  std::map<rtc::IPAddress, EmulatedNetworkIncomingStats>
-      incoming_stats_per_source;
+  std::map<IPAddress, EmulatedNetworkIncomingStats> incoming_stats_per_source;
 
   // Duration between packet was received on network interface and was
   // dispatched to the network in microseconds.
@@ -250,10 +258,11 @@ class EmulatedEndpoint : public EmulatedNetworkReceiverInterface {
   // socket.
   // `to` will be used for routing verification and picking right socket by port
   // on destination endpoint.
-  virtual void SendPacket(const rtc::SocketAddress& from,
-                          const rtc::SocketAddress& to,
-                          rtc::CopyOnWriteBuffer packet_data,
-                          uint16_t application_overhead = 0) = 0;
+  virtual void SendPacket(const SocketAddress& from,
+                          const SocketAddress& to,
+                          CopyOnWriteBuffer packet_data,
+                          uint16_t application_overhead = 0,
+                          EcnMarking ecn = EcnMarking::kNotEct) = 0;
 
   // Binds receiver to this endpoint to send and receive data.
   // `desired_port` is a port that should be used. If it is equal to 0,
@@ -262,12 +271,12 @@ class EmulatedEndpoint : public EmulatedNetworkReceiverInterface {
   //
   // Returns the port, that should be used (it will be equals to desired, if
   // `desired_port` != 0 and is free or will be the one, selected by endpoint)
-  // or absl::nullopt if desired_port in used. Also fails if there are no more
+  // or std::nullopt if desired_port in used. Also fails if there are no more
   // free ports to bind to.
   //
   // The Bind- and Unbind-methods must not be called from within a bound
   // receiver's OnPacketReceived method.
-  virtual absl::optional<uint16_t> BindReceiver(
+  virtual std::optional<uint16_t> BindReceiver(
       uint16_t desired_port,
       EmulatedNetworkReceiverInterface* receiver) = 0;
   // Unbinds receiver from the specified port. Do nothing if no receiver was
@@ -281,7 +290,7 @@ class EmulatedEndpoint : public EmulatedNetworkReceiverInterface {
   // Unbinds default receiver. Do nothing if no default receiver was bound
   // before.
   virtual void UnbindDefaultReceiver() = 0;
-  virtual rtc::IPAddress GetPeerLocalAddress() const = 0;
+  virtual IPAddress GetPeerLocalAddress() const = 0;
 
  private:
   // Ensure that there can be no other subclass than EmulatedEndpointImpl. This
@@ -301,7 +310,8 @@ class TcpMessageRoute {
   // Sends a TCP message of the given `size` over the route, `on_received` is
   // called when the message has been delivered. Note that the connection
   // parameters are reset iff there's no currently pending message on the route.
-  virtual void SendMessage(size_t size, std::function<void()> on_received) = 0;
+  virtual void SendMessage(size_t size,
+                           absl::AnyInvocable<void()> on_received) = 0;
 
  protected:
   ~TcpMessageRoute() = default;

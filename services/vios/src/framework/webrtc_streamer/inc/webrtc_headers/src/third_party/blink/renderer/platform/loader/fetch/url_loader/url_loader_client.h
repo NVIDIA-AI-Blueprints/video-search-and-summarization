@@ -32,15 +32,18 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_URL_LOADER_URL_LOADER_CLIENT_H_
 
 #include <memory>
-#include "base/functional/callback.h"
+#include <variant>
+#include <vector>
+
 #include "base/time/time.h"
 #include "mojo/public/cpp/base/big_buffer.h"
 #include "mojo/public/cpp/system/data_pipe.h"
+#include "net/http/http_request_headers.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
 #include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-shared.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace net {
 class SiteForCookies;
@@ -59,7 +62,8 @@ class BLINK_PLATFORM_EXPORT URLLoaderClient {
   // information about the received redirect. When |report_raw_headers| is
   // updated it'll be used for filtering data of the next redirect or response.
   // |removed_headers| outputs headers that need to be removed from the
-  // redirect request.
+  // redirect request. `modified_headers` outputs headers that need to be added
+  // to or updated in the redirect request.
   //
   // Implementations should return true to instruct the loader to follow the
   // redirect, or false otherwise.
@@ -72,6 +76,7 @@ class BLINK_PLATFORM_EXPORT URLLoaderClient {
       const WebURLResponse& passed_redirect_response,
       bool& report_raw_headers,
       std::vector<std::string>* removed_headers,
+      net::HttpRequestHeaders& modified_headers,
       bool insecure_scheme_was_upgraded) {
     return true;
   }
@@ -81,40 +86,29 @@ class BLINK_PLATFORM_EXPORT URLLoaderClient {
   virtual void DidSendData(uint64_t bytes_sent,
                            uint64_t total_bytes_to_be_sent) {}
 
-  // Called when response headers are received.
-  virtual void DidReceiveResponse(const WebURLResponse&) {}
-
-  // Called when the response body becomes available. This method is only called
-  // if the request's PassResponsePipeToClient flag was set to true.
-  virtual void DidStartLoadingResponseBody(
-      mojo::ScopedDataPipeConsumerHandle body) {}
+  // Called when response are received.
+  virtual void DidReceiveResponse(
+      const WebURLResponse&,
+      std::variant<mojo::ScopedDataPipeConsumerHandle, SegmentedBuffer>,
+      std::optional<mojo_base::BigBuffer> cached_metadata) {}
 
   // Called when a chunk of response data is received. |data_length| is the
-  // number of bytes pointed to by |data|.
-  virtual void DidReceiveData(const char* data, size_t data_length) {}
+  // number of bytes pointed to by |data|. This is used only for testing to
+  // pass the data to the ResourceLoader.
+  virtual void DidReceiveDataForTesting(base::span<const char> data) {}
 
   // Called when the number of bytes actually received from network including
   // HTTP headers is updated. |transfer_size_diff| is positive.
   virtual void DidReceiveTransferSizeUpdate(int transfer_size_diff) {}
 
-  // Called when a chunk of renderer-generated metadata is received from the
-  // cache.
-  virtual void DidReceiveCachedMetadata(mojo_base::BigBuffer data) {}
-
   // Called when the load completes successfully.
   // |total_encoded_data_length| may be equal to kUnknownEncodedDataLength.
-  // |should_report_corb_blocking| is used to report that cross-site document
-  // request response was blocked from entering renderer. Corresponding message
-  // will be generated in devtools console if this flag is set to true.
   // TODO(crbug.com/798625): use different callback for subresources
   // with responses blocked due to document protection.
-  virtual void DidFinishLoading(
-      base::TimeTicks finish_time,
-      int64_t total_encoded_data_length,
-      uint64_t total_encoded_body_length,
-      int64_t total_decoded_body_length,
-      bool should_report_corb_blocking,
-      absl::optional<bool> pervasive_payload_requested = absl::nullopt) {}
+  virtual void DidFinishLoading(base::TimeTicks finish_time,
+                                int64_t total_encoded_data_length,
+                                uint64_t total_encoded_body_length,
+                                int64_t total_decoded_body_length) {}
 
   // Called when the load completes with an error.
   // |finish_time| indicating the time in which the response failed.

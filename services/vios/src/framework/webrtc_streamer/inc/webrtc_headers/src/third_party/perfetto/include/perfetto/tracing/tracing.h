@@ -22,6 +22,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -31,6 +32,7 @@
 #include "perfetto/base/export.h"
 #include "perfetto/base/logging.h"
 #include "perfetto/tracing/backend_type.h"
+#include "perfetto/tracing/buffer_exhausted_policy.h"
 #include "perfetto/tracing/core/forward_decls.h"
 #include "perfetto/tracing/internal/in_process_tracing_backend.h"
 #include "perfetto/tracing/internal/system_tracing_backend.h"
@@ -108,6 +110,11 @@ struct TracingInitArgs {
   // delay, i.e. commits will be sent to the service at the next opportunity.
   uint32_t shmem_batch_commits_duration_ms = 0;
 
+  // [Optional] Enables direct producer-side patching of chunks that have not
+  // yet been committed to the service. This flag will only have an effect
+  // if the service supports direct patching, otherwise it will be ignored.
+  bool shmem_direct_patching_enabled = false;
+
   // [Optional] If set, the policy object is notified when certain SDK events
   // occur and may apply policy decisions, such as denying connections. The
   // embedder is responsible for ensuring the object remains alive for the
@@ -146,6 +153,30 @@ struct TracingInitArgs {
   // making sure that Trace Processor doesn't merge track event and system
   // event tracks for the same thread.
   bool disallow_merging_with_system_tracks = false;
+
+  // [Optional] Sets the default buffer exhausted policy for TrackEvent.
+  // Defaults to kDrop. When set to kStall, the calling thread will block
+  // when the shared memory buffer is full instead of dropping trace data.
+  BufferExhaustedPolicy track_event_buffer_exhausted_policy =
+      BufferExhaustedPolicy::kDrop;
+
+  // If set, this function will be called by the producer client to create a
+  // socket for connection to the system service. The function takes one
+  // argument: a callback that takes an open file descriptor. The function
+  // should create a socket with the name defined by
+  // perfetto::GetProducerSocket(), connect to it, and return the corresponding
+  // descriptor via the callback.
+  // This is intended for the use-case where a process being traced is run
+  // inside a sandbox and can't create sockets directly.
+  // Not yet supported for consumer connections currently.
+  CreateSocketAsync create_socket_async = nullptr;
+
+  // [Optional] Specifies a custom track uuid for the current current. If
+  // specified, perfetto::ProcessTrack::Current().uuid will have this value. The
+  // value provided must be unique among all processes. When not specified, the
+  // perfetto::ProcessTrack::Current().uuid is chosen automatically based on
+  // PID, start time and a random source.
+  std::optional<uint64_t> process_uuid = std::nullopt;
 
  protected:
   friend class Tracing;
@@ -205,30 +236,8 @@ class PERFETTO_EXPORT_COMPONENT Tracing {
 
   // Start a new tracing session using the given tracing backend. Use
   // |kUnspecifiedBackend| to select an available backend automatically.
-  static inline std::unique_ptr<TracingSession> NewTrace(
-      BackendType backend = kUnspecifiedBackend) PERFETTO_ALWAYS_INLINE {
-    // This code is inlined to allow dead-code elimination for unused consumer
-    // implementation. The logic behind it is the following:
-    // Nothing other than the code below references the GetInstance() method
-    // below. From a linker-graph viewpoint, those GetInstance() pull in many
-    // other pieces of the codebase (ConsumerOnlySystemTracingBackend pulls
-    // ConsumerIPCClient). Due to the inline, the compiler can see through the
-    // code and realize that some branches are always not taken. When that
-    // happens, no reference to the backends' GetInstance() is emitted and that
-    // allows the linker GC to get rid of the entire set of dependencies.
-    TracingConsumerBackend* (*system_backend_factory)();
-    system_backend_factory = nullptr;
-    // In case PERFETTO_IPC is disabled, a fake system backend is used, which
-    // always panics. NewTrace(kSystemBackend) should fail if PERFETTO_IPC is
-    // diabled, not panic.
-#if PERFETTO_BUILDFLAG(PERFETTO_IPC)
-    if (backend & kSystemBackend) {
-      system_backend_factory =
-          &internal::SystemConsumerTracingBackend::GetInstance;
-    }
-#endif
-    return NewTraceInternal(backend, system_backend_factory);
-  }
+  static PERFETTO_ALWAYS_INLINE inline std::unique_ptr<TracingSession> NewTrace(
+      BackendType backend = kUnspecifiedBackend);
 
   // Shut down Perfetto, releasing any allocated OS resources (threads, files,
   // sockets, etc.). Note that Perfetto cannot be reinitialized again in the
@@ -350,12 +359,36 @@ class PERFETTO_EXPORT_COMPONENT TracingSession {
   // started.
   virtual void StartBlocking() = 0;
 
+  // Struct passed as argument to the callback passed to CloneTrace().
+  struct CloneTraceCallbackArgs {
+    bool success;
+    std::string error;
+    // UUID of the cloned session.
+    int64_t uuid_msb;
+    int64_t uuid_lsb;
+  };
+
+  // Struct passed as argument to CloneTrace().
+  struct CloneTraceArgs {
+    // The unique_session_name of the session that should be cloned.
+    std::string unique_session_name;
+  };
+
+  // Clones an existing initialized tracing session from the same `BackendType`
+  // as this tracing session, and attaches to it. The session is cloned in
+  // read-only mode and can only be used to read a snapshot of an existing
+  // tracing session. For each session, only one CloneTrace call can be pending
+  // at the same time; subsequent calls after the callback is executed are
+  // supported.
+  using CloneTraceCallback = std::function<void(CloneTraceCallbackArgs)>;
+  virtual void CloneTrace(CloneTraceArgs args, CloneTraceCallback);
+
   // This callback will be invoked when all data sources have acknowledged that
   // tracing has started. This callback will be invoked on an internal perfetto
   // thread.
   virtual void SetOnStartCallback(std::function<void()>) = 0;
 
-  // This callback can be used to get a notification when some error occured
+  // This callback can be used to get a notification when some error occurred
   // (e.g., peer disconnection). Error type will be passed as an argument. This
   // callback will be invoked on an internal perfetto thread.
   virtual void SetOnErrorCallback(std::function<void(TracingError)>) = 0;
@@ -508,6 +541,31 @@ class PERFETTO_EXPORT_COMPONENT StartupTracingSession {
   // be done even after this method returns.
   virtual void AbortBlocking() = 0;
 };
+
+PERFETTO_ALWAYS_INLINE inline std::unique_ptr<TracingSession> Tracing::NewTrace(
+    BackendType backend) {
+  // This code is inlined to allow dead-code elimination for unused consumer
+  // implementation. The logic behind it is the following:
+  // Nothing other than the code below references the GetInstance() method
+  // below. From a linker-graph viewpoint, those GetInstance() pull in many
+  // other pieces of the codebase (ConsumerOnlySystemTracingBackend pulls
+  // ConsumerIPCClient). Due to the inline, the compiler can see through the
+  // code and realize that some branches are always not taken. When that
+  // happens, no reference to the backends' GetInstance() is emitted and that
+  // allows the linker GC to get rid of the entire set of dependencies.
+  TracingConsumerBackend* (*system_backend_factory)();
+  system_backend_factory = nullptr;
+  // In case PERFETTO_IPC is disabled, a fake system backend is used, which
+  // always panics. NewTrace(kSystemBackend) should fail if PERFETTO_IPC is
+  // diabled, not panic.
+#if PERFETTO_BUILDFLAG(PERFETTO_IPC)
+  if (backend & kSystemBackend) {
+    system_backend_factory =
+        &internal::SystemConsumerTracingBackend::GetInstance;
+  }
+#endif
+  return NewTraceInternal(backend, system_backend_factory);
+}
 
 }  // namespace perfetto
 

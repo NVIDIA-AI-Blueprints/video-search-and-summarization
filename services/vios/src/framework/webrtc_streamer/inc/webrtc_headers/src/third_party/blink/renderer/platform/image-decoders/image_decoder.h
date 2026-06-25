@@ -27,34 +27,41 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_IMAGE_DECODERS_IMAGE_DECODER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_IMAGE_DECODERS_IMAGE_DECODER_H_
 
+#include <array>
 #include <memory>
+#include <optional>
 
+#include "base/check_op.h"
+#include "base/containers/heap_array.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/notreached.h"
+#include "base/numerics/checked_math.h"
+#include "base/numerics/safe_conversions.h"
+#include "base/strings/strcat.h"
 #include "base/time/time.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/graphics/color_behavior.h"
-#include "third_party/blink/renderer/platform/graphics/image_orientation.h"
+#include "third_party/blink/renderer/platform/graphics/image_orientation_enum.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_image.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_animation.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_frame.h"
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/modules/skcms/skcms.h"
+#include "ui/gfx/hdr_metadata.h"
 
 class SkColorSpace;
+class SkData;
 
-namespace gfx {
-struct HDRMetadata;
-}  // namespace gfx
+namespace SkCodecs {
+class ICCProfileChromium;
+}
 
 namespace blink {
-
-struct DecodedImageMetaData;
 
 #if SK_B32_SHIFT
 inline skcms_PixelFormat XformColorFormat() {
@@ -79,39 +86,55 @@ class PLATFORM_EXPORT ImagePlanes final {
   // |color_type| is kGray_8_SkColorType if GetYUVBitDepth() == 8 and either
   // kA16_float_SkColorType or kA16_unorm_SkColorType if GetYUVBitDepth() > 8.
   //
+  // If `hbd_output_type` is `kUnscaled`, the decoder will output unscaled
+  // high-bit-depth YUV values into the kA16_unorm_SkColorType planes. E.g.,
+  // 10-bit content will result in 10-bit range values in each 16-bit field.
+  // Otherwise values will be scaled to 16-bit extents.
+  //
   // TODO(crbug/910276): To support YUVA, ImagePlanes needs to support a
   // variable number of planes.
-  ImagePlanes(void* planes[cc::kNumYUVPlanes],
-              const wtf_size_t row_bytes[cc::kNumYUVPlanes],
-              SkColorType color_type);
+  enum class HighBitDepthOutputType { kScaledTo16Bits, kUnscaled };
+  ImagePlanes(base::span<void*, cc::kNumYUVPlanes> planes,
+              base::span<const wtf_size_t, cc::kNumYUVPlanes> row_bytes,
+              SkColorType color_type,
+              HighBitDepthOutputType hbd_output_type =
+                  HighBitDepthOutputType::kScaledTo16Bits);
 
   void* Plane(cc::YUVIndex);
   wtf_size_t RowBytes(cc::YUVIndex) const;
   SkColorType color_type() const { return color_type_; }
   void SetHasCompleteScan() { has_complete_scan_ = true; }
   bool HasCompleteScan() const { return has_complete_scan_; }
+  bool SupportsUnscaledOutput() const {
+    return hbd_output_type_ == HighBitDepthOutputType::kUnscaled;
+  }
 
  private:
-  void* planes_[cc::kNumYUVPlanes];
-  wtf_size_t row_bytes_[cc::kNumYUVPlanes];
-  SkColorType color_type_;
+  std::array<void*, cc::kNumYUVPlanes> planes_;
+  std::array<wtf_size_t, cc::kNumYUVPlanes> row_bytes_;
+  SkColorType color_type_ = kUnknown_SkColorType;
   bool has_complete_scan_ = false;
+  HighBitDepthOutputType hbd_output_type_ =
+      HighBitDepthOutputType::kScaledTo16Bits;
 };
 
 class PLATFORM_EXPORT ColorProfile final {
   USING_FAST_MALLOC(ColorProfile);
 
  public:
-  ColorProfile(const skcms_ICCProfile&, std::unique_ptr<uint8_t[]> = nullptr);
+  explicit ColorProfile(const skcms_ICCProfile&);
+  explicit ColorProfile(std::unique_ptr<SkCodecs::ICCProfileChromium>);
   ColorProfile(const ColorProfile&) = delete;
   ColorProfile& operator=(const ColorProfile&) = delete;
-  static std::unique_ptr<ColorProfile> Create(const void* buffer, size_t size);
+  static std::unique_ptr<ColorProfile> Create(base::span<const uint8_t> buffer);
+  ~ColorProfile();
 
   const skcms_ICCProfile* GetProfile() const { return &profile_; }
 
  private:
   skcms_ICCProfile profile_;
-  std::unique_ptr<uint8_t[]> buffer_;
+  // Retains the parsed profile data so that pointers in profile_ remain valid.
+  std::unique_ptr<SkCodecs::ICCProfileChromium> skia_profile_;
 };
 
 class PLATFORM_EXPORT ColorProfileTransform final {
@@ -122,12 +145,13 @@ class PLATFORM_EXPORT ColorProfileTransform final {
                         const skcms_ICCProfile* dst_profile);
   ColorProfileTransform(const ColorProfileTransform&) = delete;
   ColorProfileTransform& operator=(const ColorProfileTransform&) = delete;
+  ~ColorProfileTransform();
 
   const skcms_ICCProfile* SrcProfile() const;
   const skcms_ICCProfile* DstProfile() const;
 
  private:
-  const skcms_ICCProfile* src_profile_;
+  raw_ptr<const skcms_ICCProfile> src_profile_;
   skcms_ICCProfile dst_profile_;
 };
 
@@ -138,7 +162,8 @@ class PLATFORM_EXPORT ImageDecoder {
   USING_FAST_MALLOC(ImageDecoder);
 
  public:
-  static const wtf_size_t kNoDecodedImageByteLimit;
+  static constexpr wtf_size_t kNoDecodedImageByteLimit =
+      static_cast<wtf_size_t>(-1);
 
   enum AlphaOption { kAlphaPremultiplied, kAlphaNotPremultiplied };
   enum HighBitDepthDecodingOption {
@@ -187,7 +212,9 @@ class PLATFORM_EXPORT ImageDecoder {
       bool data_complete,
       AlphaOption,
       HighBitDepthDecodingOption,
-      const ColorBehavior&,
+      ColorBehavior,
+      cc::AuxImage aux_image,
+      const size_t platform_max_decoded_bytes,
       const SkISize& desired_size = SkISize::MakeEmpty(),
       AnimationOption animation_option = AnimationOption::kUnspecified);
   static std::unique_ptr<ImageDecoder> Create(
@@ -195,12 +222,15 @@ class PLATFORM_EXPORT ImageDecoder {
       bool data_complete,
       AlphaOption alpha_option,
       HighBitDepthDecodingOption high_bit_depth_decoding_option,
-      const ColorBehavior& color_behavior,
+      ColorBehavior color_behavior,
+      cc::AuxImage aux_image,
+      size_t platform_max_decoded_bytes,
       const SkISize& desired_size = SkISize::MakeEmpty(),
       AnimationOption animation_option = AnimationOption::kUnspecified) {
     return Create(SegmentReader::CreateFromSharedBuffer(std::move(data)),
                   data_complete, alpha_option, high_bit_depth_decoding_option,
-                  color_behavior, desired_size, animation_option);
+                  color_behavior, aux_image, platform_max_decoded_bytes,
+                  desired_size, animation_option);
   }
 
   // Similar to above, but does not allow mime sniffing. Creates explicitly
@@ -211,20 +241,22 @@ class PLATFORM_EXPORT ImageDecoder {
       bool data_complete,
       AlphaOption alpha_option,
       HighBitDepthDecodingOption high_bit_depth_decoding_option,
-      const ColorBehavior& color_behavior,
+      ColorBehavior color_behavior,
+      cc::AuxImage aux_image,
+      size_t platform_max_decoded_bytes,
       const SkISize& desired_size = SkISize::MakeEmpty(),
       AnimationOption animation_option = AnimationOption::kUnspecified);
 
   virtual String FilenameExtension() const = 0;
   virtual const AtomicString& MimeType() const = 0;
 
-  bool IsAllDataReceived() const { return is_all_data_received_; }
+  bool IsAllDataReceived() const;
 
   // Returns true if the decoder supports decoding to high bit depth. The
   // decoded output will be high bit depth (half float backed bitmap) iff
   // encoded image is high bit depth and high_bit_depth_decoding_option_ is set
   // to kHighBitDepthToHalfFloat.
-  virtual bool ImageIsHighBitDepth() { return false; }
+  virtual bool ImageIsHighBitDepth();
 
   // Returns true if the buffer holds enough data to instantiate a decoder.
   // This is useful for callers to determine whether a decoder instantiation
@@ -239,12 +271,19 @@ class PLATFORM_EXPORT ImageDecoder {
       scoped_refptr<SharedBuffer> image_data,
       String mime_type);
 
+  // Chooses one of the Blink.DecodedImage.<type>Density.Count.* histograms
+  // based on the image area, and adds 1 to the bucket for the bits per pixel
+  // in the histogram.
+  template <const char type[]>
+  static void UpdateBppHistogram(gfx::Size size, size_t image_size_bytes);
+
   void SetData(scoped_refptr<SegmentReader> data, bool all_data_received) {
-    if (failed_)
+    if (failed_) {
       return;
+    }
     data_ = std::move(data);
     is_all_data_received_ = all_data_received;
-    OnSetData(data_.get());
+    OnSetData(data_);
   }
 
   void SetData(scoped_refptr<SharedBuffer> data, bool all_data_received) {
@@ -252,65 +291,50 @@ class PLATFORM_EXPORT ImageDecoder {
             all_data_received);
   }
 
-  virtual void OnSetData(SegmentReader* data) {}
+  virtual void OnSetData(scoped_refptr<SegmentReader> data) {}
 
   bool IsSizeAvailable();
 
   bool IsDecodedSizeAvailable() const { return !failed_ && size_available_; }
 
-  virtual gfx::Size Size() const { return size_; }
-  virtual Vector<SkISize> GetSupportedDecodeSizes() const { return {}; }
+  virtual gfx::Size Size() const;
+  virtual Vector<SkISize> GetSupportedDecodeSizes() const;
 
   // Check for the existence of a gainmap image. If one exists, extract the
   // SkGainmapInfo rendering parameters, and a SegmentReader for the embedded
   // gainmap image's encoded data, and return true.
   virtual bool GetGainmapInfoAndData(
       SkGainmapInfo& out_gainmap_info,
-      scoped_refptr<SegmentReader>& out_gainmap_data) const {
-    return false;
-  }
+      scoped_refptr<SegmentReader>& out_gainmap_data) const;
 
   // Decoders which downsample images should override this method to
   // return the actual decoded size.
-  virtual gfx::Size DecodedSize() const { return Size(); }
+  virtual gfx::Size DecodedSize() const;
 
   // The YUV subsampling of the image.
-  virtual cc::YUVSubsampling GetYUVSubsampling() const {
-    return cc::YUVSubsampling::kUnknown;
-  }
+  virtual cc::YUVSubsampling GetYUVSubsampling() const;
 
   // Image decoders that support YUV decoding must override this to
   // provide the size of each component.
-  virtual gfx::Size DecodedYUVSize(cc::YUVIndex) const {
-    NOTREACHED();
-    return gfx::Size();
-  }
+  virtual gfx::Size DecodedYUVSize(cc::YUVIndex) const;
 
   // Image decoders that support YUV decoding must override this to
   // return the width of each row of the memory allocation.
-  virtual wtf_size_t DecodedYUVWidthBytes(cc::YUVIndex) const {
-    NOTREACHED();
-    return 0;
-  }
+  virtual wtf_size_t DecodedYUVWidthBytes(cc::YUVIndex) const;
 
   // Image decoders that support YUV decoding must override this to
   // return the SkYUVColorSpace that is used to convert from YUV
   // to RGB.
-  virtual SkYUVColorSpace GetYUVColorSpace() const {
-    NOTREACHED();
-    return SkYUVColorSpace::kIdentity_SkYUVColorSpace;
-  }
+  virtual SkYUVColorSpace GetYUVColorSpace() const;
 
   // Image decoders that support high bit depth YUV decoding can override this.
   //
   // Note: If an implementation advertises a bit depth > 8 it must support both
   // kA16_unorm_SkColorType and kA16_float_SkColorType ImagePlanes.
-  virtual uint8_t GetYUVBitDepth() const { return 8; }
+  virtual uint8_t GetYUVBitDepth() const;
 
-  // Image decoders that support HDR metadata can override this.
-  virtual absl::optional<gfx::HDRMetadata> GetHDRMetadata() const {
-    return absl::nullopt;
-  }
+  // Image decoders that support C2PA manifest embedding can override this.
+  virtual bool HasC2PAManifest() const;
 
   // Returns the information required to decide whether or not hardware
   // acceleration can be used to decode this image. Callers of this function
@@ -323,22 +347,11 @@ class PLATFORM_EXPORT ImageDecoder {
   // sizes. This does NOT differ from Size() for GIF or WebP, since
   // decoding GIF or WebP composites any smaller frames against previous
   // frames to create full-size frames.
-  virtual gfx::Size FrameSizeAtIndex(wtf_size_t) const { return Size(); }
+  virtual gfx::Size FrameSizeAtIndex(wtf_size_t) const;
 
   // Returns whether the size is legal (i.e. not going to result in
   // overflow elsewhere).  If not, marks decoding as failed.
-  virtual bool SetSize(unsigned width, unsigned height) {
-    unsigned decoded_bytes_per_pixel = 4;
-    if (ImageIsHighBitDepth() &&
-        high_bit_depth_decoding_option_ == kHighBitDepthToHalfFloat)
-      decoded_bytes_per_pixel = 8;
-    if (SizeCalculationMayOverflow(width, height, decoded_bytes_per_pixel))
-      return SetFailed();
-
-    size_ = gfx::Size(width, height);
-    size_available_ = true;
-    return true;
-  }
+  virtual bool SetSize(unsigned width, unsigned height);
 
   // Calls DecodeFrameCount() to get the current frame count (if possible),
   // without decoding the individual frames.  Resizes |frame_buffer_cache_| to
@@ -348,7 +361,7 @@ class PLATFORM_EXPORT ImageDecoder {
   // information on the return value, see the comment for DecodeFrameCount().
   wtf_size_t FrameCount();
 
-  virtual int RepetitionCount() const { return kAnimationNone; }
+  virtual int RepetitionCount() const;
 
   // Decodes as much of the requested frame as possible, and returns an
   // ImageDecoder-owned pointer.
@@ -365,31 +378,30 @@ class PLATFORM_EXPORT ImageDecoder {
 
   // Timestamp for displaying a frame. This method is only used by animated
   // images. Only formats with timestamps (like AVIF) should implement this.
-  virtual absl::optional<base::TimeDelta> FrameTimestampAtIndex(
-      wtf_size_t) const {
-    return absl::nullopt;
-  }
+  virtual std::optional<base::TimeDelta> FrameTimestampAtIndex(
+      wtf_size_t) const;
 
   // Duration for displaying a frame. This method is only used by animated
   // images.
-  virtual base::TimeDelta FrameDurationAtIndex(wtf_size_t) const {
-    return base::TimeDelta();
-  }
+  virtual base::TimeDelta FrameDurationAtIndex(wtf_size_t) const;
 
   // Number of bytes in the decoded frame. Returns 0 if the decoder doesn't
   // have this frame cached (either because it hasn't been decoded, or because
   // it has been cleared).
   virtual wtf_size_t FrameBytesAtIndex(wtf_size_t) const;
 
-  ImageOrientation Orientation() const { return orientation_; }
+  ImageOrientationEnum Orientation() const { return orientation_; }
   gfx::Size DensityCorrectedSize() const { return density_corrected_size_; }
 
-  // Updates orientation, pixel density etc based on |metadata|.
-  void ApplyMetadata(const DecodedImageMetaData& metadata,
-                     const gfx::Size& physical_size);
+  // Updates orientation, pixel density etc based on the Exif metadata stored in
+  // |exif_data|.
+  void ApplyExifMetadata(const SkData* exif_data,
+                         const gfx::Size& physical_size);
 
-  bool IgnoresColorSpace() const { return color_behavior_.IsIgnore(); }
-  const ColorBehavior& GetColorBehavior() const { return color_behavior_; }
+  bool IgnoresColorSpace() const {
+    return color_behavior_ == ColorBehavior::kIgnore;
+  }
+  ColorBehavior GetColorBehavior() const { return color_behavior_; }
 
   // This returns the color space that will be included in the SkImageInfo of
   // SkImages created from this decoder. This will be nullptr unless the
@@ -401,6 +413,9 @@ class PLATFORM_EXPORT ImageDecoder {
   // transform has been baked into the pixel values.
   bool HasEmbeddedColorProfile() const { return embedded_color_profile_.get(); }
 
+  // Return the HDR metadata from the image and its color profile.
+  const gfx::HDRMetadata& GetHDRMetadata() const { return hdr_metadata_; }
+
   void SetEmbeddedColorProfile(std::unique_ptr<ColorProfile> profile);
 
   // Transformation from embedded color space to target color space.
@@ -410,54 +425,36 @@ class PLATFORM_EXPORT ImageDecoder {
     return premultiply_alpha_ ? kAlphaPremultiplied : kAlphaNotPremultiplied;
   }
 
+  cc::AuxImage GetAuxImage() const { return aux_image_; }
+
   wtf_size_t GetMaxDecodedBytes() const { return max_decoded_bytes_; }
 
   // Sets the "decode failure" flag.  For caller convenience (since so
   // many callers want to return false after calling this), returns false
   // to enable easy tailcalling.  Subclasses may override this to also
   // clean up any local data.
-  virtual bool SetFailed() {
-    failed_ = true;
-    return false;
-  }
+  virtual bool SetFailed();
 
   bool Failed() const { return failed_; }
 
   // Clears decoded pixel data from all frames except the provided frame. If
   // subsequent frames depend on this frame's required previous frame, then that
   // frame is also kept in cache to prevent re-decoding from the beginning.
-  // Callers may pass WTF::kNotFound to clear all frames.
+  // Callers may pass kNotFound to clear all frames.
   // Note: If |frame_buffer_cache_| contains only one frame, it won't be
   // cleared. Returns the number of bytes of frame data actually cleared.
   virtual wtf_size_t ClearCacheExceptFrame(wtf_size_t);
 
   // If the image has a cursor hot-spot, stores it in the argument
   // and returns true. Otherwise returns false.
-  virtual bool HotSpot(gfx::Point&) const { return false; }
+  virtual bool HotSpot(gfx::Point&) const;
 
-  virtual void SetMemoryAllocator(SkBitmap::Allocator* allocator) {
-    // This currently doesn't work for images with multiple frames.
-    // Some animated image formats require extra guarantees:
-    // 1. The memory is cheaply readable, which isn't true for GPU memory, and
-    // 2. The memory's lifetime will persist long enough to allow reading past
-    //   frames, which isn't true for discardable memory.
-    // Not all animated image formats share these requirements. Blocking
-    // all animated formats is overly aggressive. If a need arises for an
-    // external memory allocator for animated images, this should be changed.
-    if (frame_buffer_cache_.empty()) {
-      // Ensure that InitializeNewFrame is called, after parsing if
-      // necessary.
-      if (!FrameCount())
-        return;
-    }
-
-    frame_buffer_cache_[0].SetMemoryAllocator(allocator);
-  }
+  virtual void SetMemoryAllocator(SkBitmap::Allocator* allocator);
 
   bool CanDecodeToYUV() const { return allow_decode_to_yuv_; }
   // Should only be called if CanDecodeToYuv() returns true, in which case
   // the subclass of ImageDecoder must override this method.
-  virtual void DecodeToYUV() { NOTREACHED(); }
+  virtual void DecodeToYUV();
   void SetImagePlanes(std::unique_ptr<ImagePlanes> image_planes) {
     image_planes_ = std::move(image_planes);
   }
@@ -466,19 +463,20 @@ class PLATFORM_EXPORT ImageDecoder {
   }
 
   // Indicates if the data contains both an animation and still image.
-  virtual bool ImageHasBothStillAndAnimatedSubImages() const { return false; }
+  virtual bool ImageHasBothStillAndAnimatedSubImages() const;
 
  protected:
   ImageDecoder(AlphaOption alpha_option,
                HighBitDepthDecodingOption high_bit_depth_decoding_option,
-               const ColorBehavior& color_behavior,
+               ColorBehavior color_behavior,
+               cc::AuxImage aux_image,
                wtf_size_t max_decoded_bytes);
 
   // Calculates the most recent frame whose image data may be needed in
   // order to decode frame |frame_index|, based on frame disposal methods
   // and |frame_rect_is_opaque|, where |frame_rect_is_opaque| signifies whether
   // the rectangle of frame at |frame_index| is known to be opaque.
-  // If no previous frame's data is required, returns WTF::kNotFound.
+  // If no previous frame's data is required, returns kNotFound.
   //
   // This function requires that the previous frame's
   // |required_previous_frame_index_| member has been set correctly. The
@@ -516,7 +514,7 @@ class PLATFORM_EXPORT ImageDecoder {
   // parsed. Alternatively, if the total frame count is available in the image
   // header, this method may return the total frame count without checking how
   // many frames are received.
-  virtual wtf_size_t DecodeFrameCount() { return 1; }
+  virtual wtf_size_t DecodeFrameCount();
 
   // Called to initialize the frame buffer with the given index, based on the
   // provided and previous frame's characteristics. Returns true on success.
@@ -563,8 +561,12 @@ class PLATFORM_EXPORT ImageDecoder {
   const bool premultiply_alpha_;
   const HighBitDepthDecodingOption high_bit_depth_decoding_option_;
   const ColorBehavior color_behavior_;
-  ImageOrientation orientation_;
+  const cc::AuxImage aux_image_;
+  ImageOrientationEnum orientation_ = ImageOrientationEnum::kDefault;
   gfx::Size density_corrected_size_;
+
+  // The HDR metadata that was read from the codec.
+  gfx::HDRMetadata hdr_metadata_;
 
   // The maximum amount of memory a decoded image should require. Ideally,
   // image decoders should downsample large images to fit under this limit
@@ -594,12 +596,7 @@ class PLATFORM_EXPORT ImageDecoder {
   //
   // Before calling this, verify that frame |index| exists by checking that
   // |index| is smaller than |frame_buffer_cache_|.size().
-  virtual bool FrameStatusSufficientForSuccessors(wtf_size_t index) {
-    DCHECK(index < frame_buffer_cache_.size());
-    ImageFrame::Status frame_status = frame_buffer_cache_[index].GetStatus();
-    return frame_status == ImageFrame::kFramePartial ||
-           frame_status == ImageFrame::kFrameComplete;
-  }
+  virtual bool FrameStatusSufficientForSuccessors(wtf_size_t index);
 
   // Note that |allow_decode_to_yuv_| being true merely means that the
   // ImageDecoder supports decoding to YUV. Other layers higher in the
@@ -632,7 +629,7 @@ class PLATFORM_EXPORT ImageDecoder {
 
   // Called by InitFrameBuffer to determine if it can take the bitmap of the
   // previous frame. This condition is different for GIF and WEBP.
-  virtual bool CanReusePreviousFrameBuffer(wtf_size_t) const { return false; }
+  virtual bool CanReusePreviousFrameBuffer(wtf_size_t) const;
 
   gfx::Size size_;
   bool size_available_ = false;
@@ -653,6 +650,88 @@ class PLATFORM_EXPORT ImageDecoder {
   // `embedded_color_profile_`.
   std::unique_ptr<ColorProfileTransform> embedded_to_sk_image_transform_;
 };
+
+// static
+template <const char type[]>
+void ImageDecoder::UpdateBppHistogram(gfx::Size size, size_t image_size_bytes) {
+#define DEFINE_BPP_HISTOGRAM(var, suffix)                                    \
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(                                           \
+      CustomCountHistogram, var,                                             \
+      (base::StrCat({"Blink.DecodedImage.", type, "Density.Count.", suffix}) \
+           .c_str(),                                                         \
+       1, 1000, 100))
+
+  // From 1 pixel to 1 MP, we have one histogram per 0.1 MP.
+  // From 2 MP to 13 MP, we have one histogram per 1 MP.
+  // Finally, we have one histogram for > 13 MP.
+  DEFINE_BPP_HISTOGRAM(density_point_1_mp_histogram, "0.1MP");
+  DEFINE_BPP_HISTOGRAM(density_point_2_mp_histogram, "0.2MP");
+  DEFINE_BPP_HISTOGRAM(density_point_3_mp_histogram, "0.3MP");
+  DEFINE_BPP_HISTOGRAM(density_point_4_mp_histogram, "0.4MP");
+  DEFINE_BPP_HISTOGRAM(density_point_5_mp_histogram, "0.5MP");
+  DEFINE_BPP_HISTOGRAM(density_point_6_mp_histogram, "0.6MP");
+  DEFINE_BPP_HISTOGRAM(density_point_7_mp_histogram, "0.7MP");
+  DEFINE_BPP_HISTOGRAM(density_point_8_mp_histogram, "0.8MP");
+  DEFINE_BPP_HISTOGRAM(density_point_9_mp_histogram, "0.9MP");
+  static std::array<CustomCountHistogram* const, 9> density_histogram_small = {
+      &density_point_1_mp_histogram, &density_point_2_mp_histogram,
+      &density_point_3_mp_histogram, &density_point_4_mp_histogram,
+      &density_point_5_mp_histogram, &density_point_6_mp_histogram,
+      &density_point_7_mp_histogram, &density_point_8_mp_histogram,
+      &density_point_9_mp_histogram};
+
+  DEFINE_BPP_HISTOGRAM(density_1_mp_histogram, "01MP");
+  DEFINE_BPP_HISTOGRAM(density_2_mp_histogram, "02MP");
+  DEFINE_BPP_HISTOGRAM(density_3_mp_histogram, "03MP");
+  DEFINE_BPP_HISTOGRAM(density_4_mp_histogram, "04MP");
+  DEFINE_BPP_HISTOGRAM(density_5_mp_histogram, "05MP");
+  DEFINE_BPP_HISTOGRAM(density_6_mp_histogram, "06MP");
+  DEFINE_BPP_HISTOGRAM(density_7_mp_histogram, "07MP");
+  DEFINE_BPP_HISTOGRAM(density_8_mp_histogram, "08MP");
+  DEFINE_BPP_HISTOGRAM(density_9_mp_histogram, "09MP");
+  DEFINE_BPP_HISTOGRAM(density_10_mp_histogram, "10MP");
+  DEFINE_BPP_HISTOGRAM(density_11_mp_histogram, "11MP");
+  DEFINE_BPP_HISTOGRAM(density_12_mp_histogram, "12MP");
+  DEFINE_BPP_HISTOGRAM(density_13_mp_histogram, "13MP");
+  static std::array<CustomCountHistogram* const, 13> density_histogram_big = {
+      &density_1_mp_histogram,  &density_2_mp_histogram,
+      &density_3_mp_histogram,  &density_4_mp_histogram,
+      &density_5_mp_histogram,  &density_6_mp_histogram,
+      &density_7_mp_histogram,  &density_8_mp_histogram,
+      &density_9_mp_histogram,  &density_10_mp_histogram,
+      &density_11_mp_histogram, &density_12_mp_histogram,
+      &density_13_mp_histogram};
+
+  DEFINE_BPP_HISTOGRAM(density_14plus_mp_histogram, "14+MP");
+
+#undef DEFINE_BPP_HISTOGRAM
+
+  uint64_t image_area = size.Area64();
+  CHECK_NE(image_area, 0u);
+  // The calculation of density_centi_bpp cannot overflow. SetSize() ensures
+  // that image_area won't overflow int32_t. And image_size_bytes must be much
+  // smaller than UINT64_MAX / (100 * 8), which is roughly 2^54, or 16 peta
+  // bytes.
+  base::CheckedNumeric<uint64_t> checked_image_size_bytes = image_size_bytes;
+  base::CheckedNumeric<uint64_t> density_centi_bpp =
+      (checked_image_size_bytes * 100 * 8 + image_area / 2) / image_area;
+
+  CustomCountHistogram* density_histogram;
+  if (image_area <= 900000) {
+    // One histogram per 0.1 MP.
+    int n = (static_cast<int>(image_area) + (100000 - 1)) / 100000;
+    density_histogram = density_histogram_small[n - 1];
+  } else if (image_area <= 13000000) {
+    // One histogram per 1 MP.
+    int n = (static_cast<int>(image_area) + (1000000 - 1)) / 1000000;
+    density_histogram = density_histogram_big[n - 1];
+  } else {
+    density_histogram = &density_14plus_mp_histogram;
+  }
+
+  density_histogram->Count(base::saturated_cast<base::Histogram::Sample32>(
+      density_centi_bpp.ValueOrDie()));
+}
 
 }  // namespace blink
 

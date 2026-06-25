@@ -32,6 +32,10 @@ class HTMLDListElement final : public HTMLElement {
 
  public:
   explicit HTMLDListElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLDListElement;
+  }
 };
 
 }  // namespace blink

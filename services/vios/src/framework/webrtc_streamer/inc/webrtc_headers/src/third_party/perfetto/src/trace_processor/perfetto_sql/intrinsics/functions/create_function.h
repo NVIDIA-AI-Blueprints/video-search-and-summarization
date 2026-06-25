@@ -17,31 +17,26 @@
 #ifndef SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_CREATE_FUNCTION_H_
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_CREATE_FUNCTION_H_
 
-#include <sqlite3.h>
-#include <unordered_map>
+#include <cstddef>
 
-#include "src/trace_processor/perfetto_sql/intrinsics/functions/sql_function.h"
-#include "src/trace_processor/sqlite/scoped_db.h"
-#include "src/trace_processor/sqlite/sqlite_table.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_function.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_result.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_type.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_value.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
-class PerfettoSqlEngine;
+class PerfettoSqlConnection;
 
 // Implementation of CREATE_FUNCTION SQL function.
 // See https://perfetto.dev/docs/analysis/metrics#metric-helper-functions for
 // usage of this function.
-struct CreateFunction : public SqlFunction {
-  using Context = PerfettoSqlEngine;
+struct CreateFunction : public sqlite::Function<CreateFunction> {
+  static constexpr char kName[] = "create_function";
+  static constexpr int kArgCount = 3;
 
-  static constexpr bool kVoidReturn = true;
-
-  static base::Status Run(Context* ctx,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors&);
+  using UserData = PerfettoSqlConnection;
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
 // Implementation of MEMOIZE SQL function.
@@ -49,19 +44,14 @@ struct CreateFunction : public SqlFunction {
 // the calls to `my_func`. `my_func` must be a Perfetto SQL function created
 // through CREATE_FUNCTION that takes a single integer argument and returns a
 // int.
-struct ExperimentalMemoize : public SqlFunction {
-  using Context = PerfettoSqlEngine;
+struct ExperimentalMemoize : public sqlite::Function<ExperimentalMemoize> {
+  static constexpr char kName[] = "experimental_memoize";
+  static constexpr int kArgCount = 1;
 
-  static constexpr bool kVoidReturn = true;
-
-  static base::Status Run(Context* ctx,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors&);
+  using UserData = PerfettoSqlConnection;
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_CREATE_FUNCTION_H_

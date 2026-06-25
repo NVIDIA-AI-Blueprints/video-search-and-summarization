@@ -28,7 +28,9 @@
 #include <math.h>
 #include "config.h"
 #include "attributes.h"
+#if !(HAVE_COPYSIGN && HAVE_HYPOT && HAVE_ISFINITE && HAVE_ISINF && HAVE_ISNAN)
 #include "intfloat.h"
+#endif
 #include "mathematics.h"
 
 #if HAVE_MIPSFPU && HAVE_INLINE_ASM
@@ -365,7 +367,7 @@ static av_always_inline av_const int avpriv_isfinite(double x)
 #if !HAVE_HYPOT
 static inline av_const double hypot(double x, double y)
 {
-    double ret, temp;
+    double  temp;
     x = fabs(x);
     y = fabs(y);
 

@@ -12,9 +12,9 @@
 #define MODULES_RTP_RTCP_SOURCE_VIDEO_RTP_DEPACKETIZER_VP9_H_
 
 #include <cstdint>
+#include <optional>
+#include <span>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "modules/rtp_rtcp/source/rtp_video_header.h"
 #include "modules/rtp_rtcp/source/video_rtp_depacketizer.h"
 #include "rtc_base/copy_on_write_buffer.h"
@@ -30,11 +30,10 @@ class VideoRtpDepacketizerVp9 : public VideoRtpDepacketizer {
 
   // Parses vp9 rtp payload descriptor.
   // Returns zero on error or vp9 payload header offset on success.
-  static int ParseRtpPayload(rtc::ArrayView<const uint8_t> rtp_payload,
+  static int ParseRtpPayload(std::span<const uint8_t> rtp_payload,
                              RTPVideoHeader* video_header);
 
-  absl::optional<ParsedRtpPayload> Parse(
-      rtc::CopyOnWriteBuffer rtp_payload) override;
+  std::optional<ParsedRtpPayload> Parse(CopyOnWriteBuffer rtp_payload) override;
 };
 
 }  // namespace webrtc

@@ -31,10 +31,11 @@ class CORE_EXPORT CanvasPerformanceMonitor
     kText = 1 << 2,
     kRectangle = 1 << 3,
     kImageData = 1 << 4,
+    kElement = 1 << 5,
 
     // WebGL draw types
-    kDrawArrays = 1 << 5,
-    kDrawElements = 1 << 6,
+    kDrawArrays = 1 << 6,
+    kDrawElements = 1 << 7,
   };
 
   CanvasPerformanceMonitor() = default;
@@ -72,4 +73,4 @@ class CORE_EXPORT CanvasPerformanceMonitor
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_HTML_CANVAS_CANVAS_PERFORMANCE_MONITOR_H_

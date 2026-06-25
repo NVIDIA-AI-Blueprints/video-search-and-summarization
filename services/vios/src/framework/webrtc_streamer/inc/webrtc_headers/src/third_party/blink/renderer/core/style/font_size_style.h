@@ -5,6 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_FONT_SIZE_STYLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_FONT_SIZE_STYLE_H_
 
+#include "third_party/blink/renderer/platform/fonts/font.h"
+#include "third_party/blink/renderer/platform/geometry/length.h"
+
 namespace blink {
 
 // FontSizeStyle contains the subset of ComputedStyle/ComputedStyleBuilder
@@ -14,22 +17,28 @@ class CORE_EXPORT FontSizeStyle {
   STACK_ALLOCATED();
 
  public:
-  FontSizeStyle(const Font& font,
+  FontSizeStyle(const Font* font,
                 const Length& specified_line_height,
                 float effective_zoom)
       : font_(font),
         specified_line_height_(specified_line_height),
         effective_zoom_(effective_zoom) {}
 
-  const Font& GetFont() const { return font_; }
-  const Length& SpecifiedLineHeight() const { return specified_line_height_; }
+  bool operator==(const FontSizeStyle& o) const {
+    return (font_ == o.font_ &&
+            specified_line_height_ == o.specified_line_height_ &&
+            effective_zoom_ == o.effective_zoom_);
+  }
+
+  const Font* GetFont() const { return font_; }
+  const Length& LineHeight() const { return specified_line_height_; }
   float SpecifiedFontSize() const {
-    return font_.GetFontDescription().SpecifiedSize();
+    return font_->GetFontDescription().SpecifiedSize();
   }
   float EffectiveZoom() const { return effective_zoom_; }
 
  private:
-  const Font& font_;
+  const Font* font_;
   const Length& specified_line_height_;
   const float effective_zoom_;
 };

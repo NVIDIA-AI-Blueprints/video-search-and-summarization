@@ -11,6 +11,7 @@
 #ifndef CALL_ADAPTATION_TEST_FAKE_VIDEO_STREAM_INPUT_STATE_PROVIDER_H_
 #define CALL_ADAPTATION_TEST_FAKE_VIDEO_STREAM_INPUT_STATE_PROVIDER_H_
 
+#include "call/adaptation/video_stream_input_state.h"
 #include "call/adaptation/video_stream_input_state_provider.h"
 
 namespace webrtc {
@@ -18,7 +19,7 @@ namespace webrtc {
 class FakeVideoStreamInputStateProvider : public VideoStreamInputStateProvider {
  public:
   FakeVideoStreamInputStateProvider();
-  virtual ~FakeVideoStreamInputStateProvider();
+  ~FakeVideoStreamInputStateProvider() override;
 
   void SetInputState(int input_pixels, int input_fps, int min_pixels_per_frame);
   VideoStreamInputState InputState() override;

@@ -7,32 +7,37 @@
 
 #include <cstdint>
 
+#include "third_party/blink/renderer/platform/text/east_asian_spacing_type.h"
+#include "third_party/blink/renderer/platform/text/han_kerning_char_type.h"
+
 namespace blink {
 
-using CharacterPropertyType = uint8_t;
+using CharacterPropertyType = uint16_t;
 
-enum class CharacterProperty : CharacterPropertyType {
-  kIsCJKIdeographOrSymbol = 0x0001,
-  kIsUprightInMixedVertical = 0x0002,
-  kIsPotentialCustomElementNameChar = 0x0004,
-  kIsBidiControl = 0x0008,
-  kIsHangul = 0x0010
+struct CharacterProperty {
+  CharacterProperty() : CharacterProperty(0) {}
+
+  explicit CharacterProperty(CharacterPropertyType value) {
+    static_assert(sizeof(CharacterProperty) == sizeof(CharacterPropertyType));
+    *reinterpret_cast<CharacterPropertyType*>(this) = value;
+  }
+
+  CharacterPropertyType AsUnsigned() const {
+    static_assert(sizeof(CharacterProperty) == sizeof(CharacterPropertyType));
+    return *reinterpret_cast<const CharacterPropertyType*>(this);
+  }
+
+  bool operator==(const CharacterProperty& other) const {
+    return AsUnsigned() == other.AsUnsigned();
+  }
+
+  bool is_cjk_ideograph_or_symbol : 1;
+  bool is_potential_custom_element_name_char : 1;
+  bool is_bidi_control : 1;
+  bool is_hangul : 1;
+  HanKerningCharType han_kerning : 4;
+  EastAsianSpacingType east_asian_spacing : 2;
 };
-
-inline CharacterProperty operator|(CharacterProperty a, CharacterProperty b) {
-  return static_cast<CharacterProperty>(static_cast<CharacterPropertyType>(a) |
-                                        static_cast<CharacterPropertyType>(b));
-}
-
-inline CharacterProperty operator&(CharacterProperty a, CharacterProperty b) {
-  return static_cast<CharacterProperty>(static_cast<CharacterPropertyType>(a) &
-                                        static_cast<CharacterPropertyType>(b));
-}
-
-inline CharacterProperty operator|=(CharacterProperty& a, CharacterProperty b) {
-  a = a | b;
-  return a;
-}
 
 }  // namespace blink
 

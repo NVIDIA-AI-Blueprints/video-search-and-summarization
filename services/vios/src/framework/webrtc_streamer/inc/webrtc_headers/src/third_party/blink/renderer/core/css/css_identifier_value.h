@@ -36,12 +36,13 @@ class CORE_EXPORT CSSIdentifierValue : public CSSValue {
   }
 
   explicit CSSIdentifierValue(CSSValueID);
+  explicit CSSIdentifierValue(CSSValueID, bool was_quirky);
 
   // TODO(sashab): Remove this function, and update mapping methods to
   // specialize the create() method instead.
   template <typename T>
   CSSIdentifierValue(
-      T t)  // Overriden for special cases in CSSPrimitiveValueMappings.h
+      T t)  // Overridden for special cases in css_identifier_value_mappings.h
       : CSSValue(kIdentifierClass), value_id_(PlatformEnumToCSSValueID(t)) {}
 
   CSSIdentifierValue(const Length&);
@@ -53,12 +54,15 @@ class CORE_EXPORT CSSIdentifierValue : public CSSValue {
   bool Equals(const CSSIdentifierValue& other) const {
     return value_id_ == other.value_id_;
   }
+  unsigned CustomHash() const { return static_cast<unsigned>(value_id_); }
 
   template <typename T>
-  inline T ConvertTo()
-      const {  // Overridden for special cases in CSSPrimitiveValueMappings.h
+  inline T ConvertTo() const {  // Overridden for special cases in
+                                // css_identifier_value_mappings.h
     return CssValueIDToPlatformEnum<T>(value_id_);
   }
+
+  bool WasQuirky() const { return was_quirky_; }
 
   void TraceAfterDispatch(blink::Visitor*) const;
 

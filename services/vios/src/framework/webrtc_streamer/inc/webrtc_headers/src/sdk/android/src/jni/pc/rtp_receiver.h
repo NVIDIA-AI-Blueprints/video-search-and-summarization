@@ -14,6 +14,7 @@
 #include <jni.h>
 
 #include "api/rtp_receiver_interface.h"
+#include "api/scoped_refptr.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 
 namespace webrtc {
@@ -21,7 +22,7 @@ namespace jni {
 
 ScopedJavaLocalRef<jobject> NativeToJavaRtpReceiver(
     JNIEnv* env,
-    rtc::scoped_refptr<RtpReceiverInterface> receiver);
+    scoped_refptr<RtpReceiverInterface> receiver);
 
 // Takes ownership of the passed `j_receiver` and stores it as a global
 // reference. Will call dispose() in the dtor.

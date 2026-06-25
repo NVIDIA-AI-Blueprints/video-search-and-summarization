@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/animation/effect_model.h"
 #include "third_party/blink/renderer/core/css/css_value_id_mappings_generated.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
+#include "third_party/blink/renderer/core/style/text_indent_flags.h"
 
 namespace blink {
 
@@ -82,7 +83,6 @@ inline CSSValueID PlatformEnumToCSSValueID(EffectModel::CompositeOperation v) {
       return CSSValueID::kAccumulate;
   }
   NOTREACHED();
-  return CSSValueID::kReplace;
 }
 
 template <>
@@ -96,7 +96,6 @@ inline EffectModel::CompositeOperation CssValueIDToPlatformEnum(CSSValueID v) {
       return EffectModel::kCompositeAccumulate;
     default:
       NOTREACHED();
-      return EffectModel::kCompositeReplace;
   }
 }
 
@@ -117,7 +116,6 @@ inline EResize CssValueIDToPlatformEnum(CSSValueID v) {
   if (v == CSSValueID::kAuto) {
     // Depends on settings, thus should be handled by the caller.
     NOTREACHED();
-    return EResize::kNone;
   }
   return detail::cssValueIDToPlatformEnumGenerated<EResize>(v);
 }
@@ -125,24 +123,18 @@ inline EResize CssValueIDToPlatformEnum(CSSValueID v) {
 template <>
 inline WritingMode CssValueIDToPlatformEnum(CSSValueID v) {
   switch (v) {
-    case CSSValueID::kHorizontalTb:
     case CSSValueID::kLr:
     case CSSValueID::kLrTb:
     case CSSValueID::kRl:
     case CSSValueID::kRlTb:
       return WritingMode::kHorizontalTb;
-    case CSSValueID::kVerticalRl:
     case CSSValueID::kTb:
     case CSSValueID::kTbRl:
       return WritingMode::kVerticalRl;
-    case CSSValueID::kVerticalLr:
-      return WritingMode::kVerticalLr;
     default:
       break;
   }
-
-  NOTREACHED();
-  return WritingMode::kHorizontalTb;
+  return detail::cssValueIDToPlatformEnumGenerated<WritingMode>(v);
 }
 
 template <>
@@ -242,9 +234,20 @@ inline EDisplay CssValueIDToPlatformEnum(CSSValueID v) {
   if (v == CSSValueID::kMath) {
     return EDisplay::kMath;
   }
+  if (v == CSSValueID::kRuby) {
+    return EDisplay::kRuby;
+  }
+  if (v == CSSValueID::kRubyText) {
+    return EDisplay::kRubyText;
+  }
+  if (v == CSSValueID::kGridLanes) {
+    return EDisplay::kGridLanes;
+  }
+  if (v == CSSValueID::kInlineGridLanes) {
+    return EDisplay::kInlineGridLanes;
+  }
 
   NOTREACHED();
-  return EDisplay::kInline;
 }
 
 template <>
@@ -329,9 +332,20 @@ inline CSSValueID PlatformEnumToCSSValueID(EDisplay v) {
   if (v == EDisplay::kMath) {
     return CSSValueID::kMath;
   }
+  if (v == EDisplay::kRuby) {
+    return CSSValueID::kRuby;
+  }
+  if (v == EDisplay::kRubyText) {
+    return CSSValueID::kRubyText;
+  }
+  if (v == EDisplay::kGridLanes) {
+    return CSSValueID::kGridLanes;
+  }
+  if (v == EDisplay::kInlineGridLanes) {
+    return CSSValueID::kInlineGridLanes;
+  }
 
   NOTREACHED();
-  return CSSValueID::kInline;
 }
 
 template <>
@@ -347,7 +361,6 @@ inline PageOrientation CssValueIDToPlatformEnum(CSSValueID v) {
   }
 
   NOTREACHED();
-  return PageOrientation::kUpright;
 }
 
 template <>
@@ -363,7 +376,6 @@ inline ScrollbarGutter CssValueIDToPlatformEnum(CSSValueID v) {
   }
 
   NOTREACHED();
-  return kScrollbarGutterAuto;
 }
 
 template <>
@@ -383,7 +395,6 @@ inline EWhiteSpace CssValueIDToPlatformEnum(CSSValueID v) {
       return EWhiteSpace::kBreakSpaces;
     default:
       NOTREACHED();
-      return EWhiteSpace::kNormal;
   }
 }
 
@@ -403,15 +414,7 @@ inline CSSValueID PlatformEnumToCSSValueID(EWhiteSpace v) {
     case EWhiteSpace::kBreakSpaces:
       return CSSValueID::kBreakSpaces;
   }
-  if (ToTextWrap(v) == TextWrap::kBalance &&
-      !RuntimeEnabledFeatures::CSSWhiteSpaceShorthandEnabled()) {
-    // If `text-wrap: balance` but the shorthandifying `white-space` is off,
-    // pretend as if `text-wrap: wrap`.
-    return PlatformEnumToCSSValueID(
-        ToWhiteSpace(ToWhiteSpaceCollapse(v), TextWrap::kWrap));
-  }
   NOTREACHED();
-  return CSSValueID::kNone;
 }
 
 template <>
@@ -427,7 +430,6 @@ inline WhiteSpaceCollapse CssValueIDToPlatformEnum(CSSValueID v) {
       return WhiteSpaceCollapse::kBreakSpaces;
     default:
       NOTREACHED();
-      return WhiteSpaceCollapse::kCollapse;
   }
 }
 
@@ -444,48 +446,303 @@ inline CSSValueID PlatformEnumToCSSValueID(WhiteSpaceCollapse v) {
       return CSSValueID::kBreakSpaces;
   }
   NOTREACHED();
-  return CSSValueID::kNone;
 }
 
 template <>
-inline TextWrap CssValueIDToPlatformEnum(CSSValueID v) {
-  switch (v) {
-    case CSSValueID::kWrap:
-      return TextWrap::kWrap;
-    case CSSValueID::kNowrap:
-      DCHECK(RuntimeEnabledFeatures::CSSWhiteSpaceShorthandEnabled());
-      return TextWrap::kNoWrap;
-    case CSSValueID::kBalance:
-      return TextWrap::kBalance;
-    case CSSValueID::kPretty:
-      DCHECK(RuntimeEnabledFeatures::CSSTextWrapPrettyEnabled());
-      return TextWrap::kPretty;
+inline TextBoxEdge::Type CssValueIDToPlatformEnum(CSSValueID id) {
+  switch (id) {
+    case CSSValueID::kAuto:
+      return TextBoxEdge::Type::kAuto;
+    case CSSValueID::kText:
+      return TextBoxEdge::Type::kText;
+    case CSSValueID::kCap:
+      return TextBoxEdge::Type::kCap;
+    case CSSValueID::kEx:
+      return TextBoxEdge::Type::kEx;
+    case CSSValueID::kAlphabetic:
+      return TextBoxEdge::Type::kAlphabetic;
     default:
       NOTREACHED();
-      return TextWrap::kWrap;
   }
 }
 
 template <>
-inline CSSValueID PlatformEnumToCSSValueID(TextWrap v) {
+inline CSSValueID PlatformEnumToCSSValueID(TextBoxEdge::Type type) {
+  using enum TextBoxEdge::Type;
+  switch (type) {
+    case kAuto:
+      return CSSValueID::kAuto;
+    case kText:
+      return CSSValueID::kText;
+    case kCap:
+      return CSSValueID::kCap;
+    case kEx:
+      return CSSValueID::kEx;
+    case kAlphabetic:
+      return CSSValueID::kAlphabetic;
+  }
+}
+
+template <>
+inline TextSpacingTrim CssValueIDToPlatformEnum(CSSValueID v) {
   switch (v) {
-    case TextWrap::kWrap:
-      return CSSValueID::kWrap;
-    case TextWrap::kNoWrap:
-      if (!RuntimeEnabledFeatures::CSSWhiteSpaceShorthandEnabled()) {
-        // Note this is not right, but a compromise until `white-space` becomes
-        // a shorthand. Simulate the behavior when it's off.
-        return CSSValueID::kWrap;
-      }
-      return CSSValueID::kNowrap;
-    case TextWrap::kBalance:
-      return CSSValueID::kBalance;
-    case TextWrap::kPretty:
-      DCHECK(RuntimeEnabledFeatures::CSSTextWrapPrettyEnabled());
-      return CSSValueID::kPretty;
+    case CSSValueID::kNormal:
+      return TextSpacingTrim::kNormal;
+    case CSSValueID::kTrimStart:
+      return TextSpacingTrim::kTrimStart;
+    case CSSValueID::kSpaceAll:
+      return TextSpacingTrim::kSpaceAll;
+    case CSSValueID::kSpaceFirst:
+      return TextSpacingTrim::kSpaceFirst;
+    default:
+      NOTREACHED();
+  }
+}
+
+template <>
+inline CSSValueID PlatformEnumToCSSValueID(TextSpacingTrim v) {
+  switch (v) {
+    case TextSpacingTrim::kNormal:
+      return CSSValueID::kNormal;
+    case TextSpacingTrim::kTrimStart:
+      return CSSValueID::kTrimStart;
+    case TextSpacingTrim::kSpaceAll:
+      return CSSValueID::kSpaceAll;
+    case TextSpacingTrim::kSpaceFirst:
+      return CSSValueID::kSpaceFirst;
   }
   NOTREACHED();
-  return CSSValueID::kNone;
+}
+
+template <>
+inline TryTactic CssValueIDToPlatformEnum(CSSValueID v) {
+  switch (v) {
+    case CSSValueID::kFlipBlock:
+      return TryTactic::kFlipBlock;
+    case CSSValueID::kFlipInline:
+      return TryTactic::kFlipInline;
+    case CSSValueID::kFlipStart:
+      return TryTactic::kFlipStart;
+    case CSSValueID::kFlipX:
+      return TryTactic::kFlipX;
+    case CSSValueID::kFlipY:
+      return TryTactic::kFlipY;
+    default:
+      NOTREACHED();
+  }
+}
+
+template <>
+inline CSSValueID PlatformEnumToCSSValueID(TryTactic v) {
+  switch (v) {
+    case TryTactic::kNone:
+      NOTREACHED();
+    case TryTactic::kFlipBlock:
+      return CSSValueID::kFlipBlock;
+    case TryTactic::kFlipInline:
+      return CSSValueID::kFlipInline;
+    case TryTactic::kFlipStart:
+      return CSSValueID::kFlipStart;
+    case TryTactic::kFlipX:
+      return CSSValueID::kFlipX;
+    case TryTactic::kFlipY:
+      return CSSValueID::kFlipY;
+  }
+}
+
+template <>
+inline EAnimationTriggerBehavior CssValueIDToPlatformEnum(CSSValueID v) {
+  switch (v) {
+    case CSSValueID::kPlay:
+      return EAnimationTriggerBehavior::kPlay;
+    case CSSValueID::kPause:
+      return EAnimationTriggerBehavior::kPause;
+    case CSSValueID::kReset:
+      return EAnimationTriggerBehavior::kReset;
+    case CSSValueID::kPlayOnce:
+      return EAnimationTriggerBehavior::kPlayOnce;
+    case CSSValueID::kPlayForwards:
+      return EAnimationTriggerBehavior::kPlayForwards;
+    case CSSValueID::kPlayBackwards:
+      return EAnimationTriggerBehavior::kPlayBackwards;
+    case CSSValueID::kReplay:
+      return EAnimationTriggerBehavior::kReplay;
+    case CSSValueID::kNone:
+      return EAnimationTriggerBehavior::kNone;
+    default:
+      NOTREACHED();
+  }
+}
+
+template <>
+inline CSSValueID PlatformEnumToCSSValueID(EAnimationTriggerBehavior v) {
+  switch (v) {
+    case EAnimationTriggerBehavior::kPlay:
+      return CSSValueID::kPlay;
+    case EAnimationTriggerBehavior::kPause:
+      return CSSValueID::kPause;
+    case EAnimationTriggerBehavior::kReset:
+      return CSSValueID::kReset;
+    case EAnimationTriggerBehavior::kPlayOnce:
+      return CSSValueID::kPlayOnce;
+    case EAnimationTriggerBehavior::kPlayForwards:
+      return CSSValueID::kPlayForwards;
+    case EAnimationTriggerBehavior::kPlayBackwards:
+      return CSSValueID::kPlayBackwards;
+    case EAnimationTriggerBehavior::kReplay:
+      return CSSValueID::kReplay;
+    case EAnimationTriggerBehavior::kNone:
+      return CSSValueID::kNone;
+    default:
+      NOTREACHED();
+  }
+}
+
+template <>
+inline CSSValueID PlatformEnumToCSSValueID(FlexWrapMode v) {
+  switch (v) {
+    case FlexWrapMode::kNowrap:
+      return CSSValueID::kNowrap;
+    case FlexWrapMode::kWrap:
+      return CSSValueID::kWrap;
+    case FlexWrapMode::kWrapReverse:
+      return CSSValueID::kWrapReverse;
+    default:
+      NOTREACHED();
+  }
+}
+
+template <>
+inline CSSValueID PlatformEnumToCSSValueID(PositionAreaRegion v) {
+  switch (v) {
+    case PositionAreaRegion::kNone:
+      return CSSValueID::kNone;
+    case PositionAreaRegion::kAll:
+      return CSSValueID::kSpanAll;
+    case PositionAreaRegion::kCenter:
+      return CSSValueID::kCenter;
+    case PositionAreaRegion::kStart:
+      return CSSValueID::kStart;
+    case PositionAreaRegion::kEnd:
+      return CSSValueID::kEnd;
+    case PositionAreaRegion::kSelfStart:
+      return CSSValueID::kSelfStart;
+    case PositionAreaRegion::kSelfEnd:
+      return CSSValueID::kSelfEnd;
+    case PositionAreaRegion::kInlineStart:
+      return CSSValueID::kInlineStart;
+    case PositionAreaRegion::kInlineEnd:
+      return CSSValueID::kInlineEnd;
+    case PositionAreaRegion::kSelfInlineStart:
+      return CSSValueID::kSelfInlineStart;
+    case PositionAreaRegion::kSelfInlineEnd:
+      return CSSValueID::kSelfInlineEnd;
+    case PositionAreaRegion::kBlockStart:
+      return CSSValueID::kBlockStart;
+    case PositionAreaRegion::kBlockEnd:
+      return CSSValueID::kBlockEnd;
+    case PositionAreaRegion::kSelfBlockStart:
+      return CSSValueID::kSelfBlockStart;
+    case PositionAreaRegion::kSelfBlockEnd:
+      return CSSValueID::kSelfBlockEnd;
+    case PositionAreaRegion::kTop:
+      return CSSValueID::kTop;
+    case PositionAreaRegion::kBottom:
+      return CSSValueID::kBottom;
+    case PositionAreaRegion::kLeft:
+      return CSSValueID::kLeft;
+    case PositionAreaRegion::kRight:
+      return CSSValueID::kRight;
+    case PositionAreaRegion::kXStart:
+      return CSSValueID::kXStart;
+    case PositionAreaRegion::kXEnd:
+      return CSSValueID::kXEnd;
+    case PositionAreaRegion::kYStart:
+      return CSSValueID::kYStart;
+    case PositionAreaRegion::kYEnd:
+      return CSSValueID::kYEnd;
+    case PositionAreaRegion::kSelfXStart:
+      return CSSValueID::kSelfXStart;
+    case PositionAreaRegion::kSelfXEnd:
+      return CSSValueID::kSelfXEnd;
+    case PositionAreaRegion::kSelfYStart:
+      return CSSValueID::kSelfYStart;
+    case PositionAreaRegion::kSelfYEnd:
+      return CSSValueID::kSelfYEnd;
+    case PositionAreaRegion::kAny:
+      return CSSValueID::kAny;
+  }
+}
+
+template <>
+inline TextIndentFlags CssValueIDToPlatformEnum(CSSValueID v) {
+  switch (v) {
+    case CSSValueID::kEachLine:
+      return TextIndentFlags::kEachLine;
+    case CSSValueID::kHanging:
+      return TextIndentFlags::kHanging;
+    default:
+      NOTREACHED();
+  }
+}
+
+template <>
+inline TextJustify CssValueIDToPlatformEnum(CSSValueID v) {
+  switch (v) {
+    case CSSValueID::kNone:
+      return TextJustify::kNone;
+    case CSSValueID::kInterWord:
+      return TextJustify::kInterWord;
+    case CSSValueID::kInterCharacter:
+    case CSSValueID::kDistribute:
+      return TextJustify::kInterCharacter;
+    case CSSValueID::kAuto:
+    default:
+      return TextJustify::kAuto;
+  }
+}
+
+template <>
+inline CSSValueID PlatformEnumToCSSValueID(TextJustify v) {
+  switch (v) {
+    case TextJustify::kAuto:
+      return CSSValueID::kAuto;
+    case TextJustify::kNone:
+      return CSSValueID::kNone;
+    case TextJustify::kInterWord:
+      return CSSValueID::kInterWord;
+    case TextJustify::kInterCharacter:
+      return CSSValueID::kInterCharacter;
+  }
+  NOTREACHED();
+}
+
+template <>
+inline GridLanesOrientation CssValueIDToPlatformEnum(CSSValueID v) {
+  switch (v) {
+    case CSSValueID::kNormal:
+      return GridLanesOrientation::kNormal;
+    case CSSValueID::kRow:
+      return GridLanesOrientation::kRow;
+    case CSSValueID::kColumn:
+      return GridLanesOrientation::kColumn;
+    default:
+      break;
+  }
+  NOTREACHED();
+}
+
+template <>
+inline CSSValueID PlatformEnumToCSSValueID(GridLanesOrientation v) {
+  switch (v) {
+    case GridLanesOrientation::kNormal:
+      return CSSValueID::kNormal;
+    case GridLanesOrientation::kRow:
+      return CSSValueID::kRow;
+    case GridLanesOrientation::kColumn:
+      return CSSValueID::kColumn;
+  }
+  NOTREACHED();
 }
 
 }  // namespace blink

@@ -23,18 +23,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <array>
 #include <memory>
+#include <optional>
 
+#include "api/audio/audio_device.h"
+#include "api/audio/audio_device_defines.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
-#include "modules/audio_device/include/audio_device.h"
-#include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread.h"
 #include "rtc_base/thread_annotations.h"
-
-namespace rtc {
-class Thread;
-}  // namespace rtc
 
 class FakeAudioCaptureModule : public webrtc::AudioDeviceModule {
  public:
@@ -46,7 +45,11 @@ class FakeAudioCaptureModule : public webrtc::AudioDeviceModule {
   static const size_t kNumberBytesPerSample = sizeof(Sample);
 
   // Creates a FakeAudioCaptureModule or returns NULL on failure.
-  static rtc::scoped_refptr<FakeAudioCaptureModule> Create();
+  static webrtc::scoped_refptr<FakeAudioCaptureModule> Create(
+      std::unique_ptr<webrtc::Thread> process_thread);
+
+  // Creates a FakeAudioCaptureModule with a default started thread.
+  static webrtc::scoped_refptr<FakeAudioCaptureModule> Create();
 
   // Returns the number of frames that have been successfully pulled by the
   // instance. Note that correctly detecting success can only be done if the
@@ -137,7 +140,7 @@ class FakeAudioCaptureModule : public webrtc::AudioDeviceModule {
 
   int32_t GetPlayoutUnderrunCount() const override { return -1; }
 
-  absl::optional<webrtc::AudioDeviceModule::Stats> GetStats() const override {
+  std::optional<webrtc::AudioDeviceModule::Stats> GetStats() const override {
     return webrtc::AudioDeviceModule::Stats();
   }
 #if defined(WEBRTC_IOS)
@@ -158,10 +161,12 @@ class FakeAudioCaptureModule : public webrtc::AudioDeviceModule {
   // exposed in which case the burden of proper instantiation would be put on
   // the creator of a FakeAudioCaptureModule instance. To create an instance of
   // this class use the Create(..) API.
-  FakeAudioCaptureModule();
+  explicit FakeAudioCaptureModule(
+      std::unique_ptr<webrtc::Thread> process_thread);
+
   // The destructor is protected because it is reference counted and should not
   // be deleted directly.
-  virtual ~FakeAudioCaptureModule();
+  ~FakeAudioCaptureModule() override;
 
  private:
   // Initializes the state of the FakeAudioCaptureModule. This API is called on
@@ -214,17 +219,20 @@ class FakeAudioCaptureModule : public webrtc::AudioDeviceModule {
   bool started_ RTC_GUARDED_BY(mutex_);
   int64_t next_frame_time_ RTC_GUARDED_BY(process_thread_checker_);
 
-  std::unique_ptr<rtc::Thread> process_thread_;
+  std::unique_ptr<webrtc::Thread> process_thread_;
 
   // Buffer for storing samples received from the webrtc::AudioTransport.
-  char rec_buffer_[kNumberSamples * kNumberBytesPerSample];
+  std::array<Sample, kNumberSamples> rec_buffer_;
   // Buffer for samples to send to the webrtc::AudioTransport.
-  char send_buffer_[kNumberSamples * kNumberBytesPerSample];
+  std::array<Sample, kNumberSamples> send_buffer_;
 
   // Counter of frames received that have samples of high enough amplitude to
   // indicate that the frames are not faked somewhere in the audio pipeline
   // (e.g. by a jitter buffer).
   int frames_received_;
+
+  // Set to true when Init() is called.
+  bool initialized_ = false;
 
   // Protects variables that are accessed from process_thread_ and
   // the main thread.

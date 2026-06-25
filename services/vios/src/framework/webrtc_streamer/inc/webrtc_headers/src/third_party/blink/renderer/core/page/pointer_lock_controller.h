@@ -26,7 +26,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_POINTER_LOCK_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_POINTER_LOCK_CONTROLLER_H_
 
-#include "base/memory/scoped_refptr.h"
+#include <memory>
+
+#include "cc/trees/layer_tree_host.h"
 #include "third_party/blink/public/mojom/input/pointer_lock_context.mojom-blink.h"
 #include "third_party/blink/public/mojom/input/pointer_lock_result.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
@@ -59,10 +61,9 @@ class CORE_EXPORT PointerLockController final
       base::OnceCallback<void(mojom::blink::PointerLockResult)>;
   bool RequestPointerLock(Element* target, ResultCallback callback);
 
-  ScriptPromise RequestPointerLock(ScriptPromiseResolver* resolver,
-                                   Element* target,
-                                   ExceptionState& exception_state,
-                                   const PointerLockOptions* options = nullptr);
+  void RequestPointerLock(ScriptPromiseResolver<IDLUndefined>* resolver,
+                          Element* target,
+                          const PointerLockOptions* options = nullptr);
   void ExitPointerLock();
   void ElementRemoved(Element*);
   void DocumentDetached(Document*);
@@ -103,8 +104,8 @@ class CORE_EXPORT PointerLockController final
                      bool unadjusted_movement_requested,
                      mojom::blink::PointerLockResult result);
 
-  static void ProcessResultScriptPromise(
-      ScriptPromiseResolver* resolver,
+  static void ProcessResultPromise(
+      ScriptPromiseResolver<IDLUndefined>* resolver,
       mojom::blink::PointerLockResult result);
   static DOMException* ConvertResultToException(
       mojom::blink::PointerLockResult result);
@@ -115,6 +116,8 @@ class CORE_EXPORT PointerLockController final
   Member<Document> document_of_removed_element_while_waiting_for_unlock_;
 
   HeapMojoRemote<mojom::blink::PointerLockContext> mouse_lock_context_{nullptr};
+
+  std::unique_ptr<cc::ScopedRequestHighFramerate> high_framerate_request_;
 
   // Store the locked position so that the event position keeps unchanged when
   // in locked states. These values only get set when entering lock states.

@@ -25,6 +25,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_TEXT_AREA_ELEMENT_H_
 
 #include "base/gtest_prod_util.h"
+#include "third_party/blink/public/web/web_form_control_element.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/html/forms/text_control_element.h"
@@ -38,6 +39,10 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
 
  public:
   explicit HTMLTextAreaElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLTextAreaElement;
+  }
 
   unsigned cols() const { return cols_; }
   unsigned rows() const { return rows_; }
@@ -56,10 +61,12 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
   String defaultValue() const;
   void setDefaultValue(const String&);
   int textLength() const { return Value().length(); }
+  String InnerEditorValue() const override;
 
   // Sets the suggested value and puts the element into
   // WebAutofillState::kPreviewed state if |value| is non-empty, or
   // WebAutofillState::kNotFilled otherwise.
+  // A null value indicates that the suggested value should be hidden.
   void SetSuggestedValue(const String& value) override;
 
   // For ValidityState
@@ -74,15 +81,23 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
 
   String DefaultToolTip() const override;
 
+  void SetFocused(bool is_focused, mojom::blink::FocusType) override;
+
+  // Returns a list of with information (such as typeface and glyphs) for the
+  // text inside.
+  WebFormControlElement::TextInfo GetTextInfo() const;
+
+ protected:
+  bool SupportsBaseAppearanceInternal(BaseAppearanceValue) const override;
+
  private:
   FRIEND_TEST_ALL_PREFIXES(HTMLTextAreaElementTest, SanitizeUserInputValue);
 
   enum WrapMethod { kNoWrap, kSoftWrap, kHardWrap };
 
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
-  bool AreAuthorShadowsAllowed() const override { return false; }
 
-  void HandleBeforeTextInsertedEvent(BeforeTextInsertedEvent*) const;
+  void HandleBeforeTextInsertedEvent(BeforeTextInsertedEvent*);
   static String SanitizeUserInputValue(const String&, unsigned max_length);
   void UpdateValue();
   void SetNonDirtyValue(const String&, TextControlSetValueSelection);
@@ -95,9 +110,9 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
   void SetPlaceholderVisibility(bool) override;
   bool SupportsPlaceholder() const override { return true; }
   String GetPlaceholderValue() const final;
-  void UpdatePlaceholderText() override;
-  bool IsEmptyValue() const override { return Value().empty(); }
-  TextControlInnerEditorElement* EnsureInnerEditorElement() const final;
+  HTMLElement* UpdatePlaceholderText() override;
+  bool IsInnerEditorValueEmpty() const final;
+  void CreateInnerEditorElementIfNecessary() const final;
 
   bool IsOptionalFormControl() const override {
     return !IsRequiredFormControl();
@@ -111,28 +126,36 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
   bool IsEnumeratable() const override { return true; }
   bool IsInteractiveContent() const override;
   bool IsLabelable() const override { return true; }
+  FocusgroupFlags NativeArrowKeyAxes() const final;
 
-  const AtomicString& FormControlType() const override;
+  mojom::blink::FormControlType FormControlType() const override;
+  bool SupportsReadOnly() const override { return true; }
+  const AtomicString& FormControlTypeAsString() const override;
 
   FormControlState SaveFormControlState() const override;
   void RestoreFormControlState(const FormControlState&) override;
 
   bool IsTextControl() const override { return true; }
+  bool IsAutoDirectionalityFormAssociated() const final { return true; }
   int scrollWidth() override;
   int scrollHeight() override;
+  double scrollLeft() override;
+  double scrollTop() override;
   void ChildrenChanged(const ChildrenChange&) override;
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
   LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
   void AppendToFormData(FormData&) override;
   void ResetImpl() override;
   bool HasCustomFocusLogic() const override;
   bool MayTriggerVirtualKeyboard() const override;
-  bool IsKeyboardFocusable() const override;
+  bool IsKeyboardFocusableSlow(
+      UpdateBehavior update_behavior =
+          UpdateBehavior::kStyleAndLayout) const override;
   void UpdateSelectionOnFocus(SelectionBehaviorOnFocus,
                               const FocusOptions*) override;
 
@@ -140,12 +163,14 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
 
   bool MatchesReadOnlyPseudoClass() const override;
   bool MatchesReadWritePseudoClass() const override;
-  void CloneNonAttributePropertiesFrom(const Element&, CloneChildrenFlag) final;
+  void CloneNonAttributePropertiesFrom(const Element&, NodeCloningData&) final;
 
   // If the String* argument is 0, apply value().
   bool ValueMissing(const String*) const;
   bool TooLong(const String*, NeedsToCheckDirtyFlag) const;
   bool TooShort(const String*, NeedsToCheckDirtyFlag) const;
+
+  void DidChangeIsCanvasOrInCanvasSubtree() final;
 
   unsigned rows_;
   unsigned cols_;

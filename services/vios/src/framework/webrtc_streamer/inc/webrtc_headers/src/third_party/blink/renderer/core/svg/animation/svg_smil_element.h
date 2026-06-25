@@ -47,6 +47,10 @@ class CORE_EXPORT SMILInstanceTimeList {
   void Append(SMILTime, SMILTimeOrigin);
   void InsertSortedAndUnique(SMILTime, SMILTimeOrigin);
   void RemoveWithOrigin(SMILTimeOrigin);
+  void RemoveBeforeWithOrigin(SMILTime, SMILTimeOrigin);
+  void RemoveBelowThresholdWithOrigin(wtf_size_t num_to_remove,
+                                      const Vector<SMILTime>& times_to_keep,
+                                      SMILTimeOrigin origin);
   void Sort();
   SMILTime NextAfter(SMILTime) const;
 
@@ -58,21 +62,10 @@ class CORE_EXPORT SMILInstanceTimeList {
   const_iterator end() const { return instance_times_.end(); }
 
  private:
-  static unsigned OriginToMask(SMILTimeOrigin origin) {
-    return 1u << static_cast<unsigned>(origin);
-  }
-  void AddOrigin(SMILTimeOrigin origin) {
-    time_origin_mask_ |= OriginToMask(origin);
-  }
-  void ClearOrigin(SMILTimeOrigin origin) {
-    time_origin_mask_ &= ~OriginToMask(origin);
-  }
-  bool HasOrigin(SMILTimeOrigin origin) const {
-    return (time_origin_mask_ & OriginToMask(origin)) != 0;
-  }
+  void RemoveTimeOriginIfNotFound(SMILTimeOrigin origin);
 
   Vector<SMILTimeWithOrigin> instance_times_;
-  unsigned time_origin_mask_ = 0;
+  SMILTimeOriginSet time_origins_;
 };
 
 // This class implements SMIL interval timing model as needed for SVG animation.
@@ -88,7 +81,7 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
   SMILTimeContainer* TimeContainer() const { return time_container_.Get(); }
 
   bool HasValidTarget() const;
-  SVGElement* targetElement() const { return target_element_; }
+  SVGElement* targetElement() const { return target_element_.Get(); }
 
   void BeginByLinkActivation();
 
@@ -134,8 +127,8 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
 
   void Reset();
 
-  static SMILTime ParseClockValue(const String&);
-  static SMILTime ParseOffsetValue(const String&);
+  static SMILTime ParseClockValue(const StringView&);
+  static SMILTime ParseOffsetValue(const StringView&);
 
   bool IsContributing(SMILTime elapsed) const;
   const SMILInterval& GetActiveInterval(SMILTime presentation_time) const;
@@ -169,7 +162,9 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
+  SVGAnimatedPropertyBase* PropertyFromAttribute(
+      const QualifiedName& attribute_name) const override;
 
   void AddedEventListener(const AtomicString& event_type,
                           RegisteredEventListener&) final;
@@ -179,7 +174,7 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
   void ClearConditions();
 
   void StartedActiveInterval();
-  void EndedActiveInterval();
+  void PruneOldInstanceTimes(SMILInstanceTimeList& instance_times);
 
   bool LayoutObjectIsNeeded(const DisplayStyle&) const override {
     return false;
@@ -203,6 +198,7 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
                        SMILTime time,
                        SMILTimeOrigin origin);
   void InstanceListChanged();
+  void IntervalStateChanged();
 
   // This represents conditions on elements begin or end list that need to be
   // resolved on runtime, for example
@@ -247,7 +243,7 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
     Member<IdTargetObserver> base_id_observer_;
     Member<ConditionEventListener> event_listener_;
   };
-  bool ParseCondition(const String&, BeginOrEnd begin_or_end);
+  bool ParseCondition(const StringView&, BeginOrEnd begin_or_end);
   void ParseBeginOrEnd(const String&, BeginOrEnd begin_or_end);
 
   void ConnectConditions();
@@ -284,6 +280,7 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
   HeapVector<Member<Condition>> conditions_;
   bool conditions_connected_;
   bool has_end_event_conditions_;
+  bool has_end_attribute_specified_;
 
   bool is_waiting_for_first_interval_;
   bool is_scheduled_;
@@ -318,15 +315,12 @@ class CORE_EXPORT SVGSMILElement : public SVGElement, public SVGTests {
 
   bool interval_has_changed_;
   bool instance_lists_have_changed_;
+  bool interval_needs_revalidation_;
   bool is_notifying_dependents_;
 
   friend class ConditionEventListener;
 };
 
-template <>
-inline bool IsElementOfType<const SVGSMILElement>(const Node& node) {
-  return IsA<SVGSMILElement>(node);
-}
 template <>
 struct DowncastTraits<SVGSMILElement> {
   static bool AllowFrom(const Node& node) {

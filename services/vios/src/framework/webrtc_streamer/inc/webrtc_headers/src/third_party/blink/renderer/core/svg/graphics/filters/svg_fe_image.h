@@ -28,6 +28,7 @@
 
 namespace blink {
 
+class AffineTransform;
 class Image;
 class LayoutObject;
 class SVGElement;
@@ -43,22 +44,31 @@ class FEImage final : public FilterEffect {
   // depend on the value of color-interpolation-filters.
   void SetOperatingInterpolationSpace(InterpolationSpace) override {}
 
-  WTF::TextStream& ExternalRepresentation(WTF::TextStream&,
-                                          int indention) const override;
+  StringBuilder& ExternalRepresentation(StringBuilder&,
+                                        wtf_size_t indent) const override;
 
   void Trace(Visitor*) const override;
 
  private:
   const LayoutObject* ReferencedLayoutObject() const;
+  scoped_refptr<Image> GetImage(const gfx::SizeF& container_size) const;
 
   FilterEffectType GetFilterEffectType() const override {
     return kFilterEffectTypeImage;
   }
 
+  AffineTransform SourceToDestinationTransform(
+      const LayoutObject& layout_object,
+      const gfx::RectF& dest_rect) const;
   gfx::RectF MapInputs(const gfx::RectF&) const override;
 
   sk_sp<PaintFilter> CreateImageFilter() override;
-  sk_sp<PaintFilter> CreateImageFilterForLayoutObject(const LayoutObject&);
+  // The `dst_rect` and `crop_rect` arguments are in (potentially) zoomed user
+  // space coordinates (essentially "zoomed CSS pixels").
+  sk_sp<PaintFilter> CreateImageFilterForLayoutObject(
+      const LayoutObject&,
+      const gfx::RectF& dst_rect,
+      const gfx::RectF& crop_rect);
 
   scoped_refptr<Image> image_;
   Member<const SVGElement> element_;

@@ -11,43 +11,50 @@
 #ifndef API_TEST_MOCK_RTPRECEIVER_H_
 #define API_TEST_MOCK_RTPRECEIVER_H_
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "api/crypto/frame_decryptor_interface.h"
+#include "api/media_stream_interface.h"
+#include "api/media_types.h"
+#include "api/rtp_parameters.h"
 #include "api/rtp_receiver_interface.h"
+#include "api/scoped_refptr.h"
+#include "api/transport/rtp/rtp_source.h"
+#include "rtc_base/ref_counted_object.h"
 #include "test/gmock.h"
 
 namespace webrtc {
 
-class MockRtpReceiver : public rtc::RefCountedObject<RtpReceiverInterface> {
+class MockRtpReceiver : public RefCountedObject<RtpReceiverInterface> {
  public:
-  MOCK_METHOD(rtc::scoped_refptr<MediaStreamTrackInterface>,
+  MOCK_METHOD(scoped_refptr<MediaStreamTrackInterface>,
               track,
               (),
               (const, override));
-  MOCK_METHOD(std::vector<rtc::scoped_refptr<MediaStreamInterface>>,
+  MOCK_METHOD(std::vector<scoped_refptr<MediaStreamInterface>>,
               streams,
               (),
               (const, override));
-  MOCK_METHOD(cricket::MediaType, media_type, (), (const, override));
+  MOCK_METHOD(MediaType, media_type, (), (const, override));
   MOCK_METHOD(std::string, id, (), (const, override));
   MOCK_METHOD(RtpParameters, GetParameters, (), (const, override));
   MOCK_METHOD(bool,
               SetParameters,
-              (const webrtc::RtpParameters& parameters),
+              (const RtpParameters& parameters),
               (override));
   MOCK_METHOD(void, SetObserver, (RtpReceiverObserverInterface*), (override));
   MOCK_METHOD(void,
               SetJitterBufferMinimumDelay,
-              (absl::optional<double>),
+              (std::optional<double>),
               (override));
   MOCK_METHOD(std::vector<RtpSource>, GetSources, (), (const, override));
   MOCK_METHOD(void,
               SetFrameDecryptor,
-              (rtc::scoped_refptr<webrtc::FrameDecryptorInterface>),
+              (scoped_refptr<FrameDecryptorInterface>),
               (override));
-  MOCK_METHOD(rtc::scoped_refptr<webrtc::FrameDecryptorInterface>,
+  MOCK_METHOD(scoped_refptr<FrameDecryptorInterface>,
               GetFrameDecryptor,
               (),
               (const, override));

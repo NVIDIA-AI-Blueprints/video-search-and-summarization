@@ -11,20 +11,20 @@
 #ifndef MODULES_AUDIO_PROCESSING_TEST_ECHO_CANCELLER_TEST_TOOLS_H_
 #define MODULES_AUDIO_PROCESSING_TEST_ECHO_CANCELLER_TEST_TOOLS_H_
 
-#include <algorithm>
+#include <cstddef>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
 #include "rtc_base/random.h"
 
 namespace webrtc {
 
 // Randomizes the elements in a vector with values -32767.f:32767.f.
-void RandomizeSampleVector(Random* random_generator, rtc::ArrayView<float> v);
+void RandomizeSampleVector(Random* random_generator, std::span<float> v);
 
 // Randomizes the elements in a vector with values -amplitude:amplitude.
 void RandomizeSampleVector(Random* random_generator,
-                           rtc::ArrayView<float> v,
+                           std::span<float> v,
                            float amplitude);
 
 // Class for delaying a signal a fixed number of samples.
@@ -35,7 +35,7 @@ class DelayBuffer {
   ~DelayBuffer() = default;
 
   // Produces a delayed signal copy of x.
-  void Delay(rtc::ArrayView<const T> x, rtc::ArrayView<T> x_delayed);
+  void Delay(std::span<const T> x, std::span<T> x_delayed);
 
  private:
   std::vector<T> buffer_;

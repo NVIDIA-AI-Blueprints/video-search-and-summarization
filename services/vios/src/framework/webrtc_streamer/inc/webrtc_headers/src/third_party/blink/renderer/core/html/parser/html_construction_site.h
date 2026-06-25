@@ -28,6 +28,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_CONSTRUCTION_SITE_H_
 
 #include "base/check_op.h"
+#include "third_party/blink/renderer/core/dom/container_node.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/parser_content_policy.h"
 #include "third_party/blink/renderer/core/html/parser/html_element_stack.h"
@@ -96,7 +97,8 @@ class Document;
 class Element;
 class HTMLFormElement;
 class HTMLParserReentryPermit;
-enum class DeclarativeShadowRootType;
+class ParserRootInsertionPoint;
+class StreamingSanitizer;
 
 class HTMLConstructionSite final {
   DISALLOW_NEW();
@@ -106,13 +108,17 @@ class HTMLConstructionSite final {
 
   HTMLConstructionSite(HTMLParserReentryPermit*,
                        Document&,
-                       ParserContentPolicy);
+                       ParserContentPolicy,
+                       ContainerNode*,
+                       Element*,
+                       CustomElementRegistry*,
+                       StreamingSanitizer*,
+                       ParserRootInsertionPoint*);
   HTMLConstructionSite(const HTMLConstructionSite&) = delete;
   HTMLConstructionSite& operator=(const HTMLConstructionSite&) = delete;
   ~HTMLConstructionSite();
-  void Trace(Visitor*) const;
 
-  void InitFragmentParsing(DocumentFragment*, Element* context_element);
+  void Trace(Visitor*) const;
 
   void Detach();
 
@@ -143,16 +149,22 @@ class HTMLConstructionSite final {
   void FinishedParsing();
 
   void InsertDoctype(AtomicHTMLToken*);
+  void InsertProcessingInstruction(AtomicHTMLToken*);
+  void InsertProcessingInstructionOnDocument(AtomicHTMLToken*);
+  void InsertProcessingInstructionOnHTMLHtmlElement(AtomicHTMLToken*);
   void InsertComment(AtomicHTMLToken*);
   void InsertCommentOnDocument(AtomicHTMLToken*);
   void InsertCommentOnHTMLHtmlElement(AtomicHTMLToken*);
+  void InsertDOMPart(AtomicHTMLToken*);
   void InsertHTMLElement(AtomicHTMLToken*);
-  void InsertHTMLTemplateElement(AtomicHTMLToken*, DeclarativeShadowRootType);
+  void InsertHTMLTemplateElement(AtomicHTMLToken*, String);
   void InsertSelfClosingHTMLElementDestroyingToken(AtomicHTMLToken*);
   void InsertFormattingElement(AtomicHTMLToken*);
   void InsertHTMLHeadElement(AtomicHTMLToken*);
   void InsertHTMLBodyElement(AtomicHTMLToken*);
-  void InsertHTMLFormElement(AtomicHTMLToken*, bool is_demoted = false);
+  void InsertHTMLFormElement(AtomicHTMLToken*,
+                             bool is_demoted,
+                             bool is_parsing_template_contents);
   void InsertScriptElement(AtomicHTMLToken*);
   void InsertTextNode(const StringView&,
                       WhitespaceMode = WhitespaceMode::kWhitespaceUnknown);
@@ -205,12 +217,20 @@ class HTMLConstructionSite final {
   Element* Head() const { return head_->GetElement(); }
   HTMLStackItem* HeadStackItem() const { return head_.Get(); }
 
-  bool IsFormElementPointerNonNull() const { return form_; }
+  bool IsFormElementPointerNonNull() const { return form_ != nullptr; }
   HTMLFormElement* TakeForm();
 
   ParserContentPolicy GetParserContentPolicy() {
     return parser_content_policy_;
   }
+
+  bool PreprocessInsertionTask(HTMLConstructionSiteTask&);
+
+  static CustomElementDefinition* LookUpCustomElementDefinition(
+      Document&,
+      const QualifiedName&,
+      const AtomicString& is,
+      CustomElementRegistry* registry);
 
   class RedirectToFosterParentGuard {
     STACK_ALLOCATED();
@@ -236,6 +256,14 @@ class HTMLConstructionSite final {
   };
 
  private:
+  struct InsertionLocation {
+    STACK_ALLOCATED();
+
+   public:
+    ContainerNode* parent;
+    Node* next_child = nullptr;
+  };
+
   // In the common case, this queue will have only one task because most tokens
   // produce only one DOM mutation.
   typedef HeapVector<HTMLConstructionSiteTask, 1> TaskQueue;
@@ -245,9 +273,17 @@ class HTMLConstructionSite final {
                                        const String& public_id,
                                        const String& system_id);
 
-  void AttachLater(ContainerNode* parent,
+  void AttachLater(InsertionLocation location,
                    Node* child,
                    bool self_closing = false);
+  void AttachLater(ContainerNode* parent,
+                   Node* child,
+                   bool self_closing = false) {
+    AttachLater({parent, nullptr}, child, self_closing);
+  }
+
+  InsertionLocation CurrentInsertionLocation();
+  void AdjustInsertionLocation(HTMLConstructionSiteTask& task);
 
   void FindFosterSite(HTMLConstructionSiteTask&);
 
@@ -257,13 +293,7 @@ class HTMLConstructionSite final {
   void MergeAttributesFromTokenIntoElement(AtomicHTMLToken*, Element*);
 
   void ExecuteTask(HTMLConstructionSiteTask&);
-  void QueueTask(const HTMLConstructionSiteTask&, bool flush_pending_text);
-
-  CustomElementDefinition* LookUpCustomElementDefinition(
-      Document&,
-      const QualifiedName&,
-      const AtomicString& is);
-
+  void QueueTask(HTMLConstructionSiteTask&, bool flush_pending_text);
   void SetAttributes(Element* element, AtomicHTMLToken* token);
 
   Member<HTMLParserReentryPermit> reentry_permit_;
@@ -273,6 +303,8 @@ class HTMLConstructionSite final {
   // constructed nodes. It points to a DocumentFragment when parsing fragments
   // and a Document in all other cases.
   Member<ContainerNode> attachment_root_;
+
+  Member<ParserRootInsertionPoint> root_insertion_point_;
 
   // https://html.spec.whatwg.org/C/#head-element-pointer
   Member<HTMLStackItem> head_;
@@ -347,8 +379,11 @@ class HTMLConstructionSite final {
   // Whether duplicate attribute was reported.
   bool reported_duplicate_attribute_ = false;
 
-  // Whether strings should be canonicalized (deduplicated).
-  bool canonicalize_whitespace_strings_ = true;
+  // The custom element registry used to parse html and grab definition from
+  // when custom elements are encountered.
+  Member<CustomElementRegistry> custom_element_registry_;
+
+  Member<StreamingSanitizer> sanitizer_;
 };
 
 }  // namespace blink

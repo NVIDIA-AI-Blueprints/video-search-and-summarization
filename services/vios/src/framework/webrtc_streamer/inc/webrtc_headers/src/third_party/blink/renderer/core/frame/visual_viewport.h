@@ -51,7 +51,7 @@
 namespace cc {
 class AnimationHost;
 class AnimationTimeline;
-class ScrollbarLayerBase;
+class SolidColorScrollbarLayer;
 }
 
 namespace blink {
@@ -147,6 +147,8 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   float Scale() const { return scale_; }
   bool IsPinchGestureActive() const { return is_pinch_gesture_active_; }
 
+  PhysicalOffset LocalToScrollOriginOffset() const final;
+
   // Convert the given rect in the main LocalFrameView's coordinates into a rect
   // in the viewport. The given and returned rects are in CSS pixels, meaning
   // scale isn't applied.
@@ -186,18 +188,11 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
 
   // ScrollableArea implementation
   ChromeClient* GetChromeClient() const override;
-  SmoothScrollSequencer* GetSmoothScrollSequencer() const override;
-  void SetScrollOffset(const ScrollOffset&,
-                       mojom::blink::ScrollType,
-                       mojom::blink::ScrollBehavior,
-                       ScrollCallback on_finish) override;
-  void SetScrollOffset(const ScrollOffset&,
-                       mojom::blink::ScrollType,
-                       mojom::blink::ScrollBehavior =
-                           mojom::blink::ScrollBehavior::kInstant) override;
   PhysicalRect ScrollIntoView(
       const PhysicalRect&,
-      const mojom::blink::ScrollIntoViewParamsPtr&) override;
+      const PhysicalBoxStrut& scroll_margin,
+      const mojom::blink::ScrollIntoViewParamsPtr&,
+      std::unique_ptr<ScrollPromiseResolver::ActiveScrollTracker>) override;
   bool IsThrottled() const override {
     // VisualViewport is always in the main frame, so the frame does not get
     // throttled.
@@ -208,7 +203,7 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   bool IsScrollCornerVisible() const override { return false; }
   gfx::Rect ScrollCornerRect() const override { return gfx::Rect(); }
   gfx::Vector2d ScrollOffsetInt() const override {
-    return gfx::ToFlooredVector2d(offset_);
+    return SnapScrollOffsetToPhysicalPixels(offset_);
   }
   ScrollOffset GetScrollOffset() const override { return offset_; }
   gfx::Vector2d MinimumScrollOffsetInt() const override;
@@ -226,7 +221,8 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   bool ScrollAnimatorEnabled() const override;
   void ScrollControlWasSetNeedsPaintInvalidation() override {}
   void UpdateScrollOffset(const ScrollOffset&,
-                          mojom::blink::ScrollType) override;
+                          mojom::blink::ScrollType,
+                          cc::ScrollSourceType) override;
   cc::Layer* LayerForScrolling() const;
   cc::Layer* LayerForHorizontalScrollbar() const override;
   cc::Layer* LayerForVerticalScrollbar() const override;
@@ -234,8 +230,7 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   bool UsesCompositedScrolling() const override { return true; }
   cc::AnimationHost* GetCompositorAnimationHost() const override;
   cc::AnimationTimeline* GetCompositorAnimationTimeline() const override;
-  gfx::Rect VisibleContentRect(
-      IncludeScrollbarsInRect = kExcludeScrollbars) const override;
+  gfx::Rect VisibleContentRect(IncludeScrollbarsInRect) const override;
   scoped_refptr<base::SingleThreadTaskRunner> GetTimerTaskRunner()
       const override;
   mojom::blink::ColorScheme UsedColorSchemeScrollbars() const override;
@@ -247,7 +242,9 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   // WebViewImpl explicitly rather than via
   // ScrollingCoordinator::DidCompositorScroll() since it needs to be set in
   // tandem with the page scale delta.
-  void DidCompositorScroll(const gfx::PointF&) final { NOTREACHED(); }
+  void DidCompositorScroll(const gfx::PointF&, cc::ScrollSourceType) final {
+    NOTREACHED();
+  }
 
   // Visual Viewport API implementation.
   double OffsetLeft() const;
@@ -293,6 +290,7 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   void Paint(GraphicsContext&) const;
 
   void UsedColorSchemeChanged();
+  void ScrollbarColorChanged();
 
   // Returns whether this VisualViewport is "active", that is, whether it'll
   // affect paint property trees. If false, this renderer cannot be
@@ -300,8 +298,7 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   //
   // A VisualViewport is created in renderers for remote frames / nested pages;
   // however, in those cases it is "inert", it cannot change scale or location
-  // values. Only a <portal> or outermost main frame can have an active
-  // viewport.
+  // values. Only an outermost main frame can have an active viewport.
   bool IsActiveViewport() const;
 
   OverscrollType GetOverscrollType() const { return overscroll_type_; }
@@ -309,6 +306,19 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
     overscroll_type_ = type;
     SetNeedsPaintPropertyUpdate();
   }
+  std::optional<blink::Color> CSSScrollbarThumbColor() const;
+
+  void DropCompositorScrollDeltaNextCommit() override;
+
+ protected:
+  // ScrollableArea implementation
+  bool SetScrollOffsetInternal(
+      const ScrollOffset&,
+      mojom::blink::ScrollType,
+      cc::ScrollSourceType,
+      mojom::blink::ScrollBehavior,
+      bool targeted_scroll,
+      std::unique_ptr<ScrollPromiseResolver::ActiveScrollTracker>) override;
 
  private:
   bool DidSetScaleOrLocation(float scale,
@@ -323,6 +333,7 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   EScrollbarWidth CSSScrollbarWidth() const;
   int ScrollbarThickness() const;
   void UpdateScrollbarLayer(ScrollbarOrientation);
+  void UpdateScrollbarColor(cc::SolidColorScrollbarLayer&);
 
   void NotifyRootFrameViewport() const;
 
@@ -350,18 +361,18 @@ class CORE_EXPORT VisualViewport : public GarbageCollected<VisualViewport>,
   Member<Page> page_;
 
   scoped_refptr<cc::Layer> scroll_layer_;
-  scoped_refptr<cc::ScrollbarLayerBase> scrollbar_layer_horizontal_;
-  scoped_refptr<cc::ScrollbarLayerBase> scrollbar_layer_vertical_;
+  scoped_refptr<cc::SolidColorScrollbarLayer> scrollbar_layer_horizontal_;
+  scoped_refptr<cc::SolidColorScrollbarLayer> scrollbar_layer_vertical_;
 
-  PropertyTreeStateOrAlias parent_property_tree_state_;
-  scoped_refptr<TransformPaintPropertyNode> device_emulation_transform_node_;
-  scoped_refptr<TransformPaintPropertyNode>
-      overscroll_elasticity_transform_node_;
-  scoped_refptr<TransformPaintPropertyNode> page_scale_node_;
-  scoped_refptr<TransformPaintPropertyNode> scroll_translation_node_;
-  scoped_refptr<ScrollPaintPropertyNode> scroll_node_;
-  scoped_refptr<EffectPaintPropertyNode> horizontal_scrollbar_effect_node_;
-  scoped_refptr<EffectPaintPropertyNode> vertical_scrollbar_effect_node_;
+  TraceablePropertyTreeStateOrAlias parent_property_tree_state_{
+      TraceablePropertyTreeStateOrAlias::kUninitialized};
+  Member<TransformPaintPropertyNode> device_emulation_transform_node_;
+  Member<TransformPaintPropertyNode> overscroll_elasticity_transform_node_;
+  Member<TransformPaintPropertyNode> page_scale_node_;
+  Member<TransformPaintPropertyNode> scroll_translation_node_;
+  Member<ScrollPaintPropertyNode> scroll_node_;
+  Member<EffectPaintPropertyNode> horizontal_scrollbar_effect_node_;
+  Member<EffectPaintPropertyNode> vertical_scrollbar_effect_node_;
 
   // Offset of the visual viewport from the main frame's origin, in CSS pixels.
   ScrollOffset offset_;

@@ -21,9 +21,7 @@ namespace blink {
 // Represents an animation's effect between an adjacent pair of
 // PropertySpecificKeyframes after converting the keyframes to an internal
 // format with respect to the animation environment and underlying values.
-class PrimitiveInterpolation {
-  USING_FAST_MALLOC(PrimitiveInterpolation);
-
+class PrimitiveInterpolation : public GarbageCollected<PrimitiveInterpolation> {
  public:
   PrimitiveInterpolation(const PrimitiveInterpolation&) = delete;
   PrimitiveInterpolation& operator=(const PrimitiveInterpolation&) = delete;
@@ -31,11 +29,17 @@ class PrimitiveInterpolation {
 
   virtual void InterpolateValue(
       double fraction,
-      std::unique_ptr<TypedInterpolationValue>& result) const = 0;
+      Member<TypedInterpolationValue>& result) const = 0;
   virtual double InterpolateUnderlyingFraction(double start,
                                                double end,
                                                double fraction) const = 0;
   virtual bool IsFlip() const { return false; }
+
+  // Return the start/end values for pairwise interpolations, nullptr otherwise.
+  virtual const InterpolableValue* StartValue() const { return nullptr; }
+  virtual const InterpolableValue* EndValue() const { return nullptr; }
+
+  virtual void Trace(Visitor*) const {}
 
  protected:
   PrimitiveInterpolation() = default;
@@ -46,34 +50,44 @@ class PrimitiveInterpolation {
 class PairwisePrimitiveInterpolation : public PrimitiveInterpolation {
  public:
   PairwisePrimitiveInterpolation(
-      const InterpolationType& type,
-      std::unique_ptr<InterpolableValue> start,
-      std::unique_ptr<InterpolableValue> end,
-      scoped_refptr<const NonInterpolableValue> non_interpolable_value)
+      const InterpolationType* type,
+      InterpolableValue* start,
+      InterpolableValue* end,
+      const NonInterpolableValue* non_interpolable_value)
       : type_(type),
-        start_(std::move(start)),
-        end_(std::move(end)),
-        non_interpolable_value_(std::move(non_interpolable_value)) {
+        start_(start),
+        end_(end),
+        non_interpolable_value_(non_interpolable_value) {
     DCHECK(start_);
     DCHECK(end_);
   }
 
   ~PairwisePrimitiveInterpolation() override = default;
 
-  const InterpolationType& GetType() const { return type_; }
+  const InterpolationType* GetType() const { return type_; }
 
-  std::unique_ptr<TypedInterpolationValue> InitialValue() const {
-    return std::make_unique<TypedInterpolationValue>(type_, start_->Clone(),
-                                                     non_interpolable_value_);
+  TypedInterpolationValue* InitialValue() const {
+    return MakeGarbageCollected<TypedInterpolationValue>(
+        type_, start_->Clone(), non_interpolable_value_);
+  }
+
+  const InterpolableValue* StartValue() const override { return start_; }
+  const InterpolableValue* EndValue() const override { return end_; }
+
+  void Trace(Visitor* v) const override {
+    PrimitiveInterpolation::Trace(v);
+    v->Trace(type_);
+    v->Trace(start_);
+    v->Trace(end_);
+    v->Trace(non_interpolable_value_);
   }
 
  private:
-  void InterpolateValue(
-      double fraction,
-      std::unique_ptr<TypedInterpolationValue>& result) const final {
+  void InterpolateValue(double fraction,
+                        Member<TypedInterpolationValue>& result) const final {
     DCHECK(result);
-    DCHECK_EQ(&result->GetType(), &type_);
-    DCHECK_EQ(result->GetNonInterpolableValue(), non_interpolable_value_.get());
+    DCHECK_EQ(result->GetType(), type_);
+    DCHECK_EQ(result->GetNonInterpolableValue(), non_interpolable_value_.Get());
     start_->AssertCanInterpolateWith(*end_);
     start_->Interpolate(*end_, fraction,
                         *result->MutableValue().interpolable_value);
@@ -85,33 +99,39 @@ class PairwisePrimitiveInterpolation : public PrimitiveInterpolation {
     return Blend(start, end, fraction);
   }
 
-  const InterpolationType& type_;
-  std::unique_ptr<InterpolableValue> start_;
-  std::unique_ptr<InterpolableValue> end_;
-  scoped_refptr<const NonInterpolableValue> non_interpolable_value_;
+  Member<const InterpolationType> type_;
+  Member<InterpolableValue> start_;
+  Member<InterpolableValue> end_;
+  Member<const NonInterpolableValue> non_interpolable_value_;
 };
 
 // Represents a pair of incompatible keyframes that fall back to 50% flip
 // behaviour eg. "auto" and "0px".
 class FlipPrimitiveInterpolation : public PrimitiveInterpolation {
  public:
-  FlipPrimitiveInterpolation(std::unique_ptr<TypedInterpolationValue> start,
-                             std::unique_ptr<TypedInterpolationValue> end)
-      : start_(std::move(start)),
-        end_(std::move(end)),
+  FlipPrimitiveInterpolation(TypedInterpolationValue* start,
+                             TypedInterpolationValue* end)
+      : start_(start),
+        end_(end),
         last_fraction_(std::numeric_limits<double>::quiet_NaN()) {}
 
   ~FlipPrimitiveInterpolation() override = default;
 
+  void Trace(Visitor* v) const override {
+    PrimitiveInterpolation::Trace(v);
+    v->Trace(start_);
+    v->Trace(end_);
+  }
+
  private:
-  void InterpolateValue(
-      double fraction,
-      std::unique_ptr<TypedInterpolationValue>& result) const final {
+  void InterpolateValue(double fraction,
+                        Member<TypedInterpolationValue>& result) const final {
     if (!std::isnan(last_fraction_) &&
-        (fraction < 0.5) == (last_fraction_ < 0.5))
+        (fraction < 0.5) == (last_fraction_ < 0.5)) {
       return;
+    }
     const TypedInterpolationValue* side =
-        ((fraction < 0.5) ? start_ : end_).get();
+        ((fraction < 0.5) ? start_ : end_).Get();
     result = side ? side->Clone() : nullptr;
     last_fraction_ = fraction;
   }
@@ -124,8 +144,8 @@ class FlipPrimitiveInterpolation : public PrimitiveInterpolation {
 
   bool IsFlip() const final { return true; }
 
-  std::unique_ptr<TypedInterpolationValue> start_;
-  std::unique_ptr<TypedInterpolationValue> end_;
+  Member<TypedInterpolationValue> start_;
+  Member<TypedInterpolationValue> end_;
   mutable double last_fraction_;
 };
 

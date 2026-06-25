@@ -11,9 +11,10 @@
 #ifndef MODULES_AUDIO_PROCESSING_AGC_AGC_H_
 #define MODULES_AUDIO_PROCESSING_AGC_AGC_H_
 
+#include <cstdint>
 #include <memory>
+#include <span>
 
-#include "api/array_view.h"
 #include "modules/audio_processing/vad/voice_activity_detector.h"
 
 namespace webrtc {
@@ -27,7 +28,7 @@ class Agc {
 
   // `audio` must be mono; in a multi-channel stream, provide the first (usually
   // left) channel.
-  virtual void Process(rtc::ArrayView<const int16_t> audio);
+  virtual void Process(std::span<const int16_t> audio);
 
   // Retrieves the difference between the target RMS level and the current
   // signal RMS level in dB. Returns true if an update is available and false

@@ -9,14 +9,14 @@
  */
 #ifndef NET_DCSCTP_PACKET_CHUNK_SHUTDOWN_COMPLETE_CHUNK_H_
 #define NET_DCSCTP_PACKET_CHUNK_SHUTDOWN_COMPLETE_CHUNK_H_
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "net/dcsctp/packet/chunk/chunk.h"
 #include "net/dcsctp/packet/tlv_trait.h"
 
@@ -37,8 +37,8 @@ class ShutdownCompleteChunk : public Chunk,
   explicit ShutdownCompleteChunk(bool tag_reflected)
       : tag_reflected_(tag_reflected) {}
 
-  static absl::optional<ShutdownCompleteChunk> Parse(
-      rtc::ArrayView<const uint8_t> data);
+  static std::optional<ShutdownCompleteChunk> Parse(
+      std::span<const uint8_t> data);
 
   void SerializeTo(std::vector<uint8_t>& out) const override;
   std::string ToString() const override;

@@ -28,37 +28,42 @@
 
 namespace blink {
 
-// Must follow css_value_keywords.json5 order
-// kAutoPart is never returned by ComputedStyle::EffectiveAppearance()
-enum ControlPart {
-  kNoControlPart,
-  kAutoPart,
-  kCheckboxPart,
-  kRadioPart,
-  kPushButtonPart,
-  kSquareButtonPart,
-  kButtonPart,
-  kListboxPart,
-  kMediaControlPart,
-  kMenulistPart,
-  kMenulistButtonPart,
-  kMeterPart,
-  kProgressBarPart,
-  kSliderHorizontalPart,
-  kSliderVerticalPart,
-  kSearchFieldPart,
-  kTextFieldPart,
-  kTextAreaPart,
-  // Order matters when determinating what keyword is valid in the CSSParser.
-  // Values after kTextAreaPart are not recognized as appearance values.
-  kInnerSpinButtonPart,
-  kMediaSliderPart,
-  kMediaSliderThumbPart,
-  kMediaVolumeSliderPart,
-  kMediaVolumeSliderThumbPart,
-  kSliderThumbHorizontalPart,
-  kSliderThumbVerticalPart,
-  kSearchFieldCancelButtonPart,
+// ComputedStyle::EffectiveAppearance() returns the effective appearance
+// to render the element by matching the element's computed style to an
+// AppearanceValue.
+// kAuto is never returned by ComputedStyle::EffectiveAppearance()
+// CSS `appearance` values do not match 1-to-1 with AppearanceValue,
+// since some AppearanceValue's do not have equivalent CSS appearance
+// values, e.g. kSliderThumbHorizontal.
+enum class AppearanceValue {
+  kNone,
+  kAuto,
+  kCheckbox,
+  kRadio,
+  kButton,
+  kListbox,
+  kMediaControl,
+  kMenulist,
+  kMenulistButton,
+  kMeter,
+  kProgressBar,
+  kSearchField,
+  kTextField,
+  kTextArea,
+  kInnerSpinButton,
+  kMediaSlider,
+  kMediaSliderThumb,
+  kMediaVolumeSlider,
+  kMediaVolumeSliderThumb,
+  kPushButton,
+  kSquareButton,
+  kSliderHorizontal,
+  kSliderThumbHorizontal,
+  kSliderThumbVertical,
+  kSearchFieldCancelButton,
+  kSliderVertical,
+  kBaseSelect,
+  kBase,
 };
 
 }  // namespace blink

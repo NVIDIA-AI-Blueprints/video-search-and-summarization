@@ -25,14 +25,6 @@ class PLATFORM_EXPORT CallbackInterfaceBase
     : public GarbageCollected<CallbackInterfaceBase>,
       public NameClient {
  public:
-  // Whether the callback interface is a "single operation callback interface"
-  // or not.
-  // https://webidl.spec.whatwg.org/#dfn-single-operation-callback-interface
-  enum SingleOperationOrNot {
-    kNotSingleOperation,
-    kSingleOperation,
-  };
-
   ~CallbackInterfaceBase() override = default;
 
   virtual void Trace(Visitor*) const;
@@ -62,7 +54,7 @@ class PLATFORM_EXPORT CallbackInterfaceBase
   // |CallbackRelevantScriptStateOrThrowException| must be used instead.
   ScriptState* CallbackRelevantScriptState() {
     DCHECK(callback_relevant_script_state_);
-    return callback_relevant_script_state_;
+    return callback_relevant_script_state_.Get();
   }
 
   // Returns the ScriptState of the relevant realm of the callback object iff
@@ -79,13 +71,12 @@ class PLATFORM_EXPORT CallbackInterfaceBase
       const char* interface_name,
       const char* operation_name);
 
-  ScriptState* IncumbentScriptState() { return incumbent_script_state_; }
+  ScriptState* IncumbentScriptState() { return incumbent_script_state_.Get(); }
 
   DOMWrapperWorld& GetWorld() const { return incumbent_script_state_->World(); }
 
  protected:
-  explicit CallbackInterfaceBase(v8::Local<v8::Object> callback_object,
-                                 SingleOperationOrNot);
+  explicit CallbackInterfaceBase(v8::Local<v8::Object> callback_object);
 
  private:
   // The "callback interface type" value.

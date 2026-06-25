@@ -44,6 +44,10 @@ class CORE_EXPORT HTMLTableElement final : public HTMLElement {
   explicit HTMLTableElement(Document&);
   ~HTMLTableElement() override;
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLTableElement;
+  }
+
   HTMLTableCaptionElement* caption() const;
   void setCaption(HTMLTableCaptionElement*, ExceptionState&);
 
@@ -73,7 +77,6 @@ class CORE_EXPORT HTMLTableElement final : public HTMLElement {
   const CSSPropertyValueSet* AdditionalGroupStyle(bool rows);
 
   bool HasNonInBodyInsertionMode() const override { return true; }
-  void FinishParsingChildren() override;
 
   void Trace(Visitor*) const override;
 
@@ -83,10 +86,9 @@ class CORE_EXPORT HTMLTableElement final : public HTMLElement {
   void CollectStyleForPresentationAttribute(
       const QualifiedName&,
       const AtomicString&,
-      MutableCSSPropertyValueSet*) override;
+      HeapVector<CSSPropertyValue, 8>&) override;
   bool IsURLAttribute(const Attribute&) const override;
   bool HasLegalLinkAttribute(const QualifiedName&) const override;
-  const QualifiedName& SubResourceAttributeName() const override;
 
   // Used to obtain either a solid or outset border decl and to deal with the
   // frame and rules attributes.

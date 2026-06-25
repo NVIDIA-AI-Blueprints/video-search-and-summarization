@@ -51,9 +51,11 @@ enum WebCryptoKeyUsage {
   kWebCryptoKeyUsageWrapKey = 1 << 5,
   kWebCryptoKeyUsageUnwrapKey = 1 << 6,
   kWebCryptoKeyUsageDeriveBits = 1 << 7,
-#if INSIDE_BLINK
+  kWebCryptoKeyUsageEncapsulateKey = 1 << 8,
+  kWebCryptoKeyUsageEncapsulateBits = 1 << 9,
+  kWebCryptoKeyUsageDecapsulateKey = 1 << 10,
+  kWebCryptoKeyUsageDecapsulateBits = 1 << 11,
   kEndOfWebCryptoKeyUsage,
-#endif
 };
 
 // A bitfield of WebCryptoKeyUsage
@@ -64,6 +66,10 @@ enum WebCryptoKeyFormat {
   kWebCryptoKeyFormatPkcs8,
   kWebCryptoKeyFormatSpki,
   kWebCryptoKeyFormatJwk,
+  kWebCryptoKeyFormatRawPublic,
+  kWebCryptoKeyFormatRawPrivate,
+  kWebCryptoKeyFormatRawSeed,
+  kWebCryptoKeyFormatRawSecret,
 };
 
 class WebCryptoKeyAlgorithm;
@@ -90,10 +96,10 @@ class WebCryptoKeyHandle;
 class BLINK_PLATFORM_EXPORT WebCryptoKey {
  public:
   // Constructs a "null" key (One for which isNull() returns true).
-  WebCryptoKey();
+  WebCryptoKey() = default;
   ~WebCryptoKey() { Reset(); }
 
-  WebCryptoKey(const WebCryptoKey& other);
+  WebCryptoKey(const WebCryptoKey& other) { Assign(other); }
   WebCryptoKey& operator=(const WebCryptoKey& other) {
     Assign(other);
     return *this;
@@ -129,7 +135,7 @@ class BLINK_PLATFORM_EXPORT WebCryptoKey {
   void Assign(const WebCryptoKey& other);
   void Reset();
 
-  WebPrivatePtr<WebCryptoKeyPrivate> private_;
+  WebPrivatePtrForRefCounted<WebCryptoKeyPrivate> private_;
 };
 
 // Base class for the embedder to define its own opaque key handle. The lifetime

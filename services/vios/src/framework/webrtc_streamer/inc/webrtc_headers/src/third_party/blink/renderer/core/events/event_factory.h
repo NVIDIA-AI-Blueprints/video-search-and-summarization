@@ -27,7 +27,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EVENTS_EVENT_FACTORY_H_
 
 #include <memory>
-#include "base/memory/scoped_refptr.h"
+
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
@@ -35,12 +35,15 @@ namespace blink {
 
 class Event;
 class ExecutionContext;
+class ScriptState;
 
 class EventFactoryBase {
   USING_FAST_MALLOC(EventFactoryBase);
 
  public:
-  virtual Event* Create(ExecutionContext*, const String& event_type) = 0;
+  virtual Event* Create(ScriptState*,
+                        ExecutionContext*,
+                        const String& event_type) = 0;
   virtual ~EventFactoryBase() = default;
 
  protected:
@@ -53,7 +56,9 @@ class EventFactory final : public EventFactoryBase {
     return std::make_unique<EventFactory>();
   }
 
-  Event* Create(ExecutionContext*, const String& event_type) override;
+  Event* Create(ScriptState*,
+                ExecutionContext*,
+                const String& event_type) override;
 };
 
 }  // namespace blink

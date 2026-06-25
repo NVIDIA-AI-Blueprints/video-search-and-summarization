@@ -10,9 +10,9 @@
 
 #import <Foundation/Foundation.h>
 
-#import "RTCMacros.h"
 #import "RTCMediaStreamTrack.h"
 #import "RTCRtpParameters.h"
+#import "sdk/objc/base/RTCMacros.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -22,9 +22,11 @@ typedef NS_ENUM(NSInteger, RTCRtpMediaType) {
   RTCRtpMediaTypeVideo,
   RTCRtpMediaTypeData,
   RTCRtpMediaTypeUnsupported,
+  RTCRtpMediaTypeAny,
 };
 
 @class RTC_OBJC_TYPE(RTCRtpReceiver);
+@class RTC_OBJC_TYPE(RTCRtpSource);
 
 RTC_OBJC_EXPORT
 @protocol RTC_OBJC_TYPE
@@ -32,19 +34,28 @@ RTC_OBJC_EXPORT
 
     /** Called when the first RTP packet is received.
      *
-     *  Note: Currently if there are multiple RtpReceivers of the same media type,
-     *  they will all call OnFirstPacketReceived at once.
+     *  Note: Currently if there are multiple RtpReceivers of the same media
+     * type, they will all call OnFirstPacketReceived at once.
      *
-     *  For example, if we create three audio receivers, A/B/C, they will listen to
-     *  the same signal from the underneath network layer. Whenever the first audio packet
-     *  is received, the underneath signal will be fired. All the receivers A/B/C will be
-     *  notified and the callback of the receiver's delegate will be called.
+     *  For example, if we create three audio receivers, A/B/C, they will listen
+     * to the same signal from the underneath network layer. Whenever the first
+     * audio packet is received, the underneath signal will be fired. All the
+     * receivers A/B/C will be notified and the callback of the receiver's
+     * delegate will be called.
      *
      *  The process is the same for video receivers.
      */
-    - (void)rtpReceiver
-    : (RTC_OBJC_TYPE(RTCRtpReceiver) *)rtpReceiver didReceiveFirstPacketForMediaType
+    - (void)rtpReceiver : (RTC_OBJC_TYPE(RTCRtpReceiver) *)
+                              rtpReceiver didReceiveFirstPacketForMediaType
     : (RTCRtpMediaType)mediaType;
+/** Called when the first RTP packet is received after a change in
+ * receptiveness.
+ */
+// TODO: crbug.com/40821064 - remove @optional.
+@optional
+- (void)rtpReceiver:(RTC_OBJC_TYPE(RTCRtpReceiver) *)rtpReceiver
+    didReceiveFirstPacketForMediaTypeAfterReceptiveChange:
+        (RTCRtpMediaType)mediaType;
 
 @end
 
@@ -69,7 +80,15 @@ RTC_OBJC_EXPORT
  *  RTCMediaStreamTrack. Use isEqual: instead of == to compare
  *  RTCMediaStreamTrack instances.
  */
-@property(nonatomic, readonly, nullable) RTC_OBJC_TYPE(RTCMediaStreamTrack) * track;
+@property(nonatomic, readonly, nullable) RTC_OBJC_TYPE(RTCMediaStreamTrack) *
+    track;
+
+/**
+Returns an array that contains an object for each unique SSRC (synchronization
+source) identifier and for each unique CSRC (contributing source) received by
+the current RTCRtpReceiver in the last ten seconds.
+*/
+@property(nonatomic, readonly) NSArray<RTC_OBJC_TYPE(RTCRtpSource) *> *sources;
 
 /** The delegate for this RtpReceiver. */
 @property(nonatomic, weak) id<RTC_OBJC_TYPE(RTCRtpReceiverDelegate)> delegate;

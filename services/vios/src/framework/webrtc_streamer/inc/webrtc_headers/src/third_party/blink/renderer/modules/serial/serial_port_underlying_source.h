@@ -8,28 +8,31 @@
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "services/device/public/mojom/serial.mojom-blink-forward.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/streams/underlying_byte_source_base.h"
+#include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 
 namespace blink {
 
 class ExceptionState;
-class ScriptPromiseResolver;
 class SerialPort;
 
 class SerialPortUnderlyingSource : public UnderlyingByteSourceBase,
                                    ExecutionContextLifecycleObserver {
+  USING_PRE_FINALIZER(SerialPortUnderlyingSource, Dispose);
+
  public:
   SerialPortUnderlyingSource(ScriptState*,
                              SerialPort*,
                              mojo::ScopedDataPipeConsumerHandle);
 
   // UnderlyingByteSourceBase
-  ScriptPromise Pull(ReadableByteStreamController* controller,
-                     ExceptionState&) override;
-  ScriptPromise Cancel(ExceptionState&) override;
-  ScriptPromise Cancel(v8::Local<v8::Value> reason, ExceptionState&) override;
+  ScriptPromise<IDLUndefined> Pull(ReadableByteStreamController* controller,
+                                   ExceptionState&) override;
+  ScriptPromise<IDLUndefined> Cancel() override;
+  ScriptPromise<IDLUndefined> Cancel(v8::Local<v8::Value> reason) override;
   ScriptState* GetScriptState() override;
 
   void ContextDestroyed() override;
@@ -43,15 +46,17 @@ class SerialPortUnderlyingSource : public UnderlyingByteSourceBase,
   void ReadDataOrArmWatcher();
 
   void OnHandleReady(MojoResult, const mojo::HandleSignalsState&);
-  void OnFlush(ScriptPromiseResolver*);
+  void OnFlush(ScriptPromiseResolver<IDLUndefined>*);
   void PipeClosed();
   void Close();
+  void Dispose();
 
   mojo::ScopedDataPipeConsumerHandle data_pipe_;
   mojo::SimpleWatcher watcher_;
   const Member<ScriptState> script_state_;
   const Member<SerialPort> serial_port_;
   Member<ReadableByteStreamController> controller_;
+  Member<ScriptPromiseResolver<IDLUndefined>> pending_pull_;
   ScriptValue pending_exception_;
 };
 

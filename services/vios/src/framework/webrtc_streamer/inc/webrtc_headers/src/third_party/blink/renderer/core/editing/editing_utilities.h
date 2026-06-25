@@ -148,11 +148,6 @@ void WriteImageToClipboard(SystemClipboard& system_clipboard,
                            const String& title);
 void WriteImageNodeToClipboard(SystemClipboard&, const Node&, const String&);
 
-// boolean functions on Node
-
-// FIXME: editingIgnoresContent, canHaveChildrenForEditing, and isAtomicNode
-// should be renamed to reflect its usage.
-
 // Returns true for nodes that either have no content, or have content that is
 // ignored (skipped over) while editing. There are no VisiblePositions inside
 // these nodes.
@@ -172,12 +167,13 @@ bool IsMailHTMLBlockquoteElement(const Node*);
 // invalid nodes to <table> elements.
 bool IsDisplayInsideTable(const Node*);
 bool IsTableCell(const Node*);
+bool IsTablePartElement(const Node*);
 bool IsHTMLListElement(const Node*);
 bool IsListItem(const Node*);
 bool IsListItemTag(const Node*);
 bool IsListElementTag(const Node*);
 bool IsPresentationalHTMLElement(const Node*);
-bool IsRenderedAsNonInlineTableImageOrHR(const Node*);
+CORE_EXPORT bool IsRenderedAsNonInlineTableImageOrHR(const Node*);
 bool IsNonTableCellHTMLBlockElement(const Node*);
 bool IsBlockFlowElement(const Node&);
 bool IsInPasswordField(const Position&);
@@ -185,6 +181,10 @@ CORE_EXPORT TextDirection DirectionOfEnclosingBlockOf(const Position&);
 CORE_EXPORT TextDirection
 DirectionOfEnclosingBlockOf(const PositionInFlatTree&);
 CORE_EXPORT TextDirection PrimaryDirectionOf(const Node&);
+
+// If the passed in Node is an Element, return Element::GetComputedStyle, if the
+// Node has a LayoutObject, return LayoutObject::Style(), otherwise nullptr.
+const ComputedStyle* GetComputedStyleForElementOrLayoutObject(const Node&);
 
 // -------------------------------------------------------------------------
 // Position
@@ -197,11 +197,18 @@ PositionInFlatTree NextCandidate(const PositionInFlatTree&);
 Position PreviousCandidate(const Position&);
 PositionInFlatTree PreviousCandidate(const PositionInFlatTree&);
 
-CORE_EXPORT Position NextVisuallyDistinctCandidate(const Position&);
-CORE_EXPORT PositionInFlatTree
-NextVisuallyDistinctCandidate(const PositionInFlatTree&);
-Position PreviousVisuallyDistinctCandidate(const Position&);
-PositionInFlatTree PreviousVisuallyDistinctCandidate(const PositionInFlatTree&);
+CORE_EXPORT Position NextVisuallyDistinctCandidate(
+    const Position&,
+    EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
+CORE_EXPORT PositionInFlatTree NextVisuallyDistinctCandidate(
+    const PositionInFlatTree&,
+    EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
+Position PreviousVisuallyDistinctCandidate(
+    const Position&,
+    EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
+PositionInFlatTree PreviousVisuallyDistinctCandidate(
+    const PositionInFlatTree&,
+    EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
 
 // This is a |const Node&| versions of two deprecated functions above.
 inline Position FirstPositionInOrBeforeNode(const Node& node) {
@@ -263,6 +270,9 @@ int16_t ComparePositions(const PositionInFlatTree&, const PositionInFlatTree&);
 // Returns true if `node` in `range`, otherwise false.
 // Note: This function resides in "editing_utilities.cc".
 bool IsNodeFullyContained(const EphemeralRange& range, const Node& node);
+// Returns true if the element's visibility or display
+// style is changed to visible or inline, respectively.
+bool EnsureNodeVisibility(HTMLElement*);
 
 // boolean functions on Position
 
@@ -289,6 +299,7 @@ PositionWithAffinity AdjustForEditingBoundary(const Position&);
 
 CORE_EXPORT Position ComputePositionForNodeRemoval(const Position&,
                                                    const Node&);
+Position ComputePlaceholderToCollapseAt(const Position&);
 
 // TODO(editing-dev): These two functions should be eliminated.
 CORE_EXPORT Position PositionBeforeNode(const Node&);
@@ -348,7 +359,7 @@ CORE_EXPORT bool ElementCannotHaveEndTag(const Node&);
 
 // Miscellaneous functions on Text
 inline bool IsWhitespace(UChar c) {
-  return c == kNoBreakSpaceCharacter || c == ' ' || c == '\n' || c == '\t';
+  return c == uchar::kNoBreakSpace || c == ' ' || c == '\n' || c == '\t';
 }
 
 // FIXME: Can't really answer this question correctly without knowing the
@@ -357,7 +368,7 @@ inline bool IsCollapsibleWhitespace(UChar c) {
   return c == ' ' || c == '\n';
 }
 
-String StringWithRebalancedWhitespace(const String&,
+String StringWithRebalancedWhitespace(const StringView&,
                                       bool start_is_start_of_paragraph,
                                       bool should_emit_nbs_pbefore_end);
 
@@ -386,20 +397,26 @@ gfx::QuadF LocalToAbsoluteQuadOf(const LocalCaretRect&);
 // -------------------------------------------------------------------------
 
 // Functions dispatch InputEvent
-InputEvent::EventCancelable InputTypeIsCancelable(
-    InputEvent::InputType input_type);
-const StaticRangeVector* TargetRangesForInputEvent(const Node&);
+const GCedStaticRangeVector* TargetRangesForInputEvent(const Node&);
 DispatchEventResult DispatchBeforeInputInsertText(
     Node*,
     const String& data,
     InputEvent::InputType = InputEvent::InputType::kInsertText,
-    const StaticRangeVector* = nullptr);
-DispatchEventResult DispatchBeforeInputEditorCommand(Node*,
-                                                     InputEvent::InputType,
-                                                     const StaticRangeVector*);
+    const GCedStaticRangeVector* = nullptr);
+DispatchEventResult DispatchBeforeInputEditorCommand(
+    Node*,
+    InputEvent::InputType,
+    const GCedStaticRangeVector*);
 DispatchEventResult DispatchBeforeInputDataTransfer(Node*,
                                                     InputEvent::InputType,
                                                     DataTransfer*);
+
+// Helper function to dispatch beforeinput and input events whose inputType is
+// insertReplacementText.
+CORE_EXPORT void InsertTextAndSendInputEventsOfTypeInsertReplacementText(
+    LocalFrame&,
+    const String&,
+    bool allow_edit_context = false);
 }  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_EDITING_UTILITIES_H_

@@ -35,6 +35,8 @@
 // Define the facility codes
 //
 #define FACILITY_SYSTEM                  0x0
+#define FACILITY_ELEVATION_SERVICE       0x1
+#define FACILITY_TRACING_SERVICE         0x2
 
 
 //
@@ -56,6 +58,24 @@
 #define BROWSER_CATEGORY                 ((WORD)0x00000001L)
 
 //
+// MessageId: ELEVATION_SERVICE_CATEGORY
+//
+// MessageText:
+//
+// Elevation Service Events
+//
+#define ELEVATION_SERVICE_CATEGORY       ((WORD)0x00000002L)
+
+//
+// MessageId: TRACING_SERVICE_CATEGORY
+//
+// MessageText:
+//
+// ETW Service Events
+//
+#define TRACING_SERVICE_CATEGORY         ((WORD)0x00000003L)
+
+//
 // MessageId: MSG_LOG_MESSAGE
 //
 // MessageText:
@@ -63,4 +83,22 @@
 // %1!S!
 //
 #define MSG_LOG_MESSAGE                  ((DWORD)0x80000100L)
+
+//
+// MessageId: MSG_ELEVATION_SERVICE_LOG_MESSAGE
+//
+// MessageText:
+//
+// %1!S!
+//
+#define MSG_ELEVATION_SERVICE_LOG_MESSAGE ((DWORD)0x80010101L)
+
+//
+// MessageId: MSG_TRACING_SERVICE_LOG_MESSAGE
+//
+// MessageText:
+//
+// %1!S!
+//
+#define MSG_TRACING_SERVICE_LOG_MESSAGE  ((DWORD)0x80020102L)
 

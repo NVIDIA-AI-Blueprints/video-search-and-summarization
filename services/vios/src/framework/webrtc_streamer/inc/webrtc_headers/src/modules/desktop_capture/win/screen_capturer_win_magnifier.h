@@ -11,17 +11,24 @@
 #ifndef MODULES_DESKTOP_CAPTURE_WIN_SCREEN_CAPTURER_WIN_MAGNIFIER_H_
 #define MODULES_DESKTOP_CAPTURE_WIN_SCREEN_CAPTURER_WIN_MAGNIFIER_H_
 
+#include <intsafe.h>
 #include <magnification.h>
 #include <wincodec.h>
 #include <windows.h>
 
+#include <cstddef>
 #include <memory>
+#include <optional>
+#include <string>
 
+#include "modules/desktop_capture/desktop_capture_types.h"
 #include "modules/desktop_capture/desktop_capturer.h"
+#include "modules/desktop_capture/desktop_geometry.h"
 #include "modules/desktop_capture/screen_capture_frame_queue.h"
-#include "modules/desktop_capture/screen_capturer_helper.h"
 #include "modules/desktop_capture/shared_desktop_frame.h"
+#include "modules/desktop_capture/shared_memory.h"
 #include "modules/desktop_capture/win/scoped_thread_desktop.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
@@ -38,7 +45,7 @@ class DesktopRect;
 // be used if that functionality is necessary.
 class ScreenCapturerWinMagnifier : public DesktopCapturer {
  public:
-  ScreenCapturerWinMagnifier();
+  explicit ScreenCapturerWinMagnifier(const DesktopCaptureOptions& options);
   ~ScreenCapturerWinMagnifier() override;
 
   ScreenCapturerWinMagnifier(const ScreenCapturerWinMagnifier&) = delete;
@@ -104,7 +111,7 @@ class ScreenCapturerWinMagnifier : public DesktopCapturer {
   Callback* callback_ = nullptr;
   std::unique_ptr<SharedMemoryFactory> shared_memory_factory_;
   ScreenId current_screen_id_ = kFullDesktopScreenId;
-  std::wstring current_device_key_;
+  std::optional<std::wstring> current_device_key_;
   HWND excluded_window_ = NULL;
 
   // Queue of the frames buffers.
@@ -133,6 +140,7 @@ class ScreenCapturerWinMagnifier : public DesktopCapturer {
   // True if the last OnMagImageScalingCallback was called and handled
   // successfully. Reset at the beginning of each CaptureImage call.
   bool magnifier_capture_succeeded_ = true;
+  Clock& clock_;
 };
 
 }  // namespace webrtc

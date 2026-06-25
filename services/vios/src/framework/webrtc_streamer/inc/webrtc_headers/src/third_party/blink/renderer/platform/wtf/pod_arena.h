@@ -27,63 +27,30 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_ARENA_H_
 
 #include <stdint.h>
+
 #include <memory>
 #include <utility>
 
+#include "base/compiler_specific.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
-namespace WTF {
+namespace blink {
 
 // An arena which allocates only Plain Old Data (POD), or classes and
 // structs bottoming out in Plain Old Data. NOTE: the constructors of
 // the objects allocated in this arena are called, but _not_ their
 // destructors.
 
-class PODArena final : public RefCounted<PODArena> {
-  USING_FAST_MALLOC(PODArena);
+class PodArena final : public RefCounted<PodArena> {
+  USING_FAST_MALLOC(PodArena);
 
  public:
-  // The arena is configured with an allocator, which is responsible
-  // for allocating and freeing chunks of memory at a time.
-  class Allocator : public RefCounted<Allocator> {
-   public:
-    virtual void* Allocate(size_t size) = 0;
-    virtual void Free(void* ptr) = 0;
-
-   protected:
-    virtual ~Allocator() = default;
-    friend class WTF::RefCounted<Allocator>;
-  };
-
-  // The Arena's default allocator, which uses fastMalloc and
-  // fastFree to allocate chunks of storage.
-  class FastMallocAllocator : public Allocator {
-   public:
-    static scoped_refptr<FastMallocAllocator> Create() {
-      return base::AdoptRef(new FastMallocAllocator);
-    }
-
-    void* Allocate(size_t size) override {
-      return WTF::Partitions::FastMalloc(size,
-                                         WTF_HEAP_PROFILER_TYPE_NAME(PODArena));
-    }
-    void Free(void* ptr) override { WTF::Partitions::FastFree(ptr); }
-
-   protected:
-    FastMallocAllocator() = default;
-  };
-
-  // Creates a new PODArena configured with a FastMallocAllocator.
-  static scoped_refptr<PODArena> Create() {
-    return base::AdoptRef(new PODArena);
-  }
-
-  // Creates a new PODArena configured with the given Allocator.
-  static scoped_refptr<PODArena> Create(scoped_refptr<Allocator> allocator) {
-    return base::AdoptRef(new PODArena(std::move(allocator)));
+  // Creates a new PodArena.
+  static scoped_refptr<PodArena> Create() {
+    return base::AdoptRef(new PodArena);
   }
 
   // Allocates an object from the arena.
@@ -103,17 +70,9 @@ class PODArena final : public RefCounted<PODArena> {
   enum { kDefaultChunkSize = 16384 };
 
  protected:
-  friend class WTF::RefCounted<PODArena>;
+  friend class RefCounted<PodArena>;
 
-  PODArena()
-      : allocator_(FastMallocAllocator::Create()),
-        current_(nullptr),
-        current_chunk_size_(kDefaultChunkSize) {}
-
-  explicit PODArena(scoped_refptr<Allocator> allocator)
-      : allocator_(std::move(allocator)),
-        current_(nullptr),
-        current_chunk_size_(kDefaultChunkSize) {}
+  PodArena() : current_(nullptr), current_chunk_size_(kDefaultChunkSize) {}
 
   template <class T>
   void* AllocateBase() {
@@ -128,8 +87,7 @@ class PODArena final : public RefCounted<PODArena> {
     if (!ptr) {
       if (rounded_size > current_chunk_size_)
         current_chunk_size_ = rounded_size;
-      chunks_.push_back(
-          std::make_unique<Chunk>(allocator_.get(), current_chunk_size_));
+      chunks_.push_back(std::make_unique<Chunk>(current_chunk_size_));
       current_ = chunks_.back().get();
       ptr = current_->Allocate(rounded_size);
     }
@@ -141,19 +99,19 @@ class PODArena final : public RefCounted<PODArena> {
     USING_FAST_MALLOC(Chunk);
 
    public:
-    // Allocates a block of memory of the given size from the passed
-    // Allocator.
-    Chunk(Allocator* allocator, size_t size)
-        : allocator_(allocator), size_(size), current_offset_(0) {
-      base_ = static_cast<uint8_t*>(allocator_->Allocate(size));
+    // Allocates a block of memory of the given size.
+    explicit Chunk(size_t size) : current_offset_(0) {
+      uint8_t* allocated = static_cast<uint8_t*>(
+          Partitions::FastMalloc(size, WTF_HEAP_PROFILER_TYPE_NAME(PodArena)));
+      // SAFETY: FastMalloc() ensures `allocated` has `size` bytes.
+      base_ = UNSAFE_BUFFERS(base::span<uint8_t>(allocated, allocated + size));
     }
 
     Chunk(const Chunk&) = delete;
     Chunk& operator=(const Chunk&) = delete;
 
-    // Frees the memory allocated from the Allocator in the
-    // constructor.
-    ~Chunk() { allocator_->Free(base_); }
+    // Frees the memory allocated in the constructor.
+    ~Chunk() { Partitions::FastFree(base_.data()); }
 
     // Returns a pointer to "size" bytes of storage, or 0 if this
     // Chunk could not satisfy the allocation.
@@ -162,27 +120,25 @@ class PODArena final : public RefCounted<PODArena> {
       if (current_offset_ + size < current_offset_)
         return nullptr;
 
-      if (current_offset_ + size > size_)
+      if (current_offset_ + size > base_.size()) {
         return nullptr;
+      }
 
-      void* result = base_ + current_offset_;
+      void* result = base_.subspan(current_offset_, size).data();
       current_offset_ += size;
       return result;
     }
 
    protected:
-    Allocator* allocator_;
-    uint8_t* base_;
-    size_t size_;
+    base::span<uint8_t> base_;
     size_t current_offset_;
   };
 
-  scoped_refptr<Allocator> allocator_;
   Chunk* current_;
   size_t current_chunk_size_;
   Vector<std::unique_ptr<Chunk>> chunks_;
 };
 
-}  // namespace WTF
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_POD_ARENA_H_

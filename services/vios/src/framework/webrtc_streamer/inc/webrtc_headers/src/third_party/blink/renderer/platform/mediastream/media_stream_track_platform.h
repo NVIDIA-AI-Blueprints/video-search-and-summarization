@@ -5,13 +5,21 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_MEDIASTREAM_MEDIA_STREAM_TRACK_PLATFORM_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_MEDIASTREAM_MEDIA_STREAM_TRACK_PLATFORM_H_
 
+#include <optional>
+
 #include "base/functional/callback.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "base/sequence_checker.h"
+#include "base/time/time.h"
+#include "media/base/audio_glitch_info.h"
+#include "media/base/audio_parameters.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_sink.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_track.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_sink.h"
+#include "third_party/blink/renderer/platform/audio/audio_frame_stats_accumulator.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_audio_processor_options.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace blink {
 class WebMediaStreamAudioSink;
@@ -44,20 +52,66 @@ class PLATFORM_EXPORT MediaStreamTrackPlatform {
     String group_id;
     FacingMode facing_mode = FacingMode::kNone;
     String resize_mode;
-    absl::optional<bool> echo_cancellation;
-    absl::optional<bool> auto_gain_control;
-    absl::optional<bool> noise_supression;
-    String echo_cancellation_type;
+    std::optional<EchoCancellationMode> echo_cancellation;
+    std::optional<bool> auto_gain_control;
+    std::optional<bool> noise_supression;
+    std::optional<bool> voice_isolation;
     int32_t sample_rate = -1;
     int32_t sample_size = -1;
     int32_t channel_count = -1;
     double latency = -1.0;
 
     // Screen Capture extensions
-    absl::optional<media::mojom::DisplayCaptureSurfaceType> display_surface;
-    absl::optional<bool> logical_surface;
-    absl::optional<media::mojom::CursorCaptureType> cursor;
-    absl::optional<bool> suppress_local_audio_playback;
+    std::optional<media::mojom::DisplayCaptureSurfaceType> display_surface;
+    std::optional<bool> logical_surface;
+    std::optional<media::mojom::CursorCaptureType> cursor;
+    std::optional<bool> suppress_local_audio_playback;
+    std::optional<bool> restrict_own_audio;
+
+    // Captured Surface Resolution API
+    std::optional<gfx::Size> physical_frame_size;
+    std::optional<float> device_scale_factor;
+  };
+
+  struct VideoFrameStats {
+    size_t deliverable_frames = 0u;
+    size_t discarded_frames = 0u;
+    size_t dropped_frames = 0u;
+  };
+
+  // Corresponds to the MediaStreamTrackAudioStats API.
+  // https://w3c.github.io/mediacapture-extensions/#the-mediastreamtrackaudiostats-interface
+  class PLATFORM_EXPORT AudioFrameStats {
+   public:
+    AudioFrameStats() = default;
+    AudioFrameStats(const AudioFrameStats&) = delete;
+    AudioFrameStats& operator=(const AudioFrameStats&) = delete;
+    ~AudioFrameStats() = default;
+
+    // Updates the stats with information from a new buffer.
+    void Update(const media::AudioParameters& params,
+                base::TimeTicks capture_time,
+                const media::AudioGlitchInfo& glitch_info);
+    // Absorbs stats from an object that contains stats from a more recent
+    // interval. This merges the AverageLatency, MinimumLatency and
+    // MaximumLatency information into this object, and resets it on the |from|
+    // object. |from|'s latency information interval should start where
+    // |this|'s latency information interval ends. The frame counters, frame
+    // durations, and current latency are simply copied from |from|.
+    void Absorb(AudioFrameStats& from);
+
+    // Implementations of the getters in the API.
+    uint64_t DeliveredFrames() const;
+    base::TimeDelta DeliveredFramesDuration() const;
+    uint64_t TotalFrames() const;
+    base::TimeDelta TotalFramesDuration() const;
+    base::TimeDelta Latency() const;
+    base::TimeDelta AverageLatency() const;
+    base::TimeDelta MinimumLatency() const;
+    base::TimeDelta MaximumLatency() const;
+
+   private:
+    AudioFrameStatsAccumulator accumulator_;
   };
 
   struct CaptureHandle {
@@ -99,15 +153,34 @@ class PLATFORM_EXPORT MediaStreamTrackPlatform {
 
   // TODO(hta): Make method pure virtual when all tracks have the method.
   virtual void GetSettings(Settings& settings) const {}
+
+  virtual VideoFrameStats GetVideoFrameStats() const {
+    // This method is only callable on video tracks.
+    NOTREACHED();
+  }
+
+  // Gets the audio frame stats if the platform is an audio track. This also
+  // resets the latency information stored in the track, so that subsequent
+  // calls to TransferAudioFrameStatsTo() will return latency information for
+  // consecutive but non-overlaping intervals.
+  virtual void TransferAudioFrameStatsTo(AudioFrameStats& destination) {
+    // This method is only callable on audio tracks.
+    NOTREACHED();
+  }
+
   virtual CaptureHandle GetCaptureHandle();
 
-  // Adds a one off callback that will be invoked when observing the first frame
-  // where |metadata.crop_version >= crop_version|.
-  virtual void AddCropVersionCallback(uint32_t crop_version,
-                                      base::OnceClosure callback) {}
+  // Adds a one off callback that will be invoked when either:
+  // - The first frame satisfying |metadata.capture_version >= capture_version|
+  //   is observed.
+  // - A message is received guaranteeing that all subsequent frames will
+  //   satisfy this property.
+  virtual void AddCaptureVersionCallback(media::CaptureVersion capture_version,
+                                         base::OnceClosure callback) {}
 
-  // Removes the callback that was associated with this |crop_version|, if any.
-  virtual void RemoveCropVersionCallback(uint32_t crop_version) {}
+  // Removes the callback that was associated with this |capture_version|.
+  virtual void RemoveCaptureVersionCallback(
+      media::CaptureVersion capture_version) {}
 
   bool is_local_track() const { return is_local_track_; }
 

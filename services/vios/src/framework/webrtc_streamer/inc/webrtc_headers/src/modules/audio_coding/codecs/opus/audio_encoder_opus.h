@@ -11,23 +11,28 @@
 #ifndef MODULES_AUDIO_CODING_CODECS_OPUS_AUDIO_ENCODER_OPUS_H_
 #define MODULES_AUDIO_CODING_CODECS_OPUS_AUDIO_ENCODER_OPUS_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
-#include <string>
+#include <optional>
+#include <span>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/audio_codecs/audio_format.h"
 #include "api/audio_codecs/opus/audio_encoder_opus_config.h"
+#include "api/call/bitrate_allocation.h"
+#include "api/environment/environment.h"
+#include "api/units/time_delta.h"
 #include "common_audio/smoothing_filter.h"
 #include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor.h"
 #include "modules/audio_coding/codecs/opus/opus_interface.h"
+#include "rtc_base/buffer.h"
 
 namespace webrtc {
-
-class RtcEventLog;
 
 class AudioEncoderOpusImpl final : public AudioEncoder {
  public:
@@ -35,30 +40,30 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
   // defined by complexity_threshold_bps +/- complexity_threshold_window_bps.
   // Otherwise, returns the current complexity depending on whether the
   // current bitrate is above or below complexity_threshold_bps.
-  static absl::optional<int> GetNewComplexity(
+  static std::optional<int> GetNewComplexity(
       const AudioEncoderOpusConfig& config);
 
   // Returns OPUS_AUTO if the the current bitrate is above wideband threshold.
   // Returns empty if it is below, but bandwidth coincides with the desired one.
   // Otherwise returns the desired bandwidth.
-  static absl::optional<int> GetNewBandwidth(
+  static std::optional<int> GetNewBandwidth(
       const AudioEncoderOpusConfig& config,
       OpusEncInst* inst);
 
   using AudioNetworkAdaptorCreator =
-      std::function<std::unique_ptr<AudioNetworkAdaptor>(absl::string_view,
-                                                         RtcEventLog*)>;
+      std::function<std::unique_ptr<AudioNetworkAdaptor>(absl::string_view)>;
 
-  AudioEncoderOpusImpl(const AudioEncoderOpusConfig& config, int payload_type);
-
-  // Dependency injection for testing.
-  AudioEncoderOpusImpl(
-      const AudioEncoderOpusConfig& config,
+  static std::unique_ptr<AudioEncoderOpusImpl> CreateForTesting(
+      const Environment& env,
+      AudioEncoderOpusConfig config,
       int payload_type,
       const AudioNetworkAdaptorCreator& audio_network_adaptor_creator,
       std::unique_ptr<SmoothingFilter> bitrate_smoother);
 
-  AudioEncoderOpusImpl(int payload_type, const SdpAudioFormat& format);
+  AudioEncoderOpusImpl(const Environment& env,
+                       AudioEncoderOpusConfig config,
+                       int payload_type);
+
   ~AudioEncoderOpusImpl() override;
 
   AudioEncoderOpusImpl(const AudioEncoderOpusImpl&) = delete;
@@ -82,24 +87,22 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
 
   bool SetApplication(Application application) override;
   void SetMaxPlaybackRate(int frequency_hz) override;
-  bool EnableAudioNetworkAdaptor(const std::string& config_string,
-                                 RtcEventLog* event_log) override;
+  bool EnableAudioNetworkAdaptor(absl::string_view config) override;
   void DisableAudioNetworkAdaptor() override;
   void OnReceivedUplinkPacketLossFraction(
       float uplink_packet_loss_fraction) override;
   void OnReceivedTargetAudioBitrate(int target_audio_bitrate_bps) override;
-  void OnReceivedUplinkBandwidth(
-      int target_audio_bitrate_bps,
-      absl::optional<int64_t> bwe_period_ms) override;
+  void OnReceivedUplinkBandwidth(int target_audio_bitrate_bps,
+                                 std::optional<int64_t> bwe_period_ms) override;
   void OnReceivedUplinkAllocation(BitrateAllocationUpdate update) override;
   void OnReceivedRtt(int rtt_ms) override;
   void OnReceivedOverhead(size_t overhead_bytes_per_packet) override;
   void SetReceiverFrameLengthRange(int min_frame_length_ms,
                                    int max_frame_length_ms) override;
   ANAStats GetANAStats() const override;
-  absl::optional<std::pair<TimeDelta, TimeDelta> > GetFrameLengthRange()
+  std::optional<std::pair<TimeDelta, TimeDelta> > GetFrameLengthRange()
       const override;
-  rtc::ArrayView<const int> supported_frame_lengths_ms() const {
+  std::span<const int> supported_frame_lengths_ms() const {
     return config_.supported_frame_lengths_ms;
   }
 
@@ -114,32 +117,34 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
 
  protected:
   EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
-                         rtc::ArrayView<const int16_t> audio,
-                         rtc::Buffer* encoded) override;
+                         std::span<const int16_t> audio,
+                         Buffer* encoded) override;
 
  private:
   class PacketLossFractionSmoother;
 
-  static absl::optional<AudioEncoderOpusConfig> SdpToConfig(
+  AudioEncoderOpusImpl(
+      const Environment& env,
+      AudioEncoderOpusConfig config,
+      int payload_type,
+      const AudioNetworkAdaptorCreator& audio_network_adaptor_creator,
+      std::unique_ptr<SmoothingFilter> bitrate_smoother);
+
+  static std::optional<AudioEncoderOpusConfig> SdpToConfig(
       const SdpAudioFormat& format);
   static void AppendSupportedEncoders(std::vector<AudioCodecSpec>* specs);
   static AudioCodecInfo QueryAudioEncoder(const AudioEncoderOpusConfig& config);
-  static std::unique_ptr<AudioEncoder> MakeAudioEncoder(
-      const AudioEncoderOpusConfig&,
-      int payload_type);
 
   size_t Num10msFramesPerPacket() const;
   size_t SamplesPer10msFrame() const;
   size_t SufficientOutputBufferSize() const;
-  bool RecreateEncoderInstance(const AudioEncoderOpusConfig& config);
+  bool RecreateEncoderInstance(AudioEncoderOpusConfig config);
+  bool RecreateEncoderInstance();
   void SetFrameLength(int frame_length_ms);
   void SetNumChannelsToEncode(size_t num_channels_to_encode);
   void SetProjectedPacketLossRate(float fraction);
-
-  void OnReceivedUplinkBandwidth(
-      int target_audio_bitrate_bps,
-      absl::optional<int64_t> bwe_period_ms,
-      absl::optional<int64_t> link_capacity_allocation);
+  void OnReceivedUplinkBandwidthImpl(int target_audio_bitrate_bps,
+                                     std::optional<int64_t> bwe_period_ms);
 
   // TODO(minyue): remove "override" when we can deprecate
   // `AudioEncoder::SetTargetBitrate`.
@@ -147,14 +152,13 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
 
   void ApplyAudioNetworkAdaptor();
   std::unique_ptr<AudioNetworkAdaptor> DefaultAudioNetworkAdaptorCreator(
-      absl::string_view config_string,
-      RtcEventLog* event_log) const;
+      absl::string_view config_string) const;
 
   void MaybeUpdateUplinkBandwidth();
 
+  const Environment env_;
   AudioEncoderOpusConfig config_;
   const int payload_type_;
-  const bool use_stable_target_for_adaptation_;
   const bool adjust_bandwidth_;
   bool bitrate_changed_;
   // A multiplier for bitrates at 5 kbps and higher. The target bitrate
@@ -171,10 +175,9 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
   std::unique_ptr<PacketLossFractionSmoother> packet_loss_fraction_smoother_;
   const AudioNetworkAdaptorCreator audio_network_adaptor_creator_;
   std::unique_ptr<AudioNetworkAdaptor> audio_network_adaptor_;
-  absl::optional<size_t> overhead_bytes_per_packet_;
+  std::optional<size_t> overhead_bytes_per_packet_;
   const std::unique_ptr<SmoothingFilter> bitrate_smoother_;
-  absl::optional<int64_t> bitrate_smoother_last_update_time_;
-  int consecutive_dtx_frames_;
+  std::optional<int64_t> bitrate_smoother_last_update_time_;
 
   friend struct AudioEncoderOpus;
 };

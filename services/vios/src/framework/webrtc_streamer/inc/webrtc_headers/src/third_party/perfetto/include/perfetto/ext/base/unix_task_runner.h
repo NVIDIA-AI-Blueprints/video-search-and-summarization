@@ -19,9 +19,11 @@
 
 #include "perfetto/base/build_config.h"
 #include "perfetto/base/task_runner.h"
+#include "perfetto/base/thread_annotations.h"
 #include "perfetto/base/thread_utils.h"
 #include "perfetto/base/time.h"
 #include "perfetto/ext/base/event_fd.h"
+#include "perfetto/ext/base/rt_mutex.h"
 #include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/ext/base/thread_checker.h"
 
@@ -69,6 +71,10 @@ class UnixTaskRunner : public TaskRunner {
   // delayed tasks don't count even if they are due to run.
   bool IsIdleForTesting();
 
+  // Pretends (for the purposes of running delayed tasks) that time advanced by
+  // `ms`.
+  void AdvanceTimeForTesting(uint32_t ms);
+
   // TaskRunner implementation:
   void PostTask(std::function<void()>) override;
   void PostDelayedTask(std::function<void()>, uint32_t delay_ms) override;
@@ -83,14 +89,15 @@ class UnixTaskRunner : public TaskRunner {
 
  private:
   void WakeUp();
-  void UpdateWatchTasksLocked();
-  int GetDelayMsToNextTaskLocked() const;
+  void UpdateWatchTasksLocked() PERFETTO_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  int GetDelayMsToNextTaskLocked() const
+      PERFETTO_EXCLUSIVE_LOCKS_REQUIRED(lock_);
   void RunImmediateAndDelayedTask();
   void PostFileDescriptorWatches(uint64_t windows_wait_result);
   void RunFileDescriptorWatch(PlatformHandle);
 
   ThreadChecker thread_checker_;
-  PlatformThreadId created_thread_id_ = GetThreadId();
+  std::atomic<PlatformThreadId> created_thread_id_ = GetThreadId();
 
   EventFd event_;
 
@@ -101,13 +108,14 @@ class UnixTaskRunner : public TaskRunner {
   std::vector<struct pollfd> poll_fds_;
 #endif
 
-  // --- Begin lock-protected members ---
+  base::MaybeRtMutex lock_;
 
-  std::mutex lock_;
-
-  std::deque<std::function<void()>> immediate_tasks_;
-  std::multimap<TimeMillis, std::function<void()>> delayed_tasks_;
-  bool quit_ = false;
+  std::deque<std::function<void()>> immediate_tasks_ PERFETTO_GUARDED_BY(lock_);
+  std::multimap<TimeMillis, std::function<void()>> delayed_tasks_
+      PERFETTO_GUARDED_BY(lock_);
+  bool quit_ PERFETTO_GUARDED_BY(lock_) = false;
+  TimeMillis advanced_time_for_testing_ PERFETTO_GUARDED_BY(lock_) =
+      TimeMillis(0);
 
   struct WatchTask {
     std::function<void()> callback;
@@ -121,10 +129,8 @@ class UnixTaskRunner : public TaskRunner {
 #endif
   };
 
-  std::map<PlatformHandle, WatchTask> watch_tasks_;
-  bool watch_tasks_changed_ = false;
-
-  // --- End lock-protected members ---
+  std::map<PlatformHandle, WatchTask> watch_tasks_ PERFETTO_GUARDED_BY(lock_);
+  bool watch_tasks_changed_ PERFETTO_GUARDED_BY(lock_) = false;
 };
 
 }  // namespace base

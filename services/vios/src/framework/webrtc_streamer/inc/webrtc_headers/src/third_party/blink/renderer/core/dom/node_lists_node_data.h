@@ -36,7 +36,8 @@
 
 namespace blink {
 
-class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
+class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData>,
+                                public ElementRareDataField {
  public:
   ChildNodeList* GetChildNodeList(ContainerNode& node) {
     DCHECK(!child_node_list_ || node == child_node_list_->VirtualOwnerNode());
@@ -63,9 +64,9 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   struct NodeListAtomicCacheMapEntryHashTraits
       : HashTraits<std::pair<CollectionType, AtomicString>> {
     static unsigned GetHash(const NamedNodeListKey& entry) {
-      return WTF::GetHash(entry.second == CSSSelector::UniversalSelectorAtom()
-                              ? g_star_atom
-                              : entry.second) +
+      return blink::GetHash(entry.second == CSSSelector::UniversalSelectorAtom()
+                                ? g_star_atom
+                                : entry.second) +
              entry.first;
     }
     static constexpr bool kSafeToCompareToEmptyOrDeleted =
@@ -116,6 +117,14 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
                                                            : nullptr);
   }
 
+  template <typename T>
+  const T* Cached(CollectionType collection_type) const {
+    auto it = atomic_name_caches_.find(NamedNodeListKey(
+        collection_type, CSSSelector::UniversalSelectorAtom()));
+    return static_cast<T*>(it != atomic_name_caches_.end() ? &*it->value
+                                                           : nullptr);
+  }
+
   TagCollectionNS* AddCache(ContainerNode& node,
                             const AtomicString& namespace_uri,
                             const AtomicString& local_name) {
@@ -123,7 +132,7 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
     TagCollectionNSCache::AddResult result =
         tag_collection_ns_caches_.insert(name, nullptr);
     if (!result.is_new_entry)
-      return result.stored_value->value;
+      return result.stored_value->value.Get();
 
     auto* list = MakeGarbageCollected<TagCollectionNS>(
         node, kTagCollectionNSType, namespace_uri, local_name);
@@ -152,7 +161,7 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
     for (NodeListAtomicNameCacheMap::const_iterator it =
              atomic_name_caches_.begin();
          it != atomic_name_cache_end; ++it) {
-      LiveNodeListBase* list = it->value;
+      LiveNodeListBase* list = it->value.Get();
       list->DidMoveToDocument(old_document, new_document);
     }
 
@@ -161,13 +170,13 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
     for (TagCollectionNSCache::const_iterator it =
              tag_collection_ns_caches_.begin();
          it != tag_end; ++it) {
-      LiveNodeListBase* list = it->value;
+      LiveNodeListBase* list = it->value.Get();
       DCHECK(!list->IsRootedAtTreeScope());
       list->DidMoveToDocument(old_document, new_document);
     }
   }
 
-  void Trace(Visitor*) const;
+  void Trace(Visitor*) const override;
 
  private:
   // Can be a ChildNodeList or an EmptyNodeList.
@@ -200,6 +209,13 @@ inline Collection* ContainerNode::EnsureCachedCollection(
 template <typename Collection>
 inline Collection* ContainerNode::CachedCollection(CollectionType type) {
   NodeListsNodeData* node_lists = NodeLists();
+  return node_lists ? node_lists->Cached<Collection>(type) : nullptr;
+}
+
+template <typename Collection>
+inline const Collection* ContainerNode::CachedCollection(
+    CollectionType type) const {
+  const NodeListsNodeData* node_lists = NodeLists();
   return node_lists ? node_lists->Cached<Collection>(type) : nullptr;
 }
 

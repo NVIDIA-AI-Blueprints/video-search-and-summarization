@@ -35,14 +35,15 @@ enum class BatteryCounter {
   kCapacityPercent,
   kCurrent,
   kCurrentAvg,
+  kVoltage,
 };
 
 extern "C" {
 
 // These functions are not thread safe unless specified otherwise.
 
-bool __attribute__((visibility("default")))
-GetBatteryCounter(BatteryCounter, int64_t*);
+bool __attribute__((visibility("default"))) GetBatteryCounter(BatteryCounter,
+                                                              int64_t*);
 
 }  // extern "C"
 

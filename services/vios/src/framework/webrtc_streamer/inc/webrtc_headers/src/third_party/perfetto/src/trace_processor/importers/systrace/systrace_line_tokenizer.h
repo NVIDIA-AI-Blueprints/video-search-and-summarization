@@ -17,26 +17,25 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_SYSTRACE_SYSTRACE_LINE_TOKENIZER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_SYSTRACE_SYSTRACE_LINE_TOKENIZER_H_
 
-#include <regex>
+#include <string>
 
-#include "perfetto/trace_processor/status.h"
+#include "perfetto/base/status.h"
+#include "perfetto/ext/base/regex.h"
 
-#include "src/trace_processor/importers/systrace/systrace_line.h"
+namespace perfetto::trace_processor {
 
-namespace perfetto {
-namespace trace_processor {
+struct SystraceLine;
 
 class SystraceLineTokenizer {
  public:
   SystraceLineTokenizer();
 
-  util::Status Tokenize(const std::string& line, SystraceLine*);
+  base::Status Tokenize(const std::string& line, SystraceLine*);
 
  private:
-  const std::regex line_matcher_;
+  base::Regex line_matcher_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_SYSTRACE_SYSTRACE_LINE_TOKENIZER_H_

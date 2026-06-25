@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <functional>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -206,6 +207,10 @@ class Subprocess {
 
   Status Poll();
 
+  // Kills the process (SIGKILL if not specified) but doesn't wait for its
+  // termination.
+  void Kill(int sig_num = 0);
+
   // Sends a signal (SIGKILL if not specified) and wait for process termination.
   void KillAndWaitForTermination(int sig_num = 0);
 
@@ -263,7 +268,7 @@ class Subprocess {
   };
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
-  static void StdinThread(MovableState*, std::string input);
+  static void StdinThread(MovableState*, const std::string& input);
   static void StdoutErrThread(MovableState*);
 #else
   void TryPushStdin();

@@ -17,11 +17,16 @@
 #include <X11/extensions/Xfixes.h>
 #include <X11/extensions/Xrandr.h>
 
+// X11 creates a CurrentTime macro, which causes compilation errors when
+// including webrtc::Clock.
+#undef CurrentTime
+
 #include <memory>
 
 #include "modules/desktop_capture/desktop_capture_options.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_geometry.h"
 #include "modules/desktop_capture/desktop_region.h"
 #include "modules/desktop_capture/linux/x11/shared_x_display.h"
 #include "modules/desktop_capture/linux/x11/x_atom_cache.h"
@@ -42,7 +47,7 @@ namespace webrtc {
 class ScreenCapturerX11 : public DesktopCapturer,
                           public SharedXDisplay::XEventHandler {
  public:
-  ScreenCapturerX11();
+  explicit ScreenCapturerX11(const DesktopCaptureOptions& options);
   ~ScreenCapturerX11() override;
 
   ScreenCapturerX11(const ScreenCapturerX11&) = delete;
@@ -90,6 +95,7 @@ class ScreenCapturerX11 : public DesktopCapturer,
   void DeinitXlib();
 
   DesktopCaptureOptions options_;
+  Clock& clock_;
 
   Callback* callback_ = nullptr;
 

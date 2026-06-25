@@ -21,7 +21,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_SHADOW_VALUE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_SHADOW_VALUE_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -39,18 +38,20 @@ class CORE_EXPORT CSSShadowValue : public CSSValue {
                  CSSPrimitiveValue* blur,
                  CSSPrimitiveValue* spread,
                  CSSIdentifierValue* style,
-                 CSSValue* color);
+                 const CSSValue* color);
 
   String CustomCSSText() const;
 
   bool Equals(const CSSShadowValue&) const;
+
+  bool HasRandomFunctions() const;
 
   Member<CSSPrimitiveValue> x;
   Member<CSSPrimitiveValue> y;
   Member<CSSPrimitiveValue> blur;
   Member<CSSPrimitiveValue> spread;
   Member<CSSIdentifierValue> style;
-  Member<CSSValue> color;
+  Member<const CSSValue> color;
 
   void TraceAfterDispatch(blink::Visitor*) const;
 };

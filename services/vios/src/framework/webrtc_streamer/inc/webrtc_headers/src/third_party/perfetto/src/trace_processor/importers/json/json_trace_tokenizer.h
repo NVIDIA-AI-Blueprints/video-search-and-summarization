@@ -17,39 +17,26 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_JSON_JSON_TRACE_TOKENIZER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_JSON_JSON_TRACE_TOKENIZER_H_
 
-#include <stdint.h>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "perfetto/base/status.h"
 #include "src/trace_processor/importers/common/chunked_trace_reader.h"
+#include "src/trace_processor/importers/common/clock_tracker.h"
+#include "src/trace_processor/importers/common/legacy_v8_cpu_profile_tracker.h"
+#include "src/trace_processor/importers/common/parser_types.h"
+#include "src/trace_processor/importers/json/json_trace_parser.h"
+#include "src/trace_processor/importers/systrace/systrace_line.h"
 #include "src/trace_processor/importers/systrace/systrace_line_tokenizer.h"
-#include "src/trace_processor/storage/trace_storage.h"
+#include "src/trace_processor/sorter/trace_sorter.h"
+#include "src/trace_processor/util/json_parser.h"
 
-namespace Json {
-class Value;
-}
-
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TraceProcessorContext;
-
-// Visible for testing.
-enum class ReadDictRes {
-  kFoundDict,
-  kNeedsMoreData,
-  kEndOfTrace,
-  kEndOfArray,
-};
-
-// Parses at most one JSON dictionary and returns a pointer to the end of it,
-// or nullptr if no dict could be detected.
-// This is to avoid decoding the full trace in memory and reduce heap traffic.
-// E.g.  input:  { a:1 b:{ c:2, d:{ e:3 } } } , { a:4, ... },
-//       output: [   only this is parsed    ] ^return value points here.
-// Visible for testing.
-ReadDictRes ReadOneJsonDict(const char* start,
-                            const char* end,
-                            base::StringView* value,
-                            const char** next);
 
 enum class ReadKeyRes {
   kFoundKey,
@@ -71,17 +58,7 @@ ReadKeyRes ReadOneJsonKey(const char* start,
                           std::string* key,
                           const char** next);
 
-// Takes as input a JSON dictionary and returns the value associated with
-// the provided key (if it exists).
-// Implementation note: this method does not currently support dictionaries
-// which have arrays as JSON values because current users of this method
-// do not require this.
-// Visible for testing.
-base::Status ExtractValueForJsonKey(base::StringView dict,
-                                    const std::string& key,
-                                    std::optional<std::string>* value);
-
-enum class ReadSystemLineRes {
+enum class ReadSystemLineRes : uint8_t {
   kFoundLine,
   kNeedsMoreData,
   kEndOfSystemTrace,
@@ -101,11 +78,12 @@ class JsonTraceTokenizer : public ChunkedTraceReader {
 
   // ChunkedTraceReader implementation.
   base::Status Parse(TraceBlobView) override;
-  void NotifyEndOfFile() override;
+  base::Status OnPushDataToSorter() override;
+  void OnEventsFullyExtracted() override {}
 
  private:
   // Enum which tracks which type of JSON trace we are dealing with.
-  enum class TraceFormat {
+  enum class TraceFormat : uint8_t {
     // Enum value when ther outer-most layer is a dictionary with multiple
     // key value pairs
     kOuterDictionary,
@@ -116,7 +94,7 @@ class JsonTraceTokenizer : public ChunkedTraceReader {
   };
 
   // Enum which tracks our current position within the trace.
-  enum class TracePosition {
+  enum class TracePosition : uint8_t {
     // This indicates that we are inside the outermost dictionary of the
     // trace and need to read the next key of the dictionary.
     // This position is only valid when the |format_| == |kOuterDictionary|.
@@ -137,6 +115,10 @@ class JsonTraceTokenizer : public ChunkedTraceReader {
                              const char* end,
                              const char** out);
 
+  bool ParseTraceEventContents();
+
+  base::Status ParseV8SampleEvent(const JsonEvent& event);
+
   base::Status HandleTraceEvent(const char* start,
                                 const char* end,
                                 const char** out);
@@ -151,18 +133,26 @@ class JsonTraceTokenizer : public ChunkedTraceReader {
 
   TraceProcessorContext* const context_;
 
+  JsonTraceParser parser_;
+  std::unique_ptr<LegacyV8CpuProfileTracker> v8_tracker_;
+  std::unique_ptr<TraceSorter::Stream<JsonEvent>> json_stream_;
+  std::unique_ptr<TraceSorter::Stream<SystraceLine>> systrace_stream_;
+  std::unique_ptr<TraceSorter::Stream<LegacyV8CpuProfileEvent>> v8_stream_;
+
   TraceFormat format_ = TraceFormat::kOuterDictionary;
   TracePosition position_ = TracePosition::kDictionaryKey;
 
   SystraceLineTokenizer systrace_line_tokenizer_;
+  json::Iterator it_;
+  json::Iterator inner_it_;
 
+  ClockTracker::ClockId trace_file_clock_;
   uint64_t offset_ = 0;
   // Used to glue together JSON objects that span across two (or more)
   // Parse boundaries.
   std::vector<char> buffer_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_JSON_JSON_TRACE_TOKENIZER_H_

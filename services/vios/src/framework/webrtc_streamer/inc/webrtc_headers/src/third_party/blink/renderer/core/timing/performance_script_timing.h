@@ -5,6 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_TIMING_PERFORMANCE_SCRIPT_TIMING_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_TIMING_PERFORMANCE_SCRIPT_TIMING_H_
 
+#include <cstdint>
+
+#include "third_party/blink/renderer/bindings/core/v8/v8_script_window_attribution.h"
 #include "third_party/blink/renderer/core/dom/dom_high_res_time_stamp.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/timing/animation_frame_timing_info.h"
@@ -16,6 +19,8 @@
 
 namespace blink {
 
+class V8ScriptInvokerType;
+
 class PerformanceScriptTiming final : public PerformanceEntry {
   DEFINE_WRAPPERTYPEINFO();
 
@@ -25,29 +30,36 @@ class PerformanceScriptTiming final : public PerformanceEntry {
   PerformanceScriptTiming(ScriptTimingInfo* info,
                           base::TimeTicks time_origin,
                           bool cross_origin_isolated_capability,
-                          DOMWindow* source);
+                          DOMWindow* source,
+                          uint32_t navigation_id);
   ~PerformanceScriptTiming() override;
 
   const AtomicString& entryType() const override;
   PerformanceEntryType EntryTypeEnum() const override;
 
-  DOMHighResTimeStamp executionStart() const;
+  DOMHighResTimeStamp executionStart() const { return execution_start_; }
   DOMHighResTimeStamp forcedStyleAndLayoutDuration() const;
+  DOMHighResTimeStamp forcedStyleDuration() const;
+  DOMHighResTimeStamp forcedLayoutDuration() const;
   DOMHighResTimeStamp pauseDuration() const;
-  DOMHighResTimeStamp desiredExecutionStart() const;
   LocalDOMWindow* window() const;
-  WTF::String sourceLocation() const;
-  const AtomicString& windowAttribution() const;
-  AtomicString type() const;
+  String sourceURL() const;
+  String sourceFunctionName() const;
+  int32_t sourceCharPosition() const;
+  int32_t sourceLine() const;
+  int32_t sourceColumn() const;
+  V8ScriptWindowAttribution windowAttribution() const;
+  V8ScriptInvokerType invokerType() const;
+  AtomicString invoker() const;
   void Trace(Visitor*) const override;
 
  private:
   void BuildJSONValue(V8ObjectBuilder&) const override;
   DOMHighResTimeStamp ToMonotonicTime(base::TimeTicks) const;
-  base::TimeTicks time_origin_;
-  bool cross_origin_isolated_capability_;
   Member<ScriptTimingInfo> info_;
-  AtomicString window_attribution_;
+  V8ScriptWindowAttribution::Enum window_attribution_;
+  DOMHighResTimeStamp execution_start_;
+  bool cross_origin_isolated_capability_;
 };
 
 }  // namespace blink

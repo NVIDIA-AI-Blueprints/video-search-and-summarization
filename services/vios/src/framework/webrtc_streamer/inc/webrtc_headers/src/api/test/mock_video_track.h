@@ -15,16 +15,18 @@
 
 #include "api/media_stream_interface.h"
 #include "api/scoped_refptr.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_sink_interface.h"
+#include "api/video/video_source_interface.h"
 #include "rtc_base/ref_counted_object.h"
 #include "test/gmock.h"
 
 namespace webrtc {
 
-class MockVideoTrack
-    : public rtc::RefCountedObject<webrtc::VideoTrackInterface> {
+class MockVideoTrack : public RefCountedObject<VideoTrackInterface> {
  public:
-  static rtc::scoped_refptr<MockVideoTrack> Create() {
-    return rtc::scoped_refptr<MockVideoTrack>(new MockVideoTrack());
+  static scoped_refptr<MockVideoTrack> Create() {
+    return scoped_refptr<MockVideoTrack>(new MockVideoTrack());
   }
 
   // NotifierInterface
@@ -47,14 +49,14 @@ class MockVideoTrack
   // VideoSourceInterface
   MOCK_METHOD(void,
               AddOrUpdateSink,
-              (rtc::VideoSinkInterface<VideoFrame> * sink,
-               const rtc::VideoSinkWants& wants),
+              (VideoSinkInterface<VideoFrame> * sink,
+               const VideoSinkWants& wants),
               (override));
   // RemoveSink must guarantee that at the time the method returns,
   // there is no current and no future calls to VideoSinkInterface::OnFrame.
   MOCK_METHOD(void,
               RemoveSink,
-              (rtc::VideoSinkInterface<VideoFrame> * sink),
+              (VideoSinkInterface<VideoFrame> * sink),
               (override));
 
   // VideoTrackInterface

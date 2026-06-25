@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/main_thread_scheduler.h"
@@ -43,14 +44,16 @@ class SimpleMainThreadScheduler : public MainThreadScheduler {
   void PostDelayedIdleTask(const base::Location&,
                            base::TimeDelta delay,
                            Thread::IdleTask) override;
-  void PostNonNestableIdleTask(const base::Location&,
-                               Thread::IdleTask) override;
+  void RemoveCancelledIdleTasks() override;
 
   // Do nothing (the observer won't get notified).
   void AddRAILModeObserver(RAILModeObserver*) override;
 
   // Do nothing.
   void RemoveRAILModeObserver(RAILModeObserver const*) override;
+
+  void ForEachMainThreadIsolate(
+      base::FunctionRef<void(v8::Isolate* isolate)>) override;
 
   // Return the thread task runner (there's no separate task runner for them).
   scoped_refptr<base::SingleThreadTaskRunner> V8TaskRunner() override;
@@ -78,11 +81,20 @@ class SimpleMainThreadScheduler : public MainThreadScheduler {
   v8::Isolate* Isolate() override;
   std::unique_ptr<RendererPauseHandle> PauseScheduler() override;
 
+  // After-task callbacks are dropped, so this is a no-op.
+  void ExecuteAfterCurrentTaskForTesting(
+      base::OnceClosure on_completion_task,
+      ExecuteAfterCurrentTaskRestricted) override;
+
   // Idle tasks are dropped in `PostIdleTask()` and friends, so this is a no-op.
   void StartIdlePeriodForTesting() override;
 
+  // Do nothing. This class does not differentiate between foregrounded and
+  // backgrounded renderers.
+  void SetRendererBackgroundedForTesting(bool) override;
+
  private:
-  v8::Isolate* isolate_ = nullptr;
+  raw_ptr<v8::Isolate> isolate_ = nullptr;
 };
 
 }  // namespace scheduler

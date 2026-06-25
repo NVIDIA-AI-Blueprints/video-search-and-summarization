@@ -12,6 +12,8 @@
 #ifndef MODULES_RTP_RTCP_SOURCE_RTCP_PACKET_BYE_H_
 #define MODULES_RTP_RTCP_SOURCE_RTCP_PACKET_BYE_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -46,7 +48,8 @@ class Bye : public RtcpPacket {
               PacketReadyCallback callback) const override;
 
  private:
-  static const int kMaxNumberOfCsrcs = 0x1f - 1;  // First item is sender SSRC.
+  static constexpr int kMaxNumberOfCsrcs =
+      0x1f - 1;  // First item is sender SSRC.
 
   std::vector<uint32_t> csrcs_;
   std::string reason_;

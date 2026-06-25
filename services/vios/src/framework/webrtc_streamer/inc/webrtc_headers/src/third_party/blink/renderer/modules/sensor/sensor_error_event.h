@@ -35,12 +35,12 @@ class SensorErrorEvent : public Event {
 
   const AtomicString& InterfaceName() const override;
 
-  DOMException* error() { return error_; }
+  DOMException* error() { return error_.Get(); }
 
  private:
   Member<DOMException> error_;
 };
 
-}  // namepsace blink
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_SENSOR_SENSOR_ERROR_EVENT_H_

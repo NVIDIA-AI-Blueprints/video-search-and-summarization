@@ -32,7 +32,7 @@
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_export.h"
 
-namespace WTF {
+namespace blink {
 
 // Compliant with https://infra.spec.whatwg.org/#forgiving-base64-encode.
 WTF_EXPORT void Base64Encode(base::span<const uint8_t>, Vector<char>&);
@@ -50,21 +50,28 @@ enum class Base64DecodePolicy {
 };
 WTF_EXPORT bool Base64Decode(
     const StringView&,
-    Vector<char>&,
+    Vector<uint8_t>&,
     Base64DecodePolicy policy = Base64DecodePolicy::kNoPaddingValidation);
 
-WTF_EXPORT bool Base64UnpaddedURLDecode(const String& in, Vector<char>&);
+WTF_EXPORT bool Base64UnpaddedUrlDecode(const String& in, Vector<uint8_t>&);
 
 // Given an encoding in either base64 or base64url, returns a normalized
 // encoding in plain base64.
 WTF_EXPORT String NormalizeToBase64(const String&);
 
-WTF_EXPORT String Base64URLEncode(const char*, unsigned);
+enum class Base64UrlEncodePolicy {
+  // Include any required padding ('=') in the result.
+  kIncludePadding,
 
-}  // namespace WTF
+  // Remove trailing padding from the result.
+  kOmitPadding,
+};
 
-using WTF::Base64Decode;
-using WTF::Base64DecodePolicy;
-using WTF::Base64Encode;
+// Encode to base64url. `policy` determines if padding should be included not.
+// https://datatracker.ietf.org/doc/html/rfc4648#section-5
+WTF_EXPORT String Base64UrlEncode(base::span<const uint8_t>,
+                                  Base64UrlEncodePolicy policy);
+
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_BASE64_H_

@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_MEDIASTREAM_MEDIA_STREAM_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_MEDIASTREAM_MEDIA_STREAM_MOJOM_TRAITS_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/mediastream/media_stream_controls.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
@@ -34,12 +35,12 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::MediaStreamDeviceDataView,
     return device.video_facing;
   }
 
-  static const absl::optional<std::string>& group_id(
+  static const std::optional<std::string>& group_id(
       const blink::MediaStreamDevice& device) {
     return device.group_id;
   }
 
-  static const absl::optional<std::string>& matched_output_device_id(
+  static const std::optional<std::string>& matched_output_device_id(
       const blink::MediaStreamDevice& device) {
     return device.matched_output_device_id;
   }
@@ -53,7 +54,7 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::MediaStreamDeviceDataView,
     return device.input;
   }
 
-  static const absl::optional<base::UnguessableToken>& session_id(
+  static const std::optional<base::UnguessableToken>& session_id(
       const blink::MediaStreamDevice& device) {
     return device.serializable_session_id();
   }
@@ -75,8 +76,9 @@ struct BLINK_COMMON_EXPORT
     return controls.stream_type;
   }
 
-  static const std::string& device_id(const blink::TrackControls& controls) {
-    return controls.device_id;
+  static const std::vector<std::string>& device_ids(
+      const blink::TrackControls& controls) {
+    return controls.device_ids;
   }
 
   static bool Read(blink::mojom::TrackControlsDataView input,
@@ -96,10 +98,6 @@ struct BLINK_COMMON_EXPORT
     return controls.video;
   }
 
-  static bool hotword_enabled(const blink::StreamControls& controls) {
-    return controls.hotword_enabled;
-  }
-
   static bool disable_local_echo(const blink::StreamControls& controls) {
     return controls.disable_local_echo;
   }
@@ -109,8 +107,17 @@ struct BLINK_COMMON_EXPORT
     return controls.suppress_local_audio_playback;
   }
 
+  static bool restrict_own_audio(const blink::StreamControls& controls) {
+    return controls.restrict_own_audio;
+  }
+
   static bool exclude_system_audio(const blink::StreamControls& controls) {
     return controls.exclude_system_audio;
+  }
+
+  static blink::mojom::WindowAudioPreference window_audio_preference(
+      const blink::StreamControls& controls) {
+    return controls.window_audio_preference;
   }
 
   static bool exclude_self_browser_surface(
@@ -135,6 +142,11 @@ struct BLINK_COMMON_EXPORT
   static bool dynamic_surface_switching_requested(
       const blink::StreamControls& controls) {
     return controls.dynamic_surface_switching_requested;
+  }
+
+  static bool exclude_monitor_type_surfaces(
+      const blink::StreamControls& controls) {
+    return controls.exclude_monitor_type_surfaces;
   }
 
   static bool Read(blink::mojom::StreamControlsDataView input,

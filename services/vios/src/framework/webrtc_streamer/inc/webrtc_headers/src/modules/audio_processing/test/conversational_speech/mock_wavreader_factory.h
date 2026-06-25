@@ -11,6 +11,7 @@
 #ifndef MODULES_AUDIO_PROCESSING_TEST_CONVERSATIONAL_SPEECH_MOCK_WAVREADER_FACTORY_H_
 #define MODULES_AUDIO_PROCESSING_TEST_CONVERSATIONAL_SPEECH_MOCK_WAVREADER_FACTORY_H_
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <string>
@@ -35,7 +36,7 @@ class MockWavReaderFactory : public WavReaderAbstractFactory {
   MockWavReaderFactory(const Params& default_params,
                        const std::map<std::string, const Params>& params);
   explicit MockWavReaderFactory(const Params& default_params);
-  ~MockWavReaderFactory();
+  ~MockWavReaderFactory() override;
 
   MOCK_METHOD(std::unique_ptr<WavReaderInterface>,
               Create,

@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -73,11 +74,36 @@ class TracingSession {
       data_source_name_ = std::move(data_source_name);
       return *this;
     }
+    Builder& add_enabled_category(std::string category) {
+      enabled_categories_.push_back(std::move(category));
+      return *this;
+    }
+    Builder& add_disabled_category(std::string category) {
+      disabled_categories_.push_back(std::move(category));
+      return *this;
+    }
+    Builder& set_clear_period_ms(uint32_t clear_period_ms) {
+      clear_period_ms_ = clear_period_ms;
+      return *this;
+    }
+    Builder& enable_protovm_config() {
+      enable_protovm_config_ = true;
+      return *this;
+    }
+    std::vector<uint8_t> BuildProtoConfig();
+
     TracingSession Build();
 
    private:
     std::string data_source_name_;
+    std::vector<std::string> enabled_categories_;
+    std::vector<std::string> disabled_categories_;
+    uint32_t clear_period_ms_ = 0;
+    bool enable_protovm_config_ = false;
   };
+
+  static TracingSession Adopt(struct PerfettoTracingSessionImpl*);
+
   TracingSession(TracingSession&&) noexcept;
 
   ~TracingSession();
@@ -85,13 +111,18 @@ class TracingSession {
   struct PerfettoTracingSessionImpl* session() const { return session_; }
 
   bool FlushBlocking(uint32_t timeout_ms);
+  // Waits for the tracing session to be stopped.
+  void WaitForStopped();
+  // Asks the tracing session to stop. Doesn't wait for it to be stopped.
+  void StopAsync();
+  // Equivalent to StopAsync() + WaitForStopped().
   void StopBlocking();
   std::vector<uint8_t> ReadBlocking();
 
  private:
   TracingSession() = default;
   struct PerfettoTracingSessionImpl* session_;
-  bool stopped_ = false;
+  std::unique_ptr<WaitableEvent> stopped_;
 };
 
 template <typename FieldSkipper>
@@ -324,6 +355,92 @@ auto VarIntField(M m) {
       testing::Field(&PerfettoPbDecoderField::status, PERFETTO_PB_DECODER_OK),
       testing::Field(&PerfettoPbDecoderField::wire_type,
                      PERFETTO_PB_WIRE_TYPE_VARINT),
+      testing::ResultOf(f, m));
+}
+
+// Matches a PerfettoPbDecoderField fixed64 field. Accepts an integer matcher
+//
+// Example:
+// PerfettoPbDecoderField field = ...
+// EXPECT_THAT(field, Fixed64Field(1)));
+template <typename M>
+auto Fixed64Field(M m) {
+  auto f = [](const PerfettoPbDecoderField& field) {
+    return field.value.integer64;
+  };
+  return testing::AllOf(
+      testing::Field(&PerfettoPbDecoderField::status, PERFETTO_PB_DECODER_OK),
+      testing::Field(&PerfettoPbDecoderField::wire_type,
+                     PERFETTO_PB_WIRE_TYPE_FIXED64),
+      testing::ResultOf(f, m));
+}
+
+// Matches a PerfettoPbDecoderField fixed32 field. Accepts an integer matcher
+//
+// Example:
+// PerfettoPbDecoderField field = ...
+// EXPECT_THAT(field, Fixed32Field(1)));
+template <typename M>
+auto Fixed32Field(M m) {
+  auto f = [](const PerfettoPbDecoderField& field) {
+    return field.value.integer32;
+  };
+  return testing::AllOf(
+      testing::Field(&PerfettoPbDecoderField::status, PERFETTO_PB_DECODER_OK),
+      testing::Field(&PerfettoPbDecoderField::wire_type,
+                     PERFETTO_PB_WIRE_TYPE_FIXED32),
+      testing::ResultOf(f, m));
+}
+
+// Matches a PerfettoPbDecoderField double field. Accepts an double matcher
+//
+// Example:
+// PerfettoPbDecoderField field = ...
+// EXPECT_THAT(field, DoubleField(1.0)));
+template <typename M>
+auto DoubleField(M m) {
+  auto f = [](const PerfettoPbDecoderField& field) {
+    return field.value.double_val;
+  };
+  return testing::AllOf(
+      testing::Field(&PerfettoPbDecoderField::status, PERFETTO_PB_DECODER_OK),
+      testing::Field(&PerfettoPbDecoderField::wire_type,
+                     PERFETTO_PB_WIRE_TYPE_FIXED64),
+      testing::ResultOf(f, m));
+}
+
+// Matches a PerfettoPbDecoderField float field. Accepts a float matcher
+//
+// Example:
+// PerfettoPbDecoderField field = ...
+// EXPECT_THAT(field, FloatField(1.0)));
+template <typename M>
+auto FloatField(M m) {
+  auto f = [](const PerfettoPbDecoderField& field) {
+    return field.value.float_val;
+  };
+  return testing::AllOf(
+      testing::Field(&PerfettoPbDecoderField::status, PERFETTO_PB_DECODER_OK),
+      testing::Field(&PerfettoPbDecoderField::wire_type,
+                     PERFETTO_PB_WIRE_TYPE_FIXED32),
+      testing::ResultOf(f, m));
+}
+
+// Matches a PerfettoPbDecoderField submessage field. Accepts a container
+// matcher for the subfields.
+//
+// Example:
+// PerfettoPbDecoderField field = ...
+// EXPECT_THAT(field, AllFieldsWithId(900, ElementsAre(...)));
+template <typename M>
+auto AllFieldsWithId(int32_t id, M m) {
+  auto f = [id](const PerfettoPbDecoderField& field) {
+    return IdFieldView(field, id);
+  };
+  return testing::AllOf(
+      testing::Field(&PerfettoPbDecoderField::status, PERFETTO_PB_DECODER_OK),
+      testing::Field(&PerfettoPbDecoderField::wire_type,
+                     PERFETTO_PB_WIRE_TYPE_DELIMITED),
       testing::ResultOf(f, m));
 }
 

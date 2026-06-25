@@ -24,12 +24,14 @@
 #include <vector>
 
 #include "perfetto/base/export.h"
+#include "perfetto/ext/base/clock_snapshots.h"
 #include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/ext/base/sys_types.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
 #include "perfetto/ext/tracing/core/shared_memory.h"
 #include "perfetto/ext/tracing/core/trace_packet.h"
 #include "perfetto/tracing/buffer_exhausted_policy.h"
+#include "perfetto/tracing/core/flush_flags.h"
 #include "perfetto/tracing/core/forward_decls.h"
 
 namespace perfetto {
@@ -42,6 +44,7 @@ class Consumer;
 class Producer;
 class SharedMemoryArbiter;
 class TraceWriter;
+class ClientIdentity;
 
 // TODO: for the moment this assumes that all the calls happen on the same
 // thread/sequence. Not sure this will be the case long term in Chrome.
@@ -111,8 +114,7 @@ class PERFETTO_EXPORT_COMPONENT ProducerEndpoint {
   // DataSourceConfig.target_buffer().
   virtual std::unique_ptr<TraceWriter> CreateTraceWriter(
       BufferID target_buffer,
-      BufferExhaustedPolicy buffer_exhausted_policy =
-          BufferExhaustedPolicy::kDefault) = 0;
+      BufferExhaustedPolicy buffer_exhausted_policy) = 0;
 
   // TODO(eseckler): Also expose CreateStartupTraceWriter() ?
 
@@ -190,10 +192,47 @@ class PERFETTO_EXPORT_COMPONENT ConsumerEndpoint {
   // Clones an existing tracing session and attaches to it. The session is
   // cloned in read-only mode and can only be used to read a snapshot of an
   // existing tracing session. Will invoke Consumer::OnSessionCloned().
-  // If TracingSessionID == kBugreportSessionId (0xff...ff) the session with the
-  // highest bugreport score is cloned (if any exists).
-  // TODO(primiano): make pure virtual after various 3way patches.
-  virtual void CloneSession(TracingSessionID);
+  struct CloneSessionArgs {
+    // Exactly one between tsid and unique_session_name should be set.
+
+    // The id of the tracing session that should be cloned. If
+    // kBugreportSessionId (0xff...ff) the session with the highest bugreport
+    // score is cloned (if any exists).
+    TracingSessionID tsid = 0;
+
+    // The unique_session_name of the session that should be cloned.
+    std::string unique_session_name;
+
+    // If set, the trace filter will not have effect on the cloned session.
+    // Used for bugreports.
+    bool skip_trace_filter = false;
+
+    // If set, affects the generation of the FlushFlags::CloneTarget to be set
+    // to kBugreport when requesting the flush to the producers.
+    bool for_bugreport = false;
+
+    // If not empty, this is stored in the trace as name of the trigger that
+    // caused the clone.
+    std::string clone_trigger_name;
+    // If not empty, this is stored in the trace as name of the producer that
+    // triggered the clone.
+    std::string clone_trigger_producer_name;
+    // If not zero, this is stored in the trace as uid of the producer that
+    // triggered the clone.
+    uid_t clone_trigger_trusted_producer_uid = 0;
+    // If not zero, this is stored in the trace as timestamp of the trigger that
+    // caused the clone.
+    uint64_t clone_trigger_boot_time_ns = 0;
+    // If not zero, this is stored in the trace as the configured delay (in
+    // milliseconds) of the trigger that caused the clone.
+    uint64_t clone_trigger_delay_ms = 0;
+
+    // If valid, and the session that should be cloned is 'write_into_file'
+    // session, traced writes the cloned session content to this file
+    // descriptor, instead of writing it in the cloned session buffers.
+    base::ScopedFile output_file_fd;
+  };
+  virtual void CloneSession(CloneSessionArgs) = 0;
 
   // Requests all data sources to flush their data immediately and invokes the
   // passed callback once all of them have acked the flush (in which case
@@ -203,7 +242,15 @@ class PERFETTO_EXPORT_COMPONENT ConsumerEndpoint {
   // if that one is not set (or is set to 0), kDefaultFlushTimeoutMs (5s) is
   // used.
   using FlushCallback = std::function<void(bool /*success*/)>;
-  virtual void Flush(uint32_t timeout_ms, FlushCallback) = 0;
+  virtual void Flush(uint32_t timeout_ms,
+                     FlushCallback callback,
+                     FlushFlags) = 0;
+
+  // This is required for legacy out-of-repo clients like arctraceservice which
+  // use the 2-version parameter.
+  inline void Flush(uint32_t timeout_ms, FlushCallback callback) {
+    Flush(timeout_ms, std::move(callback), FlushFlags());
+  }
 
   // Tracing data will be delivered invoking Consumer::OnTraceData().
   virtual void ReadBuffers() = 0;
@@ -229,9 +276,14 @@ class PERFETTO_EXPORT_COMPONENT ConsumerEndpoint {
 
   // Used to obtain the list of connected data sources and other info about
   // the tracing service.
+  struct QueryServiceStateArgs {
+    // If set, only the TracingServiceState.tracing_sessions is filled.
+    bool sessions_only = false;
+  };
   using QueryServiceStateCallback =
       std::function<void(bool success, const TracingServiceState&)>;
-  virtual void QueryServiceState(QueryServiceStateCallback) = 0;
+  virtual void QueryServiceState(QueryServiceStateArgs,
+                                 QueryServiceStateCallback) = 0;
 
   // Used for feature detection. Makes sense only when the consumer and the
   // service talk over IPC and can be from different versions.
@@ -260,6 +312,45 @@ struct PERFETTO_EXPORT_COMPONENT TracingServiceInitOpts {
   // compressed ones.
   using CompressorFn = void (*)(std::vector<TracePacket>*);
   CompressorFn compressor_fn = nullptr;
+
+  // Whether the relay endpoint is enabled on producer transport(s).
+  bool enable_relay_endpoint = false;
+
+  // An (optional) list of proto extension descriptors to dump into each trace
+  // recorded. This is to support injecting protos that are known by the
+  // embedder (e.g. the Android vendor image) but not by the upstream perfetto.
+  // See RFC-0017.
+  struct ProtoExtensionDescriptor {
+    std::string name;
+    const uint8_t* start = nullptr;
+    size_t size = 0;
+    bool gzipped = false;
+  };
+  // The caller owns the pointed memory (typically a mmaped file or a .rodata
+  // section) and must guarantee that it is indefinitely lived.
+  std::vector<ProtoExtensionDescriptor> extension_descriptors;
+};
+
+// The API for the Relay port of the Service. Subclassed by the
+// tracing_service_impl.cc business logic when returning it in response to the
+// ConnectRelayClient() method.
+class PERFETTO_EXPORT_COMPONENT RelayEndpoint {
+ public:
+  virtual ~RelayEndpoint();
+
+  // A snapshot of client and host clocks.
+  struct SyncClockSnapshot {
+    base::ClockSnapshotVector client_clock_snapshots;
+    base::ClockSnapshotVector host_clock_snapshots;
+  };
+
+  enum class SyncMode : uint32_t { PING = 1, UPDATE = 2 };
+
+  virtual void CacheSystemInfo(std::vector<uint8_t> serialized_system_info) = 0;
+  virtual void SyncClocks(SyncMode sync_mode,
+                          base::ClockSnapshotVector client_clocks,
+                          base::ClockSnapshotVector host_clocks) = 0;
+  virtual void Disconnect() = 0;
 };
 
 // The public API of the tracing Service business logic.
@@ -276,6 +367,7 @@ class PERFETTO_EXPORT_COMPONENT TracingService {
  public:
   using ProducerEndpoint = perfetto::ProducerEndpoint;
   using ConsumerEndpoint = perfetto::ConsumerEndpoint;
+  using RelayEndpoint = perfetto::RelayEndpoint;
   using InitOpts = TracingServiceInitOpts;
 
   // Default sizes used by the service implementation and client library.
@@ -347,8 +439,7 @@ class PERFETTO_EXPORT_COMPONENT TracingService {
   // connected.
   virtual std::unique_ptr<ProducerEndpoint> ConnectProducer(
       Producer*,
-      uid_t uid,
-      pid_t pid,
+      const ClientIdentity& client_identity,
       const std::string& name,
       size_t shared_memory_size_hint_bytes = 0,
       bool in_process = false,
@@ -356,7 +447,8 @@ class PERFETTO_EXPORT_COMPONENT TracingService {
           ProducerSMBScrapingMode::kDefault,
       size_t shared_memory_page_size_hint_bytes = 0,
       std::unique_ptr<SharedMemory> shm = nullptr,
-      const std::string& sdk_version = {}) = 0;
+      const std::string& sdk_version = {},
+      const std::string& machine_name = {}) = 0;
 
   // Connects a Consumer instance and obtains a ConsumerEndpoint, which is
   // essentially a 1:1 channel between one Consumer and the Service.
@@ -376,6 +468,18 @@ class PERFETTO_EXPORT_COMPONENT TracingService {
   //
   // This feature is currently used by Chrome.
   virtual void SetSMBScrapingEnabled(bool enabled) = 0;
+
+  using RelayClientID = std::pair<base::MachineID, /*client ID*/ uint64_t>;
+  // Connects a remote RelayClient instance and obtains a RelayEndpoint, which
+  // is a 1:1 channel between one RelayClient and the Service. To disconnect
+  // just call Disconnect() of the RelayEndpoint instance. The relay client is
+  // connected using an identifier of MachineID and client ID. The service
+  // doesn't hold an object that represents the client because the relay port
+  // only has a client-to-host SyncClock() method.
+  //
+  // TODO(chinglinyu): connect the relay client using a RelayClient* object when
+  // we need host-to-client RPC method.
+  virtual std::unique_ptr<RelayEndpoint> ConnectRelayClient(RelayClientID) = 0;
 };
 
 }  // namespace perfetto

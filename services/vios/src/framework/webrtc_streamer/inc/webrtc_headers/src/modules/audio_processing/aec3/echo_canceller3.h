@@ -15,13 +15,17 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
+#include <span>
 #include <vector>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "api/audio/echo_canceller3_config.h"
 #include "api/audio/echo_control.h"
+#include "api/audio/neural_residual_echo_estimator.h"
+#include "api/environment/environment.h"
+#include "api/field_trials_view.h"
 #include "modules/audio_processing/aec3/api_call_jitter_metrics.h"
+#include "modules/audio_processing/aec3/block.h"
 #include "modules/audio_processing/aec3/block_delay_buffer.h"
 #include "modules/audio_processing/aec3/block_framer.h"
 #include "modules/audio_processing/aec3/block_processor.h"
@@ -30,7 +34,7 @@
 #include "modules/audio_processing/aec3/multi_channel_content_detector.h"
 #include "modules/audio_processing/audio_buffer.h"
 #include "modules/audio_processing/logging/apm_data_dumper.h"
-#include "rtc_base/checks.h"
+#include "rtc_base/gtest_prod_util.h"
 #include "rtc_base/race_checker.h"
 #include "rtc_base/swap_queue.h"
 #include "rtc_base/thread_annotations.h"
@@ -40,7 +44,8 @@ namespace webrtc {
 // Method for adjusting config parameter dependencies.
 // Only to be used externally to AEC3 for testing purposes.
 // TODO(webrtc:5298): Move this to a separate file.
-EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config);
+EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config,
+                                  const FieldTrialsView& field_trials);
 
 // Functor for verifying the invariance of the frames being put into the render
 // queue.
@@ -88,12 +93,13 @@ class Aec3RenderQueueItemVerifier {
 // AnalyzeRender call which can be called concurrently with the other methods.
 class EchoCanceller3 : public EchoControl {
  public:
-  EchoCanceller3(
-      const EchoCanceller3Config& config,
-      const absl::optional<EchoCanceller3Config>& multichannel_config,
-      int sample_rate_hz,
-      size_t num_render_channels,
-      size_t num_capture_channels);
+  EchoCanceller3(const Environment& env,
+                 const EchoCanceller3Config& config,
+                 const std::optional<EchoCanceller3Config>& multichannel_config,
+                 NeuralResidualEchoEstimator* neural_residual_echo_estimator,
+                 int sample_rate_hz,
+                 size_t num_render_channels,
+                 size_t num_capture_channels);
 
   ~EchoCanceller3() override;
 
@@ -136,9 +142,6 @@ class EchoCanceller3 : public EchoControl {
     block_processor_->UpdateEchoLeakageStatus(leakage_detected);
   }
 
-  // Produces a default configuration for multichannel.
-  static EchoCanceller3Config CreateDefaultMultichannelConfig();
-
  private:
   friend class EchoCanceller3Tester;
   FRIEND_TEST_ALL_PREFIXES(EchoCanceller3, DetectionOfProperStereo);
@@ -178,8 +181,9 @@ class EchoCanceller3 : public EchoControl {
   // Analyzes the full-band domain capture signal to detect signal saturation.
   void AnalyzeCapture(const AudioBuffer& capture);
 
-  rtc::RaceChecker capture_race_checker_;
-  rtc::RaceChecker render_race_checker_;
+  const Environment env_;
+  RaceChecker capture_race_checker_;
+  RaceChecker render_race_checker_;
 
   // State that is accessed by the AnalyzeRender call.
   std::unique_ptr<RenderWriter> render_writer_
@@ -196,6 +200,7 @@ class EchoCanceller3 : public EchoControl {
   const size_t num_capture_channels_;
   ConfigSelector config_selector_;
   MultiChannelContentDetector multichannel_content_detector_;
+  NeuralResidualEchoEstimator* neural_residual_echo_estimator_;
   std::unique_ptr<BlockFramer> linear_output_framer_
       RTC_GUARDED_BY(capture_race_checker_);
   BlockFramer output_framer_ RTC_GUARDED_BY(capture_race_checker_);
@@ -215,11 +220,11 @@ class EchoCanceller3 : public EchoControl {
   std::unique_ptr<Block> linear_output_block_
       RTC_GUARDED_BY(capture_race_checker_);
   Block capture_block_ RTC_GUARDED_BY(capture_race_checker_);
-  std::vector<std::vector<rtc::ArrayView<float>>> render_sub_frame_view_
+  std::vector<std::vector<std::span<float>>> render_sub_frame_view_
       RTC_GUARDED_BY(capture_race_checker_);
-  std::vector<std::vector<rtc::ArrayView<float>>> linear_output_sub_frame_view_
+  std::vector<std::vector<std::span<float>>> linear_output_sub_frame_view_
       RTC_GUARDED_BY(capture_race_checker_);
-  std::vector<std::vector<rtc::ArrayView<float>>> capture_sub_frame_view_
+  std::vector<std::vector<std::span<float>>> capture_sub_frame_view_
       RTC_GUARDED_BY(capture_race_checker_);
   std::unique_ptr<BlockDelayBuffer> block_delay_buffer_
       RTC_GUARDED_BY(capture_race_checker_);

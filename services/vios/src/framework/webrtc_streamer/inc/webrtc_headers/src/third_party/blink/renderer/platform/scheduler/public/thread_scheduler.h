@@ -5,11 +5,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_PUBLIC_THREAD_SCHEDULER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_PUBLIC_THREAD_SCHEDULER_H_
 
-#include <memory>
 #include "base/location.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
-#include "third_party/blink/renderer/platform/scheduler/public/task_attribution_tracker.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 
 namespace v8 {
@@ -59,16 +57,24 @@ class PLATFORM_EXPORT ThreadScheduler {
                                    base::TimeDelta delay,
                                    Thread::IdleTask) = 0;
 
-  // Like postIdleTask but guarantees that the posted task will not run
-  // nested within an already-running task. Posting an idle task as
-  // non-nestable may not affect when the task gets run, or it could
-  // make it run later than it normally would, but it won't make it
-  // run earlier than it normally would.
-  virtual void PostNonNestableIdleTask(const base::Location&,
-                                       Thread::IdleTask) = 0;
+  // Releases memory associated with cancelled idle tasks (best effort).
+  virtual void RemoveCancelledIdleTasks() = 0;
 
   // Returns a task runner for kV8 tasks. Can be called from any thread.
   virtual scoped_refptr<base::SingleThreadTaskRunner> V8TaskRunner() = 0;
+
+  // Returns a task runner for V8 user visible tasks. Can be called from any
+  // thread.
+  virtual scoped_refptr<base::SingleThreadTaskRunner>
+  V8UserVisibleTaskRunner() {
+    return nullptr;
+  }
+
+  // Returns a task runner for V8 best effort tasks. Can be called from any
+  // thread.
+  virtual scoped_refptr<base::SingleThreadTaskRunner> V8BestEffortTaskRunner() {
+    return nullptr;
+  }
 
   // Returns a task runner for tasks to deallocate objects on the appropriate
   // thread. This runner should only be used for freeing of resources.
@@ -89,19 +95,8 @@ class PLATFORM_EXPORT ThreadScheduler {
   // Associates |isolate| to the scheduler.
   virtual void SetV8Isolate(v8::Isolate* isolate) = 0;
 
-  // Returns the scheduler's TaskAttributionTracker is we're running on the main
-  // thread, or a nullptr otherwise.
-  virtual scheduler::TaskAttributionTracker* GetTaskAttributionTracker() {
-    return nullptr;
-  }
-
   // Convert this into a MainThreadScheduler if it is one.
   virtual MainThreadScheduler* ToMainThreadScheduler() { return nullptr; }
-
-  // Test helpers.
-
-  virtual void InitializeTaskAttributionTracker(
-      std::unique_ptr<scheduler::TaskAttributionTracker>) {}
 };
 
 }  // namespace blink

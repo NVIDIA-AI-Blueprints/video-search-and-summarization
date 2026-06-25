@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -27,7 +27,7 @@
 #include "aom/aom_encoder.h"
 #include "test/acm_random.h"
 #if !defined(_WIN32)
-#include "third_party/googletest/src/googletest/include/gtest/gtest.h"
+#include "gtest/gtest.h"
 #endif
 
 namespace libaom_test {
@@ -64,8 +64,9 @@ inline FILE *OpenTestDataFile(const std::string &file_name) {
   return fopen(path_to_source.c_str(), "rb");
 }
 
-static FILE *GetTempOutFile(std::string *file_name) {
+static FILE *GetTempOutFile(std::string *file_name, bool text_mode = false) {
   file_name->clear();
+  const char *mode = text_mode ? "w+" : "wb+";
 #if defined(_WIN32)
   char fname[MAX_PATH];
   char tmppath[MAX_PATH];
@@ -73,7 +74,7 @@ static FILE *GetTempOutFile(std::string *file_name) {
     // Assume for now that the filename generated is unique per process
     if (GetTempFileNameA(tmppath, "lvx", 0, fname)) {
       file_name->assign(fname);
-      return fopen(fname, "wb+");
+      return fopen(fname, mode);
     }
   }
   return nullptr;
@@ -94,13 +95,15 @@ static FILE *GetTempOutFile(std::string *file_name) {
   const int fd = mkstemp(temp_file_name.get());
   if (fd == -1) return nullptr;
   *file_name = temp_file_name.get();
-  return fdopen(fd, "wb+");
+  return fdopen(fd, mode);
 #endif
 }
 
 class TempOutFile {
  public:
-  TempOutFile() { file_ = GetTempOutFile(&file_name_); }
+  explicit TempOutFile(bool text_mode = false) {
+    file_ = GetTempOutFile(&file_name_, text_mode);
+  }
   ~TempOutFile() {
     CloseFile();
     if (!file_name_.empty()) {
@@ -125,12 +128,13 @@ class TempOutFile {
 // aom_image_t images with associated timestamps and duration.
 class VideoSource {
  public:
-  virtual ~VideoSource() {}
+  virtual ~VideoSource() = default;
 
   // Prepare the stream for reading, rewind/open as necessary.
   virtual void Begin() = 0;
 
-  // Advance the cursor to the next frame
+  // Advance the cursor to the next frame. For spatial layers this
+  // advances the cursor to the next temporal unit.
   virtual void Next() = 0;
 
   // Get the current video frame, or nullptr on End-Of-Stream.
@@ -145,7 +149,8 @@ class VideoSource {
   // Get the timebase for the stream
   virtual aom_rational_t timebase() const = 0;
 
-  // Get the current frame counter, starting at 0.
+  // Get the current frame counter, starting at 0. For spatial layers
+  // this is the current temporal unit counter.
   virtual unsigned int frame() const = 0;
 
   // Get the current file limit.
@@ -160,35 +165,35 @@ class DummyVideoSource : public VideoSource {
     ReallocImage();
   }
 
-  virtual ~DummyVideoSource() { aom_img_free(img_); }
+  ~DummyVideoSource() override { aom_img_free(img_); }
 
-  virtual void Begin() {
+  void Begin() override {
     frame_ = 0;
     FillFrame();
   }
 
-  virtual void Next() {
+  void Next() override {
     ++frame_;
     FillFrame();
   }
 
-  virtual aom_image_t *img() const {
+  aom_image_t *img() const override {
     return (frame_ < limit_) ? img_ : nullptr;
   }
 
   // Models a stream where Timebase = 1/FPS, so pts == frame.
-  virtual aom_codec_pts_t pts() const { return frame_; }
+  aom_codec_pts_t pts() const override { return frame_; }
 
-  virtual unsigned long duration() const { return 1; }
+  unsigned long duration() const override { return 1; }
 
-  virtual aom_rational_t timebase() const {
+  aom_rational_t timebase() const override {
     const aom_rational_t t = { 1, 30 };
     return t;
   }
 
-  virtual unsigned int frame() const { return frame_; }
+  unsigned int frame() const override { return frame_; }
 
-  virtual unsigned int limit() const { return limit_; }
+  unsigned int limit() const override { return limit_; }
 
   void set_limit(unsigned int limit) { limit_ = limit; }
 
@@ -234,7 +239,7 @@ class RandomVideoSource : public DummyVideoSource {
       : rnd_(seed), seed_(seed) {}
 
   // Reset the RNG to get a matching stream for the second pass
-  virtual void Begin() {
+  void Begin() override {
     frame_ = 0;
     rnd_.Reset(seed_);
     FillFrame();
@@ -243,7 +248,7 @@ class RandomVideoSource : public DummyVideoSource {
  protected:
   // 15 frames of noise, followed by 15 static frames. Reset to 0 rather
   // than holding previous frames to encourage keyframes to be thrown.
-  virtual void FillFrame() {
+  void FillFrame() override {
     if (img_) {
       if (frame_ % 30 < 15)
         for (size_t i = 0; i < raw_sz_; ++i) img_->img_data[i] = rnd_.Rand8();
@@ -260,7 +265,7 @@ class RandomVideoSource : public DummyVideoSource {
 // decompressed images to the decoder.
 class CompressedVideoSource {
  public:
-  virtual ~CompressedVideoSource() {}
+  virtual ~CompressedVideoSource() = default;
 
   virtual void Init() = 0;
 

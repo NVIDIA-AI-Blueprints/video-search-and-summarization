@@ -10,6 +10,8 @@
 #ifndef RTC_BASE_EXPERIMENTS_FIELD_TRIAL_UNITS_H_
 #define RTC_BASE_EXPERIMENTS_FIELD_TRIAL_UNITS_H_
 
+#include <optional>
+
 #include "absl/strings/string_view.h"
 #include "api/units/data_rate.h"
 #include "api/units/data_size.h"
@@ -19,11 +21,11 @@
 namespace webrtc {
 
 template <>
-absl::optional<DataRate> ParseTypedParameter<DataRate>(absl::string_view str);
+std::optional<DataRate> ParseTypedParameter<DataRate>(absl::string_view str);
 template <>
-absl::optional<DataSize> ParseTypedParameter<DataSize>(absl::string_view str);
+std::optional<DataSize> ParseTypedParameter<DataSize>(absl::string_view str);
 template <>
-absl::optional<TimeDelta> ParseTypedParameter<TimeDelta>(absl::string_view str);
+std::optional<TimeDelta> ParseTypedParameter<TimeDelta>(absl::string_view str);
 
 extern template class FieldTrialParameter<DataRate>;
 extern template class FieldTrialParameter<DataSize>;

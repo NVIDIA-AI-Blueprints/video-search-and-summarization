@@ -13,6 +13,6 @@
 #import "RTCMTLRenderer.h"
 
 NS_AVAILABLE(10_11, 9_0)
-@interface RTCMTLNV12Renderer : RTCMTLRenderer
+@interface RTC_OBJC_TYPE (RTCMTLNV12Renderer) : RTC_OBJC_TYPE (RTCMTLRenderer)
 
 @end

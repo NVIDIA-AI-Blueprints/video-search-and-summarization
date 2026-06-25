@@ -22,37 +22,101 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_CASE_FOLDING_HASH_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_CASE_FOLDING_HASH_H_
 
+// Case-insensitive hash lookups, using the Unicode case folding algorithm.
+
+#include "base/containers/span.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/unicode.h"
 
-namespace WTF {
+namespace blink {
 
-// The GetHash() functions on CaseFoldingHashTraits do not support null strings.
-// find(), Contains(), and insert() on
-// HashMap<String,..., CaseFoldingHashTraits<String>>
-// cause a null-pointer dereference when passed null strings.
-class CaseFoldingHash {
-  STATIC_ONLY(CaseFoldingHash);
+// Sends the input data through the Unicode case-folding table.
+// Unlike normal PlainHashReader, or the ASCII lower-case lookups,
+// we cannot treat 8-bit and 16-bit data separately, as the lookups
+// may change strings from one status to the other. For instance,
+// µ is in Latin1, but gets case-folded to U+03BC GREEK SMALL LETTER MU,
+// and there are examples going the other way as well.
+//
+// We could perhaps tweak the tables to avoid this, but this is not
+// the most performance-sensitive hashing we have around, so we simply
+// always treat data as UTF-16, expanding Latin1 as we go. This means
+// we also don't bother to try to make tricky SIMD implementations
+// for Latin1; we just use the most straightforward code. (Full lookup
+// into blink::unicode::FoldCase is slow enough that it probably dwarfs
+// all other performance concerns anyway.)
+template <class T>
+  requires std::is_same_v<T, LChar> || std::is_same_v<T, UChar>
+struct CaseFoldingHashReader {
+  // We never contract 16 to 8 bits, so this must always be 1.
+  static constexpr unsigned kCompressionFactor = 1;
+
+  // We always produce UTF-16 output, even if we take in Latin1.
+  static constexpr unsigned kExpansionFactor = sizeof(UChar) / sizeof(T);
+
+  static inline uint64_t Read64(const uint8_t* ptr) {
+    const T* p = reinterpret_cast<const T*>(ptr);
+    // SAFETY: We expect the rapidhash library provides enough size for `ptr`.
+    return UNSAFE_BUFFERS(FoldCase(p[0]) | (FoldCase(p[1]) << 16) |
+                          (FoldCase(p[2]) << 32) | (FoldCase(p[3]) << 48));
+  }
+
+  static inline uint64_t Read32(const uint8_t* ptr) {
+    const T* p = reinterpret_cast<const T*>(ptr);
+    // SAFETY: We expect the rapidhash library provides enough size for `ptr`.
+    return UNSAFE_BUFFERS(FoldCase(p[0]) | (FoldCase(p[1]) << 16));
+  }
+
+  static inline uint64_t ReadSmall(const uint8_t* ptr, size_t k) {
+    const T* p = reinterpret_cast<const T*>(ptr);
+    DCHECK_EQ(k, 2u);
+    return FoldCase(p[0]);
+  }
+
+ private:
+  // Private so no one uses this in the belief that it will return the
+  // correctly-folded code point in all cases (see comment below).
+  static inline uint64_t FoldCase(T ch) {
+    if (std::is_same<T, LChar>::value) {
+      return StringImpl::kLatin1CaseFoldTable[ch];
+    }
+    // It's possible for blink::unicode::FoldCase() to return a 32-bit value
+    // that's not representable as a UChar.  However, since this is rare and
+    // deterministic, and the result of this is merely used for hashing, go
+    // ahead and clamp the value.
+    return static_cast<UChar>(unicode::FoldCase(ch));
+  }
+};
+
+// The GetHash() functions on DeprecatedCaseFoldingHashTraits do not support
+// null strings. find(), Contains(), and insert() on HashMap<String,...,
+// DeprecatedCaseFoldingHashTraits<String>> cause a null-pointer dereference
+// when passed null strings.
+class DeprecatedCaseFoldingHash {
+  STATIC_ONLY(DeprecatedCaseFoldingHash);
 
  public:
-  static unsigned GetHash(const UChar* data, unsigned length) {
-    return StringHasher::ComputeHashAndMaskTop8Bits<UChar, FoldCase<UChar>>(
-        data, length);
+  static unsigned GetHash(base::span<const UChar> span) {
+    base::span<const char> bytes = base::as_chars(span);
+    return StringHasher::ComputeHashAndMaskTop8Bits<
+        CaseFoldingHashReader<UChar>>(bytes.data(), bytes.size());
   }
 
   static unsigned GetHash(StringImpl* str) {
     if (str->Is8Bit())
-      return GetHash(str->Characters8(), str->length());
-    return GetHash(str->Characters16(), str->length());
+      return GetHash(str->Span8());
+    return GetHash(str->Span16());
   }
 
-  static unsigned GetHash(const LChar* data, unsigned length) {
-    return StringHasher::ComputeHashAndMaskTop8Bits<LChar, FoldCase<LChar>>(
-        data, length);
+  static unsigned GetHash(base::span<const LChar> span) {
+    base::span<const char> bytes = base::as_chars(span);
+    using Reader = CaseFoldingHashReader<LChar>;
+    return StringHasher::ComputeHashAndMaskTop8Bits<Reader>(
+        bytes.data(), bytes.size() * Reader::kExpansionFactor);
   }
 
-  static inline unsigned GetHash(const char* data, unsigned length) {
-    return GetHash(reinterpret_cast<const LChar*>(data), length);
+  static inline unsigned GetHash(base::span<const char> span) {
+    return GetHash(base::as_byte_span(span));
   }
 
   static inline bool Equal(const StringImpl* a, const StringImpl* b) {
@@ -61,7 +125,13 @@ class CaseFoldingHash {
     // Save one branch inside each StringView by derefing the StringImpl,
     // and another branch inside the compare function by skipping the null
     // checks.
-    return DeprecatedEqualIgnoringCaseAndNullity(*a, *b);
+    return blink::DeprecatedEqualIgnoringCaseAndNullity(*a, *b);
+  }
+
+  static inline bool Equal(const char* a, const char* b) {
+    DCHECK(a);
+    DCHECK(b);
+    return blink::DeprecatedEqualIgnoringCaseAndNullity(a, b);
   }
 
   static unsigned GetHash(const scoped_refptr<StringImpl>& key) {
@@ -85,33 +155,20 @@ class CaseFoldingHash {
   }
 
   static constexpr bool kSafeToCompareToEmptyOrDeleted = false;
-
- private:
-  // Private so no one uses this in the belief that it will return the
-  // correctly-folded code point in all cases (see comment below).
-  template <typename T>
-  static inline UChar FoldCase(T ch) {
-    if (std::is_same<T, LChar>::value)
-      return StringImpl::kLatin1CaseFoldTable[ch];
-    // It's possible for WTF::unicode::foldCase() to return a 32-bit value
-    // that's not representable as a UChar.  However, since this is rare and
-    // deterministic, and the result of this is merely used for hashing, go
-    // ahead and clamp the value.
-    return static_cast<UChar>(WTF::unicode::FoldCase(ch));
-  }
 };
 
+// HashTraits for Unicode case-insensitive strings.
 // T can be String, StringImpl*, scoped_refptr<StringImpl> and AtomicString.
+//
+// See IgnoringAsciiCaseHashTraits for ASCII cases-insensitive strings.
 template <typename T>
-struct CaseFoldingHashTraits : HashTraits<T>, CaseFoldingHash {
-  using CaseFoldingHash::Equal;
-  using CaseFoldingHash::GetHash;
-  using CaseFoldingHash::kSafeToCompareToEmptyOrDeleted;
+struct DeprecatedCaseFoldingHashTraits : HashTraits<T>,
+                                         DeprecatedCaseFoldingHash {
+  using DeprecatedCaseFoldingHash::Equal;
+  using DeprecatedCaseFoldingHash::GetHash;
+  using DeprecatedCaseFoldingHash::kSafeToCompareToEmptyOrDeleted;
 };
 
-}  // namespace WTF
-
-using WTF::CaseFoldingHash;
-using WTF::CaseFoldingHashTraits;
+}  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_TEXT_CASE_FOLDING_HASH_H_

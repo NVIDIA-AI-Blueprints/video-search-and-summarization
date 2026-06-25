@@ -14,19 +14,21 @@
 
 namespace blink {
 
-// VideoTrackRecorder::Encoder class encodes h264, vp8, vp9 and av1 using
+// VideoTrackRecorder::Encoder class encodes h264, hevc, vp8, vp9 and av1 using
 // media::VideoEncoder implementation.
 class MODULES_EXPORT MediaRecorderEncoderWrapper final
     : public VideoTrackRecorder::Encoder {
  public:
   using CreateEncoderCB =
-      base::RepeatingCallback<std::unique_ptr<media::VideoEncoder>()>;
-  using OnErrorCB = base::OnceClosure;
+      CrossThreadFunction<std::unique_ptr<media::VideoEncoder>()>;
+  using OnErrorCB = CrossThreadOnceFunction<void(media::EncoderStatus)>;
 
   MediaRecorderEncoderWrapper(
       scoped_refptr<base::SequencedTaskRunner> encoding_task_runner,
       media::VideoCodecProfile profile,
       uint32_t bits_per_second,
+      bool is_screencast,
+      bool is_hardware_encoder,
       CreateEncoderCB create_encoder_cb,
       VideoTrackRecorder::OnEncodedVideoCB on_encoded_video_cb,
       OnErrorCB on_error_cb);
@@ -36,7 +38,7 @@ class MODULES_EXPORT MediaRecorderEncoderWrapper final
   MediaRecorderEncoderWrapper& operator=(const MediaRecorderEncoderWrapper&) =
       delete;
 
-  base::WeakPtr<Encoder> GetWeakPtr() { return weak_factory_.GetWeakPtr(); }
+  bool IsScreenContentEncodingForTesting() const override;
 
  private:
   friend class MediaRecorderEncoderWrapperTest;
@@ -72,20 +74,23 @@ class MODULES_EXPORT MediaRecorderEncoderWrapper final
                    bool request_keyframe) override;
   bool CanEncodeAlphaChannel() const override;
 
-  void EnterErrorState();
-  void ReconfigureForNewResolution(const gfx::Size& frame_size);
+  void EnterErrorState(media::EncoderStatus status);
+  void Reconfigure(const gfx::Size& frame_size, bool encode_alpha);
 
   // (Re)creates |encoder_| and initialize the encoder with |frame_size|.
   // |status| can be non kOk only if it is called as flush done callback and the
   // the flush fails.
   void CreateAndInitialize(const gfx::Size& frame_size,
+                           bool encode_alpha,
                            media::EncoderStatus status);
   void InitializeDone(media::EncoderStatus status);
   void EncodePendingTasks();
   void EncodeDone(media::EncoderStatus status);
   void OutputEncodeData(
       media::VideoEncoderOutput output,
-      absl::optional<media::VideoEncoder::CodecDescription> description);
+      std::optional<media::VideoEncoder::CodecDescription> description);
+
+  const bool is_hardware_encoder_;
 
   const media::VideoCodecProfile profile_;
   const media::VideoCodec codec_;
@@ -94,9 +99,10 @@ class MODULES_EXPORT MediaRecorderEncoderWrapper final
   OnErrorCB on_error_cb_;
 
   media::VideoEncoder::Options options_;
+  bool encode_alpha_ = false;
   State state_ = State::kEncoding;
-  WTF::Deque<EncodeTask> pending_encode_tasks_;
-  WTF::Deque<VideoParamsAndTimestamp> params_in_encode_;
+  Deque<EncodeTask> pending_encode_tasks_;
+  Deque<VideoParamsAndTimestamp> params_in_encode_;
 
   std::unique_ptr<media::VideoEncoder> encoder_;
 

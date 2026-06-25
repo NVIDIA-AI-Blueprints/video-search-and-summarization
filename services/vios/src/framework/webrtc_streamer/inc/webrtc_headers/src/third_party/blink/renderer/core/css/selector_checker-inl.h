@@ -12,11 +12,22 @@
 namespace blink {
 
 bool EasySelectorChecker::IsEasy(const CSSSelector* selector) {
+  bool has_descendant_selector = false;
   for (; selector != nullptr; selector = selector->NextSimpleSelector()) {
     if (!selector->IsLastInComplexSelector() &&
         selector->Relation() != CSSSelector::kSubSelector &&
-        selector->Relation() != CSSSelector::kDescendant) {
+        selector->Relation() != CSSSelector::kDescendant &&
+        selector->Relation() != CSSSelector::kChild) {
       // We don't support anything that requires us to recurse.
+      return false;
+    }
+    if (selector->Relation() == CSSSelector::kDescendant) {
+      has_descendant_selector = true;
+    } else if (selector->Relation() == CSSSelector::kChild &&
+               has_descendant_selector) {
+      // Having a child selector after a descendant selector requires
+      // more complicated backtracking (we need to backtrack in both
+      // selector and element), which we don't support yet.
       return false;
     }
     if (selector->IsCoveredByBucketing()) {
@@ -25,30 +36,12 @@ bool EasySelectorChecker::IsEasy(const CSSSelector* selector) {
       continue;
     }
     switch (selector->Match()) {
-      case CSSSelector::kTag: {
-        const QualifiedName& tag_q_name = selector->TagQName();
-        if (tag_q_name == AnyQName() ||
-            tag_q_name.LocalName() == CSSSelector::UniversalSelectorAtom()) {
-          // We don't support the universal selector, to avoid checking
-          // for it when doing tag matching (most selectors are not
-          // the universal selector).
-          return false;
-        }
-        break;
-      }
+      case CSSSelector::kTag:
+      case CSSSelector::kUniversalTag:
       case CSSSelector::kId:
       case CSSSelector::kClass:
         break;
       case CSSSelector::kAttributeExact:
-        if (selector->AttributeMatch() ==
-                CSSSelector::AttributeMatchType::kCaseInsensitive ||
-            !selector->IsCaseSensitiveAttribute()) {
-          // We don't bother with case-insensitive attribute checks,
-          // for simplicity and avoiding the extra tests. (We probably
-          // could revisit this in the future if needed.)
-          return false;
-        }
-        [[fallthrough]];
       case CSSSelector::kAttributeSet:
         if (selector->Attribute().Prefix() == g_star_atom) {
           // We don't support attribute matches with wildcard namespaces
@@ -59,6 +52,22 @@ bool EasySelectorChecker::IsEasy(const CSSSelector* selector) {
           return false;
         }
         break;
+      case CSSSelector::kPseudoClass: {
+        // We support exactly :not(tag) and nothing else.
+        if (selector->GetPseudoType() != CSSSelector::kPseudoNot) {
+          return false;
+        }
+        const CSSSelectorList* sublist = selector->SelectorList();
+        if (!sublist || !sublist->IsSingleComplexSelector()) {
+          return false;
+        }
+        const CSSSelector* sub_selector = sublist->First();
+        if (!sub_selector->IsLastInComplexSelector() ||
+            selector->Match() != CSSSelector::kTag) {
+          return false;
+        }
+        break;
+      }
       default:
         // Unsupported selector.
         return false;
@@ -71,8 +80,9 @@ bool EasySelectorChecker::Match(const CSSSelector* selector,
                                 const Element* element) {
   DCHECK(IsEasy(selector));
 
-  // Since we only support subselector and descendant combinators, we can do
-  // with a nonrecursive algorithm. The idea is fairly simple: We can match
+  // Since we only support subselector, child and descendant combinators
+  // (and not all combinations of the latter two), we can do with a
+  // nonrecursive algorithm. The idea is fairly simple: We can match
   // greedily and never need to backtrack. E.g. if we have .a.b .c.d .e.f {}
   // and see an element matching .e.f and then later some parent matching .c.d,
   // we never need to look for .c.d again.
@@ -83,7 +93,9 @@ bool EasySelectorChecker::Match(const CSSSelector* selector,
   // If we have a mismatch when looking for a parent (either .a.b or .c.d
   // in the example above), we rewind to the start of the compound and move on
   // to the parent element. (rewind_on_failure then points to the start of the
-  // compound; it's nullptr if we're matching the subject.)
+  // compound; it's nullptr if we're matching the subject.) Child combinators
+  // are implemented by simply skipping to the parent element and keeping
+  // matching.
   //
   // If all subselectors in a compound have matched, we move on to the next
   // compound (setting rewind_on_failure to the start of it) and go to the
@@ -97,6 +109,17 @@ bool EasySelectorChecker::Match(const CSSSelector* selector,
         // Move to the next one.
         DCHECK(!selector->IsLastInComplexSelector());
         rewind_on_failure = selector->NextSimpleSelector();
+
+        element = element->parentElement();
+        if (element == nullptr) {
+          return false;
+        }
+      } else if (selector->Relation() == CSSSelector::kChild) {
+        // Similar, but we need this to match the exact parent,
+        // so on failure, we should not rewind but fail the match
+        // (do not set rewind_on_failure).
+        DCHECK(!selector->IsLastInComplexSelector());
+        DCHECK(!rewind_on_failure);
 
         element = element->parentElement();
         if (element == nullptr) {
@@ -123,34 +146,57 @@ bool EasySelectorChecker::Match(const CSSSelector* selector,
   return true;
 }
 
+bool EasySelectorChecker::MatchesTagName(const QualifiedName& tag_q_name,
+                                         const Element* element) {
+  if (element->namespaceURI() != tag_q_name.NamespaceURI() &&
+      tag_q_name.NamespaceURI() != g_star_atom) {
+    // Namespace mismatch.
+    return false;
+  }
+  if (element->localName() == tag_q_name.LocalName()) {
+    return true;
+  }
+  if (!element->IsHTMLElement() && IsA<HTMLDocument>(element->GetDocument())) {
+    // If we have a non-HTML element in a HTML document, we need to
+    // also check case-insensitively (see MatchesTagName()). Ideally,
+    // we'd like to not have to handle this case in easy selector matching,
+    // but it turns out to be hard to reliably check that a tag in a
+    // descendant selector doesn't hit this issue (the subject element
+    // could be checked once, outside EasySelectorChecker).
+    return element->TagQName().LocalNameUpper() == tag_q_name.LocalNameUpper();
+  } else {
+    return false;
+  }
+}
+
 bool EasySelectorChecker::MatchOne(const CSSSelector* selector,
                                    const Element* element) {
   switch (selector->Match()) {
     case CSSSelector::kTag: {
+      return MatchesTagName(selector->TagQName(), element);
+    }
+    case CSSSelector::kPseudoClass: {  // not(tag).
+      DCHECK_EQ(selector->GetPseudoType(), CSSSelector::kPseudoNot);
+      const CSSSelector* sub_selector = selector->SelectorList()->First();
+      DCHECK_EQ(sub_selector->Match(), CSSSelector::kTag);
+      return !MatchesTagName(sub_selector->TagQName(), element);
+    }
+    case CSSSelector::kUniversalTag: {
       const QualifiedName& tag_q_name = selector->TagQName();
-      if (element->namespaceURI() != tag_q_name.NamespaceURI() &&
-          tag_q_name.NamespaceURI() != g_star_atom) {
-        // Namespace mismatch.
-        return false;
-      }
-      if (element->localName() == tag_q_name.LocalName()) {
-        return true;
-      }
-      if (!element->IsHTMLElement() &&
-          IsA<HTMLDocument>(element->GetDocument())) {
-        // If we have a non-HTML element in a HTML document, we need to
-        // also check case-insensitively (see MatchesTagName()). Ideally,
-        // we'd like to not have to handle this case in easy selector matching,
-        // but it turns out to be hard to reliably check that a tag in a
-        // descendant selector doesn't hit this issue (the subject element
-        // could be checked once, outside EasySelectorChecker).
-        return element->TagQName().LocalNameUpper() ==
-               tag_q_name.LocalNameUpper();
-      } else {
-        return false;
-      }
+      return element->namespaceURI() == tag_q_name.NamespaceURI() ||
+             tag_q_name.NamespaceURI() == g_star_atom;
     }
     case CSSSelector::kClass:
+      if (!element->CouldHaveClass(selector->Value())) {
+#if DCHECK_IS_ON()
+        DCHECK(!element->HasClass() ||
+               !element->ClassNames().Contains(selector->Value()))
+            << element << " should have matched class " << selector->Value()
+            << ", Bloom bits on element are "
+            << element->AttributeOrClassBloomFilter();
+#endif
+        return false;
+      }
       return element->HasClass() &&
              element->ClassNames().Contains(selector->Value());
     case CSSSelector::kId:
@@ -158,13 +204,18 @@ bool EasySelectorChecker::MatchOne(const CSSSelector* selector,
              element->IdForStyleResolution() == selector->Value();
     case CSSSelector::kAttributeSet:
       return AttributeIsSet(*element, selector->Attribute());
-    case CSSSelector::kAttributeExact:
+    case CSSSelector::kAttributeExact: {
+      bool case_insensitive =
+          selector->AttributeMatch() ==
+              CSSSelector::AttributeMatchType::kCaseInsensitive ||
+          (selector->LegacyCaseInsensitiveMatch() &&
+           IsA<HTMLDocument>(element->GetDocument()));
       return AttributeMatches(*element, selector->Attribute(),
-                              selector->Value());
+                              selector->Value(), case_insensitive);
+    }
     default:
       NOTREACHED();
   }
-  return false;
 }
 
 bool EasySelectorChecker::AttributeIsSet(const Element& element,
@@ -181,12 +232,34 @@ bool EasySelectorChecker::AttributeIsSet(const Element& element,
 
 bool EasySelectorChecker::AttributeMatches(const Element& element,
                                            const QualifiedName& attr,
-                                           const AtomicString& value) {
+                                           const AtomicString& value,
+                                           bool case_insensitive) {
   element.SynchronizeAttribute(attr.LocalName());
+
+#if !DCHECK_IS_ON()
+  // In non-debug builds, we test the Bloom filter here and exit early
+  // if the attribute could not exist on the element. For non-debug builds,
+  // we go through the entire normal operation but verify that the Bloom
+  // filter would not erroneously reject a match.
+  if (!element.CouldHaveAttribute(attr)) {
+    return false;
+  }
+#endif
+
   AttributeCollection attributes = element.AttributesWithoutUpdate();
   for (const auto& attribute_item : attributes) {
     if (AttributeItemHasName(attribute_item, element, attr)) {
-      return attribute_item.Value() == value;
+#if DCHECK_IS_ON()
+      // NOTE: Even if the value doesn't match, we want to check that the
+      // attribute name was properly found.
+      DCHECK(element.CouldHaveAttribute(attr))
+          << element << " should have contained attribute " << attr
+          << ", Bloom bits on element are "
+          << element.AttributeOrClassBloomFilter();
+#endif
+      return attribute_item.Value() == value ||
+             (case_insensitive &&
+              EqualIgnoringAsciiCase(attribute_item.Value(), value));
     }
   }
   return false;

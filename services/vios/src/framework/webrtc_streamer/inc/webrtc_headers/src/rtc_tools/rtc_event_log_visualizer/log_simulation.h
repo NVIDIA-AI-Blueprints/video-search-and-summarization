@@ -10,21 +10,30 @@
 #ifndef RTC_TOOLS_RTC_EVENT_LOG_VISUALIZER_LOG_SIMULATION_H_
 #define RTC_TOOLS_RTC_EVENT_LOG_VISUALIZER_LOG_SIMULATION_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <map>
 #include <memory>
-#include <vector>
 
+#include "api/environment/environment.h"
 #include "api/transport/network_control.h"
+#include "api/transport/network_types.h"
+#include "api/units/timestamp.h"
+#include "logging/rtc_event_log/events/logged_rtp_rtcp.h"
+#include "logging/rtc_event_log/events/rtc_event_ice_candidate_pair_config.h"
+#include "logging/rtc_event_log/events/rtc_event_probe_cluster_created.h"
 #include "logging/rtc_event_log/rtc_event_log_parser.h"
 #include "modules/congestion_controller/rtp/transport_feedback_adapter.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/report_block.h"
 
 namespace webrtc {
 
 class LogBasedNetworkControllerSimulation {
  public:
   explicit LogBasedNetworkControllerSimulation(
+      const Environment& env,
       std::unique_ptr<NetworkControllerFactoryInterface> factory,
       std::function<void(const NetworkControlUpdate&, Timestamp)>
           update_handler);
@@ -45,8 +54,8 @@ class LogBasedNetworkControllerSimulation {
   void OnFeedback(const LoggedRtcpPacketTransportFeedback& feedback);
   void OnReceiverReport(const LoggedRtcpPacketReceiverReport& report);
   void OnIceConfig(const LoggedIceCandidatePairConfig& candidate);
-  RtcEventLogNull null_event_log_;
 
+  const Environment env_;
   const std::function<void(const NetworkControlUpdate&, Timestamp)>
       update_handler_;
   std::unique_ptr<NetworkControllerFactoryInterface> factory_;

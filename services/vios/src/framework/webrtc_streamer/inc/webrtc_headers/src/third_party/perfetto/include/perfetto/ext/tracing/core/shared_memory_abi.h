@@ -153,8 +153,10 @@ class SharedMemoryABI {
   // See PageLayout below.
   static constexpr size_t kMaxChunksPerPage = 14;
 
-  // Each TracePacket in the Chunk is prefixed by a 4 bytes redundant VarInt
-  // (see proto_utils.h) stating its size.
+  // Each TracePacket fragment in the Chunk is prefixed by a VarInt stating its
+  // size that is up to 4 bytes long. Since the size is often known after the
+  // fragment has been filled, the VarInt is often redundantly encoded (see
+  // proto_utils.h) to be exactly 4 bytes.
   static constexpr size_t kPacketHeaderSize = 4;
 
   // TraceWriter specifies this invalid packet/fragment size to signal to the
@@ -176,6 +178,11 @@ class SharedMemoryABI {
   //  kChunkBeingRead                |
   //        |   (Service)            |
   //        +------------------------+
+  //
+  // The ABI has an "emulation mode" for transports where shared memory isn't
+  // supported. In this mode, kChunkBeingRead is skipped. A chunk in the
+  // kChunkComplete state is released as free after the producer serializes
+  // chunk content to the protobuf message.
   enum ChunkState : uint32_t {
     // The Chunk is free. The Service shall never touch it, the Producer can
     // acquire it and transition it into kChunkBeingWritten.
@@ -226,6 +233,16 @@ class SharedMemoryABI {
   // Keep this consistent with the PageLayout enum above.
   static constexpr uint32_t kNumChunksForLayout[] = {0, 1, 2, 4, 7, 14, 0, 0};
 
+  enum class ShmemMode {
+    // The default mode, where the shared buffer is visible to both the producer
+    // and the service.
+    kDefault,
+
+    // The emulation mode, used for producer ports without shared memory. The
+    // state transitions are all done in the producer process.
+    kShmemEmulation,
+  };
+
   // Layout of a Page.
   // +===================================================+
   // | Page header [8 bytes]                             |
@@ -274,7 +291,7 @@ class SharedMemoryABI {
 
   // There is one page header per page, at the beginning of the page.
   struct PageHeader {
-    // |layout| bits:
+    // |header_bitmap| bits:
     // [31] [30:28] [27:26] ... [1:0]
     //  |      |       |     |    |
     //  |      |       |     |    +---------- ChunkState[0]
@@ -282,7 +299,7 @@ class SharedMemoryABI {
     //  |      |       +--------------------- ChunkState[13]
     //  |      +----------------------------- PageLayout (0 == page fully free)
     //  +------------------------------------ Reserved for future use
-    std::atomic<uint32_t> layout;
+    std::atomic<uint32_t> header_bitmap;
 
     // If we'll ever going to use this in the future it might come handy
     // reviving the kPageBeingPartitioned logic (look in git log, it was there
@@ -293,6 +310,7 @@ class SharedMemoryABI {
   // There is one Chunk header per chunk (hence PageLayout per page) at the
   // beginning of each chunk.
   struct ChunkHeader {
+    inline static constexpr uint8_t kFlagsMask = 0x7;
     enum Flags : uint8_t {
       // If set, the first TracePacket in the chunk is partial and continues
       // from |chunk_id| - 1 (within the same |writer_id|).
@@ -401,19 +419,6 @@ class SharedMemoryABI {
       return packets.count;
     }
 
-    // Increases |packets.count| to the given |packet_count|, but only if
-    // |packet_count| is larger than the current value of |packets.count|.
-    // Returns the new packet count. Same atomicity guarantees as
-    // IncrementPacketCount().
-    uint16_t IncreasePacketCountTo(uint16_t packet_count) {
-      ChunkHeader* chunk_header = header();
-      auto packets = chunk_header->packets.load(std::memory_order_relaxed);
-      if (packets.count < packet_count)
-        packets.count = packet_count;
-      chunk_header->packets.store(packets, std::memory_order_release);
-      return packets.count;
-    }
-
     // Flags are cleared by TryAcquireChunk(), by passing the new header for
     // the chunk, or through ClearNeedsPatchingFlag.
     void SetFlag(ChunkHeader::Flags flag) {
@@ -443,13 +448,22 @@ class SharedMemoryABI {
     uint8_t* begin_ = nullptr;
     uint16_t size_ = 0;
     uint8_t chunk_idx_ = 0;
+
+   public:
+    static constexpr size_t kMaxSize = 1ULL << sizeof(size_) * 8;
   };
 
   // Construct an instance from an existing shared memory buffer.
-  SharedMemoryABI(uint8_t* start, size_t size, size_t page_size);
+  SharedMemoryABI(uint8_t* start,
+                  size_t size,
+                  size_t page_size,
+                  ShmemMode mode);
   SharedMemoryABI();
 
-  void Initialize(uint8_t* start, size_t size, size_t page_size);
+  void Initialize(uint8_t* start,
+                  size_t size,
+                  size_t page_size,
+                  ShmemMode mode);
 
   uint8_t* start() const { return start_; }
   uint8_t* end() const { return start_ + size_; }
@@ -457,6 +471,7 @@ class SharedMemoryABI {
   size_t page_size() const { return page_size_; }
   size_t num_pages() const { return num_pages_; }
   bool is_valid() { return num_pages() > 0; }
+  bool use_shmem_emulation() { return use_shmem_emulation_; }
 
   uint8_t* page_start(size_t page_idx) {
     PERFETTO_DCHECK(page_idx < num_pages_);
@@ -472,39 +487,41 @@ class SharedMemoryABI {
   // before). The Producer should use this only as a hint to decide out whether
   // it should TryPartitionPage() or acquire an individual chunk.
   bool is_page_free(size_t page_idx) {
-    return page_header(page_idx)->layout.load(std::memory_order_relaxed) == 0;
+    return GetPageHeaderBitmap(page_idx, std::memory_order_relaxed) == 0;
   }
 
   // Returns true if all chunks in the page are kChunkComplete. As above, this
   // is advisory only. The Service is supposed to use this only to decide
   // whether to TryAcquireAllChunksForReading() or not.
   bool is_page_complete(size_t page_idx) {
-    auto layout = page_header(page_idx)->layout.load(std::memory_order_relaxed);
-    const uint32_t num_chunks = GetNumChunksForLayout(layout);
+    auto bitmap = GetPageHeaderBitmap(page_idx, std::memory_order_relaxed);
+    const uint32_t num_chunks = GetNumChunksFromHeaderBitmap(bitmap);
     if (num_chunks == 0)
       return false;  // Non partitioned pages cannot be complete.
-    return (layout & kAllChunksMask) ==
+    return (bitmap & kAllChunksMask) ==
            (kAllChunksComplete & ((1 << (num_chunks * kChunkShift)) - 1));
   }
 
   // For testing / debugging only.
   std::string page_header_dbg(size_t page_idx) {
-    uint32_t x = page_header(page_idx)->layout.load(std::memory_order_relaxed);
+    uint32_t x = GetPageHeaderBitmap(page_idx, std::memory_order_relaxed);
     return std::bitset<32>(x).to_string();
   }
 
-  // Returns the page layout, which is a bitmap that specifies the chunking
-  // layout of the page and each chunk's current state. Reads with an
-  // acquire-load semantic to ensure a producer's writes corresponding to an
-  // update of the layout (e.g. clearing a chunk's header) are observed
-  // consistently.
-  uint32_t GetPageLayout(size_t page_idx) {
-    return page_header(page_idx)->layout.load(std::memory_order_acquire);
+  // Returns the page header bitmap, which is a bitmap that specifies the
+  // chunking layout of the page and each chunk's current state. Unless
+  // explicitly specified, reads with an acquire-load semantic to ensure a
+  // producer's writes corresponding to an update of the bitmap (e.g. clearing
+  // a chunk's header) are observed consistently.
+  uint32_t GetPageHeaderBitmap(
+      size_t page_idx,
+      std::memory_order order = std::memory_order_acquire) {
+    return page_header(page_idx)->header_bitmap.load(order);
   }
 
   // Returns a bitmap in which each bit is set if the corresponding Chunk exists
-  // in the page (according to the page layout) and is free. If the page is not
-  // partitioned it returns 0 (as if the page had no free chunks).
+  // in the page (according to the page header bitmap) and is free. If the page
+  // is not partitioned it returns 0 (as if the page had no free chunks).
   uint32_t GetFreeChunks(size_t page_idx);
 
   // Tries to atomically partition a page with the given |layout|. Returns true
@@ -533,8 +550,17 @@ class SharedMemoryABI {
   // needs to guarantee that the chunk is already in the kChunkBeingWritten
   // state.
   Chunk GetChunkUnchecked(size_t page_idx,
-                          uint32_t page_layout,
+                          uint32_t header_bitmap,
                           size_t chunk_idx);
+
+  // Creates a Chunk by adopting the given buffer (|data| and |size|) and chunk
+  // index. This is used for chunk data passed over the wire (e.g. tcp or
+  // vsock). The chunk should *not* be freed to the shared memory.
+  static Chunk MakeChunkFromSerializedData(uint8_t* data,
+                                           uint16_t size,
+                                           uint8_t chunk_idx) {
+    return Chunk(data, size, chunk_idx);
+  }
 
   // Puts a chunk into the kChunkComplete state. Returns the page index.
   size_t ReleaseChunkAsComplete(Chunk chunk) {
@@ -547,37 +573,44 @@ class SharedMemoryABI {
   }
 
   ChunkState GetChunkState(size_t page_idx, size_t chunk_idx) {
-    PageHeader* phdr = page_header(page_idx);
-    uint32_t layout = phdr->layout.load(std::memory_order_relaxed);
-    return GetChunkStateFromLayout(layout, chunk_idx);
+    uint32_t bitmap = GetPageHeaderBitmap(page_idx, std::memory_order_relaxed);
+    return GetChunkStateFromHeaderBitmap(bitmap, chunk_idx);
   }
 
   std::pair<size_t, size_t> GetPageAndChunkIndex(const Chunk& chunk);
 
-  uint16_t GetChunkSizeForLayout(uint32_t page_layout) const {
-    return chunk_sizes_[(page_layout & kLayoutMask) >> kLayoutShift];
+  uint16_t GetChunkSizeFromHeaderBitmap(uint32_t header_bitmap) const {
+    return chunk_sizes_[GetLayoutFromHeaderBitmap(header_bitmap)];
   }
 
-  static ChunkState GetChunkStateFromLayout(uint32_t page_layout,
-                                            size_t chunk_idx) {
-    return static_cast<ChunkState>((page_layout >> (chunk_idx * kChunkShift)) &
-                                   kChunkMask);
+  static ChunkState GetChunkStateFromHeaderBitmap(uint32_t header_bitmap,
+                                                  size_t chunk_idx) {
+    return static_cast<ChunkState>(
+        (header_bitmap >> (chunk_idx * kChunkShift)) & kChunkMask);
   }
 
-  static constexpr uint32_t GetNumChunksForLayout(uint32_t page_layout) {
-    return kNumChunksForLayout[(page_layout & kLayoutMask) >> kLayoutShift];
+  static constexpr PageLayout GetLayoutFromHeaderBitmap(
+      uint32_t header_bitmap) {
+    return static_cast<PageLayout>((header_bitmap & kLayoutMask) >>
+                                   kLayoutShift);
+  }
+
+  static constexpr uint32_t GetNumChunksFromHeaderBitmap(
+      uint32_t header_bitmap) {
+    return kNumChunksForLayout[GetLayoutFromHeaderBitmap(header_bitmap)];
   }
 
   // Returns a bitmap in which each bit is set if the corresponding Chunk exists
   // in the page (according to the page layout) and is not free. If the page is
   // not partitioned it returns 0 (as if the page had no used chunks). Bit N
   // corresponds to Chunk N.
-  static uint32_t GetUsedChunks(uint32_t page_layout) {
-    const uint32_t num_chunks = GetNumChunksForLayout(page_layout);
+  static uint32_t GetUsedChunks(uint32_t header_bitmap) {
+    const uint32_t num_chunks = GetNumChunksFromHeaderBitmap(header_bitmap);
     uint32_t res = 0;
     for (uint32_t i = 0; i < num_chunks; i++) {
-      res |= ((page_layout & kChunkMask) != kChunkFree) ? (1 << i) : 0;
-      page_layout >>= kChunkShift;
+      res |= (GetChunkStateFromHeaderBitmap(header_bitmap, i) != kChunkFree)
+                 ? (1 << i)
+                 : 0;
     }
     return res;
   }
@@ -595,6 +628,7 @@ class SharedMemoryABI {
   uint8_t* start_ = nullptr;
   size_t size_ = 0;
   size_t page_size_ = 0;
+  bool use_shmem_emulation_ = false;
   size_t num_pages_ = 0;
   std::array<uint16_t, kNumPageLayouts> chunk_sizes_;
 };

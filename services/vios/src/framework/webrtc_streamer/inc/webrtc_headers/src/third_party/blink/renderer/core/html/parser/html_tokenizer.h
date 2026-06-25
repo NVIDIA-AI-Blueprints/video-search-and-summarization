@@ -27,9 +27,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_TOKENIZER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_TOKENIZER_H_
 
+#include <optional>
+
 #include "base/check_op.h"
 #include "base/memory/ptr_util.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/parser/html_attributes_ranges.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_options.h"
@@ -97,6 +98,11 @@ class CORE_EXPORT HTMLTokenizer {
     kCharacterReferenceInAttributeValueState,
     kAfterAttributeValueQuotedState,
     kSelfClosingStartTagState,
+    kProcessingInstructionOpenState,
+    kProcessingInstructionTargetState,
+    kAfterProcessingInstructionTargetState,
+    kProcessingInstructionDataState,
+    kProcessingInstructionQuestionableState,
     kBogusCommentState,
     // The ContinueBogusCommentState is not in the HTML5 spec, but we use
     // it internally to keep track of whether we've started the bogus
@@ -168,7 +174,7 @@ class CORE_EXPORT HTMLTokenizer {
   //    instead of as character tokens.
   //
   // The return value is empty if a state change is not necessary.
-  absl::optional<State> SpeculativeStateForTag(html_names::HTMLTag tag) const;
+  std::optional<State> SpeculativeStateForTag(html_names::HTMLTag tag) const;
 
   bool ForceNullCharacterReplacement() const {
     return force_null_character_replacement_;
@@ -241,6 +247,13 @@ class CORE_EXPORT HTMLTokenizer {
     return true;
   }
 
+  inline bool EmitProcessingInstruction(SegmentedString& source) {
+    temporary_buffer_.clear();
+    state_ = kDataState;
+    source.AdvancePastNonNewline();
+    return true;
+  }
+
   inline bool EmitAndReconsumeInDataState() {
     SaveEndTagNameIfNeeded();
     state_ = kDataState;
@@ -290,6 +303,7 @@ class CORE_EXPORT HTMLTokenizer {
   State state_;
   bool force_null_character_replacement_;
   bool should_allow_cdata_;
+  bool should_allow_dom_parts_{false};
   // This value is also stored in `options_`, but it's kept as a member as doing
   // so gives a slight performance boost.
   const bool track_attributes_ranges_;

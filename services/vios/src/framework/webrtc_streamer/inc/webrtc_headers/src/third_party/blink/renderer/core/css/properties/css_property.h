@@ -6,13 +6,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_PROPERTIES_CSS_PROPERTY_H_
 
 #include <memory>
+
+#include "base/compiler_specific.h"
+#include "base/notreached.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_name.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/core/css/properties/css_direction_aware_resolver.h"
 #include "third_party/blink/renderer/core/css/properties/css_unresolved_property.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
-#include "third_party/blink/renderer/platform/text/writing_mode.h"
+#include "third_party/blink/renderer/platform/text/writing_direction_mode.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -22,6 +25,16 @@ class ComputedStyle;
 class CrossThreadStyleValue;
 class ExecutionContext;
 class LayoutObject;
+
+// Determines how far to process a value requested from a computed style.
+enum class CSSValuePhase {
+  // The value inherited to child elements.
+  // https://www.w3.org/TR/css-cascade-3/#computed
+  kComputedValue,
+  // The value returned from getComputedStyle().
+  // https://www.w3.org/TR/cssom-1/#resolved-values
+  kResolvedValue
+};
 
 // For use in Get(Un)VisitedProperty(), although you could probably
 // use them yourself if you wanted to; contains a mapping from each
@@ -90,16 +103,8 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
   bool IsValidForFirstLine() const { return flags_ & kValidForFirstLine; }
   bool IsValidForCue() const { return flags_ & kValidForCue; }
   bool IsValidForMarker() const { return flags_ & kValidForMarker; }
-  bool IsValidForFormattedText() const {
-    return flags_ & kValidForFormattedText;
-  }
-  bool IsValidForFormattedTextRun() const {
-    return flags_ & kValidForFormattedTextRun;
-  }
   bool IsValidForKeyframe() const { return flags_ & kValidForKeyframe; }
-  bool IsValidForPositionFallback() const {
-    return flags_ & kValidForPositionFallback;
-  }
+  bool IsValidForPositionTry() const { return flags_ & kValidForPositionTry; }
   bool IsSurrogate() const { return flags_ & kSurrogate; }
   bool AffectsFont() const { return flags_ & kAffectsFont; }
   bool IsBackground() const { return flags_ & kBackground; }
@@ -121,52 +126,75 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
     return false;
   }
 
+  bool PercentagesDependOnUsedValue() const {
+    return flags_ & kPercentagesDependOnUsedValue;
+  }
+  bool PercentagesDoNotDependOnUsedValue() const {
+    return flags_ & kPercentagesDoNotDependOnUsedValue;
+  }
+
   virtual const CSSValue* CSSValueFromComputedStyleInternal(
       const ComputedStyle&,
       const LayoutObject*,
-      bool allow_visited_style) const {
+      bool allow_visited_style,
+      CSSValuePhase value_phase) const {
     return nullptr;
   }
   const CSSValue* CSSValueFromComputedStyle(const ComputedStyle&,
                                             const LayoutObject*,
-                                            bool allow_visited_style) const;
+                                            bool allow_visited_style,
+                                            CSSValuePhase) const;
   std::unique_ptr<CrossThreadStyleValue> CrossThreadStyleValueFromComputedStyle(
       const ComputedStyle& computed_style,
       const LayoutObject* layout_object,
-      bool allow_visited_style) const;
+      bool allow_visited_style,
+      CSSValuePhase value_phase) const;
 
-  const CSSProperty& ResolveDirectionAwareProperty(
-      TextDirection direction,
-      WritingMode writing_mode) const {
+  const CSSProperty& ToPhysical(WritingDirectionMode writing_direction) const {
     if (!IsInLogicalPropertyGroup()) {
       // Avoid the potentially expensive virtual function call.
       return *this;
     } else {
-      return ResolveDirectionAwarePropertyInternal(direction, writing_mode);
+      return ToPhysicalInternal(writing_direction);
     }
   }
 
-  virtual const CSSProperty& ResolveDirectionAwarePropertyInternal(
-      TextDirection,
-      WritingMode) const {
+  virtual const CSSProperty& ToPhysicalInternal(WritingDirectionMode) const {
     return *this;
   }
+
+  const CSSProperty& ToLogical(WritingDirectionMode writing_direction) const {
+    if (!IsInLogicalPropertyGroup()) {
+      // Avoid the potentially expensive virtual function call.
+      return *this;
+    } else {
+      return ToLogicalInternal(writing_direction);
+    }
+  }
+
+  virtual const CSSProperty& ToLogicalInternal(WritingDirectionMode) const {
+    return *this;
+  }
+
   virtual bool IsInSameLogicalPropertyGroupWithDifferentMappingLogic(
       CSSPropertyID) const {
     return false;
   }
   const CSSProperty* GetVisitedProperty() const {
-    CSSPropertyID visited_id = static_cast<CSSPropertyID>(
-        kPropertyVisitedIDs[static_cast<unsigned>(property_id_)]);
+    CSSPropertyID visited_id = static_cast<CSSPropertyID>(UNSAFE_BUFFERS(
+        kPropertyVisitedIDs[static_cast<unsigned>(property_id_)]));
     if (visited_id == CSSPropertyID::kInvalid) {
       return nullptr;
     } else {
       return To<CSSProperty>(GetPropertyInternal(visited_id));
     }
   }
+  static CSSPropertyID UnvisitedID(unsigned id) {
+    return static_cast<CSSPropertyID>(
+        UNSAFE_BUFFERS(kPropertyUnvisitedIDs[id]));
+  }
   const CSSProperty* GetUnvisitedProperty() const {
-    CSSPropertyID unvisited_id = static_cast<CSSPropertyID>(
-        kPropertyUnvisitedIDs[static_cast<unsigned>(property_id_)]);
+    CSSPropertyID unvisited_id = UnvisitedID(property_id_);
     if (unvisited_id == CSSPropertyID::kInvalid) {
       return nullptr;
     } else {
@@ -174,7 +202,7 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
     }
   }
 
-  virtual const CSSProperty* SurrogateFor(TextDirection, WritingMode) const {
+  virtual const CSSProperty* SurrogateFor(WritingDirectionMode) const {
     return nullptr;
   }
 
@@ -197,10 +225,12 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
     // computed value as seen by painting (as opposed to the computed value
     // seen by CSSOM, which is represented by the unvisited property).
     kVisited = 1 << 7,
+    kNotVisited = 1ull << 33,  // Properties that are not kVisited.
     kInternal = 1 << 8,
     // Animation properties have this flag set. (I.e. longhands of the
     // 'animation' and 'transition' shorthands).
     kAnimation = 1 << 9,
+    kNotAnimation = 1ull << 34,  // Properties that are not kAnimation.
     // https://drafts.csswg.org/css-pseudo-4/#first-letter-styling
     kValidForFirstLetter = 1 << 10,
     // https://w3c.github.io/webvtt/#the-cue-pseudo-element
@@ -235,23 +265,37 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
     kSupportsIncrementalStyle = 1 << 23,
     // See idempotent in css_properties.json5.
     kIdempotent = 1 << 24,
-    // Set if the css property can apply to the experiemental canvas
-    // formatted text API to render multiline text in canvas.
-    // https://github.com/WICG/canvas-formatted-text
-    kValidForFormattedText = 1 << 25,
-    kValidForFormattedTextRun = 1 << 26,
     // See overlapping in css_properties.json5.
-    kOverlapping = 1 << 27,
+    kOverlapping = 1 << 25,
     // See legacy_overlapping in css_properties.json5.
-    kLegacyOverlapping = 1 << 28,
+    kLegacyOverlapping = 1 << 26,
+    // Properties that are not kLegacyOverlapping.
+    kNotLegacyOverlapping = 1ull << 35,
     // See valid_for_keyframes in css_properties.json5
-    kValidForKeyframe = 1 << 29,
-    // See valid_for_position_fallback in css_properties.json5
-    kValidForPositionFallback = 1 << 30,
+    kValidForKeyframe = 1 << 27,
+    // See valid_for_position_try in css_properties.json5
+    kValidForPositionTry = 1 << 28,
     // https://drafts.csswg.org/css-pseudo-4/#highlight-styling
-    kValidForHighlight = 1ull << 31,
+    kValidForHighlight = 1ull << 29,
     // See accepts_numeric_literal in css_properties.json5.
-    kAcceptsNumericLiteral = 1ull << 32,
+    kAcceptsNumericLiteral = 1ull << 30,
+    // See valid_for_permission_element in css_properties.json5
+    kValidForPermissionElement = 1ull << 31,
+    // See valid_for_limited_page_context in css_properties.json5
+    kValidForPageContext = 1ull << 32,
+    // 1ull << 33 is taken by kNotVisited above.
+    // 1ull << 34 is taken by kNotAnimation above.
+    // 1ull << 35 is taken by kNotLegacyOverlapping above.
+    // Whether this property is valid in a :visited selector.
+    kValidForVisited = 1ull << 36,
+    // See valid_for_permission_icon in css_properties.json5
+    kValidForPermissionIcon = 1ull << 37,
+    // When percentages_depend_on_used_value is explicitly set to true.
+    // See percentages_depend_on_used_value in css_properties.json5
+    kPercentagesDependOnUsedValue = 1ull << 38,
+    // When percentages_depend_on_used_value is explicitly set to false.
+    // See percentages_depend_on_used_value in css_properties.json5
+    kPercentagesDoNotDependOnUsedValue = 1ull << 39,
   };
 
   constexpr CSSProperty(CSSPropertyID property_id,
@@ -259,13 +303,21 @@ class CORE_EXPORT CSSProperty : public CSSUnresolvedProperty {
                         char repetition_separator)
       : property_id_(static_cast<uint16_t>(property_id)),
         repetition_separator_(repetition_separator),
-        flags_(flags) {}
+        flags_(flags) {
+    // Verify that all the kNot* flags are consistent.
+    DCHECK_NE(flags_ & kVisited, flags & kNotVisited);
+    DCHECK_NE(flags_ & kAnimation, flags & kNotAnimation);
+    DCHECK_NE(flags_ & kLegacyOverlapping, flags & kNotLegacyOverlapping);
+  }
 
-  enum class ValueMode {
-    kNormal,
+  enum class ValueMode : uint8_t {
+    kNormal = 0,
     // https://drafts.csswg.org/css-variables/#animation-tainted
-    kAnimated,
+    kAnimated = 1 << 0,
+    // https://drafts.csswg.org/css-values-5/#attr-taint
+    kAttrTainted = 1 << 1,
   };
+  using ValueModeFlags = uint8_t;
 
  private:
   static constexpr size_t kPropertyIdBits = 16;

@@ -27,6 +27,10 @@ class HTMLPictureElement final : public HTMLElement {
  public:
   explicit HTMLPictureElement(Document&);
 
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLPictureElement;
+  }
+
   void SourceChanged(ImageSourceChangeType);
   void SourceDimensionChanged();
   void RemoveListenerFromSourceChildren();

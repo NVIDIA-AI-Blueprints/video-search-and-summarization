@@ -11,17 +11,18 @@
 #ifndef MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_V2_H_
 #define MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_V2_H_
 
+#include <optional>
+#include <span>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "modules/audio_coding/audio_network_adaptor/controller.h"
-#include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor.h"
+#include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
 
 namespace webrtc {
 
 class FrameLengthControllerV2 final : public Controller {
  public:
-  FrameLengthControllerV2(rtc::ArrayView<const int> encoder_frame_lengths_ms,
+  FrameLengthControllerV2(std::span<const int> encoder_frame_lengths_ms,
                           int min_payload_bitrate_bps,
                           bool use_slow_adaptation);
 
@@ -34,9 +35,9 @@ class FrameLengthControllerV2 final : public Controller {
   const int min_payload_bitrate_bps_;
   const bool use_slow_adaptation_;
 
-  absl::optional<int> uplink_bandwidth_bps_;
-  absl::optional<int> target_bitrate_bps_;
-  absl::optional<int> overhead_bytes_per_packet_;
+  std::optional<int> uplink_bandwidth_bps_;
+  std::optional<int> target_bitrate_bps_;
+  std::optional<int> overhead_bytes_per_packet_;
 };
 
 }  // namespace webrtc

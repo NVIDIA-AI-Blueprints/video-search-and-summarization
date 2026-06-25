@@ -2,12 +2,17 @@
 #ifndef _RAR_BLAKE2_
 #define _RAR_BLAKE2_
 
+#if defined(CHROMIUM_UNRAR)
+inline constexpr unsigned int BLAKE2_DIGEST_SIZE = 32u;
+inline constexpr unsigned int BLAKE2_THREADS_NUMBER = 8u;
+#else
 #define BLAKE2_DIGEST_SIZE 32
 #define BLAKE2_THREADS_NUMBER 8
+#endif  // defined(CHROMIUM_UNRAR)
 
+// Use constexpr instead of enums for -std=c++20 compatibility.
 constexpr size_t BLAKE2S_BLOCKBYTES = 64;
 constexpr size_t BLAKE2S_OUTBYTES = 32;
-
 
 // Alignment to 64 improves performance of both SSE and non-SSE versions.
 // Alignment to n*16 is required for SSE version, so we selected 64.
@@ -17,9 +22,14 @@ constexpr size_t BLAKE2S_OUTBYTES = 32;
 // 'new' operator.
 struct blake2s_state
 {
+  // Use constexpr instead of enums, because otherwise clang -std=c++20
+  // issues a warning about "arithmetic between different enumeration types"
+  // in ubuf[BLAKE_DATA_SIZE + BLAKE_ALIGNMENT] declaration.
   static constexpr size_t BLAKE_ALIGNMENT = 64;
 
   // buffer and uint32 h[8], t[2], f[2];
+  // 2 * BLAKE2S_BLOCKBYTES is the buf size in blake2_code_20140114.zip.
+  // It might differ in later versions.
   static constexpr size_t BLAKE_DATA_SIZE = 48 + 2 * BLAKE2S_BLOCKBYTES;
 
   byte ubuf[BLAKE_DATA_SIZE + BLAKE_ALIGNMENT];

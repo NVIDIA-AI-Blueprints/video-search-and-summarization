@@ -69,6 +69,7 @@ class FocusEvent final : public UIEvent {
     related_target_ = related_target;
   }
 
+
   const AtomicString& InterfaceName() const override;
   bool IsFocusEvent() const override;
 

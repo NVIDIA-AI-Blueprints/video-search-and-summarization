@@ -13,27 +13,20 @@
 
 #include <jni.h>
 
-#include "modules/audio_device/include/audio_device.h"
+#include "api/audio/audio_device.h"
+#include "api/environment/environment.h"
+#include "api/scoped_refptr.h"
 
 namespace webrtc {
 
-#if defined(WEBRTC_AUDIO_DEVICE_INCLUDE_ANDROID_AAUDIO)
-rtc::scoped_refptr<AudioDeviceModule> CreateAAudioAudioDeviceModule(
+scoped_refptr<AudioDeviceModule> CreateJavaAudioDeviceModule(
     JNIEnv* env,
-    jobject application_context);
-#endif
-
-rtc::scoped_refptr<AudioDeviceModule> CreateJavaAudioDeviceModule(
-    JNIEnv* env,
+    const Environment& webrtc_env,
     jobject application_context);
 
-rtc::scoped_refptr<AudioDeviceModule> CreateOpenSLESAudioDeviceModule(
-    JNIEnv* env,
-    jobject application_context);
-
-rtc::scoped_refptr<AudioDeviceModule>
-CreateJavaInputAndOpenSLESOutputAudioDeviceModule(JNIEnv* env,
-                                                  jobject application_context);
+scoped_refptr<AudioDeviceModule> CreateAndroidAudioDeviceModule(
+    const Environment& webrtc_env,
+    AudioDeviceModule::AudioLayer audio_layer);
 
 }  // namespace webrtc
 

@@ -27,7 +27,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_ELEMENT_STACK_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_ELEMENT_STACK_H_
 
-#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/html/parser/html_stack_item.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
@@ -35,6 +34,12 @@ namespace blink {
 
 class ContainerNode;
 class Element;
+
+enum class DOMPartsAllowed {
+  kNever,
+  kInsideParseParts,
+  kAlways,
+};
 
 // NOTE: The HTML5 spec uses a backwards (grows downward) stack.  We're using
 // more standard (grows upwards) stack terminology here.
@@ -63,7 +68,7 @@ class HTMLElementStack {
 
   HTMLStackItem* TopStackItem() const {
     DCHECK(top_);
-    return top_;
+    return top_.Get();
   }
 
   HTMLStackItem* OneBelowTop() const;
@@ -115,13 +120,13 @@ class HTMLElementStack {
   bool InListItemScope(html_names::HTMLTag tag) const;
   bool InTableScope(html_names::HTMLTag tag) const;
   bool InButtonScope(html_names::HTMLTag tag) const;
-  bool InSelectScope(html_names::HTMLTag tag) const;
 
   bool HasNumberedHeaderElementInScope() const;
 
   bool HasOnlyOneElement() const;
   bool SecondElementIsHTMLBodyElement() const;
   bool HasTemplateInHTMLScope() const;
+  bool HasOutgoingPatchInHTMLScope() const;
   Element* HtmlElement() const;
   Element* HeadElement() const;
   Element* BodyElement() const;
@@ -139,6 +144,9 @@ class HTMLElementStack {
   void PushRootNodeCommon(HTMLStackItem*);
   void PopCommon();
   void RemoveNonTopCommon(Element*);
+
+  unsigned parse_parts_count_{0};
+  DOMPartsAllowed dom_parts_allowed_state_{DOMPartsAllowed::kInsideParseParts};
 
   Member<HTMLStackItem> top_;
 

@@ -28,12 +28,12 @@ private:
     UStringSearch* srch;
     
 public:
-    virtual void call(UErrorCode* status) {
+    void call(UErrorCode* status) override {
         (*fn)(srch, src, srcLen, pttrn, pttrnLen, status);
     }
     
-    virtual long getOperationsPerIteration() {
-        return (long) srcLen;
+    long getOperationsPerIteration() override {
+        return static_cast<long>(srcLen);
     }
     
     StringSearchPerfFunction(StrSrchFn func, UStringSearch* search, const char16_t* source,int32_t sourceLen, const char16_t* pattern, int32_t patternLen) {
@@ -57,7 +57,7 @@ private:
 public:
     StringSearchPerformanceTest(int32_t argc, const char *argv[], UErrorCode &status);
     ~StringSearchPerformanceTest();
-    virtual UPerfFunction* runIndexedTest(int32_t index, UBool exec, const char *&name, char *par = nullptr);
+    UPerfFunction* runIndexedTest(int32_t index, UBool exec, const char*& name, char* par = nullptr) override;
     UPerfFunction* Test_ICU_Forward_Search();
     UPerfFunction* Test_ICU_Backward_Search();
 };

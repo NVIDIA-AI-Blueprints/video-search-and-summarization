@@ -7,7 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+#include "third_party/blink/renderer/platform/graphics/predefined_color_space.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "ui/gfx/hdr_metadata.h"
 
@@ -30,12 +30,10 @@ ValidateAndConvertColorSpace(const V8PredefinedColorSpace& v8_color_space,
 V8PredefinedColorSpace CORE_EXPORT
 PredefinedColorSpaceToV8(PredefinedColorSpace color_space);
 
-// Convert from CanvasHighDynamicRangeOptions to gfx::HDRMode and
-// gfx::HDRMetadata.
-void CORE_EXPORT ParseCanvasHighDynamicRangeOptions(
-    const CanvasHighDynamicRangeOptions* options,
-    gfx::HDRMode& hdr_mode,
-    absl::optional<gfx::HDRMetadata>& hdr_metadata);
+// Convert from CanvasHighDynamicRangeOptions to gfx::HDRMetadata.
+void CORE_EXPORT
+ParseCanvasHighDynamicRangeOptions(const CanvasHighDynamicRangeOptions* options,
+                                   gfx::HDRMetadata& hdr_metadata);
 
 }  // namespace blink
 

@@ -56,7 +56,7 @@ class BLINK_EXPORT WebDOMMediaStreamTrack {
 
   bool IsNull() const { return private_.IsNull(); }
 
-  static WebDOMMediaStreamTrack FromV8Value(v8::Local<v8::Value>);
+  static WebDOMMediaStreamTrack FromV8Value(v8::Isolate*, v8::Local<v8::Value>);
 
   void Reset();
   void Assign(const WebDOMMediaStreamTrack&);
@@ -67,7 +67,7 @@ class BLINK_EXPORT WebDOMMediaStreamTrack {
   WebDOMMediaStreamTrack(MediaStreamTrack*);
 #endif
 
-  WebPrivatePtr<MediaStreamTrack> private_;
+  WebPrivatePtrForGC<MediaStreamTrack> private_;
 };
 
 }  // namespace blink

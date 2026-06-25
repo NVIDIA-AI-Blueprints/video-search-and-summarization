@@ -17,27 +17,31 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_PROFILE_MODULE_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_PROFILE_MODULE_H_
 
+#include <cstdint>
 #include "perfetto/protozero/field.h"
+#include "perfetto/trace_processor/ref_counted.h"
+#include "src/trace_processor/importers/common/parser_types.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
+#include "src/trace_processor/importers/proto/perf_sample_tracker.h"
 #include "src/trace_processor/importers/proto/proto_importer_module.h"
-#include "src/trace_processor/importers/proto/proto_incremental_state.h"
 
 #include "protos/perfetto/trace/trace_packet.pbzero.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 // Importer module for heap and CPU sampling profile data.
 // TODO(eseckler): consider moving heap profiles here as well.
 class ProfileModule : public ProtoImporterModule {
  public:
-  explicit ProfileModule(TraceProcessorContext* context);
+  explicit ProfileModule(ProtoImporterModuleContext* module_context,
+                         TraceProcessorContext* context);
   ~ProfileModule() override;
 
   ModuleResult TokenizePacket(
       const protos::pbzero::TracePacket::Decoder& decoder,
       TraceBlobView* packet,
       int64_t packet_timestamp,
-      PacketSequenceState* state,
+      RefPtr<PacketSequenceStateGeneration> state,
       uint32_t field_id) override;
 
   void ParseTracePacketData(const protos::pbzero::TracePacket::Decoder& decoder,
@@ -45,12 +49,12 @@ class ProfileModule : public ProtoImporterModule {
                             const TracePacketData& data,
                             uint32_t field_id) override;
 
-  void NotifyEndOfFile() override;
+  void OnEventsFullyExtracted() override;
 
  private:
   // chrome stack sampling:
   ModuleResult TokenizeStreamingProfilePacket(
-      PacketSequenceState*,
+      RefPtr<PacketSequenceStateGeneration>,
       TraceBlobView* packet,
       protozero::ConstBytes streaming_profile_packet);
   void ParseStreamingProfilePacket(
@@ -66,19 +70,14 @@ class ProfileModule : public ProtoImporterModule {
   // heap profiling:
   void ParseProfilePacket(int64_t ts,
                           PacketSequenceStateGeneration*,
-                          uint32_t seq_id,
                           protozero::ConstBytes);
-  void ParseDeobfuscationMapping(int64_t ts,
-                                 PacketSequenceStateGeneration*,
-                                 uint32_t seq_id,
-                                 protozero::ConstBytes);
   void ParseModuleSymbols(protozero::ConstBytes);
   void ParseSmapsPacket(int64_t ts, protozero::ConstBytes);
 
   TraceProcessorContext* context_;
+  PerfSampleTracker perf_sample_tracker_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_PROFILE_MODULE_H_

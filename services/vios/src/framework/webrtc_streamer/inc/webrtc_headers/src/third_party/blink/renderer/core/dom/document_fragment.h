@@ -32,6 +32,9 @@
 
 namespace blink {
 
+class DocumentPartRoot;
+class StreamingSanitizer;
+
 class CORE_EXPORT DocumentFragment : public ContainerNode {
   DEFINE_WRAPPERTYPEINFO();
 
@@ -42,23 +45,53 @@ class CORE_EXPORT DocumentFragment : public ContainerNode {
 
   void ParseHTML(const String&,
                  Element* context_element,
-                 ParserContentPolicy = kAllowScriptingContent);
+                 CustomElementRegistry*,
+                 ParserContentPolicy = kAllowScriptingContent,
+                 StreamingSanitizer* = nullptr);
   bool ParseXML(const String&,
                 Element* context_element,
-                ParserContentPolicy = kAllowScriptingContent);
+                ExceptionState& exception_state,
+                ParserContentPolicy = kAllowScriptingContent,
+                StreamingSanitizer* = nullptr);
 
   bool CanContainRangeEndPoint() const final { return true; }
   virtual bool IsTemplateContent() const { return false; }
 
+  // These represent whether this DocumentFragment is one that holds
+  // children that have not had Node::InsertedInto called.  We use such
+  // DocumentFragment objects internally for temporary storage of
+  // parsing results.  This requires that when we move the children
+  // *out* of the DocumentFragment we also not call RemovedFrom.
+  bool HoldsUnnotifiedChildren() const { return holds_unnotified_children_; }
+  void SetHoldsUnnotifiedChildren(bool v) { holds_unnotified_children_ = v; }
+
+  // When HoldsUnnotifiedChildren() is true, a caller that is taking the
+  // children can call ForgetChildren to disconnect them without any
+  // notifications.
+  void ForgetChildren();
+
   // This will catch anyone doing an unnecessary check.
   bool IsDocumentFragment() const = delete;
+
+  // https://crbug.com/1453291
+  // The DOM Parts API:
+  // https://github.com/WICG/webcomponents/blob/gh-pages/proposals/DOM-Parts.md.
+  DocumentPartRoot& getPartRoot();
+
+  void Trace(Visitor* visitor) const override;
 
  protected:
   String nodeName() const final;
 
  private:
-  Node* Clone(Document&, CloneChildrenFlag) const override;
+  Node* Clone(Document& factory,
+              NodeCloningData& data,
+              ContainerNode* append_to,
+              CustomElementRegistry* fallback_registry,
+              ExceptionState& append_exception_state) const override;
   bool ChildTypeAllowed(NodeType) const override;
+
+  bool holds_unnotified_children_ = false;
 };
 
 template <>

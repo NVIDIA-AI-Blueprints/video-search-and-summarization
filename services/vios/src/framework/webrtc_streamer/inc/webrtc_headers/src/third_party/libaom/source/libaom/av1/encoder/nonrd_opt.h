@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2022, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -12,6 +12,7 @@
 #ifndef AOM_AV1_ENCODER_NONRD_OPT_H_
 #define AOM_AV1_ENCODER_NONRD_OPT_H_
 
+#include "av1/encoder/context_tree.h"
 #include "av1/encoder/rdopt_utils.h"
 #include "av1/encoder/rdopt.h"
 
@@ -20,7 +21,9 @@
 #define RTC_MODES (AOMMAX(RTC_INTER_MODES, RTC_INTRA_MODES))
 #define CALC_BIASED_RDCOST(rdcost) (7 * (rdcost) >> 3)
 #define NUM_COMP_INTER_MODES_RT (6)
+#define NUM_COMP_INTER_MODES_RT_FULL (10)
 #define NUM_INTER_MODES 12
+#define NUM_INTER_MODES_FULL 28
 #define CAP_TX_SIZE_FOR_BSIZE_GT32(tx_mode_search_type, bsize) \
   (((tx_mode_search_type) != ONLY_4X4 && (bsize) > BLOCK_32X32) ? true : false)
 #define TX_SIZE_FOR_BSIZE_GT32 (TX_16X16)
@@ -72,6 +75,7 @@ struct estimate_block_intra_args {
   RD_STATS *rdc;
   unsigned int best_sad;
   bool prune_mode_based_on_sad;
+  bool prune_palette_sad;
 };
 /*!\endcond */
 
@@ -103,6 +107,8 @@ typedef struct {
   int use_ref_frame_mask[REF_FRAMES];
   //! Array to hold flags of evaluated modes for each reference frame
   uint8_t mode_checked[MB_MODE_COUNT][REF_FRAMES];
+  //! Array to hold flag indicating if scaled reference frame is used.
+  bool use_scaled_ref_frame[REF_FRAMES];
 } InterModeSearchStateNonrd;
 
 static const uint8_t b_width_log2_lookup[BLOCK_SIZES] = { 0, 0, 1, 1, 1, 2,
@@ -140,6 +146,23 @@ static const REF_MODE ref_mode_set[NUM_INTER_MODES] = {
   { ALTREF_FRAME, GLOBALMV },  { ALTREF_FRAME, NEWMV },
 };
 
+static const REF_MODE ref_mode_set_full[NUM_INTER_MODES_FULL] = {
+  { LAST_FRAME, NEARESTMV },    { LAST_FRAME, NEARMV },
+  { LAST_FRAME, GLOBALMV },     { LAST_FRAME, NEWMV },
+  { GOLDEN_FRAME, NEARESTMV },  { GOLDEN_FRAME, NEARMV },
+  { GOLDEN_FRAME, GLOBALMV },   { GOLDEN_FRAME, NEWMV },
+  { ALTREF_FRAME, NEARESTMV },  { ALTREF_FRAME, NEARMV },
+  { ALTREF_FRAME, GLOBALMV },   { ALTREF_FRAME, NEWMV },
+  { LAST2_FRAME, NEARESTMV },   { LAST2_FRAME, NEARMV },
+  { LAST2_FRAME, GLOBALMV },    { LAST2_FRAME, NEWMV },
+  { LAST3_FRAME, NEARESTMV },   { LAST3_FRAME, NEARMV },
+  { LAST3_FRAME, GLOBALMV },    { LAST3_FRAME, NEWMV },
+  { BWDREF_FRAME, NEARESTMV },  { BWDREF_FRAME, NEARMV },
+  { BWDREF_FRAME, GLOBALMV },   { BWDREF_FRAME, NEWMV },
+  { ALTREF2_FRAME, NEARESTMV }, { ALTREF2_FRAME, NEARMV },
+  { ALTREF2_FRAME, GLOBALMV },  { ALTREF2_FRAME, NEWMV },
+};
+
 static const COMP_REF_MODE comp_ref_mode_set[NUM_COMP_INTER_MODES_RT] = {
   { { LAST_FRAME, GOLDEN_FRAME }, GLOBAL_GLOBALMV },
   { { LAST_FRAME, GOLDEN_FRAME }, NEAREST_NEARESTMV },
@@ -148,6 +171,20 @@ static const COMP_REF_MODE comp_ref_mode_set[NUM_COMP_INTER_MODES_RT] = {
   { { LAST_FRAME, ALTREF_FRAME }, GLOBAL_GLOBALMV },
   { { LAST_FRAME, ALTREF_FRAME }, NEAREST_NEARESTMV },
 };
+
+static const COMP_REF_MODE
+    comp_ref_mode_set_full[NUM_COMP_INTER_MODES_RT_FULL] = {
+      { { LAST_FRAME, GOLDEN_FRAME }, GLOBAL_GLOBALMV },
+      { { LAST_FRAME, GOLDEN_FRAME }, NEAREST_NEARESTMV },
+      { { LAST_FRAME, LAST2_FRAME }, GLOBAL_GLOBALMV },
+      { { LAST_FRAME, LAST2_FRAME }, NEAREST_NEARESTMV },
+      { { LAST_FRAME, ALTREF_FRAME }, GLOBAL_GLOBALMV },
+      { { LAST_FRAME, ALTREF_FRAME }, NEAREST_NEARESTMV },
+      { { LAST_FRAME, BWDREF_FRAME }, GLOBAL_GLOBALMV },
+      { { LAST_FRAME, BWDREF_FRAME }, NEAREST_NEARESTMV },
+      { { LAST_FRAME, ALTREF2_FRAME }, GLOBAL_GLOBALMV },
+      { { LAST_FRAME, ALTREF2_FRAME }, NEAREST_NEARESTMV },
+    };
 
 static const int_interpfilters filters_ref_set[9] = {
   [0].as_filters = { EIGHTTAP_REGULAR, EIGHTTAP_REGULAR },
@@ -390,14 +427,14 @@ DECLARE_ALIGNED(16, static const int16_t, av1_fast_idtx_iscan_16x16[256]) = {
 };
 
 // Indicates the blocks for which RD model should be based on special logic
-static INLINE int get_model_rd_flag(const AV1_COMP *cpi, const MACROBLOCKD *xd,
+static inline int get_model_rd_flag(const AV1_COMP *cpi, const MACROBLOCKD *xd,
                                     BLOCK_SIZE bsize) {
-  const int large_block = bsize >= BLOCK_32X32;
   const AV1_COMMON *const cm = &cpi->common;
+  const int large_block = bsize >= BLOCK_32X32;
+  // Only enable for low bitdepth to mitigate issue: b/303023614.
   return cpi->oxcf.rc_cfg.mode == AOM_CBR && large_block &&
          !cyclic_refresh_segment_id_boosted(xd->mi[0]->segment_id) &&
-         cm->quant_params.base_qindex &&
-         cm->seq_params->bit_depth == AOM_BITS_8;
+         cm->quant_params.base_qindex && !cpi->oxcf.use_highbitdepth;
 }
 /*!\brief Finds predicted motion vectors for a block.
  *
@@ -412,30 +449,35 @@ static INLINE int get_model_rd_flag(const AV1_COMP *cpi, const MACROBLOCKD *xd,
  *                                        data for the current macroblock
  * \param[in]    ref_frame                Reference frame for which to find
  *                                        ref MVs
- * \param[in]    frame_mv                 Predicted MVs for a block
+ * \param[out]   frame_mv                 Predicted MVs for a block
  * \param[in]    yv12_mb                  Buffer to hold predicted block
  * \param[in]    bsize                    Current block size
  * \param[in]    force_skip_low_temp_var  Flag indicating possible mode search
  *                                        prune for low temporal variance block
  * \param[in]    skip_pred_mv             Flag indicating to skip av1_mv_pred
+ * \param[out]   use_scaled_ref_frame     Flag to indicate if scaled reference
+ *                                        frame is used.
  *
  * \remark Nothing is returned. Instead, predicted MVs are placed into
- * \c frame_mv array
+ * \c frame_mv array, and use_scaled_ref_frame is set.
  */
-static INLINE void find_predictors(AV1_COMP *cpi, MACROBLOCK *x,
-                                   MV_REFERENCE_FRAME ref_frame,
-                                   int_mv frame_mv[MB_MODE_COUNT][REF_FRAMES],
-                                   struct buf_2d yv12_mb[8][MAX_MB_PLANE],
-                                   BLOCK_SIZE bsize,
-                                   int force_skip_low_temp_var,
-                                   int skip_pred_mv) {
+static inline void find_predictors(
+    AV1_COMP *cpi, MACROBLOCK *x, MV_REFERENCE_FRAME ref_frame,
+    int_mv frame_mv[MB_MODE_COUNT][REF_FRAMES],
+    struct buf_2d yv12_mb[8][MAX_MB_PLANE], BLOCK_SIZE bsize,
+    int force_skip_low_temp_var, int skip_pred_mv, bool *use_scaled_ref_frame) {
   AV1_COMMON *const cm = &cpi->common;
   MACROBLOCKD *const xd = &x->e_mbd;
   MB_MODE_INFO *const mbmi = xd->mi[0];
   MB_MODE_INFO_EXT *const mbmi_ext = &x->mbmi_ext;
-  const YV12_BUFFER_CONFIG *yv12 = get_ref_frame_yv12_buf(cm, ref_frame);
+  const YV12_BUFFER_CONFIG *ref = get_ref_frame_yv12_buf(cm, ref_frame);
+  const bool ref_is_scaled =
+      ref->y_crop_height != cm->height || ref->y_crop_width != cm->width;
+  const YV12_BUFFER_CONFIG *scaled_ref =
+      av1_get_scaled_ref_frame(cpi, ref_frame);
+  const YV12_BUFFER_CONFIG *yv12 =
+      ref_is_scaled && scaled_ref ? scaled_ref : ref;
   const int num_planes = av1_num_planes(cm);
-
   x->pred_mv_sad[ref_frame] = INT_MAX;
   x->pred_mv0_sad[ref_frame] = INT_MAX;
   x->pred_mv1_sad[ref_frame] = INT_MAX;
@@ -443,8 +485,8 @@ static INLINE void find_predictors(AV1_COMP *cpi, MACROBLOCK *x,
   // TODO(kyslov) this needs various further optimizations. to be continued..
   assert(yv12 != NULL);
   if (yv12 != NULL) {
-    const struct scale_factors *const sf =
-        get_ref_scale_factors_const(cm, ref_frame);
+    struct scale_factors *const sf =
+        scaled_ref ? NULL : get_ref_scale_factors(cm, ref_frame);
     av1_setup_pred_block(xd, yv12_mb[ref_frame], yv12, sf, sf, num_planes);
     av1_find_mv_refs(cm, xd, mbmi, ref_frame, mbmi_ext->ref_mv_count,
                      xd->ref_mv_stack, xd->weight, NULL, mbmi_ext->global_mvs,
@@ -457,7 +499,8 @@ static INLINE void find_predictors(AV1_COMP *cpi, MACROBLOCK *x,
         &frame_mv[NEARESTMV][ref_frame], &frame_mv[NEARMV][ref_frame], 0);
     frame_mv[GLOBALMV][ref_frame] = mbmi_ext->global_mvs[ref_frame];
     // Early exit for non-LAST frame if force_skip_low_temp_var is set.
-    if (!av1_is_scaled(sf) && bsize >= BLOCK_8X8 && !skip_pred_mv &&
+    if (!is_one_pass_rt_lag_params(cpi) && !ref_is_scaled &&
+        bsize >= BLOCK_8X8 && !skip_pred_mv &&
         !(force_skip_low_temp_var && ref_frame != LAST_FRAME)) {
       av1_mv_pred(cpi, x, yv12_mb[ref_frame][0].buf, yv12->y_stride, ref_frame,
                   bsize);
@@ -467,9 +510,10 @@ static INLINE void find_predictors(AV1_COMP *cpi, MACROBLOCK *x,
     av1_count_overlappable_neighbors(cm, xd);
   }
   mbmi->num_proj_ref = 1;
+  *use_scaled_ref_frame = ref_is_scaled && scaled_ref;
 }
 
-static INLINE void init_mbmi_nonrd(MB_MODE_INFO *mbmi,
+static inline void init_mbmi_nonrd(MB_MODE_INFO *mbmi,
                                    PREDICTION_MODE pred_mode,
                                    MV_REFERENCE_FRAME ref_frame0,
                                    MV_REFERENCE_FRAME ref_frame1,
@@ -490,7 +534,7 @@ static INLINE void init_mbmi_nonrd(MB_MODE_INFO *mbmi,
   set_default_interp_filters(mbmi, cm->features.interp_filter);
 }
 
-static INLINE void init_estimate_block_intra_args(
+static inline void init_estimate_block_intra_args(
     struct estimate_block_intra_args *args, AV1_COMP *cpi, MACROBLOCK *x) {
   args->cpi = cpi;
   args->x = x;
@@ -499,9 +543,10 @@ static INLINE void init_estimate_block_intra_args(
   args->rdc = 0;
   args->best_sad = UINT_MAX;
   args->prune_mode_based_on_sad = false;
+  args->prune_palette_sad = false;
 }
 
-static INLINE int get_pred_buffer(PRED_BUFFER *p, int len) {
+static inline int get_pred_buffer(PRED_BUFFER *p, int len) {
   for (int buf_idx = 0; buf_idx < len; buf_idx++) {
     if (!p[buf_idx].in_use) {
       p[buf_idx].in_use = 1;
@@ -511,16 +556,28 @@ static INLINE int get_pred_buffer(PRED_BUFFER *p, int len) {
   return -1;
 }
 
-static INLINE void free_pred_buffer(PRED_BUFFER *p) {
+static inline bool prune_palette_testing_inter(AV1_COMP *cpi,
+                                               unsigned int source_variance) {
+  return (
+      cpi->oxcf.tune_cfg.content == AOM_CONTENT_SCREEN &&
+      cpi->oxcf.speed >= 11 && cpi->rc.high_source_sad &&
+      ((cpi->sf.rt_sf.prune_palette_search_nonrd > 2) ||
+       (cpi->sf.rt_sf.rc_compute_spatial_var_sc_kf &&
+        cpi->rc.frame_spatial_variance < 1200 &&
+        cpi->rc.perc_spatial_flat_blocks < 5 &&
+        cpi->rc.percent_blocks_with_motion > 98 && source_variance < 4000)));
+}
+
+static inline void free_pred_buffer(PRED_BUFFER *p) {
   if (p != NULL) p->in_use = 0;
 }
 
 #if CONFIG_INTERNAL_STATS
-static INLINE void store_coding_context_nonrd(MACROBLOCK *x,
+static inline void store_coding_context_nonrd(MACROBLOCK *x,
                                               PICK_MODE_CONTEXT *ctx,
                                               int mode_index) {
 #else
-static INLINE void store_coding_context_nonrd(MACROBLOCK *x,
+static inline void store_coding_context_nonrd(MACROBLOCK *x,
                                               PICK_MODE_CONTEXT *ctx) {
 #endif  // CONFIG_INTERNAL_STATS
   MACROBLOCKD *const xd = &x->e_mbd;
@@ -562,6 +619,6 @@ void av1_estimate_intra_mode(AV1_COMP *cpi, MACROBLOCK *x, BLOCK_SIZE bsize,
                              PRED_BUFFER *tmp_buffers,
                              PRED_BUFFER **this_mode_pred, RD_STATS *best_rdc,
                              BEST_PICKMODE *best_pickmode,
-                             PICK_MODE_CONTEXT *ctx);
+                             unsigned int *best_sad_norm);
 
 #endif  // AOM_AV1_ENCODER_NONRD_OPT_H_

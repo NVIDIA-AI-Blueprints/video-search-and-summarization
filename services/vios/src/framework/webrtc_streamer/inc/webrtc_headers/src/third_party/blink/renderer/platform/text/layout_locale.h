@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_LAYOUT_LOCALE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_LAYOUT_LOCALE_H_
 
+#include "base/memory/raw_ptr.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/text/hyphenation.h"
 #include "third_party/blink/renderer/platform/text/quotes_data.h"
@@ -22,7 +23,9 @@ struct hb_language_impl_t;
 
 namespace blink {
 
-enum class LineBreakIteratorMode { kDefault, kNormal, kStrict, kLoose };
+// A Unicode Line Break Style Identifier (key "lb".)
+// https://www.unicode.org/reports/tr35/#UnicodeLineBreakStyleIdentifier
+enum class LineBreakStrictness : uint8_t { kDefault, kNormal, kStrict, kLoose };
 
 class PLATFORM_EXPORT LayoutLocale : public RefCounted<LayoutLocale> {
   USING_FAST_MALLOC(LayoutLocale);
@@ -37,9 +40,6 @@ class PLATFORM_EXPORT LayoutLocale : public RefCounted<LayoutLocale> {
 
   bool operator==(const LayoutLocale& other) const {
     return string_ == other.string_;
-  }
-  bool operator!=(const LayoutLocale& other) const {
-    return string_ != other.string_;
   }
 
   const AtomicString& LocaleString() const { return string_; }
@@ -61,6 +61,11 @@ class PLATFORM_EXPORT LayoutLocale : public RefCounted<LayoutLocale> {
   static const LayoutLocale* LocaleForHan(const LayoutLocale*);
   const char* LocaleForHanForSkFontMgr() const;
 
+  bool IsMacrolanguageChinese() const {
+    return is_macrolanguage_chinese_computed_ ? is_macrolanguage_chinese_
+                                              : IsMacrolanguageChineseSlow();
+  }
+
   // The normalized locale data to construct |CaseMap| from.
   const CaseMap::Locale& CaseMapLocale() const {
     if (case_map_computed_)
@@ -72,7 +77,8 @@ class PLATFORM_EXPORT LayoutLocale : public RefCounted<LayoutLocale> {
   Hyphenation* GetHyphenation() const;
   scoped_refptr<QuotesData> GetQuotesData() const;
 
-  AtomicString LocaleWithBreakKeyword(LineBreakIteratorMode) const;
+  AtomicString LocaleWithBreakKeyword(LineBreakStrictness,
+                                      bool use_phrase = false) const;
 
   static scoped_refptr<LayoutLocale> CreateForTesting(const AtomicString&);
   static void SetHyphenationForTesting(const AtomicString&,
@@ -85,6 +91,8 @@ class PLATFORM_EXPORT LayoutLocale : public RefCounted<LayoutLocale> {
  private:
   explicit LayoutLocale(const AtomicString&);
 
+  bool IsMacrolanguageChineseSlow() const;
+
   void ComputeScriptForHan() const;
   void ComputeCaseMapLocale() const;
 
@@ -95,15 +103,17 @@ class PLATFORM_EXPORT LayoutLocale : public RefCounted<LayoutLocale> {
   mutable scoped_refptr<QuotesData> quotes_data_;
 
   // hb_language_t is defined in hb.h, which not all files can include.
-  const hb_language_impl_t* harfbuzz_language_;
+  raw_ptr<const hb_language_impl_t> harfbuzz_language_;
 
   UScriptCode script_;
-  mutable UScriptCode script_for_han_;
+  mutable UScriptCode script_for_han_ = USCRIPT_COMMON;
 
-  mutable unsigned has_script_for_han_ : 1;
-  mutable unsigned hyphenation_computed_ : 1;
-  mutable unsigned quotes_data_computed_ : 1;
-  mutable unsigned case_map_computed_ : 1;
+  mutable unsigned has_script_for_han_ : 1 = false;
+  mutable unsigned hyphenation_computed_ : 1 = false;
+  mutable unsigned quotes_data_computed_ : 1 = false;
+  mutable unsigned case_map_computed_ : 1 = false;
+  mutable unsigned is_macrolanguage_chinese_computed_ : 1 = false;
+  mutable unsigned is_macrolanguage_chinese_ : 1 = false;
 };
 
 }  // namespace blink

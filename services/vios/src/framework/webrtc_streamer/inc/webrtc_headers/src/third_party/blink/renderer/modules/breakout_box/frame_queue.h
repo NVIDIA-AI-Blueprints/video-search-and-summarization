@@ -5,8 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BREAKOUT_BOX_FRAME_QUEUE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_BREAKOUT_BOX_FRAME_QUEUE_H_
 
+#include <optional>
+
 #include "base/synchronization/lock.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "base/trace_event/trace_event.h"
+#include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 
@@ -14,44 +17,53 @@ namespace blink {
 
 // Implements a thread-safe circular queue.
 template <typename NativeFrameType>
-class FrameQueue
-    : public WTF::ThreadSafeRefCounted<FrameQueue<NativeFrameType>> {
+class FrameQueue : public ThreadSafeRefCounted<FrameQueue<NativeFrameType>> {
  public:
   explicit FrameQueue(wtf_size_t max_size)
       : max_size_(std::max(1u, max_size)) {}
 
   base::Lock& GetLock() { return lock_; }
 
-  absl::optional<NativeFrameType> Push(NativeFrameType frame) {
+  std::optional<NativeFrameType> Push(NativeFrameType frame) {
+    TRACE_EVENT_INSTANT("mediastream", "FrameQueue::Push", "this",
+                        static_cast<void*>(this));
     base::AutoLock locker_(GetLock());
     return PushLocked(std::move(frame));
   }
 
-  absl::optional<NativeFrameType> PushLocked(NativeFrameType frame)
+  std::optional<NativeFrameType> PushLocked(NativeFrameType frame)
       EXCLUSIVE_LOCKS_REQUIRED(GetLock()) {
-    absl::optional<NativeFrameType> ret;
-    if (queue_.size() == max_size_)
+    std::optional<NativeFrameType> ret;
+    if (queue_.size() == max_size_) {
+      TRACE_EVENT_INSTANT("mediastream", "FrameQueue::Push no space left",
+                          "max_size_", max_size_);
       ret = queue_.TakeFirst();
+    }
     queue_.push_back(std::move(frame));
+    TRACE_COUNTER("mediastream",
+                  scheduler::MakeCounterTrack("FrameQueue", this),
+                  queue_.size());
     return ret;
   }
 
-  absl::optional<NativeFrameType> Pop() {
+  std::optional<NativeFrameType> Pop() {
+    TRACE_EVENT_INSTANT("mediastream", "FrameQueue::Pop", "this",
+                        static_cast<void*>(this));
     base::AutoLock locker_(GetLock());
     return PopLocked();
   }
 
-  absl::optional<NativeFrameType> PopLocked()
+  std::optional<NativeFrameType> PopLocked()
       EXCLUSIVE_LOCKS_REQUIRED(GetLock()) {
     if (queue_.empty())
-      return absl::nullopt;
+      return std::nullopt;
     return queue_.TakeFirst();
   }
 
-  absl::optional<NativeFrameType> PeekLocked()
+  std::optional<NativeFrameType> PeekLocked()
       EXCLUSIVE_LOCKS_REQUIRED(GetLock()) {
     if (queue_.empty())
-      return absl::nullopt;
+      return std::nullopt;
     return queue_.front();
   }
 
@@ -114,4 +126,4 @@ class FrameQueueHandle {
 
 }  // namespace blink
 
-#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_BREAKOUT_BOX_STREAM_TEST_UTILS_H_
+#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_BREAKOUT_BOX_FRAME_QUEUE_H_

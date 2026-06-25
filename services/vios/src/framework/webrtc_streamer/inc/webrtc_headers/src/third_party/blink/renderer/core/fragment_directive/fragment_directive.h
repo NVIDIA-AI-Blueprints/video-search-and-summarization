@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAGMENT_DIRECTIVE_FRAGMENT_DIRECTIVE_H_
 
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/directive.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -14,13 +15,14 @@ namespace blink {
 
 class Document;
 class ScriptState;
+class SelectorDirective;
 class V8UnionRangeOrSelection;
 
 // This class implements the `window.fragmentDirective` web API and serves as a
 // home for features based on the fragment directive portion of a URL (the part
 // of the URL fragment that comes after ':~:'. See:
 // https://github.com/WICG/scroll-to-text-fragment/
-class FragmentDirective : public ScriptWrappable {
+class CORE_EXPORT FragmentDirective : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -54,11 +56,12 @@ class FragmentDirective : public ScriptWrappable {
 
   // Web-exposed FragmentDirective interface.
   const HeapVector<Member<Directive>>& items() const;
-  ScriptPromise createSelectorDirective(ScriptState*,
-                                        const V8UnionRangeOrSelection*);
+  ScriptPromise<SelectorDirective> createSelectorDirective(
+      ScriptState*,
+      const V8UnionRangeOrSelection*);
 
  private:
-  void ParseDirectives(const String& fragment_directive);
+  void ParseDirectives(const StringView& fragment_directive);
 
   HeapVector<Member<Directive>> directives_;
   Member<Document> owner_document_;

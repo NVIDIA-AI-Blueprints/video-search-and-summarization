@@ -11,20 +11,20 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC_DUMP_CAPTURE_STREAM_INFO_H_
 #define MODULES_AUDIO_PROCESSING_AEC_DUMP_CAPTURE_STREAM_INFO_H_
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
+#include "api/audio/audio_view.h"
 #include "modules/audio_processing/include/aec_dump.h"
-#include "rtc_base/ignore_wundef.h"
+#include "modules/audio_processing/include/audio_frame_view.h"
 
 // Files generated at build-time by the protobuf compiler.
-RTC_PUSH_IGNORING_WUNDEF()
 #ifdef WEBRTC_ANDROID_PLATFORM_BUILD
 #include "external/webrtc/webrtc/modules/audio_processing/debug.pb.h"
 #else
 #include "modules/audio_processing/debug.pb.h"
 #endif
-RTC_POP_IGNORING_WUNDEF()
 
 namespace webrtc {
 
@@ -36,7 +36,9 @@ class CaptureStreamInfo {
   ~CaptureStreamInfo() = default;
 
   void AddInput(const AudioFrameView<const float>& src);
+  void AddInputChannel(MonoView<const float> channel);
   void AddOutput(const AudioFrameView<const float>& src);
+  void AddOutputChannel(MonoView<const float> channel);
 
   void AddInput(const int16_t* const data,
                 int num_channels,

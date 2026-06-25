@@ -7,9 +7,11 @@
 
 #include "base/time/time.h"
 #include "device/vr/public/mojom/vr_service.mojom-blink.h"
+#include "device/vr/public/mojom/xr_session.mojom-blink.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_xr_dom_overlay_init.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_xr_session_init.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
@@ -35,8 +37,9 @@
 namespace blink {
 
 class Navigator;
-class ScriptPromiseResolver;
+class V8XRSessionMode;
 class XRFrameProvider;
+class XRSession;
 class XRSessionInit;
 
 // Implementation of the XRSystem interface according to
@@ -46,9 +49,9 @@ class XRSessionInit;
 // errors with the browser/device process.
 //
 // When the XRSystem is used for promises, it uses query objects to store state
-// including the associated ScriptPromiseResolver. These query objects are owned
-// by the XRSystem and remain alive until the promise is resolved or rejected.
-// (See comments below for PendingSupportsSessionQuery and
+// including the associated ScriptPromiseResolverBase. These query objects are
+// owned by the XRSystem and remain alive until the promise is resolved or
+// rejected. (See comments below for PendingSupportsSessionQuery and
 // PendingRequestSessionQuery.) These query objects are destroyed and any
 // outstanding promises rejected when the XRSystem is disposed.
 //
@@ -66,7 +69,7 @@ class XRSessionInit;
 //
 // The XRSystem keeps weak references to XRSession objects after they were
 // returned through a successful requestSession promise, but does not own them.
-class XRSystem final : public EventTargetWithInlineData,
+class XRSystem final : public EventTarget,
                        public Supplement<Navigator>,
                        public ExecutionContextLifecycleObserver,
                        public device::mojom::blink::VRServiceClient,
@@ -85,16 +88,13 @@ class XRSystem final : public EventTargetWithInlineData,
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(devicechange, kDevicechange)
 
-  ScriptPromise supportsSession(ScriptState*,
-                                const String&,
-                                ExceptionState& exception_state);
-  ScriptPromise isSessionSupported(ScriptState*,
-                                   const String&,
-                                   ExceptionState& exception_state);
-  ScriptPromise requestSession(ScriptState*,
-                               const String&,
-                               XRSessionInit*,
-                               ExceptionState& exception_state);
+  ScriptPromise<IDLBoolean> isSessionSupported(ScriptState*,
+                                               const V8XRSessionMode&,
+                                               ExceptionState& exception_state);
+  ScriptPromise<XRSession> requestSession(ScriptState*,
+                                          const V8XRSessionMode&,
+                                          XRSessionInit*,
+                                          ExceptionState& exception_state);
 
   XRFrameProvider* frameProvider();
 
@@ -137,7 +137,16 @@ class XRSystem final : public EventTargetWithInlineData,
   void MakeXrCompatibleSync(
       device::mojom::XrCompatibleResult* xr_compatible_result);
 
+  void OnSessionEnded(XRSession* session);
+
+  device::mojom::blink::WebXrInternalsRendererListener*
+  GetWebXrInternalsRendererListener();
+
+  void AddWebXrInternalsMessage(const String& message);
+
  private:
+  void DisableBackForwardCache();
+
   enum SensorRequirement {
     kNone,
     kOptional,
@@ -163,14 +172,14 @@ class XRSystem final : public EventTargetWithInlineData,
   };
 
   // Encapsulates blink-side `XRSystem::requestSession()` call. It is a wrapper
-  // around ScriptPromiseResolver that allows us to add additional logic as
+  // around ScriptPromiseResolverBase that allows us to add additional logic as
   // certain things related to promise's life cycle happen. Instances are owned
   // by the XRSystem, see outstanding_request_queries_ below.
   class PendingRequestSessionQuery final
       : public GarbageCollected<PendingRequestSessionQuery> {
    public:
     PendingRequestSessionQuery(int64_t ukm_source_id,
-                               ScriptPromiseResolver* resolver,
+                               ScriptPromiseResolver<XRSession>* resolver,
                                device::mojom::blink::XRSessionMode mode,
                                RequestedXRSessionFeatureSet required_features,
                                RequestedXRSessionFeatureSet optional_features);
@@ -179,7 +188,7 @@ class XRSystem final : public EventTargetWithInlineData,
     PendingRequestSessionQuery& operator=(const PendingRequestSessionQuery&) =
         delete;
 
-    virtual ~PendingRequestSessionQuery() = default;
+    ~PendingRequestSessionQuery() = default;
 
     // Resolves underlying promise with passed in XR session.
     // If metrics are to be recorded for this session, an
@@ -232,7 +241,7 @@ class XRSystem final : public EventTargetWithInlineData,
     void SetDOMOverlayElement(Element* element) {
       dom_overlay_element_ = element;
     }
-    Element* DOMOverlayElement() { return dom_overlay_element_; }
+    Element* DOMOverlayElement() { return dom_overlay_element_.Get(); }
 
     void SetTrackedImages(
         const Vector<device::mojom::blink::XRTrackedImage>& images) {
@@ -244,9 +253,13 @@ class XRSystem final : public EventTargetWithInlineData,
 
     void SetDepthSensingConfiguration(
         const Vector<device::mojom::XRDepthUsage>& preferred_usage,
-        const Vector<device::mojom::XRDepthDataFormat>& preferred_format) {
+        const Vector<device::mojom::XRDepthDataFormat>& preferred_format,
+        const Vector<device::mojom::XRDepthType>& type_request,
+        bool match_depth_view) {
       preferred_usage_ = preferred_usage;
       preferred_format_ = preferred_format;
+      depth_type_request_ = type_request;
+      match_depth_view_ = match_depth_view;
     }
 
     const Vector<device::mojom::XRDepthUsage>& PreferredUsage() const {
@@ -257,9 +270,15 @@ class XRSystem final : public EventTargetWithInlineData,
       return preferred_format_;
     }
 
+    const Vector<device::mojom::XRDepthType>& DepthTypeRequest() const {
+      return depth_type_request_;
+    }
+
+    bool MatchDepthView() const { return match_depth_view_; }
+
     uint64_t TraceId() const { return trace_id_; }
 
-    virtual void Trace(Visitor*) const;
+    void Trace(Visitor*) const;
 
    private:
     void ParseSensorRequirement();
@@ -272,7 +291,7 @@ class XRSystem final : public EventTargetWithInlineData,
         mojo::PendingRemote<device::mojom::blink::XRSessionMetricsRecorder>
             metrics_recorder = mojo::NullRemote());
 
-    Member<ScriptPromiseResolver> resolver_;
+    Member<ScriptPromiseResolver<XRSession>> resolver_;
     const device::mojom::blink::XRSessionMode mode_;
     RequestedXRSessionFeatureSet required_features_;
     RequestedXRSessionFeatureSet optional_features_;
@@ -289,27 +308,28 @@ class XRSystem final : public EventTargetWithInlineData,
 
     Vector<device::mojom::XRDepthUsage> preferred_usage_;
     Vector<device::mojom::XRDepthDataFormat> preferred_format_;
+    Vector<device::mojom::XRDepthType> depth_type_request_;
+    bool match_depth_view_;
   };
 
   static device::mojom::blink::XRSessionOptionsPtr XRSessionOptionsFromQuery(
       const PendingRequestSessionQuery& query);
 
   // Encapsulates blink-side `XRSystem::isSessionSupported()` call. It is a
-  // wrapper around ScriptPromiseResolver that allows us to add additional logic
-  // as certain things related to promise's life cycle happen. Instances are
-  // owned by the XRSystem, see outstanding_support_queries_ below.
+  // wrapper around ScriptPromiseResolverBase that allows us to add additional
+  // logic as certain things related to promise's life cycle happen. Instances
+  // are owned by the XRSystem, see outstanding_support_queries_ below.
   class PendingSupportsSessionQuery final
       : public GarbageCollected<PendingSupportsSessionQuery> {
    public:
-    PendingSupportsSessionQuery(ScriptPromiseResolver*,
-                                device::mojom::blink::XRSessionMode,
-                                bool throw_on_unsupported);
+    PendingSupportsSessionQuery(ScriptPromiseResolverBase*,
+                                device::mojom::blink::XRSessionMode);
 
     PendingSupportsSessionQuery(const PendingSupportsSessionQuery&) = delete;
     PendingSupportsSessionQuery& operator=(const PendingSupportsSessionQuery&) =
         delete;
 
-    virtual ~PendingSupportsSessionQuery() = default;
+    ~PendingSupportsSessionQuery() = default;
 
     // Resolves underlying promise.
     void Resolve(bool supported, ExceptionState* exception_state = nullptr);
@@ -340,40 +360,30 @@ class XRSystem final : public EventTargetWithInlineData,
     void RejectWithTypeError(const String& message,
                              ExceptionState* exception_state);
 
-    bool ThrowOnUnsupported() const { return throw_on_unsupported_; }
-
     device::mojom::blink::XRSessionMode mode() const;
 
     uint64_t TraceId() const { return trace_id_; }
 
-    virtual void Trace(Visitor*) const;
+    void Trace(Visitor*) const;
 
    private:
-    Member<ScriptPromiseResolver> resolver_;
+    Member<ScriptPromiseResolverBase> resolver_;
     const device::mojom::blink::XRSessionMode mode_;
 
     // Used for trace calls in order to correlate this request across processes.
     const uint64_t trace_id_;
-
-    // Only set when calling the deprecated supportsSession method.
-    const bool throw_on_unsupported_ = false;
   };
 
   // Helper, logs message to the console as well as DVLOGs.
   void AddConsoleMessage(mojom::blink::ConsoleMessageLevel error_level,
                          const String& message);
 
-  ScriptPromise InternalIsSessionSupported(ScriptState*,
-                                           const String&,
-                                           ExceptionState& exception_state,
-                                           bool throw_on_unsupported);
-
   const char* CheckInlineSessionRequestAllowed(
       LocalFrame* frame,
       const PendingRequestSessionQuery& query);
 
   RequestedXRSessionFeatureSet ParseRequestedFeatures(
-      const HeapVector<ScriptValue>& features,
+      const Vector<String>& features,
       const device::mojom::blink::XRSessionMode& session_mode,
       XRSessionInit* session_init,
       mojom::ConsoleMessageLevel error_level);
@@ -421,6 +431,7 @@ class XRSystem final : public EventTargetWithInlineData,
           client_receiver,
       device::mojom::blink::XRSessionDeviceConfigPtr device_config,
       XRSessionFeatureSet enabled_features,
+      uint64_t trace_id,
       bool sensorless_session = false);
 
   XRSession* CreateSensorlessInlineSession();
@@ -481,6 +492,9 @@ class XRSystem final : public EventTargetWithInlineData,
 
   bool is_context_destroyed_ = false;
   bool did_service_ever_disconnect_ = false;
+
+  HeapMojoRemote<device::mojom::blink::WebXrInternalsRendererListener>
+      webxr_internals_renderer_listener_;
 };
 
 }  // namespace blink

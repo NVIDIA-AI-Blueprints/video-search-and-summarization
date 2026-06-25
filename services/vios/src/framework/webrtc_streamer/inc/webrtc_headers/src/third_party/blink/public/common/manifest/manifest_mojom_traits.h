@@ -5,40 +5,42 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_MANIFEST_MANIFEST_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_MANIFEST_MANIFEST_MOJOM_TRAITS_H_
 
-#include "third_party/blink/public/common/manifest/manifest.h"
-
+#include <optional>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 #include "base/strings/utf_string_conversions.h"
+#include "mojo/public/cpp/bindings/map_traits_absl.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/blink/public/common/common_export.h"
+#include "third_party/blink/public/common/manifest/manifest.h"
+#include "third_party/blink/public/common/safe_url_pattern.h"
+#include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
-#include "third_party/blink/public/mojom/url_pattern.mojom.h"
 
 namespace mojo {
 namespace internal {
 
-inline base::StringPiece16 TruncateString16(const std::u16string& string) {
+inline std::u16string_view TruncateString16(const std::u16string& string) {
   // We restrict the maximum length for all the strings inside the Manifest
   // when it is sent over Mojo. The renderer process truncates the strings
   // before sending the Manifest and the browser process validates that.
-  return base::StringPiece16(string).substr(0, 4 * 1024);
+  return std::u16string_view(string).substr(0, 4 * 1024);
 }
 
-inline absl::optional<base::StringPiece16> TruncateOptionalString16(
-    const absl::optional<std::u16string>& string) {
+inline std::optional<std::u16string_view> TruncateOptionalString16(
+    const std::optional<std::u16string>& string) {
   if (!string)
-    return absl::nullopt;
+    return std::nullopt;
 
   return TruncateString16(*string);
 }
 
-inline absl::optional<base::StringPiece16> ConvertAndTruncateOptionalString(
-    const absl::optional<std::string>& string) {
+inline std::optional<std::u16string_view> ConvertAndTruncateOptionalString(
+    const std::optional<std::string>& string) {
   if (!string)
-    return absl::nullopt;
+    return std::nullopt;
 
   return TruncateOptionalString16(base::UTF8ToUTF16(string.value()));
 }
@@ -53,7 +55,7 @@ struct BLINK_COMMON_EXPORT
     return icon.src;
   }
 
-  static base::StringPiece16 type(
+  static std::u16string_view type(
       const ::blink::Manifest::ImageResource& icon) {
     return internal::TruncateString16(icon.type);
   }
@@ -72,20 +74,50 @@ struct BLINK_COMMON_EXPORT
 };
 
 template <>
+struct BLINK_COMMON_EXPORT StructTraits<
+    blink::mojom::ManifestLocalizedTextObjectDataView,
+    blink::Manifest::ManifestLocalizedTextObject> {
+  static std::u16string_view value(
+      const blink::Manifest::ManifestLocalizedTextObject& obj) {
+    return internal::TruncateString16(obj.value);
+  }
+  static std::optional<std::u16string_view> lang(
+      const blink::Manifest::ManifestLocalizedTextObject& obj) {
+    return internal::TruncateOptionalString16(obj.lang);
+  }
+  static const std::optional<blink::mojom::Manifest_TextDirection>& dir(
+      const blink::Manifest::ManifestLocalizedTextObject& obj) {
+    return obj.dir;
+  }
+  static bool Read(blink::mojom::ManifestLocalizedTextObjectDataView data,
+                   blink::Manifest::ManifestLocalizedTextObject* out);
+};
+
+// StructTraits for icu::Locale - enables automatic conversion in mojo.
+// Serializes using ICU's getName() format ("en_US").
+// This allows icu::Locale to be used as map keys with mojom Locale type.
+template <>
+struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::LocaleDataView,
+                                        icu::Locale> {
+  static std::string_view tag(const icu::Locale& locale);
+  static bool Read(blink::mojom::LocaleDataView data, icu::Locale* out);
+};
+
+template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::ManifestShortcutItemDataView,
                  ::blink::Manifest::ShortcutItem> {
-  static base::StringPiece16 name(
+  static std::u16string_view name(
       const ::blink::Manifest::ShortcutItem& shortcut) {
     return internal::TruncateString16(shortcut.name);
   }
 
-  static absl::optional<base::StringPiece16> short_name(
+  static std::optional<std::u16string_view> short_name(
       const ::blink::Manifest::ShortcutItem& shortcut) {
     return internal::TruncateOptionalString16(shortcut.short_name);
   }
 
-  static absl::optional<base::StringPiece16> description(
+  static std::optional<std::u16string_view> description(
       const ::blink::Manifest::ShortcutItem& shortcut) {
     return internal::TruncateOptionalString16(shortcut.description);
   }
@@ -99,6 +131,34 @@ struct BLINK_COMMON_EXPORT
     return shortcut.icons;
   }
 
+  static const std::optional<
+      absl::flat_hash_map<icu::Locale,
+                          std::vector<blink::Manifest::ImageResource>>>&
+  icons_localized(const blink::Manifest::ShortcutItem& shortcut) {
+    return shortcut.icons_localized;
+  }
+
+  static const std::optional<
+      absl::flat_hash_map<icu::Locale,
+                          blink::Manifest::ManifestLocalizedTextObject>>&
+  name_localized(const blink::Manifest::ShortcutItem& shortcut) {
+    return shortcut.name_localized;
+  }
+
+  static const std::optional<
+      absl::flat_hash_map<icu::Locale,
+                          blink::Manifest::ManifestLocalizedTextObject>>&
+  short_name_localized(const blink::Manifest::ShortcutItem& shortcut) {
+    return shortcut.short_name_localized;
+  }
+
+  static const std::optional<
+      absl::flat_hash_map<icu::Locale,
+                          blink::Manifest::ManifestLocalizedTextObject>>&
+  description_localized(const blink::Manifest::ShortcutItem& shortcut) {
+    return shortcut.description_localized;
+  }
+
   static bool Read(blink::mojom::ManifestShortcutItemDataView data,
                    ::blink::Manifest::ShortcutItem* out);
 };
@@ -107,7 +167,7 @@ template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::ManifestRelatedApplicationDataView,
                  ::blink::Manifest::RelatedApplication> {
-  static absl::optional<base::StringPiece16> platform(
+  static std::optional<std::u16string_view> platform(
       const ::blink::Manifest::RelatedApplication& related_application) {
     return internal::TruncateOptionalString16(related_application.platform);
   }
@@ -117,7 +177,7 @@ struct BLINK_COMMON_EXPORT
     return related_application.url;
   }
 
-  static absl::optional<base::StringPiece16> id(
+  static std::optional<std::u16string_view> id(
       const ::blink::Manifest::RelatedApplication& related_application) {
     return internal::TruncateOptionalString16(related_application.id);
   }
@@ -130,14 +190,14 @@ template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::ManifestFileFilterDataView,
                  ::blink::Manifest::FileFilter> {
-  static base::StringPiece16 name(
+  static std::u16string_view name(
       const ::blink::Manifest::FileFilter& share_target_file) {
     return internal::TruncateString16(share_target_file.name);
   }
 
-  static const std::vector<base::StringPiece16> accept(
+  static const std::vector<std::u16string_view> accept(
       const ::blink::Manifest::FileFilter& share_target_file) {
-    std::vector<base::StringPiece16> accept_types;
+    std::vector<std::u16string_view> accept_types;
 
     for (const std::u16string& accept_type : share_target_file.accept)
       accept_types.push_back(internal::TruncateString16(accept_type));
@@ -153,15 +213,15 @@ template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::ManifestShareTargetParamsDataView,
                  ::blink::Manifest::ShareTargetParams> {
-  static const absl::optional<base::StringPiece16> text(
+  static const std::optional<std::u16string_view> text(
       const ::blink::Manifest::ShareTargetParams& share_target_params) {
     return internal::TruncateOptionalString16(share_target_params.text);
   }
-  static const absl::optional<base::StringPiece16> title(
+  static const std::optional<std::u16string_view> title(
       const ::blink::Manifest::ShareTargetParams& share_target_params) {
     return internal::TruncateOptionalString16(share_target_params.title);
   }
-  static const absl::optional<base::StringPiece16> url(
+  static const std::optional<std::u16string_view> url(
       const ::blink::Manifest::ShareTargetParams& share_target_params) {
     return internal::TruncateOptionalString16(share_target_params.url);
   }
@@ -202,9 +262,9 @@ template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::ManifestLaunchHandlerDataView,
                  ::blink::Manifest::LaunchHandler> {
-  static blink::mojom::ManifestLaunchHandler::ClientMode client_mode(
-      const ::blink::Manifest::LaunchHandler& launch_handler) {
-    return launch_handler.client_mode;
+  static std::optional<blink::mojom::ManifestLaunchHandler::ClientMode>
+  client_mode(const ::blink::Manifest::LaunchHandler& launch_handler) {
+    return launch_handler.client_mode_;
   }
 
   static bool Read(blink::mojom::ManifestLaunchHandlerDataView data,
@@ -215,17 +275,17 @@ template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::ManifestTranslationItemDataView,
                  ::blink::Manifest::TranslationItem> {
-  static absl::optional<base::StringPiece16> name(
+  static std::optional<std::u16string_view> name(
       const ::blink::Manifest::TranslationItem& translation) {
     return internal::ConvertAndTruncateOptionalString(translation.name);
   }
 
-  static absl::optional<base::StringPiece16> short_name(
+  static std::optional<std::u16string_view> short_name(
       const ::blink::Manifest::TranslationItem& translation) {
     return internal::ConvertAndTruncateOptionalString(translation.short_name);
   }
 
-  static absl::optional<base::StringPiece16> description(
+  static std::optional<std::u16string_view> description(
       const ::blink::Manifest::TranslationItem& translation) {
     return internal::ConvertAndTruncateOptionalString(translation.description);
   }
@@ -242,7 +302,7 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::HomeTabParamsDataView,
     return params.icons;
   }
 
-  static const std::vector<::blink::UrlPattern>& scope_patterns(
+  static const std::vector<::blink::SafeUrlPattern>& scope_patterns(
       const ::blink::Manifest::HomeTabParams& params) {
     return params.scope_patterns;
   }
@@ -255,7 +315,7 @@ template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::NewTabButtonParamsDataView,
                  ::blink::Manifest::NewTabButtonParams> {
-  static const absl::optional<GURL>& url(
+  static const std::optional<GURL>& url(
       const ::blink::Manifest::NewTabButtonParams& params) {
     return params.url;
   }
@@ -272,37 +332,16 @@ struct BLINK_COMMON_EXPORT UnionTraits<blink::mojom::HomeTabUnionDataView,
 
   static ::blink::mojom::TabStripMemberVisibility visibility(
       const ::blink::Manifest::TabStrip::HomeTab& value) {
-    return absl::get<blink::mojom::TabStripMemberVisibility>(value);
+    return std::get<blink::mojom::TabStripMemberVisibility>(value);
   }
 
   static const ::blink::Manifest::HomeTabParams& params(
       const ::blink::Manifest::TabStrip::HomeTab& value) {
-    return absl::get<blink::Manifest::HomeTabParams>(value);
+    return std::get<blink::Manifest::HomeTabParams>(value);
   }
 
   static bool Read(blink::mojom::HomeTabUnionDataView data,
                    ::blink::Manifest::TabStrip::HomeTab* out);
-};
-
-template <>
-struct BLINK_COMMON_EXPORT
-    UnionTraits<blink::mojom::NewTabButtonUnionDataView,
-                ::blink::Manifest::TabStrip::NewTabButton> {
-  static blink::mojom::NewTabButtonUnionDataView::Tag GetTag(
-      const ::blink::Manifest::TabStrip::NewTabButton& value);
-
-  static ::blink::mojom::TabStripMemberVisibility visibility(
-      const ::blink::Manifest::TabStrip::NewTabButton& value) {
-    return absl::get<blink::mojom::TabStripMemberVisibility>(value);
-  }
-
-  static const ::blink::Manifest::NewTabButtonParams& params(
-      const ::blink::Manifest::TabStrip::NewTabButton& value) {
-    return absl::get<blink::Manifest::NewTabButtonParams>(value);
-  }
-
-  static bool Read(blink::mojom::NewTabButtonUnionDataView data,
-                   ::blink::Manifest::TabStrip::NewTabButton* out);
 };
 
 template <>
@@ -320,6 +359,24 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::ManifestTabStripDataView,
 
   static bool Read(blink::mojom::ManifestTabStripDataView data,
                    ::blink::Manifest::TabStrip* out);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT StructTraits<
+    blink::mojom::DisplayOverrideItemDataView,
+    ::blink::Manifest::DisplayOverride> {
+  static ::blink::mojom::DisplayMode display(
+      const ::blink::Manifest::DisplayOverride& item) {
+    return item.display();
+  }
+
+  static const std::vector<::blink::SafeUrlPattern>& url_patterns(
+      const ::blink::Manifest::DisplayOverride& item) {
+    return item.url_patterns();
+  }
+
+  static bool Read(blink::mojom::DisplayOverrideItemDataView data,
+                   ::blink::Manifest::DisplayOverride* out);
 };
 
 }  // namespace mojo

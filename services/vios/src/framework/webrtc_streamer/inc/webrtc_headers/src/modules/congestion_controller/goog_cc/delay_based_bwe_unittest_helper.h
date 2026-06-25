@@ -15,16 +15,15 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "api/transport/field_trial_based_config.h"
+#include "api/field_trials.h"
 #include "api/transport/network_types.h"
-#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "api/units/timestamp.h"
+#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator_interface.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 #include "system_wrappers/include/clock.h"
-#include "test/field_trial.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -61,6 +60,7 @@ class RtpStream {
   // previous frame, no frame will be generated. The frame is split into
   // packets.
   int64_t GenerateFrame(int64_t time_now_us,
+                        int64_t* next_sequence_number,
                         std::vector<PacketResult>* packets);
 
   // The send-side time when the next frame can be generated.
@@ -102,8 +102,9 @@ class StreamGenerator {
 
   // TODO(holmer): Break out the channel simulation part from this class to make
   // it possible to simulate different types of channels.
-  int64_t GenerateFrame(std::vector<PacketResult>* packets,
-                        int64_t time_now_us);
+  int64_t GenerateFrame(int64_t time_now_us,
+                        int64_t* next_sequence_number,
+                        std::vector<PacketResult>* packets);
 
  private:
   // Capacity of the simulated channel in bits per second.
@@ -118,7 +119,6 @@ class StreamGenerator {
 class DelayBasedBweTest : public ::testing::Test {
  public:
   DelayBasedBweTest();
-  explicit DelayBasedBweTest(absl::string_view field_trial_string);
   ~DelayBasedBweTest() override;
 
  protected:
@@ -169,10 +169,7 @@ class DelayBasedBweTest : public ::testing::Test {
                               int64_t receiver_clock_offset_change_ms);
 
   static const uint32_t kDefaultSsrc;
-  FieldTrialBasedConfig field_trial_config_;
-
-  std::unique_ptr<test::ScopedFieldTrials>
-      field_trial;        // Must be initialized first.
+  FieldTrials field_trials_;
   SimulatedClock clock_;  // Time at the receiver.
   test::TestBitrateObserver bitrate_observer_;
   std::unique_ptr<AcknowledgedBitrateEstimatorInterface>
@@ -181,6 +178,7 @@ class DelayBasedBweTest : public ::testing::Test {
   std::unique_ptr<DelayBasedBwe> bitrate_estimator_;
   std::unique_ptr<test::StreamGenerator> stream_generator_;
   int64_t arrival_time_offset_ms_;
+  int64_t next_sequence_number_;
   bool first_update_;
 };
 

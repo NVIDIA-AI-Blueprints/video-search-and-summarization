@@ -15,6 +15,10 @@ class CORE_EXPORT HTMLTimeElement final : public HTMLElement {
 
  public:
   HTMLTimeElement(Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLTimeElement;
+  }
 };
 
 }  // namespace blink

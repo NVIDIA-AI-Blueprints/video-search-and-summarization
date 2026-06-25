@@ -7,7 +7,6 @@
 
 #include "base/memory/ptr_util.h"
 #include "third_party/blink/renderer/platform/bindings/scoped_persistent.h"
-#include "third_party/blink/renderer/platform/bindings/v8_binding_macros.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -126,7 +125,7 @@ class PLATFORM_EXPORT V8PrivateProperty {
   // requirement.
   ScopedPersistent<v8::Private> symbol_window_document_cached_accessor_;
 
-  WTF::HashMap<const void*, v8::Eternal<v8::Private>> symbol_map_;
+  HashMap<const void*, v8::Eternal<v8::Private>> symbol_map_;
 };
 
 }  // namespace blink

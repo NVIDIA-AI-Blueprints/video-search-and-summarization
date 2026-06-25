@@ -21,9 +21,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <charconv>
 #include <cinttypes>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "perfetto/ext/base/string_view.h"
@@ -37,6 +40,15 @@ inline char Lowercase(char c) {
 
 inline char Uppercase(char c) {
   return ('a' <= c && c <= 'z') ? static_cast<char>(c + ('A' - 'a')) : c;
+}
+
+// Returns true if the character is an ASCII whitespace character.
+// This is a locale-independent version that only considers ASCII whitespace:
+// space (0x20), tab (0x09), newline (0x0A), vertical tab (0x0B),
+// form feed (0x0C), and carriage return (0x0D).
+inline bool IsSpace(char c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' ||
+         c == '\r';
 }
 
 inline std::optional<uint32_t> CStringToUInt32(const char* s, int base = 10) {
@@ -99,12 +111,76 @@ inline std::optional<double> StringToDouble(const std::string& s) {
   return CStringToDouble(s.c_str());
 }
 
+template <typename T>
+inline std::optional<T> StringViewToNumber(const base::StringView& sv,
+                                           int base = 10) {
+  // std::from_chars() does not regonize the leading '+' character and only
+  // recognizes '-' so remove the '+' if it exists to avoid errors and match
+  // the behavior of the other string conversion utilities above.
+  size_t start_offset = !sv.empty() && sv.at(0) == '+' ? 1 : 0;
+  T value;
+  auto result =
+      std::from_chars(sv.begin() + start_offset, sv.end(), value, base);
+  if (result.ec == std::errc() && result.ptr == sv.end()) {
+    return value;
+  } else {
+    return std::nullopt;
+  }
+}
+
+inline std::optional<uint32_t> StringViewToUInt32(const base::StringView& sv,
+                                                  int base = 10) {
+  // std::from_chars() does not recognize the leading '-' character for
+  // unsigned conversions, but strtol does. To Mimic the behavior of strtol,
+  // attempt a signed converion if we see a leading '-', and then cast the
+  // result back to unsigned.
+  if (sv.size() > 0 && sv.at(0) == '-') {
+    return static_cast<std::optional<uint32_t> >(
+        StringViewToNumber<int32_t>(sv, base));
+  } else {
+    return StringViewToNumber<uint32_t>(sv, base);
+  }
+}
+
+inline std::optional<int32_t> StringViewToInt32(const base::StringView& sv,
+                                                int base = 10) {
+  return StringViewToNumber<int32_t>(sv, base);
+}
+
+inline std::optional<uint64_t> StringViewToUInt64(const base::StringView& sv,
+                                                  int base = 10) {
+  // std::from_chars() does not recognize the leading '-' character for
+  // unsigned conversions, but strtol does. To Mimic the behavior of strtol,
+  // attempt a signed converion if we see a leading '-', and then cast the
+  // result back to unsigned.
+  if (sv.size() > 0 && sv.at(0) == '-') {
+    return static_cast<std::optional<uint64_t> >(
+        StringViewToNumber<int64_t>(sv, base));
+  } else {
+    return StringViewToNumber<uint64_t>(sv, base);
+  }
+}
+
+inline std::optional<int64_t> StringViewToInt64(const base::StringView& sv,
+                                                int base = 10) {
+  return StringViewToNumber<int64_t>(sv, base);
+}
+
+// TODO: As of Clang 19.0 std::from_chars is unimplemented for type double
+// despite being part of C++17 standard, and already being supported by GCC and
+// MSVC. Enable this once we have double support in Clang.
+// inline std::optional<double> StringViewToDouble(const base::StringView& sv) {
+//   return StringViewToNumber<double>(sv);
+// }
+
 bool StartsWith(const std::string& str, const std::string& prefix);
 bool EndsWith(const std::string& str, const std::string& suffix);
 bool StartsWithAny(const std::string& str,
                    const std::vector<std::string>& prefixes);
 bool Contains(const std::string& haystack, const std::string& needle);
 bool Contains(const std::string& haystack, char needle);
+bool Contains(const std::vector<std::string>& haystack,
+              const std::string& needle);
 size_t Find(const StringView& needle, const StringView& haystack);
 bool CaseInsensitiveEqual(const std::string& first, const std::string& second);
 std::string Join(const std::vector<std::string>& parts,
@@ -113,7 +189,9 @@ std::vector<std::string> SplitString(const std::string& text,
                                      const std::string& delimiter);
 std::string StripPrefix(const std::string& str, const std::string& prefix);
 std::string StripSuffix(const std::string& str, const std::string& suffix);
+std::string_view TrimWhitespace(std::string_view str);
 std::string TrimWhitespace(const std::string& str);
+std::string_view TrimWhitespace(const char* str);
 std::string ToLower(const std::string& str);
 std::string ToUpper(const std::string& str);
 std::string StripChars(const std::string& str,
@@ -129,6 +207,19 @@ std::string Uint64ToHexStringNoPrefix(uint64_t number);
 std::string ReplaceAll(std::string str,
                        const std::string& to_replace,
                        const std::string& replacement);
+
+// Checks if all characters in the input string view `str` are ASCII.
+//
+// If so, the function returns true and `output` is not modified.
+// If `str` contains non-ASCII characters, the function returns false,
+// removes invalid UTF-8 characters from `str`, and stores the result in
+// `output`.
+bool CheckAsciiAndRemoveInvalidUTF8(base::StringView str, std::string& output);
+
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+bool WideToUTF8(const std::wstring& source, std::string& output);
+bool UTF8ToWide(const std::string& source, std::wstring& output);
+#endif  // PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
 
 // A BSD-style strlcpy without the return value.
 // Copies at most |dst_size|-1 characters. Unlike strncpy, it always \0

@@ -13,7 +13,12 @@
 
 #include <jni.h>
 
+#include <optional>
+
+#include "absl/base/macros.h"
+#include "api/environment/environment.h"
 #include "api/media_stream_interface.h"
+#include "api/scoped_refptr.h"
 #include "rtc_base/thread.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 
@@ -30,11 +35,22 @@ class JavaVideoTrackSourceInterface : public VideoTrackSourceInterface {
 };
 
 // Creates an instance of JavaVideoTrackSourceInterface,
-rtc::scoped_refptr<JavaVideoTrackSourceInterface> CreateJavaVideoSource(
-    JNIEnv* env,
-    rtc::Thread* signaling_thread,
+scoped_refptr<JavaVideoTrackSourceInterface> CreateJavaVideoSource(
+    JNIEnv* jni,
+    Thread* signaling_thread,
     bool is_screencast,
-    bool align_timestamps);
+    bool align_timestamps,
+    std::optional<Environment> env);
+
+ABSL_DEPRECATE_AND_INLINE()
+inline scoped_refptr<JavaVideoTrackSourceInterface> CreateJavaVideoSource(
+    JNIEnv* jni,
+    Thread* signaling_thread,
+    bool is_screencast,
+    bool align_timestamps) {
+  return CreateJavaVideoSource(jni, signaling_thread, is_screencast,
+                               align_timestamps, std::nullopt);
+}
 
 }  // namespace webrtc
 

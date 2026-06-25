@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include "base/functional/bind.h"
 #include "base/threading/platform_thread.h"
-#include "third_party/blink/renderer/platform/heap/heap_buildflags.h"
+#include "third_party/blink/public/public_buildflags.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_copier.h"
 #include "v8/include/cppgc/cross-thread-persistent.h"
 #include "v8/include/cppgc/source-location.h"
@@ -70,6 +70,9 @@ class BasicCrossThreadHandle {
     return ref_.Get();
   }
 
+  // Clears the stored object.
+  void Clear() { ref_.Clear(); }
+
  private:
   template <typename U, typename V>
   friend class blink::BasicUnwrappingCrossThreadHandle;
@@ -107,6 +110,9 @@ class BasicUnwrappingCrossThreadHandle final
   // Re-expose the actual getter for the underlying object.
   using Base::GetOnCreationThread;
 
+  // Re-expose the clear method for the underlying object.
+  using Base::Clear;
+
   // Returns whether a value is set.  May only be accessed on the thread the
   // original CrossThreadHandle object was created.
   //
@@ -121,24 +127,8 @@ class BasicUnwrappingCrossThreadHandle final
 };
 
 }  // namespace internal
+
 }  // namespace blink
-
-namespace WTF {
-
-template <typename T, typename WeaknessPolicy>
-struct CrossThreadCopier<
-    blink::internal::BasicCrossThreadHandle<T, WeaknessPolicy>>
-    : public CrossThreadCopierPassThrough<
-          blink::internal::BasicCrossThreadHandle<T, WeaknessPolicy>> {};
-
-template <typename T, typename WeaknessPolicy>
-struct CrossThreadCopier<
-    blink::internal::BasicUnwrappingCrossThreadHandle<T, WeaknessPolicy>>
-    : public CrossThreadCopierPassThrough<
-          blink::internal::BasicUnwrappingCrossThreadHandle<T,
-                                                            WeaknessPolicy>> {};
-
-}  // namespace WTF
 
 namespace base {
 

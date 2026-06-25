@@ -10,17 +10,17 @@
 #ifndef NET_DCSCTP_TX_RETRANSMISSION_QUEUE_H_
 #define NET_DCSCTP_TX_RETRANSMISSION_QUEUE_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <map>
-#include <set>
-#include <string>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
+#include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/common/sequence_numbers.h"
 #include "net/dcsctp/packet/chunk/forward_tsn_chunk.h"
 #include "net/dcsctp/packet/chunk/iforward_tsn_chunk.h"
@@ -29,9 +29,9 @@
 #include "net/dcsctp/public/dcsctp_handover_state.h"
 #include "net/dcsctp/public/dcsctp_options.h"
 #include "net/dcsctp/public/dcsctp_socket.h"
+#include "net/dcsctp/public/types.h"
 #include "net/dcsctp/timer/timer.h"
 #include "net/dcsctp/tx/outstanding_data.h"
-#include "net/dcsctp/tx/retransmission_timeout.h"
 #include "net/dcsctp/tx/send_queue.h"
 
 namespace dcsctp {
@@ -60,7 +60,7 @@ class RetransmissionQueue {
                       TSN my_initial_tsn,
                       size_t a_rwnd,
                       SendQueue& send_queue,
-                      std::function<void(DurationMs rtt)> on_new_rtt,
+                      std::function<void(webrtc::TimeDelta rtt)> on_new_rtt,
                       std::function<void()> on_clear_retransmission_counter,
                       Timer& t3_rtx,
                       const DcSctpOptions& options,
@@ -69,7 +69,7 @@ class RetransmissionQueue {
 
   // Handles a received SACK. Returns true if the `sack` was processed and
   // false if it was discarded due to received out-of-order and not relevant.
-  bool HandleSack(TimeMs now, const SackChunk& sack);
+  bool HandleSack(webrtc::Timestamp now, const SackChunk& sack);
 
   // Handles an expired retransmission timer.
   void HandleT3RtxTimerExpiry();
@@ -90,7 +90,7 @@ class RetransmissionQueue {
   // called prior to this method, to abandon expired chunks, as this method will
   // not expire any chunks.
   std::vector<std::pair<TSN, Data>> GetChunksToSend(
-      TimeMs now,
+      webrtc::Timestamp now,
       size_t bytes_remaining_in_packet);
 
   // Returns the internal state of all queued chunks. This is only used in
@@ -103,6 +103,10 @@ class RetransmissionQueue {
   // Returns the next TSN that will be allocated for sent DATA chunks.
   TSN next_tsn() const { return outstanding_data_.next_tsn().Wrap(); }
 
+  TSN last_assigned_tsn() const {
+    return UnwrappedTSN::AddTo(outstanding_data_.next_tsn(), -1).Wrap();
+  }
+
   // Returns the size of the congestion window, in bytes. This is the number of
   // bytes that may be in-flight.
   size_t cwnd() const { return cwnd_; }
@@ -113,23 +117,21 @@ class RetransmissionQueue {
   // Returns the current receiver window size.
   size_t rwnd() const { return rwnd_; }
 
-  // Returns the number of bytes of packets that are in-flight.
-  size_t outstanding_bytes() const {
-    return outstanding_data_.outstanding_bytes();
+  size_t rtx_packets_count() const { return rtx_packets_count_; }
+  uint64_t rtx_bytes_count() const { return rtx_bytes_count_; }
+
+  // How many inflight bytes there are, as sent on the wire as packets.
+  size_t unacked_packet_bytes() const {
+    return outstanding_data_.unacked_packet_bytes();
   }
 
   // Returns the number of DATA chunks that are in-flight.
-  size_t outstanding_items() const {
-    return outstanding_data_.outstanding_items();
-  }
-
-  // Indicates if the congestion control algorithm allows data to be sent.
-  bool can_send_data() const;
+  size_t unacked_items() const { return outstanding_data_.unacked_items(); }
 
   // Given the current time `now`, it will evaluate if there are chunks that
   // have expired and that need to be discarded. It returns true if a
   // FORWARD-TSN should be sent.
-  bool ShouldSendForwardTsn(TimeMs now);
+  bool ShouldSendForwardTsn(webrtc::Timestamp now);
 
   // Creates a FORWARD-TSN chunk.
   ForwardTsnChunk CreateForwardTsn() const {
@@ -145,9 +147,7 @@ class RetransmissionQueue {
   // to stream resetting.
   void PrepareResetStream(StreamID stream_id);
   bool HasStreamsReadyToBeReset() const;
-  std::vector<StreamID> GetStreamsReadyToBeReset() const {
-    return send_queue_.GetStreamsReadyToBeReset();
-  }
+  std::vector<StreamID> BeginResetStreams();
   void CommitResetStreams();
   void RollbackResetStreams();
 
@@ -180,7 +180,7 @@ class RetransmissionQueue {
 
   // When a SACK chunk is received, this method will be called which _may_ call
   // into the `RetransmissionTimeout` to update the RTO.
-  void UpdateRTT(TimeMs now, UnwrappedTSN cumulative_tsn_ack);
+  void UpdateRTT(webrtc::Timestamp now, UnwrappedTSN cumulative_tsn_ack);
 
   // If the congestion control is in "fast recovery mode", this may be exited
   // now.
@@ -192,7 +192,7 @@ class RetransmissionQueue {
 
   // Update the congestion control algorithm given as the cumulative ack TSN
   // value has increased, as reported in an incoming SACK chunk.
-  void HandleIncreasedCumulativeTsnAck(size_t outstanding_bytes,
+  void HandleIncreasedCumulativeTsnAck(size_t unacked_packet_bytes,
                                        size_t total_bytes_acked);
   // Update the congestion control algorithm, given as packet loss has been
   // detected, as reported in an incoming SACK chunk.
@@ -210,22 +210,15 @@ class RetransmissionQueue {
                : CongestionAlgorithmPhase::kCongestionAvoidance;
   }
 
-  // Returns the number of bytes that may be sent in a single packet according
-  // to the congestion control algorithm.
-  size_t max_bytes_to_send() const;
-
   DcSctpSocketCallbacks& callbacks_;
   const DcSctpOptions options_;
-  // The minimum bytes required to be available in the congestion window to
-  // allow packets to be sent - to avoid sending too small packets.
-  const size_t min_bytes_required_to_send_;
   // If the peer supports RFC3758 - SCTP Partial Reliability Extension.
   const bool partial_reliability_;
   const absl::string_view log_prefix_;
   // The size of the data chunk (DATA/I-DATA) header that is used.
   const size_t data_chunk_header_size_;
   // Called when a new RTT measurement has been done
-  const std::function<void(DurationMs rtt)> on_new_rtt_;
+  const std::function<void(webrtc::TimeDelta rtt)> on_new_rtt_;
   // Called when a SACK has been seen that cleared the retransmission counter.
   const std::function<void()> on_clear_retransmission_counter_;
   // The retransmission counter.
@@ -241,9 +234,14 @@ class RetransmissionQueue {
   size_t ssthresh_;
   // Partial Bytes Acked. See RFC4960.
   size_t partial_bytes_acked_;
+
+  // See `dcsctp::Metrics`.
+  size_t rtx_packets_count_ = 0;
+  uint64_t rtx_bytes_count_ = 0;
+
   // If set, fast recovery is enabled until this TSN has been cumulative
   // acked.
-  absl::optional<UnwrappedTSN> fast_recovery_exit_tsn_ = absl::nullopt;
+  std::optional<UnwrappedTSN> fast_recovery_exit_tsn_ = std::nullopt;
 
   // The send queue.
   SendQueue& send_queue_;

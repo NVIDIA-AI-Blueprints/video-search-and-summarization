@@ -41,7 +41,9 @@ private:
     void test_jConsistencyOddLocales();
     void testBestPattern();
     void testDateTimePatterns();
+    void testISO8601();
     void testRegionOverride();
+    void testAlphabeticSubstitution23114();
 
     enum { kNumDateTimePatterns = 4 };
     typedef struct {

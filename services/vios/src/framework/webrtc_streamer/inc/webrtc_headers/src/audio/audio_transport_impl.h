@@ -11,15 +11,18 @@
 #ifndef AUDIO_AUDIO_TRANSPORT_IMPL_H_
 #define AUDIO_AUDIO_TRANSPORT_IMPL_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
+#include "api/audio/audio_device_defines.h"
 #include "api/audio/audio_mixer.h"
+#include "api/audio/audio_processing.h"
 #include "api/scoped_refptr.h"
 #include "common_audio/resampler/include/push_resampler.h"
 #include "modules/async_audio_processing/async_audio_processing.h"
-#include "modules/audio_device/include/audio_device.h"
-#include "modules/audio_processing/include/audio_processing.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 
@@ -63,7 +66,7 @@ class AudioTransportImpl : public AudioTransport {
       uint32_t currentMicLevel,
       bool keyPressed,
       uint32_t& newMicLevel,
-      absl::optional<int64_t> estimated_capture_time_ns) override;
+      std::optional<int64_t> estimated_capture_time_ns) override;
 
   int32_t NeedMorePlayData(size_t nSamples,
                            size_t nBytesPerSample,
@@ -107,7 +110,7 @@ class AudioTransportImpl : public AudioTransport {
 
   // Render side.
 
-  rtc::scoped_refptr<AudioMixer> mixer_;
+  scoped_refptr<AudioMixer> mixer_;
   AudioFrame mixed_frame_;
   // Converts mixed audio to the audio device output rate.
   PushResampler<int16_t> render_resampler_;

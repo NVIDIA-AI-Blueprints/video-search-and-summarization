@@ -23,16 +23,21 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_RESOURCE_IMAGE_RESOURCE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_RESOURCE_IMAGE_RESOURCE_H_
 
+#include <variant>
+
+#include "base/containers/span.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_info.h"
 #include "third_party/blink/renderer/core/loader/resource/multipart_image_resource_parser.h"
+#include "third_party/blink/renderer/platform/bindings/v8_external_memory_accounter.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 
@@ -62,8 +67,13 @@ class CORE_EXPORT ImageResource final
 
   // TODO(hiroshige): Make Create() test-only by refactoring ImageDocument.
   static ImageResource* Create(const ResourceRequest&,
-                               scoped_refptr<const DOMWrapperWorld> world);
+                               const DOMWrapperWorld* world);
   static ImageResource* CreateForTest(const KURL&);
+
+  // This restricts speculative decoding to images that are relatively expensive
+  // to decode.
+  static constexpr int kSpeculativeDecodeMinImageSize = 10000;
+  static bool IsAboveSpeculativeDecodeSizeThreshold(const gfx::Size&);
 
   ImageResource(const ResourceRequest&,
                 const ResourceLoaderOptions&,
@@ -75,8 +85,7 @@ class CORE_EXPORT ImageResource final
 
   void DidAddClient(ResourceClient*) override;
 
-  std::pair<ResourcePriority, ResourcePriority> PriorityFromObservers()
-      override;
+  ResourceStatus GetContentStatus() const override;
 
   void AllClientsAndObserversRemoved() override;
 
@@ -85,7 +94,8 @@ class CORE_EXPORT ImageResource final
   scoped_refptr<const SharedBuffer> ResourceBuffer() const override;
   void NotifyStartLoad() override;
   void ResponseReceived(const ResourceResponse&) override;
-  void AppendData(const char*, size_t) override;
+  void AppendData(
+      std::variant<SegmentedBuffer, base::span<const char>>) override;
   void Finish(base::TimeTicks finish_time,
               base::SingleThreadTaskRunner*) override;
   void FinishAsError(const ResourceError&,
@@ -94,9 +104,19 @@ class CORE_EXPORT ImageResource final
   // For compatibility, images keep loading even if there are HTTP errors.
   bool ShouldIgnoreHTTPStatusCodeErrors() const override { return true; }
 
+  void UpdateResourceInfoFromObservers() override;
+  std::pair<std::optional<ResourcePriority>, std::optional<ResourcePriority>>
+  PriorityFromObservers() const override;
+  bool IsAboveSpeculativeDecodeSizeThreshold() const override;
+
   // MultipartImageResourceParser::Client
   void OnePartInMultipartReceived(const ResourceResponse&) final;
-  void MultipartDataReceived(const char*, size_t) final;
+  void MultipartDataReceived(base::span<const uint8_t> bytes) final;
+
+  bool RequestedSpeculativeDecode() const {
+    return requested_speculative_decode_;
+  }
+  void OnRequestSpeculativeDecode() { requested_speculative_decode_ = true; }
 
   // If the ImageResource came from a user agent CSS stylesheet then we should
   // flag it so that it can persist beyond navigation.
@@ -119,7 +139,7 @@ class CORE_EXPORT ImageResource final
 
   // Only for ImageResourceInfoImpl.
   void DecodeError(bool all_data_received);
-  bool IsAccessAllowed(
+  bool IsCorsSameOrigin(
       ImageResourceInfo::DoesCurrentFrameHaveSingleSecurityOrigin) const;
 
   bool HasClientsOrObservers() const override;
@@ -132,6 +152,7 @@ class CORE_EXPORT ImageResource final
   void DestroyDecodedDataIfPossible() override;
   void DestroyDecodedDataForFailedRevalidation() override;
 
+  void IntegrityFailure();
   void FlushImageIfNeeded();
 
   Member<ImageResourceContent> content_;
@@ -147,6 +168,10 @@ class CORE_EXPORT ImageResource final
   bool is_referenced_from_ua_stylesheet_ = false;
 
   bool is_pending_flushing_ = false;
+
+  bool requested_speculative_decode_ = false;
+
+  V8ExternalMemoryAccounter external_memory_accounter_;
 };
 
 template <>

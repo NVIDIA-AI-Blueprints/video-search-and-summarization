@@ -5,6 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_FENCED_FRAME_FENCED_FRAME_UTILS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_FENCED_FRAME_FENCED_FRAME_UTILS_H_
 
+#include <optional>
+
 #include "services/network/public/cpp/web_sandbox_flags.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-shared.h"
 #include "third_party/blink/public/common/common_export.h"
@@ -37,8 +39,29 @@ inline constexpr char kFencedFrameMandatoryUnsandboxedFlagsSandboxed[] =
 inline constexpr char kFencedFrameFailedSandboxLoadInTopLevelFrame[] =
     "Blink.FencedFrame.FailedSandboxLoadInTopLevelFrame";
 
+inline constexpr char kAutomaticBeaconOutcomeHistogram[] =
+    "Navigation.AutomaticBeaconOutcome";
+
+inline constexpr char kAutomaticBeaconEventTypeHistogram[] =
+    "Navigation.FencedFrameAutomaticBeaconEventType";
+
+inline constexpr char kFencedFrameBeaconReportingHttpResultUMA[] =
+    "Blink.FencedFrame.BeaconReportingHttpResult";
+
+inline constexpr char kFencedFrameBeaconReportingCountUMA[] =
+    "Navigation.FencedFrameBeaconReportingCountSameOrigin";
+
+inline constexpr char kFencedFrameBeaconReportingCountCrossOriginUMA[] =
+    "Navigation.FencedFrameBeaconReportingCountCrossOrigin";
+
+inline constexpr char kSameSiteAdComponentsMaxCountForWinningBidHistogram[] =
+    "Ads.InterestGroup.Auction.SameSiteAdComponentsMaxCountForWinningBid";
+
+inline constexpr char kAdComponentsCountForWinningBidHistogram[] =
+    "Ads.InterestGroup.Auction.AdComponentsCountForWinningBid";
+
 // Corresponds to the "FencedFrameCreationOutcome" histogram enumeration type in
-// tools/metrics/histograms/enums.xml.
+// tools/metrics/histograms/metadata/blink/enums.xml.
 //
 // PLEASE DO NOT REORDER, REMOVE, OR CHANGE THE MEANING OF THESE VALUES.
 enum class FencedFrameCreationOutcome {
@@ -52,6 +75,43 @@ enum class FencedFrameCreationOutcome {
   kResponseHeaderNotOptIn = 7,  // HTTP response header Supports-Loading-Mode
                                 // is not opted-in with 'fenced-frame'
   kMaxValue = kResponseHeaderNotOptIn
+};
+
+// Corresponds to the "AutomaticBeaconOutcome" histogram enumeration type in
+// tools/metrics/histograms/metadata/navigation/histograms.xml.
+//
+// PLEASE DO NOT REORDER, REMOVE, OR CHANGE THE MEANING OF THESE VALUES.
+enum class AutomaticBeaconOutcome {
+  kSuccess = 0,
+  kNoUserActivation,
+  kNotSameOriginNotOptedIn,
+  kMaxValue = kNotSameOriginNotOptedIn,
+};
+
+// Corresponds to the "FencedFrameNavigationState" histogram enumeration type in
+// tools/metrics/histograms/metadata/navigation/enums.xml.
+//
+// PLEASE DO NOT REORDER, REMOVE, OR CHANGE THE MEANING OF THESE VALUES.
+enum class FencedFrameNavigationState {
+  kBegin = 0,
+  kCommit = 1,
+  kMaxValue = kCommit
+};
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class FencedFrameBeaconReportingResult {
+  kUnknownResult = 0,
+  kDestinationEnumInvalid = 1,
+  kDestinationEnumSuccess = 2,
+  kDestinationEnumFailure = 3,
+  kDestinationUrlInvalid = 4,
+  kDestinationUrlSuccess = 5,
+  kDestinationUrlFailure = 6,
+  kAutomaticInvalid = 7,
+  kAutomaticSuccess = 8,
+  kAutomaticFailure = 9,
+  kMaxValue = kAutomaticFailure
 };
 
 // Whether or not a fenced frame is allowed to be navigated to `url`. For now
@@ -74,8 +134,17 @@ BLINK_COMMON_EXPORT void RecordFencedFrameFailedSandboxLoadInTopLevelFrame(
     bool is_main_frame);
 
 // Automatic beacon type definitions
-inline constexpr char kFencedFrameTopNavigationBeaconType[] =
+inline constexpr char kDeprecatedFencedFrameTopNavigationBeaconType[] =
     "reserved.top_navigation";
+inline constexpr char kFencedFrameTopNavigationStartBeaconType[] =
+    "reserved.top_navigation_start";
+inline constexpr char kFencedFrameTopNavigationCommitBeaconType[] =
+    "reserved.top_navigation_commit";
+
+inline constexpr const char* kFencedFrameAutomaticBeaconTypes[] = {
+    kDeprecatedFencedFrameTopNavigationBeaconType,
+    kFencedFrameTopNavigationStartBeaconType,
+    kFencedFrameTopNavigationCommitBeaconType};
 
 // Prefix of reserved event types for private aggregation API
 inline constexpr char kFencedFrameReservedPAEventPrefix[] = "reserved.";

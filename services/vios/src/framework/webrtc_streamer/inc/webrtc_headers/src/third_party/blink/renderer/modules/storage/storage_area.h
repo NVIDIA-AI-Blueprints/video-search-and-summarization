@@ -46,6 +46,9 @@ class StorageArea final : public ScriptWrappable,
 
  public:
   enum class StorageType { kLocalStorage, kSessionStorage };
+  static const char kAccessDataMessage[];
+  static const char kAccessDeniedMessage[];
+  static const char kAccessSandboxedMessage[];
 
   static StorageArea* Create(LocalDOMWindow*,
                              scoped_refptr<CachedStorageArea>,
@@ -84,7 +87,7 @@ class StorageArea final : public ScriptWrappable,
   bool EnqueueStorageEvent(const String& key,
                            const String& old_value,
                            const String& new_value,
-                           const String& url) override;
+                           const KURL& url) override;
 
   blink::WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
       const char* name,

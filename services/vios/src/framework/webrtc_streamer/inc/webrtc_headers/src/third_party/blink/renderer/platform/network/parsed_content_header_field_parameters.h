@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_NETWORK_PARSED_CONTENT_HEADER_FIELD_PARAMETERS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_NETWORK_PARSED_CONTENT_HEADER_FIELD_PARAMETERS_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -41,16 +42,13 @@ class PLATFORM_EXPORT ParsedContentHeaderFieldParameters final {
     kRelaxed,
   };
 
-  // We use absl::optional instead of WTF::Optional which requires its content
-  // type to be fully defined. They are essentially same, so uses of this class
-  // can (and should) use WTF::Optional to store the returned value.
-  static absl::optional<ParsedContentHeaderFieldParameters> Parse(
+  static std::optional<ParsedContentHeaderFieldParameters> Parse(
       HeaderFieldTokenizer,
       Mode);
 
   // Note that in the case of multiple values for the same name, the last value
   // is returned.
-  String ParameterValueForName(const String&) const;
+  String ParameterValueForName(StringView) const;
   size_t ParameterCount() const;
   bool HasDuplicatedNames() const;
 

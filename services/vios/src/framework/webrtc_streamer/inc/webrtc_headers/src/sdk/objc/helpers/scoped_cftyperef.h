@@ -13,7 +13,8 @@
 #define SDK_OBJC_HELPERS_SCOPED_CFTYPEREF_H_
 
 #include <CoreFoundation/CoreFoundation.h>
-namespace rtc {
+
+namespace webrtc {
 
 // RETAIN: ScopedTypeRef should retain the object when it takes
 // ownership.
@@ -111,6 +112,7 @@ static ScopedCFTypeRef<T> ScopedCF(T cftype) {
   return ScopedCFTypeRef<T>(cftype);
 }
 
-}  // namespace rtc
+}  // namespace webrtc
+
 
 #endif  // SDK_OBJC_HELPERS_SCOPED_CFTYPEREF_H_

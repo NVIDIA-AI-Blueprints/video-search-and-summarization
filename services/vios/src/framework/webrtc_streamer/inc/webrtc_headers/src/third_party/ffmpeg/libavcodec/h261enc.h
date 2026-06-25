@@ -28,12 +28,8 @@
 #ifndef AVCODEC_H261ENC_H
 #define AVCODEC_H261ENC_H
 
-#include "mpegvideo.h"
+typedef struct MPVEncContext MPVEncContext;
 
-void ff_h261_reorder_mb_index(MpegEncContext *s);
-void ff_h261_encode_mb(MpegEncContext *s, int16_t block[6][64],
-                       int motion_x, int motion_y);
-void ff_h261_encode_picture_header(MpegEncContext *s);
-int ff_h261_encode_init(MpegEncContext *s);
+void ff_h261_reorder_mb_index(MPVEncContext *s);
 
 #endif

@@ -98,7 +98,7 @@ enum {
     // Pass this element through unchanged.
     BSF_ELEMENT_PASS,
     // Insert this element, replacing any existing instances of it.
-    // Associated values may be provided explicitly (as addtional options)
+    // Associated values may be provided explicitly (as additional options)
     // or implicitly (either as side data or deduced from other parts of
     // the stream).
     BSF_ELEMENT_INSERT,
@@ -112,7 +112,7 @@ enum {
 #define BSF_ELEMENT_OPTIONS_PIR(name, help, field, opt_flags) \
     { name, help, OFFSET(field), AV_OPT_TYPE_INT, \
         { .i64 = BSF_ELEMENT_PASS }, \
-        BSF_ELEMENT_PASS, BSF_ELEMENT_REMOVE, opt_flags, name }, \
+        BSF_ELEMENT_PASS, BSF_ELEMENT_REMOVE, opt_flags, .unit = name }, \
     { "pass",   NULL, 0, AV_OPT_TYPE_CONST, \
         { .i64 = BSF_ELEMENT_PASS   }, .flags = opt_flags, .unit = name }, \
     { "insert", NULL, 0, AV_OPT_TYPE_CONST, \
@@ -123,7 +123,7 @@ enum {
 #define BSF_ELEMENT_OPTIONS_PIRE(name, help, field, opt_flags) \
     { name, help, OFFSET(field), AV_OPT_TYPE_INT, \
         { .i64 = BSF_ELEMENT_PASS }, \
-        BSF_ELEMENT_PASS, BSF_ELEMENT_EXTRACT, opt_flags, name }, \
+        BSF_ELEMENT_PASS, BSF_ELEMENT_EXTRACT, opt_flags, .unit = name }, \
     { "pass",   NULL, 0, AV_OPT_TYPE_CONST, \
         { .i64 = BSF_ELEMENT_PASS    }, .flags = opt_flags, .unit = name }, \
     { "insert", NULL, 0, AV_OPT_TYPE_CONST, \

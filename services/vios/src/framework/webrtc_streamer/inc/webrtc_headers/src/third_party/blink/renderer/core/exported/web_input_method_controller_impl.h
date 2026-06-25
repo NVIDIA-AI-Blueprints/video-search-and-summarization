@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EXPORTED_WEB_INPUT_METHOD_CONTROLLER_IMPL_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EXPORTED_WEB_INPUT_METHOD_CONTROLLER_IMPL_H_
 
+#include "third_party/blink/public/mojom/input/input_handler.mojom-blink-forward.h"
 #include "third_party/blink/public/web/web_input_method_controller.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -37,12 +38,18 @@ class CORE_EXPORT WebInputMethodControllerImpl
 
   // WebInputMethodController overrides.
   bool SetComposition(const WebString& text,
-                      const WebVector<ui::ImeTextSpan>& ime_text_spans,
+                      const std::vector<ui::ImeTextSpan>& ime_text_spans,
+                      const WebRange& replacement_range,
+                      int selection_start,
+                      int selection_end,
+                      mojom::blink::ImeState ime_state) override;
+  bool SetComposition(const WebString& text,
+                      const std::vector<ui::ImeTextSpan>& ime_text_spans,
                       const WebRange& replacement_range,
                       int selection_start,
                       int selection_end) override;
   bool CommitText(const WebString& text,
-                  const WebVector<ui::ImeTextSpan>& ime_text_spans,
+                  const std::vector<ui::ImeTextSpan>& ime_text_spans,
                   const WebRange& replacement_range,
                   int relative_caret_position) override;
   bool FinishComposingText(
@@ -51,13 +58,12 @@ class CORE_EXPORT WebInputMethodControllerImpl
   int ComputeWebTextInputNextPreviousFlags() override;
   WebTextInputType TextInputType() override;
   WebRange CompositionRange() const override;
-  bool GetCompositionCharacterBounds(WebVector<gfx::Rect>& bounds) override;
+  bool GetCompositionCharacterBounds(std::vector<gfx::Rect>& bounds) override;
 
   WebRange GetSelectionOffsets() const override;
 
   void GetLayoutBounds(gfx::Rect* control_bounds,
                        gfx::Rect* selection_bounds) override;
-  bool IsVirtualKeyboardPolicyManual() const override;
   bool IsEditContextActive() const override;
   ui::mojom::VirtualKeyboardVisibilityRequest
   GetLastVirtualKeyboardVisibilityRequest() const override;

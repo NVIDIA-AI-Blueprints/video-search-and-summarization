@@ -6,12 +6,15 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CSS_COLOR_MIX_VALUE_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
+
+class CSSLengthResolver;
+class CSSPrimitiveValue;
+
 namespace cssvalue {
 
 // This is a class for storing the result of parsing the color-mix function
@@ -41,19 +44,40 @@ class CORE_EXPORT CSSColorMixValue : public CSSValue {
 
   const CSSValue& Color1() const { return *color1_; }
   const CSSValue& Color2() const { return *color2_; }
-  const CSSPrimitiveValue* Percentage1() const { return percentage1_; }
-  const CSSPrimitiveValue* Percentage2() const { return percentage2_; }
+  const CSSPrimitiveValue* Percentage1() const { return percentage1_.Get(); }
+  const CSSPrimitiveValue* Percentage2() const { return percentage2_.Get(); }
   Color::ColorSpace ColorInterpolationSpace() const {
     return color_interpolation_space_;
   }
   Color::HueInterpolationMethod HueInterpolationMethod() const {
     return hue_interpolation_method_;
   }
+
+  // Mix `color1` with `color2` using the parameters defined by the color-mix()
+  // function defined by this CSS value.
+  Color Mix(const Color& color1,
+            const Color& color2,
+            const CSSLengthResolver& length_resolver) const;
+
   // https://www.w3.org/TR/css-color-5/#color-mix-percent-norm
   static bool NormalizePercentages(const CSSPrimitiveValue* percentage1,
                                    const CSSPrimitiveValue* percentage2,
                                    double& mix_amount,
-                                   double& alpha_multiplier);
+                                   double& alpha_multiplier,
+                                   const CSSLengthResolver& length_resolver);
+  bool NormalizePercentages(double& mix_amount,
+                            double& alpha_multiplier,
+                            const CSSLengthResolver& length_resolver) const {
+    return NormalizePercentages(Percentage1(), Percentage2(), mix_amount,
+                                alpha_multiplier, length_resolver);
+  }
+
+  // https://drafts.csswg.org/css-color-5/#serial-color-mix
+  static std::pair<const CSSPrimitiveValue*, const CSSPrimitiveValue*>
+  PercentageValuesForSerialization(const CSSPrimitiveValue* p1,
+                                   const CSSPrimitiveValue* p2);
+
+  bool HasRandomFunctions() const;
 
  private:
   Member<const CSSValue> color1_;

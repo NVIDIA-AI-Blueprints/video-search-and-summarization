@@ -17,312 +17,454 @@
 #ifndef SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_UTILS_H_
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_UTILS_H_
 
-#include <sqlite3.h>
-#include <unordered_map>
+#include <cerrno>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
+#include "perfetto/base/logging.h"
+#include "perfetto/base/status.h"
 #include "perfetto/ext/base/base64.h"
 #include "perfetto/ext/base/file_utils.h"
+#include "perfetto/ext/base/fnv_hash.h"
+#include "perfetto/ext/base/regex.h"
+#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/string_utils.h"
+#include "perfetto/ext/base/utils.h"
 #include "perfetto/ext/trace_processor/demangle.h"
-#include "protos/perfetto/common/builtin_clock.pbzero.h"
+#include "perfetto/public/compiler.h"
 #include "src/trace_processor/export_json.h"
-#include "src/trace_processor/importers/common/clock_tracker.h"
-#include "src/trace_processor/perfetto_sql/intrinsics/functions/sql_function.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_function.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_result.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_type.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_value.h"
 #include "src/trace_processor/sqlite/sqlite_utils.h"
-#include "src/trace_processor/util/status_macros.h"
+#include "src/trace_processor/storage/trace_storage.h"
+#include "src/trace_processor/types/variadic.h"
+#include "src/trace_processor/util/glob.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
-struct ExportJson : public SqlFunction {
-  using Context = TraceStorage;
-  static base::Status Run(TraceStorage* storage,
-                          size_t /*argc*/,
-                          sqlite3_value** argv,
-                          SqlValue& /*out*/,
-                          Destructors&);
+struct ExportJson : public sqlite::Function<ExportJson> {
+  static constexpr char kName[] = "export_json";
+  static constexpr int kArgCount = 1;
+
+  using UserData = TraceStorage;
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
-base::Status ExportJson::Run(TraceStorage* storage,
-                             size_t /*argc*/,
-                             sqlite3_value** argv,
-                             SqlValue& /*out*/,
-                             Destructors&) {
+void ExportJson::Step(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  PERFETTO_DCHECK(argc == 1);
+
+  auto* storage = GetUserData(ctx);
   base::ScopedFstream output;
-  if (sqlite3_value_type(argv[0]) == SQLITE_INTEGER) {
-    // Assume input is an FD.
-    output.reset(fdopen(sqlite3_value_int(argv[0]), "w"));
-    if (!output) {
-      return base::ErrStatus(
-          "EXPORT_JSON: Couldn't open output file from given FD");
+
+  switch (sqlite::value::Type(argv[0])) {
+    case sqlite::Type::kNull:
+      return sqlite::utils::SetError(ctx,
+                                     "EXPORT_JSON: filename cannot be null");
+    case sqlite::Type::kInteger: {
+      // Assume input is an FD.
+      int fd = static_cast<int>(sqlite::value::Int64(argv[0]));
+      output.reset(fdopen(fd, "w"));
+      if (!output) {
+        return sqlite::utils::SetError(
+            ctx, "EXPORT_JSON: Couldn't open output file from given FD");
+      }
+      break;
     }
-  } else {
-    const char* filename =
-        reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
-    output = base::OpenFstream(filename, "w");
-    if (!output) {
-      return base::ErrStatus("EXPORT_JSON: Couldn't open output file");
+    case sqlite::Type::kText: {
+      const char* filename = sqlite::value::Text(argv[0]);
+      output = base::OpenFstream(filename, "w");
+      if (!output) {
+        return sqlite::utils::SetError(
+            ctx, "EXPORT_JSON: Couldn't open output file");
+      }
+      break;
     }
+    case sqlite::Type::kFloat:
+    case sqlite::Type::kBlob:
+      return sqlite::utils::SetError(
+          ctx,
+          "EXPORT_JSON: argument must be filename string or file descriptor");
   }
-  return json::ExportJson(storage, output.get());
+
+  auto status = json::ExportJson(storage, output.get());
+  if (!status.ok()) {
+    return sqlite::utils::SetError(ctx, status);
+  }
+
+  // ExportJson returns no value (void function)
+  return sqlite::utils::ReturnNullFromFunction(ctx);
 }
 
-struct Hash : public SqlFunction {
-  static base::Status Run(void*,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors&);
+struct Hash : public sqlite::Function<Hash> {
+  static constexpr char kName[] = "hash";
+  static constexpr int kArgCount = -1;  // Variable arguments
+
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
-base::Status Hash::Run(void*,
-                       size_t argc,
-                       sqlite3_value** argv,
-                       SqlValue& out,
-                       Destructors&) {
-  base::Hasher hash;
-  for (size_t i = 0; i < argc; ++i) {
+void Hash::Step(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  PERFETTO_DCHECK(argc >= 0);
+
+  base::FnvHasher hash;
+  for (int i = 0; i < argc; ++i) {
     sqlite3_value* value = argv[i];
-    int type = sqlite3_value_type(value);
-    switch (type) {
-      case SQLITE_INTEGER:
-        hash.Update(sqlite3_value_int64(value));
+    switch (sqlite::value::Type(value)) {
+      case sqlite::Type::kInteger:
+        hash.Update(sqlite::value::Int64(value));
         break;
-      case SQLITE_TEXT: {
-        const char* ptr =
-            reinterpret_cast<const char*>(sqlite3_value_text(value));
+      case sqlite::Type::kText: {
+        const char* ptr = sqlite::value::Text(value);
         hash.Update(ptr, strlen(ptr));
         break;
       }
-      default:
-        return base::ErrStatus("HASH: arg %zu has unknown type %d", i, type);
+      case sqlite::Type::kNull:
+      case sqlite::Type::kFloat:
+      case sqlite::Type::kBlob:
+        return sqlite::utils::SetError(
+            ctx, base::ErrStatus("HASH: arg %d has unknown type", i));
     }
   }
-  out = SqlValue::Long(static_cast<int64_t>(hash.digest()));
-  return base::OkStatus();
+  return sqlite::result::Long(ctx, static_cast<int64_t>(hash.digest()));
 }
 
-struct Base64Encode : public SqlFunction {
-  static base::Status Run(void*,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors&);
+struct Reverse : public sqlite::Function<Reverse> {
+  static constexpr char kName[] = "__intrinsic_reverse";
+  static constexpr int kArgCount = 1;
+
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
-base::Status Base64Encode::Run(void*,
-                               size_t argc,
-                               sqlite3_value** argv,
-                               SqlValue& out,
-                               Destructors& destructors) {
-  if (argc != 1)
-    return base::ErrStatus("Unsupported number of arg passed to Base64Encode");
+void Reverse::Step(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  PERFETTO_DCHECK(argc == 1);
 
-  sqlite3_value* value = argv[0];
-  if (sqlite3_value_type(value) != SQLITE_BLOB)
-    return base::ErrStatus("Base64Encode only supports bytes argument");
+  switch (sqlite::value::Type(argv[0])) {
+    case sqlite::Type::kNull:
+      return sqlite::utils::ReturnNullFromFunction(ctx);
+    case sqlite::Type::kText: {
+      const char* in = sqlite::value::Text(argv[0]);
+      std::string_view in_str = in;
+      std::string reversed(in_str.rbegin(), in_str.rend());
 
-  size_t byte_count = static_cast<size_t>(sqlite3_value_bytes(value));
-  std::string res = base::Base64Encode(sqlite3_value_blob(value), byte_count);
-
-  std::unique_ptr<char, base::FreeDeleter> s(
-      static_cast<char*>(malloc(res.size() + 1)));
-  memcpy(s.get(), res.c_str(), res.size() + 1);
-
-  out = SqlValue::String(s.release());
-  destructors.string_destructor = free;
-
-  return base::OkStatus();
+      return sqlite::result::TransientString(ctx, reversed.c_str(),
+                                             static_cast<int>(reversed.size()));
+    }
+    case sqlite::Type::kInteger:
+    case sqlite::Type::kFloat:
+    case sqlite::Type::kBlob:
+      return sqlite::utils::SetError(ctx, "REVERSE: argument should be string");
+  }
 }
 
-struct Demangle : public SqlFunction {
-  static base::Status Run(void*,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors& destructors);
+struct Base64Encode : public sqlite::Function<Base64Encode> {
+  static constexpr char kName[] = "__intrinsic_base64_encode";
+  static constexpr int kArgCount = 1;
+
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
-base::Status Demangle::Run(void*,
-                           size_t argc,
-                           sqlite3_value** argv,
-                           SqlValue& out,
-                           Destructors& destructors) {
-  if (argc != 1)
-    return base::ErrStatus("Unsupported number of arg passed to DEMANGLE");
-  sqlite3_value* value = argv[0];
-  if (sqlite3_value_type(value) == SQLITE_NULL)
-    return base::OkStatus();
+void Base64Encode::Step(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  PERFETTO_DCHECK(argc == 1);
 
-  if (sqlite3_value_type(value) != SQLITE_TEXT)
-    return base::ErrStatus("Unsupported type of arg passed to DEMANGLE");
+  switch (sqlite::value::Type(argv[0])) {
+    case sqlite::Type::kNull:
+      return sqlite::utils::ReturnNullFromFunction(ctx);
+    case sqlite::Type::kBlob: {
+      size_t byte_count = static_cast<size_t>(sqlite::value::Bytes(argv[0]));
+      std::string res =
+          base::Base64Encode(sqlite::value::Blob(argv[0]), byte_count);
 
-  const char* mangled =
-      reinterpret_cast<const char*>(sqlite3_value_text(value));
-
-  std::unique_ptr<char, base::FreeDeleter> demangled =
-      demangle::Demangle(mangled);
-  if (!demangled)
-    return base::OkStatus();
-
-  destructors.string_destructor = free;
-  out = SqlValue::String(demangled.release());
-  return base::OkStatus();
+      return sqlite::result::TransientString(ctx, res.c_str(),
+                                             static_cast<int>(res.size()));
+    }
+    case sqlite::Type::kInteger:
+    case sqlite::Type::kFloat:
+    case sqlite::Type::kText:
+      return sqlite::utils::SetError(
+          ctx, "Base64Encode only supports bytes argument");
+  }
 }
 
-struct WriteFile : public SqlFunction {
-  using Context = TraceStorage;
-  static base::Status Run(TraceStorage* storage,
-                          size_t,
-                          sqlite3_value** argv,
-                          SqlValue&,
-                          Destructors&);
+struct Demangle : public sqlite::Function<Demangle> {
+  static constexpr char kName[] = "__intrinsic_demangle";
+  static constexpr int kArgCount = 1;
+
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
-base::Status WriteFile::Run(TraceStorage*,
-                            size_t argc,
-                            sqlite3_value** argv,
-                            SqlValue& out,
-                            Destructors&) {
-  if (argc != 2) {
-    return base::ErrStatus("WRITE_FILE: expected %d args but got %zu", 2, argc);
+void Demangle::Step(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  PERFETTO_DCHECK(argc == 1);
+
+  switch (sqlite::value::Type(argv[0])) {
+    case sqlite::Type::kNull:
+      return sqlite::utils::ReturnNullFromFunction(ctx);
+    case sqlite::Type::kText: {
+      const char* mangled = sqlite::value::Text(argv[0]);
+      std::unique_ptr<char, base::FreeDeleter> demangled =
+          demangle::Demangle(mangled);
+      if (!demangled) {
+        return sqlite::utils::ReturnNullFromFunction(ctx);
+      }
+      int len = static_cast<int>(strlen(demangled.get()));
+      return sqlite::result::RawString(ctx, demangled.release(), len, free);
+    }
+    case sqlite::Type::kInteger:
+    case sqlite::Type::kFloat:
+    case sqlite::Type::kBlob:
+      return sqlite::utils::SetError(
+          ctx, "Unsupported type of arg passed to DEMANGLE");
+  }
+}
+
+struct WriteFile : public sqlite::Function<WriteFile> {
+  static constexpr char kName[] = "write_file";
+  static constexpr int kArgCount = 2;
+
+  using UserData = TraceStorage;
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
+};
+
+void WriteFile::Step(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+  PERFETTO_DCHECK(argc == 2);
+
+  if (sqlite::value::Type(argv[0]) != sqlite::Type::kText) {
+    return sqlite::utils::SetError(
+        ctx, "WRITE_FILE: argument 1, filename must be string");
   }
 
-  base::Status status =
-      sqlite_utils::TypeCheckSqliteValue(argv[0], SqlValue::kString);
-  if (!status.ok()) {
-    return base::ErrStatus("WRITE_FILE: argument 1, filename; %s",
-                           status.c_message());
+  if (sqlite::value::Type(argv[1]) != sqlite::Type::kBlob) {
+    return sqlite::utils::SetError(
+        ctx, "WRITE_FILE: argument 2, content must be bytes");
   }
 
-  status = sqlite_utils::TypeCheckSqliteValue(argv[1], SqlValue::kBytes);
-  if (!status.ok()) {
-    return base::ErrStatus("WRITE_FILE: argument 2, content; %s",
-                           status.c_message());
-  }
-
-  const std::string filename =
-      reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
-
-  base::ScopedFstream file = base::OpenFstream(filename.c_str(), "wb");
+  const char* filename = sqlite::value::Text(argv[0]);
+  base::ScopedFstream file = base::OpenFstream(filename, "wb");
   if (!file) {
-    return base::ErrStatus("WRITE_FILE: Couldn't open output file %s (%s)",
-                           filename.c_str(), strerror(errno));
+    return sqlite::utils::SetError(
+        ctx, base::ErrStatus("WRITE_FILE: Couldn't open output file %s (%s)",
+                             filename, strerror(errno)));
   }
 
-  int int_len = sqlite3_value_bytes(argv[1]);
+  int int_len = sqlite::value::Bytes(argv[1]);
   PERFETTO_CHECK(int_len >= 0);
-  size_t len = (static_cast<size_t>(int_len));
-  // Make sure to call last as sqlite3_value_bytes can invalidate pointer
+  size_t len = static_cast<size_t>(int_len);
+  // Make sure to call last as sqlite::value::Bytes can invalidate pointer
   // returned.
-  const void* data = sqlite3_value_text(argv[1]);
+  const void* data = sqlite::value::Blob(argv[1]);
   if (fwrite(data, 1, len, file.get()) != len || fflush(file.get()) != 0) {
-    return base::ErrStatus("WRITE_FILE: Failed to write to file %s (%s)",
-                           filename.c_str(), strerror(errno));
+    return sqlite::utils::SetError(
+        ctx, base::ErrStatus("WRITE_FILE: Failed to write to file %s (%s)",
+                             filename, strerror(errno)));
   }
 
-  out = SqlValue::Long(int_len);
-
-  return util::OkStatus();
+  return sqlite::result::Long(ctx, int_len);
 }
 
-struct ExtractArg : public SqlFunction {
-  using Context = TraceStorage;
-  static base::Status Run(TraceStorage* storage,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors& destructors);
-};
+struct TablePtrBind : public sqlite::Function<TablePtrBind> {
+  static constexpr char kName[] = "__intrinsic_table_ptr_bind";
+  static constexpr int kArgCount = -1;  // Variable arguments
 
-base::Status ExtractArg::Run(TraceStorage* storage,
-                             size_t argc,
-                             sqlite3_value** argv,
-                             SqlValue& out,
-                             Destructors& destructors) {
-  if (argc != 2)
-    return base::ErrStatus("EXTRACT_ARG: 2 args required");
-
-  // If the arg set id is null, just return null as the result.
-  if (sqlite3_value_type(argv[0]) == SQLITE_NULL)
-    return base::OkStatus();
-
-  if (sqlite3_value_type(argv[0]) != SQLITE_INTEGER)
-    return base::ErrStatus("EXTRACT_ARG: 1st argument should be arg set id");
-
-  if (sqlite3_value_type(argv[1]) != SQLITE_TEXT)
-    return base::ErrStatus("EXTRACT_ARG: 2nd argument should be key");
-
-  uint32_t arg_set_id = static_cast<uint32_t>(sqlite3_value_int(argv[0]));
-  const char* key = reinterpret_cast<const char*>(sqlite3_value_text(argv[1]));
-
-  std::optional<Variadic> opt_value;
-  RETURN_IF_ERROR(storage->ExtractArg(arg_set_id, key, &opt_value));
-
-  if (!opt_value)
-    return base::OkStatus();
-
-  // This function always returns static strings (i.e. scoped to lifetime
-  // of the TraceStorage thread pool) so prevent SQLite from making copies.
-  destructors.string_destructor = sqlite_utils::kSqliteStatic;
-
-  switch (opt_value->type) {
-    case Variadic::kNull:
-      return base::OkStatus();
-    case Variadic::kInt:
-      out = SqlValue::Long(opt_value->int_value);
-      return base::OkStatus();
-    case Variadic::kUint:
-      out = SqlValue::Long(static_cast<int64_t>(opt_value->uint_value));
-      return base::OkStatus();
-    case Variadic::kString:
-      out =
-          SqlValue::String(storage->GetString(opt_value->string_value).data());
-      return base::OkStatus();
-    case Variadic::kReal:
-      out = SqlValue::Double(opt_value->real_value);
-      return base::OkStatus();
-    case Variadic::kBool:
-      out = SqlValue::Long(opt_value->bool_value);
-      return base::OkStatus();
-    case Variadic::kPointer:
-      out = SqlValue::Long(static_cast<int64_t>(opt_value->pointer_value));
-      return base::OkStatus();
-    case Variadic::kJson:
-      out = SqlValue::String(storage->GetString(opt_value->json_value).data());
-      return base::OkStatus();
-  }
-  PERFETTO_FATAL("For GCC");
-}
-
-struct SourceGeq : public SqlFunction {
-  static base::Status Run(void*,
-                          size_t,
-                          sqlite3_value**,
-                          SqlValue&,
-                          Destructors&) {
-    return base::ErrStatus(
-        "SOURCE_GEQ should not be called from the global scope");
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value**) {
+    PERFETTO_DCHECK(argc >= 0);
+    return sqlite::utils::SetError(
+        ctx,
+        "__intrinsic_table_ptr_bind should not be called from the global "
+        "scope");
   }
 };
 
-struct Glob : public SqlFunction {
-  static base::Status Run(void*,
-                          size_t,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors&) {
-    const char* pattern =
-        reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+struct Glob : public sqlite::Function<Glob> {
+  static constexpr char kName[] = "glob";
+  static constexpr int kArgCount = 2;
+
+  using AuxData = util::GlobMatcher;
+  static void Step(sqlite3_context* ctx, int, sqlite3_value** argv) {
     const char* text =
         reinterpret_cast<const char*>(sqlite3_value_text(argv[1]));
-    if (pattern && text) {
-      out = SqlValue::Long(sqlite3_strglob(pattern, text) == 0);
+    auto* aux = GetAuxData(ctx, 0);
+    if (PERFETTO_UNLIKELY(!aux || !text)) {
+      const char* pattern_str =
+          reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+      if (!text || !pattern_str) {
+        return;
+      }
+      auto ptr = std::make_unique<util::GlobMatcher>(
+          util::GlobMatcher::FromPattern(pattern_str));
+      aux = ptr.get();
+      SetAuxData(ctx, 0, std::move(ptr));
     }
-    return base::OkStatus();
+    return sqlite::result::Long(ctx, aux->Matches(text));
   }
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+struct Regexp : public sqlite::Function<Regexp> {
+  static constexpr char kName[] = "regexp";
+  static constexpr int kArgCount = 2;
+
+  using AuxData = base::Regex;
+  static void Step(sqlite3_context* ctx, int, sqlite3_value** argv) {
+    const char* text =
+        reinterpret_cast<const char*>(sqlite3_value_text(argv[1]));
+    auto* aux = GetAuxData(ctx, 0);
+    if (PERFETTO_UNLIKELY(!aux || !text)) {
+      const char* pattern_str =
+          reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+      if (!text || !pattern_str) {
+        return;
+      }
+      SQLITE_ASSIGN_OR_RETURN(ctx, auto regex,
+                              base::Regex::Create(pattern_str));
+      auto ptr = std::make_unique<AuxData>(std::move(regex));
+      aux = ptr.get();
+      SetAuxData(ctx, 0, std::move(ptr));
+    }
+    return sqlite::result::Long(ctx, aux->PartialMatch(text));
+  }
+};
+
+struct RegexpExtract : public sqlite::Function<RegexpExtract> {
+  static constexpr char kName[] = "__intrinsic_regexp_extract";
+  static constexpr int kArgCount = 2;
+
+  struct AuxData {
+    base::Regex regex;
+    std::vector<std::string_view> matches;
+  };
+
+  static void Step(sqlite3_context* ctx, int, sqlite3_value** argv) {
+    const char* text =
+        reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+    auto* aux = GetAuxData(ctx, 1);
+    if (PERFETTO_UNLIKELY(!aux || !text)) {
+      const char* pattern_str =
+          reinterpret_cast<const char*>(sqlite3_value_text(argv[1]));
+      if (!text || !pattern_str) {
+        return;
+      }
+      SQLITE_ASSIGN_OR_RETURN(ctx, auto regex,
+                              base::Regex::Create(pattern_str));
+      auto ptr = std::make_unique<AuxData>(AuxData{std::move(regex), {}});
+      aux = ptr.get();
+      SetAuxData(ctx, 1, std::move(ptr));
+    }
+
+    aux->regex.PartialMatchWithGroups(text, aux->matches);
+    if (PERFETTO_UNLIKELY(aux->matches.empty())) {
+      return;
+    }
+
+    // As per re_nsub, groups[0] is the full match. groups[1] is the first
+    // subexpression.
+    if (PERFETTO_UNLIKELY(aux->matches.size() > 2)) {
+      return sqlite::utils::SetError(
+          ctx, "REGEXP_EXTRACT: pattern has more than one group.");
+    }
+
+    std::string_view result_sv;
+    if (aux->matches.size() == 2 && !aux->matches[1].empty()) {
+      // One group, and it matched.
+      result_sv = aux->matches[1];
+    } else {
+      // No groups, or optional group did not match. Return full match.
+      result_sv = aux->matches[0];
+    }
+    return sqlite::result::TransientString(ctx, result_sv.data(),
+                                           static_cast<int>(result_sv.size()));
+  }
+};
+
+struct RegexpReplaceSimple : public sqlite::Function<RegexpReplaceSimple> {
+  static constexpr char kName[] = "__intrinsic_regexp_replace_simple";
+  static constexpr int kArgCount = 3;
+
+  using AuxData = base::Regex;
+  static void Step(sqlite3_context* ctx, int, sqlite3_value** argv) {
+    const char* text =
+        reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+    const char* replacement =
+        reinterpret_cast<const char*>(sqlite3_value_text(argv[2]));
+    auto* aux = GetAuxData(ctx, 1);
+    if (PERFETTO_UNLIKELY(!aux || !text || !replacement)) {
+      const char* pattern_str =
+          reinterpret_cast<const char*>(sqlite3_value_text(argv[1]));
+      if (!text || !pattern_str || !replacement) {
+        return;
+      }
+      SQLITE_ASSIGN_OR_RETURN(ctx, auto regex,
+                              base::Regex::Create(pattern_str));
+      auto ptr = std::make_unique<AuxData>(std::move(regex));
+      aux = ptr.get();
+      SetAuxData(ctx, 0, std::move(ptr));
+    }
+
+    // TODO(sashwinbalaji): ideally GlobalReplace should return
+    // std::unique_ptr<char[]> to avoid the copy into TransientString below.
+    const std::string result = aux->GlobalReplace(text, replacement);
+
+    return sqlite::result::TransientString(ctx, result.data(),
+                                           static_cast<int>(result.size()));
+  }
+};
+
+struct UnHex : public sqlite::Function<UnHex> {
+  static constexpr char kName[] = "__intrinsic_unhex";
+  static constexpr int kArgCount = 1;
+
+  static void Step(sqlite3_context* ctx, int, sqlite3_value** argv) {
+    sqlite::Type type = sqlite::value::Type(argv[0]);
+
+    if (type == sqlite::Type::kNull) {
+      return sqlite::result::Null(ctx);
+    }
+    if (type != sqlite::Type::kText) {
+      return sqlite::result::Error(ctx, "UNHEX: argument must be text");
+    }
+
+    std::string_view hex_str(sqlite::value::Text(argv[0]));
+
+    // Trim leading and trailing whitespace
+    size_t first = hex_str.find_first_not_of(" \t\n\r\f\v");
+    if (first == std::string_view::npos) {
+      return sqlite::result::Error(ctx,
+                                   "UNHEX: input is empty or only whitespace");
+    }
+    size_t last = hex_str.find_last_not_of(" \t\n\r\f\v");
+    hex_str = hex_str.substr(first, (last - first + 1));
+
+    // Handle optional "0x" or "0X" prefix
+    if (hex_str.length() >= 2 && hex_str[0] == '0' &&
+        (hex_str[1] == 'x' || hex_str[1] == 'X')) {
+      hex_str.remove_prefix(2);
+    }
+
+    if (hex_str.empty()) {
+      return sqlite::result::Error(ctx,
+                                   "UNHEX: hex string is empty after prefix");
+    }
+
+    std::optional<int64_t> result =
+        perfetto::base::StringViewToInt64(hex_str, 16);
+
+    if (!result.has_value()) {
+      return sqlite::result::Error(ctx,
+                                   "UNHEX: invalid or out of range hex string");
+    }
+
+    return sqlite::result::Long(ctx, *result);
+  }
+};
+
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_UTILS_H_

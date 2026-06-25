@@ -11,11 +11,16 @@
 #ifndef TEST_JITTER_LOGGING_DELAY_VARIATION_CALCULATOR_H_
 #define TEST_JITTER_LOGGING_DELAY_VARIATION_CALCULATOR_H_
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
 #include "absl/strings/string_view.h"
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
+#include "api/test/metrics/metrics_logger.h"
 #include "api/units/data_size.h"
+#include "api/units/timestamp.h"
+#include "api/video/video_frame_type.h"
 #include "test/jitter/delay_variation_calculator.h"
 
 namespace webrtc {
@@ -35,9 +40,9 @@ class LoggingDelayVariationCalculator {
   void Insert(uint32_t rtp_timestamp,
               Timestamp arrival_time,
               DataSize size,
-              absl::optional<int> spatial_layer = absl::nullopt,
-              absl::optional<int> temporal_layer = absl::nullopt,
-              absl::optional<VideoFrameType> frame_type = absl::nullopt);
+              std::optional<int> spatial_layer = std::nullopt,
+              std::optional<int> temporal_layer = std::nullopt,
+              std::optional<VideoFrameType> frame_type = std::nullopt);
 
  private:
   void LogMetrics() const;

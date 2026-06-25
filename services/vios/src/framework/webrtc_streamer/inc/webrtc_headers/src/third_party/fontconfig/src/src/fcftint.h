@@ -26,19 +26,16 @@
 #include <fontconfig/fcfreetype.h>
 
 #if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 3)) && defined(__ELF__) && !defined(__sun)
-#define FcPrivate		__attribute__((__visibility__("hidden")))
-#define HAVE_GNUC_ATTRIBUTE 1
-#include "fcftalias.h"
+#  define FcPrivate           __attribute__ ((__visibility__ ("hidden")))
+#  define HAVE_GNUC_ATTRIBUTE 1
+#  include "fcftalias.h"
 #elif defined(__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-#define FcPrivate		__hidden
+#  define FcPrivate __hidden
 #else /* not gcc >= 3.3 and not Sun Studio >= 8 */
-#define FcPrivate
+#  define FcPrivate
 #endif
 
 /* fcfreetype.c */
-FcPrivate FcBool
-FcFreeTypeIsExclusiveLang (const FcChar8  *lang);
-
 FcPrivate FcBool
 FcFreeTypeHasLang (FcPattern *pattern, const FcChar8 *lang);
 

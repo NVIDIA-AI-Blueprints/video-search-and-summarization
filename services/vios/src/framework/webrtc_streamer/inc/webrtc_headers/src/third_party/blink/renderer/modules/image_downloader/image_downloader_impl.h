@@ -37,7 +37,7 @@ class ImageDownloaderImpl final : public GarbageCollected<ImageDownloaderImpl>,
   ~ImageDownloaderImpl() override;
 
   using DownloadCallback =
-      base::OnceCallback<void(int32_t, const WTF::Vector<SkBitmap>&)>;
+      base::OnceCallback<void(int32_t, const Vector<SkBitmap>&)>;
 
   static ImageDownloaderImpl* From(LocalFrame&);
 
@@ -58,6 +58,14 @@ class ImageDownloaderImpl final : public GarbageCollected<ImageDownloaderImpl>,
                      bool bypass_cache,
                      DownloadImageCallback callback) override;
 
+  // ImageDownloader implementation. Request to asynchronously download an
+  // image. When done, |callback| will be called.
+  void DownloadImageFromAxNode(int ax_node_id,
+                               const gfx::Size& preferred_size,
+                               uint32_t max_bitmap_size,
+                               bool bypass_cache,
+                               DownloadImageCallback callback) override;
+
   // Called when downloading finishes. All frames in |images| whose size <=
   // |max_image_size| will be returned through |callback|. If all of the frames
   // are larger than |max_image_size|, the smallest frame is resized to
@@ -66,7 +74,7 @@ class ImageDownloaderImpl final : public GarbageCollected<ImageDownloaderImpl>,
   void DidDownloadImage(uint32_t max_bitmap_size,
                         DownloadImageCallback callback,
                         int32_t http_status_code,
-                        const WTF::Vector<SkBitmap>& images);
+                        const Vector<SkBitmap>& images);
 
   void CreateMojoService(
       mojo::PendingReceiver<mojom::blink::ImageDownloader> receiver);
@@ -92,7 +100,7 @@ class ImageDownloaderImpl final : public GarbageCollected<ImageDownloaderImpl>,
                      const std::string& image_data,
                      const WebString& mime_type);
 
-  typedef WTF::Vector<std::unique_ptr<MultiResolutionImageResourceFetcher>>
+  typedef Vector<std::unique_ptr<MultiResolutionImageResourceFetcher>>
       ImageResourceFetcherList;
 
   // ImageResourceFetchers schedule via FetchImage.

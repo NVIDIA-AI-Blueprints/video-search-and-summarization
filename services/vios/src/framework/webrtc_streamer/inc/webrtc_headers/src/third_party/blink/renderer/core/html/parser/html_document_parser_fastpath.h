@@ -5,25 +5,45 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_DOCUMENT_PARSER_FASTPATH_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_DOCUMENT_PARSER_FASTPATH_H_
 
+#include "base/containers/enum_set.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/parser_content_policy.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
 
+class ContainerNode;
 class Document;
 class DocumentFragment;
 class Element;
+
+// Captures additional parsing behaviors that may require special cases.
+enum class HTMLFragmentParsingBehavior {
+  // Strips initial whitespace if the context element is body. This is used
+  // for DOMParser, which expects initial whitespace to be stripped.
+  kStripInitialWhitespaceForBody = 1 << 0,
+
+  // Whether shadow roots are needed.
+  kIncludeShadowRoots = 1 << 1,
+
+  kMinValue = kStripInitialWhitespaceForBody,
+  kMaxValue = kIncludeShadowRoots,
+};
+
+using HTMLFragmentParsingBehaviorSet =
+    base::EnumSet<HTMLFragmentParsingBehavior,
+                  HTMLFragmentParsingBehavior::kMinValue,
+                  HTMLFragmentParsingBehavior::kMaxValue>;
 
 // If this fails because of an unsupported tag and
 // `failed_because_unsupported_tag` is non-null, then it is set to true.
 CORE_EXPORT bool TryParsingHTMLFragment(
     const String& source,
     Document& document,
-    DocumentFragment& fragment,
+    ContainerNode& root_node,
     Element& context_element,
     ParserContentPolicy policy,
-    bool include_shadow_roots,
+    HTMLFragmentParsingBehaviorSet behavior,
     bool* failed_because_unsupported_tag = nullptr);
 
 // Logs histograms to help track why parsing failed because of an unsupported
@@ -61,11 +81,14 @@ enum class HtmlFastPathResult {
   // This value is no longer used.
   // kFailedDirAttributeDirty = 23,
   kFailedOnAttribute = 24,
-  kFailedMaxDepth = 25,
-  kFailedBigText = 25,
+  // 25 is no longer used because it was erroneously applied to both
+  // `kFailedMaxDepth` and `kFailedBigText`.
   // This value is no longer used.
-  kFailedCssPseudoDirEnabledAndDirAttributeDirtyDeprecated = 26,
-  kMaxValue = kFailedCssPseudoDirEnabledAndDirAttributeDirtyDeprecated,
+  // kFailedCssPseudoDirEnabledAndDirAttributeDirtyDeprecated = 26,
+  // 27 is skipped due to erroneous use in C++ vs enums.xml.
+  kFailedMaxDepth = 28,
+  kFailedBigText = 29,
+  kMaxValue = kFailedBigText,
 };
 
 }  // namespace blink

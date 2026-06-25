@@ -31,9 +31,10 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_HTTP_BODY_H_
 #define THIRD_PARTY_BLINK_PUBLIC_PLATFORM_WEB_HTTP_BODY_H_
 
+#include <optional>
+
 #include "base/time/time.h"
 #include "services/network/public/mojom/data_pipe_getter.mojom-shared.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/loader/http_body_element_type.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom-shared.h"
 #include "third_party/blink/public/platform/cross_variant_mojo_util.h"
@@ -58,7 +59,7 @@ class BLINK_PLATFORM_EXPORT WebHTTPBody {
     WebString file_path;
     int64_t file_start;
     int64_t file_length;  // -1 means to the end of the file.
-    absl::optional<base::Time> modification_time;
+    std::optional<base::Time> modification_time;
     uint64_t blob_length;
     CrossVariantMojoRemote<mojom::BlobInterfaceBase> optional_blob;
     CrossVariantMojoRemote<network::mojom::DataPipeGetterInterfaceBase>
@@ -67,8 +68,8 @@ class BLINK_PLATFORM_EXPORT WebHTTPBody {
 
   ~WebHTTPBody() { Reset(); }
 
-  WebHTTPBody();
-  WebHTTPBody(const WebHTTPBody& b);
+  WebHTTPBody() = default;
+  WebHTTPBody(const WebHTTPBody& b) { Assign(b); }
   WebHTTPBody& operator=(const WebHTTPBody& b) {
     Assign(b);
     return *this;
@@ -93,12 +94,7 @@ class BLINK_PLATFORM_EXPORT WebHTTPBody {
   void AppendFileRange(const WebString&,
                        int64_t file_start,
                        int64_t file_length,
-                       const absl::optional<base::Time>& modification_time);
-  void AppendBlob(const WebString& uuid);
-  // TODO(shimazu): Remove this once Network Service is enabled.
-  void AppendBlob(const WebString& uuid,
-                  uint64_t length,
-                  CrossVariantMojoRemote<mojom::BlobInterfaceBase> blob);
+                       const std::optional<base::Time>& modification_time);
   void AppendDataPipe(
       CrossVariantMojoRemote<network::mojom::DataPipeGetterInterfaceBase>
           data_pipe_getter);
@@ -122,7 +118,7 @@ class BLINK_PLATFORM_EXPORT WebHTTPBody {
  private:
   void EnsureMutable();
 
-  WebPrivatePtr<EncodedFormData> private_;
+  WebPrivatePtrForRefCounted<EncodedFormData> private_;
 };
 
 }  // namespace blink

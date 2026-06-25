@@ -11,14 +11,15 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_SUBTRACTOR_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_SUBTRACTOR_H_
 
-#include <math.h>
-#include <stddef.h>
-
 #include <array>
+#include <cmath>
+#include <cstddef>
+#include <memory>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
 #include "api/audio/echo_canceller3_config.h"
+#include "api/environment/environment.h"
 #include "modules/audio_processing/aec3/adaptive_fir_filter.h"
 #include "modules/audio_processing/aec3/aec3_common.h"
 #include "modules/audio_processing/aec3/aec3_fft.h"
@@ -38,7 +39,8 @@ namespace webrtc {
 // Proves linear echo cancellation functionality
 class Subtractor {
  public:
-  Subtractor(const EchoCanceller3Config& config,
+  Subtractor(const Environment& env,
+             const EchoCanceller3Config& config,
              size_t num_render_channels,
              size_t num_capture_channels,
              ApmDataDumper* data_dumper,
@@ -52,7 +54,7 @@ class Subtractor {
                const Block& capture,
                const RenderSignalAnalyzer& render_signal_analyzer,
                const AecState& aec_state,
-               rtc::ArrayView<SubtractorOutput> outputs);
+               std::span<SubtractorOutput> outputs);
 
   void HandleEchoPathChange(const EchoPathVariability& echo_path_variability);
 
@@ -75,7 +77,7 @@ class Subtractor {
   void DumpFilters() {
     data_dumper_->DumpRaw(
         "aec3_subtractor_h_refined",
-        rtc::ArrayView<const float>(
+        std::span<const float>(
             refined_impulse_responses_[0].data(),
             GetTimeDomainLength(
                 refined_filters_[0]->max_filter_size_partitions())));
@@ -83,7 +85,7 @@ class Subtractor {
       RTC_DCHECK_GT(coarse_impulse_responses_.size(), 0);
       data_dumper_->DumpRaw(
           "aec3_subtractor_h_coarse",
-          rtc::ArrayView<const float>(
+          std::span<const float>(
               coarse_impulse_responses_[0].data(),
               GetTimeDomainLength(
                   coarse_filter_[0]->max_filter_size_partitions())));
@@ -130,7 +132,6 @@ class Subtractor {
   const Aec3Optimization optimization_;
   const EchoCanceller3Config config_;
   const size_t num_capture_channels_;
-  const bool use_coarse_filter_reset_hangover_;
 
   std::vector<std::unique_ptr<AdaptiveFirFilter>> refined_filters_;
   std::vector<std::unique_ptr<AdaptiveFirFilter>> coarse_filter_;

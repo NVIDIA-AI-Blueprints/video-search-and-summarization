@@ -26,6 +26,168 @@
 #include "libavcodec/packet.h"
 #include "avformat.h"
 
+struct AVDeviceInfoList;
+
+/**
+ * For an FFInputFormat with this flag set read_close() needs to be called
+ * by the caller upon read_header() failure.
+ */
+#define FF_INFMT_FLAG_INIT_CLEANUP                             (1 << 0)
+
+/*
+ * Prefer the codec framerate for avg_frame_rate computation.
+ */
+#define FF_INFMT_FLAG_PREFER_CODEC_FRAMERATE                   (1 << 1)
+
+/**
+ * Automatically parse ID3v2 metadata
+ */
+#define FF_INFMT_FLAG_ID3V2_AUTO                               (1 << 2)
+
+/**
+ * Input format stream state
+ * The stream states to be used for FFInputFormat::read_set_state
+ */
+enum FFInputFormatStreamState {
+     FF_INFMT_STATE_PLAY,
+     FF_INFMT_STATE_PAUSE,
+ };
+
+/**
+ * Command handling options
+ * Different options influencing the behaviour of
+ * the FFInputFormat::handle_command callback.
+ */
+enum FFInputFormatCommandOption {
+    FF_INFMT_COMMAND_SUBMIT,
+    FF_INFMT_COMMAND_GET_REPLY,
+};
+
+typedef struct FFInputFormat {
+    /**
+     * The public AVInputFormat. See avformat.h for it.
+     */
+    AVInputFormat p;
+
+    /**
+     * Raw demuxers store their codec ID here.
+     */
+    enum AVCodecID raw_codec_id;
+
+    /**
+     * Size of private data so that it can be allocated in the wrapper.
+     */
+    int priv_data_size;
+
+    /**
+     * Internal flags. See FF_INFMT_FLAG_* above and FF_FMT_FLAG_* in internal.h.
+     */
+    int flags_internal;
+
+    /**
+     * Tell if a given file has a chance of being parsed as this format.
+     * The buffer provided is guaranteed to be AVPROBE_PADDING_SIZE bytes
+     * big so you do not have to check for that unless you need more.
+     */
+    int (*read_probe)(const AVProbeData *);
+
+    /**
+     * Read the format header and initialize the AVFormatContext
+     * structure. Return 0 if OK. 'avformat_new_stream' should be
+     * called to create new streams.
+     */
+    int (*read_header)(struct AVFormatContext *);
+
+    /**
+     * Read one packet and put it in 'pkt'. pts and flags are also
+     * set. 'avformat_new_stream' can be called only if the flag
+     * AVFMTCTX_NOHEADER is used and only in the calling thread (not in a
+     * background thread).
+     * @return 0 on success, < 0 on error.
+     *         Upon returning an error, pkt must be unreferenced by the caller.
+     */
+    int (*read_packet)(struct AVFormatContext *, AVPacket *pkt);
+
+    /**
+     * Close the stream. The AVFormatContext and AVStreams are not
+     * freed by this function
+     */
+    int (*read_close)(struct AVFormatContext *);
+
+    /**
+     * Seek to a given timestamp relative to the frames in
+     * stream component stream_index.
+     * @param stream_index Must not be -1.
+     * @param flags Selects which direction should be preferred if no exact
+     *              match is available.
+     * @return >= 0 on success (but not necessarily the new offset)
+     */
+    int (*read_seek)(struct AVFormatContext *,
+                     int stream_index, int64_t timestamp, int flags);
+
+    /**
+     * Get the next timestamp in stream[stream_index].time_base units.
+     * @return the timestamp or AV_NOPTS_VALUE if an error occurred
+     */
+    int64_t (*read_timestamp)(struct AVFormatContext *s, int stream_index,
+                              int64_t *pos, int64_t pos_limit);
+
+    /**
+     * Change the stream state - only meaningful if using a network-based format
+     * (RTSP).
+     */
+    int (*read_set_state)(struct AVFormatContext *,
+                          enum FFInputFormatStreamState state);
+
+    /**
+     * Handle demuxer commands
+     * This callback is used to either send a command to a demuxer
+     * (FF_INFMT_COMMAND_SUBMIT), or to retrieve the reply for
+     * a previously sent command (FF_INFMT_COMMAND_GET_REPLY).
+     *
+     * Demuxers implementing this must return AVERROR(ENOTSUP)
+     * if the provided \p id is not handled by the demuxer.
+     * Demuxers should return AVERROR(EAGAIN) if they can handle
+     * a specific command but are not able to at the moment.
+     * When a reply is requested that is not available yet, the
+     * demuxer should also return AVERROR(EAGAIN).
+     *
+     * Depending on \p opt, the \p data will be either a pointer
+     * to the command payload structure for the specified ID, or
+     * a pointer to the buffer for the command reply for the
+     * specified ID.
+     *
+     * When a command is submitted, before a previous reply
+     * was requested from the demuxer, the demuxer should discard
+     * the old reply.
+     *
+     * @see avformat_send_command()
+     * @see avformat_receive_command_reply()
+     */
+    int (*handle_command)(struct AVFormatContext *,
+                          enum FFInputFormatCommandOption opt,
+                          enum AVFormatCommandID id, void *data);
+
+    /**
+     * Seek to timestamp ts.
+     * Seeking will be done so that the point from which all active streams
+     * can be presented successfully will be closest to ts and within min/max_ts.
+     * Active streams are all streams that have AVStream.discard < AVDISCARD_ALL.
+     */
+    int (*read_seek2)(struct AVFormatContext *s, int stream_index, int64_t min_ts, int64_t ts, int64_t max_ts, int flags);
+
+    /**
+     * Returns device list with it properties.
+     * @see avdevice_list_devices() for more details.
+     */
+    int (*get_device_list)(struct AVFormatContext *s, struct AVDeviceInfoList *device_list);
+} FFInputFormat;
+
+static inline const FFInputFormat *ffifmt(const AVInputFormat *fmt)
+{
+    return (const FFInputFormat*)fmt;
+}
+
 #define MAX_STD_TIMEBASES (30*12+30+3+6)
 typedef struct FFStreamInfo {
     int64_t last_dts;
@@ -61,22 +223,6 @@ typedef struct FFStreamInfo {
  */
 #define FFERROR_REDO FFERRTAG('R','E','D','O')
 
-#define RELATIVE_TS_BASE (INT64_MAX - (1LL << 48))
-
-static av_always_inline int is_relative(int64_t ts)
-{
-    return ts > (RELATIVE_TS_BASE - (1LL << 48));
-}
-
-/**
- * Wrap a given time stamp, if there is an indication for an overflow
- *
- * @param st stream
- * @param timestamp the time stamp to wrap
- * @return resulting time stamp
- */
-int64_t ff_wrap_timestamp(const AVStream *st, int64_t timestamp);
-
 /**
  * Read a transport packet from a media file.
  *
@@ -90,7 +236,7 @@ void ff_read_frame_flush(AVFormatContext *s);
 
 /**
  * Perform a binary search using av_index_search_timestamp() and
- * AVInputFormat.read_timestamp().
+ * FFInputFormat.read_timestamp().
  *
  * @param target_ts target timestamp in the time base of the given stream
  * @param stream_index stream number
@@ -162,14 +308,14 @@ void ff_rfps_calculate(AVFormatContext *ic);
  * belongs, from a timebase `tb_in` to a timebase `tb_out`.
  *
  * The upper (lower) bound of the output interval is rounded up (down) such that
- * the output interval always falls within the intput interval. The timestamp is
+ * the output interval always falls within the input interval. The timestamp is
  * rounded to the nearest integer and halfway cases away from zero, and can
  * therefore fall outside of the output interval.
  *
- * Useful to simplify the rescaling of the arguments of AVInputFormat::read_seek2()
+ * Useful to simplify the rescaling of the arguments of FFInputFormat::read_seek2()
  *
  * @param[in] tb_in      Timebase of the input `min_ts`, `ts` and `max_ts`
- * @param[in] tb_out     Timebase of the ouput `min_ts`, `ts` and `max_ts`
+ * @param[in] tb_out     Timebase of the output `min_ts`, `ts` and `max_ts`
  * @param[in,out] min_ts Lower bound of the interval
  * @param[in,out] ts     Timestamp
  * @param[in,out] max_ts Upper bound of the interval
@@ -237,5 +383,7 @@ int ff_get_extradata(void *logctx, AVCodecParameters *par, AVIOContext *pb, int 
  * @return stream index, or < 0 on error
  */
 int ff_find_stream_index(const AVFormatContext *s, int id);
+
+int ff_buffer_packet(AVFormatContext *s, AVPacket *pkt);
 
 #endif /* AVFORMAT_DEMUX_H */

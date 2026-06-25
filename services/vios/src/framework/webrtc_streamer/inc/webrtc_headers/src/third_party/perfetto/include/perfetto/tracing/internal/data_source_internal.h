@@ -22,7 +22,6 @@
 
 #include <array>
 #include <atomic>
-#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -107,6 +106,23 @@ struct DataSourceState {
   // the following slots.
   uint32_t interceptor_id = 0;
 
+  // This is set to true when the datasource is in the process of async stop.
+  // The flag is checked by the tracing muxer to avoid calling OnStop for the
+  // second time.
+  bool async_stop_in_progress = false;
+
+  // Whether this data source instance should call NotifyDataSourceStopped()
+  // when it's stopped.
+  bool will_notify_on_stop = false;
+
+  // The wanted behavior for this data source instance when a TraceWriter runs
+  // out of space in the shared memory buffer.
+  BufferExhaustedPolicy buffer_exhausted_policy = BufferExhaustedPolicy::kDrop;
+
+  // Incremented whenever incremental state should be reset for this instance of
+  // this data source.
+  std::atomic<uint32_t> incremental_state_generation{0};
+
   // This lock is not held to implement Trace() and it's used only if the trace
   // code wants to access its own data source state.
   // This is to prevent that accessing the data source on an arbitrary embedder
@@ -139,15 +155,16 @@ struct DataSourceStaticState {
   std::atomic<uint32_t> valid_instances{};
   std::array<DataSourceStateStorage, kMaxDataSourceInstances> instances{};
 
-  // Incremented whenever incremental state should be reset for any instance of
-  // this data source.
-  std::atomic<uint32_t> incremental_state_generation{};
+  // The caller must be sure that `n` was a valid instance at some point (either
+  // through a previous read of `valid_instances` or because the instance lock
+  // is held).
+  DataSourceState* GetUnsafe(size_t n) {
+    return reinterpret_cast<DataSourceState*>(&instances[n]);
+  }
 
   // Can be used with a cached |valid_instances| bitmap.
   DataSourceState* TryGetCached(uint32_t cached_bitmap, size_t n) {
-    return cached_bitmap & (1 << n)
-               ? reinterpret_cast<DataSourceState*>(&instances[n])
-               : nullptr;
+    return cached_bitmap & (1 << n) ? GetUnsafe(n) : nullptr;
   }
 
   DataSourceState* TryGet(size_t n) {
@@ -164,7 +181,6 @@ struct DataSourceStaticState {
     index = kMaxDataSources;
     valid_instances.store(0, std::memory_order_release);
     instances = {};
-    incremental_state_generation.store(0, std::memory_order_release);
   }
 };
 

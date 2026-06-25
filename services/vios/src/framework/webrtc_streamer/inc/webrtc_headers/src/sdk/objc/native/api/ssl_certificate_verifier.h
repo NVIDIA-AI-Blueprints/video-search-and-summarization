@@ -18,7 +18,7 @@
 
 namespace webrtc {
 
-std::unique_ptr<rtc::SSLCertificateVerifier> ObjCToNativeCertificateVerifier(
+std::unique_ptr<webrtc::SSLCertificateVerifier> ObjCToNativeCertificateVerifier(
     id<RTC_OBJC_TYPE(RTCSSLCertificateVerifier)> objc_certificate_verifier);
 
 }  // namespace webrtc

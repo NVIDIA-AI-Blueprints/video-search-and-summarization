@@ -26,6 +26,7 @@
 #include "modules/include/module_common_types.h"
 #include "modules/video_coding/histogram.h"
 #include "rtc_base/numerics/sequence_number_util.h"
+#include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/task_utils/repeating_task.h"
 #include "rtc_base/thread_annotations.h"
 #include "system_wrappers/include/clock.h"
@@ -74,12 +75,12 @@ class NackRequester final : public NackRequesterBase {
                 NackSender* nack_sender,
                 KeyFrameRequestSender* keyframe_request_sender,
                 const FieldTrialsView& field_trials);
-  ~NackRequester();
+  ~NackRequester() override;
 
   void ProcessNacks() override;
 
-  int OnReceivedPacket(uint16_t seq_num, bool is_keyframe);
-  int OnReceivedPacket(uint16_t seq_num, bool is_keyframe, bool is_recovered);
+  int OnReceivedPacket(uint16_t seq_num);
+  int OnReceivedPacket(uint16_t seq_num, bool is_recovered);
 
   void ClearUpTo(uint16_t seq_num);
   void UpdateRtt(int64_t rtt_ms);
@@ -87,7 +88,7 @@ class NackRequester final : public NackRequesterBase {
  private:
   // Which fields to consider when deciding which packet to nack in
   // GetNackBatch.
-  enum NackFilterOptions { kSeqNumOnly, kTimeOnly, kSeqNumAndTime };
+  enum NackFilterOptions { kSeqNumOnly, kTimeOnly };
 
   // This class holds the sequence number of the packet that is in the nack list
   // as well as the meta data about when it should be nacked and how many times
@@ -108,10 +109,6 @@ class NackRequester final : public NackRequesterBase {
   void AddPacketsToNack(uint16_t seq_num_start, uint16_t seq_num_end)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(worker_thread_);
 
-  // Removes packets from the nack list until the next keyframe. Returns true
-  // if packets were removed.
-  bool RemovePacketsUntilKeyFrame()
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(worker_thread_);
   std::vector<uint16_t> GetNackBatch(NackFilterOptions options)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(worker_thread_);
 
@@ -133,8 +130,6 @@ class NackRequester final : public NackRequesterBase {
   // known thread (e.g. see `initialized_`). Those probably do not need
   // synchronized access.
   std::map<uint16_t, NackInfo, DescendingSeqNumComp<uint16_t>> nack_list_
-      RTC_GUARDED_BY(worker_thread_);
-  std::set<uint16_t, DescendingSeqNumComp<uint16_t>> keyframe_list_
       RTC_GUARDED_BY(worker_thread_);
   std::set<uint16_t, DescendingSeqNumComp<uint16_t>> recovered_list_
       RTC_GUARDED_BY(worker_thread_);

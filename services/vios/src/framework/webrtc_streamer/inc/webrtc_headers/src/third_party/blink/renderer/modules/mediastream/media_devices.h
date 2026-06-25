@@ -5,11 +5,15 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_DEVICES_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASTREAM_MEDIA_DEVICES_H_
 
+#include "base/feature_list.h"
 #include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
+#include "base/sequence_checker.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/mojom/mediastream/media_devices.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver_with_tracker.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
@@ -17,6 +21,7 @@
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/mediastream/media_device_info.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_track.h"
+#include "third_party/blink/renderer/modules/mediastream/sub_capture_target.h"
 #include "third_party/blink/renderer/modules/mediastream/user_media_request.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
@@ -29,14 +34,18 @@
 
 namespace blink {
 
+MODULES_EXPORT BASE_DECLARE_FEATURE(kEnumerateDevicesRequestAudioCapabilities);
+
+class AudioOutputOptions;
 class CaptureHandleConfig;
+class CropTarget;
 class DisplayMediaStreamOptions;
 class ExceptionState;
 class LocalFrame;
 class Navigator;
+class ScopedMediaStreamTracer;
 class MediaTrackSupportedConstraints;
-class ScriptPromise;
-class ScriptPromiseResolver;
+class RestrictionTarget;
 class ScriptState;
 class UserMediaStreamConstraints;
 
@@ -51,8 +60,38 @@ enum class EnumerateDevicesResult {
   kMaxValue = kTimedOut
 };
 
+enum class AudioOutputSelectionResult {
+  kSuccess = 0,
+  kPermissionDenied = 1,
+  kNoDevices = 2,
+  kNoUserActivation = 3,
+  kOtherError = 4,
+  kTimedOut = 5,
+  kNotSupported = 6,
+  kMaxValue = kNotSupported
+};
+
+enum class EnumerateDevicesFirstStateOnContextDestroyed {
+  kFailed = 0,
+  kSuccessfulNeverGetUserMedia = 1,
+  kSuccessfulAfterGetUserMedia = 2,
+  kSuccessfulFollowedByGetUserMedia = 3,
+  kMaxValue = kSuccessfulFollowedByGetUserMedia
+};
+
+enum class EnumerateDevicesGetUserMediaInteraction {
+  kFailedEnumerateDevicesFirst = 0,
+  kSuccessfulEnumerateDevicesFirst = 1,
+  kGetUserMediaFirst = 2,
+  kFailedEnumerateDevicesThenGetUserMedia = 3,
+  kSuccessfulEnumerateDevicesThenGetUserMedia = 4,
+  kGetUserMediaThenFailedEnumerateDevices = 5,
+  kGetUserMediaThenSuccessfulEnumerateDevices = 6,
+  kMaxValue = kGetUserMediaThenSuccessfulEnumerateDevices
+};
+
 class MODULES_EXPORT MediaDevices final
-    : public EventTargetWithInlineData,
+    : public EventTarget,
       public ActiveScriptWrappable<MediaDevices>,
       public Supplement<Navigator>,
       public ExecutionContextLifecycleObserver,
@@ -60,37 +99,49 @@ class MODULES_EXPORT MediaDevices final
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  using SubCaptureTargetType = media::mojom::blink::SubCaptureTargetType;
+
   static const char kSupplementName[];
   static MediaDevices* mediaDevices(Navigator&);
   explicit MediaDevices(Navigator&);
   ~MediaDevices() override;
 
-  ScriptPromise enumerateDevices(ScriptState*, ExceptionState&);
+  ScriptPromise<IDLSequence<MediaDeviceInfo>> enumerateDevices(ScriptState*,
+                                                               ExceptionState&);
   MediaTrackSupportedConstraints* getSupportedConstraints() const;
-  ScriptPromise getUserMedia(ScriptState*,
-                             const UserMediaStreamConstraints*,
-                             ExceptionState&);
-  ScriptPromise SendUserMediaRequest(
-      UserMediaRequestType,
-      ScriptPromiseResolverWithTracker<UserMediaRequestResult>*,
-      const MediaStreamConstraints*,
+  ScriptPromise<MediaStream> getUserMedia(ScriptState*,
+                                          const UserMediaStreamConstraints*,
+                                          ExceptionState&);
+  ScriptPromise<IDLSequence<MediaStream>> getAllScreensMedia(ScriptState*,
+                                                             ExceptionState&);
+
+  ScriptPromise<MediaStream> getDisplayMedia(ScriptState*,
+                                             const DisplayMediaStreamOptions*,
+                                             ExceptionState&);
+
+  ScriptPromise<MediaDeviceInfo> selectAudioOutput(
+      ScriptState*,
+      const AudioOutputOptions* options,
       ExceptionState&);
-
-  ScriptPromise getAllScreensMedia(ScriptState*, ExceptionState&);
-
-  ScriptPromise getDisplayMedia(ScriptState*,
-                                const DisplayMediaStreamOptions*,
-                                ExceptionState&);
 
   void setCaptureHandleConfig(ScriptState*,
                               const CaptureHandleConfig*,
                               ExceptionState&);
 
-  // Using ProduceCropTarget(), CropTarget.fromElement() can communicate
+  ScriptPromise<IDLUndefined> setPreferredSinkId(ScriptState*,
+                                                 const String& sink_id,
+                                                 ExceptionState&);
+
+  // Allow the factory methods for SubCaptureTarget subtypes to communicate
   // with the browser process through the mojom pipe that `this` owns.
-  // TODO(crbug.com/1332628): Move most of the logic into crop_target.cc/h,
-  // leaving only communication in MediaDevices.
-  ScriptPromise ProduceCropTarget(ScriptState*, Element*, ExceptionState&);
+  // TODO(crbug.com/1332628): Move most of the logic into
+  // sub_capture_target.cc/h, leaving only communication in MediaDevices.
+  ScriptPromise<CropTarget> ProduceCropTarget(ScriptState*,
+                                              Element*,
+                                              ExceptionState&);
+  ScriptPromise<RestrictionTarget> ProduceRestrictionTarget(ScriptState*,
+                                                            Element*,
+                                                            ExceptionState&);
 
   // EventTarget overrides.
   const AtomicString& InterfaceName() const override;
@@ -107,25 +158,13 @@ class MODULES_EXPORT MediaDevices final
   void OnDevicesChanged(mojom::blink::MediaDeviceType,
                         const Vector<WebMediaDeviceInfo>&) override;
 
-  // Callback for testing only.
-  using EnumerateDevicesTestCallback =
-      base::OnceCallback<void(const MediaDeviceInfoVector&)>;
+  void MaybeFireDeviceChangeEvent(bool has_permission);
 
   void SetDispatcherHostForTesting(
       mojo::PendingRemote<mojom::blink::MediaDevicesDispatcherHost>);
 
-  void SetEnumerateDevicesCallbackForTesting(
-      EnumerateDevicesTestCallback test_callback) {
-    enumerate_devices_test_callback_ = std::move(test_callback);
-  }
-
-  void SetConnectionErrorCallbackForTesting(base::OnceClosure test_callback) {
-    connection_error_test_callback_ = std::move(test_callback);
-  }
-
-  void SetDeviceChangeCallbackForTesting(base::OnceClosure test_callback) {
-    device_change_test_callback_ = std::move(test_callback);
-  }
+  void ReportSuccessfulGetUserMedia();
+  void ReportCompletedEnumerateDevices(bool is_successful);
 
   void Trace(Visitor*) const override;
 
@@ -140,19 +179,49 @@ class MODULES_EXPORT MediaDevices final
 
  private:
   FRIEND_TEST_ALL_PREFIXES(MediaDevicesTest, ObserveDeviceChangeEvent);
+
+  template <typename IDLResolvedType>
+  ScriptPromise<IDLResolvedType> SendUserMediaRequest(
+      UserMediaRequestType,
+      ScriptPromiseResolverWithTracker<UserMediaRequestResult,
+                                       IDLResolvedType>*,
+      const MediaStreamConstraints*,
+      ExceptionState&,
+      std::unique_ptr<ScopedMediaStreamTracer> tracer);
+
   void ScheduleDispatchEvent(Event*);
   void DispatchScheduledEvents();
   void StartObserving();
+  void FinalizeStartObserving(
+      const Vector<Vector<WebMediaDeviceInfo>>& enumeration,
+      Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>
+          video_input_capabilities,
+      Vector<mojom::blink::AudioInputDeviceCapabilitiesPtr>
+          audio_input_capabilities);
   void StopObserving();
-  void DevicesEnumerated(
-      ScriptPromiseResolverWithTracker<EnumerateDevicesResult>* result_tracker,
-      const Vector<Vector<WebMediaDeviceInfo>>&,
-      Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>,
-      Vector<mojom::blink::AudioInputDeviceCapabilitiesPtr>);
+  void DevicesEnumerated(ScriptPromiseResolverWithTracker<
+                             EnumerateDevicesResult,
+                             IDLSequence<MediaDeviceInfo>>* result_tracker,
+                         std::unique_ptr<ScopedMediaStreamTracer> tracer,
+                         const Vector<Vector<WebMediaDeviceInfo>>&,
+                         Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>,
+                         Vector<mojom::blink::AudioInputDeviceCapabilitiesPtr>);
   void OnDispatcherHostConnectionError();
+  void CheckIfEnumerateDevicesTimedOut(
+      ScriptPromiseResolverWithTracker<EnumerateDevicesResult,
+                                       IDLSequence<MediaDeviceInfo>>*
+          result_tracker);
   mojom::blink::MediaDevicesDispatcherHost& GetDispatcherHost(LocalFrame*);
+  void SetPreferredSinkIdResultReceived(
+      const String& sink_id,
+      ScriptPromiseResolver<IDLUndefined>* resolver,
+      media::mojom::blink::OutputDeviceStatus status);
 
-#if !BUILDFLAG(IS_ANDROID)
+  void OnSelectAudioOutputResult(
+      ScriptPromiseResolverWithTracker<AudioOutputSelectionResult,
+                                       MediaDeviceInfo>* resolver,
+      mojom::blink::SelectAudioOutputResultPtr result);
+#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   // Manage the window of opportunity that occurs immediately after
   // display-capture starts. The application can call
   // CaptureController.setFocusBehavior() on the microtask where the
@@ -161,45 +230,84 @@ class MODULES_EXPORT MediaDevices final
   void EnqueueMicrotaskToCloseFocusWindowOfOpportunity(const String&,
                                                        CaptureController*);
   void CloseFocusWindowOfOpportunity(const String&, CaptureController*);
+#endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 
-  // Receives a message from the browser process with the crop-ID it has
-  // assigned to |element|.
-  void ResolveProduceCropIdPromise(Element* element,
-                                   const WTF::String& crop_id);
-#endif
+  void ResolveRestrictionTargetPromise(Element* element, const String& id);
 
-  bool stopped_;
+  bool MayProduceSubCaptureTarget(ScriptState* script_state,
+                                  Element* element,
+                                  ExceptionState& exception_state,
+                                  SubCaptureTarget::Type type);
+
+  // Callbacks for receiving a message from the browser process with
+  // the base::Token which is backing a SubCaptureTarget (either CropTarget
+  // or RestrictionTarget).
+  void ResolveCropTargetPromise(Element* element, const String& id);
+
+  SEQUENCE_CHECKER(sequence_checker_);
+  // True if the associated execution context is alive and valid, reset
+  // immediately before the execution context is destroyed.
+  bool is_execution_context_active_;
   // Async runner may be null when there is no valid execution context.
   // No async work may be posted in this scenario.
   TaskHandle dispatch_scheduled_events_task_handle_;
   HeapVector<Member<Event>> scheduled_events_;
   HeapMojoRemote<mojom::blink::MediaDevicesDispatcherHost> dispatcher_host_;
   HeapMojoReceiver<mojom::blink::MediaDevicesListener, MediaDevices> receiver_;
-  HeapHashSet<Member<ScriptPromiseResolverWithTracker<EnumerateDevicesResult>>>
+  HeapHashSet<
+      Member<ScriptPromiseResolverWithTracker<EnumerateDevicesResult,
+                                              IDLSequence<MediaDeviceInfo>>>>
       enumerate_device_requests_;
 
-#if !BUILDFLAG(IS_ANDROID)
-  // 1. When produceCropId() is first called for an Element, it has no crop-ID
-  //    associated. We produce a Resolver, map the Element to it, and fire
-  //    off a message to the browser process, asking for a new crop-ID to be
-  //    generated.
-  // 2. Subsequent calls to produceCropId(), which occur before the browser
-  //    process has had time to respond, yield a copy of the original Promise
-  //    associated with this Element.
-  // 3. When the message browser process responds with a crop-ID for the
-  //    Element, we store the new crop-ID on the Element itself, resolve all
-  //    Promises returned for this Element, and eject the resolver from this
-  //    container.
-  // 4. Later calls to produceCropId() for this given Element discover that
-  //    a crop-ID is already assigned. They immediately return a resolved
-  //    Promise with the crop-ID.
-  HeapHashMap<Member<Element>, Member<ScriptPromiseResolver>>
-      crop_id_resolvers_;
-#endif
+  using ElementToRestrictionTargetResolverMap =
+      HeapHashMap<Member<Element>,
+                  Member<ScriptPromiseResolver<RestrictionTarget>>>;
 
-  EnumerateDevicesTestCallback enumerate_devices_test_callback_;
-  base::OnceClosure connection_error_test_callback_;
-  base::OnceClosure device_change_test_callback_;
+  ElementToRestrictionTargetResolverMap restriction_target_resolvers_;
+
+  using ElementToCropTargetResolverMap =
+      HeapHashMap<Member<Element>, Member<ScriptPromiseResolver<CropTarget>>>;
+
+  // 1. When CropTarget.fromElement() is first called for an Element,
+  //    it has no CropTarget associated with it, and similarly for
+  //    RestrictionTarget.fromElement(). For either of these, we produce
+  //    a Resolver, map the Element to it, and fire off a message to
+  //    the browser process, asking for a new base::Token to be generated.
+  //    This base::Token, once produced, will serve as the underlying
+  //    implementation of the CropTarget/RestrictionTarget object to which
+  //    the Promise will be resolved.
+  // 2. Subsequent calls to X.fromElement() which occur before the browser
+  //    process has had time to respond, yield a copy of the original Promise
+  //    associated with this Element. (Distinctly for either X=CropTarget
+  //    and X=RestrictionTarget.)
+  // 3. When the browser process responds with a base::Token, we store it
+  //    on the Element itself, resolve all Promises returned for this Element,
+  //    and eject the resolver from this container. (Note again that CropTarget
+  //    and RestrictionTarget are handled separately here.)
+  // 4. Later calls to X.fromElement() for this given Element discover that
+  //    a token has already been assigned. They immediately return a resolved
+  //    Promise with the relevant token.
+  ElementToCropTargetResolverMap crop_target_resolvers_;
+
+  bool starting_observation_ = false;
+  Vector<Vector<WebMediaDeviceInfo>> current_device_infos_;
+
+  enum class FirstEnumerateDevicesState {
+    kNoEnumeration,
+    kFailed,
+    kSuccessful
+  };
+
+  enum class FirstGetUserMediaState {
+    kNoGetUserMedia,
+    kBeforeEnumerateDevices,
+    kAfterEnumerateDevices,
+  };
+
+  FirstEnumerateDevicesState first_ed_state_ =
+      FirstEnumerateDevicesState::kNoEnumeration;
+  FirstGetUserMediaState first_gum_state_ =
+      FirstGetUserMediaState::kNoGetUserMedia;
 };
 
 }  // namespace blink

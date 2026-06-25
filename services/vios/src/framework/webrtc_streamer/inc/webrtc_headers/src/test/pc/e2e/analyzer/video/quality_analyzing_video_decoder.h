@@ -11,20 +11,25 @@
 #ifndef TEST_PC_E2E_ANALYZER_VIDEO_QUALITY_ANALYZING_VIDEO_DECODER_H_
 #define TEST_PC_E2E_ANALYZER_VIDEO_QUALITY_ANALYZING_VIDEO_DECODER_H_
 
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
+#include "api/environment/environment.h"
+#include "api/scoped_refptr.h"
 #include "api/test/video_quality_analyzer_interface.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_frame_buffer.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread_annotations.h"
 #include "test/pc/e2e/analyzer/video/encoded_image_data_injector.h"
 
 namespace webrtc {
@@ -59,7 +64,6 @@ class QualityAnalyzingVideoDecoder : public VideoDecoder {
   // Methods of VideoDecoder interface.
   bool Configure(const Settings& settings) override;
   int32_t Decode(const EncodedImage& input_image,
-                 bool missing_frames,
                  int64_t render_time_ms) override;
   int32_t RegisterDecodeCompleteCallback(
       DecodedImageCallback* callback) override;
@@ -79,26 +83,26 @@ class QualityAnalyzingVideoDecoder : public VideoDecoder {
     int32_t Decoded(VideoFrame& decodedImage) override;
     int32_t Decoded(VideoFrame& decodedImage, int64_t decode_time_ms) override;
     void Decoded(VideoFrame& decodedImage,
-                 absl::optional<int32_t> decode_time_ms,
-                 absl::optional<uint8_t> qp) override;
+                 std::optional<int32_t> decode_time_ms,
+                 std::optional<uint8_t> qp) override;
 
     int32_t IrrelevantSimulcastStreamDecoded(uint16_t frame_id,
                                              uint32_t timestamp_ms);
 
    private:
-    rtc::scoped_refptr<webrtc::VideoFrameBuffer> GetDummyFrameBuffer();
+    scoped_refptr<webrtc::VideoFrameBuffer> GetDummyFrameBuffer();
 
     QualityAnalyzingVideoDecoder* const decoder_;
 
-    rtc::scoped_refptr<webrtc::VideoFrameBuffer> dummy_frame_buffer_;
+    scoped_refptr<webrtc::VideoFrameBuffer> dummy_frame_buffer_;
 
     Mutex callback_mutex_;
     DecodedImageCallback* delegate_callback_ RTC_GUARDED_BY(callback_mutex_);
   };
 
   void OnFrameDecoded(VideoFrame* frame,
-                      absl::optional<int32_t> decode_time_ms,
-                      absl::optional<uint8_t> qp);
+                      std::optional<int32_t> decode_time_ms,
+                      std::optional<uint8_t> qp);
 
   const std::string peer_name_;
   const std::string implementation_name_;
@@ -114,7 +118,7 @@ class QualityAnalyzingVideoDecoder : public VideoDecoder {
 
   // Name of the video codec type used. Ex: VP8, VP9, H264 etc.
   std::string codec_name_ RTC_GUARDED_BY(mutex_);
-  std::map<uint32_t, absl::optional<uint16_t>> timestamp_to_frame_id_
+  std::map<uint32_t, std::optional<uint16_t>> timestamp_to_frame_id_
       RTC_GUARDED_BY(mutex_);
   // Stores currently being decoded images by timestamp. Because
   // EncodedImageDataExtractor can create new copy on EncodedImage we need to
@@ -137,8 +141,8 @@ class QualityAnalyzingVideoDecoderFactory : public VideoDecoderFactory {
 
   // Methods of VideoDecoderFactory interface.
   std::vector<SdpVideoFormat> GetSupportedFormats() const override;
-  std::unique_ptr<VideoDecoder> CreateVideoDecoder(
-      const SdpVideoFormat& format) override;
+  std::unique_ptr<VideoDecoder> Create(const Environment& env,
+                                       const SdpVideoFormat& format) override;
 
  private:
   const std::string peer_name_;

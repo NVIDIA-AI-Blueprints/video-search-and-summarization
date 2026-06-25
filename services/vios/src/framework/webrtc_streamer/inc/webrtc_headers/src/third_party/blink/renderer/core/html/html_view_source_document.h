@@ -58,22 +58,28 @@ class CORE_EXPORT HTMLViewSourceDocument final : public HTMLDocument {
                        int token_start);
   void ProcessCommentToken(const String& source, HTMLToken&);
   void ProcessCharacterToken(const String& source, HTMLToken&);
+  void ProcessProcessingInstructionToken(const String& source, HTMLToken&);
+
+  struct Link {
+    bool is_anchor;
+    const AtomicString& url;
+  };
 
   void CreateContainingTable();
   Element* AddSpanWithClassName(const AtomicString&);
-  void AddLine(const AtomicString& class_name);
+  void AddLine();
   void FinishLine();
-  void AddText(const String& text, const AtomicString& class_name);
-  int AddRange(const String& source,
-               int start,
-               int end,
+  void AddText(const StringView& text,
                const AtomicString& class_name,
-               bool is_link = false,
-               bool is_anchor = false,
-               const AtomicString& link = g_null_atom);
+               const Link* link = nullptr);
+  string_size_t AddRange(const String& source,
+                         string_size_t start,
+                         string_size_t end,
+                         const AtomicString& class_name,
+                         const Link* link = nullptr);
   int AddSrcset(const String& source, int start, int end);
 
-  Element* AddLink(const AtomicString& url, bool is_anchor);
+  Element* AddLink(const Link& link);
   Element* AddBase(const AtomicString& href);
 
   String type_;
@@ -81,6 +87,7 @@ class CORE_EXPORT HTMLViewSourceDocument final : public HTMLDocument {
   Member<HTMLTableSectionElement> tbody_;
   Member<HTMLTableCellElement> td_;
   int line_number_;
+  bool processing_tag_token_ = false;
 
   const AtomicString class_doctype_{"html-doctype"};
   const AtomicString class_end_of_file_{"html-end-of-file"};
@@ -88,6 +95,8 @@ class CORE_EXPORT HTMLViewSourceDocument final : public HTMLDocument {
   const AtomicString class_attribute_name_{"html-attribute-name"};
   const AtomicString class_attribute_value_{"html-attribute-value"};
   const AtomicString class_comment_{"html-comment"};
+  const AtomicString class_processing_instruction_{
+      "html-processing-instruction"};
 };
 
 }  // namespace blink

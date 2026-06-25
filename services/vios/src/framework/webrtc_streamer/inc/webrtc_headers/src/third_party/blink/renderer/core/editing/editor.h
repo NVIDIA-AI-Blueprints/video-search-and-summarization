@@ -31,6 +31,7 @@
 #include "mojo/public/mojom/base/text_direction.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/editing/commands/edit_command.h"
 #include "third_party/blink/renderer/core/editing/editing_style.h"
 #include "third_party/blink/renderer/core/editing/finder/find_options.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
@@ -43,6 +44,7 @@
 namespace blink {
 
 class CompositeEditCommand;
+class DataTransfer;
 class DragData;
 class EditingBehavior;
 class EditorCommand;
@@ -56,6 +58,7 @@ enum class SyncCondition;
 class CSSPropertyValueSet;
 class TextEvent;
 class UndoStack;
+class SelectionForUndoStep;
 
 enum class DeleteDirection;
 enum class DeleteMode { kSimple, kSmart };
@@ -93,6 +96,9 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
                  const scoped_refptr<Image>& image);
 
   void RespondToChangedContents(const Position&);
+  void NotifyAccessibilityOfDeletionOrInsertionInTextField(
+      const SelectionForUndoStep&,
+      bool is_deletion);
 
   void RegisterCommandGroup(CompositeEditCommand* command_group_wrapper);
 
@@ -124,7 +130,10 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
       const String&,
       bool select_inserted_text,
       TextEvent* triggering_event,
-      InputEvent::InputType = InputEvent::InputType::kInsertText);
+      InputEvent::InputType = InputEvent::InputType::kInsertText,
+      EditCommand::PasswordEchoBehavior =
+          EditCommand::PasswordEchoBehavior::kDoNotEcho,
+      DataTransfer* = nullptr);
   bool InsertLineBreak();
   bool InsertParagraphSeparator();
 
@@ -186,18 +195,18 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
   void RespondToChangedSelection();
   void SyncSelection(blink::SyncCondition force_sync);
 
-  bool MarkedTextMatchesAreHighlighted() const;
-  void SetMarkedTextMatchesAreHighlighted(bool);
-
   void ReplaceSelectionWithFragment(DocumentFragment*,
                                     bool select_replacement,
                                     bool smart_replace,
                                     bool match_style,
-                                    InputEvent::InputType);
+                                    InputEvent::InputType,
+                                    EditCommand::PasswordEchoBehavior,
+                                    DataTransfer* = nullptr);
   void ReplaceSelectionWithText(const String&,
                                 bool select_replacement,
                                 bool smart_replace,
-                                InputEvent::InputType);
+                                InputEvent::InputType,
+                                EditCommand::PasswordEchoBehavior);
 
   // Implementation of WebLocalFrameImpl::ReplaceSelection. Does not use smart
   // replacement.
@@ -205,7 +214,8 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
 
   void ReplaceSelectionAfterDragging(DocumentFragment*,
                                      InsertMode,
-                                     DragSourceType);
+                                     DragSourceType,
+                                     DataTransfer* = nullptr);
 
   // Return false if frame was destroyed by event handler, should stop executing
   // remaining actions.
@@ -248,7 +258,6 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
   bool should_style_with_css_;
   const std::unique_ptr<KillRing> kill_ring_;
   VisibleSelection mark_;
-  bool are_marked_text_matches_highlighted_;
   EditorParagraphSeparator default_paragraph_separator_;
   Member<EditingStyle> typing_style_;
   bool mark_is_directional_ = false;
@@ -275,10 +284,6 @@ inline const VisibleSelection& Editor::Mark() const {
 
 inline bool Editor::MarkIsDirectional() const {
   return mark_is_directional_;
-}
-
-inline bool Editor::MarkedTextMatchesAreHighlighted() const {
-  return are_marked_text_matches_highlighted_;
 }
 
 inline EditingStyle* Editor::TypingStyle() const {

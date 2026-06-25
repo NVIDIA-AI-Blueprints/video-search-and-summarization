@@ -16,11 +16,13 @@
 
 #include <list>
 #include <memory>
+#include <optional>
+#include <span>
 #include <utility>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include "absl/strings/string_view.h"
 #include "api/audio_codecs/audio_encoder.h"
+#include "api/call/bitrate_allocation.h"
 #include "api/field_trials_view.h"
 #include "api/units/time_delta.h"
 #include "rtc_base/buffer.h"
@@ -65,36 +67,33 @@ class AudioEncoderCopyRed final : public AudioEncoder {
 
   bool SetApplication(Application application) override;
   void SetMaxPlaybackRate(int frequency_hz) override;
-  bool EnableAudioNetworkAdaptor(const std::string& config_string,
-                                 RtcEventLog* event_log) override;
+  bool EnableAudioNetworkAdaptor(absl::string_view config) override;
   void DisableAudioNetworkAdaptor() override;
   void OnReceivedUplinkPacketLossFraction(
       float uplink_packet_loss_fraction) override;
-  void OnReceivedUplinkBandwidth(
-      int target_audio_bitrate_bps,
-      absl::optional<int64_t> bwe_period_ms) override;
+  void OnReceivedUplinkBandwidth(int target_audio_bitrate_bps,
+                                 std::optional<int64_t> bwe_period_ms) override;
   void OnReceivedUplinkAllocation(BitrateAllocationUpdate update) override;
   void OnReceivedRtt(int rtt_ms) override;
   void OnReceivedOverhead(size_t overhead_bytes_per_packet) override;
   void SetReceiverFrameLengthRange(int min_frame_length_ms,
                                    int max_frame_length_ms) override;
   ANAStats GetANAStats() const override;
-  absl::optional<std::pair<TimeDelta, TimeDelta>> GetFrameLengthRange()
+  std::optional<std::pair<TimeDelta, TimeDelta>> GetFrameLengthRange()
       const override;
-  rtc::ArrayView<std::unique_ptr<AudioEncoder>> ReclaimContainedEncoders()
-      override;
+  std::span<std::unique_ptr<AudioEncoder>> ReclaimContainedEncoders() override;
 
  protected:
   EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
-                         rtc::ArrayView<const int16_t> audio,
-                         rtc::Buffer* encoded) override;
+                         std::span<const int16_t> audio,
+                         Buffer* encoded) override;
 
  private:
   std::unique_ptr<AudioEncoder> speech_encoder_;
-  rtc::Buffer primary_encoded_;
+  Buffer primary_encoded_;
   size_t max_packet_length_;
   int red_payload_type_;
-  std::list<std::pair<EncodedInfo, rtc::Buffer>> redundant_encodings_;
+  std::list<std::pair<EncodedInfo, Buffer>> redundant_encodings_;
 };
 
 }  // namespace webrtc

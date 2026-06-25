@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Alliance for Open Media. All rights reserved
+ * Copyright (c) 2016, Alliance for Open Media. All rights reserved.
  *
  * This source code is subject to the terms of the BSD 2 Clause License and
  * the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -229,6 +229,53 @@ typedef struct AV1DecTileMTData {
   int alloc_tile_cols;
 } AV1DecTileMT;
 
+#if CONFIG_COLLECT_COMPONENT_TIMING
+#include "aom_ports/aom_timer.h"
+// Adjust the following to add new components.
+enum {
+  decode_mbmi_block_time,
+  decode_token_recon_block_intra_time,
+  predict_inter_block_time,
+  decode_reconstruct_tx_inter_time,
+  decode_token_recon_block_inter_time,
+  decode_token_recon_block_time,
+  parse_decode_block_time,
+  decode_tile_time,
+  decode_tiles_time,
+  av1_loop_filter_frame_time,
+  cdef_and_lr_time,
+  av1_decode_tg_tiles_and_wrapup_time,
+  aom_decode_frame_from_obus_time,
+  kTimingComponents,
+} UENUM1BYTE(TIMING_COMPONENT);
+
+static inline char const *get_component_name(int index) {
+  switch (index) {
+    case decode_mbmi_block_time: return "decode_mbmi_block_time";
+    case decode_token_recon_block_intra_time:
+      return "decode_token_recon_block_intra_time";
+    case predict_inter_block_time: return "predict_inter_block_time";
+    case decode_reconstruct_tx_inter_time:
+      return "decode_reconstruct_tx_inter_time";
+    case decode_token_recon_block_inter_time:
+      return "decode_token_recon_block_inter_time";
+    case decode_token_recon_block_time: return "decode_token_recon_block_time";
+    case parse_decode_block_time: return "parse_decode_block_time";
+    case decode_tile_time: return "decode_tile_time";
+    case decode_tiles_time: return "decode_tiles_time";
+    case av1_loop_filter_frame_time: return "av1_loop_filter_frame_time";
+    case cdef_and_lr_time: return "cdef_and_lr_time";
+    case av1_decode_tg_tiles_and_wrapup_time:
+      return "av1_decode_tg_tiles_and_wrapup_time";
+    case aom_decode_frame_from_obus_time:
+      return "aom_decode_frame_from_obus_time";
+
+    default: assert(0);
+  }
+  return "error";
+}
+#endif
+
 typedef struct AV1Decoder {
   DecoderCodingBlock dcb;
 
@@ -287,9 +334,13 @@ typedef struct AV1Decoder {
 #if CONFIG_INSPECTION
   aom_inspect_cb inspect_cb;
   void *inspect_ctx;
+  int *sb_bits;
+  int sb_bits_alloc_size;
 #endif
   int operating_point;
   int current_operating_point;
+  // If nonzero, the maximum frame size (width * height). 0 means unlimited.
+  unsigned int frame_size_limit;
   int seen_frame_header;
   // The expected start_tile (tg_start syntax element) of the next tile group.
   int next_start_tile;
@@ -369,6 +420,18 @@ typedef struct AV1Decoder {
    * Number of spatial layers: may be > 1 for SVC (scalable vector coding).
    */
   unsigned int number_spatial_layers;
+
+#if CONFIG_COLLECT_COMPONENT_TIMING
+  /*!
+   * component_time[] are initialized to zero while decoder starts.
+   */
+  uint64_t component_time[kTimingComponents];
+  struct aom_usec_timer component_timer[kTimingComponents];
+  /*!
+   * frame_component_time[] are initialized to zero at beginning of each frame.
+   */
+  uint64_t frame_component_time[kTimingComponents];
+#endif
 } AV1Decoder;
 
 // Returns 0 on success. Sets pbi->common.error.error_code to a nonzero error
@@ -401,7 +464,7 @@ void av1_dec_row_mt_dealloc(AV1DecRowMTSync *dec_row_mt_sync);
 
 void av1_dec_free_cb_buf(AV1Decoder *pbi);
 
-static INLINE void decrease_ref_count(RefCntBuffer *const buf,
+static inline void decrease_ref_count(RefCntBuffer *const buf,
                                       BufferPool *const pool) {
   if (buf != NULL) {
     --buf->ref_count;
@@ -422,7 +485,7 @@ static INLINE void decrease_ref_count(RefCntBuffer *const buf,
 }
 
 #define ACCT_STR __func__
-static INLINE int av1_read_uniform(aom_reader *r, int n) {
+static inline int av1_read_uniform(aom_reader *r, int n) {
   const int l = get_unsigned_bits(n);
   const int m = (1 << l) - n;
   const int v = aom_read_literal(r, l - 1, ACCT_STR);
@@ -444,6 +507,28 @@ typedef void (*block_visitor_fn_t)(AV1Decoder *const pbi, ThreadData *const td,
                                    PARTITION_TYPE partition, BLOCK_SIZE bsize);
 
 /*!\endcond */
+
+#if CONFIG_COLLECT_COMPONENT_TIMING
+static inline void start_timing(AV1Decoder *pbi, int component) {
+  aom_usec_timer_start(&pbi->component_timer[component]);
+}
+static inline void end_timing(AV1Decoder *pbi, int component) {
+  aom_usec_timer_mark(&pbi->component_timer[component]);
+  pbi->frame_component_time[component] +=
+      aom_usec_timer_elapsed(&pbi->component_timer[component]);
+}
+
+static inline char const *get_frame_type_enum(int type) {
+  switch (type) {
+    case 0: return "KEY_FRAME";
+    case 1: return "INTER_FRAME";
+    case 2: return "INTRA_ONLY_FRAME";
+    case 3: return "S_FRAME";
+    default: assert(0);
+  }
+  return "error";
+}
+#endif
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef TESTING_LIBFUZZER_FUZZERS_SKIA_PATH_COMMON_H_
 #define TESTING_LIBFUZZER_FUZZERS_SKIA_PATH_COMMON_H_
 
@@ -18,9 +23,6 @@ static bool read(const uint8_t** data, size_t* size, T* value) {
   return true;
 }
 
-void BuildPath(const uint8_t** data,
-               size_t* size,
-               SkPath* path,
-               int last_verb);
+SkPath BuildPath(const uint8_t** data, size_t* size, int last_verb);
 
 #endif  // TESTING_LIBFUZZER_FUZZERS_SKIA_PATH_COMMON_H_

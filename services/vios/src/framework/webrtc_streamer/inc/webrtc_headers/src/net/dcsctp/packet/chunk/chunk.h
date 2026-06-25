@@ -10,24 +10,10 @@
 #ifndef NET_DCSCTP_PACKET_CHUNK_CHUNK_H_
 #define NET_DCSCTP_PACKET_CHUNK_CHUNK_H_
 
-#include <stddef.h>
-#include <sys/types.h>
-
 #include <cstdint>
-#include <iterator>
-#include <memory>
+#include <span>
 #include <string>
-#include <utility>
 #include <vector>
-
-#include "absl/algorithm/container.h"
-#include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "api/array_view.h"
-#include "net/dcsctp/packet/data.h"
-#include "net/dcsctp/packet/error_cause/error_cause.h"
-#include "net/dcsctp/packet/parameter/parameter.h"
-#include "net/dcsctp/packet/tlv_trait.h"
 
 namespace dcsctp {
 
@@ -52,7 +38,7 @@ class Chunk {
 
 // Introspects the chunk in `data` and returns a human readable textual
 // representation of it, to be used in debugging.
-std::string DebugConvertChunkToString(rtc::ArrayView<const uint8_t> data);
+std::string DebugConvertChunkToString(std::span<const uint8_t> data);
 
 struct ChunkConfig {
   static constexpr int kTypeSizeInBytes = 1;

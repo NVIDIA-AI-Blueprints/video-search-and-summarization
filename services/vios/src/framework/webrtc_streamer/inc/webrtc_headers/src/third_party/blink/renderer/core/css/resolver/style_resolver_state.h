@@ -40,6 +40,7 @@
 
 namespace blink {
 
+class AnchorEvaluator;
 class ComputedStyle;
 class FontDescription;
 class PseudoElement;
@@ -49,8 +50,6 @@ class PseudoElement;
 // access to other element-related information.
 class CORE_EXPORT StyleResolverState {
   STACK_ALLOCATED();
-
-  enum class ElementType { kElement, kPseudoElement };
 
  public:
   StyleResolverState(Document&,
@@ -62,7 +61,7 @@ class CORE_EXPORT StyleResolverState {
   ~StyleResolverState();
 
   bool IsForPseudoElement() const {
-    return element_type_ == ElementType::kPseudoElement;
+    return pseudo_id_ != kPseudoIdNone || element_context_.GetPseudoElement();
   }
   bool IsInheritedForUnset(const CSSProperty& property) const;
 
@@ -71,15 +70,18 @@ class CORE_EXPORT StyleResolverState {
   // separately.
   Document& GetDocument() const { return *document_; }
   // Returns the element we are computing style for. This returns the same as
-  // GetElement() unless this is a pseudo element request or we are resolving
+  // GetElement() unless this is a pseudo-element request or we are resolving
   // style for an SVG element instantiated in a <use> shadow tree. This method
-  // may return nullptr if it is a pseudo element request with no actual
+  // may return nullptr if it is a pseudo-element request with no actual
   // PseudoElement present.
   Element* GetStyledElement() const { return styled_element_; }
   // These are all just pass-through methods to ElementResolveContext.
   Element& GetElement() const { return element_context_.GetElement(); }
-  const ContainerNode* ParentNode() const {
-    return element_context_.ParentNode();
+  Element& GetUltimateOriginatingElementOrSelf() const {
+    return element_context_.GetUltimateOriginatingElementOrSelf();
+  }
+  const Element* ParentElement() const {
+    return element_context_.ParentElement();
   }
   const ComputedStyle* RootElementStyle() const {
     return element_context_.RootElementStyle();
@@ -88,37 +90,58 @@ class CORE_EXPORT StyleResolverState {
     return element_context_.ElementLinkState();
   }
 
+  // See inside_link_.
+  EInsideLink InsideLink() const;
+
   const ElementResolveContext& ElementContext() const {
     return element_context_;
   }
 
-  void SetStyle(const ComputedStyle& style) {
+  void CreateNewClonedStyle(const ComputedStyle& style) {
     // FIXME: Improve RAII of StyleResolverState to remove this function.
     style_builder_.emplace(style);
-    UpdateLengthConversionData();
+    InvalidateLengthConversionData();
+  }
+
+  // Initialize the style builder. source_for_noninherited holds initial values
+  // to use for non-inherited properties. inherit_parent is simply the style to
+  // inherit from (either implicitly or explicitly).
+  void CreateNewStyle(
+      const ComputedStyle& source_for_noninherited,
+      const ComputedStyle& inherit_parent,
+      ComputedStyleBuilderBase::IsAtShadowBoundary is_at_shadow_boundary =
+          ComputedStyleBuilderBase::kNotAtShadowBoundary) {
+    // FIXME: Improve RAII of StyleResolverState to remove this function.
+    style_builder_.emplace(source_for_noninherited, inherit_parent,
+                           is_at_shadow_boundary);
+    InvalidateLengthConversionData();
   }
   ComputedStyleBuilder& StyleBuilder() { return *style_builder_; }
   const ComputedStyleBuilder& StyleBuilder() const { return *style_builder_; }
-  scoped_refptr<const ComputedStyle> TakeStyle();
+  const ComputedStyle* TakeStyle();
+  const ComputedStyle* CloneStyle() const;
 
+  // See also MutableCssToLengthConversionData().
   const CSSToLengthConversionData& CssToLengthConversionData() const {
+    if (css_to_length_conversion_data_dirty_) {
+      UpdateLengthConversionData();
+    }
     return css_to_length_conversion_data_;
   }
   CSSToLengthConversionData FontSizeConversionData();
   CSSToLengthConversionData UnzoomedLengthConversionData();
 
   CSSToLengthConversionData::Flags TakeLengthConversionFlags() {
+    if (css_to_length_conversion_data_dirty_) {
+      UpdateLengthConversionData();
+    }
     CSSToLengthConversionData::Flags flags = length_conversion_flags_;
     length_conversion_flags_ = 0;
     return flags;
   }
 
-  void SetConversionFontSizes(
-      const CSSToLengthConversionData::FontSizes& font_sizes) {
-    css_to_length_conversion_data_.SetFontSizes(font_sizes);
-  }
-  void SetConversionZoom(float zoom) {
-    css_to_length_conversion_data_.SetZoom(zoom);
+  void SubtractScrollbarsFromViewportUnits(const gfx::Size& scrollbars) {
+    MutableCssToLengthConversionData().SubtractScrollbars(scrollbars);
   }
 
   CSSAnimationUpdate& AnimationUpdate() { return animation_update_; }
@@ -128,22 +151,21 @@ class CORE_EXPORT StyleResolverState {
 
   Element* GetAnimatingElement() const;
 
-  // Returns the pseudo element if the style resolution is targeting a pseudo
+  // Returns the pseudo-element if the style resolution is targeting a pseudo-
   // element, null otherwise.
   PseudoElement* GetPseudoElement() const;
 
-  void SetParentStyle(scoped_refptr<const ComputedStyle>);
-  const ComputedStyle* ParentStyle() const { return parent_style_.get(); }
+  void SetParentStyle(const ComputedStyle*);
+  void EnsureParentStyle();
+  const ComputedStyle* ParentStyle() const { return parent_style_; }
 
-  void SetLayoutParentStyle(scoped_refptr<const ComputedStyle>);
+  void SetLayoutParentStyle(const ComputedStyle*);
   const ComputedStyle* LayoutParentStyle() const {
-    return layout_parent_style_.get();
+    return layout_parent_style_;
   }
 
-  void SetOldStyle(scoped_refptr<const ComputedStyle> old_style) {
-    old_style_ = std::move(old_style);
-  }
-  const ComputedStyle* OldStyle() const { return old_style_.get(); }
+  void SetOldStyle(const ComputedStyle* old_style) { old_style_ = old_style; }
+  const ComputedStyle* OldStyle() const { return old_style_; }
 
   ElementStyleResources& GetElementStyleResources() {
     return element_style_resources_;
@@ -151,12 +173,11 @@ class CORE_EXPORT StyleResolverState {
 
   void LoadPendingResources();
 
-  // FIXME: Once styleImage can be made to not take a StyleResolverState
-  // this convenience function should be removed. As-is, without this, call
-  // sites are extremely verbose.
   StyleImage* GetStyleImage(CSSPropertyID property_id, const CSSValue& value) {
-    return element_style_resources_.GetStyleImage(property_id, value);
+    return element_style_resources_.GetStyleImage(property_id,
+                                                  ResolveGradients(value));
   }
+  SVGResource* GetSVGResource(CSSPropertyID, const cssvalue::CSSURIValue&);
 
   FontBuilder& GetFontBuilder() { return font_builder_; }
   const FontBuilder& GetFontBuilder() const { return font_builder_; }
@@ -170,21 +191,34 @@ class CORE_EXPORT StyleResolverState {
   void SetZoom(float);
   void SetEffectiveZoom(float);
   void SetWritingMode(WritingMode);
+  void SetTextSizeAdjust(TextSizeAdjust);
   void SetTextOrientation(ETextOrientation);
+  void SetPositionAnchor(const StylePositionAnchor&);
+  void SetPositionAreaOffsets(const std::optional<PositionAreaOffsets>&);
+
+  // Return the writing-direction of the abs-pos container for an anchored
+  // element.
+  WritingDirectionMode GetAnchoredContainerWritingDirection() const;
 
   CSSParserMode GetParserMode() const;
 
   // If the input CSSValue is a CSSLightDarkValuePair, return the light or dark
   // CSSValue based on the UsedColorScheme. For all other values, just return a
   // reference to the passed value.
-  const CSSValue& ResolveLightDarkPair(const CSSValue&);
+  const CSSValue& ResolveLightDarkPair(const CSSValue&) const;
+
+  // Resolve image values that depend on style state, including light-dark()
+  // selection and calc() inside nested gradients.
+  const CSSValue& ResolveGradients(const CSSValue&) const;
+  CSSValue& ResolveGradients(CSSValue&) const;
 
   const ComputedStyle* OriginatingElementStyle() const {
-    return originating_element_style_.get();
+    return originating_element_style_;
   }
   bool IsForHighlight() const { return is_for_highlight_; }
-  bool UsesHighlightPseudoInheritance() const {
-    return uses_highlight_pseudo_inheritance_;
+  // See StyleRecalcContext::is_outside_flat_tree.
+  bool IsOutsideFlatTree() const {
+    return style_recalc_context_ && style_recalc_context_->is_outside_flat_tree;
   }
 
   bool CanTriggerAnimations() const { return can_trigger_animations_; }
@@ -220,62 +254,130 @@ class CORE_EXPORT StyleResolverState {
   // reflect applied font properties.
   void UpdateFont();
 
-  // Update computed line-height and font used for 'lh' unit resolution.
+  // Update computed line-height and font used for 'lh' unit resolution
+  // from the current element. At construction time, lh (and related
+  // units) refers to the parent's line height (if there is a parent),
+  // so that StyleCascade can compute the viewport unit size and font
+  // properties based on that. Once those are computed, it computes
+  // the line-height property itself and then calls UpdateLineHeight()
+  // to switch to the element's own line-height. It is thus important
+  // not to call UpdateLineHeight() too early, and it is why it is not
+  // automatically called on construction.
   void UpdateLineHeight();
 
-  void UpdateLengthConversionData();
+  void InvalidateLengthConversionData() {
+    css_to_length_conversion_data_dirty_ = true;
+  }
 
-  void SetIsResolvingPositionFallbackStyle() {
-    is_resolving_position_fallback_style_ = true;
+  void SetHasTreeScopedReference() { has_tree_scoped_reference_ = true; }
+  bool HasTreeScopedReference() const { return has_tree_scoped_reference_; }
+
+  void SetHasUnsupportedGuaranteedInvalid() {
+    has_unsupported_guaranteed_invalid_ = true;
   }
-  bool IsResolvingPositionFallbackStyle() const {
-    return is_resolving_position_fallback_style_;
+  bool HasUnsupportedGuaranteedInvalid() const {
+    return has_unsupported_guaranteed_invalid_;
   }
+
+  // The element to start the search from, when looking for a CQ size container.
+  Element* NearestSizeContainer() const {
+    return style_recalc_context_ ? style_recalc_context_->size_container
+                                 : nullptr;
+  }
+
+  // See StyleRequest.pseudo_id.
+  PseudoId GetPseudoId() const { return pseudo_id_; }
+
+  void SetComputedStyleFlagsFromAuthorFlags(CSSProperty::Flags author_flags);
 
  private:
+  void SetConversionFontSizes(
+      const CSSToLengthConversionData::FontSizes& font_sizes) {
+    MutableCssToLengthConversionData().SetFontSizes(font_sizes);
+  }
+  void SetConversionZoom(float zoom) {
+    MutableCssToLengthConversionData().SetZoom(zoom);
+  }
+
+  // Const because it only touches mutable members.
+  void UpdateLengthConversionData() const;
+
+  CSSToLengthConversionData& MutableCssToLengthConversionData() {
+    if (css_to_length_conversion_data_dirty_) {
+      UpdateLengthConversionData();
+    }
+    return css_to_length_conversion_data_;
+  }
+
   CSSToLengthConversionData UnzoomedLengthConversionData(const FontSizeStyle&);
+  // When resolving cq* units, this element is used to start the search
+  // for suitable size containers.
+  Element* ContainerUnitContext() const;
+  // See StyleRecalcContext::GetAnchorEvaluator().
+  AnchorEvaluator* GetAnchorEvaluator() const;
 
   ElementResolveContext element_context_;
+  const StyleRecalcContext* style_recalc_context_ = nullptr;
   Document* document_;
 
   // The primary output for each element's style resolve.
-  absl::optional<ComputedStyleBuilder> style_builder_;
+  std::optional<ComputedStyleBuilder> style_builder_;
 
-  CSSToLengthConversionData::Flags length_conversion_flags_ = 0;
-  CSSToLengthConversionData css_to_length_conversion_data_;
+  // Updated on-demand by CssToLengthConversionData() (by calling
+  // UpdateLengthConversionData()), whenever
+  // css_to_length_conversion_data_dirty_ is true. Do not access
+  // css_to_length_conversion_data_ directly; prefer
+  // CssToLengthConversionData() or MutableCssToLengthConversionData().
+  //
+  // Note that the initial state is clean, since the constructor
+  // initializes css_to_length_conversion_data_ from the given element.
+  // This is not just an optimization, it is needed for correctness;
+  // there is code that doesn't give us a ComputedStyleBuilder to make new
+  // conversion data from.
+  mutable CSSToLengthConversionData::Flags length_conversion_flags_ = 0;
+  mutable bool css_to_length_conversion_data_dirty_ = false;
+  mutable bool should_update_line_height_ = false;
+  mutable CSSToLengthConversionData css_to_length_conversion_data_;
 
   // parent_style_ is not always just ElementResolveContext::ParentStyle(),
   // so we keep it separate.
-  scoped_refptr<const ComputedStyle> parent_style_;
+  const ComputedStyle* parent_style_;
   // This will almost-always be the same that parent_style_, except in the
   // presence of display: contents. This is the style against which we have to
   // do adjustment.
-  scoped_refptr<const ComputedStyle> layout_parent_style_;
+  const ComputedStyle* layout_parent_style_;
   // The ComputedStyle stored on the element before the current lifecycle update
   // started.
-  scoped_refptr<const ComputedStyle> old_style_;
+  const ComputedStyle* old_style_;
 
   CSSAnimationUpdate animation_update_;
   StyleRequest::RequestType pseudo_request_type_;
 
   FontBuilder font_builder_;
 
-  // May be different than GetElement() if the element being styled is a pseudo
+  // May be different than GetElement() if the element being styled is a pseudo-
   // element or an instantiation via an SVG <use> element. In those cases,
   // GetElement() returns the originating element, or the element instatiated
   // from respectively.
   Element* styled_element_;
 
-  ElementStyleResources element_style_resources_;
-  ElementType element_type_;
-  Element* container_unit_context_;
+  mutable ElementStyleResources element_style_resources_;
+  // See StyleRequest.pseudo_id.
+  PseudoId pseudo_id_ = kPseudoIdNone;
 
-  scoped_refptr<const ComputedStyle> originating_element_style_;
+  // Whether this element is inside a link or not. Note that this is different
+  // from ElementLinkState() if the element is not a link itself but is inside
+  // one. It may also be overridden from non-visited to visited by devtools.
+  // This will eventually get stored on ComputedStyle, but since we do not have
+  // a ComputedStyle until pretty late in the process, keep it here until
+  // we have one.
+  //
+  // This is computed only once, lazily (thus the std::optional).
+  mutable std::optional<EInsideLink> inside_link_;
+
+  const ComputedStyle* originating_element_style_;
   // True if we are resolving styles for a highlight pseudo-element.
   const bool is_for_highlight_;
-  // True if this is a highlight style request, and highlight inheritance
-  // should be used for this highlight pseudo.
-  const bool uses_highlight_pseudo_inheritance_;
 
   // True if this style resolution can start or stop animations and transitions.
   // One case where animations and transitions can not be triggered is when we
@@ -286,7 +388,8 @@ class CORE_EXPORT StyleResolverState {
   bool can_trigger_animations_ = false;
 
   // Set to true if a given style resolve produced an empty MatchResult.
-  // This is used to return a nullptr style for pseudo-element style resolves.
+  // This is used to return a nullptr style for pseudo-element style
+  // resolves.
   bool had_no_matched_properties_ = false;
 
   // True whenever a matching rule in a non-matching container query contains
@@ -300,9 +403,12 @@ class CORE_EXPORT StyleResolverState {
   // flag.
   bool rejected_legacy_overlapping_ = false;
 
-  // True if we are currently resolving a position fallback style by applying
-  // rules in a `@try` block.
-  bool is_resolving_position_fallback_style_ = false;
+  // True if the resolved ComputedStyle depends on tree-scoped references.
+  bool has_tree_scoped_reference_ = false;
+
+  // Tried to apply a guaranteed-invalid value to a custom property that doesn't
+  // support it.
+  bool has_unsupported_guaranteed_invalid_ = false;
 };
 
 }  // namespace blink

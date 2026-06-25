@@ -29,11 +29,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_VIEWPORT_DESCRIPTION_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_VIEWPORT_DESCRIPTION_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/public/mojom/page/display_cutout.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/page_scale_constraints.h"
-#include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "ui/base/ime/mojom/virtual_keyboard_types.mojom-blink.h"
 #include "ui/gfx/geometry/size_f.h"
@@ -41,6 +41,52 @@
 namespace blink {
 
 class LocalFrame;
+
+// Representation of a viewport dimension.
+class ViewportLength {
+ public:
+  enum class Type {
+    kAuto,
+    kFixed,
+    kDeviceWidth,
+    kDeviceHeight,
+    kExtendToZoom,
+  };
+
+  ViewportLength() = default;
+
+  static ViewportLength Fixed(float value) { return {Type::kFixed, value}; }
+  static ViewportLength DeviceWidth() {
+    return ViewportLength(Type::kDeviceWidth);
+  }
+  static ViewportLength DeviceHeight() {
+    return ViewportLength(Type::kDeviceHeight);
+  }
+  static ViewportLength ExtendToZoom() {
+    return ViewportLength(Type::kExtendToZoom);
+  }
+
+  bool IsAuto() const { return type_ == Type::kAuto; }
+  bool IsFixed() const { return type_ == Type::kFixed; }
+  bool IsDeviceWidth() const { return type_ == Type::kDeviceWidth; }
+  bool IsDeviceHeight() const { return type_ == Type::kDeviceHeight; }
+  bool IsExtendToZoom() const { return type_ == Type::kExtendToZoom; }
+
+  float Pixels() const {
+    DCHECK_EQ(type_, Type::kFixed);
+    return value_;
+  }
+
+  friend bool operator==(const ViewportLength&,
+                         const ViewportLength&) = default;
+
+ private:
+  ViewportLength(Type type, float value) : type_(type), value_(value) {}
+  explicit ViewportLength(Type type) : ViewportLength(type, 0) {}
+
+  Type type_ = Type::kAuto;
+  float value_ = 0;
+};
 
 struct CORE_EXPORT ViewportDescription {
   DISALLOW_NEW();
@@ -72,53 +118,40 @@ struct CORE_EXPORT ViewportDescription {
   };
 
   constexpr static float kValueAuto = -1.;
-  constexpr static float kValueDeviceWidth = -2.;
-  constexpr static float kValueDeviceHeight = -3.;
-  constexpr static float kValuePortrait = -4.;
-  constexpr static float kValueLandscape = -5.;
   constexpr static float kValueDeviceDPI = -6.;
   constexpr static float kValueLowDPI = -7.;
   constexpr static float kValueMediumDPI = -8.;
   constexpr static float kValueHighDPI = -9.;
   constexpr static float kValueExtendToZoom = -10.;
 
-  ViewportDescription(Type type = kUserAgentStyleSheet)
-      : type(type),
-        zoom(kValueAuto),
-        min_zoom(kValueAuto),
-        max_zoom(kValueAuto),
-        user_zoom(true),
-        orientation(kValueAuto),
-        deprecated_target_density_dpi(kValueAuto),
-        zoom_is_explicit(false),
-        min_zoom_is_explicit(false),
-        max_zoom_is_explicit(false),
-        user_zoom_is_explicit(false) {}
+  explicit ViewportDescription(Type type = kUserAgentStyleSheet) : type(type) {}
 
   // All arguments are in CSS units.
-  PageScaleConstraints Resolve(const gfx::SizeF& initial_viewport_size,
-                               const Length& legacy_fallback_width) const;
+  PageScaleConstraints Resolve(
+      const gfx::SizeF& initial_viewport_size,
+      const ViewportLength& legacy_fallback_width) const;
 
-  // If the type is kFixed, these Length values (i.e., |min_width|,
+  // If the type is kFixed, these ViewportLength values (i.e., |min_width|,
   // |max_width|, |min_height|, and |max_height|) must be in physical pixel
   // scale.
-  Length min_width;
-  Length max_width;
-  Length min_height;
-  Length max_height;
-  float zoom;
-  float min_zoom;
-  float max_zoom;
-  bool user_zoom;
-  float orientation;
-  float deprecated_target_density_dpi;  // Only used for Android WebView
+  ViewportLength min_width;
+  ViewportLength max_width;
+  ViewportLength min_height;
+  ViewportLength max_height;
+  float zoom = kValueAuto;
+  float min_zoom = kValueAuto;
+  float max_zoom = kValueAuto;
+  bool user_zoom = true;
+  float orientation = kValueAuto;
+  float deprecated_target_density_dpi =
+      kValueAuto;  // Only used for Android WebView
 
   // Whether the computed value was explicitly specified rather than being
   // inferred.
-  bool zoom_is_explicit;
-  bool min_zoom_is_explicit;
-  bool max_zoom_is_explicit;
-  bool user_zoom_is_explicit;
+  bool zoom_is_explicit = false;
+  bool min_zoom_is_explicit = false;
+  bool max_zoom_is_explicit = false;
+  bool user_zoom_is_explicit = false;
 
   mojom::ViewportFit GetViewportFit() const {
     return viewport_fit_.value_or(mojom::ViewportFit::kAuto);
@@ -143,10 +176,6 @@ struct CORE_EXPORT ViewportDescription {
            viewport_fit_ == other.viewport_fit_;
   }
 
-  bool operator!=(const ViewportDescription& other) const {
-    return !(*this == other);
-  }
-
   bool IsLegacyViewportType() const {
     return type >= kHandheldFriendlyMeta && type <= kViewportMeta;
   }
@@ -159,16 +188,14 @@ struct CORE_EXPORT ViewportDescription {
   void ReportMobilePageStats(const LocalFrame*) const;
 
  private:
-  enum class Direction { kHorizontal, kVertical };
-  static float ResolveViewportLength(const Length&,
-                                     const gfx::SizeF& initial_viewport_size,
-                                     Direction);
+  static float ResolveViewportLength(const ViewportLength&,
+                                     const gfx::SizeF& initial_viewport_size);
 
   // Optional is used to identify if |viewport_fit_| has been explicitly set.
   // This is because a Document will have multiple ViewportDescriptions are
   // which one that will be used is dependent on whether any values have been
   // explicitly set.
-  absl::optional<mojom::ViewportFit> viewport_fit_;
+  std::optional<mojom::ViewportFit> viewport_fit_;
 };
 
 }  // namespace blink

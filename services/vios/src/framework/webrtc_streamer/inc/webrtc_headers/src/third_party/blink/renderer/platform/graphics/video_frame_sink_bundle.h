@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#include <optional>
+
 #include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/types/pass_key.h"
@@ -22,7 +24,6 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom-blink-forward.h"
 #include "services/viz/public/mojom/compositing/frame_sink_bundle.mojom-blink.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/frame_sinks/embedded_frame_sink.mojom-blink.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
@@ -110,30 +111,23 @@ class PLATFORM_EXPORT VideoFrameSinkBundle
   // Helper methods used by VideoFrameSubmitters to communicate potentially
   // batched requests to Viz. These correspond closely to methods on the
   // CompositorFrameSink interface.
-  void InitializeCompositorFrameSinkType(
-      uint32_t sink_id,
-      viz::mojom::blink::CompositorFrameSinkType);
   void SetNeedsBeginFrame(uint32_t sink_id, bool needs_begin_frame);
   void SubmitCompositorFrame(
       uint32_t sink_id,
       const viz::LocalSurfaceId& local_surface_id,
       viz::CompositorFrame frame,
-      absl::optional<viz::HitTestRegionList> hit_test_region_list,
+      std::optional<viz::HitTestRegionList> hit_test_region_list,
       uint64_t submit_time);
   void DidNotProduceFrame(uint32_t sink_id, const viz::BeginFrameAck& ack);
-  void DidAllocateSharedBitmap(uint32_t sink_id,
-                               base::ReadOnlySharedMemoryRegion region,
-                               const gpu::Mailbox& id);
-  void DidDeleteSharedBitmap(uint32_t sink_id, const gpu::Mailbox& id);
 #if BUILDFLAG(IS_ANDROID)
-  void SetThreadIds(uint32_t sink_id, const WTF::Vector<int32_t>& thread_ids);
+  void SetThreads(uint32_t sink_id, const Vector<viz::Thread>& threads);
 #endif
 
   // viz::mojom::blink::FrameSinkBundleClient implementation:
   void FlushNotifications(
-      WTF::Vector<viz::mojom::blink::BundledReturnedResourcesPtr> acks,
-      WTF::Vector<viz::mojom::blink::BeginFrameInfoPtr> begin_frames,
-      WTF::Vector<viz::mojom::blink::BundledReturnedResourcesPtr>
+      Vector<viz::mojom::blink::BundledReturnedResourcesPtr> acks,
+      Vector<viz::mojom::blink::BeginFrameInfoPtr> begin_frames,
+      Vector<viz::mojom::blink::BundledReturnedResourcesPtr>
           reclaimed_resources) override;
   void OnBeginFramePausedChanged(uint32_t sink_id, bool paused) override;
   void OnCompositorFrameTransitionDirectiveProcessed(
@@ -147,12 +141,11 @@ class PLATFORM_EXPORT VideoFrameSinkBundle
   const viz::FrameSinkBundleId id_;
   mojo::Remote<viz::mojom::blink::FrameSinkBundle> bundle_;
   mojo::Receiver<viz::mojom::blink::FrameSinkBundleClient> receiver_{this};
-  WTF::HashMap<uint32_t, viz::mojom::blink::CompositorFrameSinkClient*>
-      clients_;
-  WTF::HashSet<uint32_t> sinks_needing_begin_frames_;
+  HashMap<uint32_t, viz::mojom::blink::CompositorFrameSinkClient*> clients_;
+  HashSet<uint32_t> sinks_needing_begin_frames_;
 
   bool defer_submissions_ = false;
-  WTF::Vector<viz::mojom::blink::BundledFrameSubmissionPtr> submission_queue_;
+  Vector<viz::mojom::blink::BundledFrameSubmissionPtr> submission_queue_;
 
   base::OnceClosure disconnect_handler_for_testing_;
   std::unique_ptr<BeginFrameObserver> begin_frame_observer_;

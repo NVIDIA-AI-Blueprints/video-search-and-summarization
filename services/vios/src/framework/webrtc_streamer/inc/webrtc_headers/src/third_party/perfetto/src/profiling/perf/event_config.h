@@ -17,7 +17,6 @@
 #ifndef SRC_PROFILING_PERF_EVENT_CONFIG_H_
 #define SRC_PROFILING_PERF_EVENT_CONFIG_H_
 
-#include <cinttypes>
 #include <functional>
 #include <string>
 #include <vector>
@@ -31,15 +30,11 @@
 #include "perfetto/tracing/core/data_source_config.h"
 
 #include "protos/perfetto/common/perf_events.gen.h"
+#include "protos/perfetto/config/profiling/perf_event_config.gen.h"
 
-namespace perfetto {
-namespace protos {
-namespace gen {
-class PerfEventConfig;
-}  // namespace gen
-}  // namespace protos
+namespace perfetto::profiling {
 
-namespace profiling {
+enum class RecordingMode { kPolling, kSampling };
 
 // Callstack sampling parameter for unwinding only a fraction of seen processes
 // (without enumerating them in the config).
@@ -90,6 +85,9 @@ struct PerfCounter {
   uint64_t attr_config = 0;
   uint64_t attr_config1 = 0;  // optional extension
   uint64_t attr_config2 = 0;  // optional extension
+  bool attr_exclude_user = false;
+  bool attr_exclude_kernel = false;
+  bool attr_exclude_hv = false;
 
   Type event_type() const { return type; }
 
@@ -111,7 +109,7 @@ struct PerfCounter {
 };
 
 // Describes a single profiling configuration. Bridges the gap between the data
-// source config proto, and the raw "perf_event_attr" structs to pass to the
+// source config proto, and the raw |perf_event_attr| structs to pass to the
 // perf_event_open syscall.
 class EventConfig {
  public:
@@ -122,39 +120,42 @@ class EventConfig {
       const protos::gen::PerfEventConfig& pb_config,
       const DataSourceConfig& raw_ds_config,
       std::optional<ProcessSharding> process_sharding,
-      tracepoint_id_fn_t tracepoint_id_lookup);
+      const tracepoint_id_fn_t& tracepoint_id_lookup);
 
+  // clang-format off
+  RecordingMode recording_mode() const { return recording_mode_; }
   uint32_t ring_buffer_pages() const { return ring_buffer_pages_; }
   uint32_t read_tick_period_ms() const { return read_tick_period_ms_; }
   uint64_t samples_per_tick_limit() const { return samples_per_tick_limit_; }
-  uint32_t remote_descriptor_timeout_ms() const {
-    return remote_descriptor_timeout_ms_;
-  }
-  uint32_t unwind_state_clear_period_ms() const {
-    return unwind_state_clear_period_ms_;
-  }
-  uint64_t max_enqueued_footprint_bytes() const {
-    return max_enqueued_footprint_bytes_;
-  }
-  bool sample_callstacks() const { return user_frames_ || kernel_frames_; }
-  bool user_frames() const { return user_frames_; }
-  bool kernel_frames() const { return kernel_frames_; }
+  uint32_t remote_descriptor_timeout_ms() const { return remote_descriptor_timeout_ms_; }
+  uint32_t unwind_state_clear_period_ms() const { return unwind_state_clear_period_ms_; }
+  uint64_t max_enqueued_footprint_bytes() const { return max_enqueued_footprint_bytes_; }
+  protos::gen::PerfEventConfig::UnwindMode unwind_mode() const { return unwind_mode_; }
   const TargetFilter& filter() const { return target_filter_; }
-  perf_event_attr* perf_attr() const {
-    return const_cast<perf_event_attr*>(&perf_event_attr_);
-  }
+  perf_event_attr* perf_attr() const { return const_cast<perf_event_attr*>(&perf_event_attr_); }
+  const std::vector<perf_event_attr>& perf_attr_followers() const { return perf_event_followers_; }
   const PerfCounter& timebase_event() const { return timebase_event_; }
-  const std::vector<std::string>& target_installed_by() const {
-    return target_installed_by_;
-  }
+  const std::vector<PerfCounter>& follower_events() const { return follower_events_; }
+  const std::vector<std::string>& target_installed_by() const { return target_installed_by_; }
   const DataSourceConfig& raw_ds_config() const { return raw_ds_config_; }
+  // non-trivial accessors:
+  bool sample_callstacks() const { return user_frames() || kernel_frames_; }
+  bool user_frames() const { return IsUserFramesEnabled(unwind_mode_); }
+  bool kernel_frames() const { return kernel_frames_; }
+  // clang-format on
 
  private:
+  static bool IsUserFramesEnabled(
+      const protos::gen::PerfEventConfig::UnwindMode& unwind_mode);
+
   EventConfig(const DataSourceConfig& raw_ds_config,
-              const perf_event_attr& pe,
-              const PerfCounter& timebase_event,
-              bool user_frames,
+              const perf_event_attr& pe_timebase,
+              std::vector<perf_event_attr> pe_followers,
+              PerfCounter timebase_event,
+              std::vector<PerfCounter> follower_events,
+              RecordingMode recording_mode,
               bool kernel_frames,
+              protos::gen::PerfEventConfig::UnwindMode unwind_mode,
               TargetFilter target_filter,
               uint32_t ring_buffer_pages,
               uint32_t read_tick_period_ms,
@@ -164,19 +165,43 @@ class EventConfig {
               uint64_t max_enqueued_footprint_bytes,
               std::vector<std::string> target_installed_by);
 
-  // Parameter struct for the leader (timebase) perf_event_open syscall.
+  static std::optional<EventConfig> CreatePolling(
+      PerfCounter timebase_event,
+      std::vector<PerfCounter> followers,
+      const protos::gen::PerfEventConfig& pb_config,
+      const DataSourceConfig& raw_ds_config);
+
+  static std::optional<EventConfig> CreateSampling(
+      PerfCounter timebase_event,
+      std::vector<PerfCounter> followers,
+      std::optional<ProcessSharding> process_sharding,
+      const protos::gen::PerfEventConfig& pb_config,
+      const DataSourceConfig& raw_ds_config);
+
+  // Parameter struct for the timebase perf_event_open syscall.
   perf_event_attr perf_event_attr_ = {};
 
-  // Leader event, which is already described by |perf_event_attr_|. But this
+  // Additional events in the group, each configured with a separate syscall.
+  std::vector<perf_event_attr> perf_event_followers_;
+
+  // Timebase event, which is already described by |perf_event_attr_|. But this
   // additionally carries a tracepoint filter if that needs to be set via an
   // ioctl after creating the event.
   const PerfCounter timebase_event_;
 
-  // If true, include userspace frames in sampled callstacks.
-  const bool user_frames_;
+  // Follower events, which are already described by |perf_event_followers_|.
+  const std::vector<PerfCounter> follower_events_;
+
+  // Whether we're using the read syscall to poll event counts, or mmapping a
+  // ring buffer. In the earlier case, most of the subsequent fields are
+  // unused.
+  const RecordingMode recording_mode_;
 
   // If true, include kernel frames in sampled callstacks.
   const bool kernel_frames_;
+
+  // Userspace unwinding mode.
+  const protos::gen::PerfEventConfig::UnwindMode unwind_mode_;
 
   // Parsed allow/deny-list for filtering samples.
   const TargetFilter target_filter_;
@@ -185,7 +210,8 @@ class EventConfig {
   // Must be a power of two.
   const uint32_t ring_buffer_pages_;
 
-  // How often the ring buffers should be read.
+  // In polling mode - how often to read the counters.
+  // In sampling mode - how often to read the ring buffers.
   const uint32_t read_tick_period_ms_;
 
   // Guardrail for the amount of samples a given read attempt will extract from
@@ -198,6 +224,8 @@ class EventConfig {
   // Optional period for clearing cached unwinder state. Skipped if zero.
   const uint32_t unwind_state_clear_period_ms_;
 
+  // Optional threshold for load shedding in the reader<->unwinder queue.
+  // Skipped if zero.
   const uint64_t max_enqueued_footprint_bytes_;
 
   // Only profile target if it was installed by one of the packages given.
@@ -211,7 +239,6 @@ class EventConfig {
   const DataSourceConfig raw_ds_config_;
 };
 
-}  // namespace profiling
-}  // namespace perfetto
+}  // namespace perfetto::profiling
 
 #endif  // SRC_PROFILING_PERF_EVENT_CONFIG_H_

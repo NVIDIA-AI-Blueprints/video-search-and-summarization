@@ -10,9 +10,7 @@
 #ifndef NET_DCSCTP_TX_RETRANSMISSION_ERROR_COUNTER_H_
 #define NET_DCSCTP_TX_RETRANSMISSION_ERROR_COUNTER_H_
 
-#include <functional>
-#include <string>
-#include <utility>
+#include <optional>
 
 #include "absl/strings/string_view.h"
 #include "net/dcsctp/public/dcsctp_options.h"
@@ -42,7 +40,7 @@ class RetransmissionErrorCounter {
 
  private:
   const absl::string_view log_prefix_;
-  const absl::optional<int> limit_;
+  const std::optional<int> limit_;
   int counter_ = 0;
 };
 }  // namespace dcsctp

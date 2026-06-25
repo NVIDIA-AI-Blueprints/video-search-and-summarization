@@ -32,7 +32,6 @@
 #include "media/base/output_device_info.h"
 #include "third_party/blink/public/platform/web_audio_sink_descriptor.h"
 #include "third_party/blink/public/platform/web_common.h"
-#include "third_party/blink/public/platform/web_vector.h"
 
 namespace blink {
 
@@ -60,11 +59,11 @@ class WebAudioDevice {
   virtual int MaxChannelCount() = 0;
 
   // Sets the detect silence flag for |RendererWebAudioDeviceImpl|.
-  virtual void SetDetectSilence(bool detect_silence) {}
+  virtual void SetDetectSilence(bool detect_silence) = 0;
 
-  // Creates a new sink and return its device status. If the status is OK,
-  // replace the existing sink with the new one.
-  virtual media::OutputDeviceStatus CreateSinkAndGetDeviceStatus() = 0;
+  // Creates a new sink if one hasn't been created yet, and returns the sink
+  // status.
+  virtual media::OutputDeviceStatus MaybeCreateSinkAndGetStatus() = 0;
 };
 
 }  // namespace blink

@@ -24,25 +24,27 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAGE_PAGE_H_
 
 #include <memory>
+#include <optional>
 
 #include "base/check_op.h"
 #include "base/dcheck_is_on.h"
 #include "base/types/pass_key.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/common/features.h"
+#include "net/cookies/site_for_cookies.h"
+#include "services/network/public/mojom/attribution.mojom-shared.h"
 #include "third_party/blink/public/common/fenced_frame/redacted_fenced_frame_config.h"
+#include "third_party/blink/public/common/fingerprinting_protection/noise_token.h"
 #include "third_party/blink/public/common/metrics/document_update_reason.h"
-#include "third_party/blink/public/common/page/browsing_context_group_info.h"
+#include "third_party/blink/public/common/page/color_provider_color_maps.h"
 #include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink-forward.h"
-#include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom-blink.h"
-#include "third_party/blink/public/mojom/frame/text_autosizer_page_info.mojom-blink.h"
-#include "third_party/blink/public/mojom/page/page.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/page/page.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom-blink.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
 #include "third_party/blink/public/web/web_lifecycle_update.h"
 #include "third_party/blink/public/web/web_window_features.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_compile_hints.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_compile_hints_consumer.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_compile_hints_producer.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/vision_deficiency.h"
 #include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
@@ -56,15 +58,19 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/scheduler/public/agent_group_scheduler.h"
-#include "third_party/blink/renderer/platform/scheduler/public/page_lifecycle_state.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "ui/gfx/geometry/insets.h"
 
 namespace cc {
 class AnimationHost;
-}
+}  // namespace cc
+
+namespace ui {
+class ColorProvider;
+}  // namespace ui
 
 namespace blink {
 class AutoscrollController;
@@ -81,21 +87,26 @@ class LinkHighlight;
 class LocalFrame;
 class LocalFrameView;
 class MediaFeatureOverrides;
-class OverscrollController;
 class PageAnimator;
 struct PageScaleConstraints;
 class PageScaleConstraintsSet;
 class PluginData;
-class PluginsChangedObserver;
 class PointerLockController;
+class PreferenceOverrides;
 class ScopedPagePauser;
 class ScrollingCoordinator;
 class ScrollbarTheme;
 class Settings;
 class SpatialNavigationController;
+class SVGDocumentResourceTracker;
 class TopDocumentRootScrollerController;
 class ValidationMessageClient;
 class VisualViewport;
+class TextFragmentAnchorTestBase;
+class TextFragmentAnchorTest;
+class TextFragmentAnchorMetricsTest;
+class TextFragmentHandlerTest;
+class TextFragmentGenerationNavigationTest;
 
 typedef uint64_t LinkHash;
 
@@ -111,20 +122,24 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
  public:
   // Any pages not owned by a web view should be created using this method.
-  static Page* CreateNonOrdinary(ChromeClient& chrome_client,
-                                 AgentGroupScheduler& agent_group_scheduler);
+  static Page* CreateNonOrdinary(
+      ChromeClient& chrome_client,
+      AgentGroupScheduler& agent_group_scheduler,
+      const ColorProviderColorMaps* color_provider_colors);
 
   // An "ordinary" page is a fully-featured page owned by a web view.
   static Page* CreateOrdinary(
       ChromeClient& chrome_client,
       Page* opener,
       AgentGroupScheduler& agent_group_scheduler,
-      const BrowsingContextGroupInfo& browsing_context_group_info);
+      const base::UnguessableToken& browsing_context_group_token,
+      const ColorProviderColorMaps* color_provider_colors);
 
   Page(base::PassKey<Page>,
        ChromeClient& chrome_client,
        AgentGroupScheduler& agent_group_scheduler,
-       const BrowsingContextGroupInfo& browsing_context_group_info,
+       const base::UnguessableToken& browsing_context_group_token,
+       const ColorProviderColorMaps* color_provider_colors,
        bool is_ordinary);
   Page(const Page&) = delete;
   Page& operator=(const Page&) = delete;
@@ -145,17 +160,38 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   // Returns pages related to the current browsing context (excluding the
   // current page).  See also
-  // https://html.spec.whatwg.org/C/#unit-of-related-browsing-contexts
+  // https://html.spec.whatwg.org/C/#nested-browsing-contexts
   HeapVector<Member<Page>> RelatedPages();
 
   // Should be called when |GetScrollbarTheme().UsesOverlayScrollbars()|
   // changes.
   static void UsesOverlayScrollbarsChanged();
+  static void ForcedColorsChanged();
   static void PlatformColorsChanged();
   static void ColorSchemeChanged();
-  static void ColorProvidersChanged();
+
+  void EmulateForcedColors(bool is_dark_theme);
+  void DisableEmulatedForcedColors();
+  bool UpdateColorProviders(
+      const ColorProviderColorMaps& color_provider_colors);
+  void UpdateColorProvidersForTest();
+  const ui::ColorProvider* GetColorProviderForPainting(
+      mojom::blink::ColorScheme color_scheme,
+      bool in_forced_colors) const;
+
+  // Returns the color provider colors for this page. Used to support the
+  // creation of Non-ordiany pages from a main page.
+  const ColorProviderColorMaps& GetColorProviderColorMaps() {
+    return color_provider_colors_;
+  }
+
+  void SetColorProviderColorMaps(
+      const ColorProviderColorMaps& color_provider_colors) {
+    color_provider_colors_ = color_provider_colors;
+  }
 
   void InitialStyleChanged();
+  void UAStyleChanged();
   void UpdateAcceleratedCompositingSettings();
 
   ViewportDescription GetViewportDescription() const;
@@ -171,13 +207,16 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // also be called to update accordingly.
   // TODO(npm): update the |page_scheduler_| directly in this method.
   void SetMainFrame(Frame*);
-  Frame* MainFrame() const { return main_frame_; }
+  Frame* MainFrame() const { return main_frame_.Get(); }
 
   void SetPreviousMainFrameForLocalSwap(
       LocalFrame* previous_main_frame_for_local_swap) {
     previous_main_frame_for_local_swap_ = previous_main_frame_for_local_swap;
   }
-  Frame* TakePreviousMainFrameForLocalSwap();
+
+  LocalFrame* GetPreviousMainFrameForLocalSwap() {
+    return previous_main_frame_for_local_swap_.Get();
+  }
 
   // Escape hatch for existing code that assumes that the root frame is
   // always a LocalFrame. With OOPI, this is not always the case. Code that
@@ -204,6 +243,9 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
     DCHECK(chrome_client_) << "No chrome client";
     return *chrome_client_;
   }
+  void SetChromeClientForTesting(ChromeClient* chrome_client) {
+    chrome_client_ = chrome_client;
+  }
   AutoscrollController& GetAutoscrollController() const {
     return *autoscroll_controller_;
   }
@@ -211,6 +253,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   DragController& GetDragController() const { return *drag_controller_; }
   FocusController& GetFocusController() const { return *focus_controller_; }
   SpatialNavigationController& GetSpatialNavigationController();
+  SVGDocumentResourceTracker& GetSVGDocumentResourceTracker();
   ContextMenuController& GetContextMenuController() const {
     return *context_menu_controller_;
   }
@@ -254,9 +297,6 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   LinkHighlight& GetLinkHighlight();
 
-  OverscrollController& GetOverscrollController();
-  const OverscrollController& GetOverscrollController() const;
-
   void SetTabKeyCyclesThroughElements(bool b) {
     tab_key_cycles_through_elements_ = b;
   }
@@ -277,6 +317,9 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // Frozen state corresponds to "lifecycle state for CPU suspension"
   // https://wicg.github.io/page-lifecycle/#sec-lifecycle-states
   bool Frozen() const { return frozen_; }
+
+  bool ShowPausedHudOverlay() const { return show_paused_hud_overlay_; }
+  void SetShowPausedHudOverlay(bool show_overlay);
 
   void SetPageScaleFactor(float);
   float PageScaleFactor() const;
@@ -310,6 +353,23 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   }
   int SubframeCount() const;
 
+  // Update the CSS safe-area-inset* environment variables in the main frame's
+  // document based on the stored |max_safe_area_insets| in the Page and the
+  // given |browser_controls|'s visible height.
+  //
+  // The new safe-area-inset* will not be applied to the CSS
+  // environment if a fullscreen element exists, unless |force_update|
+  // is true.
+  void UpdateSafeAreaInsetWithBrowserControls(
+      const BrowserControls& browser_controls,
+      bool force_update = false);
+
+  // Set the max safe-area-inset* from the browser and update the CSS
+  // environment variables for the main frame. If the setter is not a main
+  // frame, applies the same safe-area-inset* to the given |setter|'s document
+  // as well. The input |insets| is unscaled and in the size of dips.
+  void SetMaxSafeAreaInsets(LocalFrame* setter, gfx::Insets insets);
+
   void SetDefaultPageScaleLimits(float min_scale, float max_scale);
   void SetUserAgentPageScaleConstraints(
       const PageScaleConstraints& new_constraints);
@@ -321,16 +381,12 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   void DidCommitLoad(LocalFrame*);
 
-  void AcceptLanguagesChanged();
-
   void Trace(Visitor*) const override;
 
   void DidInitializeCompositing(cc::AnimationHost&);
   void WillStopCompositing();
 
   void WillBeDestroyed();
-
-  void RegisterPluginsChangedObserver(PluginsChangedObserver*);
 
   ScrollbarTheme& GetScrollbarTheme() const;
 
@@ -339,8 +395,6 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   // PageScheduler::Delegate implementation.
   bool IsOrdinary() const override;
-  void ReportIntervention(const String& message) override;
-  bool RequestBeginMainFrameNotExpected(bool new_state) override;
   void OnSetPageFrozen(bool is_frozen) override;
 
   void AddAutoplayFlags(int32_t flags);
@@ -348,21 +402,46 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   int32_t AutoplayFlags() const;
 
-  void SetInsidePortal(bool inside_portal);
-  bool InsidePortal() const;
-
   void SetIsPrerendering(bool is_prerendering) {
     is_prerendering_ = is_prerendering;
   }
+  void SetPrerenderMetricSuffix(const String& suffix) {
+    prerender_metric_suffix_ = suffix;
+  }
+  void SetShouldWarmUpCompositorOnPrerender(
+      bool should_warm_up_compositor_on_prerender) {
+    should_warm_up_compositor_on_prerender_ =
+        should_warm_up_compositor_on_prerender;
+  }
+  void SetShouldPreparePaintTreeOnPrerender(
+      bool should_prepare_paint_tree_on_prerender) {
+    should_prepare_paint_tree_on_prerender_ =
+        should_prepare_paint_tree_on_prerender;
+  }
+  void SetShouldPauseJavaScriptExecutionOnPrerender(
+      bool should_pause_javascript_execution_on_prerender) {
+    should_pause_javascript_execution_on_prerender_ =
+        should_pause_javascript_execution_on_prerender;
+  }
   bool IsPrerendering() const { return is_prerendering_; }
+  const String& PrerenderMetricSuffix() const {
+    return prerender_metric_suffix_;
+  }
+  bool ShouldWarmUpCompositorOnPrerender() const {
+    return should_warm_up_compositor_on_prerender_;
+  }
+  bool ShouldPreparePaintTreeOnPrerender() const {
+    return should_prepare_paint_tree_on_prerender_;
+  }
+  // Whether the trigger of this prerendering page wants to pause JavaScript
+  // execution until activation.
+  bool ShouldPauseJavaScriptExecutionOnPrerender() const {
+    return should_pause_javascript_execution_on_prerender_;
+  }
 
-  void SetTextAutosizerPageInfo(
-      const mojom::blink::TextAutosizerPageInfo& page_info) {
-    web_text_autosizer_page_info_ = page_info;
-  }
-  const mojom::blink::TextAutosizerPageInfo& TextAutosizerPageInfo() const {
-    return web_text_autosizer_page_info_;
-  }
+  // Upgrades a prerender-until-script page to a full prerender by resuming
+  // JavaScript execution. The page remains in prerendering state.
+  void UpgradePrerenderUntilScriptToFullPrerender();
 
   void SetMediaFeatureOverride(const AtomicString& media_feature,
                                const String& value);
@@ -370,6 +449,13 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
     return media_feature_overrides_.get();
   }
   void ClearMediaFeatureOverrides();
+
+  void SetPreferenceOverride(const AtomicString& media_feature,
+                             const String& value);
+  const PreferenceOverrides* GetPreferenceOverrides() const {
+    return preference_overrides_.get();
+  }
+  void ClearPreferenceOverrides();
 
   void SetVisionDeficiency(VisionDeficiency new_vision_deficiency);
   VisionDeficiency GetVisionDeficiency() const { return vision_deficiency_; }
@@ -383,11 +469,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
     return page_visibility_observer_set_;
   }
 
-  void SetPageLifecycleState(
-      mojom::blink::PageLifecycleStatePtr lifecycle_state) {
-    lifecycle_state_ = std::move(lifecycle_state);
-  }
-
+  void SetPageLifecycleState(mojom::blink::PageLifecycleStatePtr);
   const mojom::blink::PageLifecycleStatePtr& GetPageLifecycleState() {
     return lifecycle_state_;
   }
@@ -420,34 +502,71 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
     return fenced_frame_mode_;
   }
 
-  V8CrowdsourcedCompileHintsProducer& GetV8CrowdsourcedCompileHintsProducer() {
-    return *v8_compile_hints_;
+  v8_compile_hints::V8CrowdsourcedCompileHintsProducer&
+  GetV8CrowdsourcedCompileHintsProducer() {
+    return *v8_compile_hints_producer_;
+  }
+
+  v8_compile_hints::V8CrowdsourcedCompileHintsConsumer&
+  GetV8CrowdsourcedCompileHintsConsumer() {
+    return *v8_compile_hints_consumer_;
   }
 
   // Returns the token uniquely identifying the browsing context group this page
   // lives in.
   const base::UnguessableToken& BrowsingContextGroupToken();
 
-  // Returns the token uniquely identifying the CoopRelatedGroup this page lives
-  // in.
-  const base::UnguessableToken& CoopRelatedGroupToken();
-
   // Update this Page's browsing context group after a navigation has taken
   // place.
-  void UpdateBrowsingContextGroup(const blink::BrowsingContextGroupInfo&);
+  void UpdateBrowsingContextGroup(const base::UnguessableToken&);
+
+  // Attribution Reporting API ------------------------------------
+  // Sets whether web or OS-level Attribution Reporting is supported
+  void SetAttributionSupport(
+      network::mojom::AttributionSupport attribution_support);
+
+  // Returns whether web or OS-level Attribution Reporting is supported. See
+  // https://github.com/WICG/attribution-reporting-api/blob/main/app_to_web.md.
+  network::mojom::AttributionSupport GetAttributionSupport() {
+    return attribution_support_;
+  }
+
+  // Called on a new Page, passing an old Page as the parameter, when doing a
+  // LocalFrame <-> LocalFrame swap when committing a navigation, to ensure that
+  // e.g. the close task will still be processed after the swap, the list of
+  // related pages will include the new page instead of the old page, etc.
+  void TakePropertiesForLocalMainFrameSwap(Page* old_page);
+
+  void NotifyRelatedPagesFinalized(bool has_other_related_pages) {
+    related_pages_mutation_from_previous_page_finalized_ = true;
+    has_other_related_pages_during_commit_ = has_other_related_pages;
+  }
+
+  bool RelatedPagesMutationFromPreviousPageFinalized() const {
+    return related_pages_mutation_from_previous_page_finalized_;
+  }
+  bool HasOtherRelatedPagesDuringCommit() const {
+    return has_other_related_pages_during_commit_;
+  }
 
  private:
+  friend class TextFragmentAnchorTestBase;
+  friend class TextFragmentAnchorTest;
+  friend class TextFragmentAnchorMetricsTest;
+  friend class TextFragmentHandlerTest;
+  friend class TextFragmentGenerationNavigationTest;
   friend class ScopedPagePauser;
-
-  void InitGroup();
+  class CloseTaskHandler;
 
   // SettingsDelegate overrides.
   void SettingsChanged(SettingsDelegate::ChangeType) override;
 
-  // Notify |plugins_changed_observers_| that plugins have changed.
-  void NotifyPluginsChanged() const;
+  void AcceptLanguagesChanged();
 
   void InvalidateColorScheme();
+
+  // Connect the Page to the `opener_`'s related pages, if those exist.
+  void LinkRelatedPagesIfNeeded();
 
   // Typically, the main frame and Page should both be owned by the embedder,
   // which must call Page::willBeDestroyed() prior to destroying Page. This
@@ -497,9 +616,9 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   const Member<TopDocumentRootScrollerController>
       global_root_scroller_controller_;
   const Member<VisualViewport> visual_viewport_;
-  const Member<OverscrollController> overscroll_controller_;
   const Member<LinkHighlight> link_highlight_;
   Member<SpatialNavigationController> spatial_navigation_controller_;
+  Member<SVGDocumentResourceTracker> svg_document_resource_tracker_;
 
   Member<PluginData> plugin_data_;
 
@@ -535,6 +654,7 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // controlled from the renderer.
   bool paused_ = false;
   bool frozen_ = false;
+  bool show_paused_hud_overlay_ = false;
 
 #if DCHECK_IS_ON()
   bool is_painting_ = false;
@@ -542,29 +662,58 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
 
   int subframe_count_;
 
-  HeapHashSet<WeakMember<PluginsChangedObserver>> plugins_changed_observers_;
+  // |max_safe_area_insets_| is coming from the display cutout client.
+  // |scaled_max_safe_area_insets_| has been scaled to the size of physical
+  // pixles.
+  gfx::InsetsF scaled_max_safe_area_insets_;
+  gfx::InsetsF applied_safe_area_insets_;
+
+  // The light, dark and forced_colors mode ColorProviders corresponding to the
+  // top-level web container this Page is associated with.
+  std::unique_ptr<ui::ColorProvider> light_color_provider_;
+  std::unique_ptr<ui::ColorProvider> dark_color_provider_;
+  std::unique_ptr<ui::ColorProvider> forced_colors_color_provider_;
+
+  // Caching the color provider colors for easy creation of non ordinary pages
+  // who may depend on the main Page for colors.
+  ColorProviderColorMaps color_provider_colors_;
+
+  // This provider is used when forced color emulation is enabled via DevTools,
+  // overriding the light, dark or forced colors color providers.
+  std::unique_ptr<ui::ColorProvider> emulated_forced_colors_provider_;
 
   // A circular, double-linked list of pages that are related to the current
   // browsing context.  See also RelatedPages method.
   Member<Page> next_related_page_;
   Member<Page> prev_related_page_;
 
-  // A handle to notify the scheduler whether this page has other related
-  // pages or not.
-  FrameScheduler::SchedulingAffectingFeatureHandle has_related_pages_;
+  // Indicates whether the related pages set can change due to previous page's
+  // mutations. Set when this (new page) is being committed. Once finalized, we
+  // would not expect the previous page to change the related pages set
+  // (although it can still change on this page).
+  bool related_pages_mutation_from_previous_page_finalized_ = false;
+  // Note that `has_other_related_pages_during_commit_` may not be in sync with
+  // RelatedPages() list and that's a bug. This is only used for text fragment
+  // checks to see if we're allowed to do a scroll or not. Ideally we don't need
+  // this and should just check the RelatedPages() set if the bug is fixed. See
+  // crbug.com/457771782 for details.
+  bool has_other_related_pages_during_commit_ = false;
+
+  // The Page that opened this Page.
+  WeakMember<Page> opener_;
 
   std::unique_ptr<PageScheduler> page_scheduler_;
 
   // Overrides for various media features, set from DevTools.
   std::unique_ptr<MediaFeatureOverrides> media_feature_overrides_;
 
+  // Overrides for user preference media features, set from Web Preferences API.
+  std::unique_ptr<PreferenceOverrides> preference_overrides_;
+
   // Emulated vision deficiency, set from DevTools.
   VisionDeficiency vision_deficiency_ = VisionDeficiency::kNoVisionDeficiency;
 
   int32_t autoplay_flags_;
-
-  // Accessed by frames to determine whether to expose the PortalHost object.
-  bool inside_portal_ = false;
 
   // Whether the page is being prerendered by the Prerender2
   // feature. See content/browser/preloading/prerender/README.md.
@@ -573,6 +722,16 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   // this Page. Once initialized, it can only transition from true to false on
   // prerender activation; it does not go from false to true.
   bool is_prerendering_ = false;
+
+  // TODO(crbug.com/428500219): Do not flatten these params.
+  String prerender_metric_suffix_;
+  // If true, warms up compositor on `WebLocalFrameImpl::DidCommitLoad` if the
+  // page is under prerendering.
+  bool should_warm_up_compositor_on_prerender_ = false;
+  // If true, prepares the paint tree if the page is under prerendering.
+  bool should_prepare_paint_tree_on_prerender_ = false;
+  // If true, pauses JavaScript execution until the page is activated.
+  bool should_pause_javascript_execution_on_prerender_ = false;
 
   // Whether the the Page's main document is a Fenced Frame document. This is
   // only set for the MPArch implementation and is true when the corresponding
@@ -583,14 +742,21 @@ class CORE_EXPORT Page final : public GarbageCollected<Page>,
   blink::FencedFrame::DeprecatedFencedFrameMode fenced_frame_mode_ =
       blink::FencedFrame::DeprecatedFencedFrameMode::kDefault;
 
-  mojom::blink::TextAutosizerPageInfo web_text_autosizer_page_info_;
-
   WebScopedVirtualTimePauser history_navigation_virtual_time_pauser_;
 
-  Member<V8CrowdsourcedCompileHintsProducer> v8_compile_hints_;
+  Member<v8_compile_hints::V8CrowdsourcedCompileHintsProducer>
+      v8_compile_hints_producer_;
+
+  Member<v8_compile_hints::V8CrowdsourcedCompileHintsConsumer>
+      v8_compile_hints_consumer_;
 
   // The information determining the browsing context group this page lives in.
-  BrowsingContextGroupInfo browsing_context_group_info_;
+  base::UnguessableToken browsing_context_group_token_;
+
+  network::mojom::AttributionSupport attribution_support_ =
+      network::mojom::AttributionSupport::kUnset;
+
+  Member<CloseTaskHandler> close_task_handler_;
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT Supplement<Page>;

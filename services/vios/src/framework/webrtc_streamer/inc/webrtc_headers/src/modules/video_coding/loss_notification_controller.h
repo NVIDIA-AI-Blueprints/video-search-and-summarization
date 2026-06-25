@@ -13,13 +13,14 @@
 
 #include <stdint.h>
 
+#include <optional>
 #include <set>
+#include <span>
 
-#include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "api/sequence_checker.h"
 #include "modules/include/module_common_types.h"
 #include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -28,7 +29,7 @@ class LossNotificationController {
   struct FrameDetails {
     bool is_keyframe;
     int64_t frame_id;
-    rtc::ArrayView<const int64_t> frame_dependencies;
+    std::span<const int64_t> frame_dependencies;
   };
 
   LossNotificationController(KeyFrameRequestSender* key_frame_request_sender,
@@ -44,13 +45,13 @@ class LossNotificationController {
   void OnAssembledFrame(uint16_t first_seq_num,
                         int64_t frame_id,
                         bool discardable,
-                        rtc::ArrayView<const int64_t> frame_dependencies);
+                        std::span<const int64_t> frame_dependencies);
 
  private:
   void DiscardOldInformation();
 
   bool AllDependenciesDecodable(
-      rtc::ArrayView<const int64_t> frame_dependencies) const;
+      std::span<const int64_t> frame_dependencies) const;
 
   // When the loss of a packet or the non-decodability of a frame is detected,
   // produces a key frame request or a loss notification.
@@ -75,11 +76,11 @@ class LossNotificationController {
       RTC_GUARDED_BY(sequence_checker_);
 
   // Tracked to avoid processing repeated frames (buggy/malicious remote).
-  absl::optional<int64_t> last_received_frame_id_
+  std::optional<int64_t> last_received_frame_id_
       RTC_GUARDED_BY(sequence_checker_);
 
   // Tracked to avoid processing repeated packets.
-  absl::optional<uint16_t> last_received_seq_num_
+  std::optional<uint16_t> last_received_seq_num_
       RTC_GUARDED_BY(sequence_checker_);
 
   // Tracked in order to correctly report the potential-decodability of
@@ -95,7 +96,7 @@ class LossNotificationController {
     explicit FrameInfo(uint16_t first_seq_num) : first_seq_num(first_seq_num) {}
     uint16_t first_seq_num;
   };
-  absl::optional<FrameInfo> last_decodable_non_discardable_
+  std::optional<FrameInfo> last_decodable_non_discardable_
       RTC_GUARDED_BY(sequence_checker_);
 
   // Track which frames are decodable. Later frames are also decodable if

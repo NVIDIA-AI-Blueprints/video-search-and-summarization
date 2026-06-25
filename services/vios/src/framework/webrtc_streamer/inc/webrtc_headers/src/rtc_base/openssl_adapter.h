@@ -22,6 +22,7 @@
 #include "absl/strings/string_view.h"
 #include "api/task_queue/pending_task_safety_flag.h"
 #include "rtc_base/buffer.h"
+#include "rtc_base/openssl_stream_adapter.h"
 #ifdef OPENSSL_IS_BORINGSSL
 #include "rtc_base/boringssl_identity.h"
 #else
@@ -35,15 +36,7 @@
 #include "rtc_base/ssl_identity.h"
 #include "rtc_base/ssl_stream_adapter.h"
 
-namespace rtc {
-
-namespace webrtc_openssl_adapter_internal {
-
-// Local definition, since absl::StrJoin is not allow-listed. Declared in header
-// file only for unittests.
-std::string StrJoin(const std::vector<std::string>& list, char delimiter);
-
-}  // namespace webrtc_openssl_adapter_internal
+namespace webrtc {
 
 class OpenSSLAdapter final : public SSLAdapter {
  public:
@@ -58,13 +51,14 @@ class OpenSSLAdapter final : public SSLAdapter {
   // immutable after the the SSL connection starts.
   explicit OpenSSLAdapter(Socket* socket,
                           OpenSSLSessionCache* ssl_session_cache = nullptr,
-                          SSLCertificateVerifier* ssl_cert_verifier = nullptr);
+                          SSLCertificateVerifier* ssl_cert_verifier = nullptr,
+                          bool dtls = false);
   ~OpenSSLAdapter() override;
 
   void SetIgnoreBadCert(bool ignore) override;
   void SetAlpnProtocols(const std::vector<std::string>& protos) override;
   void SetEllipticCurves(const std::vector<std::string>& curves) override;
-  void SetMode(SSLMode mode) override;
+  [[deprecated]] void SetMode(SSLMode mode) override;
   void SetCertVerifier(SSLCertificateVerifier* ssl_cert_verifier) override;
   void SetIdentity(std::unique_ptr<SSLIdentity> identity) override;
   void SetRole(SSLRole role) override;
@@ -181,7 +175,7 @@ class OpenSSLAdapter final : public SSLAdapter {
   // Holds the result of the call to run of the ssl_cert_verify_->Verify()
   bool custom_cert_verifier_status_;
   // Flag to cancel pending timeout task.
-  webrtc::ScopedTaskSafety timer_;
+  ScopedTaskSafety timer_;
 };
 
 // The OpenSSLAdapterFactory is responsbile for creating multiple new
@@ -227,7 +221,7 @@ class OpenSSLAdapterFactory : public SSLAdapterFactory {
   // Holds a cache of existing SSL Sessions.
   std::unique_ptr<OpenSSLSessionCache> ssl_session_cache_;
   // Provides an optional custom callback for verifying SSL certificates, this
-  // in currently only used for TLS-TURN connections.
+  // in currently only used for TURN/TLS connections.
   SSLCertificateVerifier* ssl_cert_verifier_ = nullptr;
   // TODO(benwright): Remove this when context is moved to OpenSSLCommon.
   // Hold a friend class to the OpenSSLAdapter to retrieve the context.
@@ -240,6 +234,7 @@ class OpenSSLAdapterFactory : public SSLAdapterFactory {
 
 std::string TransformAlpnProtocols(const std::vector<std::string>& protos);
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_OPENSSL_ADAPTER_H_

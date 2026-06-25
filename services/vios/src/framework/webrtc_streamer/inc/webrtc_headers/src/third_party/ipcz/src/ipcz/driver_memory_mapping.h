@@ -30,18 +30,6 @@ class DriverMemoryMapping {
 
   bool is_valid() const { return mapping_ != IPCZ_INVALID_DRIVER_HANDLE; }
 
-  // Returns the base address of this mapping. Returns null if the mapping is
-  // invalid.
-  void* address() const { return address_; }
-
-  // Returns the address at `offset` bytes from this mapping's base address. iT
-  // is an error to call this with an `offset` greater than or equal to the
-  // mapped region's size.
-  void* address_at(size_t offset) const {
-    ABSL_ASSERT(offset < size_);
-    return static_cast<uint8_t*>(address_) + offset;
-  }
-
   absl::Span<uint8_t> bytes() const {
     return {static_cast<uint8_t*>(address_), size_};
   }

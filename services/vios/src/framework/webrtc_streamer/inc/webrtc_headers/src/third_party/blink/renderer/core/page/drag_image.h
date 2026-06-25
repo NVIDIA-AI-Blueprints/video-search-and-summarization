@@ -29,7 +29,7 @@
 #include <memory>
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+#include "third_party/blink/renderer/platform/graphics/graphics_context_types.h"
 #include "third_party/blink/renderer/platform/graphics/image_orientation.h"
 #include "third_party/blink/renderer/platform/graphics/paint/display_item_client.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_image.h"
@@ -41,7 +41,6 @@
 
 namespace blink {
 
-class FontDescription;
 class Image;
 class KURL;
 
@@ -52,13 +51,12 @@ class CORE_EXPORT DragImage {
   static std::unique_ptr<DragImage> Create(
       Image*,
       RespectImageOrientationEnum = kRespectImageOrientation,
-      InterpolationQuality = kInterpolationDefault,
+      InterpolationQuality = GetDefaultInterpolationQuality(),
       float opacity = 1,
       gfx::Vector2dF image_scale = gfx::Vector2dF(1, 1));
 
   static std::unique_ptr<DragImage> Create(const KURL&,
                                            const String& label,
-                                           const FontDescription& system_font,
                                            float device_scale_factor);
 
   DragImage(const DragImage&) = delete;

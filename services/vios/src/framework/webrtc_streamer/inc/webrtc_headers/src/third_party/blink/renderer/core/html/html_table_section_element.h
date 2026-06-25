@@ -36,8 +36,11 @@ class HTMLTableSectionElement final : public HTMLTablePartElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-
   HTMLTableSectionElement(const QualifiedName& tag_name, Document&);
+
+  ElementType GetElementType() const final {
+    return ElementType::kHTMLTableSectionElement;
+  }
 
   HTMLElement* insertRow(int index, ExceptionState&);
   void deleteRow(int index, ExceptionState&);
@@ -66,7 +69,7 @@ struct DowncastTraits<HTMLTableSectionElement> {
   }
   static bool AllowFrom(const Node& node) {
     auto* html_element = DynamicTo<HTMLElement>(node);
-    return html_element ? IsHTMLTableSectionElement(*html_element) : false;
+    return html_element && IsHTMLTableSectionElement(*html_element);
   }
   static bool AllowFrom(const Node* node) {
     return node && IsA<HTMLTableSectionElement>(*node);

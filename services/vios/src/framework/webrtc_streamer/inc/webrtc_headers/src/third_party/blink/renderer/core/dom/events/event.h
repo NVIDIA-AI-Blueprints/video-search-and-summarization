@@ -30,6 +30,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_result.h"
 #include "third_party/blink/renderer/core/probe/async_task_context.h"
+#include "third_party/blink/renderer/core/url/dom_origin_utils.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -37,15 +38,19 @@
 
 namespace blink {
 
+class DOMOrigin;
 class DOMWrapperWorld;
 class EventDispatcher;
 class EventInit;
 class EventPath;
 class EventTarget;
 class Node;
+class Element;
+class PseudoElement;
+class CSSPseudoElement;
 class ScriptState;
 
-class CORE_EXPORT Event : public ScriptWrappable {
+class CORE_EXPORT Event : public ScriptWrappable, public DOMOriginUtils {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -59,17 +64,11 @@ class CORE_EXPORT Event : public ScriptWrappable {
     kNo,
   };
 
-  enum class PhaseType {
+  enum class PhaseType : uint8_t {
     kNone = 0,
     kCapturingPhase = 1,
     kAtTarget = 2,
     kBubblingPhase = 3
-  };
-
-  enum RailsMode {
-    kRailsModeFree = 0,
-    kRailsModeHorizontal = 1,
-    kRailsModeVertical = 2
   };
 
   enum class ComposedMode {
@@ -77,7 +76,7 @@ class CORE_EXPORT Event : public ScriptWrappable {
     kScoped,
   };
 
-  enum class PassiveMode {
+  enum class PassiveMode : uint8_t {
     // Not passive, default initialized.
     kNotPassiveDefault,
     // Not passive, explicitly specified.
@@ -140,12 +139,29 @@ class CORE_EXPORT Event : public ScriptWrappable {
   const AtomicString& type() const { return type_; }
   void SetType(const AtomicString& type) { type_ = type; }
 
-  EventTarget* target() const { return target_.Get(); }
+  // Web exposed target of the event. Can't be a pseudo-element.
+  EventTarget* target() const;
   void SetTarget(EventTarget*);
+
+
+  // This is the target that the event was dispatched to, without any
+  // retargeting. Can be a pseudo-element. Shouldn't we web exposed.
+  EventTarget* RawTarget() const { return target_.Get(); }
+
+  // Converts |pseudo_element_target| to its CSSPseudoElement wrapper via
+  // CSSPseudoElement::From() and stores it. Called while the pseudo is still
+  // connected (during event path construction), so From() won't crash.
+  void SetPseudoElementTarget(PseudoElement* pseudo_element_target);
 
   EventTarget* currentTarget() const;
   void SetCurrentTarget(EventTarget* current_target) {
     current_target_ = current_target;
+  }
+  void SetInvocationTargetInShadowTree(bool is_in_shadow_tree) {
+    invocation_target_in_shadow_tree_ = is_in_shadow_tree;
+  }
+  bool invocationTargetInShadowTree() const {
+    return invocation_target_in_shadow_tree_;
   }
 
   // This callback is invoked when an event listener has been dispatched
@@ -155,6 +171,11 @@ class CORE_EXPORT Event : public ScriptWrappable {
   virtual void DoneDispatchingEventAtCurrentTarget() {}
 
   void SetRelatedTargetIfExists(EventTarget* related_target);
+
+  // This is the element that caused the event to be triggered, without
+  // any retargeting. For example, for a command event it's the element with the
+  // commandfor attribute.
+  virtual Element* SourceElement() const { return nullptr; }
 
   PhaseType eventPhase() const { return event_phase_; }
   void SetEventPhase(PhaseType event_phase) { event_phase_ = event_phase; }
@@ -219,7 +240,6 @@ class CORE_EXPORT Event : public ScriptWrappable {
   virtual bool IsGestureEvent() const;
   virtual bool IsWheelEvent() const;
   virtual bool IsPointerEvent() const;
-  virtual bool IsHighlightPointerEvent() const;
   virtual bool IsInputEvent() const;
   virtual bool IsCompositionEvent() const;
 
@@ -233,6 +253,9 @@ class CORE_EXPORT Event : public ScriptWrappable {
   virtual bool IsBeforeCreatePolicyEvent() const;
   virtual bool IsBeforeUnloadEvent() const;
   virtual bool IsErrorEvent() const;
+
+  virtual bool IsPatchEvent() const;
+  virtual bool IsRouteEvent() const;
 
   bool PropagationStopped() const {
     return propagation_stopped_ || immediate_propagation_stopped_;
@@ -256,7 +279,7 @@ class CORE_EXPORT Event : public ScriptWrappable {
   const Event* UnderlyingEvent() const { return underlying_event_.Get(); }
   void SetUnderlyingEvent(const Event*);
 
-  bool HasEventPath() const { return event_path_; }
+  bool HasEventPath() const { return static_cast<bool>(event_path_); }
   EventPath& GetEventPath() const {
     DCHECK(event_path_);
     return *event_path_;
@@ -275,6 +298,15 @@ class CORE_EXPORT Event : public ScriptWrappable {
 
   bool isTrusted() const { return is_trusted_; }
   void SetTrusted(bool value) { is_trusted_ = value; }
+
+  // The spec (https://www.w3.org/TR/uievents/#legacy-uievent-event-order)
+  // says that `click` events and `keydown` events should generated *trusted*
+  // `DOMActivate` and `click` synthetic events. That is so support legacy
+  // behavior that click events would run default event handler behavior.
+  // This function checks whether the provided event is "actually" trusted,
+  // in that its underlying events are all trusted, including the originating
+  // event.
+  bool IsFullyTrusted() const;
 
   void SetComposed(bool composed) {
     DCHECK(!IsBeingDispatched());
@@ -310,41 +342,60 @@ class CORE_EXPORT Event : public ScriptWrappable {
 
   probe::AsyncTaskContext* async_task_context() { return &async_task_context_; }
 
+  // DOMOriginUtils override:
+  DOMOrigin* GetDOMOrigin(LocalDOMWindow*) const override { return nullptr; }
+
   void Trace(Visitor*) const override;
 
  protected:
   virtual void ReceivedTarget();
 
+  // Returns the CSSPseudoElement that this event originated from, if any.
+  // Returns null if the originating target is a real element or the feature
+  // is disabled. This accessor is protected: only specific event subclasses
+  // should expose it as a public web API.
+  CSSPseudoElement* pseudoTarget() const;
+
   void SetBubbles(bool bubble) { bubbles_ = bubble; }
 
   PassiveMode HandlingPassive() const { return handling_passive_; }
 
+  // Retargets the provided `element` to prevent it from being leaked when this
+  // event is fired on a node inside a ShadowRoot. If this is called during
+  // event dispatching, where currentTarget() has a value, `element` is
+  // retargeted against currentTarget(). Otherwise, it is retargeted against
+  // target().  target() may be null after event dispatch to prevent leaking,
+  // and in that case, this method will return null as well.
+  Element* Retarget(Element* element) const;
+
  private:
   AtomicString type_;
-  unsigned bubbles_ : 1;
-  unsigned cancelable_ : 1;
-  unsigned composed_ : 1;
+  bool bubbles_ : 1;
+  bool cancelable_ : 1;
+  bool composed_ : 1;
 
-  unsigned propagation_stopped_ : 1;
-  unsigned immediate_propagation_stopped_ : 1;
-  unsigned default_prevented_ : 1;
-  unsigned default_handled_ : 1;
-  unsigned was_initialized_ : 1;
-  unsigned is_trusted_ : 1;
+  bool propagation_stopped_ : 1;
+  bool immediate_propagation_stopped_ : 1;
+  bool default_prevented_ : 1;
+  bool default_handled_ : 1;
+  bool was_initialized_ : 1;
+  bool is_trusted_ : 1;
 
   // Whether preventDefault was called on uncancelable event.
-  unsigned prevent_default_called_on_uncancelable_event_ : 1;
+  bool prevent_default_called_on_uncancelable_event_ : 1;
 
   // Whether any of listeners have thrown an exception or not.
   // Corresponds to |legacyOutputDidListenersThrowFlag| in DOM standard.
   // https://dom.spec.whatwg.org/#dispatching-events
   // https://dom.spec.whatwg.org/#concept-event-listener-inner-invoke
-  unsigned legacy_did_listeners_throw_flag_ : 1;
+  bool legacy_did_listeners_throw_flag_ : 1;
 
-  unsigned fire_only_capture_listeners_at_target_ : 1;
-  unsigned fire_only_non_capture_listeners_at_target_ : 1;
+  bool fire_only_capture_listeners_at_target_ : 1;
+  bool fire_only_non_capture_listeners_at_target_ : 1;
 
-  unsigned copy_event_path_from_underlying_event_ : 1;
+  bool copy_event_path_from_underlying_event_ : 1;
+
+  bool invocation_target_in_shadow_tree_ : 1;
 
   PassiveMode handling_passive_;
   PhaseType event_phase_;
@@ -352,6 +403,10 @@ class CORE_EXPORT Event : public ScriptWrappable {
 
   Member<EventTarget> current_target_;
   Member<EventTarget> target_;
+  // Set eagerly in SetPseudoElementTarget() while the pseudo is connected.
+  // Storing CSSPseudoElement directly avoids calling From() on a possibly
+  // disconnected pseudo later during dispatch.
+  Member<CSSPseudoElement> pseudo_element_target_;
   Member<const Event> underlying_event_;
   Member<EventPath> event_path_;
   // The monotonic platform time in seconds, for input events it is the

@@ -43,7 +43,9 @@ class WebOptionElement;
 // Provides readonly access to some properties of a DOM input element node.
 class BLINK_EXPORT WebInputElement final : public WebFormControlElement {
  public:
-  WebInputElement() : WebFormControlElement() {}
+  explicit WebInputElement(
+      cppgc::SourceLocation loc = BLINK_WEB_NODE_LOCATION_FROM_HERE)
+      : WebFormControlElement(loc) {}
   WebInputElement(const WebInputElement& element) = default;
 
   WebInputElement& operator=(const WebInputElement& element) {
@@ -54,22 +56,13 @@ class BLINK_EXPORT WebInputElement final : public WebFormControlElement {
     WebFormControlElement::Assign(element);
   }
 
-  // This returns true for all of textfield-looking types such as text,
-  // password, search, email, url, and number.
+  // Returns true for all of textfield-looking types such as text, password,
+  // search, email, url, and number.
   bool IsTextField() const;
-  // This returns true only for type=text.
-  bool IsText() const;
-  bool IsEmailField() const;
-  bool IsPasswordField() const;
-  bool IsImageButton() const;
-  bool IsRadioButton() const;
-  bool IsCheckbox() const;
-  bool IsPasswordFieldForAutofill() const;
-  void SetHasBeenPasswordField();
-  // This has different behavior from 'maxLength' IDL attribute, it returns
-  // defaultMaxLength() when no valid has been set, whereas 'maxLength' IDL
-  // attribute returns -1.
-  int MaxLength() const;
+  // Makes `FormControlTypeForAutofill()` return
+  // `mojom::FormControlType::kInputPassword` as long as the element's type is a
+  // text type.
+  void MaybeSetHasBeenPasswordField();
   void SetActivatedSubmit(bool);
   int size() const;
   void SetChecked(bool,
@@ -80,13 +73,10 @@ class BLINK_EXPORT WebInputElement final : public WebFormControlElement {
   bool IsMultiple() const;
 
   // Associated <datalist> options which match to the current INPUT value.
-  WebVector<WebOptionElement> FilteredDataListOptions() const;
+  std::vector<WebOptionElement> FilteredDataListOptions() const;
 
   // Return the localized value for this input type.
   WebString LocalizeValue(const WebString&) const;
-
-  // Exposes the default value of the maxLength attribute.
-  static int DefaultMaxLength();
 
   // If true, forces the text of the element to be visible.
   void SetShouldRevealPassword(bool value);
@@ -94,13 +84,8 @@ class BLINK_EXPORT WebInputElement final : public WebFormControlElement {
   // Returns true if the text of the element should be visible.
   bool ShouldRevealPassword() const;
 
-#if BUILDFLAG(IS_ANDROID)
-  // Returns whether this is the last element within its form.
-  bool IsLastInputElementInForm();
-
   // Triggers a form submission.
   void DispatchSimulatedEnter();
-#endif
 
 #if INSIDE_BLINK
   explicit WebInputElement(HTMLInputElement*);

@@ -5,96 +5,176 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_ML_ML_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_ML_ML_CONTEXT_H_
 
-#include "services/webnn/public/mojom/webnn_graph.mojom-blink.h"
-#include "services/webnn/public/mojom/webnn_service.mojom-blink.h"
-#include "third_party/blink/renderer/bindings/modules/v8/v8_ml_device_preference.h"
-#include "third_party/blink/renderer/bindings/modules/v8/v8_ml_model_format.h"
+#include <optional>
+#include <string>
+
+#include "base/containers/span.h"
+#include "base/memory/scoped_refptr.h"
+#include "services/webnn/public/cpp/context_properties.h"
+#include "services/webnn/public/cpp/ml_tensor_usage.h"
+#include "services/webnn/public/cpp/operand_descriptor.h"
+#include "services/webnn/public/cpp/webnn_trace.h"
+#include "services/webnn/public/mojom/webnn_context.mojom-blink.h"
+#include "services/webnn/public/mojom/webnn_context_provider.mojom-blink-forward.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_ml_device_type.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_ml_power_preference.h"
-#include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
+#include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
+#include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_base.h"
+#include "third_party/blink/renderer/modules/ml/webnn/allow_shared_buffer_source_util.h"
 #include "third_party/blink/renderer/modules/ml/webnn/ml_graph.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 
+namespace gpu {
+class ClientSharedImage;
+}  // namespace gpu
+
 namespace blink {
 
-class ML;
-class MLModelLoader;
+class ExecutionContext;
+class MLTensor;
+class MLTensorDescriptor;
+class MLContextLostInfo;
+class MLOpSupportLimits;
+class GPUBuffer;
+class GPUDevice;
 
-class MODULES_EXPORT MLContext final : public ScriptWrappable {
+class MODULES_EXPORT MLContext : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  MLContext(const V8MLDevicePreference device_preference,
-            const V8MLPowerPreference power_preference,
-            const V8MLModelFormat model_format,
-            const unsigned int num_threads,
-            ML* ml);
+  MLContext(
+      ExecutionContext* execution_context,
+      const V8MLDeviceType device_type,
+      const V8MLPowerPreference power_preference,
+      webnn::mojom::blink::CreateContextSuccessPtr create_context_success);
 
   MLContext(const MLContext&) = delete;
   MLContext& operator=(const MLContext&) = delete;
 
   ~MLContext() override;
 
-  V8MLDevicePreference GetDevicePreference() const;
+  V8MLDeviceType GetDeviceType() const;
   V8MLPowerPreference GetPowerPreference() const;
-  V8MLModelFormat GetModelFormat() const;
-  unsigned int GetNumThreads() const;
-  void LogConsoleWarning(const String& message);
 
-  ML* GetML();
-  // This method returns a MLModelLoader that's used and shared by WebNN APIs
-  // invoked on this MLContext.
-  MLModelLoader* GetModelLoaderForWebNN(ScriptState* script_state);
+  const webnn::ContextProperties& GetProperties() { return properties_; }
 
   void Trace(Visitor* visitor) const override;
 
-  // IDL interface:
-  ScriptPromise compute(ScriptState* script_state,
-                        MLGraph* graph,
-                        const MLNamedArrayBufferViews& inputs,
-                        const MLNamedArrayBufferViews& outputs,
-                        ExceptionState& exception_state);
+  const blink::WebNNContextToken& handle() const { return webnn_handle_; }
 
-  void computeSync(MLGraph* graph,
-                   const MLNamedArrayBufferViews& inputs,
-                   const MLNamedArrayBufferViews& outputs,
+  // IDL interface:
+  ScriptPromise<MLContextLostInfo> lost(ScriptState* script_state);
+
+  void destroy(ScriptState* script_state, ExceptionState& exception_state);
+
+  ScriptPromise<MLTensor> createTensor(ScriptState* script_state,
+                                       const MLTensorDescriptor* descriptor,
+                                       ExceptionState& exception_state);
+
+  ScriptPromise<MLTensor> createExportableTensor(
+      ScriptState* script_state,
+      const MLTensorDescriptor* descriptor,
+      GPUDevice* device,
+      ExceptionState& exception_state);
+
+  ScriptPromise<MLTensor> createConstantTensor(
+      ScriptState* script_state,
+      const MLOperandDescriptor* descriptor,
+      AllowSharedBufferSource* src_data,
+      ExceptionState& exception_state);
+
+  void writeTensor(ScriptState* script_state,
+                   MLTensor* dst_tensor,
+                   AllowSharedBufferSource* src_data,
                    ExceptionState& exception_state);
 
-  enum CreateWebNNGraphResult { kOk, kUnknownError, kNotSupported };
-  // Return `kNotSupported` with `mojo::NullRemote` if the input configuration
-  // of creating `WebNNContext` is not supported.
-  using CreateWebNNGraphCallback = base::OnceCallback<void(
-      CreateWebNNGraphResult result,
-      mojo::PendingRemote<webnn::mojom::blink::WebNNGraph>)>;
-  void CreateWebNNGraph(ScriptState* script_state,
-                        webnn::mojom::blink::GraphInfoPtr graph_info,
-                        CreateWebNNGraphCallback callback);
+  ScriptPromise<DOMArrayBuffer> readTensor(ScriptState* script_state,
+                                           MLTensor* src_tensor,
+                                           ExceptionState& exception_state);
+
+  ScriptPromise<IDLUndefined> readTensor(ScriptState* script_state,
+                                         MLTensor* src_tensor,
+                                         AllowSharedBufferSource* dst_data,
+                                         ExceptionState& exception_state);
+
+  void dispatch(ScriptState* script_state,
+                MLGraph* graph,
+                const MLNamedTensors& inputs,
+                const MLNamedTensors& outputs,
+                ExceptionState& exception_state);
+
+  GPUBuffer* exportToGPU(ScriptState* script_state,
+                         MLTensor* tensor,
+                         ExceptionState& exception_state);
+
+  MLGraphBuilder* CreateWebNNGraphBuilder(ScriptState* script_state,
+                                          ExceptionState& exception_state);
+
+  gpu::SyncToken GenerateVerifiedReleaseToken();
+
+  const MLOpSupportLimits* opSupportLimits(ScriptState* script_state);
+
+  void OnGraphCreated(MLGraph* graph);
+
+  const mojo::ScopedDataPipeProducerHandle& write_tensor_producer() const {
+    return write_tensor_producer_;
+  }
+
+  const mojo::ScopedDataPipeConsumerHandle& read_tensor_consumer() const {
+    return read_tensor_consumer_;
+  }
 
  private:
-  V8MLDevicePreference device_preference_;
+  using LostProperty = ScriptPromiseProperty<MLContextLostInfo, IDLUndefined>;
+
+  // Close the `context_remote_` pipe because the context has been lost.
+  void OnLost(uint32_t custom_reason, const std::string& description);
+
+  void DidCreateWebNNTensor(webnn::ScopedTrace scoped_trace,
+                            ScriptPromiseResolver<blink::MLTensor>* resolver,
+                            webnn::OperandDescriptor validated_descriptor,
+                            webnn::MLTensorUsage usage,
+                            scoped_refptr<gpu::ClientSharedImage> shared_image,
+                            GPUDevice* gpu_device,
+                            webnn::mojom::blink::CreateTensorResultPtr result);
+
+  V8MLDeviceType device_type_;
   V8MLPowerPreference power_preference_;
-  V8MLModelFormat model_format_;
-  unsigned int num_threads_;
 
-  Member<ML> ml_;
-  // WebNN uses this MLModelLoader to build a computational graph.
-  Member<MLModelLoader> ml_model_loader_;
+  Member<LostProperty> lost_property_;
 
-  // The callback of creating context called from WebNN server side.
-  void OnCreateWebNNContext(
-      ScriptState* script_state,
-      webnn::mojom::blink::GraphInfoPtr graph_info,
-      CreateWebNNGraphCallback callback,
-      webnn::mojom::blink::CreateContextResult result,
-      mojo::PendingRemote<webnn::mojom::blink::WebNNContext>
-          pending_remote_context);
-  // WebNN support multiple types of neural network inference hardware
-  // acceleration, the context of WebNN in server side is used to map different
-  // device and represent a state of graph execution processes.
-  HeapMojoRemote<webnn::mojom::blink::WebNNContext> webnn_context_;
+  // The `WebNNContext` is a initialized context that can be used by the
+  // hardware accelerated OS machine learning API.
+  HeapMojoRemote<webnn::mojom::blink::WebNNContext> context_remote_;
+  webnn::ContextProperties properties_;
+
+  mojo::ScopedDataPipeProducerHandle write_tensor_producer_;
+  mojo::ScopedDataPipeConsumerHandle read_tensor_consumer_;
+
+  // Identifies this `WebNNContext` mojo instance in the service process.
+  const blink::WebNNContextToken webnn_handle_;
+
+  // Keep a set of unresolved `ScriptPromiseResolver`s which will be
+  // rejected when the Mojo pipe is unexpectedly disconnected.
+  HeapHashSet<Member<ScriptPromiseResolver<MLTensor>>> pending_resolvers_;
+
+  HeapHashSet<WeakMember<MLGraph>> graphs_;
+  HeapHashSet<WeakMember<MLGraphBuilder>> graph_builders_;
+  HeapHashSet<WeakMember<MLTensor>> tensors_;
+
+  const gpu::CommandBufferId command_buffer_id_;
+  uint64_t last_sync_token_release_id_ = 0;
 };
 
 }  // namespace blink

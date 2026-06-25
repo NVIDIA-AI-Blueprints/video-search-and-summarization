@@ -11,18 +11,31 @@
 #ifndef VIDEO_VIDEO_STREAM_BUFFER_CONTROLLER_H_
 #define VIDEO_VIDEO_STREAM_BUFFER_CONTROLLER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 
+#include "absl/container/inlined_vector.h"
 #include "api/field_trials_view.h"
+#include "api/sequence_checker.h"
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "api/video/encoded_frame.h"
 #include "api/video/frame_buffer.h"
+#include "api/video/video_content_type.h"
+#include "modules/video_coding/include/video_coding_defines.h"
 #include "modules/video_coding/timing/inter_frame_delay_variation_calculator.h"
 #include "modules/video_coding/timing/jitter_estimator.h"
 #include "modules/video_coding/timing/timing.h"
-#include "rtc_base/experiments/rtt_mult_experiment.h"
+#include "rtc_base/experiments/field_trial_parser.h"
+#include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/thread_annotations.h"
 #include "system_wrappers/include/clock.h"
-#include "video/decode_synchronizer.h"
+#include "video/frame_decode_scheduler.h"
+#include "video/frame_decode_timing.h"
 #include "video/video_receive_stream_timeout_tracker.h"
 
 namespace webrtc {
@@ -59,8 +72,6 @@ class VideoStreamBufferControllerStatsObserver {
                                            int jitter_delay_ms,
                                            int min_playout_delay_ms,
                                            int render_delay_ms) = 0;
-
-  virtual void OnTimingFrameInfoUpdated(const TimingFrameInfo& info) = 0;
 };
 
 class VideoStreamBufferController {
@@ -80,7 +91,7 @@ class VideoStreamBufferController {
   void Stop();
   void SetProtectionMode(VCMVideoProtection protection_mode);
   void Clear();
-  absl::optional<int64_t> InsertFrame(std::unique_ptr<EncodedFrame> frame);
+  std::optional<int64_t> InsertFrame(std::unique_ptr<EncodedFrame> frame);
   void UpdateRtt(int64_t max_rtt_ms);
   void SetMaxWaits(TimeDelta max_wait_for_keyframe,
                    TimeDelta max_wait_for_frame);
@@ -95,15 +106,12 @@ class VideoStreamBufferController {
   void FrameReadyForDecode(uint32_t rtp_timestamp, Timestamp render_time);
   void UpdateDroppedFrames() RTC_RUN_ON(&worker_sequence_checker_);
   void UpdateFrameBufferTimings(Timestamp min_receive_time, Timestamp now);
-  void UpdateTimingFrameInfo();
   bool IsTooManyFramesQueued() const RTC_RUN_ON(&worker_sequence_checker_);
   void ForceKeyFrameReleaseImmediately() RTC_RUN_ON(&worker_sequence_checker_);
   void MaybeScheduleFrameForRelease() RTC_RUN_ON(&worker_sequence_checker_);
 
   RTC_NO_UNIQUE_ADDRESS SequenceChecker worker_sequence_checker_;
   const FieldTrialsView& field_trials_;
-  const absl::optional<RttMultExperiment::Settings> rtt_mult_settings_ =
-      RttMultExperiment::GetRttMultValue();
   Clock* const clock_;
   VideoStreamBufferControllerStatsObserver* const stats_proxy_;
   FrameSchedulingReceiver* const receiver_;

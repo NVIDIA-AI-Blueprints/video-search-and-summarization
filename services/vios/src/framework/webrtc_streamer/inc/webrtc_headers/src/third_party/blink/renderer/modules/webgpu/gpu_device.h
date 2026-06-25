@@ -10,11 +10,13 @@
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_property.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_gpu_blend_factor.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_gpu_texture_format.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/webgpu/dawn_object.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/webgpu_callback.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 
 namespace blink {
@@ -22,6 +24,7 @@ namespace blink {
 class ExecutionContext;
 class ExternalTextureCache;
 class GPUAdapter;
+class GPUAdapterInfo;
 class GPUBuffer;
 class GPUBufferDescriptor;
 class GPUCommandEncoder;
@@ -34,6 +37,7 @@ class GPUComputePipeline;
 class GPUComputePipelineDescriptor;
 class GPUDeviceDescriptor;
 class GPUDeviceLostInfo;
+class GPUError;
 class GPUExternalTexture;
 class GPUExternalTextureDescriptor;
 class GPUPipelineLayout;
@@ -53,7 +57,6 @@ class GPUSupportedFeatures;
 class GPUSupportedLimits;
 class GPUTexture;
 class GPUTextureDescriptor;
-class ScriptPromiseResolver;
 class ScriptState;
 class V8GPUErrorFilter;
 
@@ -64,23 +67,31 @@ class V8GPUErrorFilter;
 enum class GPUSingletonWarning {
   kNonPreferredFormat,
   kDepthKey,
-  kTimestampArray,
   kCount,  // Must be last
 };
 
-class GPUDevice final : public EventTargetWithInlineData,
+class GPUDevice final : public EventTarget,
                         public ExecutionContextClient,
-                        public DawnObject<WGPUDevice> {
+                        public DawnObject<wgpu::Device> {
   DEFINE_WRAPPERTYPEINFO();
   USING_PRE_FINALIZER(GPUDevice, Dispose);
 
  public:
-  explicit GPUDevice(ExecutionContext* execution_context,
-                     scoped_refptr<DawnControlClientHolder> dawn_control_client,
-                     GPUAdapter* adapter,
-                     WGPUDevice dawn_device,
-                     const GPUDeviceDescriptor* descriptor,
-                     GPUDeviceLostInfo* lost_info = nullptr);
+  // Creates the device without a handle so that some callbacks can be set up
+  // in the wgpu::DeviceDescriptor that will be used to create this device.
+  // Initialize is where the handle is given, and the rest of the initialization
+  // happens.
+  GPUDevice(ExecutionContext* execution_context,
+            scoped_refptr<DawnControlClientHolder> dawn_control_client,
+            GPUAdapter* adapter,
+            const String& label);
+
+  // The second step of the initialization once we have the result from
+  // wgpu::Adapter::RequestDevice. The lost_info if non-null will be used to
+  // resolve the lost property.
+  void Initialize(wgpu::Device handle,
+                  const GPUDeviceDescriptor* descriptor,
+                  GPUDeviceLostInfo* lost_info);
 
   GPUDevice(const GPUDevice&) = delete;
   GPUDevice& operator=(const GPUDevice&) = delete;
@@ -89,14 +100,15 @@ class GPUDevice final : public EventTargetWithInlineData,
 
   void Trace(Visitor* visitor) const override;
 
-  // gpu_device.idl
+  // gpu_device.idl {{{
   GPUAdapter* adapter() const;
   GPUSupportedFeatures* features() const;
-  GPUSupportedLimits* limits() const { return limits_; }
-  ScriptPromise lost(ScriptState* script_state);
+  GPUSupportedLimits* limits() const { return limits_.Get(); }
+  GPUAdapterInfo* adapterInfo() const;
+  ScriptPromise<GPUDeviceLostInfo> lost(ScriptState* script_state);
+  // }}} End of WebIDL binding implementation.
 
   GPUQueue* queue();
-  bool destroyed() const;
 
   void destroy(v8::Isolate* isolate);
 
@@ -107,7 +119,6 @@ class GPUDevice final : public EventTargetWithInlineData,
   GPUSampler* createSampler(const GPUSamplerDescriptor* descriptor);
 
   GPUExternalTexture* importExternalTexture(
-      ScriptState* script_state,
       const GPUExternalTextureDescriptor* descriptor,
       ExceptionState& exception_state);
 
@@ -120,18 +131,18 @@ class GPUDevice final : public EventTargetWithInlineData,
       const GPUPipelineLayoutDescriptor* descriptor);
 
   GPUShaderModule* createShaderModule(
-      const GPUShaderModuleDescriptor* descriptor,
-      ExceptionState& exception_state);
+      const GPUShaderModuleDescriptor* descriptor);
   GPURenderPipeline* createRenderPipeline(
       ScriptState* script_state,
       const GPURenderPipelineDescriptor* descriptor);
   GPUComputePipeline* createComputePipeline(
       const GPUComputePipelineDescriptor* descriptor,
       ExceptionState& exception_state);
-  ScriptPromise createRenderPipelineAsync(
+  ScriptPromise<GPURenderPipeline> createRenderPipelineAsync(
       ScriptState* script_state,
-      const GPURenderPipelineDescriptor* descriptor);
-  ScriptPromise createComputePipelineAsync(
+      const GPURenderPipelineDescriptor* descriptor,
+      ExceptionState&);
+  ScriptPromise<GPUComputePipeline> createComputePipelineAsync(
       ScriptState* script_state,
       const GPUComputePipelineDescriptor* descriptor);
 
@@ -145,7 +156,7 @@ class GPUDevice final : public EventTargetWithInlineData,
                               ExceptionState& exception_state);
 
   void pushErrorScope(const V8GPUErrorFilter& filter);
-  ScriptPromise popErrorScope(ScriptState* script_state);
+  ScriptPromise<IDLNullable<GPUError>> popErrorScope(ScriptState* script_state);
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(uncapturederror, kUncapturederror)
 
@@ -153,17 +164,24 @@ class GPUDevice final : public EventTargetWithInlineData,
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
 
-  void InjectError(WGPUErrorType type, const char* message);
+  bool IsDestroyed() const;
+  String GetFormattedLabel() const;
+  void InjectError(wgpu::ErrorType type, const char* message);
   void AddConsoleWarning(const String& message);
   void AddConsoleWarning(const char* message);
+  void AddConsoleWarning(wgpu::StringView message);
   void AddSingletonWarning(GPUSingletonWarning type);
 
   void TrackTextureWithMailbox(GPUTexture* texture);
   void UntrackTextureWithMailbox(GPUTexture* texture);
 
+  void TrackBufferWithMailbox(GPUBuffer* buffer);
+  void UntrackBufferWithMailbox(GPUBuffer* buffer);
+
   bool ValidateTextureFormatUsage(V8GPUTextureFormat format,
                                   ExceptionState& exception_state);
-  std::string formattedLabel() const;
+  bool ValidateBlendFactor(V8GPUBlendFactor blend_factor,
+                           ExceptionState& exception_state);
 
   // Store the buffer in a weak hash set so we can unmap it when the
   // device is destroyed.
@@ -172,62 +190,83 @@ class GPUDevice final : public EventTargetWithInlineData,
   // destroyed.
   void UntrackMappableBuffer(GPUBuffer* buffer);
 
+  // Helper used to set the wgpu::DeviceDescriptor callbacks during the first
+  // steps of GPUDevice creation. Note that this helper should only ever be
+  // called once per GPUDevice.
+  void SetDescriptorCallbacks(wgpu::DeviceDescriptor& dawn_desc);
+
  private:
-  using LostProperty =
-      ScriptPromiseProperty<Member<GPUDeviceLostInfo>, ToV8UndefinedGenerator>;
+  using LostProperty = ScriptPromiseProperty<GPUDeviceLostInfo, IDLUndefined>;
 
   // Used by USING_PRE_FINALIZER.
   void Dispose();
   void DissociateMailboxes();
   void UnmapAllMappableBuffers(v8::Isolate* isolate);
 
-  void OnUncapturedError(WGPUErrorType errorType, const char* message);
-  void OnLogging(WGPULoggingType loggingType, const char* message);
-  void OnDeviceLostError(WGPUDeviceLostReason, const char* message);
+  // Both the uncaptured error callbacks and the logging callbacks run
+  // spontaneously (unlike other callbacks that run via ProcessEvents). When
+  // running on the main thread, they can run inline as usual, but when running
+  // off the main thread, i.e. on the IO thread, the StringView needs to be
+  // copied at the callsite, then proxied over to the main thread to actually
+  // run the callbacks. The complexity of the function signatures is a result of
+  // the restrictions when using blink's callbacks which implicitly wraps
+  // sequence checking. Further explanation of the callbacks are included at the
+  // implementation sites.
+  void OnUncapturedError(const wgpu::Device&,
+                         wgpu::ErrorType errorType,
+                         wgpu::StringView message);
+  void OnUncapturedErrorImpl(wgpu::ErrorType errorType, const String& message);
+  void OnLogging(wgpu::LoggingType loggingType, wgpu::StringView message);
+  void OnLoggingImpl(wgpu::LoggingType loggingType, const String& message);
 
-  void OnPopErrorScopeCallback(ScriptPromiseResolver* resolver,
-                               WGPUErrorType type,
-                               const char* message);
+  void OnDeviceLost(
+      std::unique_ptr<
+          WGPURepeatingCallback<wgpu::UncapturedErrorCallback<void>>>,
+      const wgpu::Device& device,
+      wgpu::DeviceLostReason reason,
+      wgpu::StringView message);
 
-  void OnCreateRenderPipelineAsyncCallback(ScriptPromiseResolver* resolver,
-                                           absl::optional<String> label,
-                                           WGPUCreatePipelineAsyncStatus status,
-                                           WGPURenderPipeline render_pipeline,
-                                           const char* message);
+  void OnPopErrorScopeCallback(
+      ScriptPromiseResolver<IDLNullable<GPUError>>* resolver,
+      wgpu::PopErrorScopeStatus status,
+      wgpu::ErrorType type,
+      wgpu::StringView message);
+
+  void OnCreateRenderPipelineAsyncCallback(
+      const String& label,
+      ScriptPromiseResolver<GPURenderPipeline>* resolver,
+      wgpu::CreatePipelineAsyncStatus status,
+      wgpu::RenderPipeline render_pipeline,
+      wgpu::StringView message);
   void OnCreateComputePipelineAsyncCallback(
-      ScriptPromiseResolver* resolver,
-      absl::optional<String> label,
-      WGPUCreatePipelineAsyncStatus status,
-      WGPUComputePipeline compute_pipeline,
-      const char* message);
+      const String& label,
+      ScriptPromiseResolver<GPUComputePipeline>* resolver,
+      wgpu::CreatePipelineAsyncStatus status,
+      wgpu::ComputePipeline compute_pipeline,
+      wgpu::StringView message);
 
-  void setLabelImpl(const String& value) override {
+  void SetLabelImpl(const String& value) override {
     std::string utf8_label = value.Utf8();
-    GetProcs().deviceSetLabel(GetHandle(), utf8_label.c_str());
+    GetHandle().SetLabel(utf8_label.c_str());
   }
 
   Member<GPUAdapter> adapter_;
   Member<GPUSupportedFeatures> features_;
   Member<GPUSupportedLimits> limits_;
+  Member<GPUAdapterInfo> adapter_info_;
   Member<GPUQueue> queue_;
   Member<LostProperty> lost_property_;
-  std::unique_ptr<WGPURepeatingCallback<void(WGPUErrorType, const char*)>>
-      error_callback_;
-  std::unique_ptr<WGPURepeatingCallback<void(WGPULoggingType, const char*)>>
+  std::unique_ptr<WGPURepeatingCallback<wgpu::LoggingCallback<void>>>
       logging_callback_;
-  // lost_callback_ is stored as a unique_ptr since it may never be called.
-  // We need to be sure to free it on deletion of the device.
-  // Inside OnDeviceLostError we'll release the unique_ptr to avoid a double
-  // free.
-  std::unique_ptr<
-      WGPURepeatingCallback<void(WGPUDeviceLostReason, const char*)>>
-      lost_callback_;
 
   static constexpr int kMaxAllowedConsoleWarnings = 500;
   int allowed_console_warnings_remaining_ = kMaxAllowedConsoleWarnings;
 
   // Textures with mailboxes that should be dissociated before device.destroy().
   HeapHashSet<WeakMember<GPUTexture>> textures_with_mailbox_;
+
+  // Buffers with mailboxes that should be dissociated before device.destroy().
+  HeapHashSet<WeakMember<GPUBuffer>> buffers_with_mailbox_;
 
   HeapHashSet<WeakMember<GPUBuffer>> mappable_buffers_;
 

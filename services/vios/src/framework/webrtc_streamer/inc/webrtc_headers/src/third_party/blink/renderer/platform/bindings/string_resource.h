@@ -5,9 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_STRING_RESOURCE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_STRING_RESOURCE_H_
 
+#include "base/compiler_specific.h"
 #include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/platform/bindings/parkable_string.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource.h"
+#include "third_party/blink/renderer/platform/bindings/v8_external_memory_accounter.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
@@ -21,38 +22,75 @@ class StringResourceBase {
   USING_FAST_MALLOC(StringResourceBase);
 
  public:
-  explicit StringResourceBase(const String& string) : plain_string_(string) {
-    DCHECK(!string.IsNull());
-    v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-        string.CharactersSizeInBytes());
+  explicit StringResourceBase(v8::Isolate* isolate, String string)
+      : plain_string_(std::move(string)) {
+    DCHECK(!plain_string_.IsNull());
+    memory_accounter_.Increase(isolate, plain_string_.CharactersSizeInBytes());
   }
 
-  explicit StringResourceBase(const AtomicString& string)
-      : atomic_string_(string) {
-    DCHECK(!string.IsNull());
-    v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-        string.CharactersSizeInBytes());
+  explicit StringResourceBase(v8::Isolate* isolate, AtomicString string)
+      : atomic_string_(std::move(string)) {
+    DCHECK(!atomic_string_.IsNull());
+    memory_accounter_.Increase(isolate, atomic_string_.CharactersSizeInBytes());
   }
 
-  explicit StringResourceBase(const ParkableString& string)
+  explicit StringResourceBase(v8::Isolate* isolate, ParkableString string)
       : parkable_string_(string) {
     // TODO(lizeb): This is only true without compression.
-    DCHECK(!string.IsNull());
-    v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-        string.CharactersSizeInBytes());
+    DCHECK(!parkable_string_.IsNull());
+    memory_accounter_.Increase(isolate,
+                               parkable_string_.CharactersSizeInBytes());
   }
 
   StringResourceBase(const StringResourceBase&) = delete;
   StringResourceBase& operator=(const StringResourceBase&) = delete;
 
-  virtual ~StringResourceBase() {
-    int64_t reduced_external_memory = plain_string_.CharactersSizeInBytes();
-    if (plain_string_.Impl() != atomic_string_.Impl() &&
-        !atomic_string_.IsNull())
-      reduced_external_memory += atomic_string_.CharactersSizeInBytes();
-    v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-        -reduced_external_memory);
+  void Unaccount(v8::Isolate* isolate) {
+    size_t reduced_external_memory = 0;
+    if (!parkable_string_.IsNull()) {
+      DCHECK(plain_string_.IsNull());
+      DCHECK(atomic_string_.IsNull());
+      reduced_external_memory = parkable_string_.CharactersSizeInBytes();
+    } else {
+      reduced_external_memory = plain_string_.CharactersSizeInBytes();
+      if (plain_string_.Impl() != atomic_string_.Impl() &&
+          !atomic_string_.IsNull()) {
+        reduced_external_memory += atomic_string_.CharactersSizeInBytes();
+      }
+    }
+    memory_accounter_.Decrease(isolate, reduced_external_memory);
   }
+
+  size_t EstimateMemoryUsage() const { return sizeof(*this); }
+
+  void EstimateSharedMemoryUsage(
+      v8::String::ExternalStringResourceBase::SharedMemoryUsageRecorder*
+          recorder) const {
+    if (ParkableStringImpl* parkable_impl = parkable_string_.Impl()) {
+      // The ParkableStringImpl may have a pointer to a ref-counted StringImpl,
+      // which could also be referred to from elsewhere, so the two impls should
+      // be recorded separately.
+      ParkableStringImpl::MemoryUsage usage =
+          parkable_impl->MemoryUsageForSnapshot();
+      recorder->RecordSharedMemoryUsage(parkable_impl, usage.this_size);
+      if (usage.string_impl) {
+        recorder->RecordSharedMemoryUsage(usage.string_impl,
+                                          usage.string_impl_size);
+      }
+    }
+    if (StringImpl* plain_impl = plain_string_.Impl()) {
+      recorder->RecordSharedMemoryUsage(
+          plain_impl,
+          sizeof(*plain_impl) + plain_impl->CharactersSizeInBytes());
+    }
+    if (StringImpl* atomic_impl = atomic_string_.Impl()) {
+      recorder->RecordSharedMemoryUsage(
+          atomic_impl,
+          sizeof(*atomic_impl) + atomic_impl->CharactersSizeInBytes());
+    }
+  }
+
+  virtual ~StringResourceBase() = default;
 
   String GetWTFString() {
     if (!parkable_string_.IsNull()) {
@@ -63,7 +101,7 @@ class StringResourceBase {
     return String(GetStringImpl());
   }
 
-  AtomicString GetAtomicString() {
+  AtomicString GetAtomicString(v8::Isolate* isolate) {
     if (!parkable_string_.IsNull()) {
       DCHECK(plain_string_.IsNull());
       DCHECK(atomic_string_.IsNull());
@@ -73,15 +111,11 @@ class StringResourceBase {
       atomic_string_ = AtomicString(plain_string_);
       DCHECK(!atomic_string_.IsNull());
       if (plain_string_.Impl() != atomic_string_.Impl()) {
-        v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
-            atomic_string_.CharactersSizeInBytes());
+        memory_accounter_.Increase(isolate,
+                                   atomic_string_.CharactersSizeInBytes());
       }
     }
     return atomic_string_;
-  }
-
-  void SetResourceKeepAlive(Resource* resource) {
-    resource_keep_alive_ = resource;
   }
 
  protected:
@@ -93,6 +127,19 @@ class StringResourceBase {
   }
 
   const ParkableString& GetParkableString() const { return parkable_string_; }
+
+  // Helper functions for derived constructors.
+  template <typename Str>
+  static inline Str Assert8Bit(Str&& str) {
+    DCHECK(str.Is8Bit());
+    return str;
+  }
+
+  template <typename Str>
+  static inline Str Assert16Bit(Str&& str) {
+    DCHECK(!str.Is8Bit());
+    return str;
+  }
 
  private:
   // If this StringResourceBase was initialized from a String then plain_string_
@@ -109,9 +156,7 @@ class StringResourceBase {
   // members above are null.
   ParkableString parkable_string_;
 
-  // Keeps the ScriptResource alive in blink memory cache.
-  // See https://crbug.com/1393246 for details.
-  Persistent<Resource> resource_keep_alive_;
+  NO_UNIQUE_ADDRESS V8ExternalMemoryAccounterBase memory_accounter_;
 };
 
 // Even though StringResource{8,16}Base are effectively empty in release mode,
@@ -122,46 +167,54 @@ class StringResourceBase {
 class StringResource16Base : public StringResourceBase,
                              public v8::String::ExternalStringResource {
  public:
-  explicit StringResource16Base(const String& string)
-      : StringResourceBase(string) {
-    DCHECK(!string.Is8Bit());
-  }
+  explicit StringResource16Base(v8::Isolate* isolate, String string)
+      : StringResourceBase(isolate, Assert16Bit(std::move(string))) {}
 
-  explicit StringResource16Base(const AtomicString& string)
-      : StringResourceBase(string) {
-    DCHECK(!string.Is8Bit());
-  }
+  explicit StringResource16Base(v8::Isolate* isolate, AtomicString string)
+      : StringResourceBase(isolate, Assert16Bit(std::move(string))) {}
 
-  explicit StringResource16Base(const ParkableString& parkable_string)
-      : StringResourceBase(parkable_string) {
-    DCHECK(!parkable_string.Is8Bit());
-  }
+  explicit StringResource16Base(v8::Isolate* isolate,
+                                ParkableString parkable_string)
+      : StringResourceBase(isolate, Assert16Bit(std::move(parkable_string))) {}
 
   StringResource16Base(const StringResource16Base&) = delete;
   StringResource16Base& operator=(const StringResource16Base&) = delete;
+
+  void Unaccount(v8::Isolate* isolate) override {
+    StringResourceBase::Unaccount(isolate);
+  }
+
+  size_t EstimateMemoryUsage() const override {
+    return StringResourceBase::EstimateMemoryUsage();
+  }
+
+  void EstimateSharedMemoryUsage(
+      SharedMemoryUsageRecorder* recorder) const override {
+    return StringResourceBase::EstimateSharedMemoryUsage(recorder);
+  }
 };
 
 class StringResource16 final : public StringResource16Base {
  public:
-  explicit StringResource16(const String& string)
-      : StringResource16Base(string) {}
+  explicit StringResource16(v8::Isolate* isolate, String string)
+      : StringResource16Base(isolate, std::move(string)) {}
 
-  explicit StringResource16(const AtomicString& string)
-      : StringResource16Base(string) {}
+  explicit StringResource16(v8::Isolate* isolate, AtomicString string)
+      : StringResource16Base(isolate, std::move(string)) {}
 
   StringResource16(const StringResource16&) = delete;
   StringResource16& operator=(const StringResource16&) = delete;
 
   size_t length() const override { return GetStringImpl()->length(); }
   const uint16_t* data() const override {
-    return reinterpret_cast<const uint16_t*>(GetStringImpl()->Characters16());
+    return GetStringImpl()->SpanUint16().data();
   }
 };
 
 class ParkableStringResource16 final : public StringResource16Base {
  public:
-  explicit ParkableStringResource16(const ParkableString& string)
-      : StringResource16Base(string) {}
+  explicit ParkableStringResource16(v8::Isolate* isolate, ParkableString string)
+      : StringResource16Base(isolate, std::move(string)) {}
 
   ParkableStringResource16(const ParkableStringResource16&) = delete;
   ParkableStringResource16& operator=(const ParkableStringResource16&) = delete;
@@ -177,54 +230,61 @@ class ParkableStringResource16 final : public StringResource16Base {
   size_t length() const override { return GetParkableString().length(); }
 
   const uint16_t* data() const override {
-    return reinterpret_cast<const uint16_t*>(
-        GetParkableString().Characters16());
+    return GetParkableString().SpanUint16().data();
   }
 };
 
 class StringResource8Base : public StringResourceBase,
                             public v8::String::ExternalOneByteStringResource {
  public:
-  explicit StringResource8Base(const String& string)
-      : StringResourceBase(string) {
-    DCHECK(string.Is8Bit());
-  }
+  explicit StringResource8Base(v8::Isolate* isolate, String string)
+      : StringResourceBase(isolate, Assert8Bit(std::move(string))) {}
 
-  explicit StringResource8Base(const AtomicString& string)
-      : StringResourceBase(string) {
-    DCHECK(string.Is8Bit());
-  }
+  explicit StringResource8Base(v8::Isolate* isolate, AtomicString string)
+      : StringResourceBase(isolate, Assert8Bit(std::move(string))) {}
 
-  explicit StringResource8Base(const ParkableString& parkable_string)
-      : StringResourceBase(parkable_string) {
-    DCHECK(parkable_string.Is8Bit());
-  }
+  explicit StringResource8Base(v8::Isolate* isolate,
+                               ParkableString parkable_string)
+      : StringResourceBase(isolate, Assert8Bit(std::move(parkable_string))) {}
 
   StringResource8Base(const StringResource8Base&) = delete;
   StringResource8Base& operator=(const StringResource8Base&) = delete;
+
+  void Unaccount(v8::Isolate* isolate) override {
+    StringResourceBase::Unaccount(isolate);
+  }
+
+  size_t EstimateMemoryUsage() const override {
+    return StringResourceBase::EstimateMemoryUsage();
+  }
+
+  void EstimateSharedMemoryUsage(
+      SharedMemoryUsageRecorder* recorder) const override {
+    return StringResourceBase::EstimateSharedMemoryUsage(recorder);
+  }
 };
 
 class StringResource8 final : public StringResource8Base {
  public:
-  explicit StringResource8(const String& string)
-      : StringResource8Base(string) {}
+  explicit StringResource8(v8::Isolate* isolate, String string)
+      : StringResource8Base(isolate, std::move(string)) {}
 
-  explicit StringResource8(const AtomicString& string)
-      : StringResource8Base(string) {}
+  explicit StringResource8(v8::Isolate* isolate, AtomicString string)
+      : StringResource8Base(isolate, std::move(string)) {}
 
   StringResource8(const StringResource8&) = delete;
   StringResource8& operator=(const StringResource8&) = delete;
 
   size_t length() const override { return GetStringImpl()->length(); }
   const char* data() const override {
-    return reinterpret_cast<const char*>(GetStringImpl()->Characters8());
+    return base::as_chars(GetStringImpl()->Span8()).data();
   }
 };
 
 class ParkableStringResource8 final : public StringResource8Base {
  public:
-  explicit ParkableStringResource8(const ParkableString& string)
-      : StringResource8Base(string) {}
+  explicit ParkableStringResource8(v8::Isolate* isolate, ParkableString string)
+      : StringResource8Base(isolate, std::move(string)) {}
 
   ParkableStringResource8(const ParkableStringResource8&) = delete;
   ParkableStringResource8& operator=(const ParkableStringResource8&) = delete;
@@ -240,7 +300,7 @@ class ParkableStringResource8 final : public StringResource8Base {
   size_t length() const override { return GetParkableString().length(); }
 
   const char* data() const override {
-    return reinterpret_cast<const char*>(GetParkableString().Characters8());
+    return GetParkableString().SpanChar().data();
   }
 };
 

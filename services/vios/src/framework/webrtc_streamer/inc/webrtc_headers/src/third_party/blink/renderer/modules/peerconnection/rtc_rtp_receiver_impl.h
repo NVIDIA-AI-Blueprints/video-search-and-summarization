@@ -84,7 +84,7 @@ class MODULES_EXPORT RtpReceiverState {
   scoped_refptr<base::SingleThreadTaskRunner> main_task_runner() const;
   scoped_refptr<base::SingleThreadTaskRunner> signaling_task_runner() const;
   scoped_refptr<webrtc::RtpReceiverInterface> webrtc_receiver() const;
-  rtc::scoped_refptr<webrtc::DtlsTransportInterface> webrtc_dtls_transport()
+  webrtc::scoped_refptr<webrtc::DtlsTransportInterface> webrtc_dtls_transport()
       const;
   webrtc::DtlsTransportInformation webrtc_dtls_transport_information() const;
 
@@ -96,7 +96,7 @@ class MODULES_EXPORT RtpReceiverState {
   scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> signaling_task_runner_;
   scoped_refptr<webrtc::RtpReceiverInterface> webrtc_receiver_;
-  rtc::scoped_refptr<webrtc::DtlsTransportInterface> webrtc_dtls_transport_;
+  webrtc::scoped_refptr<webrtc::DtlsTransportInterface> webrtc_dtls_transport_;
   webrtc::DtlsTransportInformation webrtc_dtls_transport_information_;
   bool is_initialized_;
   std::unique_ptr<blink::WebRtcMediaStreamTrackAdapterMap::AdapterRef>
@@ -113,10 +113,10 @@ class MODULES_EXPORT RTCRtpReceiverImpl : public RTCRtpReceiverPlatform {
   static uintptr_t getId(
       const webrtc::RtpReceiverInterface* webrtc_rtp_receiver);
 
-  RTCRtpReceiverImpl(rtc::scoped_refptr<webrtc::PeerConnectionInterface>
+  RTCRtpReceiverImpl(webrtc::scoped_refptr<webrtc::PeerConnectionInterface>
                          native_peer_connection,
                      RtpReceiverState state,
-                     bool encoded_insertable_streams);
+                     std::unique_ptr<webrtc::Metronome> decode_metronome);
   RTCRtpReceiverImpl(const RTCRtpReceiverImpl& other);
   ~RTCRtpReceiverImpl() override;
 
@@ -127,7 +127,8 @@ class MODULES_EXPORT RTCRtpReceiverImpl : public RTCRtpReceiverPlatform {
 
   std::unique_ptr<RTCRtpReceiverPlatform> ShallowCopy() const override;
   uintptr_t Id() const override;
-  rtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport() override;
+  webrtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport()
+      override;
   webrtc::DtlsTransportInformation DtlsTransportInformation() override;
 
   MediaStreamComponent* Track() const override;
@@ -136,7 +137,7 @@ class MODULES_EXPORT RTCRtpReceiverImpl : public RTCRtpReceiverPlatform {
   void GetStats(RTCStatsReportCallback) override;
   std::unique_ptr<webrtc::RtpParameters> GetParameters() const override;
   void SetJitterBufferMinimumDelay(
-      absl::optional<double> delay_seconds) override;
+      std::optional<double> delay_seconds) override;
   RTCEncodedAudioStreamTransformer* GetEncodedAudioStreamTransformer()
       const override;
   RTCEncodedVideoStreamTransformer* GetEncodedVideoStreamTransformer()

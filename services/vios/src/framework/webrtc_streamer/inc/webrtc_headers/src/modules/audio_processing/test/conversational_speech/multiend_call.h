@@ -16,12 +16,11 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <span>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "modules/audio_processing/test/conversational_speech/timing.h"
 #include "modules/audio_processing/test/conversational_speech/wavreader_abstract_factory.h"
 #include "modules/audio_processing/test/conversational_speech/wavreader_interface.h"
@@ -52,7 +51,7 @@ class MultiEndCall {
   };
 
   MultiEndCall(
-      rtc::ArrayView<const Turn> timing,
+      std::span<const Turn> timing,
       absl::string_view audiotracks_path,
       std::unique_ptr<WavReaderAbstractFactory> wavreader_abstract_factory);
   ~MultiEndCall();
@@ -85,7 +84,7 @@ class MultiEndCall {
   // only up to 2 speakers. Rejects unordered turns and self cross-talk.
   bool CheckTiming();
 
-  rtc::ArrayView<const Turn> timing_;
+  std::span<const Turn> timing_;
   std::string audiotracks_path_;
   std::unique_ptr<WavReaderAbstractFactory> wavreader_abstract_factory_;
   std::set<std::string> speaker_names_;

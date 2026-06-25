@@ -8,13 +8,13 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "reference_drivers/file_descriptor.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/ref_counted.h"
 
@@ -22,7 +22,7 @@ namespace ipcz::reference_drivers {
 
 // A driver transport implementation backed by a Unix domain socket, suitable
 // for use in a multiprocess POSIX testing environment.
-class SocketTransport : public RefCounted {
+class SocketTransport : public RefCounted<SocketTransport> {
  public:
   using Pair = std::pair<Ref<SocketTransport>, Ref<SocketTransport>>;
 
@@ -91,7 +91,9 @@ class SocketTransport : public RefCounted {
   FileDescriptor TakeDescriptor();
 
  private:
-  ~SocketTransport() override;
+  friend class RefCounted<SocketTransport>;
+
+  ~SocketTransport();
 
   // Attempts to send `message` without queueing.
   //
@@ -106,7 +108,7 @@ class SocketTransport : public RefCounted {
   // transmission. If null is returned, an unrecoverable error was encountered.
   //
   // This method is invoked by only one thread at a time.
-  absl::optional<size_t> TrySend(absl::Span<uint8_t> header, Message message);
+  std::optional<size_t> TrySend(absl::Span<uint8_t> header, Message message);
 
   // Static entry point for the I/O thread.
   static void RunIOThreadForTransport(Ref<SocketTransport> transport);

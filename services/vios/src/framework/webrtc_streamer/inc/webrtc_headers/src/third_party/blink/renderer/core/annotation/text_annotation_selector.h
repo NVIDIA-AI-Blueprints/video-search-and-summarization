@@ -5,7 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANNOTATION_TEXT_ANNOTATION_SELECTOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANNOTATION_TEXT_ANNOTATION_SELECTOR_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/core/annotation/annotation_selector.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/fragment_directive/text_fragment_finder.h"
@@ -15,8 +16,6 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
-
-class Document;
 
 // AnnotationSelector based on TextFragmentFinder. This selector allows
 // attaching to DOM based on exact or a range of text with provided prefix or
@@ -31,7 +30,7 @@ class CORE_EXPORT TextAnnotationSelector : public AnnotationSelector,
 
   // AnnotationSelector Interface
   String Serialize() const override;
-  void FindRange(Document& document,
+  void FindRange(Range& search_range,
                  SearchType type,
                  FinishedCallback finished_cb) override;
   bool IsTextSelector() const override { return true; }
@@ -49,7 +48,7 @@ class CORE_EXPORT TextAnnotationSelector : public AnnotationSelector,
  private:
   TextFragmentSelector params_;
 
-  absl::optional<bool> was_unique_;
+  std::optional<bool> was_unique_;
 
   FinishedCallback finished_callback_;
   Member<TextFragmentFinder> finder_;

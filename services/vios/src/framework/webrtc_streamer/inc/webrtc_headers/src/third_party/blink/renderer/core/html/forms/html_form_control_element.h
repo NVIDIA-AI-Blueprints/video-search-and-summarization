@@ -25,7 +25,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_FORM_CONTROL_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_HTML_FORM_CONTROL_ELEMENT_H_
 
-#include "third_party/blink/public/common/metrics/form_element_pii_type.h"
+#include "third_party/blink/public/mojom/forms/form_control_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_autofill_state.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -58,7 +58,11 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
 
   void Reset();
 
+  void AttachLayoutTree(AttachContext& context) override;
+  void DetachLayoutTree(bool performing_reattach) override;
+
   HTMLFormElement* formOwner() const final;
+  HTMLElement* formForBinding() const final;
 
   bool IsDisabledFormControl() const override;
 
@@ -68,9 +72,10 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
 
   bool IsRequired() const;
 
-  const AtomicString& type() const { return FormControlType(); }
+  const AtomicString& type() const { return FormControlTypeAsString(); }
 
-  virtual const AtomicString& FormControlType() const = 0;
+  virtual mojom::blink::FormControlType FormControlType() const = 0;
+  virtual const AtomicString& FormControlTypeAsString() const = 0;
 
   virtual bool CanTriggerImplicitSubmission() const { return false; }
 
@@ -85,8 +90,8 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
   // Return true if this control can submit a form.
   // i.e. canBeSuccessfulSubmitButton() && !isDisabledFormControl().
   bool IsSuccessfulSubmitButton() const;
-  virtual bool IsActivatedSubmit() const { return false; }
-  virtual void SetActivatedSubmit(bool) {}
+  bool IsActivatedSubmit() const override { return false; }
+  void SetActivatedSubmit(bool) override {}
 
   struct PopoverTargetElement final {
    public:
@@ -106,48 +111,27 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
   virtual PopoverTriggerSupport SupportsPopoverTriggering() const {
     return PopoverTriggerSupport::kNone;
   }
-  // The IDL reflections:
-  AtomicString popoverTargetAction() const;
-  void setPopoverTargetAction(const AtomicString& value);
 
   void DefaultEventHandler(Event&) override;
-
-  void SetHovered(bool hovered) override;
-  void HandlePopoverInvokerHovered(bool hovered);
-
-  // Getter and setter for the PII type of the element derived from the autofill
-  // field semantic prediction.
-  virtual FormElementPiiType GetFormElementPiiType() const {
-    return FormElementPiiType::kUnknown;
-  }
-  virtual void SetFormElementPiiType(FormElementPiiType form_element_pii_type) {
-  }
 
   bool willValidate() const override;
 
   bool IsReadOnly() const;
+  virtual bool SupportsReadOnly() const { return false; }
   bool IsDisabledOrReadOnly() const;
 
   bool MayTriggerVirtualKeyboard() const override;
 
   WebAutofillState GetAutofillState() const { return autofill_state_; }
   bool IsAutofilled() const {
-    return autofill_state_ != WebAutofillState::kNotFilled;
+    return autofill_state_ == WebAutofillState::kAutofilled;
   }
-  bool HighlightAutofilled() const {
-    return autofill_state_ == WebAutofillState::kAutofilled &&
-           !PreventHighlightingOfAutofilledFields();
+  bool IsPreviewed() const {
+    return autofill_state_ == WebAutofillState::kPreviewed;
   }
   void SetAutofillState(WebAutofillState = WebAutofillState::kAutofilled);
-  void SetPreventHighlightingOfAutofilledFields(bool prevent_highlighting);
-  bool PreventHighlightingOfAutofilledFields() const {
-    return prevent_highlighting_of_autofilled_fields_;
-  }
 
-  // The autofill section to which this element belongs (e.g. billing address,
-  // shipping address, .. .)
-  WebString AutofillSection() const { return autofill_section_; }
-  void SetAutofillSection(const WebString&);
+  bool MatchesToolSubmitActivePseudoClass() const;
 
   bool IsAutocompleteEmailUrlOrPassword() const;
 
@@ -158,7 +142,7 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
   String NameForAutofill() const;
 
   void CloneNonAttributePropertiesFrom(const Element&,
-                                       CloneChildrenFlag) override;
+                                       NodeCloningData&) override;
 
   FormAssociated* ToFormAssociatedOrNull() override { return this; }
   void AssociateWith(HTMLFormElement*) override;
@@ -166,11 +150,11 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
   bool BlocksFormSubmission() const { return blocks_form_submission_; }
   void SetBlocksFormSubmission(bool value) { blocks_form_submission_ = value; }
 
-  uint64_t UniqueRendererFormControlId() const {
-    return unique_renderer_form_control_id_;
-  }
-
   int32_t GetAxId() const;
+
+  bool MatchesValidityPseudoClasses() const override;
+
+  String GetWebMCPParameterName() const;
 
  protected:
   HTMLFormControlElement(const QualifiedName& tag_name, Document&);
@@ -185,8 +169,10 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
   void DidChangeForm() override;
   void DidMoveToNewDocument(Document& old_document) override;
 
-  bool SupportsFocus() const override;
-  bool IsKeyboardFocusable() const override;
+  FocusableState SupportsFocus(UpdateBehavior update_behavior) const override;
+  bool IsKeyboardFocusableSlow(
+      UpdateBehavior update_behavior =
+          UpdateBehavior::kStyleAndLayout) const override;
   bool ShouldHaveFocusAppearance() const override;
 
   virtual void ResetImpl() {}
@@ -196,32 +182,29 @@ class CORE_EXPORT HTMLFormControlElement : public HTMLElement,
   bool AlwaysCreateUserAgentShadowRoot() const override { return true; }
 
   bool IsValidElement() override;
-  bool MatchesValidityPseudoClasses() const override;
 
-  uint64_t unique_renderer_form_control_id_;
+  void HandlePopoverTriggering(HTMLElement* popover,
+                               PopoverTriggerAction action);
+  // Checks if the element exists, is a valid Popover element, and supports
+  // popover triggering.
+  bool IsValidPopoverTrigger();
 
-  WebString autofill_section_;
   enum WebAutofillState autofill_state_;
-  bool prevent_highlighting_of_autofilled_fields_ : 1;
 
   bool blocks_form_submission_ : 1;
 };
 
 template <>
-inline bool IsElementOfType<const HTMLFormControlElement>(const Node& node) {
-  return IsA<HTMLFormControlElement>(node);
-}
-template <>
 struct DowncastTraits<HTMLFormControlElement> {
   static bool AllowFrom(const Node& node) {
-    auto* html_element = DynamicTo<HTMLElement>(node);
-    return html_element && AllowFrom(*html_element);
+    auto* element = DynamicTo<Element>(node);
+    return element && AllowFrom(*element);
   }
   static bool AllowFrom(const ListedElement& control) {
     return control.IsFormControlElement();
   }
-  static bool AllowFrom(const HTMLElement& html_element) {
-    return html_element.IsFormControlElement();
+  static bool AllowFrom(const Element& element) {
+    return element.IsFormControlElement();
   }
 };
 

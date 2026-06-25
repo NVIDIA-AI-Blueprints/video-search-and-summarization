@@ -11,15 +11,13 @@
 #ifndef TEST_FAKE_DECODER_H_
 #define TEST_FAKE_DECODER_H_
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 
 #include "api/task_queue/task_queue_base.h"
 #include "api/task_queue/task_queue_factory.h"
 #include "api/video/encoded_image.h"
 #include "api/video_codecs/video_decoder.h"
-#include "modules/video_coding/include/video_codec_interface.h"
 
 namespace webrtc {
 namespace test {
@@ -30,13 +28,11 @@ class FakeDecoder : public VideoDecoder {
 
   FakeDecoder();
   explicit FakeDecoder(TaskQueueFactory* task_queue_factory);
-  virtual ~FakeDecoder() {}
+  ~FakeDecoder() override {}
 
   bool Configure(const Settings& settings) override;
 
-  int32_t Decode(const EncodedImage& input,
-                 bool missing_frames,
-                 int64_t render_time_ms) override;
+  int32_t Decode(const EncodedImage& input, int64_t render_time_ms) override;
 
   int32_t RegisterDecodeCompleteCallback(
       DecodedImageCallback* callback) override;
@@ -61,11 +57,9 @@ class FakeDecoder : public VideoDecoder {
 
 class FakeH264Decoder : public FakeDecoder {
  public:
-  virtual ~FakeH264Decoder() {}
+  ~FakeH264Decoder() override {}
 
-  int32_t Decode(const EncodedImage& input,
-                 bool missing_frames,
-                 int64_t render_time_ms) override;
+  int32_t Decode(const EncodedImage& input, int64_t render_time_ms) override;
 };
 
 }  // namespace test

@@ -64,7 +64,7 @@ class MODULES_EXPORT CSSPaintDefinition final
   PaintRecord Paint(const gfx::SizeF& container_size,
                     float zoom,
                     StylePropertyMapReadOnly*,
-                    const CSSStyleValueVector*);
+                    const GCedCSSStyleValueVector*);
   const Vector<CSSPropertyID>& NativeInvalidationProperties() const {
     return native_invalidation_properties_;
   }
@@ -76,13 +76,13 @@ class MODULES_EXPORT CSSPaintDefinition final
   }
   const PaintRenderingContext2DSettings* GetPaintRenderingContext2DSettings()
       const {
-    return context_settings_;
+    return context_settings_.Get();
   }
 
-  ScriptState* GetScriptState() const { return script_state_; }
+  ScriptState* GetScriptState() const { return script_state_.Get(); }
 
   void Trace(Visitor* visitor) const override;
-  const char* NameInHeapSnapshot() const override {
+  const char* GetHumanReadableName() const override {
     return "CSSPaintDefinition";
   }
 

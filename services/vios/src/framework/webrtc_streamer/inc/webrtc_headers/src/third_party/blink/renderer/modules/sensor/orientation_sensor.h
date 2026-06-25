@@ -16,7 +16,7 @@ class OrientationSensor : public Sensor {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  absl::optional<Vector<double>> quaternion();
+  std::optional<Vector<double>> quaternion();
   void populateMatrix(const V8RotationMatrixType* target_buffer,
                       ExceptionState& exception_state);
 
@@ -30,7 +30,7 @@ class OrientationSensor : public Sensor {
       const SpatialSensorOptions*,
       ExceptionState&,
       device::mojom::blink::SensorType,
-      const Vector<mojom::blink::PermissionsPolicyFeature>& features);
+      const Vector<network::mojom::PermissionsPolicyFeature>& features);
 
  private:
   // SensorProxy override.

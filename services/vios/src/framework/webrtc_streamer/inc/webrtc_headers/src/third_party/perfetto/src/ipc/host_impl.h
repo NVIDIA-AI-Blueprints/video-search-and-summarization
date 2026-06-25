@@ -24,6 +24,7 @@
 
 #include "perfetto/base/task_runner.h"
 #include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/sys_types.h"
 #include "perfetto/ext/base/thread_checker.h"
 #include "perfetto/ext/base/unix_socket.h"
 #include "perfetto/ext/ipc/deferred.h"
@@ -66,6 +67,21 @@ class HostImpl : public Host, public base::UnixSocket::EventListener {
     BufferedFrameDeserializer frame_deserializer;
     base::ScopedFile received_fd;
     std::function<bool(int)> send_fd_cb_fuchsia;
+    // Peer identity set using IPCFrame sent by the client. These 3 fields
+    // should be used only for non-AF_UNIX connections AF_UNIX connections
+    // should only rely on the peer identity obtained from the socket.
+    uid_t uid_override = base::kInvalidUid;
+    pid_t pid_override = base::kInvalidPid;
+
+    // |machine_id| is mapped from machine_id_hint (or socket hostname if
+    // |the client doesn't support machine_id_hint).
+    base::MachineID machine_id = base::kDefaultMachineID;
+    std::string machine_name;
+
+    pid_t GetLinuxPeerPid() const;
+    uid_t GetPosixPeerUid() const;
+    base::MachineID GetMachineID() const { return machine_id; }
+    std::string GetMachineName() const { return machine_name; }
   };
   struct ExposedService {
     ExposedService(ServiceID, const std::string&, std::unique_ptr<Service>);
@@ -85,6 +101,8 @@ class HostImpl : public Host, public base::UnixSocket::EventListener {
   void OnReceivedFrame(ClientConnection*, const Frame&);
   void OnBindService(ClientConnection*, const Frame&);
   void OnInvokeMethod(ClientConnection*, const Frame&);
+  void OnSetPeerIdentity(ClientConnection*, const Frame&);
+
   void ReplyToMethodInvocation(ClientID, RequestID, AsyncResult<ProtoMessage>);
   const ExposedService* GetServiceByName(const std::string&);
 
@@ -95,6 +113,7 @@ class HostImpl : public Host, public base::UnixSocket::EventListener {
   std::unique_ptr<base::UnixSocket> sock_;  // The listening socket.
   std::map<ClientID, std::unique_ptr<ClientConnection>> clients_;
   std::map<base::UnixSocket*, ClientConnection*> clients_by_socket_;
+  std::string machine_name_;
   ServiceID last_service_id_ = 0;
   ClientID last_client_id_ = 0;
   uint32_t socket_tx_timeout_ms_ = kDefaultIpcTxTimeoutMs;

@@ -31,7 +31,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_KEYFRAME_EFFECT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_KEYFRAME_EFFECT_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/animation/animation_effect.h"
 #include "third_party/blink/renderer/core/animation/compositor_animations.h"
@@ -82,20 +83,22 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
 
   // Returns the target element. If the animation targets a pseudo-element,
   // this returns the originating element.
-  Element* target() const { return target_element_; }
+  Element* target() const { return target_element_.Get(); }
   void setTarget(Element*);
   const String& pseudoElement() const;
   void setPseudoElement(String, ExceptionState&);
-  String composite() const;
-  void setComposite(String);
-  HeapVector<ScriptValue> getKeyframes(ScriptState*);
+  V8CompositeOperation composite() const;
+  void setComposite(const V8CompositeOperation&);
+  V8IterationCompositeOperation iterationComposite() const;
+  void setIterationComposite(const V8IterationCompositeOperation&);
+  HeapVector<ScriptObject> getKeyframes(ScriptState*);
   void setKeyframes(ScriptState*,
                     const ScriptValue& keyframes,
                     ExceptionState&);
 
   // Returns blink's representation of the effect target.
   // This can be a blink::PseudoElement which should not be web-exposed.
-  Element* EffectTarget() const { return effect_target_; }
+  Element* EffectTarget() const { return effect_target_.Get(); }
   void SetKeyframes(StringKeyframeVector keyframes);
 
   bool Affects(const PropertyHandle&) const override;
@@ -113,19 +116,20 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   CompositorAnimations::FailureReasons CheckCanStartAnimationOnCompositor(
       const PaintArtifactCompositor*,
       double animation_playback_rate,
-      PropertyHandleSet* unsupported_properties = nullptr) const;
+      PropertyHandleSet* unsupported_properties_for_tracing = nullptr) const;
   // Must only be called once.
   void StartAnimationOnCompositor(int group,
-                                  absl::optional<double> start_time,
-                                  base::TimeDelta time_offset,
+                                  std::optional<double> start_time,
+                                  std::optional<base::TimeDelta> hold_time,
                                   double animation_playback_rate,
                                   CompositorAnimation* = nullptr,
-                                  bool is_monotonic_timeline = true);
+                                  bool is_monotonic_timeline = true,
+                                  bool is_boundary_aligned = false);
   bool HasActiveAnimationsOnCompositor() const;
   bool HasActiveAnimationsOnCompositor(const PropertyHandle&) const;
   bool CancelAnimationOnCompositor(CompositorAnimation*);
   void CancelIncompatibleAnimationsOnCompositor();
-  void PauseAnimationForTestingOnCompositor(base::TimeDelta pause_time);
+  void PauseAnimationForTestingOnCompositor(base::TimeDelta hold_time);
 
   void AttachCompositedLayers();
 
@@ -146,8 +150,8 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   bool GetIgnoreCSSKeyframes() { return ignore_css_keyframes_; }
   void SetIgnoreCSSKeyframes() { ignore_css_keyframes_ = true; }
 
-  void SetLogicalPropertyResolutionContext(TextDirection text_direction,
-                                           WritingMode writing_mode);
+  void SetLogicalPropertyResolutionContext(
+      WritingDirectionMode writing_direction);
 
  private:
   EffectModel::CompositeOperation CompositeInternal() const;
@@ -163,9 +167,9 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
   void CountAnimatedProperties() const;
   AnimationTimeDelta CalculateTimeToEffectChange(
       bool forwards,
-      absl::optional<AnimationTimeDelta> inherited_time,
+      std::optional<AnimationTimeDelta> inherited_time,
       AnimationTimeDelta time_to_next_iteration) const override;
-  absl::optional<AnimationTimeDelta> TimelineDuration() const override;
+  std::optional<AnimationTimeDelta> TimelineDuration() const override;
   bool HasIncompatibleStyle() const;
   bool AffectsImportantProperty() const;
   void RestartRunningAnimationOnCompositor();
@@ -178,11 +182,16 @@ class CORE_EXPORT KeyframeEffect final : public AnimationEffect {
 
   Priority priority_;
 
+  // A keyframe effect with model ids has an animation on the compositor;
+  // however, it may be in the process of being cancelled and the animation
+  // should not be treated as if running on the compositor from the perspective
+  // of paint.  Composited animations are cancelled asynchronously, to avoid
+  // blocking the main thread in a protected sequence longer than necessary.
   Vector<int> compositor_keyframe_model_ids_;
 
   bool ignore_css_keyframes_;
 
-  absl::optional<gfx::SizeF> effect_target_size_;
+  std::optional<gfx::SizeF> effect_target_size_;
 };
 
 template <>

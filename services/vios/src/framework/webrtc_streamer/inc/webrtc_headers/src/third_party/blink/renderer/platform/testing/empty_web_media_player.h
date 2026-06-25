@@ -7,6 +7,7 @@
 
 #include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "media/base/picture_in_picture_events_info.h"
 #include "third_party/blink/public/platform/web_media_player.h"
 
 namespace cc {
@@ -19,8 +20,7 @@ namespace blink {
 // An empty WebMediaPlayer used only for tests. This class defines the methods
 // of WebMediaPlayer so that mock WebMediaPlayers don't need to redefine them if
 // they don't care their behavior.
-class EmptyWebMediaPlayer : public WebMediaPlayer,
-                            public base::SupportsWeakPtr<EmptyWebMediaPlayer> {
+class EmptyWebMediaPlayer : public WebMediaPlayer {
  public:
   ~EmptyWebMediaPlayer() override = default;
 
@@ -28,14 +28,16 @@ class EmptyWebMediaPlayer : public WebMediaPlayer,
                   const WebMediaPlayerSource&,
                   CorsMode,
                   bool is_cache_disabled) override;
+  void Shutdown() override { weak_ptr_factory_.InvalidateWeakPtrsAndDoom(); }
   void Play() override {}
-  void Pause() override {}
+  void Pause(PauseReason pause_reason) override {}
   void Seek(double seconds) override {}
   void SetRate(double) override {}
   void SetVolume(double) override {}
   void SetLatencyHint(double) override {}
   void SetPreservesPitch(bool) override {}
-  void SetWasPlayedWithUserActivation(bool) override {}
+  void SetWasPlayedWithUserActivationAndHighMediaEngagement(bool) override {}
+  void SetShouldPauseWhenFrameIsHidden(bool) override {}
   void OnRequestPictureInPicture() override {}
   WebTimeRanges Buffered() const override;
   WebTimeRanges Seekable() const override;
@@ -68,17 +70,24 @@ class EmptyWebMediaPlayer : public WebMediaPlayer,
   void SetVolumeMultiplier(double multiplier) override {}
   void SetPowerExperimentState(bool enabled) override {}
   void SuspendForFrameClosed() override {}
-  void Paint(cc::PaintCanvas*, const gfx::Rect&, cc::PaintFlags&) override {}
+  void RecordAutoPictureInPictureInfo(
+      const media::PictureInPictureEventsInfo::AutoPipInfo&
+          auto_picture_in_picture_info) override {}
+  void Paint(cc::PaintCanvas*,
+             const gfx::Rect&,
+             const cc::PaintFlags&) override {}
   scoped_refptr<media::VideoFrame> GetCurrentFrameThenUpdate() override;
-  absl::optional<media::VideoFrame::ID> CurrentFrameId() const override;
+  std::optional<media::VideoFrame::ID> CurrentFrameId() const override;
   bool HasAvailableVideoFrame() const override { return false; }
   bool HasReadableVideoFrame() const override { return false; }
   base::WeakPtr<WebMediaPlayer> AsWeakPtr() override {
-    return base::SupportsWeakPtr<EmptyWebMediaPlayer>::AsWeakPtr();
+    return weak_ptr_factory_.GetWeakPtr();
   }
   void RegisterFrameSinkHierarchy() override {}
   void UnregisterFrameSinkHierarchy() override {}
-  bool PassedTimingAllowOriginCheck() const override { return true; }
+
+ private:
+  base::WeakPtrFactory<EmptyWebMediaPlayer> weak_ptr_factory_{this};
 };
 
 }  // namespace blink

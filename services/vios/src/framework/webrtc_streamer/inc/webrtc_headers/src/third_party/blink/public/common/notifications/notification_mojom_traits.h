@@ -5,14 +5,15 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_COMMON_NOTIFICATIONS_NOTIFICATION_MOJOM_TRAITS_H_
 #define THIRD_PARTY_BLINK_PUBLIC_COMMON_NOTIFICATIONS_NOTIFICATION_MOJOM_TRAITS_H_
 
+#include <optional>
 #include <string>
 
+#include "base/compiler_specific.h"
 #include "base/containers/span.h"
 #include "mojo/public/cpp/base/string16_mojom_traits.h"
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "skia/public/mojom/bitmap_skbitmap_mojom_traits.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/notifications/notification_resources.h"
 #include "third_party/blink/public/common/notifications/platform_notification_data.h"
@@ -61,14 +62,11 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::NotificationDataDataView,
 
   static const base::span<const int32_t> vibration_pattern(
       const blink::PlatformNotificationData& data) {
-    // TODO(https://crbug.com/798466): Store as int32s to avoid this cast.
-    return base::make_span(
-        reinterpret_cast<const int32_t*>(data.vibration_pattern.data()),
-        data.vibration_pattern.size());
+    return data.vibration_pattern;
   }
 
   static double timestamp(const blink::PlatformNotificationData& data) {
-    return data.timestamp.ToJsTime();
+    return data.timestamp.InMillisecondsFSinceUnixEpoch();
   }
 
   static bool renotify(const blink::PlatformNotificationData& data) {
@@ -86,8 +84,7 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::NotificationDataDataView,
   static const base::span<const uint8_t> data(
       const blink::PlatformNotificationData& data) {
     // TODO(https://crbug.com/798466): Align data types to avoid this cast.
-    return base::make_span(reinterpret_cast<const uint8_t*>(data.data.data()),
-                           data.data.size());
+    return base::as_byte_span(data.data);
   }
 
   static const std::vector<blink::mojom::NotificationActionPtr>& actions(
@@ -95,7 +92,7 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::NotificationDataDataView,
     return data.actions;
   }
 
-  static absl::optional<base::Time> show_trigger_timestamp(
+  static std::optional<base::Time> show_trigger_timestamp(
       const blink::PlatformNotificationData& data) {
     return data.show_trigger_timestamp;
   }

@@ -13,14 +13,18 @@
 #include "third_party/blink/renderer/core/html/forms/listed_element.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
-#include "third_party/blink/renderer/platform/heap/collection_support/heap_linked_hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
+#include "ui/accessibility/ax_enums.mojom-blink-forward.h"
 
 namespace blink {
 
 class CustomStateSet;
+class ElementBehavior;
 class HTMLElement;
 class ValidityStateFlags;
+
+template <typename IDLType>
+class FrozenArray;
 
 class CORE_EXPORT ElementInternals : public ScriptWrappable,
                                      public ListedElement,
@@ -41,14 +45,14 @@ class CORE_EXPORT ElementInternals : public ScriptWrappable,
   void setFormValue(const V8ControlValue* value,
                     const V8ControlValue* state,
                     ExceptionState& exception_state);
-  HTMLFormElement* form(ExceptionState& exception_state) const;
+  HTMLElement* formForBinding(ExceptionState& exception_state) const;
   void setValidity(ValidityStateFlags* flags, ExceptionState& exception_state);
   void setValidity(ValidityStateFlags* flags,
                    const String& message,
                    ExceptionState& exception_state);
   void setValidity(ValidityStateFlags* flags,
                    const String& message,
-                   Element* anchor,
+                   HTMLElement* anchor,
                    ExceptionState& exception_state);
   bool willValidate(ExceptionState& exception_state) const;
   ValidityState* validity(ExceptionState& exception_state);
@@ -57,6 +61,9 @@ class CORE_EXPORT ElementInternals : public ScriptWrappable,
   bool reportValidity(ExceptionState& exception_state);
   LabelsNodeList* labels(ExceptionState& exception_state);
   CustomStateSet* states();
+
+  String ToolParamSchema() const;
+  void setToolParamSchema(const String& schema);
 
   bool HasState(const AtomicString& state) const;
 
@@ -67,20 +74,61 @@ class CORE_EXPORT ElementInternals : public ScriptWrappable,
   const AtomicString& FastGetAttribute(const QualifiedName&) const;
   void setAttribute(const QualifiedName& attribute, const AtomicString& value);
 
-  void SetElementAttribute(const QualifiedName& name, Element* element);
-  Element* GetElementAttribute(const QualifiedName& name);
-  HeapVector<Member<Element>>* GetElementArrayAttribute(
-      const QualifiedName& name) const;
-  void SetElementArrayAttribute(const QualifiedName& name,
-                                const HeapVector<Member<Element>>* elements);
+  // These methods are used in the implementation of the DOM API setters/getters
+  // for Element/FrozenArray<Element> attributes.
+  void SetElementAttribute(const QualifiedName& attribute, Element* element);
+  Element* GetElementAttribute(const QualifiedName& attribute) const;
+  void SetElementArrayAttribute(
+      const QualifiedName& attribute,
+      const GCedHeapVector<Member<Element>>* given_elements);
+  const FrozenArray<Element>* GetElementArrayAttribute(
+      const QualifiedName& attribute) const;
+
+  // Platform-provided behaviors.
+  const FrozenArray<ElementBehavior>& behaviors() const;
+  // Find a behavior of a specific type in the behaviors list.
+  template <typename T>
+  T* FindBehavior() const {
+    return static_cast<T*>(FindBehaviorByType(T::GetStaticWrapperTypeInfo()));
+  }
+  // Returns the default ARIA role from behaviors using last-in-wins conflict
+  // resolution. Returns kUnknown if no behaviors are attached.
+  ax::mojom::blink::Role BehaviorBasedDefaultRole() const;
+
+  const FrozenArray<Element>* ariaControlsElements() const;
+  void setAriaControlsElements(GCedHeapVector<Member<Element>>* given_elements);
+  const FrozenArray<Element>* ariaDescribedByElements() const;
+  void setAriaDescribedByElements(
+      GCedHeapVector<Member<Element>>* given_elements);
+  const FrozenArray<Element>* ariaDetailsElements() const;
+  void setAriaDetailsElements(GCedHeapVector<Member<Element>>* given_elements);
+  const FrozenArray<Element>* ariaErrorMessageElements() const;
+  void setAriaErrorMessageElements(
+      GCedHeapVector<Member<Element>>* given_elements);
+  const FrozenArray<Element>* ariaFlowToElements() const;
+  void setAriaFlowToElements(GCedHeapVector<Member<Element>>* given_elements);
+  const FrozenArray<Element>* ariaLabelledByElements() const;
+  void setAriaLabelledByElements(
+      GCedHeapVector<Member<Element>>* given_elements);
+  const FrozenArray<Element>* ariaOwnsElements() const;
+  void setAriaOwnsElements(GCedHeapVector<Member<Element>>* given_elements);
+
   bool HasAttribute(const QualifiedName& attribute) const;
+  bool HasAnyAttribute() const { return !accessibility_semantics_map_.empty(); }
   const HashMap<QualifiedName, AtomicString>& GetAttributes() const;
 
  private:
+  friend class HTMLElement;
+
+  // Sets behaviors during attachInternals(). Can only be called once.
+  void SetBehaviors(HeapVector<Member<ElementBehavior>> behaviors,
+                    ExceptionState& exception_state);
+  // Looks up an attached behavior by its wrapper type info pointer.
+  ElementBehavior* FindBehaviorByType(const WrapperTypeInfo* type) const;
+
   bool IsTargetFormAssociated() const;
 
   // ListedElement overrides:
-  bool IsFormControlElement() const override;
   bool IsElementInternals() const override;
   bool IsEnumeratable() const override;
   void AppendToFormData(FormData& form_data) override;
@@ -103,6 +151,8 @@ class CORE_EXPORT ElementInternals : public ScriptWrappable,
   bool ShouldSaveAndRestoreFormControlState() const override;
   FormControlState SaveFormControlState() const override;
   void RestoreFormControlState(const FormControlState& state) override;
+  // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#barred-from-constraint-validation
+  bool ReadOnlyPreventsConstraintValidation() const final { return true; }
 
   Member<HTMLElement> target_;
 
@@ -111,15 +161,19 @@ class CORE_EXPORT ElementInternals : public ScriptWrappable,
   bool is_disabled_ = false;
   Member<ValidityStateFlags> validity_flags_;
   Member<Element> validation_anchor_;
-
+  String tool_param_schema_;
   Member<CustomStateSet> custom_states_;
 
   HashMap<QualifiedName, AtomicString> accessibility_semantics_map_;
 
   // See
   // https://whatpr.org/html/3917/common-dom-interfaces.html#reflecting-content-attributes-in-idl-attributes:element
-  HeapHashMap<QualifiedName, Member<HeapLinkedHashSet<WeakMember<Element>>>>
+  HeapHashMap<QualifiedName, Member<FrozenArray<Element>>>
       explicitly_set_attr_elements_map_;
+
+  // Platform-provided behaviors attached via attachInternals().
+  // Behaviors cannot be added or removed after attachment.
+  Member<FrozenArray<ElementBehavior>> behaviors_;
 };
 
 template <>

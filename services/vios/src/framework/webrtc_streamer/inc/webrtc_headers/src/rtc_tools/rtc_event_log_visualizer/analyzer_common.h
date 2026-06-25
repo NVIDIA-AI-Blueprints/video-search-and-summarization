@@ -11,11 +11,17 @@
 #ifndef RTC_TOOLS_RTC_EVENT_LOG_VISUALIZER_ANALYZER_COMMON_H_
 #define RTC_TOOLS_RTC_EVENT_LOG_VISUALIZER_ANALYZER_COMMON_H_
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <vector>
 
-#include "absl/types/optional.h"
+#include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
 #include "api/function_view.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "logging/rtc_event_log/rtc_event_log_parser.h"
 #include "rtc_tools/rtc_event_log_visualizer/plot_base.h"
 
@@ -30,6 +36,20 @@ constexpr float kTopMargin = 0.05f;
 
 class AnalyzerConfig {
  public:
+  AnalyzerConfig() : normalize_time_(true), env_(CreateEnvironment()) {}
+
+  AnalyzerConfig(const Environment& env,
+                 const ParsedRtcEventLog& parsed_log,
+                 bool normalize_time)
+      : normalize_time_(normalize_time), env_(env) {
+    begin_time_ = parsed_log.first_timestamp();
+    end_time_ = parsed_log.last_timestamp();
+    if (!parsed_log.start_log_events().empty()) {
+      rtc_to_utc_offset_ = parsed_log.start_log_events().front().utc_time() -
+                           parsed_log.start_log_events().front().log_time();
+    }
+  }
+
   float GetCallTimeSec(Timestamp timestamp) const {
     Timestamp offset = normalize_time_ ? begin_time_ : Timestamp::Zero();
     return static_cast<float>((timestamp - offset).us()) / 1000000;
@@ -63,6 +83,8 @@ class AnalyzerConfig {
   Timestamp end_time_ = Timestamp::MinusInfinity();
   TimeDelta rtc_to_utc_offset_ = TimeDelta::Zero();
   bool normalize_time_;
+  std::vector<uint32_t> desired_ssrc_;
+  const Environment env_;
 };
 
 struct LayerDescription {
@@ -95,19 +117,30 @@ bool IsAudioSsrc(const ParsedRtcEventLog& parsed_log,
 std::string GetStreamName(const ParsedRtcEventLog& parsed_log,
                           PacketDirection direction,
                           uint32_t ssrc);
+std::string SsrcToString(uint32_t ssrc);
+
 std::string GetLayerName(LayerDescription layer);
+
+std::string GetDirectionAsString(PacketDirection direction);
+std::string GetDirectionAsShortString(PacketDirection direction);
+
+int64_t WrappingDifference(uint32_t later, uint32_t earlier, int64_t modulus);
+
+// Checks whether an SSRC is contained in the list of desired SSRCs.
+// Note that an empty SSRC list matches every SSRC.
+bool MatchingSsrc(uint32_t ssrc, const std::vector<uint32_t>& desired_ssrc);
 
 // For each element in data_view, use `f()` to extract a y-coordinate and
 // store the result in a TimeSeries.
 template <typename DataType, typename IterableType>
-void ProcessPoints(rtc::FunctionView<float(const DataType&)> fx,
-                   rtc::FunctionView<absl::optional<float>(const DataType&)> fy,
+void ProcessPoints(FunctionView<float(const DataType&)> fx,
+                   FunctionView<std::optional<float>(const DataType&)> fy,
                    const IterableType& data_view,
                    TimeSeries* result) {
   for (size_t i = 0; i < data_view.size(); i++) {
     const DataType& elem = data_view[i];
     float x = fx(elem);
-    absl::optional<float> y = fy(elem);
+    std::optional<float> y = fy(elem);
     if (y)
       result->points.emplace_back(x, *y);
   }
@@ -117,15 +150,14 @@ void ProcessPoints(rtc::FunctionView<float(const DataType&)> fx,
 // y-coordinate and store the result in a TimeSeries. Note that the x-coordinate
 // will be the time of the second element in the pair.
 template <typename DataType, typename ResultType, typename IterableType>
-void ProcessPairs(
-    rtc::FunctionView<float(const DataType&)> fx,
-    rtc::FunctionView<absl::optional<ResultType>(const DataType&,
-                                                 const DataType&)> fy,
-    const IterableType& data,
-    TimeSeries* result) {
+void ProcessPairs(FunctionView<float(const DataType&)> fx,
+                  FunctionView<std::optional<ResultType>(const DataType&,
+                                                         const DataType&)> fy,
+                  const IterableType& data,
+                  TimeSeries* result) {
   for (size_t i = 1; i < data.size(); i++) {
     float x = fx(data[i]);
-    absl::optional<ResultType> y = fy(data[i - 1], data[i]);
+    std::optional<ResultType> y = fy(data[i - 1], data[i]);
     if (y)
       result->points.emplace_back(x, static_cast<float>(*y));
   }
@@ -136,15 +168,15 @@ void ProcessPairs(
 // will be the time of the second element in the pair.
 template <typename DataType, typename ResultType, typename IterableType>
 void AccumulatePairs(
-    rtc::FunctionView<float(const DataType&)> fx,
-    rtc::FunctionView<absl::optional<ResultType>(const DataType&,
-                                                 const DataType&)> fy,
+    FunctionView<float(const DataType&)> fx,
+    FunctionView<std::optional<ResultType>(const DataType&, const DataType&)>
+        fy,
     const IterableType& data,
     TimeSeries* result) {
   ResultType sum = 0;
   for (size_t i = 1; i < data.size(); i++) {
     float x = fx(data[i]);
-    absl::optional<ResultType> y = fy(data[i - 1], data[i]);
+    std::optional<ResultType> y = fy(data[i - 1], data[i]);
     if (y) {
       sum += *y;
       result->points.emplace_back(x, static_cast<float>(sum));
@@ -157,11 +189,10 @@ void AccumulatePairs(
 // to `end_time`. The value of each data point is the average of the data
 // during the preceding `window_duration_us` microseconds.
 template <typename DataType, typename ResultType, typename IterableType>
-void MovingAverage(
-    rtc::FunctionView<absl::optional<ResultType>(const DataType&)> fy,
-    const IterableType& data_view,
-    AnalyzerConfig config,
-    TimeSeries* result) {
+void MovingAverage(FunctionView<std::optional<ResultType>(const DataType&)> fy,
+                   const IterableType& data_view,
+                   AnalyzerConfig config,
+                   TimeSeries* result) {
   size_t window_index_begin = 0;
   size_t window_index_end = 0;
   ResultType sum_in_window = 0;
@@ -170,7 +201,7 @@ void MovingAverage(
        t += config.step_) {
     while (window_index_end < data_view.size() &&
            data_view[window_index_end].log_time() < t) {
-      absl::optional<ResultType> value = fy(data_view[window_index_end]);
+      std::optional<ResultType> value = fy(data_view[window_index_end]);
       if (value)
         sum_in_window += *value;
       ++window_index_end;
@@ -178,7 +209,7 @@ void MovingAverage(
     while (window_index_begin < data_view.size() &&
            data_view[window_index_begin].log_time() <
                t - config.window_duration_) {
-      absl::optional<ResultType> value = fy(data_view[window_index_begin]);
+      std::optional<ResultType> value = fy(data_view[window_index_begin]);
       if (value)
         sum_in_window -= *value;
       ++window_index_begin;

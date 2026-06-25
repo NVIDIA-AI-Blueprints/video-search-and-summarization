@@ -9,16 +9,16 @@
  */
 #ifndef NET_DCSCTP_PACKET_ERROR_CAUSE_NO_USER_DATA_CAUSE_H_
 #define NET_DCSCTP_PACKET_ERROR_CAUSE_NO_USER_DATA_CAUSE_H_
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "net/dcsctp/common/internal_types.h"
-#include "net/dcsctp/packet/error_cause/error_cause.h"
+#include "net/dcsctp/packet/parameter/parameter.h"
 #include "net/dcsctp/packet/tlv_trait.h"
 namespace dcsctp {
 
@@ -36,8 +36,7 @@ class NoUserDataCause : public Parameter,
 
   explicit NoUserDataCause(TSN tsn) : tsn_(tsn) {}
 
-  static absl::optional<NoUserDataCause> Parse(
-      rtc::ArrayView<const uint8_t> data);
+  static std::optional<NoUserDataCause> Parse(std::span<const uint8_t> data);
 
   void SerializeTo(std::vector<uint8_t>& out) const override;
   std::string ToString() const override;

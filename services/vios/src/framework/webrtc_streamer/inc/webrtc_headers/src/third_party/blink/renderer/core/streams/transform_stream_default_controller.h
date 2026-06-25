@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_TRANSFORM_STREAM_DEFAULT_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_TRANSFORM_STREAM_DEFAULT_CONTROLLER_H_
 
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -15,7 +16,6 @@ namespace blink {
 
 class ExceptionState;
 class ReadableStreamDefaultController;
-class ScriptFunction;
 class ScriptState;
 class StreamAlgorithm;
 class TransformStream;
@@ -28,7 +28,7 @@ class CORE_EXPORT TransformStreamDefaultController : public ScriptWrappable {
   ~TransformStreamDefaultController() override;
 
   // https://streams.spec.whatwg.org/#ts-default-controller-desired-size
-  absl::optional<double> desiredSize() const;
+  std::optional<double> desiredSize() const;
 
   // https://streams.spec.whatwg.org/#ts-default-controller-enqueue
   void enqueue(ScriptState*, ExceptionState&);
@@ -47,6 +47,7 @@ class CORE_EXPORT TransformStreamDefaultController : public ScriptWrappable {
   friend class TransformStream;
 
   class DefaultTransformAlgorithm;
+  class PerformTransformRejectFunction;
 
   // https://streams.spec.whatwg.org/#set-up-transform-stream-default-controller
   static void SetUp(ScriptState*,
@@ -77,7 +78,7 @@ class CORE_EXPORT TransformStreamDefaultController : public ScriptWrappable {
                     v8::Local<v8::Value> e);
 
   // https://streams.spec.whatwg.org/#transform-stream-default-controller-perform-transform
-  static v8::Local<v8::Promise> PerformTransform(
+  static ScriptPromise<IDLUndefined> PerformTransform(
       ScriptState*,
       TransformStreamDefaultController*,
       v8::Local<v8::Value> chunk);
@@ -91,7 +92,7 @@ class CORE_EXPORT TransformStreamDefaultController : public ScriptWrappable {
   Member<TransformStream> controlled_transform_stream_;
   Member<StreamAlgorithm> flush_algorithm_;
   Member<StreamAlgorithm> transform_algorithm_;
-  Member<ScriptFunction> reject_function_;
+  Member<PerformTransformRejectFunction> reject_function_;
 };
 
 }  // namespace blink

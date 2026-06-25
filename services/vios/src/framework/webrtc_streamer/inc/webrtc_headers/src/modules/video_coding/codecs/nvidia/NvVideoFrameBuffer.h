@@ -28,8 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "api/ref_count.h"
+#include "api/scoped_refptr.h"
 #include <api/video/video_frame_buffer.h>
 #include <functional>
+#include <string>
 
 #pragma once
 
@@ -46,11 +49,11 @@ public:
     NvVideoFrameBuffer(int width, int height);
     ~NvVideoFrameBuffer();
 
-    rtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
+    webrtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
     webrtc::VideoFrameBuffer::Type type() const override;
 
     void AddRef() const override;
-    rtc::RefCountReleaseStatus Release() const override;
+    webrtc::RefCountReleaseStatus Release() const override;
 
     int width () const override;
     int height () const override;
@@ -69,9 +72,7 @@ public:
     /* To store the NvBufSurface of the decoded data */
     uint8_t* m_decodedData;
     size_t   m_decodedSize;
-#ifndef DISABLE_H265
     std::string codecName = "";
-#endif
 
     encoder_params* params;
     struct timeval rtspToWebrtcStartTime;

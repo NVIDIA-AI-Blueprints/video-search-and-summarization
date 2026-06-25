@@ -30,8 +30,7 @@
 typedef AVUUID UID;
 
 enum MXFMetadataSetType {
-    AnyType,
-    MaterialPackage,
+    MaterialPackage = 1,
     SourcePackage,
     SourceClip,
     TimecodeComponent,
@@ -55,6 +54,8 @@ enum MXFMetadataSetType {
     SoundfieldGroupLabelSubDescriptor,
     GroupOfSoundfieldGroupsLabelSubDescriptor,
     FFV1SubDescriptor,
+    JPEG2000SubDescriptor,
+    MetadataSetTypeNB
 };
 
 enum MXFFrameLayout {

@@ -17,34 +17,28 @@
 #ifndef SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_CREATE_VIEW_FUNCTION_H_
 #define SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_CREATE_VIEW_FUNCTION_H_
 
-#include <sqlite3.h>
-#include <unordered_map>
+#include <cstddef>
 
-#include "src/trace_processor/perfetto_sql/intrinsics/functions/sql_function.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_function.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_result.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_type.h"
+#include "src/trace_processor/sqlite/bindings/sqlite_value.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
-class PerfettoSqlEngine;
+class PerfettoSqlConnection;
 
 // Implementation of CREATE_VIEW_FUNCTION SQL function.
 // See https://perfetto.dev/docs/analysis/metrics#metric-helper-functions for
 // usage of this function.
-struct CreateViewFunction : public SqlFunction {
-  using Context = PerfettoSqlEngine;
+struct CreateViewFunction : public sqlite::Function<CreateViewFunction> {
+  static constexpr char kName[] = "create_view_function";
+  static constexpr int kArgCount = 3;
 
-  static constexpr bool kVoidReturn = true;
-
-  static base::Status Run(Context* ctx,
-                          size_t argc,
-                          sqlite3_value** argv,
-                          SqlValue& out,
-                          Destructors&);
+  using UserData = PerfettoSqlConnection;
+  static void Step(sqlite3_context* ctx, int argc, sqlite3_value** argv);
 };
 
-void RegisterCreateViewFunctionModule(PerfettoSqlEngine*);
-
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_PERFETTO_SQL_INTRINSICS_FUNCTIONS_CREATE_VIEW_FUNCTION_H_

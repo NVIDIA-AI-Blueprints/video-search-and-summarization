@@ -17,34 +17,41 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_FTRACE_FTRACE_MODULE_IMPL_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_FTRACE_FTRACE_MODULE_IMPL_H_
 
-#include "perfetto/base/build_config.h"
-#include "protos/perfetto/trace/trace_packet.pbzero.h"
+#include <cstdint>
+
+#include "perfetto/base/logging.h"
+#include "perfetto/base/status.h"
+#include "perfetto/trace_processor/ref_counted.h"
 #include "src/trace_processor/importers/common/parser_types.h"
 #include "src/trace_processor/importers/ftrace/ftrace_module.h"
 #include "src/trace_processor/importers/ftrace/ftrace_parser.h"
 #include "src/trace_processor/importers/ftrace/ftrace_tokenizer.h"
+#include "src/trace_processor/importers/ftrace/generic_ftrace_tracker.h"
+#include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
 #include "src/trace_processor/importers/proto/proto_importer_module.h"
 
-namespace perfetto {
-namespace trace_processor {
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
+
+namespace perfetto::trace_processor {
 
 class TraceBlobView;
 
 class FtraceModuleImpl : public FtraceModule {
  public:
-  explicit FtraceModuleImpl(TraceProcessorContext* context);
+  explicit FtraceModuleImpl(ProtoImporterModuleContext* module_context,
+                            TraceProcessorContext* context);
 
   ModuleResult TokenizePacket(
       const protos::pbzero::TracePacket::Decoder& decoder,
       TraceBlobView* packet,
       int64_t packet_timestamp,
-      PacketSequenceState* state,
+      RefPtr<PacketSequenceStateGeneration> state,
       uint32_t field_id) override;
 
   void ParseFtraceEventData(uint32_t cpu,
                             int64_t ts,
                             const TracePacketData& data) override {
-    util::Status res = parser_.ParseFtraceEvent(cpu, ts, data);
+    base::Status res = parser_.ParseFtraceEvent(cpu, ts, data);
     if (!res.ok()) {
       PERFETTO_ELOG("%s", res.message().c_str());
     }
@@ -53,7 +60,7 @@ class FtraceModuleImpl : public FtraceModule {
   void ParseInlineSchedSwitch(uint32_t cpu,
                               int64_t ts,
                               const InlineSchedSwitch& data) override {
-    util::Status res = parser_.ParseInlineSchedSwitch(cpu, ts, data);
+    base::Status res = parser_.ParseInlineSchedSwitch(cpu, ts, data);
     if (!res.ok()) {
       PERFETTO_ELOG("%s", res.message().c_str());
     }
@@ -62,18 +69,18 @@ class FtraceModuleImpl : public FtraceModule {
   void ParseInlineSchedWaking(uint32_t cpu,
                               int64_t ts,
                               const InlineSchedWaking& data) override {
-    util::Status res = parser_.ParseInlineSchedWaking(cpu, ts, data);
+    base::Status res = parser_.ParseInlineSchedWaking(cpu, ts, data);
     if (!res.ok()) {
       PERFETTO_ELOG("%s", res.message().c_str());
     }
   }
 
  private:
+  GenericFtraceTracker generic_tracker_;
   FtraceTokenizer tokenizer_;
   FtraceParser parser_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_FTRACE_FTRACE_MODULE_IMPL_H_

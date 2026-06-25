@@ -28,10 +28,9 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
-#include "libavutil/buffer.h"
 #include "libavutil/mem_internal.h"
+#include "libavutil/pixfmt.h"
 #include "libavutil/thread.h"
-#include "libavutil/internal.h"
 
 #include "get_bits.h"
 #include "videodsp.h"
@@ -39,6 +38,7 @@
 #include "vp9dsp.h"
 #include "vp9shared.h"
 #include "vpx_rac.h"
+#include "cbs_vp9.h"
 
 #define REF_INVALID_SCALE 0xFFFF
 
@@ -98,6 +98,11 @@ typedef struct VP9Context {
     VP9SharedContext s;
     VP9TileData *td;
 
+    CodedBitstreamContext *cbc;
+    CodedBitstreamFragment current_frag;
+    VP9RawFrame *header_ref; ///< RefStruct reference backing frame_header
+    VP9RawFrameHeader *frame_header;
+
     VP9DSPContext dsp;
     VideoDSPContext vdsp;
     GetBitContext gb;
@@ -121,7 +126,7 @@ typedef struct VP9Context {
     int w, h;
     enum AVPixelFormat pix_fmt, last_fmt, gf_fmt;
     unsigned sb_cols, sb_rows, rows, cols;
-    ThreadFrame next_refs[8];
+    ProgressFrame next_refs[8];
 
     struct {
         uint8_t lim_lut[64];
@@ -161,7 +166,7 @@ typedef struct VP9Context {
     uint8_t mvstep[3][2];
 
     // frame specific buffer pools
-    AVBufferPool *frame_extradata_pool;
+    struct AVRefStructPool *frame_extradata_pool;
     int frame_extradata_pool_size;
 } VP9Context;
 
@@ -221,8 +226,8 @@ struct VP9TileData {
     DECLARE_ALIGNED(8, uint8_t, left_ref_ctx)[8];
     DECLARE_ALIGNED(8, uint8_t, left_filter_ctx)[8];
     // block reconstruction intermediates
-    DECLARE_ALIGNED(32, uint8_t, tmp_y)[64 * 64 * 2];
-    DECLARE_ALIGNED(32, uint8_t, tmp_uv)[2][64 * 64 * 2];
+    DECLARE_ALIGNED(64, uint8_t, tmp_y)[64 * 64 * 2];
+    DECLARE_ALIGNED(64, uint8_t, tmp_uv)[2][64 * 64 * 2];
     struct { int x, y; } min_mv, max_mv;
     int16_t *block_base, *block, *uvblock_base[2], *uvblock[2];
     uint8_t *eob_base, *uveob_base[2], *eob, *uveob[2];
@@ -246,7 +251,7 @@ void ff_vp9_decode_block(VP9TileData *td, int row, int col,
                          VP9Filter *lflvl, ptrdiff_t yoff, ptrdiff_t uvoff,
                          enum BlockLevel bl, enum BlockPartition bp);
 
-void ff_vp9_loopfilter_sb(AVCodecContext *avctx, VP9Filter *lflvl,
+void ff_vp9_loopfilter_sb(struct AVCodecContext *avctx, VP9Filter *lflvl,
                           int row, int col, ptrdiff_t yoff, ptrdiff_t uvoff);
 
 void ff_vp9_intra_recon_8bpp(VP9TileData *td,

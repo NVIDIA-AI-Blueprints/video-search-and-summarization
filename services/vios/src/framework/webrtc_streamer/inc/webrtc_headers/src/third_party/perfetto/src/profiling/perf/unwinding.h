@@ -28,8 +28,8 @@
 
 #include "perfetto/base/flat_set.h"
 #include "perfetto/base/logging.h"
+#include "perfetto/ext/base/lock_free_task_runner.h"
 #include "perfetto/ext/base/thread_checker.h"
-#include "perfetto/ext/base/unix_task_runner.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
 #include "src/kallsyms/kernel_symbol_map.h"
 #include "src/kallsyms/lazy_kernel_symbolizer.h"
@@ -75,6 +75,8 @@ class Unwinder {
  public:
   friend class UnwinderHandle;
 
+  enum class UnwindMode { kUnwindStack, kFramePointer };
+
   // Callbacks from the unwinder to the primary producer thread.
   class Delegate {
    public:
@@ -89,7 +91,9 @@ class Unwinder {
 
   ~Unwinder() { PERFETTO_DCHECK_THREAD(thread_checker_); }
 
-  void PostStartDataSource(DataSourceInstanceID ds_id, bool kernel_frames);
+  void PostStartDataSource(DataSourceInstanceID ds_id,
+                           bool kernel_frames,
+                           UnwindMode unwind_mode);
   void PostAdoptProcDescriptors(DataSourceInstanceID ds_id,
                                 pid_t pid,
                                 base::ScopedFile maps_fd,
@@ -144,8 +148,11 @@ class Unwinder {
 
   struct DataSourceState {
     enum class Status { kActive, kShuttingDown };
+    explicit DataSourceState(UnwindMode _unwind_mode)
+        : unwind_mode(_unwind_mode) {}
 
     Status status = Status::kActive;
+    const UnwindMode unwind_mode;
     std::map<pid_t, ProcessState> process_states;
   };
 
@@ -159,11 +166,13 @@ class Unwinder {
   };
 
   // Must be instantiated via the |UnwinderHandle|.
-  Unwinder(Delegate* delegate, base::UnixTaskRunner* task_runner);
+  Unwinder(Delegate* delegate, base::MaybeLockFreeTaskRunner* task_runner);
 
   // Marks the data source as valid and active at the unwinding stage.
   // Initializes kernel address symbolization if needed.
-  void StartDataSource(DataSourceInstanceID ds_id, bool kernel_frames);
+  void StartDataSource(DataSourceInstanceID ds_id,
+                       bool kernel_frames,
+                       UnwindMode unwind_mode);
 
   void AdoptProcDescriptors(DataSourceInstanceID ds_id,
                             pid_t pid,
@@ -184,7 +193,8 @@ class Unwinder {
 
   CompletedSample UnwindSample(const ParsedSample& sample,
                                UnwindingMetadata* opt_user_state,
-                               bool pid_unwound_before);
+                               bool pid_unwound_before,
+                               UnwindMode unwind_mode);
 
   // Returns a list of symbolized kernel frames in the sample (if any).
   std::vector<unwindstack::FrameData> SymbolizeKernelCallchain(
@@ -214,7 +224,7 @@ class Unwinder {
   // objects within libunwindstack, which take up non-trivial amounts of memory.
   //
   // There are two reasons for having this operation:
-  // * over a longer trace, it's desireable to drop heavy state for processes
+  // * over a longer trace, it's desirable to drop heavy state for processes
   //   that haven't been sampled recently.
   // * since libunwindstack's cache is not bounded, it'll tend towards having
   //   state for all processes that are targeted by the profiling config.
@@ -241,7 +251,7 @@ class Unwinder {
 
   void ResetAndEnableUnwindstackCache();
 
-  base::UnixTaskRunner* const task_runner_;
+  base::MaybeLockFreeTaskRunner* const task_runner_;
   Delegate* const delegate_;
   UnwindQueue<UnwindEntry, kUnwindQueueCapacity> unwind_queue_;
   QueueFootprintTracker footprint_tracker_;
@@ -261,8 +271,8 @@ class UnwinderHandle {
     std::mutex init_lock;
     std::condition_variable init_cv;
 
-    std::function<void(base::UnixTaskRunner*, Unwinder*)> initializer =
-        [this, &init_lock, &init_cv](base::UnixTaskRunner* task_runner,
+    std::function<void(base::MaybeLockFreeTaskRunner*, Unwinder*)> initializer =
+        [this, &init_lock, &init_cv](base::MaybeLockFreeTaskRunner* task_runner,
                                      Unwinder* unwinder) {
           std::lock_guard<std::mutex> lock(init_lock);
           task_runner_ = task_runner;
@@ -283,7 +293,6 @@ class UnwinderHandle {
 
   ~UnwinderHandle() {
     if (task_runner_) {
-      PERFETTO_CHECK(!task_runner_->QuitCalled());
       task_runner_->Quit();
 
       PERFETTO_DCHECK(thread_.joinable());
@@ -295,10 +304,10 @@ class UnwinderHandle {
   Unwinder* operator->() { return unwinder_; }
 
  private:
-  void RunTaskThread(
-      std::function<void(base::UnixTaskRunner*, Unwinder*)> initializer,
-      Unwinder::Delegate* delegate) {
-    base::UnixTaskRunner task_runner;
+  void RunTaskThread(std::function<void(base::MaybeLockFreeTaskRunner*,
+                                        Unwinder*)> initializer,
+                     Unwinder::Delegate* delegate) {
+    base::MaybeLockFreeTaskRunner task_runner;
     Unwinder unwinder(delegate, &task_runner);
     task_runner.PostTask(
         std::bind(std::move(initializer), &task_runner, &unwinder));
@@ -306,7 +315,7 @@ class UnwinderHandle {
   }
 
   std::thread thread_;
-  base::UnixTaskRunner* task_runner_ = nullptr;
+  base::MaybeLockFreeTaskRunner* task_runner_ = nullptr;
   Unwinder* unwinder_ = nullptr;
 };
 

@@ -17,16 +17,15 @@
 #ifndef SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_SYSTEM_PROBES_PARSER_H_
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_SYSTEM_PROBES_PARSER_H_
 
-#include <array>
-#include <set>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
+#include "perfetto/ext/base/flat_hash_map.h"
 #include "perfetto/protozero/field.h"
-#include "protos/perfetto/trace/sys_stats/sys_stats.pbzero.h"
 #include "src/trace_processor/storage/trace_storage.h"
 
-namespace perfetto {
-namespace trace_processor {
+namespace perfetto::trace_processor {
 
 class TraceProcessorContext;
 
@@ -37,58 +36,53 @@ class SystemProbesParser {
 
   explicit SystemProbesParser(TraceProcessorContext*);
 
-  void ParseProcessTree(ConstBytes);
-  void ParseProcessStats(int64_t timestamp, ConstBytes);
+  void ParseProcessTree(int64_t ts, ConstBytes);
+  void ParseProcessStats(int64_t ts, ConstBytes);
   void ParseSysStats(int64_t ts, ConstBytes);
   void ParseSystemInfo(ConstBytes);
   void ParseCpuInfo(ConstBytes);
+  void ParseGpuInfo(ConstBytes);
 
  private:
   void ParseThreadStats(int64_t timestamp, uint32_t pid, ConstBytes);
   void ParseDiskStats(int64_t ts, ConstBytes blob);
   void ParseProcessFds(int64_t ts, uint32_t pid, ConstBytes);
+  void ParseCpuIdleStats(int64_t ts, ConstBytes);
+  void ParseSlabInfo(int64_t ts, ConstBytes);
 
   TraceProcessorContext* const context_;
 
   const StringId utid_name_id_;
-  const StringId num_forks_name_id_;
-  const StringId num_irq_total_name_id_;
-  const StringId num_softirq_total_name_id_;
-  const StringId num_irq_name_id_;
-  const StringId num_softirq_name_id_;
-  const StringId cpu_times_user_ns_id_;
-  const StringId cpu_times_user_nice_ns_id_;
-  const StringId cpu_times_system_mode_ns_id_;
-  const StringId cpu_times_idle_ns_id_;
-  const StringId cpu_times_io_wait_ns_id_;
-  const StringId cpu_times_irq_ns_id_;
-  const StringId cpu_times_softirq_ns_id_;
-  const StringId oom_score_adj_id_;
-  const StringId cpu_freq_id_;
-  std::vector<StringId> meminfo_strs_id_;
-  std::vector<StringId> vmstat_strs_id_;
+  const StringId is_kthread_id_;
 
-  // Maps a proto field number for memcounters in ProcessStats::Process to
-  // their StringId. Keep kProcStatsProcessSize equal to 1 + max proto field
-  // id of ProcessStats::Process. Also update the value in
-  // ChromeSystemProbesParser.
-  static constexpr size_t kProcStatsProcessSize = 21;
-  std::array<StringId, kProcStatsProcessSize> proc_stats_process_names_{};
+  // Arm CPU identifier string IDs
+  const StringId arm_cpu_implementer;
+  const StringId arm_cpu_architecture;
+  const StringId arm_cpu_variant;
+  const StringId arm_cpu_part;
+  const StringId arm_cpu_revision;
 
-  uint64_t ms_per_tick_ = 0;
+  const StringId pages_per_slab_id_;
+  const StringId num_slabs_id_;
+
+  std::vector<const char*> meminfo_strs_;
+  std::vector<const char*> vmstat_strs_;
+
   uint32_t page_size_ = 0;
 
-  int64_t prev_read_amount = -1;
-  int64_t prev_write_amount = -1;
-  int64_t prev_discard_amount = -1;
-  int64_t prev_flush_count = -1;
-  int64_t prev_read_time = -1;
-  int64_t prev_write_time = -1;
-  int64_t prev_discard_time = -1;
-  int64_t prev_flush_time = -1;
+  struct DiskStatState {
+    int64_t prev_read_amount = -1;
+    int64_t prev_write_amount = -1;
+    int64_t prev_discard_amount = -1;
+    int64_t prev_flush_count = -1;
+    int64_t prev_read_time = -1;
+    int64_t prev_write_time = -1;
+    int64_t prev_discard_time = -1;
+    int64_t prev_flush_time = -1;
+  };
+  base::FlatHashMap<StringId, DiskStatState> disk_state_map_;
 };
 
-}  // namespace trace_processor
-}  // namespace perfetto
+}  // namespace perfetto::trace_processor
 
 #endif  // SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_SYSTEM_PROBES_PARSER_H_

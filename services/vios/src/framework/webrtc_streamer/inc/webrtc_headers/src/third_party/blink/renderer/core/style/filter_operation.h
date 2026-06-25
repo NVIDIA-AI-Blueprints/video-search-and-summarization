@@ -26,10 +26,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_FILTER_OPERATION_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STYLE_FILTER_OPERATION_H_
 
+#include <iosfwd>
+
 #include "base/notreached.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/style/shadow_data.h"
 #include "third_party/blink/renderer/platform/geometry/length.h"
+#include "third_party/blink/renderer/platform/geometry/length_point.h"
 #include "third_party/blink/renderer/platform/graphics/box_reflection.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/filters/fe_component_transfer.h"
@@ -37,6 +40,8 @@
 #include "third_party/blink/renderer/platform/graphics/filters/fe_turbulence.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+#include "third_party/blink/renderer/platform/wtf/text/strcat.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "ui/gfx/geometry/rect_f.h"
 
@@ -50,6 +55,9 @@ class SVGResourceClient;
 
 class CORE_EXPORT FilterOperation : public GarbageCollected<FilterOperation> {
  public:
+  FilterOperation(const FilterOperation&) = delete;
+  FilterOperation& operator=(const FilterOperation&) = delete;
+
   enum class OperationType {
     kReference,  // url(#somefilter)
     kGrayscale,
@@ -68,7 +76,6 @@ class CORE_EXPORT FilterOperation : public GarbageCollected<FilterOperation> {
     kComponentTransfer,
     kConvolveMatrix,
     kTurbulence,
-    kNone
   };
 
   static bool CanInterpolate(FilterOperation::OperationType type) {
@@ -92,11 +99,8 @@ class CORE_EXPORT FilterOperation : public GarbageCollected<FilterOperation> {
       case OperationType::kConvolveMatrix:
       case OperationType::kBoxReflect:
         return false;
-      case OperationType::kNone:
-        break;
     }
     NOTREACHED();
-    return false;
   }
 
   virtual ~FilterOperation() = default;
@@ -105,7 +109,6 @@ class CORE_EXPORT FilterOperation : public GarbageCollected<FilterOperation> {
   bool operator==(const FilterOperation& o) const {
     return IsSameType(o) && IsEqualAssumingSameType(o);
   }
-  bool operator!=(const FilterOperation& o) const { return !(*this == o); }
 
   OperationType GetType() const { return type_; }
   virtual bool IsSameType(const FilterOperation& o) const {
@@ -117,23 +120,29 @@ class CORE_EXPORT FilterOperation : public GarbageCollected<FilterOperation> {
   // True if the the value of one pixel can affect the value of another pixel
   // under this operation, such as blur.
   virtual bool MovesPixels() const { return false; }
+  // True if the operation depends on the 'currentcolor' value.
+  virtual bool UsesCurrentColor() const { return false; }
 
   // Maps "forward" to determine which pixels in a destination rect are
   // affected by pixels in the source rect.
   // See also FilterEffect::MapRect.
   virtual gfx::RectF MapRect(const gfx::RectF& rect) const { return rect; }
 
+  // For debugging/logging only.
+  virtual String DebugString() const { return "<unknown>"; }
+
  protected:
-  FilterOperation(OperationType type) : type_(type) {}
+  explicit FilterOperation(OperationType type) : type_(type) {}
 
   virtual bool IsEqualAssumingSameType(const FilterOperation&) const = 0;
 
   OperationType type_;
-
- private:
-  FilterOperation(const FilterOperation&) = delete;
-  FilterOperation& operator=(const FilterOperation&) = delete;
 };
+
+inline std::ostream& operator<<(std::ostream& stream,
+                                const FilterOperation& operation) {
+  return stream << operation.DebugString();
+}
 
 class CORE_EXPORT ReferenceFilterOperation : public FilterOperation {
  public:
@@ -141,6 +150,14 @@ class CORE_EXPORT ReferenceFilterOperation : public FilterOperation {
 
   bool AffectsOpacity() const override { return true; }
   bool MovesPixels() const override { return true; }
+  bool UsesCurrentColor() const override {
+    // This is pessimistic. A reference filter _may_ contain a primitive that
+    // references 'currentcolor'. If `filter_` is set it could be used to
+    // produce a less pessimistic result, but additional pre-processing would
+    // be required since enough information isn't preserved.
+    return true;
+  }
+
   gfx::RectF MapRect(const gfx::RectF&) const override;
 
   const AtomicString& Url() const { return url_; }
@@ -148,12 +165,14 @@ class CORE_EXPORT ReferenceFilterOperation : public FilterOperation {
   Filter* GetFilter() const { return filter_.Get(); }
   void SetFilter(Filter* filter) { filter_ = filter; }
 
-  SVGResource* Resource() const { return resource_; }
+  SVGResource* Resource() const { return resource_.Get(); }
 
   void AddClient(SVGResourceClient&);
   void RemoveClient(SVGResourceClient&);
 
   void Trace(Visitor*) const override;
+
+  String DebugString() const override { return StrCat({"<ref: ", url_, ">"}); }
 
  protected:
   bool IsEqualAssumingSameType(const FilterOperation&) const override;
@@ -181,6 +200,13 @@ class CORE_EXPORT BasicColorMatrixFilterOperation : public FilterOperation {
 
   double Amount() const { return amount_; }
 
+  String DebugString() const override {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "<basic color matrix op %d, amount=%f>",
+             static_cast<int>(type_), amount_);
+    return buf;
+  }
+
  protected:
   bool IsEqualAssumingSameType(const FilterOperation& o) const override {
     const BasicColorMatrixFilterOperation* other =
@@ -199,6 +225,12 @@ class CORE_EXPORT ColorMatrixFilterOperation : public FilterOperation {
       : FilterOperation(type), values_(std::move(values)) {}
 
   const Vector<float>& Values() const { return values_; }
+
+  String DebugString() const override {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "<color matrix op %d>", static_cast<int>(type_));
+    return buf;
+  }
 
  protected:
   bool IsEqualAssumingSameType(const FilterOperation& o) const override {
@@ -278,14 +310,33 @@ struct DowncastTraits<BasicComponentTransferFilterOperation> {
 
 class CORE_EXPORT BlurFilterOperation : public FilterOperation {
  public:
-  explicit BlurFilterOperation(const Length& std_deviation)
-      : FilterOperation(OperationType::kBlur), std_deviation_(std_deviation) {}
+  explicit BlurFilterOperation(const Length& std_deviation_x,
+                               const Length& std_deviation_y)
+      : FilterOperation(OperationType::kBlur),
+        std_deviation_(std_deviation_x, std_deviation_y) {}
 
-  const Length& StdDeviation() const { return std_deviation_; }
+  explicit BlurFilterOperation(const Length& std_deviation)
+      : BlurFilterOperation(std_deviation, std_deviation) {}
+
+  const Length& StdDeviation() const {
+    // CSS only supports isotropic blurs (with matching X and Y), so this
+    // accessor should be safe in CSS-specific code. Canvas filters allow
+    // anisotropic blurs (to match SVG) and so this accessor should not be used
+    // in canvas-filter code.
+    DCHECK_EQ(std_deviation_.X(), std_deviation_.Y())
+        << "use StdDeviationXY() instead";
+    return std_deviation_.X();
+  }
+  const LengthPoint& StdDeviationXY() const {
+    // This accessor is always safe to use.
+    return std_deviation_;
+  }
 
   bool AffectsOpacity() const override { return true; }
   bool MovesPixels() const override { return true; }
   gfx::RectF MapRect(const gfx::RectF&) const override;
+
+  String DebugString() const override { return "<blur>"; }
 
  protected:
   bool IsEqualAssumingSameType(const FilterOperation& o) const override {
@@ -295,7 +346,7 @@ class CORE_EXPORT BlurFilterOperation : public FilterOperation {
   }
 
  private:
-  Length std_deviation_;
+  LengthPoint std_deviation_;
 };
 
 template <>
@@ -310,10 +361,19 @@ class CORE_EXPORT DropShadowFilterOperation : public FilterOperation {
   explicit DropShadowFilterOperation(const ShadowData& shadow)
       : FilterOperation(OperationType::kDropShadow), shadow_(shadow) {}
 
+  void Trace(Visitor* visitor) const override {
+    visitor->Trace(shadow_);
+    FilterOperation::Trace(visitor);
+  }
+
   const ShadowData& Shadow() const { return shadow_; }
 
   bool AffectsOpacity() const override { return true; }
   bool MovesPixels() const override { return true; }
+  bool UsesCurrentColor() const override {
+    return shadow_.GetColor().IsCurrentColor();
+  }
+
   gfx::RectF MapRect(const gfx::RectF&) const override;
 
  protected:
@@ -322,6 +382,7 @@ class CORE_EXPORT DropShadowFilterOperation : public FilterOperation {
         static_cast<const DropShadowFilterOperation*>(&o);
     return shadow_ == other->shadow_;
   }
+  String DebugString() const override;
 
  private:
   ShadowData shadow_;
@@ -347,6 +408,8 @@ class CORE_EXPORT BoxReflectFilterOperation : public FilterOperation {
 
  protected:
   bool IsEqualAssumingSameType(const FilterOperation&) const override;
+
+  String DebugString() const override { return "<box reflect>"; }
 
  private:
   BoxReflection reflection_;
@@ -384,6 +447,8 @@ class CORE_EXPORT ConvolveMatrixFilterOperation : public FilterOperation {
   FEConvolveMatrix::EdgeModeType EdgeMode() const { return edge_mode_; }
   bool PreserveAlpha() const { return preserve_alpha_; }
   const Vector<float>& KernelMatrix() const { return kernel_matrix_; }
+
+  String DebugString() const override { return "<convolve>"; }
 
  protected:
   bool IsEqualAssumingSameType(const FilterOperation& o) const override {
@@ -430,6 +495,7 @@ class CORE_EXPORT ComponentTransferFilterOperation : public FilterOperation {
   ComponentTransferFunction GreenFunc() const { return green_func_; }
   ComponentTransferFunction BlueFunc() const { return blue_func_; }
   ComponentTransferFunction AlphaFunc() const { return alpha_func_; }
+  String DebugString() const override { return "<component transfer>"; }
 
  protected:
   bool IsEqualAssumingSameType(const FilterOperation& o) const override {
@@ -476,6 +542,7 @@ class CORE_EXPORT TurbulenceFilterOperation : public FilterOperation {
   int NumOctaves() const { return num_octaves_; }
   float Seed() const { return seed_; }
   bool StitchTiles() const { return stitch_tiles_; }
+  String DebugString() const override { return "<turbulence>"; }
 
  protected:
   bool IsEqualAssumingSameType(const FilterOperation& o) const override {

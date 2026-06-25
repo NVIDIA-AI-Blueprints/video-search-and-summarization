@@ -9,15 +9,15 @@
  */
 #ifndef NET_DCSCTP_PACKET_CHUNK_HEARTBEAT_REQUEST_CHUNK_H_
 #define NET_DCSCTP_PACKET_CHUNK_HEARTBEAT_REQUEST_CHUNK_H_
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "net/dcsctp/packet/chunk/chunk.h"
 #include "net/dcsctp/packet/parameter/heartbeat_info_parameter.h"
 #include "net/dcsctp/packet/parameter/parameter.h"
@@ -42,15 +42,15 @@ class HeartbeatRequestChunk : public Chunk,
   HeartbeatRequestChunk(HeartbeatRequestChunk&& other) = default;
   HeartbeatRequestChunk& operator=(HeartbeatRequestChunk&& other) = default;
 
-  static absl::optional<HeartbeatRequestChunk> Parse(
-      rtc::ArrayView<const uint8_t> data);
+  static std::optional<HeartbeatRequestChunk> Parse(
+      std::span<const uint8_t> data);
 
   void SerializeTo(std::vector<uint8_t>& out) const override;
   std::string ToString() const override;
 
   const Parameters& parameters() const { return parameters_; }
   Parameters extract_parameters() && { return std::move(parameters_); }
-  absl::optional<HeartbeatInfoParameter> info() const {
+  std::optional<HeartbeatInfoParameter> info() const {
     return parameters_.get<HeartbeatInfoParameter>();
   }
 

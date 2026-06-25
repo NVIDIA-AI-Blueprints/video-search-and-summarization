@@ -18,12 +18,21 @@
 // for media input and networking. Additionally it provides direct access to the
 // underlying peer connection class.
 
+#include <atomic>
 #include <list>
+#include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include "api/test/time_controller.h"
+#include "api/media_stream_interface.h"
+#include "api/test/network_emulation_manager.h"
+#include "api/units/time_delta.h"
+#include "rtc_base/thread.h"
+#include "system_wrappers/include/clock.h"
 #include "test/gtest.h"
 #include "test/logging/log_writer.h"
+#include "test/network/network_emulation.h"
 #include "test/network/network_emulation_manager.h"
 #include "test/peer_scenario/peer_scenario_client.h"
 #include "test/peer_scenario/signaling_route.h"
@@ -67,12 +76,21 @@ class PeerScenario {
   SignalingRoute ConnectSignaling(PeerScenarioClient* caller,
                                   PeerScenarioClient* callee,
                                   std::vector<EmulatedNetworkNode*> send_link,
+                                  std::vector<EmulatedNetworkNode*> ret_link) {
+    return ConnectSignaling(true, caller, callee, std::move(send_link),
+                            std::move(ret_link));
+  }
+  SignalingRoute ConnectSignaling(bool send_sdp_via_network,
+                                  PeerScenarioClient* caller,
+                                  PeerScenarioClient* callee,
+                                  std::vector<EmulatedNetworkNode*> send_link,
                                   std::vector<EmulatedNetworkNode*> ret_link);
 
   // Connects two clients over given links. This will also start ICE signaling
-  // and SDP negotiation with default behavior. For customized behavior,
-  // ConnectSignaling should be used to allow more detailed control, for
-  // instance to allow different signaling and media routes.
+  // and SDP negotiation. SDP negotiation will not be done via the network
+  // links. For customized behavior, ConnectSignaling should be used to allow
+  // more detailed control, for instance to allow different signaling and media
+  // routes.
   void SimpleConnection(PeerScenarioClient* caller,
                         PeerScenarioClient* callee,
                         std::vector<EmulatedNetworkNode*> send_link,
@@ -97,7 +115,7 @@ class PeerScenario {
   struct PeerVideoQualityPair {
    public:
     PeerVideoQualityPair(Clock* capture_clock, VideoQualityAnalyzer* analyzer)
-        : matcher_({analyzer->Handler()}),
+        : matcher_({analyzer->Handler(capture_clock)}),
           capture_tap_(capture_clock, &matcher_),
           decode_tap_(capture_clock, &matcher_, 0) {}
     VideoFrameMatcher matcher_;
@@ -112,7 +130,7 @@ class PeerScenario {
 
   const std::unique_ptr<LogWriterFactoryInterface> log_writer_manager_;
   NetworkEmulationManagerImpl net_;
-  rtc::Thread* const signaling_thread_;
+  Thread* const signaling_thread_;
   std::list<PeerVideoQualityPair> video_quality_pairs_;
   std::list<PeerScenarioClient> peer_clients_;
 };

@@ -66,7 +66,6 @@ class MockScrollableArea : public GarbageCollected<MockScrollableArea>,
         maximum_scroll_offset_(offset),
         chrome_client_(MakeGarbageCollected<MockPlatformChromeClient>()) {}
 
-  MOCK_CONST_METHOD0(VisualRectForScrollbarParts, LayoutRect());
   MOCK_CONST_METHOD0(IsActive, bool());
   MOCK_CONST_METHOD0(IsThrottled, bool());
   MOCK_CONST_METHOD1(ScrollSize, int(ScrollbarOrientation));
@@ -84,16 +83,21 @@ class MockScrollableArea : public GarbageCollected<MockScrollableArea>,
   MOCK_CONST_METHOD0(UsedColorSchemeScrollbars, mojom::blink::ColorScheme());
   MOCK_CONST_METHOD0(UsesCompositedScrolling, bool());
 
+  PhysicalOffset LocalToScrollOriginOffset() const override { return {}; }
   bool UserInputScrollable(ScrollbarOrientation) const override { return true; }
   bool ScrollbarsCanBeActive() const override { return true; }
   bool ShouldPlaceVerticalScrollbarOnLeft() const override { return false; }
   void UpdateScrollOffset(const ScrollOffset& offset,
-                          mojom::blink::ScrollType) override {
+                          mojom::blink::ScrollType,
+                          cc::ScrollSourceType) override {
     scroll_offset_ = offset;
     scroll_offset_.SetToMin(maximum_scroll_offset_);
   }
   gfx::Vector2d ScrollOffsetInt() const override {
-    return gfx::ToFlooredVector2d(scroll_offset_);
+    return SnapScrollOffsetToPhysicalPixels(scroll_offset_);
+  }
+  ScrollOffset GetScrollOffset() const override {
+    return ScrollOffset(ScrollOffsetInt());
   }
   gfx::Vector2d MinimumScrollOffsetInt() const override {
     return gfx::ToFlooredVector2d(minimum_scroll_offset_);

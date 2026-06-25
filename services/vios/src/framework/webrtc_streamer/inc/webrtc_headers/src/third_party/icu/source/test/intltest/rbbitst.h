@@ -17,6 +17,8 @@
 
 #if !UCONFIG_NO_BREAK_ITERATION
 
+#include <stdio.h>
+
 #include <memory>
 
 #include "intltest.h"
@@ -56,6 +58,7 @@ public:
 
     void TestExtended();
     void executeTest(TestParams *, UErrorCode &status);
+    void TestPreceding_NegativeIndex();
 
     void TestWordBreaks();
     void TestWordBoundary();
@@ -96,6 +99,14 @@ public:
     void TestLSTMThai();
     void TestLSTMBurmese();
     void TestRandomAccess();
+    void TestExternalBreakEngineWithFakeTaiLe();
+    void TestExternalBreakEngineWithFakeYue();
+    void TestBug22579();
+    void TestBug22581();
+    void TestBug22584();
+    void TestBug22585();
+    void TestBug22602();
+    void TestBug22636();
 
 #if U_ENABLE_TRACING
     void TestTraceCreateCharacter();
@@ -119,8 +130,8 @@ private:
      * internal methods to prepare test data
      **/
 
-    void RunMonkey(BreakIterator *bi, RBBIMonkeyKind &mk, const char *name, uint32_t  seed,
-        int32_t loopCount, UBool useUText);
+    void RunMonkey(BreakIterator *bi, RBBIMonkeyKind &mk, const char *name, std::string engineState,
+        int64_t loopCount, UBool useUText, FILE *exportFile, UBool scalarsOnly);
 
     // Run one of the Unicode Consortium boundary test data files.
     void runUnicodeTestData(const char *fileName, RuleBasedBreakIterator *bi);

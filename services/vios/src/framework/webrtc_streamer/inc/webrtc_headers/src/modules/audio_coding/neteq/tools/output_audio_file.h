@@ -13,10 +13,12 @@
 
 #include <stdio.h>
 
+#include <cstdint>
 #include <string>
 
 #include "absl/strings/string_view.h"
 #include "modules/audio_coding/neteq/tools/audio_sink.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 namespace test {
@@ -29,7 +31,7 @@ class OutputAudioFile : public AudioSink {
     out_file_ = fopen(std::string(file_name).c_str(), "wb");
   }
 
-  virtual ~OutputAudioFile() {
+  ~OutputAudioFile() override {
     if (out_file_)
       fclose(out_file_);
   }

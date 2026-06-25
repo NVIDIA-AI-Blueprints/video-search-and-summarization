@@ -18,8 +18,8 @@ namespace blink {
 // This class encapsulates the properties that are common between mouse and
 // pointer events and touch points as we transition towards the unified pointer
 // event model.
-// TODO(mustaq): Unify WebTouchPoint & WebMouseEvent into WebPointerEvent.
-// crbug.com/508283
+// TODO(crbug.com/41371756): Unify WebTouchPoint & WebMouseEvent into
+// WebPointerEvent.
 class WebPointerProperties {
  public:
   using Button = mojom::Button;
@@ -80,8 +80,8 @@ class WebPointerProperties {
   // Tilt of a pen stylus from surface normal as plane angles in degrees,
   // Values lie in [-90,90]. A positive tiltX is to the right and a positive
   // tiltY is towards the user.
-  int tilt_x = 0;
-  int tilt_y = 0;
+  double tilt_x = 0;
+  double tilt_y = 0;
 
   // The normalized tangential pressure (or barrel pressure), typically set by
   // an additional control of the stylus, which has a range of [-1,1], where 0

@@ -86,7 +86,7 @@ class CORE_EXPORT DisplayLockDocumentState final
   // Notify the display locks that selection was removed.
   void NotifySelectionRemoved();
 
-  // Notify the display locks that view transition pseudo elements have
+  // Notify the display locks that view transition pseudo-elements have
   // changed.
   void NotifyViewTransitionPseudoTreeChanged();
 
@@ -146,7 +146,7 @@ class CORE_EXPORT DisplayLockDocumentState final
 
     void ForceLockIfNeeded(Element* new_locked_element);
     DisplayLockUtilities::ScopedForcedUpdate::Impl* Chain() const {
-      return chain_;
+      return chain_.Get();
     }
 
     void Trace(Visitor* visitor) const {
@@ -170,7 +170,7 @@ class CORE_EXPORT DisplayLockDocumentState final
 
     void ForceLockIfNeeded(Element* new_locked_element);
     DisplayLockUtilities::ScopedForcedUpdate::Impl* Chain() const {
-      return chain_;
+      return chain_.Get();
     }
 
     void Trace(Visitor* visitor) const {

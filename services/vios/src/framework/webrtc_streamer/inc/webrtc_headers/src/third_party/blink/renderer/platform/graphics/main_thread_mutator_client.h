@@ -5,14 +5,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_MAIN_THREAD_MUTATOR_CLIENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_MAIN_THREAD_MUTATOR_CLIENT_H_
 
+#include "base/memory/raw_ptr.h"
+#include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator_dispatcher_impl.h"
 #include "third_party/blink/renderer/platform/graphics/animation_worklet_mutators_state.h"
 #include "third_party/blink/renderer/platform/graphics/mutator_client.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 
 namespace blink {
-
-class AnimationWorkletMutatorDispatcherImpl;
 
 class PLATFORM_EXPORT MainThreadMutatorClient : public MutatorClient {
  public:
@@ -27,7 +27,7 @@ class PLATFORM_EXPORT MainThreadMutatorClient : public MutatorClient {
 
  private:
   std::unique_ptr<AnimationWorkletMutatorDispatcherImpl> mutator_;
-  MutatorClient* delegate_;
+  raw_ptr<MutatorClient> delegate_;
 };
 
 }  // namespace blink

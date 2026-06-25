@@ -12,60 +12,86 @@
 
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/functional/any_invocable.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/units/time_delta.h"
+#include "rtc_base/socket.h"
+#include "rtc_base/socket_server.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/weak_ptr.h"
 
 namespace webrtc {
 namespace test {
 
-// This utility class allows you to run a TaskQueue supported interface on the
-// main test thread, call Run() while doing things asynchonously and break
-// the loop (from the same thread) from a callback by calling Quit().
+// RunLoop is a helper class for tests that need to process tasks posted
+// to a task queue, but still want to run everything on a single thread.
+// This is useful for tests that need to simulate asynchronous operations
+// without the complexity of managing real threads.
 class RunLoop {
  public:
   RunLoop();
+  explicit RunLoop(SocketServer* absl_nullable custom_ss);
   ~RunLoop();
 
+  // Returns a pointer to the task queue implementation managed by this RunLoop.
   TaskQueueBase* task_queue();
 
+  // Runs tasks posted to the task queue via PostTask, until Quit() is called.
   void Run();
+
+  // Stops a call to Run() or RunFor() once all tasks scheduled to run before or
+  // at the current time are completed.
   void Quit();
 
+  // Returns a closure that will call Quit() if it is still valid when called.
+  absl::AnyInvocable<void()> QuitClosure();
+
+  // Runs tasks posted to the task queue via PostTask, until Quit() is called or
+  // `max_wait_duration` has passed. May only be called once at a time.
+  void RunFor(TimeDelta max_wait_duration);
+
+  // Processes all pending tasks and returns. This can be useful to
+  // synchronously wait for a posted task to execute.
   void Flush();
 
+  // Post a task for execution on the task queue.
   void PostTask(absl::AnyInvocable<void() &&> task) {
     task_queue()->PostTask(std::move(task));
   }
 
  private:
-  class FakeSocketServer : public rtc::SocketServer {
+  class FakeSocketServer : public SocketServer {
    public:
     FakeSocketServer();
-    ~FakeSocketServer();
+    explicit FakeSocketServer(SocketServer* absl_nullable custom_ss);
+    ~FakeSocketServer() override;
 
     void FailNextWait();
 
    private:
+    void SetMessageQueue(Thread* absl_nullable queue) override;
     bool Wait(webrtc::TimeDelta max_wait_duration, bool process_io) override;
     void WakeUp() override;
 
-    rtc::Socket* CreateSocket(int family, int type) override;
+    Socket* absl_nullable CreateSocket(int family, int type) override;
 
    private:
     bool fail_next_wait_ = false;
+    SocketServer* const absl_nullable custom_ss_ = nullptr;
   };
 
-  class WorkerThread : public rtc::Thread {
+  class WorkerThread : public Thread {
    public:
-    explicit WorkerThread(rtc::SocketServer* ss);
+    explicit WorkerThread(SocketServer* absl_nullable ss);
 
    private:
     CurrentTaskQueueSetter tq_setter_;
   };
 
   FakeSocketServer socket_server_;
-  WorkerThread worker_thread_{&socket_server_};
+  WorkerThread worker_thread_;
+  WeakPtrFactory<RunLoop> weak_factory_;
 };
 
 }  // namespace test

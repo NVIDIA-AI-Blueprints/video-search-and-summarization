@@ -21,6 +21,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "perfetto/ext/base/paged_memory.h"
@@ -29,6 +30,7 @@
 #include "perfetto/ext/tracing/core/basic_types.h"
 #include "perfetto/ext/tracing/core/trace_writer.h"
 #include "perfetto/tracing/core/data_source_config.h"
+#include "protos/perfetto/trace/sys_stats/sys_stats.pbzero.h"
 #include "src/traced/probes/common/cpu_freq_info.h"
 #include "src/traced/probes/probes_data_source.h"
 
@@ -67,8 +69,16 @@ class SysStatsDataSource : public ProbesDataSource {
   uint32_t tick_for_testing() const { return tick_; }
 
   // Virtual for testing
-  virtual base::ScopedDir OpenDevfreqDir();
+  virtual base::ScopedDir OpenDirAndLogOnErrorOnce(const std::string& dir_path,
+                                                   bool* already_logged);
   virtual const char* ReadDevfreqCurFreq(const std::string& name);
+  virtual std::optional<uint64_t> ReadFileToUInt64(const std::string& path);
+  virtual std::optional<std::string> ReadFileToString(const std::string& path);
+
+ protected:
+  bool thermal_error_logged_ = false;
+  bool devfreq_error_logged_ = false;
+  bool cpuidle_error_logged_ = false;
 
  private:
   struct CStrCmp {
@@ -89,6 +99,13 @@ class SysStatsDataSource : public ProbesDataSource {
   void ReadCpufreq(protos::pbzero::SysStats* sys_stats);
   void ReadBuddyInfo(protos::pbzero::SysStats* sys_stats);
   void ReadDiskStat(protos::pbzero::SysStats* sys_stats);
+  void ReadPsi(protos::pbzero::SysStats* sys_stats);
+  void ReadThermalZones(protos::pbzero::SysStats* sys_stats);
+  void ReadCpuIdleStates(protos::pbzero::SysStats* sys_stats);
+  void ReadGpuFrequency(protos::pbzero::SysStats* sys_stats);
+  void ReadSlabInfo(protos::pbzero::SysStats* sys_stats);
+  std::optional<uint64_t> ReadAMDGpuFreq();
+
   size_t ReadFile(base::ScopedFile*, const char* path);
 
   base::TaskRunner* const task_runner_;
@@ -98,6 +115,10 @@ class SysStatsDataSource : public ProbesDataSource {
   base::ScopedFile stat_fd_;
   base::ScopedFile buddy_fd_;
   base::ScopedFile diskstat_fd_;
+  base::ScopedFile psi_cpu_fd_;
+  base::ScopedFile psi_io_fd_;
+  base::ScopedFile psi_memory_fd_;
+  base::ScopedFile slab_fd_;
   base::PagedMemory read_buf_;
   TraceWriter::TracePacketHandle cur_packet_;
   std::map<const char*, int, CStrCmp> meminfo_counters_;
@@ -113,7 +134,11 @@ class SysStatsDataSource : public ProbesDataSource {
   uint32_t cpufreq_ticks_ = 0;
   uint32_t buddyinfo_ticks_ = 0;
   uint32_t diskstat_ticks_ = 0;
-  bool devfreq_error_logged_ = false;
+  uint32_t psi_ticks_ = 0;
+  uint32_t thermal_ticks_ = 0;
+  uint32_t cpuidle_ticks_ = 0;
+  uint32_t gpufreq_ticks_ = 0;
+  uint32_t slab_ticks_ = 0;
 
   std::unique_ptr<CpuFreqInfo> cpu_freq_info_;
 

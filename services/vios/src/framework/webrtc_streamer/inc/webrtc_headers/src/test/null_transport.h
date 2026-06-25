@@ -10,6 +10,9 @@
 #ifndef TEST_NULL_TRANSPORT_H_
 #define TEST_NULL_TRANSPORT_H_
 
+#include <cstdint>
+#include <span>
+
 #include "api/call/transport.h"
 
 namespace webrtc {
@@ -19,10 +22,10 @@ class PacketReceiver;
 namespace test {
 class NullTransport : public Transport {
  public:
-  bool SendRtp(const uint8_t* packet,
-               size_t length,
+  bool SendRtp(std::span<const uint8_t> packet,
                const PacketOptions& options) override;
-  bool SendRtcp(const uint8_t* packet, size_t length) override;
+  bool SendRtcp(std::span<const uint8_t> packet,
+                const PacketOptions& options) override;
 };
 }  // namespace test
 }  // namespace webrtc

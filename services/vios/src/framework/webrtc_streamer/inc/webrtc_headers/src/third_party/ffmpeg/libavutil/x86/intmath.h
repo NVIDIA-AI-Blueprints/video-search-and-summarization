@@ -66,7 +66,7 @@ static av_always_inline av_const int ff_ctzll_x86(long long v)
 
 #endif /* HAVE_FAST_CLZ */
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) || defined(__clang__)
 
 /* Our generic version of av_popcount is faster than GCC's built-in on
  * CPUs that don't support the popcnt instruction.
@@ -81,17 +81,29 @@ static av_always_inline av_const int ff_ctzll_x86(long long v)
 
 #if defined(__BMI2__)
 
-#if AV_GCC_VERSION_AT_LEAST(5,1)
-#define av_mod_uintp2 __builtin_ia32_bzhi_si
+#if AV_GCC_VERSION_AT_LEAST(5,1) || AV_HAS_BUILTIN(__builtin_ia32_bzhi_si)
+#if defined(ASSERT_LEVEL) && ASSERT_LEVEL >= 2
+#define av_zero_extend av_zero_extend_bmi2
+static av_always_inline av_const unsigned av_zero_extend_bmi2(unsigned a, unsigned p)
+{
+    if (p > 31) abort();
+    return __builtin_ia32_bzhi_si(a, p);
+}
+#else
+#define av_zero_extend __builtin_ia32_bzhi_si
+#endif
 #elif HAVE_INLINE_ASM
 /* GCC releases before 5.1.0 have a broken bzhi builtin, so for those we
  * implement it using inline assembly
  */
-#define av_mod_uintp2 av_mod_uintp2_bmi2
-static av_always_inline av_const unsigned av_mod_uintp2_bmi2(unsigned a, unsigned p)
+#define av_zero_extend av_zero_extend_bmi2
+static av_always_inline av_const unsigned av_zero_extend_bmi2(unsigned a, unsigned p)
 {
+#if defined(ASSERT_LEVEL) && ASSERT_LEVEL >= 2
+    if (p > 31) abort();
+#endif
     if (av_builtin_constant_p(p))
-        return a & ((1 << p) - 1);
+        return a & ((1U << p) - 1);
     else {
         unsigned x;
         __asm__ ("bzhi %2, %1, %0 \n\t" : "=r"(x) : "rm"(a), "r"(p));
@@ -101,68 +113,6 @@ static av_always_inline av_const unsigned av_mod_uintp2_bmi2(unsigned a, unsigne
 #endif /* AV_GCC_VERSION_AT_LEAST */
 
 #endif /* __BMI2__ */
-
-#if defined(__SSE2__) && !defined(__INTEL_COMPILER)
-
-#define av_clipd av_clipd_sse2
-static av_always_inline av_const double av_clipd_sse2(double a, double amin, double amax)
-{
-#if defined(ASSERT_LEVEL) && ASSERT_LEVEL >= 2
-    if (amin > amax) abort();
-#endif
-    __asm__ ("maxsd %1, %0 \n\t"
-             "minsd %2, %0 \n\t"
-             : "+&x"(a) : "xm"(amin), "xm"(amax));
-    return a;
-}
-
-#endif /* __SSE2__ */
-
-#if defined(__SSE__) && !defined(__INTEL_COMPILER)
-
-#define av_clipf av_clipf_sse
-static av_always_inline av_const float av_clipf_sse(float a, float amin, float amax)
-{
-#if defined(ASSERT_LEVEL) && ASSERT_LEVEL >= 2
-    if (amin > amax) abort();
-#endif
-    __asm__ ("maxss %1, %0 \n\t"
-             "minss %2, %0 \n\t"
-             : "+&x"(a) : "xm"(amin), "xm"(amax));
-    return a;
-}
-
-#endif /* __SSE__ */
-
-#if defined(__AVX__) && !defined(__INTEL_COMPILER)
-
-#undef av_clipd
-#define av_clipd av_clipd_avx
-static av_always_inline av_const double av_clipd_avx(double a, double amin, double amax)
-{
-#if defined(ASSERT_LEVEL) && ASSERT_LEVEL >= 2
-    if (amin > amax) abort();
-#endif
-    __asm__ ("vmaxsd %1, %0, %0 \n\t"
-             "vminsd %2, %0, %0 \n\t"
-             : "+&x"(a) : "xm"(amin), "xm"(amax));
-    return a;
-}
-
-#undef av_clipf
-#define av_clipf av_clipf_avx
-static av_always_inline av_const float av_clipf_avx(float a, float amin, float amax)
-{
-#if defined(ASSERT_LEVEL) && ASSERT_LEVEL >= 2
-    if (amin > amax) abort();
-#endif
-    __asm__ ("vmaxss %1, %0, %0 \n\t"
-             "vminss %2, %0, %0 \n\t"
-             : "+&x"(a) : "xm"(amin), "xm"(amax));
-    return a;
-}
-
-#endif /* __AVX__ */
 
 #endif /* __GNUC__ */
 

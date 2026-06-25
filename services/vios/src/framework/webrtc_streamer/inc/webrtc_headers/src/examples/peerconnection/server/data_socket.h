@@ -11,14 +11,15 @@
 #ifndef EXAMPLES_PEERCONNECTION_SERVER_DATA_SOCKET_H_
 #define EXAMPLES_PEERCONNECTION_SERVER_DATA_SOCKET_H_
 
+#include <cstddef>
+#include <string>
+
+
 #ifdef WIN32
 #include <winsock2.h>
 typedef int socklen_t;
 typedef SOCKET NativeSocket;
 #else
-#include <netinet/in.h>
-#include <sys/select.h>
-#include <sys/socket.h>
 #define closesocket close
 typedef int NativeSocket;
 
@@ -30,8 +31,6 @@ typedef int NativeSocket;
 #define INVALID_SOCKET static_cast<NativeSocket>(-1)
 #endif
 #endif
-
-#include <string>
 
 class SocketBase {
  public:

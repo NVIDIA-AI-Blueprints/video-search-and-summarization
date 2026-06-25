@@ -5,8 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_RTC_RTP_TRANSCEIVER_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_RTC_RTP_TRANSCEIVER_H_
 
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include <optional>
+
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_rtp_codec_capability.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_rtp_transceiver_direction.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_rtp_transceiver_init.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -44,9 +46,10 @@ class RTCRtpTransceiver final : public ScriptWrappable {
   RTCRtpReceiver* receiver() const;
   bool stopped() const;
   // Enum type RTCRtpTransceiverDirection
-  String direction() const;
-  void setDirection(String direction, ExceptionState&);
-  String currentDirection() const;
+  V8RTCRtpTransceiverDirection direction() const;
+  void setDirection(const V8RTCRtpTransceiverDirection& direction,
+                    ExceptionState&);
+  std::optional<V8RTCRtpTransceiverDirection> currentDirection() const;
   void stop(ExceptionState&);
   void setCodecPreferences(
       const HeapVector<Member<RTCRtpCodecCapability>>& codecs,
@@ -67,7 +70,7 @@ class RTCRtpTransceiver final : public ScriptWrappable {
   void OnTransceiverStopped();
 
   RTCRtpTransceiverPlatform* platform_transceiver() const;
-  absl::optional<webrtc::RtpTransceiverDirection> fired_direction() const;
+  std::optional<webrtc::RtpTransceiverDirection> fired_direction() const;
   bool DirectionHasSend() const;
   bool DirectionHasRecv() const;
   bool FiredDirectionHasRecv() const;
@@ -88,9 +91,9 @@ class RTCRtpTransceiver final : public ScriptWrappable {
   Member<RTCRtpSender> sender_;
   Member<RTCRtpReceiver> receiver_;
   String mid_;
-  String direction_;
-  String current_direction_;
-  absl::optional<webrtc::RtpTransceiverDirection> fired_direction_;
+  V8RTCRtpTransceiverDirection::Enum direction_;
+  std::optional<V8RTCRtpTransceiverDirection::Enum> current_direction_;
+  std::optional<webrtc::RtpTransceiverDirection> fired_direction_;
 };
 
 }  // namespace blink

@@ -30,8 +30,12 @@ class SVGPolygonElement final : public SVGPolyElement {
 
  public:
   explicit SVGPolygonElement(Document&);
+  ElementType GetElementType() const final {
+    return ElementType::kSVGPolygonElement;
+  }
 
   Path AsPath() const override;
+  PathBuilder AsMutablePath() const override;
 };
 
 }  // namespace blink

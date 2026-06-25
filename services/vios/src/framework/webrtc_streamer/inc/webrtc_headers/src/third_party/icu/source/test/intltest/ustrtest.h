@@ -92,12 +92,16 @@ public:
     void TestUnicodeStringImplementsAppendable();
     void TestSizeofUnicodeString();
     void TestMoveSwap();
+    void TestLargeMemory();
 
     void TestUInt16Pointers();
     void TestWCharPointers();
     void TestNullPointers();
     void TestUnicodeStringInsertAppendToSelf();
     void TestLargeAppend();
+    void TestU16StringView();
+    void TestWStringView();
+    void TestRange();
 };
 
 #endif

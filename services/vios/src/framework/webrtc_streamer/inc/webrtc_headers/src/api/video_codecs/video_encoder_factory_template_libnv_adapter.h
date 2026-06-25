@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "api/environment/environment.h"
+#include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "modules/video_coding/codecs/nvidia/libnv_encoder.h"
 
@@ -39,7 +41,9 @@ struct LibNvVideoEncoderTemplateAdapter {
   }
 
   static std::unique_ptr<VideoEncoder> CreateEncoder(
+      const Environment& env,
       const SdpVideoFormat& format) {
+    (void)env;
     std::unique_ptr<VideoEncoder> nvEncoder = nullptr;
     if (IsFormatSupported (SupportedFormats(), format))
     {

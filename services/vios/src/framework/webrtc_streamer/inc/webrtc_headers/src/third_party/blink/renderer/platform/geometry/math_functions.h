@@ -5,11 +5,17 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GEOMETRY_MATH_FUNCTIONS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GEOMETRY_MATH_FUNCTIONS_H_
 
+#include <array>
 #include <cfloat>
+#include <cmath>
+#include <optional>
+#include <type_traits>
 #include <utility>
 
 #include "base/notreached.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/wtf/math_extras.h"
+#include "ui/gfx/geometry/sin_cos_degrees.h"
 
 namespace blink {
 
@@ -47,9 +53,9 @@ std::pair<ValueType, ValueType> GetNearestMultiples(ValueType a, ValueType b) {
 }
 
 template <class OperatorType, typename ValueType>
-absl::optional<ValueType> PreCheckSteppedValueFunctionArguments(OperatorType op,
-                                                                ValueType a,
-                                                                ValueType b) {
+std::optional<ValueType> PreCheckSteppedValueFunctionArguments(OperatorType op,
+                                                               ValueType a,
+                                                               ValueType b) {
   // In round(A, B), if B is 0, the result is NaN.
   // In mod(A, B) or rem(A, B), if B is 0, the result is NaN.
   // If A and B are both infinite, the result is NaN.
@@ -70,14 +76,101 @@ absl::optional<ValueType> PreCheckSteppedValueFunctionArguments(OperatorType op,
   return {};
 }
 
+template <typename T>
+  requires std::floating_point<T>
+T TanDegrees(T degrees) {
+  // Use table values for tan() if possible.
+  // We pick a pretty arbitrary limit that should be safe.
+  if (degrees > -90000000.0 && degrees < 90000000.0) {
+    // Make sure 0, 45, 90, 135, 180, 225 and 270 degrees get exact results.
+    T n45degrees = degrees / 45.0;
+    int octant = static_cast<int>(n45degrees);
+    if (octant == n45degrees) {
+      constexpr std::array<T, 8> kTanN45 = {
+          /* 0deg */ 0.0,
+          /* 45deg */ 1.0,
+          /* 90deg */ std::numeric_limits<T>::infinity(),
+          /* 135deg */ -1.0,
+          /* 180deg */ 0.0,
+          /* 225deg */ 1.0,
+          /* 270deg */ -std::numeric_limits<T>::infinity(),
+          /* 315deg */ -1.0,
+      };
+      return kTanN45[octant & 7];
+    }
+  }
+  // Slow path for non-table cases.
+  T x = Deg2rad(degrees);
+  return std::tan(x);
+}
+
 }  // namespace
 
 template <class OperatorType, typename ValueType>
+  requires std::is_enum_v<OperatorType> && std::floating_point<ValueType>
+ValueType EvaluateTrigonometricFunction(
+    OperatorType op,
+    ValueType a,
+    std::optional<ValueType>(b) = std::nullopt) {
+  switch (op) {
+    case OperatorType::kSin: {
+      return gfx::SinCosDegrees(a).sin;
+    }
+    case OperatorType::kCos: {
+      return gfx::SinCosDegrees(a).cos;
+    }
+    case OperatorType::kTan: {
+      return TanDegrees(a);
+    }
+    case OperatorType::kAsin: {
+      ValueType value = Rad2deg(std::asin(a));
+      DCHECK(value >= -90 && value <= 90 || std::isnan(value));
+      return value;
+    }
+    case OperatorType::kAcos: {
+      ValueType value = Rad2deg(std::acos(a));
+      DCHECK(value >= 0 && value <= 180 || std::isnan(value));
+      return value;
+    }
+    case OperatorType::kAtan: {
+      ValueType value = Rad2deg(std::atan(a));
+      DCHECK(value >= -90 && value <= 90 || std::isnan(value));
+      return value;
+    }
+    case OperatorType::kAtan2: {
+      DCHECK(b.has_value());
+      ValueType value = Rad2deg(std::atan2(a, b.value()));
+      DCHECK(value >= -180 && value <= 180 || std::isnan(value));
+      return value;
+    }
+    default:
+      NOTREACHED();
+  }
+}
+
+template <typename ValueType>
+  requires std::floating_point<ValueType>
+ValueType EvaluateRoundDownFunction(ValueType a, ValueType b) {
+  auto [lower, _] = GetNearestMultiples(a, b);
+  if (!std::isinf(a) && std::isinf(b)) {
+    if (!a) {
+      return a;
+    } else {
+      return std::signbit(a) ? -std::numeric_limits<ValueType>::infinity()
+                             : +0.0;
+    }
+  } else {
+    return lower;
+  }
+}
+
+template <class OperatorType, typename ValueType>
+  requires std::is_enum_v<OperatorType> && std::floating_point<ValueType>
 ValueType EvaluateSteppedValueFunction(OperatorType op,
                                        ValueType a,
                                        ValueType b) {
   // https://drafts.csswg.org/css-values/#round-infinities
-  absl::optional<ValueType> pre_check =
+  std::optional<ValueType> pre_check =
       PreCheckSteppedValueFunctionArguments(op, a, b);
   if (pre_check.has_value()) {
     return pre_check.value();
@@ -97,14 +190,22 @@ ValueType EvaluateSteppedValueFunction(OperatorType op,
       if (!std::isinf(a) && std::isinf(b)) {
         return std::signbit(a) ? -0.0 : +0.0;
       } else {
-        // In the negative case we need to swap lower and upper
-        // for the nearest rounding.
-        if (a < 0.0) {
+        // In the negative case we need to swap lower and upper for the nearest
+        // rounding. This also means tie-breaking should pick the lower rather
+        // than upper,
+        const bool a_is_negative = a < 0.0;
+        if (a_is_negative) {
           using std::swap;
           swap(lower, upper);
         }
-        return std::abs(std::fmod(a, b)) < std::abs(b) / 2 ? lower : upper;
-      };
+        const ValueType distance = std::abs(std::fmod(a, b));
+        const ValueType half_b = std::abs(b) / 2;
+        if (distance < half_b || (a_is_negative && distance == half_b)) {
+          return lower;
+        } else {
+          return upper;
+        }
+      }
     }
     case OperatorType::kRoundUp: {
       if (!std::isinf(a) && std::isinf(b)) {
@@ -119,16 +220,7 @@ ValueType EvaluateSteppedValueFunction(OperatorType op,
       }
     }
     case OperatorType::kRoundDown: {
-      if (!std::isinf(a) && std::isinf(b)) {
-        if (!a) {
-          return a;
-        } else {
-          return std::signbit(a) ? -std::numeric_limits<ValueType>::infinity()
-                                 : +0.0;
-        }
-      } else {
-        return lower;
-      }
+      return EvaluateRoundDownFunction(a, b);
     }
     case OperatorType::kRoundToZero: {
       if (!std::isinf(a) && std::isinf(b)) {
@@ -153,11 +245,16 @@ ValueType EvaluateSteppedValueFunction(OperatorType op,
       // std::fmod - the returned value has the same sign as A
       // and is less than B in magnitude.
       ValueType result = std::fmod(a, b);
-      // If the result is on opposite side of zero from B,
-      // put it between 0 and B. As the result of std::fmod is less
-      // than B in magnitude, adding B would perform a correct shift.
+      if (result == 0.0) {
+        // If A is an exact multiple of B, the result should be zero with the
+        // sign of B.
+        return std::copysign(0.0, b);
+      }
       if (std::signbit(result) != std::signbit(b)) {
-        result += b;
+        // If the result is on opposite side of zero from B,
+        // put it between 0 and B. As the result of std::fmod is less
+        // than B in magnitude, adding B would perform a correct shift.
+        return result + b;
       }
       return result;
     }
@@ -175,9 +272,21 @@ ValueType EvaluateSteppedValueFunction(OperatorType op,
       return std::fmod(a, b);
     }
     default:
-      NOTREACHED_NORETURN();
+      NOTREACHED();
   }
 }
+
+template <typename ValueType>
+  requires std::floating_point<ValueType>
+ValueType EvaluateSignFunction(ValueType v) {
+  return (v == 0 || std::isnan(v)) ? v : ((v > 0) ? 1 : -1);
+}
+
+// https://drafts.csswg.org/css-values-5/#random-evaluation
+PLATFORM_EXPORT double ComputeCSSRandomValue(double random_base_value,
+                                             double min,
+                                             double max,
+                                             std::optional<double> step);
 
 }  // namespace blink
 
