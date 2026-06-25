@@ -12,8 +12,8 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 # Two top-level packages ship in the same wheel:
 #   - vss_agents: agent code, tools, NAT plugins (incl. register_knowledge_layers)
-#   - lib:        NAT-independent libraries. lib.knowledge holds the BackendAdapter
-#                 ABC, schema, factory, and adapter implementations.
+#   - lib:        NAT-independent libraries, including lib.knowledge retrieval
+#                 abstractions and lib.search_core search primitives.
 packages = ["src/vss_agents", "src/lib"]
 
 
@@ -115,6 +115,10 @@ classifiers = [
 ]
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
+
+[project.scripts]
+search-archive = "lib.search_core.cli:archive_search_main"
+vss-cli = "lib.search_core.cli:main"
 
 [project.optional-dependencies]
 # Opt-in knowledge_retrieval backends; default image is `frag_api`-only.

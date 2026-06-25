@@ -17,6 +17,7 @@ Isolate the problem encountered in vss-search-archive then iterate to resolve it
 
 - Video source(s) not returned or empty results
 - Video source(s) returned, all with low similarity scores and/or a few with high scores. But sensor/stream names do not match the user query. Hence, not certain if these are correct answers, needs further verifications.
+- `search-archive` is missing or exits with a configuration error because required runtime flags were not supplied
 - Errors due to backend services all or partially not working
 
 ## Troubleshooting flows
@@ -49,6 +50,19 @@ If further investigation is required, refer to the full components from the `vss
     - Download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query  
 
 - Potentially retry by augmenting the user input with a lower similary threshold to include more results. This helps seeing if a clip of interest was filtered out due to a lower score
+
+- If `search-archive` is missing, do not fall back to `POST /generate` for search. Verify the running agent image includes the search_core CLI:
+```bash
+docker exec -i vss-agent which search-archive
+docker exec -i vss-agent search-archive --help
+```
+  For Kubernetes/Helm use the equivalent `kubectl exec` command. If the command is unavailable, rebuild/redeploy the agent image from a version that includes the `[project.scripts]` entry for `search-archive`.
+
+- If `search-archive` exits with a configuration error, verify the command supplied the required runtime flags explicitly. The CLI does not read `$VSS_AGENT_CONFIG_FILE` or endpoint env vars; if you use a shell wrapper, check that it expands deployment values into CLI args:
+```bash
+docker exec -i vss-agent sh -lc 'search-archive --help | grep -E -- "--es-endpoint|--cosmos-embed-endpoint|--rtvi-cv-endpoint|--vst-internal-url|--vst-external-url"'
+docker exec -i vss-agent sh -lc 'printf "%s\n" "$ELASTIC_SEARCH_ENDPOINT" "${COSMOS_EMBED_ENDPOINT:-${RTVI_EMBED_BASE_URL:-}}" "${RTVI_CV_BASE_URL:-}" "$VST_INTERNAL_URL" "$VST_EXTERNAL_URL"'
+```
 
 - Check if LLM/VLM are working:
 ```bash
