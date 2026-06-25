@@ -5,8 +5,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvidia/vss-core/sdr-mw-l
-  tag: 3.2.0
+  repository: nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l
+  tag: 3.0.0-prd.9
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -39,6 +39,7 @@ runtimeEnv:
   WDM_CONTROLLER_HOST: "127.0.0.1"
   HOST_IP: "127.0.0.1" # TODO
   WDM_CLUSTER_TYPE: "k8s"
+  WDM_XDS_GRPC_ADS_ENABLED: "true"
 
 serviceAccount:
   create: true
