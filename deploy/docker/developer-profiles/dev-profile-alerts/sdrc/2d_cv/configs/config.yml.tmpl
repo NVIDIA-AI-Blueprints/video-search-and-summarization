@@ -4,8 +4,8 @@ docker-workload-streamprocessing:
   enable: true
   WDM_CONSUMER_GRP_ID: sdr-streamprocessing-vios-cg
   WDM_REDIS_CACHE_OBJECT: streamprocessing-data
-  WDM_XDS_USE_POD_DNS: false
-  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_XDS_USE_POD_DNS: true
+  WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
 #  WDM_REAPPLY_ON_WL_RESTART: true
