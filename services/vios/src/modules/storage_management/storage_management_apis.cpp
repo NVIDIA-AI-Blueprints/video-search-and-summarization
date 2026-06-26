@@ -1258,7 +1258,7 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                         std::vector<int> rgba_values;
                         for (const auto& value : rgba)
                         {
-                            rgba_values.push_back(std::stoi(value));
+                            rgba_values.push_back(stringToInt(value, 0));
                         }
                         olParams.m_colorCode[keyValue[0]] = rgba_values;
                     }
