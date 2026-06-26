@@ -100,17 +100,17 @@ aarch64:
 
 ### E) Run Media Service
 
-The compiled images are deployed via docker-compose. Pass the exact images you built to the one-click deployment (local builds are tagged `latest`). Use `--target all` so both the VST services and NVStreamer are deployed (the default `--target vios` brings up only the VST services and ignores the `--nvstreamer-*` flags). The command is identical for x86_64 and aarch64 — for aarch64, run it on the aarch64 target host where the arm64 images were built or loaded:
+The compiled images are deployed via docker-compose. Pass the exact images you built to the one-click deployment (local builds are tagged `latest`). Use `--target all` so both the VST services and NVStreamer are deployed (the default `--target vst` brings up only the VST services and ignores the `--nvstreamer-*` flags). The command is identical for x86_64 and aarch64 — for aarch64, run it on the aarch64 target host where the arm64 images were built or loaded:
 
 ```bash
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target all \
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --target all \
   --streamprocessor-image vios/vst-streamprocessing --streamprocessor-tag latest \
   --sensor-image vios/vst-sensor --sensor-tag latest \
   --nvstreamer-image nvstreamer --nvstreamer-tag latest \
-  --auto --force
+  --force
 ```
 
-See `deployment/1click_README.md` and `deployment/oneclick_dc_deployment_for_dev.py` for the full one-click deployment flow.
+See `deployment/1click_README.md` and `deployment/stream-processing/oneclick_dc_deployment.py` for the full one-click deployment flow.
 
 For all build options, run `./build.sh help`.
 

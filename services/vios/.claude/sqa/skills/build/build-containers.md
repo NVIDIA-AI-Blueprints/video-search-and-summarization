@@ -25,12 +25,11 @@ Which modules to build depends on the deployment target:
 
 | Deployment target | VIOS modules | Additional containers |
 |---|---|---|
-| Default (`vios` / stream-processor) | `streamprocessing,sensor` | `nvstreamer`, `ingress` |
-| Scaled (`--target scaled`) | `sensor,rtspserver,recorder,livestream,replaystream,storage` | `nvstreamer`, `ingress` |
+| Default (`vst` / stream-processor; alias `vios`) | `streamprocessing,sensor` | `nvstreamer`, `ingress` |
 | NVStreamer only (`--target nvstreamer`) | _(none)_ | `nvstreamer` |
 | All (`--target all`) | `streamprocessing,sensor` | `nvstreamer`, `ingress` |
 
-> **`--target all` deploys NVStreamer + stream-processor** — the same containers as the default target. Use this flag when you want to be explicit about deploying both services together. It does NOT deploy the scaled microservices; use `--target scaled` for that.
+> **`--target all` deploys NVStreamer + stream-processor** — the same containers as the default target plus NVStreamer. Use this flag when you want to be explicit about deploying both services together.
 
 `mcp` is never built — it takes too long and the pre-built image is used at deploy time.
 
