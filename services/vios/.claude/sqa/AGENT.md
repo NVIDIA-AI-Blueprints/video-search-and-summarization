@@ -85,9 +85,8 @@ Execute these steps in order. Deviate only when the argument table above says ot
 3. Unless `results` or `ui` argument:
    - Stop any existing stack
    - NVStreamer must always be deployed before the stream-processor:
-     - Default (stream-processor): `deploy --target nvstreamer --auto --force`, then `deploy --auto --force`
-     - Full stack: `deploy --target all --auto --force` — NVStreamer-first handled internally
-     - Scaled: `deploy --target nvstreamer --auto --force`, then `deploy --target scaled --auto --force`
+     - Default (stream-processor): `deploy --target nvstreamer --force`, then `deploy --force`
+     - Full stack: `deploy --target all --force` — NVStreamer-first handled internally
    - If a build was done in step 2, pass `--all-tag <BUILD_TAG> --nvstreamer-tag <BUILD_TAG>` to the deploy commands (BUILD_TAG from `skills/build/build-containers.md` Step 6). See `skills/deployment/deploy.md` Step 1b for the full decision.
    - See `skills/deployment/deploy.md` for full options
 4. Sync `test/bdd_tests/config.json` → `api.base_url` with resolved BASE_URL (see Step 4b in `skills/deployment/deploy.md`)
@@ -124,8 +123,10 @@ Execute these steps in order. Deviate only when the argument table above says ot
 
 ```
 deployment/
-  oneclick_dc_deployment_for_dev.py   # primary deploy script
-  1click_README.md                    # deployment reference
+  1click_README.md                              # deployment reference
+  stream-processing/
+    oneclick_dc_deployment.py                   # primary deploy script
+    docker-compose/                             # VST compose tree
 
 test/bdd_tests/
   setup.sh                            # one-time environment setup
