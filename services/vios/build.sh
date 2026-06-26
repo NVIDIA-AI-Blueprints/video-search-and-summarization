@@ -451,10 +451,20 @@ build_sensor_py_container() {
         echo "Building without Docker cache..."
     fi
 
+    # Inject the release version from the Makefile (VST_VERSION) so /sensor/version reports the same
+    # value as the C++ service (which compiles in VST_VERSION). Falls back to the Dockerfile default.
+    local sensor_ms_version
+    sensor_ms_version=$(awk -F'=' '/^VST_VERSION[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' Makefile)
+    local version_arg=()
+    if [[ -n "$sensor_ms_version" ]]; then
+        echo "sensor-py release version (from Makefile VST_VERSION): $sensor_ms_version"
+        version_arg=(--build-arg "SENSOR_MS_VERSION=$sensor_ms_version")
+    fi
+
     if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
-        docker build $cache_flag --platform linux/arm64 --network=host -t "$imagename" "$py_dir"
+        docker build $cache_flag --platform linux/arm64 --network=host "${version_arg[@]}" -t "$imagename" "$py_dir"
     else
-        docker build $cache_flag --network=host -t "$imagename" "$py_dir"
+        docker build $cache_flag --network=host "${version_arg[@]}" -t "$imagename" "$py_dir"
     fi
     if [[ $? -ne 0 ]]; then
         echo "[ERROR] Docker build failed for image: $imagename"

@@ -40,6 +40,7 @@ _JSON_SECTION_MAP: dict[str, dict[str, str]] = {
         "default_resolution": "default_resolution",
         "default_gov_length": "default_gov_length",
         "onvif_sensor_time_sync_interval_secs": "onvif_sensor_time_sync_interval_secs",
+        "onvif_sensor_time_sync_compensation_ms": "onvif_sensor_time_sync_compensation_ms",
     },
 }
 
@@ -74,6 +75,11 @@ class Config:
     discovery_retry_count: int = 3
     discovery_retry_interval_secs: int = 15
     onvif_sensor_time_sync_interval_secs: int = 60
+    # Lead time subtracted from the whole-second boundary when batch-syncing camera clocks: the
+    # simultaneous SetSystemDateAndTime fire is launched this many ms BEFORE the target second so the
+    # requests land on the cameras right at the boundary (covers processing + LAN latency). Mirrors
+    # C++ onvif_sensor_time_sync_compensation_ms.
+    onvif_sensor_time_sync_compensation_ms: int = 20
     sensor_discovery_interfaces: list[str] = field(default_factory=list)
     max_sensors_supported: int = 8
     # nvstreamer endpoints polled by the rtsp/streamer adaptor's scan. Primary source is the

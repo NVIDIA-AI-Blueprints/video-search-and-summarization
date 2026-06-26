@@ -149,6 +149,23 @@ class SensorRepo:
             row.modified_date_time = now_iso
             return True
 
+    def set_sensor_status(self, sensor_id: str, sensor_status: int,
+                          http_status: int | None = None, now_iso: str = "") -> bool:
+        """Update a sensor's online/offline status (sensor_status) and optionally its http_status,
+        used by the monitoring loop on online<->offline transitions. Returns False if not found."""
+        with self._sf() as s, s.begin():
+            row = s.execute(
+                select(SensorDetails).where(SensorDetails.sensor_id == sensor_id)
+            ).scalar_one_or_none()
+            if row is None:
+                return False
+            row.sensor_status = sensor_status
+            if http_status is not None:
+                row.http_status = http_status
+            if now_iso:
+                row.modified_date_time = now_iso
+            return True
+
     def delete_sensor(self, sensor_id: str) -> bool:
         """Cascade delete: sensor_streams + recording_status + sensor_details."""
         with self._sf() as s, s.begin():

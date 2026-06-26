@@ -73,9 +73,8 @@ async def post_configuration(request: Request, body: s.SetConfiguration) -> Any:
 
 @router.get("/version", response_model=s.VersionResponse)
 async def get_version(request: Request) -> Any:
-    from .. import __version__
-    cfg = request.app.state.cfg
-    return {"type": "vst", "version": __version__}
+    from .. import SERVICE_VERSION
+    return {"type": _mgmt(request).device_type, "version": SERVICE_VERSION}
 
 
 @router.get("/help", response_model=list[str])

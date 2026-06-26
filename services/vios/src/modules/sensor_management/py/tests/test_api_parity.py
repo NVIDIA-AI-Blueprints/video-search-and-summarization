@@ -76,6 +76,7 @@ class _FakeOnvifControl:
     """Stand-in for OnvifControl: validate returns `valid`; stream info fills profiles + device info."""
     def __init__(self, valid: bool):
         self.valid = valid
+        self.applied_defaults = None
 
     async def validate_credentials(self, sensor, username, password):
         return self.valid
@@ -86,6 +87,13 @@ class _FakeOnvifControl:
             "streamId": "profile_1", "isMain": True, "type": "Rtsp", "url": "rtsp://cam/Streaming/Channels/101",
             "name": "main", "metadata": {"codec": "H264", "framerate": "30", "resolution": "1920x1080"},
         }]
+        return 0
+
+    async def synchronize_sensor_time(self, sensor):
+        return 1
+
+    async def apply_default_encode_settings(self, sensor, defaults):
+        self.applied_defaults = defaults
         return 0
 
 
@@ -135,6 +143,10 @@ async def test_set_credentials_valid_resolves_streams(tmp_path):
         # Main stream id == sensor_id (C++ onvif_client convention) so streamStart/getSensorIdFromStreamId
         # resolve; sub-streams would be sensor_id-<profileToken>.
         assert raw[0].stream_id == "cam1" and raw[0].stream_ismainstream == "true"
+        # C++ parity: configured default encoder settings are pushed to the camera on credentialing.
+        assert mgmt._control.applied_defaults == {
+            "bitrate": cfg.default_bitrate, "framerate": cfg.default_framerate,
+            "gov_length": cfg.default_gov_length, "resolution": cfg.default_resolution}
     finally:
         await mgmt.stop()
 
@@ -208,7 +220,7 @@ async def test_onvif_discovery_logs_only_state_changes(tmp_path, monkeypatch, ca
     monkeypatch.setattr(disc, "discover", fake_discover)
     mgmt = SensorManagement(cfg)
     try:
-        with caplog.at_level(_logging.INFO, logger="sensor_ms.core.sensor_management"):
+        with caplog.at_level(_logging.DEBUG, logger="sensor_ms.core.sensor_management"):
             # first scan -> one "detected" line
             await mgmt.scan(force=True)
             detected = [r for r in caplog.records if "ONVIF device detected" in r.message]
@@ -220,13 +232,16 @@ async def test_onvif_discovery_logs_only_state_changes(tmp_path, monkeypatch, ca
             await mgmt.scan(force=True)
             assert [r for r in caplog.records if r.levelno >= _logging.INFO] == []
 
-            # device disappears -> "removed" logged exactly once, only at the miss threshold
+            # device disappears -> "removed" logged exactly once, only at the miss threshold. This
+            # discovered device is uncredentialed (http_status 401), so the removal is DEBUG-level
+            # (credentialed removals stay INFO); either way it must fire exactly once (debounced).
             present["on"] = False
             caplog.clear()
             for _ in range(sm.ONVIF_DISCOVERY_MISS_THRESHOLD + 2):
                 await mgmt.scan(force=True)
             removed = [r for r in caplog.records if "removed from network" in r.message]
             assert len(removed) == 1
+            assert removed[0].levelno == _logging.DEBUG    # uncredentialed -> quiet
     finally:
         await mgmt.stop()
 

@@ -41,6 +41,17 @@ def test_qos_deprecated_null_stats(client):
     assert r.json()["stats"] is None
 
 
+def test_version_reports_type_and_nonempty_version(client):
+    # /version returns the service type (vst/mms) and the release version. The version is injected
+    # from the Makefile at image build (SENSOR_MS_VERSION); locally it falls back to the package
+    # version, so here we only assert it is present and not the bare "0.1.0" placeholder is allowed.
+    r = client.get("/api/v1/sensor/version")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["type"] in ("vst", "mms")
+    assert isinstance(body["version"], str) and body["version"]
+
+
 def test_error_envelope_is_snakecase(client):
     # A VmsError must render as the snake_case envelope (never a 422/stack trace). POST /add with
     # neither sensorUrl nor sensorIp raises InvalidParameterError before any DB access.

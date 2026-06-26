@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..base import SensorControlAdaptor
@@ -21,6 +23,42 @@ from ..base import SensorControlAdaptor
 log = logging.getLogger(__name__)
 
 STREAM_TYPE_RTSP = "Rtsp"
+
+# Only correct the camera clock when it drifts beyond this many seconds from host UTC. Mirrors the
+# C++ NvSoap::synchronizeDeviceTime threshold (DEVICE_AND_CLIENT_TIME_DIFFERENCE_SEC = 1). NOTE: the
+# ONVIF SetSystemDateAndTime/GetSystemDateAndTime payload is SECOND-resolution (Year..Second, no
+# millisecond field), so manual sync can only align cameras to ~1s; true millisecond alignment
+# requires NTP on the camera (configure_sensor_ntp), where the device disciplines its own clock.
+ONVIF_TIME_SYNC_DRIFT_THRESHOLD_SECS = 1
+
+
+def _ntp_entry(server: str) -> dict[str, Any]:
+    """Build an ONVIF NTPInformation manual entry, choosing IPv4 vs DNS by the literal form."""
+    parts = server.split(".")
+    is_ipv4 = len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts)
+    if is_ipv4:
+        return {"Type": "IPv4", "IPv4Address": server}
+    return {"Type": "DNS", "DNSname": server}
+
+
+def _extract_utc_datetime(resp: Any) -> datetime | None:
+    """Pull a timezone-aware UTC datetime out of an ONVIF GetSystemDateAndTime response.
+    Prefers UTCDateTime; returns None if the device doesn't report a usable timestamp."""
+    sdt = getattr(resp, "UTCDateTime", None) or getattr(resp, "LocalDateTime", None)
+    if sdt is None:
+        return None
+    date = getattr(sdt, "Date", None)
+    time_ = getattr(sdt, "Time", None)
+    if date is None or time_ is None:
+        return None
+    try:
+        return datetime(
+            int(date.Year), int(date.Month), int(date.Day),
+            int(time_.Hour), int(time_.Minute), int(time_.Second),
+            tzinfo=timezone.utc,
+        )
+    except (AttributeError, ValueError, TypeError):
+        return None
 
 
 # --- pure mapping helpers (unit-tested) ---
@@ -217,6 +255,61 @@ def _apply_encode_settings(vec: Any, encode: dict[str, Any]) -> None:
         vec.H264.H264Profile = encode["Profiles"]
 
 
+def _clamp_to_range(value: float, rng: Any) -> float:
+    """Clamp value to [rng.Min, rng.Max] when the range object is present, else return it unchanged."""
+    if rng is None:
+        return value
+    lo, hi = getattr(rng, "Min", None), getattr(rng, "Max", None)
+    if lo is not None:
+        value = max(value, float(lo))
+    if hi is not None:
+        value = min(value, float(hi))
+    return value
+
+
+def _nearest_resolution(target: str, available: Any) -> tuple[int, int] | None:
+    """Pick the supported resolution whose pixel count is closest to 'WxH'. Returns None when there
+    are no options (caller then leaves the resolution unchanged). Mirrors C++ nearest-resolution."""
+    if not available:
+        return None
+    try:
+        tw, th = (int(x) for x in str(target).lower().split("x", 1))
+    except (ValueError, AttributeError):
+        return None
+    target_px = tw * th
+    best = min(available, key=lambda r: abs(
+        int(getattr(r, "Width", 0)) * int(getattr(r, "Height", 0)) - target_px))
+    return int(getattr(best, "Width", 0)), int(getattr(best, "Height", 0))
+
+
+def default_encode_from_options(defaults: dict[str, Any], opt: Any) -> dict[str, Any]:
+    """Build the flat Encode body that applies the configured defaults (bitrate/framerate/gov/
+    resolution) to a camera, clamped to that camera's encoder options. Mirrors C++
+    setStreamDefaultSettings. `opt` is the H264/H265 options block (or None). A default of 0/empty is
+    skipped (C++ parity: it only overrides when configured)."""
+    encode: dict[str, Any] = {}
+    bitrate = defaults.get("bitrate")
+    if bitrate:
+        # ONVIF Media1 options carry no standard bitrate range, so set the configured value directly;
+        # the camera clamps/rejects out-of-range internally.
+        encode["Bitrate"] = str(int(bitrate))
+    framerate = defaults.get("framerate")
+    if framerate:
+        encode["FrameRate"] = str(int(_clamp_to_range(
+            float(framerate), getattr(opt, "FrameRateRange", None) if opt is not None else None)))
+    gov = defaults.get("gov_length")
+    if gov:
+        encode["GovLength"] = str(int(_clamp_to_range(
+            float(gov), getattr(opt, "GovLengthRange", None) if opt is not None else None)))
+    res = defaults.get("resolution")
+    if res:
+        nearest = _nearest_resolution(
+            res, getattr(opt, "ResolutionsAvailable", None) if opt is not None else None)
+        if nearest:
+            encode["Resolution"] = {"Width": nearest[0], "Height": nearest[1]}
+    return encode
+
+
 def device_info_to_fields(dev_info: Any) -> dict[str, str]:
     """Map ONVIF GetDeviceInformation -> sensor fields. hardware = Model (matches the C++ and the
     /hardware/ discovery scope, e.g. "DS-2CD2T43G0-I5"); HardwareId is a separate device id."""
@@ -363,6 +456,155 @@ class OnvifControl(SensorControlAdaptor):
         finally:
             await self._close(cam)
 
+    async def synchronize_sensor_time(self, sensor: dict[str, Any]) -> int:
+        """Correct the camera clock to host UTC via ONVIF SetSystemDateAndTime (Manual mode), but only
+        when it has drifted beyond ONVIF_TIME_SYNC_DRIFT_THRESHOLD_SECS. Reads GetSystemDateAndTime
+        first (measuring round-trip) so steady-state passes are no-ops and the write is latency-
+        compensated, mirroring the C++ resync-on-drift behaviour.
+
+        ONVIF time is SECOND-resolution, so this aligns a camera to within ~1s of host UTC; it cannot
+        achieve millisecond accuracy (use configure_sensor_ntp for that).
+
+        Returns 0 when a correction was applied, 1 when the clock was already in sync (no action),
+        -1 on error. create_type is synchronous in onvif-zeep-async; only the call is awaited."""
+        cam = None
+        try:
+            cam = await self._connect(sensor["ip"], int(sensor.get("port", 80)),
+                                      sensor.get("user", ""), sensor.get("password", ""))
+            dev = await cam.create_devicemgmt_service()
+            # Measure the GetSystemDateAndTime round-trip so we can centre the manual set on the
+            # instant the camera applies it (now + rtt/2), shaving the request latency off the error.
+            t0 = time.monotonic()
+            try:
+                cam_resp = await dev.GetSystemDateAndTime()
+            except Exception:
+                cam_resp = None
+            rtt = time.monotonic() - t0
+            now = datetime.now(timezone.utc)
+            cam_time = _extract_utc_datetime(cam_resp) if cam_resp is not None else None
+            if cam_time is not None:
+                drift = (now - cam_time).total_seconds()
+                if abs(drift) <= ONVIF_TIME_SYNC_DRIFT_THRESHOLD_SECS:
+                    log.info("ONVIF %s clock in sync: drift=%+.0fs (cam=%s, host=%s)",
+                             sensor.get("ip"), drift, cam_time.isoformat(), now.isoformat())
+                    return 1
+                log.info("ONVIF %s clock drift=%+.0fs > %ds (cam=%s, host=%s, rtt=%.0fms); correcting",
+                         sensor.get("ip"), drift, ONVIF_TIME_SYNC_DRIFT_THRESHOLD_SECS,
+                         cam_time.isoformat(), now.isoformat(), rtt * 1000)
+            else:
+                log.info("ONVIF %s clock unreadable; setting host UTC (host=%s)",
+                         sensor.get("ip"), now.isoformat())
+            target = datetime.now(timezone.utc) + timedelta(seconds=rtt / 2)
+            req = dev.create_type("SetSystemDateAndTime")
+            req.DateTimeType = "Manual"
+            req.DaylightSavings = False
+            req.TimeZone = {"TZ": "UTC0"}
+            req.UTCDateTime = {
+                "Date": {"Year": target.year, "Month": target.month, "Day": target.day},
+                "Time": {"Hour": target.hour, "Minute": target.minute, "Second": target.second},
+            }
+            await dev.SetSystemDateAndTime(req)
+            return 0
+        except Exception as e:
+            log.error("ONVIF time-sync failed for %s: %s", sensor.get("ip"), e)
+            return -1
+        finally:
+            await self._close(cam)
+
+    async def synchronize_sensors_time_batch(self, sensors: list[dict[str, Any]],
+                                             compensation_ms: int = 20) -> int:
+        """Set ALL given cameras to the SAME upcoming whole-second boundary, firing every
+        SetSystemDateAndTime simultaneously so the cameras are locked to EACH OTHER (not just to the
+        host) within LAN latency -- this is what makes overlaid frame timestamps line up. Mirrors C++
+        OnvifDiscovery::synchronizeDateAndTime (curl_multi): connect to every camera up-front, wait
+        until compensation_ms before the next whole second, then gather the writes so they land on the
+        cameras right at the boundary. Returns the number of cameras successfully set."""
+        if not sensors:
+            return 0
+
+        # Phase 1: connect to every camera concurrently. _connect does network I/O (update_xaddrs) of
+        # variable latency, so it is done up-front and is NOT part of the synchronized fire window.
+        async def _open(sensor: dict[str, Any]):
+            cam = await self._connect(sensor["ip"], int(sensor.get("port", 80)),
+                                      sensor.get("user", ""), sensor.get("password", ""))
+            dev = await cam.create_devicemgmt_service()
+            return sensor, cam, dev
+
+        opened = await asyncio.gather(*(_open(s) for s in sensors), return_exceptions=True)
+        ready = [r for r in opened if not isinstance(r, BaseException)]
+        unreachable = len(opened) - len(ready)
+        if not ready:
+            log.warning("batch time-sync: no camera reachable (%d attempted)", len(sensors))
+            return 0
+
+        try:
+            # Phase 2: align to (next whole second - compensation). If already inside the compensation
+            # window, target the following second so every fire is launched pre-boundary.
+            comp_s = max(0.0, compensation_ms / 1000.0)
+            now = time.time()
+            boundary = float(int(now)) + 1.0
+            sleep_s = boundary - comp_s - now
+            if sleep_s < 0:
+                boundary += 1.0
+                sleep_s += 1.0
+            await asyncio.sleep(sleep_s)
+
+            # Phase 3: build the identical request (whole second .000 UTC) and fire all at once.
+            target = datetime.fromtimestamp(boundary, tz=timezone.utc)
+
+            async def _fire(dev) -> None:
+                req = dev.create_type("SetSystemDateAndTime")
+                req.DateTimeType = "Manual"
+                req.DaylightSavings = False
+                req.TimeZone = {"TZ": "UTC0"}
+                req.UTCDateTime = {
+                    "Date": {"Year": target.year, "Month": target.month, "Day": target.day},
+                    "Time": {"Hour": target.hour, "Minute": target.minute, "Second": target.second},
+                }
+                await dev.SetSystemDateAndTime(req)
+
+            results = await asyncio.gather(*(_fire(dev) for _, _, dev in ready),
+                                           return_exceptions=True)
+            ok = sum(1 for r in results if not isinstance(r, BaseException))
+            for r in results:
+                if isinstance(r, BaseException):
+                    log.warning("batch time-sync: a camera write failed: %s", r)
+            log.info("ONVIF batch time-sync: set %d/%d camera(s) to %s (compensation=%dms, "
+                     "%d unreachable)", ok, len(sensors), target.isoformat(),
+                     compensation_ms, unreachable)
+            return ok
+        finally:
+            await asyncio.gather(*(self._close(cam) for _, cam, _ in ready),
+                                 return_exceptions=True)
+
+    async def configure_sensor_ntp(self, sensor: dict[str, Any], ntp_servers: list[str]) -> int:
+        """Switch the camera to NTP time discipline (the only path to millisecond-level alignment):
+        SetNTP with the given servers, then SetSystemDateAndTime DateTimeType=NTP so the device keeps
+        its own clock continuously aligned. Mirrors the (disabled) C++ setNTP fallback in
+        NvSoap::synchronizeDeviceTime. Idempotent. Returns 0 on success, 1 if no servers given, -1 on
+        error."""
+        servers = [s for s in (ntp_servers or []) if s]
+        if not servers:
+            return 1
+        cam = None
+        try:
+            cam = await self._connect(sensor["ip"], int(sensor.get("port", 80)),
+                                      sensor.get("user", ""), sensor.get("password", ""))
+            dev = await cam.create_devicemgmt_service()
+            await dev.SetNTP({"FromDHCP": False, "NTPManual": [_ntp_entry(s) for s in servers]})
+            req = dev.create_type("SetSystemDateAndTime")
+            req.DateTimeType = "NTP"
+            req.DaylightSavings = False
+            req.TimeZone = {"TZ": "UTC0"}
+            await dev.SetSystemDateAndTime(req)
+            log.info("ONVIF %s set to NTP time (servers=%s)", sensor.get("ip"), servers)
+            return 0
+        except Exception as e:
+            log.error("ONVIF NTP config failed for %s: %s", sensor.get("ip"), e)
+            return -1
+        finally:
+            await self._close(cam)
+
     async def get_network_info(self, sensor: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         cam = None
         try:
@@ -466,6 +708,42 @@ class OnvifControl(SensorControlAdaptor):
             return 0
         except Exception as e:
             log.error("ONVIF set_settings failed for %s: %s", sensor.get("ip"), e)
+            return -1
+        finally:
+            await self._close(cam)
+
+    async def apply_default_encode_settings(self, sensor: dict[str, Any],
+                                            defaults: dict[str, Any]) -> int:
+        """Push the configured default encoder settings (bitrate/framerate/gov/resolution) to the
+        camera's MAIN video encoder, clamped to the camera's supported options. Mirrors C++
+        setStreamDefaultSettings, applied once when an ONVIF camera is credentialed. Returns 0 on
+        success (incl. nothing-to-apply), -1 on error."""
+        cam = None
+        try:
+            cam = await self._connect(sensor["ip"], int(sensor.get("port", 80)),
+                                      sensor.get("user", ""), sensor.get("password", ""))
+            media = await cam.create_media_service()
+            profiles = await media.GetProfiles()
+            if not profiles:
+                return -1
+            vec = getattr(profiles[0], "VideoEncoderConfiguration", None)
+            if vec is None:
+                return 0
+            opts = await media.GetVideoEncoderConfigurationOptions(
+                {"ConfigurationToken": getattr(vec, "token", "")})
+            opt = getattr(opts, "H265", None) or getattr(opts, "H264", None)
+            encode = default_encode_from_options(defaults, opt)
+            if not encode:
+                return 0
+            _apply_encode_settings(vec, encode)
+            req = media.create_type("SetVideoEncoderConfiguration")
+            req.Configuration = vec
+            req.ForcePersistence = True
+            await media.SetVideoEncoderConfiguration(req)
+            log.info("ONVIF %s applied default encode settings: %s", sensor.get("ip"), encode)
+            return 0
+        except Exception as e:
+            log.error("ONVIF apply default encode settings failed for %s: %s", sensor.get("ip"), e)
             return -1
         finally:
             await self._close(cam)

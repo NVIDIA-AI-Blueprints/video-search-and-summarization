@@ -64,6 +64,13 @@ class SensorControlAdaptor(abc.ABC):
     async def synchronize_sensor_time(self, sensor: dict[str, Any]) -> int:
         return -1
 
+    async def synchronize_sensors_time_batch(self, sensors: list[dict[str, Any]],
+                                             compensation_ms: int = 20) -> int:
+        return 0
+
+    async def configure_sensor_ntp(self, sensor: dict[str, Any], ntp_servers: list[str]) -> int:
+        return -1
+
     async def get_sensor_status(self, camera_id: str) -> tuple[int, dict[str, Any]]:
         return -1, {}
 
@@ -99,6 +106,11 @@ class SensorControlAdaptor(abc.ABC):
     async def set_settings(self, sensor: dict[str, Any], settings: dict[str, Any]) -> int:
         """High-level POST /settings: apply Image/Encode settings. Returns 0 on success, -1 on error."""
         return -1
+
+    async def apply_default_encode_settings(self, sensor: dict[str, Any],
+                                            defaults: dict[str, Any]) -> int:
+        """Push configured default encoder settings to the camera (clamped). 0 on success/no-op."""
+        return 0
 
     async def set_ptz(self, sensor: dict[str, Any], action: str, x: str, y: str) -> int:
         return 0

@@ -34,6 +34,8 @@ SENSOR_TYPE_ONVIF = "sensor_onvif"
 ONVIF_ADAPTOR = "onvif"
 # Adaptor names whose discovery polls nvstreamer for RTSP streams (vst_rtsp parity).
 RTSP_ADAPTORS = frozenset({"vst_rtsp", "rtsp", "streamer", "nvstream"})
+# Milestone XProtect (mms) SOAP adaptor: discovery via the milestone control adaptor's discover().
+MMS_ADAPTORS = frozenset({"milestone_soap", "milestone"})
 STREAM_TYPE_RTSP = 2
 DEFAULT_ENCODING = "h264"
 ONVIF_DEFAULT_PORT = 80
@@ -42,6 +44,9 @@ MAX_SENSOR_NAME_LENGTH = 175  # sensor_info.h:50; C++ truncates the name on add
 # fluctuates. Only treat a known device as gone after this many consecutive scans without a reply,
 # to avoid false "removed" logs from transient packet loss.
 ONVIF_DISCOVERY_MISS_THRESHOLD = 3
+# http_status set on an ONVIF sensor the monitoring loop has marked offline (maps to
+# DeviceRequestTimeoutError in /status; sensor_status=0 drives the "offline" state).
+ONVIF_OFFLINE_HTTP_CODE = 408
 EMPTY_POSITION = (
     '{"coordinates":{"x":"","y":""},"depth":"","direction":"","field_of_view":"",'
     '"geo_location":{"latitude":"","longitude":""},"origin":{"latitude":"","longitude":""}}'
@@ -87,6 +92,11 @@ class SensorManagement:
         # the config file is absent/unreadable. control is None for url-only adaptors (e.g. vst_rtsp).
         self._adaptor_name, self._control = self._select_adaptor(cfg)
         self._discovery_task: asyncio.Task | None = None
+        # Periodic ONVIF time-sync task (pushes UTC time to online ONVIF cameras); ONVIF-only.
+        self._time_sync_task: asyncio.Task | None = None
+        # Sensor ids already switched to NTP discipline (configure_sensor_ntp is persistent on the
+        # camera, so it only needs doing once per online session, not every time-sync pass).
+        self._ntp_configured: set[str] = set()
         # Consecutive missed-discovery counts per ONVIF sensor id, for debounced removal logging.
         self._onvif_misses: dict[str, int] = {}
         # Debug "unplug": IPs the test hooks (/sensor/debug/unplug) have blocked. Discovery skips them
@@ -122,6 +132,12 @@ class SensorManagement:
     def repo(self):
         return self._dm.repo
 
+    @property
+    def device_type(self) -> str:
+        """Service type reported by /sensor/version, matching the C++ DeviceManager::getDeviceType:
+        "mms" for the Milestone adaptors, "vst" otherwise."""
+        return "mms" if self._adaptor_name in MMS_ADAPTORS else "vst"
+
     async def start(self) -> None:
         # Create the sensor schema if missing so a fresh standalone DB works (best-effort: if the DB
         # is unreachable, log and continue; per-request handlers then surface VMSInternalError).
@@ -152,9 +168,79 @@ class SensorManagement:
         elif self._last_scan_had_failures:
             # One-shot adaptor whose startup scan hit endpoint failures -> bounded background retry.
             self._discovery_task = asyncio.create_task(self._startup_discovery_retry())
+        # Periodic ONVIF time-sync (push UTC to online cameras), ONVIF adaptor only -- C++ parity
+        # (SensorMonitoring schedules synchronizeSensorTime every onvif_sensor_time_sync_interval_secs).
+        if self._time_sync_enabled():
+            self._time_sync_task = asyncio.create_task(self._periodic_time_sync())
 
     def _periodic_discovery_enabled(self) -> bool:
         return self._adaptor_name == ONVIF_ADAPTOR
+
+    def _time_sync_enabled(self) -> bool:
+        return (self._adaptor_name == ONVIF_ADAPTOR and self._control is not None
+                and int(self._cfg.onvif_sensor_time_sync_interval_secs) > 0)
+
+    async def _time_sync_once(self) -> int:
+        """One time-sync pass over ONLINE, non-blocked, credentialed ONVIF sensors.
+
+        Two modes (ONVIF parity with the C++ sensor service):
+        - NTP (use_sensor_ntp_time + ntp_servers): switch each camera to NTP discipline once
+          (configure_sensor_ntp). The camera then keeps its own clock at millisecond accuracy.
+        - Manual (default): set ALL cameras to the same upcoming whole-second boundary SIMULTANEOUSLY
+          (synchronize_sensors_time_batch), mirroring C++ OnvifDiscovery::synchronizeDateAndTime. This
+          locks the cameras to EACH OTHER (so overlaid frame timestamps line up); it is done every
+          pass with no drift-check, exactly like the C++ curl_multi batch.
+
+        Returns the number of cameras set/configured this pass. Per-sensor failures are logged."""
+        if self._control is None:
+            return 0
+        # Only credentialed + online cameras: discovered-but-uncredentialed ONVIF devices
+        # (http_status 401) have no valid login, so SetSystemDateAndTime would just return
+        # "Sender not Authorized" -- on a large network that floods the log. http_status == NoError
+        # means credentials were validated and streams resolved.
+        rows = [r for r in self.repo.list_sensors()
+                if r.type == SENSOR_TYPE_ONVIF and (r.sensor_status or 0) != 0
+                and r.http_status == mapping.CAMERA_NO_ERROR_CODE
+                and (r.ipaddress or "") not in self._blocked_ips]
+        if not rows:
+            return 0
+        if self._cfg.use_sensor_ntp_time and self._cfg.ntp_servers:
+            return await self._time_sync_ntp(rows)
+        # Manual: simultaneous boundary-aligned batch set across all cameras (inter-camera sync).
+        return await self._control.synchronize_sensors_time_batch(
+            [self._onvif_sensor_dict(r) for r in rows],
+            self._cfg.onvif_sensor_time_sync_compensation_ms)
+
+    async def _time_sync_ntp(self, rows) -> int:
+        """NTP mode: configure_sensor_ntp once per camera (persistent on the device, so already-
+        configured cameras are skipped). Returns the number newly configured this pass."""
+        synced = 0
+        for row in rows:
+            if row.sensor_id in self._ntp_configured:
+                continue
+            try:
+                if await self._control.configure_sensor_ntp(
+                        self._onvif_sensor_dict(row), self._cfg.ntp_servers) == 0:
+                    self._ntp_configured.add(row.sensor_id)
+                    synced += 1
+            except Exception as e:
+                log.warning("NTP config failed for sensor %s: %s", row.sensor_id, e)
+        if synced:
+            log.info("ONVIF time-sync: configured NTP on %d/%d online sensor(s)", synced, len(rows))
+        return synced
+
+    async def _periodic_time_sync(self) -> None:
+        """Every onvif_sensor_time_sync_interval_secs, run one _time_sync_once pass (ONVIF parity with
+        SensorMonitoring's scheduled synchronizeSensorTime)."""
+        interval = max(5, int(self._cfg.onvif_sensor_time_sync_interval_secs))
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self._time_sync_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("periodic time-sync iteration failed: %s", e)
 
     async def _startup_discovery_retry(self) -> None:
         """For one-shot (rtsp/nvstreamer) discovery: if the startup scan couldn't reach an endpoint,
@@ -199,7 +285,8 @@ class SensorManagement:
                 camera_url=url, tags=row.tags or "", created_at=now,
                 metadata={"codec": main.stream_encoding or "", "framerate": main.stream_framerate or "",
                           "resolution": main.stream_resolution or ""}))
-            log.info("re-announced camera_proxy for online sensor %s", row.sensor_id)
+            log.info("re-announced camera_proxy for online sensor %s (%s)",
+                     row.name or "unnamed", row.sensor_id)
 
     async def _periodic_discovery(self) -> None:
         interval = max(5, int(self._cfg.sensor_discovery_freq_secs))
@@ -213,12 +300,13 @@ class SensorManagement:
                 log.warning("periodic discovery error: %s", e)
 
     async def stop(self) -> None:
-        if self._discovery_task is not None:
-            self._discovery_task.cancel()
-            try:
-                await self._discovery_task
-            except (asyncio.CancelledError, Exception):
-                pass
+        for task in (self._discovery_task, self._time_sync_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
         self._events.close()
         self._dm.dispose()
 
@@ -507,6 +595,25 @@ class SensorManagement:
             now = _now_iso()
             self.repo.authorize_sensor(sensor_id, username, password, mapping.CAMERA_NO_ERROR_CODE,
                                        sensor, now)
+            # One-time drift-checked sync on credentialing (C++ parity): get the camera clock and
+            # correct it if it differs from host UTC. The periodic batch then keeps cameras locked to
+            # each other. Best-effort -- never fail credentialing because a clock write failed.
+            try:
+                await self._control.synchronize_sensor_time(sensor)
+            except Exception as e:
+                log.warning("initial time-sync failed for sensor %s: %s", sensor_id, e)
+            # Push configured default encoder settings to the camera's main stream (C++ parity:
+            # setStreamDefaultSettings via getAndAddProxyUrl). Best-effort -- never fail credentialing
+            # because the camera rejected an encoder write.
+            try:
+                await self._control.apply_default_encode_settings(sensor, {
+                    "bitrate": self._cfg.default_bitrate,
+                    "framerate": self._cfg.default_framerate,
+                    "gov_length": self._cfg.default_gov_length,
+                    "resolution": self._cfg.default_resolution,
+                })
+            except Exception as e:
+                log.warning("default encode settings failed for sensor %s: %s", sensor_id, e)
             for st in sensor.get("streams") or []:
                 md = st.get("metadata", {})
                 is_main = bool(st.get("isMain"))
@@ -816,6 +923,8 @@ class SensorManagement:
         self._last_scan_had_failures = False
         if self._adaptor_name == ONVIF_ADAPTOR:
             return await self._scan_onvif()
+        if self._adaptor_name in MMS_ADAPTORS:
+            return await self._scan_milestone()
         if self._adaptor_name in RTSP_ADAPTORS:
             # Prefer configs/rtsp_streams.json (C++ vst_rtsp parity: direct `streams` + `Nvstreamer`
             # endpoints). Fall back to the NVSTREAMER_ENDPOINTS env only when the file is absent.
@@ -955,7 +1064,47 @@ class SensorManagement:
             log.info("nvstreamer discovery registered %d new stream(s)", added)
         return added
 
-    async def _register_rtsp_sensor(self, sid: str, name: str, url: str, md: dict[str, Any]) -> None:
+    async def _scan_milestone(self) -> int:
+        """Discover Milestone XProtect cameras via the SOAP control adaptor (Login + systeminfo.xml)
+        and register each as an RTSP sensor with its live/vod URLs. Mirrors the C++ milestone_vms
+        bulk discovery; idempotent (stable GUID sensor_id). One-shot like the rtsp adaptors (the
+        bounded startup-retry covers transient login/HTTP failures)."""
+        control = self._control
+        if control is None or not hasattr(control, "discover"):
+            return 0
+        try:
+            cams = await control.discover()
+        except Exception as e:
+            log.warning("Milestone discovery failed: %s", e)
+            self._last_scan_had_failures = True
+            return 0
+        if not cams:
+            # Could be an auth/endpoint failure -> let the bounded retry try again.
+            self._last_scan_had_failures = True
+        added = 0
+        count = len(self.repo.list_sensors())
+        hit_cap = False
+        for cam in cams:
+            sid = cam.get("sensor_id") or ""
+            if not sid or self.repo.get_sensor(sid) is not None:
+                continue
+            if (urlparse(cam.get("live_url", "")).hostname or "") in self._blocked_ips:
+                continue
+            if not self._has_capacity(count):
+                hit_cap = True
+                continue
+            await self._register_rtsp_sensor(
+                sid, cam.get("name", ""), cam.get("live_url", ""),
+                {"codec": cam.get("codec", "")}, replay_url=cam.get("replay_url", ""))
+            count += 1
+            added += 1
+        self._note_cap(hit_cap, "Milestone cameras")
+        if added:
+            log.info("Milestone discovery registered %d new camera(s)", added)
+        return added
+
+    async def _register_rtsp_sensor(self, sid: str, name: str, url: str, md: dict[str, Any],
+                                    replay_url: str = "") -> None:
         now = _now_iso()
         row = SensorDetails(
             device_id=self._cfg.device_name or "", sensor_id=sid, sensor_hw_id=sid,
@@ -965,7 +1114,8 @@ class SensorManagement:
         )
         self.repo.insert_sensor(row, "", now)
         self.repo.insert_stream(SensorStreams(
-            sensor_id=sid, stream_id=sid, stream_live_url=url, stream_proxy_url="", stream_replay_url="",
+            sensor_id=sid, stream_id=sid, stream_live_url=url, stream_proxy_url="",
+            stream_replay_url=replay_url,
             stream_encoding=md.get("codec", ""), stream_framerate=md.get("framerate", ""),
             stream_resolution=md.get("resolution", ""), stream_ismainstream="true",
             stream_type=STREAM_TYPE_RTSP, stream_storage_location=0, stream_name=row.name,
@@ -1005,7 +1155,11 @@ class SensorManagement:
                 continue  # debug "unplug": treat as not present this scan
             seen.add(sid)
             self._onvif_misses.pop(sid, None)  # responded this scan -> reset miss counter
-            if self.repo.get_sensor(sid) is not None:
+            known = self.repo.get_sensor(sid)
+            if known is not None:
+                # Re-appeared after monitoring marked it offline -> bring back online + re-announce.
+                if (known.sensor_status or 0) == 0:
+                    await self._mark_onvif_online(known)
                 continue  # already known -> no log (avoid spam)
             # Cap the number of registered sensors (parity with C++ isSpaceForNewSensor): once the
             # limit is hit, stop persisting newly discovered devices so the DB / list / streams are
@@ -1039,18 +1193,59 @@ class SensorManagement:
             count += 1
             added += 1
         self._note_cap(hit_cap, "ONVIF devices")
-        self._log_onvif_removals(seen)
+        await self._handle_onvif_offline(seen)
         return added
 
-    def _log_onvif_removals(self, seen: set[str]) -> None:
-        """Log (once) ONVIF sensors that stopped replying to discovery for several consecutive
-        scans. Debounced via ONVIF_DISCOVERY_MISS_THRESHOLD so transient UDP loss is not reported as
-        a removal. Discovered sensors are left in the DB (an authorized sensor must persist); only
-        the state-change is logged."""
+    async def _mark_onvif_online(self, row) -> None:
+        """An ONVIF sensor re-appeared in discovery after being marked offline: restore online
+        status and re-announce camera_add (+ camera_proxy when a credentialed main stream exists),
+        so downstream rebuilds its proxy. Mirrors C++ SensorMonitoring onSensorChanged (online)."""
+        streams = self.repo.list_streams(row.sensor_id)
+        main = next((st for st in streams if (st.stream_ismainstream or "").lower() == "true"), None)
+        http = mapping.CAMERA_NO_ERROR_CODE if main is not None else mapping.CAMERA_UNAUTHORIZED_CODE
+        now = _now_iso()
+        self.repo.set_sensor_status(row.sensor_id, 1, http_status=http, now_iso=now)
+        log.info("ONVIF device back online: %s (%s)", row.name, row.sensor_id)
+        await self._events.publish(build_payload(
+            change=ChangeEvent.camera_add, camera_id=row.sensor_id, camera_name=row.name or "",
+            camera_url="", tags=row.tags or "", created_at=now, metadata=None))
+        if main is not None:
+            url = _embed_creds(main.stream_live_url or "", row.username or "",
+                               self.repo.get_password(row.sensor_id) or "")
+            await self._events.publish(build_payload(
+                change=ChangeEvent.camera_proxy, camera_id=row.sensor_id, camera_name=row.name or "",
+                camera_url=url, tags=row.tags or "", created_at=now,
+                metadata={"codec": main.stream_encoding or "", "framerate": main.stream_framerate or "",
+                          "resolution": main.stream_resolution or ""}))
+
+    async def _handle_onvif_offline(self, seen: set[str]) -> None:
+        """Mark ONVIF sensors that stopped replying to discovery for several consecutive scans as
+        offline and publish camera_remove so downstream tears down the proxy. Debounced via
+        ONVIF_DISCOVERY_MISS_THRESHOLD so transient UDP loss is not treated as a removal. The DB row
+        is kept (an authorized sensor persists); only the status flips and one event is emitted.
+        Mirrors C++ SensorMonitoring onSensorRemoved/notifyEvent."""
         for r in self.repo.list_sensors():
             if r.type != SENSOR_TYPE_ONVIF or r.sensor_id in seen:
                 continue
             misses = self._onvif_misses.get(r.sensor_id, 0) + 1
             self._onvif_misses[r.sensor_id] = misses
-            if misses == ONVIF_DISCOVERY_MISS_THRESHOLD:  # exactly once at the threshold
+            if misses != ONVIF_DISCOVERY_MISS_THRESHOLD:
+                continue  # debounced: act exactly once when the threshold is first crossed
+            # Only a currently-online CREDENTIALED camera transitions offline + emits camera_remove
+            # (it has a downstream proxy to tear down, and _mark_onvif_online re-announces it on
+            # return). Discovered-but-uncredentialed devices (http_status 401) are left as-is: no
+            # proxy exists, and WS-Discovery multicast loss makes them flap, so emitting
+            # camera_remove/add (or "back online" churn) for them would be pure noise -- their removal
+            # is logged at DEBUG only, while real (credentialed) removals stay at INFO.
+            if (r.sensor_status or 0) != 0 and r.http_status == mapping.CAMERA_NO_ERROR_CODE:
                 log.info("ONVIF device removed from network: %s (%s)", r.name, r.sensor_id)
+                self._ntp_configured.discard(r.sensor_id)  # re-apply NTP when it returns
+                now = _now_iso()
+                self.repo.set_sensor_status(r.sensor_id, 0,
+                                            http_status=ONVIF_OFFLINE_HTTP_CODE, now_iso=now)
+                await self._events.publish(build_payload(
+                    change=ChangeEvent.camera_remove, camera_id=r.sensor_id, camera_name=r.name or "",
+                    camera_url="", tags=r.tags or "", created_at=now, metadata=None))
+            else:
+                log.debug("ONVIF device removed from network (uncredentialed): %s (%s)",
+                          r.name, r.sensor_id)

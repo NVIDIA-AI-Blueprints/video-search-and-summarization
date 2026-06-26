@@ -38,7 +38,11 @@ _REGISTRY: dict[str, tuple[str, str]] = {
     # discovery is the in-house WS-Discovery probe (adaptors.onvif.discovery.discover), driven by
     # SensorMonitoring rather than a discovery-adaptor class; wired in P4.
     # "rtsp_streams": ("sensor_ms.adaptors.rtsp_streams:RtspStreamsControl", ""),
-    # "milestone_soap": ("sensor_ms.adaptors.milestone:MilestoneControl", ""),
+    # Milestone XProtect (mms): SOAP Login + systeminfo.xml discovery + RTSP URLs (control plane only;
+    # the gRPC/GraphQL clip path stays in the media/storage service).
+    "milestone_soap": ("sensor_ms.adaptors.milestone:MilestoneControl", ""),
+    # milestone_onvif uses the ONVIF control adaptor (XProtect's ONVIF bridge).
+    "milestone_onvif": ("sensor_ms.adaptors.onvif.control:OnvifControl", ""),
 }
 
 

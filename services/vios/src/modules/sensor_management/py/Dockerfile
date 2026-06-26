@@ -3,10 +3,15 @@
 #
 FROM nvcr.io/nvidia/cuda:13.3.0-base-ubuntu24.04 AS base
 
+# Release version reported by /sensor/version. Injected from the Makefile (VST_VERSION) by build.sh so
+# the Python service reports the same version as the C++ service. Defaults to the package version.
+ARG SENSOR_MS_VERSION=0.1.0
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     HTTP_PORT=30010 \
+    SENSOR_MS_VERSION=${SENSOR_MS_VERSION} \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
 

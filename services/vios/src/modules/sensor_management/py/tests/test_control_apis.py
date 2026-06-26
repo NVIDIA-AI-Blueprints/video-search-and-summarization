@@ -25,7 +25,11 @@ from sensor_ms.adaptors.onvif.control import (
 from sensor_ms.api.errors import VmsError, VmsErrorCode
 from sensor_ms.config import Config
 from sensor_ms.core import mapping
-from sensor_ms.core.sensor_management import SENSOR_TYPE_ONVIF, SensorManagement
+from sensor_ms.core.sensor_management import (
+    ONVIF_DISCOVERY_MISS_THRESHOLD,
+    SENSOR_TYPE_ONVIF,
+    SensorManagement,
+)
 from sensor_ms.db.engine import make_engine
 from sensor_ms.db.models import Base, SensorDetails
 
@@ -218,6 +222,18 @@ class _FakeControl(SensorControlAdaptor):
         self.calls.append(("reboot", sensor["ip"]))
         return 0
 
+    async def synchronize_sensor_time(self, sensor):
+        self.calls.append(("time_sync", sensor["ip"]))
+        return 0
+
+    async def synchronize_sensors_time_batch(self, sensors, compensation_ms=20):
+        self.calls.append(("time_sync_batch", tuple(s["ip"] for s in sensors), compensation_ms))
+        return len(sensors)
+
+    async def configure_sensor_ntp(self, sensor, ntp_servers):
+        self.calls.append(("ntp", sensor["ip"], tuple(ntp_servers)))
+        return 0
+
     async def get_network_info(self, sensor):
         return 0, {"isIpv4Enabled": True, "dhcpV4": "false", "ipAddressV4": "10.0.0.7",
                    "subnetMaskV4": "255.255.255.0", "isIpv6Enabled": False, "dhcpV6": "false",
@@ -252,6 +268,166 @@ async def test_reboot_via_adaptor(tmp_path):
         sid = _add_onvif(mgmt)
         await mgmt.reboot_sensor(sid)
         assert mgmt._control.calls == [("reboot", "10.0.0.7")]
+    finally:
+        await mgmt.stop()
+
+
+async def test_time_sync_pushes_to_online_onvif(tmp_path):
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._control = _FakeControl()
+    try:
+        assert mgmt._time_sync_enabled() is True
+        _add_onvif(mgmt)                       # online ONVIF sensor (sensor_status=1)
+        synced = await mgmt._time_sync_once()
+        # Manual mode -> simultaneous boundary-aligned batch across all credentialed cameras.
+        assert synced == 1
+        assert ("time_sync_batch", ("10.0.0.7",), mgmt._cfg.onvif_sensor_time_sync_compensation_ms) \
+            in mgmt._control.calls
+    finally:
+        await mgmt.stop()
+
+
+async def test_device_type_matches_adaptor(tmp_path):
+    # /sensor/version "type": mms for the Milestone adaptor, vst otherwise (C++ getDeviceType parity).
+    vst = _mgmt(tmp_path, adaptor="onvif")
+    mms = _mgmt(tmp_path, adaptor="milestone_soap")
+    try:
+        assert vst.device_type == "vst"
+        assert mms.device_type == "mms"
+    finally:
+        await vst.stop()
+        await mms.stop()
+
+
+async def test_time_sync_uses_ntp_when_configured(tmp_path):
+    # With use_sensor_ntp_time + ntp_servers, the pass switches cameras to NTP (the ms-level path)
+    # via configure_sensor_ntp -- once per camera, not a manual SetSystemDateAndTime each cycle.
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._control = _FakeControl()
+    mgmt._cfg.use_sensor_ntp_time = True
+    mgmt._cfg.ntp_servers = ["time.google.com"]
+    try:
+        _add_onvif(mgmt)
+        assert await mgmt._time_sync_once() == 1
+        assert ("ntp", "10.0.0.7", ("time.google.com",)) in mgmt._control.calls
+        # second pass is a no-op: NTP is persistent on the camera (configured once)
+        mgmt._control.calls.clear()
+        assert await mgmt._time_sync_once() == 0
+        assert mgmt._control.calls == []
+    finally:
+        await mgmt.stop()
+
+
+async def test_time_sync_skips_offline_and_blocked(tmp_path):
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._control = _FakeControl()
+    try:
+        _add_onvif(mgmt)                       # online -> should sync
+        mgmt._blocked_ips.add("10.0.0.7")      # but blocked (debug unplug) -> skipped
+        assert await mgmt._time_sync_once() == 0
+        assert mgmt._control.calls == []
+    finally:
+        await mgmt.stop()
+
+
+async def test_time_sync_disabled_for_non_onvif(tmp_path):
+    mgmt = _mgmt(tmp_path)                      # vst_rtsp, control=None
+    try:
+        assert mgmt._time_sync_enabled() is False
+    finally:
+        await mgmt.stop()
+
+
+class _RecordingEvents:
+    """Captures published notification payloads (broker disabled in tests)."""
+    def __init__(self):
+        self.published = []
+
+    async def publish(self, payload):
+        self.published.append(payload)
+
+    def close(self):
+        pass
+
+
+async def test_monitoring_marks_onvif_offline_after_threshold(tmp_path):
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._events = _RecordingEvents()
+    try:
+        sid = _add_onvif(mgmt)                  # online (sensor_status=1)
+        # Consecutive discovery rounds where the sensor is NOT seen -> debounced offline transition.
+        for _ in range(ONVIF_DISCOVERY_MISS_THRESHOLD):
+            await mgmt._handle_onvif_offline(seen=set())
+        assert (mgmt.repo.get_sensor(sid).sensor_status or 0) == 0   # offline
+        changes = [p["event"]["change"] for p in mgmt._events.published]
+        assert changes.count("camera_remove") == 1                   # emitted exactly once
+    finally:
+        await mgmt.stop()
+
+
+async def test_monitoring_offline_is_debounced(tmp_path):
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._events = _RecordingEvents()
+    try:
+        sid = _add_onvif(mgmt)
+        # One missed round (below threshold) must NOT flip the sensor offline.
+        await mgmt._handle_onvif_offline(seen=set())
+        assert (mgmt.repo.get_sensor(sid).sensor_status or 0) != 0   # still online
+        assert mgmt._events.published == []
+    finally:
+        await mgmt.stop()
+
+
+async def test_monitoring_restores_onvif_online_and_reannounces(tmp_path):
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._events = _RecordingEvents()
+    try:
+        sid = _add_onvif(mgmt)
+        mgmt.repo.set_sensor_status(sid, 0, http_status=408, now_iso="2026-01-01T00:00:00Z")
+        assert (mgmt.repo.get_sensor(sid).sensor_status or 0) == 0   # offline
+        await mgmt._mark_onvif_online(mgmt.repo.get_sensor(sid))
+        assert (mgmt.repo.get_sensor(sid).sensor_status or 0) == 1   # back online
+        changes = [p["event"]["change"] for p in mgmt._events.published]
+        assert "camera_add" in changes                              # re-announced
+    finally:
+        await mgmt.stop()
+
+
+def _add_uncredentialed_onvif(mgmt, sid, ip):
+    """A discovered-but-uncredentialed ONVIF camera: online (status=1) but http_status=401."""
+    now = "2026-06-09T00:00:00Z"
+    mgmt.repo.insert_sensor(SensorDetails(
+        device_id="VST", sensor_id=sid, sensor_hw_id=sid, name="cam", ipaddress=ip,
+        url=f"http://{ip}/onvif/device_service", type=SENSOR_TYPE_ONVIF,
+        position=mapping.position_api_to_db(None), is_remote="false",
+        http_status=mapping.CAMERA_UNAUTHORIZED_CODE, sensor_status=1,
+        created_date_time=now, modified_date_time=now), "", now)
+
+
+async def test_time_sync_skips_uncredentialed_discovered(tmp_path):
+    """Regression: time-sync must NOT touch discovered-but-uncredentialed cameras (would flood
+    'Sender not Authorized' on a large network)."""
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._control = _FakeControl()
+    try:
+        _add_uncredentialed_onvif(mgmt, "disc-1", "10.0.0.50")
+        assert await mgmt._time_sync_once() == 0
+        assert mgmt._control.calls == []          # never attempted on an uncredentialed camera
+    finally:
+        await mgmt.stop()
+
+
+async def test_monitoring_skips_uncredentialed_discovered(tmp_path):
+    """Regression: uncredentialed discovered cameras must not flap offline/online (no camera_remove
+    churn) when WS-Discovery multicast drops them."""
+    mgmt = _mgmt(tmp_path, adaptor="onvif")
+    mgmt._events = _RecordingEvents()
+    try:
+        _add_uncredentialed_onvif(mgmt, "disc-2", "10.0.0.51")
+        for _ in range(ONVIF_DISCOVERY_MISS_THRESHOLD + 2):
+            await mgmt._handle_onvif_offline(seen=set())
+        assert (mgmt.repo.get_sensor("disc-2").sensor_status or 0) != 0   # stays online
+        assert mgmt._events.published == []                              # no churn
     finally:
         await mgmt.stop()
 

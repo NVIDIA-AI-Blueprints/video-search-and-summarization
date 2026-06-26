@@ -11,7 +11,18 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from sensor_ms.adaptors.onvif.control import device_info_to_fields, profile_to_stream
+from datetime import datetime, timedelta, timezone
+
+from sensor_ms.adaptors.onvif.control import (
+    ONVIF_TIME_SYNC_DRIFT_THRESHOLD_SECS,
+    OnvifControl,
+    _extract_utc_datetime,
+    _nearest_resolution,
+    _ntp_entry,
+    default_encode_from_options,
+    device_info_to_fields,
+    profile_to_stream, 
+)
 from sensor_ms.adaptors.onvif.discovery import (
     WS_DISCOVERY_ADDR,
     WS_DISCOVERY_PORT,
@@ -125,6 +136,261 @@ def test_loader_selects_onvif_control():
     assert isinstance(load_control_adaptor("onvif"), OnvifControl)
     assert load_control_adaptor("vst_rtsp") is None     # url-only adaptor, no control class
     assert load_control_adaptor("nonexistent") is None
+
+
+def _sdt(dt):
+    """Build a fake ONVIF GetSystemDateAndTime response carrying UTCDateTime=dt."""
+    return SimpleNamespace(UTCDateTime=SimpleNamespace(
+        Date=SimpleNamespace(Year=dt.year, Month=dt.month, Day=dt.day),
+        Time=SimpleNamespace(Hour=dt.hour, Minute=dt.minute, Second=dt.second)))
+
+
+class _FakeDev:
+    def __init__(self, cam_time):
+        self._cam_time = cam_time
+        self.set_called = False
+        self.set_req = None
+        self.ntp_arg = None
+
+    async def GetSystemDateAndTime(self):
+        if self._cam_time is None:
+            raise RuntimeError("no time")
+        return _sdt(self._cam_time)
+
+    def create_type(self, _name):
+        return SimpleNamespace()
+
+    async def SetSystemDateAndTime(self, req):
+        self.set_called = True
+        self.set_req = req
+
+    async def SetNTP(self, arg):
+        self.ntp_arg = arg
+
+
+class _FakeCam:
+    def __init__(self, dev):
+        self._dev = dev
+
+    async def create_devicemgmt_service(self):
+        return self._dev
+
+
+def _control_with_cam_time(monkeypatch, cam_time):
+    ctrl = OnvifControl()
+    dev = _FakeDev(cam_time)
+
+    async def fake_connect(*_a, **_k):
+        return _FakeCam(dev)
+
+    async def fake_close(_cam):
+        return None
+
+    monkeypatch.setattr(ctrl, "_connect", fake_connect)
+    monkeypatch.setattr(ctrl, "_close", fake_close)
+    return ctrl, dev
+
+
+_SENSOR = {"ip": "10.0.0.7", "port": 80, "user": "admin", "password": "pw"}
+
+
+def test_extract_utc_datetime():
+    dt = datetime(2026, 6, 24, 12, 30, 15, tzinfo=timezone.utc)
+    assert _extract_utc_datetime(_sdt(dt)) == dt
+    assert _extract_utc_datetime(SimpleNamespace()) is None
+    assert _extract_utc_datetime(SimpleNamespace(UTCDateTime=SimpleNamespace(Date=None, Time=None))) is None
+
+
+def test_time_sync_skips_when_within_threshold(monkeypatch):
+    # Camera clock matches host UTC -> no correction, returns 1 (in-sync).
+    ctrl, dev = _control_with_cam_time(monkeypatch, datetime.now(timezone.utc))
+    assert asyncio.run(ctrl.synchronize_sensor_time(_SENSOR)) == 1
+    assert dev.set_called is False
+
+
+def test_time_sync_corrects_when_drifted(monkeypatch):
+    # Camera clock far in the past -> correction applied, returns 0.
+    drifted = datetime.now(timezone.utc) - timedelta(seconds=ONVIF_TIME_SYNC_DRIFT_THRESHOLD_SECS + 60)
+    ctrl, dev = _control_with_cam_time(monkeypatch, drifted)
+    assert asyncio.run(ctrl.synchronize_sensor_time(_SENSOR)) == 0
+    assert dev.set_called is True
+
+
+def test_time_sync_corrects_when_time_unreadable(monkeypatch):
+    # Device doesn't report a readable time -> fall through and set it (returns 0).
+    ctrl, dev = _control_with_cam_time(monkeypatch, None)
+    assert asyncio.run(ctrl.synchronize_sensor_time(_SENSOR)) == 0
+    assert dev.set_called is True
+
+
+def test_ntp_entry_ipv4_vs_dns():
+    assert _ntp_entry("192.168.1.1") == {"Type": "IPv4", "IPv4Address": "192.168.1.1"}
+    assert _ntp_entry("time.google.com") == {"Type": "DNS", "DNSname": "time.google.com"}
+    assert _ntp_entry("999.1.1.1") == {"Type": "DNS", "DNSname": "999.1.1.1"}  # out-of-range octet
+
+
+def test_configure_sensor_ntp_sets_servers_and_ntp_mode(monkeypatch):
+    ctrl, dev = _control_with_cam_time(monkeypatch, datetime.now(timezone.utc))
+    rc = asyncio.run(ctrl.configure_sensor_ntp(_SENSOR, ["time.google.com", "10.0.0.1"]))
+    assert rc == 0
+    assert dev.ntp_arg["FromDHCP"] is False
+    assert dev.ntp_arg["NTPManual"] == [
+        {"Type": "DNS", "DNSname": "time.google.com"},
+        {"Type": "IPv4", "IPv4Address": "10.0.0.1"},
+    ]
+    assert dev.set_req.DateTimeType == "NTP"   # device disciplines its own clock -> ms-level
+
+
+def test_configure_sensor_ntp_no_servers_is_noop(monkeypatch):
+    ctrl, dev = _control_with_cam_time(monkeypatch, datetime.now(timezone.utc))
+    assert asyncio.run(ctrl.configure_sensor_ntp(_SENSOR, [])) == 1
+    assert dev.ntp_arg is None
+
+
+def test_batch_sync_empty_is_noop():
+    assert asyncio.run(OnvifControl().synchronize_sensors_time_batch([])) == 0
+
+
+def test_batch_sync_sets_all_cameras_to_same_whole_second(monkeypatch):
+    # All cameras must be set to the SAME whole-second boundary (this is what locks them to each
+    # other). Each gets its own connection; the fire is via asyncio.gather (simultaneous).
+    ctrl = OnvifControl()
+    devs = {}
+
+    async def fake_connect(host, port, user, pw):
+        dev = _FakeDev(datetime.now(timezone.utc))
+        devs[host] = dev
+        return _FakeCam(dev)
+
+    async def fake_close(_cam):
+        return None
+
+    monkeypatch.setattr(ctrl, "_connect", fake_connect)
+    monkeypatch.setattr(ctrl, "_close", fake_close)
+    sensors = [dict(_SENSOR, ip="10.0.0.1"), dict(_SENSOR, ip="10.0.0.2"),
+               dict(_SENSOR, ip="10.0.0.3")]
+    n = asyncio.run(ctrl.synchronize_sensors_time_batch(sensors, compensation_ms=50))
+    assert n == 3
+    assert len(devs) == 3 and all(d.set_called for d in devs.values())
+    # every camera received the identical Time block, and Second is a whole second (0..59)
+    times = {tuple(d.set_req.UTCDateTime["Time"].values()) for d in devs.values()}
+    assert len(times) == 1
+    assert all(0 <= v <= 59 for v in next(iter(times)))
+
+
+def test_default_encode_from_options_clamps_to_camera():
+    # framerate/gov clamped to ranges; resolution snapped to nearest supported; bitrate passthrough.
+    opt = SimpleNamespace(
+        FrameRateRange=SimpleNamespace(Min=1, Max=25),
+        GovLengthRange=SimpleNamespace(Min=1, Max=50),
+        ResolutionsAvailable=[SimpleNamespace(Width=1280, Height=720),
+                              SimpleNamespace(Width=1920, Height=1080),
+                              SimpleNamespace(Width=3840, Height=2160)],
+    )
+    enc = default_encode_from_options(
+        {"bitrate": 8000, "framerate": 30.0, "gov_length": 60, "resolution": "1920x1080"}, opt)
+    assert enc["Bitrate"] == "8000"
+    assert enc["FrameRate"] == "25"        # 30 clamped to max 25
+    assert enc["GovLength"] == "50"        # 60 clamped to max 50
+    assert enc["Resolution"] == {"Width": 1920, "Height": 1080}   # exact match
+
+
+def test_default_encode_from_options_no_options_passthrough():
+    # No options block -> framerate/gov applied as-is, resolution left unchanged (no list to snap to).
+    enc = default_encode_from_options(
+        {"bitrate": 6000, "framerate": 30.0, "gov_length": 60, "resolution": "1280x720"}, None)
+    assert enc == {"Bitrate": "6000", "FrameRate": "30", "GovLength": "60"}
+
+
+def test_default_encode_skips_zero_values():
+    assert default_encode_from_options({"bitrate": 0, "framerate": 0, "gov_length": 0,
+                                        "resolution": ""}, None) == {}
+
+
+def test_nearest_resolution_picks_closest():
+    avail = [SimpleNamespace(Width=640, Height=480), SimpleNamespace(Width=1280, Height=720),
+             SimpleNamespace(Width=1920, Height=1080)]
+    assert _nearest_resolution("1900x1070", avail) == (1920, 1080)   # closest by pixel count
+    assert _nearest_resolution("700x500", avail) == (640, 480)
+    assert _nearest_resolution("1920x1080", None) is None            # no options -> unchanged
+
+
+class _FakeMedia:
+    def __init__(self, vec, opts):
+        self._vec = vec
+        self._opts = opts
+        self.set_config = None
+
+    async def GetProfiles(self):
+        return [SimpleNamespace(VideoEncoderConfiguration=self._vec)]
+
+    async def GetVideoEncoderConfigurationOptions(self, _arg):
+        return self._opts
+
+    def create_type(self, _name):
+        return SimpleNamespace()
+
+    async def SetVideoEncoderConfiguration(self, req):
+        self.set_config = req
+
+
+class _FakeCamMedia:
+    def __init__(self, media):
+        self._media = media
+
+    async def create_media_service(self):
+        return self._media
+
+
+def test_apply_default_encode_settings_pushes_clamped(monkeypatch):
+    ctrl = OnvifControl()
+    vec = SimpleNamespace(
+        Encoding="H264", token="vec0",
+        RateControl=SimpleNamespace(BitrateLimit=4000, FrameRateLimit=15, EncodingInterval=1),
+        Resolution=SimpleNamespace(Width=1280, Height=720),
+        H264=SimpleNamespace(GovLength=30))
+    opts = SimpleNamespace(H264=SimpleNamespace(
+        FrameRateRange=SimpleNamespace(Min=1, Max=25),
+        GovLengthRange=SimpleNamespace(Min=1, Max=50),
+        ResolutionsAvailable=[SimpleNamespace(Width=1920, Height=1080)]))
+    media = _FakeMedia(vec, opts)
+
+    async def fake_connect(*_a, **_k):
+        return _FakeCamMedia(media)
+
+    async def fake_close(_c):
+        return None
+
+    monkeypatch.setattr(ctrl, "_connect", fake_connect)
+    monkeypatch.setattr(ctrl, "_close", fake_close)
+    rc = asyncio.run(ctrl.apply_default_encode_settings(
+        _SENSOR, {"bitrate": 8000, "framerate": 30.0, "gov_length": 60, "resolution": "1920x1080"}))
+    assert rc == 0
+    assert vec.RateControl.BitrateLimit == 8000
+    assert vec.RateControl.FrameRateLimit == 25            # clamped to camera max
+    assert vec.H264.GovLength == 50                        # clamped to camera max
+    assert (vec.Resolution.Width, vec.Resolution.Height) == (1920, 1080)
+    assert media.set_config.Configuration is vec and media.set_config.ForcePersistence is True
+
+
+def test_batch_sync_skips_unreachable_cameras(monkeypatch):
+    # A camera that fails to connect is dropped; the reachable ones are still synced.
+    ctrl = OnvifControl()
+    good = _FakeDev(datetime.now(timezone.utc))
+
+    async def fake_connect(host, port, user, pw):
+        if host == "10.0.0.bad":
+            raise RuntimeError("unreachable")
+        return _FakeCam(good)
+
+    async def fake_close(_cam):
+        return None
+
+    monkeypatch.setattr(ctrl, "_connect", fake_connect)
+    monkeypatch.setattr(ctrl, "_close", fake_close)
+    sensors = [dict(_SENSOR, ip="10.0.0.bad"), dict(_SENSOR, ip="10.0.0.9")]
+    assert asyncio.run(ctrl.synchronize_sensors_time_batch(sensors, compensation_ms=50)) == 1
+    assert good.set_called is True
 
 
 def test_scan_runs_onvif_discovery(tmp_path, monkeypatch):
