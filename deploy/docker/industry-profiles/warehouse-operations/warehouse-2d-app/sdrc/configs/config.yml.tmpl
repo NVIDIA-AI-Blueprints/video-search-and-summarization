@@ -55,6 +55,7 @@ docker-workload-rtvi-cv:
   WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
+  WDM_INITIALIZE_FROM_VST: false
   WDM_KFK_ENABLE: ${RTVI_CV_WDM_KFK_ENABLE}
   WDM_CLUSTER_TYPE: docker
   WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
@@ -67,6 +68,10 @@ docker-workload-rtvi-cv:
   NOHEADERTARGETROUTE: false
   HEADERLESS_SERVICE_ENDPOINTS: "[]"
   WDM_REAPPLY_ON_WL_RESTART: true
+  WDM_WL_ADD_URL: /api/v1/stream/add
+  WDM_WL_DELETE_URL: /api/v1/stream/remove
+  WDM_WL_CHANGE_ID_ADD: camera_streaming
+  WDM_WL_CHANGE_ID_DEL: camera_remove
   WDM_WL_THRESHOLD: 100
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 15000
 
