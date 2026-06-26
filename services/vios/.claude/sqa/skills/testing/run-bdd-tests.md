@@ -29,11 +29,11 @@ Run pytest-bdd test suites against a running VIOS instance.
 
    ```bash
    # Stop existing stack
-   cd <PROJECT_ROOT>/deployment
-   python3 oneclick_dc_deployment_for_dev.py stop
+   cd <PROJECT_ROOT>/services/vios/deployment/stream-processing
+   python3 oneclick_dc_deployment.py stop
 
    # Redeploy fresh
-   python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
+   python3 oneclick_dc_deployment.py deploy --force
    ```
 
    After redeployment, wait for VIOS to be healthy:
