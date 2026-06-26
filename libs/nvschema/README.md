@@ -1,17 +1,17 @@
-# nv-schema
+# nvschema
 
 nv protobuf schema
 
 ## protoc version
 
-Use protobuf compiler `libprotoc 27.3` when regenerating nv-schema outputs. Verify the local compiler version before running the generation commands below, because different `protoc` versions can produce incompatible or noisy generated-code diffs.
+Use protobuf compiler `libprotoc 27.3` when regenerating nvschema outputs. Verify the local compiler version before running the generation commands below, because different `protoc` versions can produce incompatible or noisy generated-code diffs.
 
 ```bash
 $ protoc --version
 libprotoc 27.3
 ```
 
-Run the generation commands below from this directory (`libs/nv-schema/`), which contains the `protobuf/` sources.
+Run the generation commands below from this directory (`libs/nvschema/`), which contains the `protobuf/` sources.
 
 > **Note on `struct.proto`:** only `schema.proto` and `ext.proto` are generated
 > directly. `struct.proto` is a vendored copy of the well-known
