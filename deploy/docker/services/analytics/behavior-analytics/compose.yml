@@ -25,7 +25,6 @@ services:
 
   vss-behavior-analytics-base:
     image: nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.0
-    network_mode: "host"
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json

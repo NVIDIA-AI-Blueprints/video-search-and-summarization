@@ -1343,7 +1343,7 @@ function state_up() {
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "base" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
-    set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
+    set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
     set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
     set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
@@ -1351,11 +1351,11 @@ function state_up() {
   # Alerts/LVS profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
   if  ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
-    # Local VLM only: rtvi-vlm serves the VLM locally on port 8018. VLM_BASE_URL
-    # needs runtime host_ip injection (source .env has it empty). VLM_NAME and
+    # Local VLM only: rtvi-vlm serves the VLM locally on the Compose network.
+    # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports. VLM_NAME and
     # RTVI_VLM_MODEL_PATH should come straight from the source .env.
     if [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
+      set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
     fi
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
