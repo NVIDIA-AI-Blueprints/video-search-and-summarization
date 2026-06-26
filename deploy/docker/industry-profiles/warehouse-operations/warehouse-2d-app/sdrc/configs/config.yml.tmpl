@@ -71,7 +71,7 @@ docker-workload-rtvi-cv:
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 15000
 
 docker-workload-alerts-2d:
-  wl_obj_name: vss-rtvi-vlm
+  wl_obj_name: vss-alert-bridge
   port: 4003
   enable: ${ALERTS_2D_ENABLE}
   REDIS_MSG_KEY: vst.event
@@ -81,9 +81,9 @@ docker-workload-alerts-2d:
   WDM_PRELOAD_DELAY_FOR_DS_API: true
   WDM_WL_THRESHOLD: ${NUM_STREAMS}
   WDM_POD_WATCH_DOCKER_DELAY: 0.5
-  WDM_WL_OBJECT_NAME: vss-rtvi-vlm
+  WDM_WL_OBJECT_NAME: vss-alert-bridge
   WDM_CONSUMER_GRP_ID: sdr-alerts-cg
-  WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-vlm"]'
+  WDM_CLUSTER_CONTAINER_NAMES: '["vss-alert-bridge"]'
   WDM_WL_ADD_URL: "/api/v1/realtime/always-on"
   WDM_WL_DELETE_URL: "/api/v1/realtime/always-on"
   WDM_WL_HEALTH_CHECK_URL: "/health"
