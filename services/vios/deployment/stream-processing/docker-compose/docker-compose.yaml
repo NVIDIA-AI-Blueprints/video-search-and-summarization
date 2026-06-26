@@ -31,6 +31,12 @@ services:
     environment:
       - CONTAINER_NAME=sensor-ms
       - ADAPTOR=${VST_ADAPTOR}
+      # Optional adaptor credential override. When set (non-empty) these win over the
+      # adaptor_config.json entry; leave blank to use adaptor_config.json. Either source is valid.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false
@@ -151,6 +157,12 @@ services:
       - CONTAINER_NAME=sensor-py
       - HTTP_PORT=${SENSOR_HTTP_PORT}
       - ADAPTOR=${VST_ADAPTOR}
+      # Optional adaptor credential override. When set (non-empty) these win over the
+      # adaptor_config.json entry; leave blank to use adaptor_config.json. Either source is valid.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - CENTRALIZE_DB_PASSWORD=${CENTRALIZE_DB_PASSWORD}

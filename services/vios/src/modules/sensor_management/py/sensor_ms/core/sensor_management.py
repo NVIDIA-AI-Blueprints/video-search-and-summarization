@@ -34,8 +34,10 @@ SENSOR_TYPE_ONVIF = "sensor_onvif"
 ONVIF_ADAPTOR = "onvif"
 # Adaptor names whose discovery polls nvstreamer for RTSP streams (vst_rtsp parity).
 RTSP_ADAPTORS = frozenset({"vst_rtsp", "rtsp", "streamer", "nvstream"})
-# Milestone XProtect (mms) SOAP adaptor: discovery via the milestone control adaptor's discover().
-MMS_ADAPTORS = frozenset({"milestone_soap", "milestone"})
+# Milestone XProtect (mms) adaptors: bulk discovery via the control adaptor's discover() -- the SOAP
+# server adaptor (milestone_soap/milestone, systeminfo.xml) and the ONVIF-bridge adaptor
+# (milestone_onvif, OnvifControl.discover over the bridge's media profiles).
+MMS_ADAPTORS = frozenset({"milestone_soap", "milestone", "milestone_onvif"})
 STREAM_TYPE_RTSP = 2
 DEFAULT_ENCODING = "h264"
 ONVIF_DEFAULT_PORT = 80
@@ -99,6 +101,12 @@ class SensorManagement:
         self._ntp_configured: set[str] = set()
         # Consecutive missed-discovery counts per ONVIF sensor id, for debounced removal logging.
         self._onvif_misses: dict[str, int] = {}
+        # Consecutive missed-discovery counts per milestone_onvif (mms) sensor id, for debounced
+        # offline marking when a camera stops appearing in the bridge's profile list.
+        self._mms_misses: dict[str, int] = {}
+        # Sensor ids the mms bridge discovery has produced at least once. Reconciliation only flips
+        # THESE offline when they later disappear, so a manually-added sensor is never touched.
+        self._mms_discovered: set[str] = set()
         # Debug "unplug": IPs the test hooks (/sensor/debug/unplug) have blocked. Discovery skips them
         # so a camera can be simulated offline without physically unplugging it (C++ blockSensor).
         self._blocked_ips: set[str] = set()
@@ -112,20 +120,23 @@ class SensorManagement:
 
     @staticmethod
     def _select_adaptor(cfg: Config):
-        """Pick the active adaptor name. Precedence: $ADAPTOR env (explicit switch, authoritative) ->
-        first enabled entry in adaptor_config.json -> cfg.adaptor default. Control object loaded from
-        the registry by name (None for url-only adaptors like vst_rtsp)."""
-        name = os.environ.get("ADAPTOR", "").strip()
-        if not name:
-            path = cfg.adaptor_config_path
-            if path and os.path.isfile(path):
-                try:
-                    name = load_adaptor(path).info.m_name
-                except Exception as e:
-                    log.error("failed to load %s: %s; using ADAPTOR/default", path, e)
-            else:
-                log.warning("adaptor_config not found at %s; using default", path)
-        name = name or cfg.adaptor
+        """Pick the active adaptor and load its credentials. Prefer adaptor_config.json: load_adaptor()
+        selects the entry by $ADAPTOR name (else the first enabled entry) and returns a control object
+        with control.info populated (ip/user/password/port) -- this is what credentialed adaptors like
+        milestone_onvif need to reach their bridge/VMS. Fall back to the $ADAPTOR env name (control
+        WITHOUT info) only when the config file is absent/unreadable. Control is None for url-only
+        adaptors (e.g. vst_rtsp). Matches the C++ AdaptorLoader, which always sources adaptor info from
+        adaptor_config.json regardless of the ADAPTOR env hint."""
+        path = cfg.adaptor_config_path
+        if path and os.path.isfile(path):
+            try:
+                loaded = load_adaptor(path)
+                return loaded.info.m_name, loaded.control
+            except Exception as e:
+                log.error("failed to load %s: %s; falling back to ADAPTOR env/default", path, e)
+        else:
+            log.warning("adaptor_config not found at %s; using ADAPTOR/default", path)
+        name = os.environ.get("ADAPTOR", "").strip() or cfg.adaptor
         return name, load_control_adaptor(name)
 
     @property
@@ -174,7 +185,11 @@ class SensorManagement:
             self._time_sync_task = asyncio.create_task(self._periodic_time_sync())
 
     def _periodic_discovery_enabled(self) -> bool:
-        return self._adaptor_name == ONVIF_ADAPTOR
+        # ONVIF: lightweight WS-Discovery multicast. milestone_onvif: re-poll the XProtect ONVIF bridge
+        # so cameras added/removed in XProtect are reflected and online/offline is tracked (C++ parity:
+        # the C++ milestone_onvif runs continuous SensorMonitoring discovery). milestone_soap stays
+        # one-shot (its discovery hits the management server, not a lightweight probe).
+        return self._adaptor_name in (ONVIF_ADAPTOR, "milestone_onvif")
 
     def _time_sync_enabled(self) -> bool:
         return (self._adaptor_name == ONVIF_ADAPTOR and self._control is not None
@@ -1065,10 +1080,17 @@ class SensorManagement:
         return added
 
     async def _scan_milestone(self) -> int:
-        """Discover Milestone XProtect cameras via the SOAP control adaptor (Login + systeminfo.xml)
-        and register each as an RTSP sensor with its live/vod URLs. Mirrors the C++ milestone_vms
-        bulk discovery; idempotent (stable GUID sensor_id). One-shot like the rtsp adaptors (the
-        bounded startup-retry covers transient login/HTTP failures)."""
+        """Discover Milestone XProtect cameras via the control adaptor's bulk discover() and register
+        each as an RTSP sensor with its live/vod URLs (idempotent, stable GUID/profile-token
+        sensor_id):
+          - milestone_soap/milestone -> SOAP Login + systeminfo.xml (MilestoneControl.discover).
+          - milestone_onvif          -> the XProtect ONVIF bridge's media profiles
+                                        (OnvifControl.discover; live + replay URIs, creds embedded).
+        Under periodic re-discovery (milestone_onvif) this also reconciles online/offline: a camera
+        that re-appears after going offline is restored + re-announced, and one that stops appearing
+        for ONVIF_DISCOVERY_MISS_THRESHOLD consecutive scans is flipped offline (camera_remove). An
+        empty result is treated as a transient bridge/endpoint failure (retry/no reconciliation) so a
+        momentary outage does not flap every camera offline."""
         control = self._control
         if control is None or not hasattr(control, "discover"):
             return 0
@@ -1079,14 +1101,29 @@ class SensorManagement:
             self._last_scan_had_failures = True
             return 0
         if not cams:
-            # Could be an auth/endpoint failure -> let the bounded retry try again.
+            # Auth/endpoint/bridge failure -> let the bounded retry try again; do NOT reconcile
+            # offline (a transient empty result must not flap every registered camera offline).
             self._last_scan_had_failures = True
+            return 0
         added = 0
         count = len(self.repo.list_sensors())
         hit_cap = False
+        discovered_ids: set[str] = set()
         for cam in cams:
             sid = cam.get("sensor_id") or ""
-            if not sid or self.repo.get_sensor(sid) is not None:
+            if not sid:
+                continue
+            discovered_ids.add(sid)
+            self._mms_discovered.add(sid)
+            self._mms_misses.pop(sid, None)  # responded this scan -> reset miss counter
+            md = {"codec": cam.get("codec", ""), "resolution": cam.get("resolution", ""),
+                  "framerate": cam.get("framerate", "")}
+            existing = self.repo.get_sensor(sid)
+            if existing is not None:
+                # Already registered: restore + re-announce if it had been marked offline (camera came
+                # back). Otherwise leave it untouched (idempotent re-scan).
+                if (existing.sensor_status or 0) == 0:
+                    await self._mark_mms_online(existing, cam, md)
                 continue
             if (urlparse(cam.get("live_url", "")).hostname or "") in self._blocked_ips:
                 continue
@@ -1094,14 +1131,57 @@ class SensorManagement:
                 hit_cap = True
                 continue
             await self._register_rtsp_sensor(
-                sid, cam.get("name", ""), cam.get("live_url", ""),
-                {"codec": cam.get("codec", "")}, replay_url=cam.get("replay_url", ""))
+                sid, cam.get("name", ""), cam.get("live_url", ""), md,
+                replay_url=cam.get("replay_url", ""))
             count += 1
             added += 1
         self._note_cap(hit_cap, "Milestone cameras")
         if added:
             log.info("Milestone discovery registered %d new camera(s)", added)
+        await self._handle_mms_offline(discovered_ids)
         return added
+
+    async def _mark_mms_online(self, row, cam: dict[str, Any], md: dict[str, Any]) -> None:
+        """An mms camera re-appeared in bridge discovery after being marked offline: restore online
+        status and re-announce camera_add + camera_proxy so downstream rebuilds its proxy. Mirrors
+        _mark_onvif_online for the RTSP-backed mms sensors."""
+        now = _now_iso()
+        self.repo.set_sensor_status(row.sensor_id, 1, http_status=mapping.CAMERA_NO_ERROR_CODE,
+                                    now_iso=now)
+        log.info("Milestone camera back online: %s (%s)", row.name or "", row.sensor_id)
+        await self._events.publish(build_payload(
+            change=ChangeEvent.camera_add, camera_id=row.sensor_id, camera_name=row.name or "",
+            camera_url="", tags=row.tags or "", created_at=now, metadata=None))
+        await self._events.publish(build_payload(
+            change=ChangeEvent.camera_proxy, camera_id=row.sensor_id, camera_name=row.name or "",
+            camera_url=cam.get("live_url", ""), tags=row.tags or "", created_at=now,
+            metadata={"codec": md.get("codec", ""), "framerate": md.get("framerate", ""),
+                      "resolution": md.get("resolution", "")}))
+
+    async def _handle_mms_offline(self, discovered_ids: set[str]) -> None:
+        """Mark mms cameras that stopped appearing in bridge discovery for ONVIF_DISCOVERY_MISS_THRESHOLD
+        consecutive scans as offline and publish camera_remove. Only ids the bridge has produced before
+        (self._mms_discovered) are considered, so manually-added sensors are never touched. The DB row
+        is kept; only status flips and one event fires (mirrors _handle_onvif_offline)."""
+        for sid in list(self._mms_discovered):
+            if sid in discovered_ids:
+                continue
+            row = self.repo.get_sensor(sid)
+            if row is None:
+                self._mms_discovered.discard(sid)
+                self._mms_misses.pop(sid, None)
+                continue
+            misses = self._mms_misses.get(sid, 0) + 1
+            self._mms_misses[sid] = misses
+            if misses != ONVIF_DISCOVERY_MISS_THRESHOLD:
+                continue  # debounced: act exactly once when the threshold is first crossed
+            if (row.sensor_status or 0) != 0:
+                log.info("Milestone camera offline: %s (%s)", row.name or "", sid)
+                now = _now_iso()
+                self.repo.set_sensor_status(sid, 0, http_status=ONVIF_OFFLINE_HTTP_CODE, now_iso=now)
+                await self._events.publish(build_payload(
+                    change=ChangeEvent.camera_remove, camera_id=sid, camera_name=row.name or "",
+                    camera_url="", tags=row.tags or "", created_at=now, metadata=None))
 
     async def _register_rtsp_sensor(self, sid: str, name: str, url: str, md: dict[str, Any],
                                     replay_url: str = "") -> None:

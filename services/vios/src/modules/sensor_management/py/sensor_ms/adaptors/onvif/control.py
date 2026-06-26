@@ -17,12 +17,30 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote, urlparse
 
 from ..base import SensorControlAdaptor
 
 log = logging.getLogger(__name__)
 
 STREAM_TYPE_RTSP = "Rtsp"
+
+# Video encodings accepted as a camera's main stream (parity with the C++ onvif_client, which skips
+# any profile whose VideoEncoderConfiguration encoding is not H264/H265).
+_MAIN_STREAM_CODECS = frozenset({"H264", "H265"})
+
+
+def _embed_creds(url: str, user: str, password: str) -> str:
+    """Embed user[:password]@ into an rtsp URL. The C++ onvif_client embeds the adaptor credentials in
+    the live/replay URLs so the downstream RTSP proxy DESCRIBE authenticates. No-op for empty user or
+    non-URL strings; credentials are percent-encoded so reserved characters survive."""
+    if not user or "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    if "@" in rest.split("/", 1)[0]:
+        return url  # already has userinfo
+    cred = quote(user, safe="") + ((":" + quote(password, safe="")) if password else "")
+    return f"{scheme}://{cred}@{rest}"
 
 # Only correct the camera clock when it drifts beyond this many seconds from host UTC. Mirrors the
 # C++ NvSoap::synchronizeDeviceTime threshold (DEVICE_AND_CLIENT_TIME_DIFFERENCE_SEC = 1). NOTE: the
@@ -397,6 +415,89 @@ class OnvifControl(SensorControlAdaptor):
     async def connect(self) -> int:
         # Connection is per-sensor (cameras are independent); nothing global to do.
         return 0
+
+    async def discover(self) -> list[dict[str, Any]]:
+        """Bulk-discover the cameras published by a Milestone XProtect ONVIF Bridge (milestone_onvif).
+
+        The bridge is a single ONVIF device that exposes one media Profile per XProtect camera, so
+        discovery = connect once to the bridge, enumerate Profiles, and resolve each profile's live
+        (and, when the bridge offers a replay service, VOD) RTSP URI. Mirrors the C++ onvif_client
+        fetchSensorStreamInfo MMS path: sensor_id = profile token, name = profile name, H264/H265 main
+        streams only, adaptor credentials embedded in the URLs, deduped by token. Bridge address and
+        credentials come from adaptor_config (self.info). Returns camera dicts consumed by
+        SensorManagement._scan_milestone; returns [] on any connect/auth/transport failure so the
+        caller treats it as a transient miss rather than wiping the sensor list."""
+        host = self.info.m_ipaddress or (urlparse(self.info.m_url or "").hostname or "")
+        if not host:
+            log.error("milestone_onvif: no bridge IP configured in adaptor_config")
+            return []
+        try:
+            port = int(self.info.m_port or 80)
+        except (TypeError, ValueError):
+            port = 80
+        user, password = self.info.m_user or "", self.info.m_password or ""
+        cam = None
+        cams: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        try:
+            cam = await self._connect(host, port, user, password)
+            media = await cam.create_media_service()
+            profiles = await media.GetProfiles()
+            # The bridge's replay service (XProtect VOD) is optional; resolve it once and reuse.
+            replay = None
+            try:
+                replay = await cam.create_replay_service()
+            except Exception:
+                replay = None
+            for prof in profiles:
+                token = getattr(prof, "token", "") or getattr(prof, "_token", "")
+                if not token or token in seen:
+                    continue
+                vec = getattr(prof, "VideoEncoderConfiguration", None)
+                codec = (getattr(vec, "Encoding", "") or "").upper() if vec else ""
+                if codec not in _MAIN_STREAM_CODECS:
+                    continue  # main video stream only (C++ skips non-H264/H265 profiles)
+                try:
+                    uri_resp = await media.GetStreamUri(
+                        {"StreamSetup": {"Stream": "RTP-Unicast",
+                                         "Transport": {"Protocol": "RTSP"}}, "ProfileToken": token})
+                    live = getattr(uri_resp, "Uri", "") or ""
+                except Exception as e:
+                    log.warning("milestone_onvif: GetStreamUri failed for profile %s: %s", token, e)
+                    continue
+                if not live:
+                    continue
+                replay_uri = ""
+                if replay is not None:
+                    try:
+                        r = await replay.GetReplayUri(
+                            {"StreamSetup": {"Stream": "RTP-Unicast",
+                                             "Transport": {"Protocol": "RTSP"}}, "RecordingToken": token})
+                        replay_uri = getattr(r, "Uri", "") or ""
+                    except Exception:
+                        replay_uri = ""  # camera without recordings / replay unsupported
+                res = getattr(vec, "Resolution", None) if vec else None
+                rc = getattr(vec, "RateControl", None) if vec else None
+                seen.add(token)
+                cams.append({
+                    "sensor_id": token,
+                    "name": getattr(prof, "Name", "") or token,
+                    "live_url": _embed_creds(live, user, password),
+                    "replay_url": _embed_creds(replay_uri, user, password) if replay_uri else "",
+                    "codec": codec.lower(),
+                    "resolution": f"{res.Width}x{res.Height}" if res is not None else "",
+                    "framerate": str(getattr(rc, "FrameRateLimit", "") or "") if rc is not None else "",
+                })
+            # Per-scan total at DEBUG: this runs every periodic-discovery pass, so logging it at INFO
+            # would spam the log. State changes (new registrations, online/offline) are logged at INFO
+            # by SensorManagement instead.
+            log.debug("milestone_onvif: discovered %d camera(s) via bridge %s:%d", len(cams), host, port)
+            return cams
+        except Exception as e:
+            log.warning("milestone_onvif discovery failed for bridge %s:%s: %s", host, port, e)
+            return []
+        finally:
+            await self._close(cam)
 
     async def validate_credentials(self, sensor: dict[str, Any], username: str, password: str) -> bool:
         cam = None

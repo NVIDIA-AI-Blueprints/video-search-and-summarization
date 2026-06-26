@@ -88,6 +88,13 @@ def load_adaptor(config_path: str) -> LoadedAdaptor:
         m_ipaddress=chosen.get("ip", ""),
         m_url=chosen.get("url", ""),
     )
+    # Either source is valid for adaptor credentials: a non-empty compose.env override
+    # (ADAPTOR_IP/USER/PASSWORD/PORT) takes precedence over the adaptor_config.json entry, so a
+    # deployment can configure the bridge/VMS in one place. Mirrors the C++ AdaptorLoader override.
+    info.m_ipaddress = os.environ.get("ADAPTOR_IP", "").strip() or info.m_ipaddress
+    info.m_user = os.environ.get("ADAPTOR_USER", "").strip() or info.m_user
+    info.m_password = os.environ.get("ADAPTOR_PASSWORD") or info.m_password
+    info.m_port = os.environ.get("ADAPTOR_PORT", "").strip() or info.m_port
 
     control = discovery = None
     if info.m_name in _REGISTRY:
