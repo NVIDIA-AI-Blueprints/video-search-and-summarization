@@ -31,15 +31,15 @@ Valid modules: `sensor`, `rtspserver`, `recorder`, `livestream`, `replaystream`,
 VIOS runs inside Docker containers. The dev build-deploy cycle is:
 
 1. **Build + containerize**: `./build.sh container module=<modules>` (compiles C++, packages, creates Docker image)
-2. **Deploy via docker-compose**: `python3 deployment/oneclick_dc_deployment_for_dev.py` (interactive one-click deployment)
+2. **Deploy via docker-compose**: `python3 deployment/stream-processing/oneclick_dc_deployment.py` (non-interactive one-click deployment by default; pass `--interactive` to opt in to prompts)
 
 ## IMPORTANT: Auto-run build and deploy commands
 
-When the user asks to build, deploy, stop, or redeploy -- run the commands immediately without asking for confirmation. Always use `--auto --force` flags on the deployment script to avoid interactive prompts. Do NOT ask the user "shall I proceed?" or "want me to run this?" -- just execute.
+When the user asks to build, deploy, stop, or redeploy -- run the commands immediately without asking for confirmation. Always use `--force` on the deployment script to skip the "existing deployment detected" prompt. Do NOT ask the user "shall I proceed?" or "want me to run this?" -- just execute.
 
 - Build: `./build.sh container module=<modules>` -- run directly, long-running (~20min for all modules)
-- Deploy: `python3 deployment/oneclick_dc_deployment_for_dev.py deploy --auto --force` -- run directly
-- Stop: `python3 deployment/oneclick_dc_deployment_for_dev.py stop` or `stop --target vios` -- run directly
+- Deploy: `python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --force` -- run directly
+- Stop: `python3 deployment/stream-processing/oneclick_dc_deployment.py stop` or `stop vst` -- run directly
 - Full cycle (build + deploy): run build first, then deploy sequentially -- no confirmation needed
 
 ## build.sh Options
@@ -55,51 +55,50 @@ When the user asks to build, deploy, stop, or redeploy -- run the commands immed
 
 ## One-Click Deployment Script
 
-**Script:** `deployment/oneclick_dc_deployment_for_dev.py`
+**Script:** `deployment/stream-processing/oneclick_dc_deployment.py`
 
-Deploys VIOS microservices via docker-compose. Uses `<action> --target <target>` syntax.
+Deploys VIOS microservices via docker-compose. Non-interactive by default; smart defaults are applied automatically. Uses `<action> [target]` positional form or `--target <target>` flag form.
 
-Targets: `vios` (default, stream-processor at `deployment/stream-processing/docker-compose/`), `scaled` (all microservices at `deployment/scaling/docker-compose/`), `nvstreamer`, `all`.
+Targets: `vst` (default; alias `vios` accepted, stream-processor at `deployment/stream-processing/docker-compose/`), `nvstreamer`, `all`.
 
 ```
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --auto --force                        # deploy VIOS (default target)
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target scaled --auto --force         # deploy all microservices
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target nvstreamer --auto --force     # deploy NVStreamer only
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --target all --auto --force            # deploy VIOS + NVStreamer
-python3 deployment/oneclick_dc_deployment_for_dev.py stop                                         # stop all services
-python3 deployment/oneclick_dc_deployment_for_dev.py stop --target vios                            # stop only VIOS
-python3 deployment/oneclick_dc_deployment_for_dev.py stop --target nvstreamer                      # stop only NVStreamer
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --fresh-start --auto --force           # clean start
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --with-minio --auto --force            # deploy with MinIO
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --with-monitoring --auto --force       # deploy with Grafana/Prometheus
-python3 deployment/oneclick_dc_deployment_for_dev.py deploy --pull-always --auto --force           # pull latest images
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --force                        # deploy VIOS (default target)
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --target nvstreamer --force    # deploy NVStreamer only
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --target all --force           # deploy VIOS + NVStreamer
+python3 deployment/stream-processing/oneclick_dc_deployment.py stop                                  # stop all services
+python3 deployment/stream-processing/oneclick_dc_deployment.py stop vst                              # stop only VIOS
+python3 deployment/stream-processing/oneclick_dc_deployment.py stop nvstreamer                       # stop only NVStreamer
+python3 deployment/stream-processing/oneclick_dc_deployment.py stop --clean                         # stop and remove persistent data
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --fresh-start --force          # clean start
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --with-monitoring --force      # deploy with Grafana/Prometheus
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --pull-always --force          # pull latest images
+python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --interactive                  # opt in to prompts
 ```
 
 **Key paths (stream-processor / default):**
 - Compose files: `deployment/stream-processing/docker-compose/docker-compose.yaml`
 - Config: `deployment/stream-processing/docker-compose/configs/`
 - Compose env: `deployment/stream-processing/docker-compose/compose.env`
+- SDRC overlay: `deployment/stream-processing/docker-compose/sdrc/` (only active when `VST_USE_SDRC=true` + `COMPOSE_PROFILES=sdrc` in `compose.env`)
+- NVStreamer compose: `deployment/stream-processing/docker-compose/nvstreamer/`
 
-**Key paths (scaled / all microservices via `--target scaled`):**
-- Compose files: `deployment/scaling/docker-compose/docker-compose.yaml`
-- Config: `deployment/scaling/docker-compose/configs/`
-- Volume: `deployment/scaling/docker-compose/vst_volume/`
-- Compose env: `deployment/scaling/docker-compose/compose.env`
+**Deployment mode** (SDRC vs direct) is selected by the toggle block at the top of `compose.env`. Direct mode is the default — 4 containers, single-pod, no SDR/Envoy. SDRC mode adds `sdr-controller` + the init chain for header-routed multi-pod operation.
 
 **Access URLs (after deploy):**
-- VIOS UI: `http://<HOST_IP>:30888/vios/#/dashboard`
+- VIOS UI: `http://<HOST_IP>:30888/vst/#/dashboard`
 - Grafana: `http://<HOST_IP>:3000` (with `--with-monitoring`)
-- MinIO: `http://<HOST_IP>:9001` (with `--with-minio`)
 
-**VIOS containers:** `centralizedb`, `vios-ingress`, `redis-server`, `sensor-ms`, `storage-ms`, `vios-mcp`, plus per-module containers (rtsp, recorder, livestream, replay, streambridge)
+**VIOS containers (direct mode):** `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms-1`
+
+**Extra containers in SDRC mode:** `redis`, `sdr-controller`, `sdrc-init-dirs`, `sdrc-render-config`
 
 ## Debugging: Source changes require container rebuild
 
 Since VIOS runs in Docker, editing source files alone does NOT affect the running service. The full cycle is:
 1. Edit source files
 2. `./build.sh container module=<affected_modules>` -- rebuilds container image
-3. `python3 deployment/oneclick_dc_deployment_for_dev.py deploy --auto --force` -- redeploys with new image
-4. Check logs: `sudo docker compose -f docker-compose.yaml --env-file ./compose.env logs -f` (from `deployment/scaling/docker-compose/`)
+3. `python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --force` -- redeploys with new image
+4. Check logs: `sudo docker compose -f docker-compose.yaml --env-file ./compose.env logs -f` (from `deployment/stream-processing/docker-compose/`)
 
 # Common Build Pitfalls
 
