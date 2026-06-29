@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 NEMOCLAW_REPO_DIR="${NEMOCLAW_REPO_DIR:-${HOME}/NemoClaw}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
+NEMOCLAW_AGENT_RUNTIME="${NEMOCLAW_AGENT_RUNTIME:-openclaw}"
 # NEMOCLAW_PROVIDER selects the Nemoclaw onboard/install provider. Required — no default.
 # Accepted values: "build" (NVIDIA Endpoints / integrate.api.nvidia.com) or "custom" (OpenAI-compatible endpoint).
 NEMOCLAW_PROVIDER="${NEMOCLAW_PROVIDER:?NEMOCLAW_PROVIDER is required}"
@@ -29,6 +30,12 @@ NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemocla
 OPENCLAW_PLUGIN_DIR="${OPENCLAW_PLUGIN_DIR:-${VSS_REPO_DIR}/.openclaw}"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
 VSS_REMOTE_CONFIG_PATH="/sandbox/.openclaw/openclaw.json"
+HERMES_WRAPPER_PATH="${HERMES_WRAPPER_PATH:-${SCRIPT_DIR}/vss_orchestrator_wrapper.py}"
+HERMES_AGENTS_PATH="${HERMES_AGENTS_PATH:-${VSS_REPO_DIR}/.hermes/workspace/AGENTS.md}"
+HERMES_TOOLS_PATH="${HERMES_TOOLS_PATH:-${VSS_REPO_DIR}/.hermes/workspace/TOOLS.md}"
+HERMES_REMOTE_WRAPPER_PATH="${HERMES_REMOTE_WRAPPER_PATH:-/sandbox/bin/vss-orchestrator}"
+HERMES_REMOTE_AGENTS_PATH="${HERMES_REMOTE_AGENTS_PATH:-/sandbox/AGENTS.md}"
+HERMES_REMOTE_TOOLS_PATH="${HERMES_REMOTE_TOOLS_PATH:-/sandbox/TOOLS.md}"
 
 log() {
   printf '[init_nemoclaw] %s\n' "$*"
@@ -46,6 +53,7 @@ usage() {
   cat <<'EOF'
 Usage:
   bash init_nemoclaw.sh [--nvidia-api-key <KEY>] [options]
+  NEMOCLAW_AGENT_RUNTIME=hermes bash init_nemoclaw.sh [options]
   NVIDIA_API_KEY=<key> bash init_nemoclaw.sh [options]
 
   When NEMOCLAW_PROVIDER=build, the NVIDIA API key is resolved in this order:
@@ -56,6 +64,7 @@ Usage:
 
 Options:
   --nvidia-api-key KEY        NVIDIA API key (required when NEMOCLAW_PROVIDER=build; ignored for "custom")
+  --agent-runtime RUNTIME     openclaw or hermes (default: openclaw)
   --sandbox-name NAME         Sandbox name (default: demo)
   --model NAME                NVIDIA model ID (default: nvidia/nemotron-3-super-120b-a12b)
   --nvidia-base-url URL       NVIDIA API base URL (default: https://integrate.api.nvidia.com/v1)
@@ -68,12 +77,16 @@ Options:
   --help                      Show this help
 
 Environment (non-interactive Nemoclaw / OpenShell):
+  NEMOCLAW_AGENT_RUNTIME      openclaw or hermes (default: openclaw)
   NEMOCLAW_PROVIDER           Nemoclaw onboard/install provider (REQUIRED; must be "build" = NVIDIA Endpoints / integrate.api.nvidia.com, or "custom" = OpenAI-compatible)
   NEMOCLAW_ENDPOINT_URL       OpenAI-compatible endpoint URL (REQUIRED when NEMOCLAW_PROVIDER=custom)
   COMPATIBLE_API_KEY          API key for the OpenAI-compatible endpoint (REQUIRED when NEMOCLAW_PROVIDER=custom)
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
   OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
                               (default: <VSS_REPO_DIR>/.openclaw)
+  HERMES_WRAPPER_PATH          Hermes VSS Orchestrator MCP wrapper source
+  HERMES_AGENTS_PATH           Hermes VSS workspace instructions
+  HERMES_TOOLS_PATH            Hermes workspace instructions for the wrapper
 EOF
 }
 
@@ -84,6 +97,10 @@ parse_args() {
     case "$1" in
       --nvidia-api-key)
         NVIDIA_API_KEY="$2"
+        shift 2
+        ;;
+      --agent-runtime)
+        NEMOCLAW_AGENT_RUNTIME="$2"
         shift 2
         ;;
       --sandbox-name)
@@ -205,6 +222,30 @@ resolve_nemoclaw() {
   for candidate in \
     "$NEMOCLAW_SHIM_DIR/nemoclaw" \
     "${npm_bin:-}/nemoclaw"
+  do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+resolve_nemohermes() {
+  refresh_path
+
+  if have nemohermes; then
+    command -v nemohermes
+    return 0
+  fi
+
+  local npm_bin candidate
+  npm_bin="$(npm config get prefix 2>/dev/null)/bin" || true
+
+  for candidate in \
+    "$NEMOCLAW_SHIM_DIR/nemohermes" \
+    "${npm_bin:-}/nemohermes"
   do
     if [ -x "$candidate" ]; then
       printf '%s\n' "$candidate"
@@ -501,6 +542,60 @@ install_vss_openclaw_plugin() {
   ensure_dashboard_forward || return 1
 }
 
+install_vss_hermes_skills() {
+  local skill_cli skill_dir skill_name
+
+  if skill_cli="$(resolve_nemohermes)"; then
+    :
+  elif skill_cli="$(resolve_nemoclaw)"; then
+    :
+  else
+    log "ERROR: neither nemohermes nor nemoclaw is available; cannot install VSS skills"
+    return 1
+  fi
+
+  log "Installing VSS skills into Hermes sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  for skill_dir in "${VSS_REPO_DIR}"/skills/*; do
+    [ -d "$skill_dir" ] || continue
+    [ -f "${skill_dir}/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    log "Installing skill ${skill_name}"
+    "$skill_cli" "$NEMOCLAW_SANDBOX_NAME" skill install "$skill_dir"
+  done
+}
+
+upload_hermes_wrapper() {
+  local shell_cmd
+
+  if ! have openshell; then
+    log "OpenShell is not available; cannot upload Hermes wrapper"
+    return 1
+  fi
+
+  log "Installing VSS Orchestrator command bridge for Hermes"
+  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc \
+    "mkdir -p '$(dirname "$HERMES_REMOTE_WRAPPER_PATH")'" </dev/null
+
+  printf -v shell_cmd 'cat > %q' "$HERMES_REMOTE_WRAPPER_PATH"
+  if ! openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -c "$shell_cmd" < "$HERMES_WRAPPER_PATH"; then
+    log "ERROR: failed to install Hermes VSS command bridge"
+    return 1
+  fi
+  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- chmod 0755 "$HERMES_REMOTE_WRAPPER_PATH"
+
+  printf -v shell_cmd 'cat > %q' "$HERMES_REMOTE_AGENTS_PATH"
+  if ! openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -c "$shell_cmd" < "$HERMES_AGENTS_PATH"; then
+    log "ERROR: failed to upload Hermes VSS agent instructions"
+    return 1
+  fi
+
+  printf -v shell_cmd 'cat > %q' "$HERMES_REMOTE_TOOLS_PATH"
+  if ! openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -c "$shell_cmd" < "$HERMES_TOOLS_PATH"; then
+    log "ERROR: failed to upload Hermes workspace instructions"
+    return 1
+  fi
+}
+
 validate_custom_provider() {
   if [ "${NEMOCLAW_PROVIDER}" != "custom" ]; then
     return 0
@@ -515,12 +610,51 @@ validate_custom_provider() {
   fi
 }
 
+normalize_agent_runtime() {
+  NEMOCLAW_AGENT_RUNTIME="$(printf '%s' "$NEMOCLAW_AGENT_RUNTIME" | tr '[:upper:]' '[:lower:]')"
+  case "$NEMOCLAW_AGENT_RUNTIME" in
+    nemoclaw|openclaw)
+      NEMOCLAW_AGENT_RUNTIME="openclaw"
+      ;;
+    nemohermes|hermes)
+      NEMOCLAW_AGENT_RUNTIME="hermes"
+      ;;
+    *)
+      log "ERROR: NEMOCLAW_AGENT_RUNTIME must be openclaw or hermes."
+      exit 1
+      ;;
+  esac
+}
+
+validate_runtime_settings() {
+  normalize_agent_runtime
+  validate_custom_provider
+
+  if [ "$NEMOCLAW_AGENT_RUNTIME" = "hermes" ]; then
+    if [ ! -f "$HERMES_WRAPPER_PATH" ]; then
+      log "ERROR: Hermes MCP wrapper is missing: ${HERMES_WRAPPER_PATH}"
+      exit 1
+    fi
+    if [ ! -f "$HERMES_AGENTS_PATH" ]; then
+      log "ERROR: Hermes workspace instructions are missing: ${HERMES_AGENTS_PATH}"
+      exit 1
+    fi
+    if [ ! -f "$HERMES_TOOLS_PATH" ]; then
+      log "ERROR: Hermes workspace instructions are missing: ${HERMES_TOOLS_PATH}"
+      exit 1
+    fi
+  fi
+}
+
 export_provider_env() {
   export NEMOCLAW_PROVIDER
   export NEMOCLAW_MODEL
   export NEMOCLAW_NON_INTERACTIVE
   export NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
   export NVIDIA_API_KEY
+  if [ "$NEMOCLAW_AGENT_RUNTIME" = "hermes" ]; then
+    export NEMOCLAW_AGENT=hermes
+  fi
   if [ "${NEMOCLAW_PROVIDER}" = "custom" ]; then
     export NEMOCLAW_ENDPOINT_URL
     export COMPATIBLE_API_KEY
@@ -537,6 +671,24 @@ run_onboard() {
   log "Running nemoclaw onboard (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
   export_provider_env
   "$nemoclaw_cmd" onboard --non-interactive
+}
+
+run_hermes_onboard() {
+  local nemohermes_cmd nemoclaw_cmd
+
+  export_provider_env
+  if nemohermes_cmd="$(resolve_nemohermes)"; then
+    log "Running nemohermes onboard (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
+    "$nemohermes_cmd" onboard --non-interactive
+    return
+  fi
+
+  nemoclaw_cmd="$(resolve_nemoclaw)" || {
+    log "neither nemohermes nor nemoclaw is currently resolvable"
+    exit 1
+  }
+  log "Running nemoclaw onboard --agent hermes (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
+  "$nemoclaw_cmd" onboard --agent hermes --non-interactive
 }
 
 run_install() {
@@ -564,17 +716,19 @@ strip_ansi() {
 }
 
 sandbox_ready() {
+  local agent_command="${1:-openclaw}"
   have openshell || return 1
   openshell sandbox list 2>/dev/null \
     | strip_ansi \
     | awk -v name="$NEMOCLAW_SANDBOX_NAME" '$1 == name && $NF == "Ready" { found = 1 } END { exit found ? 0 : 1 }' \
     || return 1
-  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc 'command -v openclaw >/dev/null' </dev/null >/dev/null 2>&1
+  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc "command -v ${agent_command} >/dev/null" </dev/null >/dev/null 2>&1
 }
 
 wait_for_sandbox_ready() {
-  local timeout deadline
-  timeout="${1:-${NEMOCLAW_SANDBOX_READY_TIMEOUT:-300}}"
+  local agent_command timeout deadline
+  agent_command="${1:-openclaw}"
+  timeout="${2:-${NEMOCLAW_SANDBOX_READY_TIMEOUT:-300}}"
   deadline=$((SECONDS + timeout))
 
   if have nemoclaw; then
@@ -582,9 +736,9 @@ wait_for_sandbox_ready() {
     nemoclaw status || true
   fi
 
-  log "Waiting for sandbox ${NEMOCLAW_SANDBOX_NAME} to be Ready"
+  log "Waiting for sandbox ${NEMOCLAW_SANDBOX_NAME} to be Ready with ${agent_command}"
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if sandbox_ready; then
+    if sandbox_ready "$agent_command"; then
       log "Sandbox ${NEMOCLAW_SANDBOX_NAME} is Ready"
       return 0
     fi
@@ -596,7 +750,39 @@ wait_for_sandbox_ready() {
   return 1
 }
 
+main_hermes() {
+  refresh_path
+
+  if sandbox_exists; then
+    log "Sandbox ${NEMOCLAW_SANDBOX_NAME} already exists; skipping NemoClaw onboard/install"
+    configure_openshell_provider
+  else
+    log "Start installing/onboarding NemoClaw Hermes"
+    if have nemoclaw || have nemohermes; then
+      run_hermes_onboard
+    else
+      run_install
+    fi
+    log "Finished installing/onboarding NemoClaw Hermes"
+  fi
+
+  wait_for_sandbox_ready hermes
+  refresh_path
+  apply_vss_policy
+  install_vss_hermes_skills
+  upload_hermes_wrapper
+
+  log "NemoClaw Hermes VSS setup complete."
+  log "To connect, run: nemohermes ${NEMOCLAW_SANDBOX_NAME} connect"
+  log "VSS Orchestrator command bridge: ${HERMES_REMOTE_WRAPPER_PATH}"
+}
+
 main() {
+  if [ "$NEMOCLAW_AGENT_RUNTIME" = "hermes" ]; then
+    main_hermes
+    return
+  fi
+
   # Non-interactive shells often skip .bashrc; load nvm/node before nemoclaw (env node shebang).
   refresh_path
 
@@ -628,9 +814,11 @@ main() {
 }
 
 parse_args "$@"
-validate_custom_provider
-export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
+validate_runtime_settings
+export NEMOCLAW_SANDBOX_NAME NEMOCLAW_AGENT_RUNTIME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
 export NEMOCLAW_ENDPOINT_URL COMPATIBLE_API_KEY
 export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
+export HERMES_WRAPPER_PATH HERMES_AGENTS_PATH HERMES_TOOLS_PATH
+export HERMES_REMOTE_WRAPPER_PATH HERMES_REMOTE_AGENTS_PATH HERMES_REMOTE_TOOLS_PATH
 
 main
