@@ -20,6 +20,7 @@ Tests: sensor list, status, streams, info, QOS, system stats, timelines,
 version, help, configuration.
 """
 import logging
+import uuid
 
 import pytest
 from pytest_bdd import scenarios, given, when, then
@@ -27,6 +28,8 @@ from pytest_bdd import scenarios, given, when, then
 from ..unit_test_utils import (
     UnitTestContext,
     api_get,
+    api_post,
+    api_delete,
     validate_json_response,
     validate_list_response,
     validate_string_response,
@@ -273,3 +276,130 @@ def check_configuration_required_arrays(context: UnitTestContext) -> None:
         data["ntpServers"],
         data["deviceDiscoveryInterfaces"],
     )
+# ---------------------------------------------------------------------------
+# Regression: GET /sensor/{id}/network must not 500 for an RTSP sensor
+# (NVBug 6164112). A plain RTSP/native sensor has no ONVIF session, so the
+# unsupported case must return a structured non-500 response, never a
+# 500 VMSInternalError.
+# ---------------------------------------------------------------------------
+
+_NETWORK_INFO_RTSP_URL = "rtsp://192.0.2.30:554/network-info-regression"
+_NETWORK_INFO_NAME_PREFIX = "bdd-network-info-"
+
+
+def _wipe_leftover_network_info_sensors(api_config: dict, unit_test_params: dict) -> None:
+    """Delete any sensor left behind by an earlier run of the network-info scenario."""
+    base_url = api_config["base_url"]
+    timeout = unit_test_params.get("timeout", 30)
+    verify_ssl = api_config.get("verify_ssl", False)
+    try:
+        resp = api_get(base_url, "/vst/api/v1/sensor/list", verify_ssl=verify_ssl, timeout=timeout)
+    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+        logger.warning("network-info cleanup: sensor/list call failed: %s", exc)
+        return
+    if resp.status_code != 200:
+        return
+    try:
+        sensors = resp.json()
+    except ValueError:
+        return
+    if not isinstance(sensors, list):
+        return
+    for sensor in sensors:
+        if not isinstance(sensor, dict):
+            continue
+        name = sensor.get("name") or ""
+        url = sensor.get("sensorUrl") or ""
+        if not (name.startswith(_NETWORK_INFO_NAME_PREFIX) or url == _NETWORK_INFO_RTSP_URL):
+            continue
+        sid = sensor.get("sensorId")
+        if not sid:
+            continue
+        try:
+            api_delete(base_url, f"/vst/api/v1/sensor/{sid}", verify_ssl=verify_ssl, timeout=timeout)
+        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+            logger.warning("network-info cleanup: failed to delete %s: %s", sid, exc)
+
+
+@given("I have added an RTSP sensor and captured its identity")
+def add_rtsp_sensor_for_network_info(
+    context: UnitTestContext, api_config: dict, unit_test_params: dict
+) -> None:
+    _wipe_leftover_network_info_sensors(api_config, unit_test_params)
+    timeout = unit_test_params.get("timeout", 30)
+    base_url = api_config["base_url"]
+    verify_ssl = api_config.get("verify_ssl", False)
+    name = f"{_NETWORK_INFO_NAME_PREFIX}{uuid.uuid4().hex[:12]}"
+    body = {
+        "name": name,
+        "sensorUrl": _NETWORK_INFO_RTSP_URL,
+        "location": "bdd-test",
+        "tags": "bdd-network-info",
+    }
+    resp = api_post(base_url, "/vst/api/v1/sensor/add", json_body=body, verify_ssl=verify_ssl, timeout=timeout)
+    assert resp.status_code == 200, (
+        f"Precondition failed: could not add RTSP sensor, got {resp.status_code}: {resp.text[:500]}"
+    )
+    try:
+        sensor_id = resp.json().get("sensorId")
+    except ValueError:
+        sensor_id = None
+    assert sensor_id, f"sensor/add did not return a sensorId: {resp.text[:300]}"
+    context.first_sensor_id = sensor_id
+    logger.info("Added RTSP sensor %s (name=%s)", sensor_id, name)
+
+
+@when("I request network info for that sensor")
+def request_network_info(context: UnitTestContext, api_config: dict, unit_test_params: dict) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    context.response = api_get(
+        api_config["base_url"],
+        f"/vst/api/v1/sensor/{context.first_sensor_id}/network",
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=timeout,
+    )
+    try:
+        context.response_json = context.response.json()
+    except ValueError:
+        context.response_json = None
+    logger.info(
+        "network response: status=%d, body=%s",
+        context.response.status_code, str(context.response_json)[:300],
+    )
+
+
+@then("the network response status is not 500")
+def assert_network_status_not_500(context: UnitTestContext) -> None:
+    assert context.response.status_code != 500, (
+        "GET /sensor/{id}/network returned 500 for an RTSP sensor; an unsupported "
+        f"sensor type must be reported with a clear non-500 response. Body: {context.response.text[:500]}"
+    )
+
+
+@then("the network response error_code is not VMSInternalError")
+def assert_network_error_code_not_internal(context: UnitTestContext) -> None:
+    body = context.response_json
+    if isinstance(body, dict):
+        error_code = body.get("error_code") or body.get("errorCode")
+        assert error_code != "VMSInternalError", (
+            "GET /sensor/{id}/network reported VMSInternalError for an RTSP sensor; the "
+            f"unsupported case must use a distinct structured error code. Body: {context.response.text[:500]}"
+        )
+
+
+@then("I clean up the network-info test sensor")
+def cleanup_network_info_sensor(
+    context: UnitTestContext, api_config: dict, unit_test_params: dict
+) -> None:
+    sensor_id = getattr(context, "first_sensor_id", None)
+    if not sensor_id:
+        return
+    timeout = unit_test_params.get("timeout", 30)
+    resp = api_delete(
+        api_config["base_url"],
+        f"/vst/api/v1/sensor/{sensor_id}",
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=timeout,
+    )
+    if resp.status_code != 200:
+        logger.warning("Cleanup delete returned %d for sensor %s", resp.status_code, sensor_id)
