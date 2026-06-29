@@ -36,6 +36,15 @@ Feature: VST Sensor Management Service API Unit Tests
     Then the sensor response status is 200
     And the sensor response contains configuration fields
 
+  # Bug 6177255: GET /v1/sensor/configuration returned null (not []) for the
+  # required, non-nullable array fields ntpServers and deviceDiscoveryInterfaces
+  # when no values were configured, violating the GetConfiguration swagger contract.
+  Scenario: Configuration required array fields are arrays not null
+    Given the VST sensor management API is accessible
+    When I request the sensor management service configuration
+    Then the sensor response status is 200
+    And the configuration required array fields are JSON arrays
+
   Scenario: Get QOS stats for all sensors
     Given the VST sensor management API is accessible
     When I request the QOS stats
