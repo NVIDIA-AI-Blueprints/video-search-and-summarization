@@ -819,6 +819,7 @@ namespace nv_vms
         inline static const string end_time_ms = "END_TIME_MS";
         inline static const string file_type = "FILE_TYPE";
         inline static const string container_format = "CONTAINER_FORMAT";
+        inline static const string overlay_hash = "OVERLAY_HASH";
 
         static constexpr const char* FILE_TYPE_VIDEO = "video";
         static constexpr const char* FILE_TYPE_IMAGE = "image";
@@ -833,6 +834,7 @@ namespace nv_vms
         int64_t end_time_ms_value;
         string file_type_value;
         string container_format_value;
+        string overlay_hash_value;
 
         TempFilesDBColumns() : file_path_value(""),
                                expiry_timestamp_value(0),
@@ -842,9 +844,10 @@ namespace nv_vms
                                start_time_ms_value(0),
                                end_time_ms_value(0),
                                file_type_value(""),
-                               container_format_value("") {}
+                               container_format_value(""),
+                               overlay_hash_value("") {}
 
-        TempFilesDBColumns(const string& filePath, 
+        TempFilesDBColumns(const string& filePath,
                            int64_t expiryTs, 
                            int64_t createdTs,
                            const string& streamId,
@@ -852,7 +855,8 @@ namespace nv_vms
                            int64_t startTimeMs = 0,
                            int64_t endTimeMs = 0,
                            const string& fileType = "",
-                           const string& containerFormat = "") : 
+                           const string& containerFormat = "",
+                           const string& overlayHash = "") :
                            file_path_value(filePath),
                            expiry_timestamp_value(expiryTs),
                            created_timestamp_value(createdTs),
@@ -861,7 +865,8 @@ namespace nv_vms
                            start_time_ms_value(startTimeMs),
                            end_time_ms_value(endTimeMs),
                            file_type_value(fileType),
-                           container_format_value(containerFormat) {}
+                           container_format_value(containerFormat),
+                           overlay_hash_value(overlayHash) {}
 
         void printInfo()
         {
@@ -875,6 +880,7 @@ namespace nv_vms
             LOG(info) << "\tend_time_ms_value: " << end_time_ms_value << endl;
             LOG(info) << "\tfile_type_value: " << file_type_value << endl;
             LOG(info) << "\tcontainer_format_value: " << container_format_value << endl;
+            LOG(info) << "\toverlay_hash_value: " << overlay_hash_value << endl;
         }
     };
 

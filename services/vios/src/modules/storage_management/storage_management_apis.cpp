@@ -1656,6 +1656,37 @@ VmsErrorCode StorageManagement::generateReplayVideoUrlSync(const VideoGeneration
 }
 
 // Helper method implementations
+std::string StorageManagement::computeOverlayCacheHash(const VideoGenerationParam& params) const
+{
+    // Only requests that actually enable an overlay contribute to the cache key.
+    // Plain (non-overlay) requests keep an empty hash so they continue to share a
+    // single cached video, while every distinct overlay/bbox configuration maps to
+    // its own cached file instead of silently reusing a non-overlay clip.
+    if (params.enableOverlay != "true")
+    {
+        return "";
+    }
+
+    std::string configuration;
+    CivetServer::getParam(params.queryString, "configuration", configuration);
+    if (configuration.empty())
+    {
+        return "";
+    }
+
+    // Stable, platform-independent FNV-1a 64-bit hash. std::hash is
+    // implementation-defined and must not be persisted as a DB cache key: its
+    // value can change across compilers/STL versions/rebuilds, which would
+    // silently invalidate every cached overlay clip (bug 6222683 review).
+    unsigned long long h = 14695981039346656037ULL;   // FNV-1a 64-bit offset basis
+    for (unsigned char c : configuration)
+    {
+        h ^= static_cast<unsigned long long>(c);
+        h *= 1099511628211ULL;                          // FNV-1a 64-bit prime
+    }
+    return std::to_string(h);
+}
+
 bool StorageManagement::tryReuseCachedTempFile(const VideoGenerationParam& params, VideoUrlGenerationContext& context, Json::Value& response)
 {
     int64_t startMs = parseTimeToEpochMs(params.startTime);
@@ -1673,7 +1704,8 @@ bool StorageManagement::tryReuseCachedTempFile(const VideoGenerationParam& param
     }
 
     auto existing = dbHelper->findTempFileByStreamAndTime(
-        m_deviceId, params.streamId, startMs, endMs, nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO, params.container);
+        m_deviceId, params.streamId, startMs, endMs, nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO,
+        params.container, computeOverlayCacheHash(params));
 
     if (existing.file_path_value.empty() || !isFileExist(existing.file_path_value))
     {
@@ -1772,6 +1804,7 @@ VmsErrorCode StorageManagement::recordTempFileInDatabase(const VideoUrlGeneratio
             tempRec.end_time_ms_value = parseTimeToEpochMs(params.endTime);
             tempRec.file_type_value = nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO;
             tempRec.container_format_value = params.container;
+            tempRec.overlay_hash_value = computeOverlayCacheHash(params);
 
             int ins = dbHelper->insertTempFileRecord(tempRec);
             if (ins != 0)

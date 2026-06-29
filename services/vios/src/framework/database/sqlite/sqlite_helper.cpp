@@ -574,6 +574,7 @@ bool Sqlite::connect()
           TempFilesDBColumns::end_time_ms + string(" INTEGER DEFAULT 0, ") +
           TempFilesDBColumns::file_type + string(" TEXT DEFAULT '', ") +
           TempFilesDBColumns::container_format + string(" TEXT DEFAULT '', ") +
+          TempFilesDBColumns::overlay_hash + string(" TEXT DEFAULT '', ") +
           DBColumns::created_date_time + string(" TEXT NOT NULL, ") +
           DBColumns::modified_date_time + string(" TEXT NOT NULL ") +
           string(");");
@@ -600,6 +601,7 @@ bool Sqlite::connect()
     addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::end_time_ms, "INTEGER DEFAULT 0");
     addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::file_type, "TEXT DEFAULT ''");
     addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::container_format, "TEXT DEFAULT ''");
+    addColumnIfMissing(TempFilesDBColumns::table_name, TempFilesDBColumns::overlay_hash, "TEXT DEFAULT ''");
 
     /* Create indexes for TEMP_VIDEO_FILES table performance */
     sql = "CREATE INDEX IF NOT EXISTS idx_temp_files_expiry ON " + 
@@ -4073,6 +4075,7 @@ int Sqlite::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN_INT(TempFilesDBColumns::end_time_ms, row.end_time_ms_value, insertQuery)
     APPEND_COLUMN(TempFilesDBColumns::file_type, row.file_type_value, insertQuery)
     APPEND_COLUMN(TempFilesDBColumns::container_format, row.container_format_value, insertQuery)
+    APPEND_COLUMN(TempFilesDBColumns::overlay_hash, row.overlay_hash_value, insertQuery)
     APPEND_COLUMN(DBColumns::created_date_time, currentUtcTime, insertQuery)
     APPEND_COLUMN(DBColumns::modified_date_time, currentUtcTime, insertQuery)
     insertQuery.pop_back();
@@ -4088,9 +4091,10 @@ int Sqlite::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN_VALUE_INT(row.end_time_ms_value, params)
     APPEND_COLUMN_VALUE(row.file_type_value, params)
     APPEND_COLUMN_VALUE(row.container_format_value, params)
+    APPEND_COLUMN_VALUE(row.overlay_hash_value, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
-    
+
     // Add VALUES clause with automatic placeholders using advanced macro
     BUILD_VALUES_CLAUSE(insertQuery, params);
     insertQuery += ";";
@@ -4179,10 +4183,14 @@ std::vector<TempFilesDBColumns> Sqlite::getAllTempFiles()
             {
                 record.container_format_value = column.second;
             }
+            else if (iequals(column.first, TempFilesDBColumns::overlay_hash))
+            {
+                record.overlay_hash_value = column.second;
+            }
         }
         result.push_back(record);
     }
-    
+
     return result;
 }
 
@@ -4233,7 +4241,8 @@ TempFilesDBColumns Sqlite::findTempFileByStreamAndTime(
     const std::string& deviceId, const std::string& streamId,
     int64_t startTimeMs, int64_t endTimeMs,
     const std::string& fileType,
-    const std::string& containerFormat)
+    const std::string& containerFormat,
+    const std::string& overlayHash)
 {
     TempFilesDBColumns record;
     queryResult queryRes;
@@ -4268,6 +4277,14 @@ TempFilesDBColumns Sqlite::findTempFileByStreamAndTime(
         queryTemplate += " AND " + TempFilesDBColumns::container_format + " = " + PARAM_PLACEHOLDER(8);
         params.push_back(containerFormat);
     }
+
+    // Overlay/bbox configuration is part of the cache key: a video rendered with
+    // a given overlay config must never be reused for a request with a different
+    // (or absent) overlay config. Rows recorded without overlay store an empty
+    // hash, so a plain request (overlayHash == "") matches only non-overlay files.
+    queryTemplate += " AND " + TempFilesDBColumns::overlay_hash + " = " + PARAM_PLACEHOLDER(params.size());
+    params.push_back(overlayHash);
+
     queryTemplate += " LIMIT 1;";
 
     LOG(verbose) << "SQL query: " << queryTemplate << endl;

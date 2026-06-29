@@ -3942,6 +3942,7 @@ void Postgresql::createDatabaseTables()
           TempFilesDBColumns::end_time_ms + " BIGINT DEFAULT 0, " +
           TempFilesDBColumns::file_type + " VARCHAR(16) DEFAULT '', " +
           TempFilesDBColumns::container_format + " VARCHAR(32) DEFAULT '', " +
+          TempFilesDBColumns::overlay_hash + " VARCHAR(64) DEFAULT '', " +
           TempFilesDBColumns::created_date_time + " VARCHAR(1024) NOT NULL, " +
           TempFilesDBColumns::modified_date_time + " VARCHAR(1024) NOT NULL );";
     LOG(verbose) << "SQL query: Table: " << TempFilesDBColumns::table_name << " " << queryTemplate << endl;
@@ -3966,6 +3967,10 @@ void Postgresql::createDatabaseTables()
 
     queryTemplate = "ALTER TABLE " + TempFilesDBColumns::table_name +
           " ADD COLUMN IF NOT EXISTS " + TempFilesDBColumns::container_format + " VARCHAR(32) DEFAULT '';";
+    executeQuery(queryTemplate);
+
+    queryTemplate = "ALTER TABLE " + TempFilesDBColumns::table_name +
+          " ADD COLUMN IF NOT EXISTS " + TempFilesDBColumns::overlay_hash + " VARCHAR(64) DEFAULT '';";
     executeQuery(queryTemplate);
 
     /* Create indexes for TEMP_VIDEO_FILES table performance */
@@ -4288,6 +4293,7 @@ int Postgresql::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN(TempFilesDBColumns::end_time_ms, std::to_string(row.end_time_ms_value), queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::file_type, row.file_type_value, queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::container_format, row.container_format_value, queryTemplate)
+    APPEND_COLUMN(TempFilesDBColumns::overlay_hash, row.overlay_hash_value, queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::created_date_time, currentUtcTime, queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::modified_date_time, currentUtcTime, queryTemplate)
     queryTemplate.pop_back(); // Remove trailing comma
@@ -4304,9 +4310,10 @@ int Postgresql::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN_VALUE_INT(row.end_time_ms_value, params)
     APPEND_COLUMN_VALUE(row.file_type_value, params)
     APPEND_COLUMN_VALUE(row.container_format_value, params)
+    APPEND_COLUMN_VALUE(row.overlay_hash_value, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
-    
+
     // Add VALUES clause with automatic placeholders using advanced macro
     BUILD_VALUES_CLAUSE(queryTemplate, params);
     queryTemplate += " ON CONFLICT (" + TempFilesDBColumns::file_path + ") " +
@@ -4360,7 +4367,8 @@ std::vector<TempFilesDBColumns> Postgresql::getAllTempFiles()
                 TempFilesDBColumns::start_time_ms + ", " +
                 TempFilesDBColumns::end_time_ms + ", " +
                 TempFilesDBColumns::file_type + ", " +
-                TempFilesDBColumns::container_format +
+                TempFilesDBColumns::container_format + ", " +
+                TempFilesDBColumns::overlay_hash +
                 " FROM " + TempFilesDBColumns::table_name +
                 " ORDER BY " + TempFilesDBColumns::created_timestamp + ";";
 
@@ -4417,8 +4425,12 @@ std::vector<TempFilesDBColumns> Postgresql::getAllTempFiles()
             {
                 record.container_format_value = column.second;
             }
+            else if (iequals(column.first, TempFilesDBColumns::overlay_hash))
+            {
+                record.overlay_hash_value = column.second;
+            }
         }
-        
+
         // Skip records with invalid file paths (likely corrupted old data)
         if (record.file_path_value.length() < 10 || 
             (record.file_path_value.find('/') == string::npos && 
@@ -4478,7 +4490,8 @@ TempFilesDBColumns Postgresql::findTempFileByStreamAndTime(
     const std::string& deviceId, const std::string& streamId,
     int64_t startTimeMs, int64_t endTimeMs,
     const std::string& fileType,
-    const std::string& containerFormat)
+    const std::string& containerFormat,
+    const std::string& overlayHash)
 {
     TempFilesDBColumns record;
     queryResult queryRes;
@@ -4512,6 +4525,14 @@ TempFilesDBColumns Postgresql::findTempFileByStreamAndTime(
         queryTemplate += " AND " + TempFilesDBColumns::container_format + " = " + PARAM_PLACEHOLDER(8);
         params.push_back(containerFormat);
     }
+
+    // Overlay/bbox configuration is part of the cache key: a video rendered with
+    // a given overlay config must never be reused for a request with a different
+    // (or absent) overlay config. Rows recorded without overlay store an empty
+    // hash, so a plain request (overlayHash == "") matches only non-overlay files.
+    queryTemplate += " AND " + TempFilesDBColumns::overlay_hash + " = " + PARAM_PLACEHOLDER(params.size());
+    params.push_back(overlayHash);
+
     queryTemplate += " LIMIT 1;";
 
     LOG(verbose) << "SQL query: " << queryTemplate << endl;
