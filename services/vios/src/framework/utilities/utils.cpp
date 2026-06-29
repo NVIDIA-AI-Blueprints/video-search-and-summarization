@@ -2337,7 +2337,7 @@ bool blockSensor(const string ip, string action)
 
 Json::Value vectorToJson(const std::vector<string>& vec)
 {
-	Json::Value jsonArray = Json::nullValue;
+	Json::Value jsonArray = Json::arrayValue;
 	for(auto itr : vec)
 	{
 		jsonArray.append(itr);
