@@ -1159,7 +1159,7 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                             if ((opts.count("bboxClassType") && !opts.at("bboxClassType").empty()) ||
                                 (opts.count("overlayClassType") && !opts.at("overlayClassType").empty()))
                             {
-                                string classTypes = opts.count("bboxClassType") ? opts.at("bboxClassType") : opts.at("overlayClassType");
+                                string classTypes = (opts.count("bboxClassType") && !opts.at("bboxClassType").empty()) ? opts.at("bboxClassType") : opts.at("overlayClassType");
                                 auto tokens = splitString(classTypes, ",");
                                 for (const auto& token : tokens)
                                 {
