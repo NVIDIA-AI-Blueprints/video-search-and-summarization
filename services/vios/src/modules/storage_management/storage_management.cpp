@@ -64,8 +64,6 @@ using namespace std;
 using namespace nv_vms;
 
 
-constexpr const char* STORAGE_MANAGEMENT_VERSION = "0.0.1";
-
 #define CONVERT_KBPS_TO_GBPERDAY(v) ((v/1024.0) * 60.0 * 60.0 * 24)/(8 * 1024.0);
 constexpr int DEFAULT_BITRATE = 5120;
 
@@ -1306,7 +1304,10 @@ VmsErrorCode StorageManagement::getStorageConfiguration(const Json::Value & req_
 
 VmsErrorCode StorageManagement::getVersion(string& version)
 {
-    version = STORAGE_MANAGEMENT_VERSION;
+    // Report the build/release version injected by the Makefile (-DVST_VERSION),
+    // matching the Sensor MS and other microservices, instead of a hardcoded
+    // placeholder. See bug 6303142.
+    version = VST_VERSION;
     return VmsErrorCode::NoError;
 }
 
