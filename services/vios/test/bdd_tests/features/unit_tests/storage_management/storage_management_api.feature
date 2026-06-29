@@ -50,3 +50,11 @@ Feature: VST Storage Management Service API Unit Tests
     Given the VST storage management API is accessible
     When I request the protected file list
     Then the storage response status is 200
+
+  # Regression for NVBug 6217188: a JSON array body to /storage/file/protect
+  # must return 400, not crash streamprocessing-ms via uncaught Json::LogicError.
+  Scenario: POST /storage/file/protect with a JSON array body is rejected, not crashed
+    Given the VST storage management API is accessible
+    When I POST a JSON array body to the storage file protect endpoint
+    Then the storage protect request is rejected with status 400
+    And the streamprocessing storage service is still alive
