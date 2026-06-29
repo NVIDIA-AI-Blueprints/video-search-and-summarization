@@ -583,6 +583,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 8c: consolidate groups consecutive positives; raw still available
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8c: consolidate groups consecutive positives..."
+CONSOL_IDX="mdx-vlm-incidents-2099-01-01"
+CONSOL_SENSOR="p1-consolidation"
+curl -s -X DELETE "${ES_HOST}/${CONSOL_IDX}" >/dev/null 2>&1 || true
+for i in 1 2 3; do
+    ss=$(( (i - 1) * 20 )); ee=$(( ss + 15 ))
+    start=$(printf "2099-01-01T00:00:%02d.000Z" "$ss")
+    end=$(printf "2099-01-01T00:00:%02d.000Z" "$ee")
+    curl -s -X PUT "${ES_HOST}/${CONSOL_IDX}/_doc/${CONSOL_SENSOR}-${i}" \
+        -H "Content-Type: application/json" \
+        -d "{\"sensorId\":\"${CONSOL_SENSOR}\",\"category\":\"alert\",\"timestamp\":\"${start}\",\"end\":\"${end}\",\"info\":{\"requestId\":\"p1\",\"chunkIdx\":\"${i}\",\"verdict\":\"confirmed\"}}" \
+        >/dev/null 2>&1
+done
+curl -s -X POST "${ES_HOST}/${CONSOL_IDX}/_refresh" >/dev/null 2>&1
+
+RAW_CNT=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=false" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=true")
+CONS_CNT=$(echo "$CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+CONS_TOTAL=$(echo "$CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+CONS_FLAG=$(echo "$CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('isConsolidated','') if inc else '')" 2>/dev/null || echo "")
+
+if [ "$RAW_CNT" = "3" ] && [ "$CONS_CNT" = "1" ] && [ "$CONS_TOTAL" = "3" ] && [ "$CONS_FLAG" = "true" ]; then
+    print_status "ok" "PASS: 3 raw chunks -> 1 consolidated event (total stays raw=3)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: consolidate (raw=$RAW_CNT cons=$CONS_CNT total=$CONS_TOTAL flag=$CONS_FLAG)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${CONSOL_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
 # Test 9: Caption-start failure — RTVI rejects generate_captions_alerts
 #         Expects: stream rolled back on RTVI, rule absent in AB
 # ---------------------------------------------------------------------------
