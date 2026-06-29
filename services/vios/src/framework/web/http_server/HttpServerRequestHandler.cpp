@@ -350,7 +350,7 @@ class RequestHandler : public CivetHandler
         {
             string ans (Json::writeString(m_writerBuilder, response));
             answer = ans;
-            mg_printf(conn,"Content-Type: text/plain\r\n");
+            mg_printf(conn,"Content-Type: application/json\r\n");
         }
         mg_printf(conn,"Content-Length: %zd\r\n", answer.size());
         mg_printf(conn,"Connection: close\r\n");
