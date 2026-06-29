@@ -317,26 +317,35 @@ def run_invocations(
     env = harbor_env(instance)
     # Which agent Harbor evaluates (set by skills-eval-daily.yml from the
     # workflow_dispatch dropdown; defaults to claude-code on the nightly
-    # schedule). Each agent draws its model + base-url from its own env vars
-    # so a codex run never silently reuses the Anthropic ones.
+    # schedule).
     agent = os.environ.get("EVAL_AGENT", "claude-code")
-    if agent == "claude-code":
-        model = os.environ.get("ANTHROPIC_MODEL", "")
-        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-        model_var, base_var = "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"
-    elif agent == "codex":
-        model = os.environ.get("CODEX_MODEL", "")
-        base_url = os.environ.get("CODEX_BASE_URL", "") or os.environ.get("OPENAI_BASE_URL", "")
-        model_var, base_var = "CODEX_MODEL", "CODEX_BASE_URL (or OPENAI_BASE_URL)"
+    model = os.environ.get("ANTHROPIC_MODEL", "")
+    base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+    if agent == "codex":
+        prefix = "CODEX"
+    elif agent == "claude-code":
+        prefix = "CLAUDE_CODE"
     else:
         print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
               file=sys.stderr)
         return 1
+    # `os.environ.get(...) or model` keeps the shared value when the
+    # per-agent override is missing or an empty string.
+    model = os.environ.get(f"{prefix}_MODEL") or model
+    base_url = os.environ.get(f"{prefix}_BASE_URL") or base_url
+    # Highest precedence: EVAL_MODEL / EVAL_BASE_URL typed into the
+    # workflow_dispatch form (skills-eval-daily.yml inputs). A blank field is
+    # exported as "" and falls through to the resolution above, so the
+    # nightly schedule (no inputs) is unaffected.
+    model = os.environ.get("EVAL_MODEL") or model
+    base_url = os.environ.get("EVAL_BASE_URL") or base_url
     if not model:
-        print(f"FATAL: {model_var} not set (EVAL_AGENT={agent})", file=sys.stderr)
+        print(f"FATAL: no model resolved (set ANTHROPIC_MODEL or {prefix}_MODEL; "
+              f"EVAL_AGENT={agent})", file=sys.stderr)
         return 1
     if not base_url:
-        print(f"FATAL: {base_var} not set (EVAL_AGENT={agent})", file=sys.stderr)
+        print(f"FATAL: no base_url resolved (set ANTHROPIC_BASE_URL or {prefix}_BASE_URL; "
+              f"EVAL_AGENT={agent})", file=sys.stderr)
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
