@@ -466,9 +466,22 @@ class RequestHandler : public CivetHandler
             SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, out, error_message.c_str());
             return VmsErrorCode::InvalidParameterError;
         }
-        // Don't parse input message if its a upload API
+        // Don't parse input message if its a upload API. We still must enforce
+        // the configured maximum upload size here: the body is never read for
+        // upload APIs, so the size validation further below is unreachable for
+        // them. Without this check, above-limit files are accepted (bug 6193881).
         if(isFileUploadAPI(req_info->request_uri, req_info->request_method))
         {
+            DeviceConfig config = GET_CONFIG();
+            long long maxAllowedLength = MAX_FILE_UPLOAD_SIZE_MB_TO_BYTES(config.nv_streamer_max_upload_file_size_MB);
+            if (!isValidContentLength(req_info->content_length, maxAllowedLength, req_info->request_method))
+            {
+                string error_message = "Upload rejected: file exceeds configured maximum upload size";
+                LOG(error) << error_message << " (content_length: " << req_info->content_length
+                           << ", max allowed: " << maxAllowedLength << " bytes)" << endl;
+                SET_VMS_ERROR2(VmsErrorCode::PayloadTooLargeError, out, error_message.c_str());
+                return VmsErrorCode::PayloadTooLargeError;
+            }
             LOG(info) << "Upload API, skip parsing message" << endl;
             return VmsErrorCode::NoError;
         }
@@ -484,21 +497,10 @@ class RequestHandler : public CivetHandler
             return VmsErrorCode::NoError;
         }
         
-        // For other methods, validate content length with appropriate limits
-        long long maxAllowedLength;
-        
-        if (isFileUploadAPI(req_info->request_uri, req_info->request_method)) 
-        {
-            // For file upload APIs, use the configured upload size limit
-            DeviceConfig config = GET_CONFIG();
-            maxAllowedLength = MAX_FILE_UPLOAD_SIZE_MB_TO_BYTES(config.nv_streamer_max_upload_file_size_MB);
-        }
-        else 
-        {
-            // For JSON APIs, use smaller limit
-            maxAllowedLength = MAX_JSON_CONTENT_LENGTH;
-        }
-        
+        // For other methods, validate content length with appropriate limits.
+        // Upload APIs already returned above, so only JSON-body APIs reach here.
+        long long maxAllowedLength = MAX_JSON_CONTENT_LENGTH;
+
         if (!isValidContentLength(req_info->content_length, maxAllowedLength, req_info->request_method))
         {
             LOG(error) << "Invalid content length: " << req_info->content_length 
