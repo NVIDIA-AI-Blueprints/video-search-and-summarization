@@ -198,8 +198,13 @@ def select_video_range(context, test_params):
 def _request_video_url(api_config: dict, test_endpoints: dict,
                        test_params: dict,
                        stream_id: str, start_time: str, end_time: str,
-                       expiry_minutes: int) -> Dict[str, Any]:
-    """Issue a blocking video URL request and return response data + timing."""
+                       expiry_minutes: int,
+                       configuration: str = None) -> Dict[str, Any]:
+    """Issue a blocking video URL request and return response data + timing.
+
+    When ``configuration`` is provided it is passed through as the request's
+    ``configuration`` query param (overlay/bbox config), exactly as the UI does.
+    """
     url = f"{api_config['base_url']}{test_endpoints['video_url'].format(stream_id=stream_id)}"
     params = {
         'startTime': start_time,
@@ -208,6 +213,8 @@ def _request_video_url(api_config: dict, test_endpoints: dict,
         'blocking': 'true',
         'container': 'mp4',
     }
+    if configuration is not None:
+        params['configuration'] = configuration
     headers = {"streamid": envoy_streamid_route_key(stream_id)}
     start = time.monotonic()
     resp = requests.get(
@@ -294,4 +301,87 @@ def verify_video_expiry_refresh(context):
 
     assert second_expiry >= first_expiry, (
         f"Expiry was not refreshed: second ({second_expiry}) < first ({first_expiry})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Video URL overlay/bbox cache-key steps (bug 6222683)
+#
+# The /url endpoint must include the overlay `configuration` in its cache key.
+# An overlay/bbox request for a stream+time-range that was previously requested
+# WITHOUT overlay must NOT be served the stale non-overlay cached video.
+# ---------------------------------------------------------------------------
+
+# Overlay config that enables bbox rendering (new overlay schema). showAll=true
+# guarantees the overlay path is enabled regardless of which object ids exist in
+# the test recording -- the assertion below is on cache-key behavior, not on
+# pixel-level bbox rendering.
+_BBOX_OVERLAY_CONFIGURATION = json.dumps({
+    "overlay": {
+        "bbox": {"showAll": True, "showObjId": True},
+        "color": "red",
+        "thickness": 5,
+    }
+})
+
+
+@then('a blocking video URL is requested without overlay configuration')
+def request_video_url_no_overlay(context, api_config, test_endpoints, test_params):
+    """First request -- plain video, no overlay configuration. Populates the cache."""
+    expiry = test_params.get('expiry_minutes', 5)
+    result = _request_video_url(
+        api_config, test_endpoints, test_params,
+        context.selected_stream_id, context.selected_start_time,
+        context.selected_end_time, expiry,
+    )
+    context.first_response = result['data']
+    context.first_request_duration = result['elapsed']
+    assert context.first_response.get('videoUrl'), \
+        "Non-overlay response missing videoUrl"
+    logger.info("Non-overlay video URL response: videoUrl=%s",
+                context.first_response['videoUrl'])
+
+
+@then('a blocking video URL is requested with bbox overlay configuration for the same time range')
+def request_video_url_with_overlay(context, api_config, test_endpoints, test_params):
+    """Second request -- same stream+time range, but WITH bbox overlay config."""
+    expiry = test_params.get('expiry_minutes', 5)
+    result = _request_video_url(
+        api_config, test_endpoints, test_params,
+        context.selected_stream_id, context.selected_start_time,
+        context.selected_end_time, expiry,
+        configuration=_BBOX_OVERLAY_CONFIGURATION,
+    )
+    context.second_response = result['data']
+    context.second_request_duration = result['elapsed']
+    assert context.second_response.get('videoUrl'), \
+        "Overlay response missing videoUrl"
+    logger.info("Overlay video URL response: videoUrl=%s",
+                context.second_response['videoUrl'])
+
+
+@then('the overlay video URL response does not reuse the non-overlay cached file')
+def verify_overlay_not_cached(context):
+    """The overlay request must produce a distinct file from the non-overlay one.
+
+    With the bug present (configuration absent from the cache key) both requests
+    resolve to the same cached temp file, so the filenames match and this fails.
+    Once configuration is part of the cache key the overlay request generates a
+    new file and the filenames differ.
+    """
+    non_overlay_file = extract_filename_from_url(context.first_response['videoUrl'])
+    overlay_file = extract_filename_from_url(context.second_response['videoUrl'])
+    logger.info("Overlay cache-key comparison: non_overlay=%s overlay=%s",
+                non_overlay_file, overlay_file)
+
+    assert_with_detailed_failure(
+        non_overlay_file != overlay_file,
+        "Overlay Configuration In Cache Key",
+        f"Distinct files generated: non_overlay={non_overlay_file}, overlay={overlay_file}",
+        f"Same cached file reused for both: {non_overlay_file}",
+        additional_info=(
+            "The /url endpoint must include the overlay configuration in its "
+            "cache key; an overlay/bbox request must not be served the stale "
+            "non-overlay cached video for the same streamId+startTime+endTime"
+        ),
     )

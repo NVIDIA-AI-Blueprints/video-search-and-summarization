@@ -22,3 +22,12 @@ Feature: Replay Picture and Video URL Caching Optimization
     And the same blocking video URL is requested again
     And the second video URL response reuses the cached file
     And the video URL expiry time is refreshed on cache hit
+
+  Scenario: Video URL with bbox overlay is not served from a non-overlay cached file
+    Given the VST API is configured for URL caching test
+    When the list of available replay streams is fetched
+    And the recording timelines are fetched for URL caching test
+    And a valid video time range is selected
+    Then a blocking video URL is requested without overlay configuration
+    And a blocking video URL is requested with bbox overlay configuration for the same time range
+    And the overlay video URL response does not reuse the non-overlay cached file

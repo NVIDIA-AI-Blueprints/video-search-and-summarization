@@ -228,6 +228,10 @@ namespace nv_vms
             VmsErrorCode recordTempFileInDatabase(const VideoUrlGenerationContext& context, const VideoGenerationParam& params,
                                                  const string& actualFilePath, int64_t fileSize = 0);
             void buildVideoUrlResponse(const VideoUrlGenerationContext& context, const VideoGenerationParam& params, Json::Value& response);
+            // Stable hash of the overlay/bbox configuration, used as part of the temp-file
+            // cache key so overlay requests are not served a stale non-overlay cached video.
+            // Returns an empty string for requests without an overlay.
+            std::string computeOverlayCacheHash(const VideoGenerationParam& params) const;
 
             // Full-file fast path: when the requested clip covers an entire stored recording
             // (or when the caller passes fullFile=true), we can skip remux/mux and serve the
