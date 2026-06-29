@@ -20,11 +20,13 @@ alwaysApply: true
 
 # Build System
 
-Use `./build.sh` -- **do not invoke `make` directly**. Run `./build.sh help` for all options. Use `/build-help` skill if unsure which flags to use.
+Use `./build.sh` -- **do not invoke `make` directly**. Run `./build.sh help` for all options.
 
 Valid modules: `sensor`, `rtspserver`, `recorder`, `livestream`, `replaystream`, `streambridge`, `storage`, `streamprocessing`
 
-**Registry:** Always use the GitLab registry (`gitlab` flag) for dev and testing. NVCR is for production/release only.
+**Toolchain & base are automatic:** `./build.sh container module=…` auto-builds the compile toolchain + base image on first run (cached afterward, never rebuilt unless deleted). Just run the build directly — do NOT ask the user to build a toolchain first or which toolchain tag to use. First build on a fresh clone is ~10-15 min longer because of this one-time step. For a pre-pulled toolchain, pass `toolchain-image=<ref>` (or set `X86_BUILD_IMAGE`/`AARCH64_CC_IMAGE`) with `no-auto-deps`.
+
+**Registry/tags:** default image tags are local-only (`vios/...`, `nvstreamer`). To publish, pass `image-registry=<ref>` / `nvstreamer-image=<ref>` / `toolchain-image=<ref>` (or the matching env vars) at build time, then `push=1`.
 
 # Build and Deploy Workflow
 
@@ -44,13 +46,21 @@ When the user asks to build, deploy, stop, or redeploy -- run the commands immed
 
 ## build.sh Options
 
+- `./build.sh all` -- one-shot: toolchain → base → all modules + NVStreamer
 - `./build.sh module=sensor` -- plain build (compile only, no packaging)
 - `./build.sh package module=sensor,rtspserver` -- build + package into deployable archives
 - `./build.sh container module=sensor,rtspserver,recorder,livestream,replaystream,storage,streambridge,streamprocessing` -- build + package + create Docker containers for all modules
 - `./build.sh container module=streamprocessing push=1` -- build + push to registry
 - `./build.sh container tag=mytag module=sensor` -- custom image tag
+- `./build.sh container nvstreamer` -- build NVStreamer container
 - `./build.sh container ingress` -- build ingress container
 - `./build.sh container mcp` -- build MCP gateway container
+- `./build.sh toolchain` -- build the compile toolchain only (auto-invoked otherwise); `arch=arm64` for aarch64
+- `./build.sh toolchain push=1 toolchain-image=<registry>/vios-build:<tag>` -- build + push toolchain (ask the user for the registry if not given; default tag would push to Docker Hub)
+- `./build.sh base-container [push=1 image-registry=<registry>]` -- build (and optionally push) the runtime base image only
+- `./build.sh container module=… no-cache` -- force rebuild from scratch (the way to force a toolchain/base rebuild — otherwise cached & skipped)
+- `./build.sh container module=… no-auto-deps` -- fail fast if toolchain/base missing (CI / pre-pulled)
+- `./build.sh clean` -- clean the current arch's build objects (`arch=arm64` for aarch64). Run only when switching module set or arch; a same-modules rebuild does not need it. Do NOT clean the other arch (it would pull that arch's toolchain image just to delete files).
 - `./build.sh debug module=sensor` -- debug build
 
 ## One-Click Deployment Script
