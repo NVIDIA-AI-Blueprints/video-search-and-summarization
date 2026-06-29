@@ -27,6 +27,7 @@ from pytest_bdd import scenarios, given, when, then
 from ..unit_test_utils import (
     UnitTestContext,
     api_get,
+    api_delete,
     api_post,
     validate_json_response,
     validate_list_response,
@@ -306,4 +307,67 @@ def storage_service_still_alive(
     assert health.status_code == 200, (
         "Storage service must remain available after a malformed protect request; "
         f"GET {HEALTHCHECK_PATH} returned {health.status_code}: {health.text[:500]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression for NVBug 6141778: Delete Videos time range validation.
+#
+# DELETE /vst/api/v1/storage/file/{streamId} accepted a reversed time range
+# (startTime > endTime) and returned HTTP 200 with {"spaceSaved": 0}, making an
+# invalid destructive request look successful. It must reject a reversed range
+# with 400 while still accepting a well-formed forward range. Both probes use a
+# future year-2099 window so nothing can ever match and no data is deleted.
+# ---------------------------------------------------------------------------
+
+# Stream id from the bug report. Validation of the time range must happen before
+# any file/sensor lookup, so the result does not depend on this stream existing.
+STREAM_ID = "20250306train-station"
+
+# Future no-data window: nothing can match, so neither request deletes anything.
+EARLIER_TIME = "2099-01-01T00:00:00.000Z"
+LATER_TIME = "2099-01-01T00:01:00.000Z"
+
+
+@when("I request to delete videos with a reversed time range")
+def delete_reversed_range(context: UnitTestContext, api_config: dict, unit_test_params: dict) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    # startTime (LATER) is after endTime (EARLIER) -> invalid input.
+    context.response = api_delete(
+        api_config["base_url"],
+        f"/vst/api/v1/storage/file/{STREAM_ID}",
+        params={"startTime": LATER_TIME, "endTime": EARLIER_TIME},
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=timeout,
+    )
+
+
+@when("I request to delete videos with a valid forward time range")
+def delete_forward_range(context: UnitTestContext, api_config: dict, unit_test_params: dict) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    # startTime (EARLIER) is before endTime (LATER) -> valid; future window deletes nothing.
+    context.response = api_delete(
+        api_config["base_url"],
+        f"/vst/api/v1/storage/file/{STREAM_ID}",
+        params={"startTime": EARLIER_TIME, "endTime": LATER_TIME},
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=timeout,
+    )
+
+
+@then("the delete videos response status is 400")
+def check_delete_status_400(context: UnitTestContext) -> None:
+    # Bug 6141778: this currently returns 200 with {"spaceSaved": 0}.
+    assert context.response.status_code == 400, (
+        f"A reversed time range (startTime > endTime) must be rejected with "
+        f"400 Bad Request, got {context.response.status_code}: "
+        f"{context.response.text[:300]}"
+    )
+
+
+@then("the delete videos response status is 200")
+def check_delete_status_200(context: UnitTestContext) -> None:
+    assert context.response.status_code == 200, (
+        f"A valid forward time range must be accepted with 200, got "
+        f"{context.response.status_code}: {context.response.text[:300]}"
     )

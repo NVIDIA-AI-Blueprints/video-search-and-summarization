@@ -2156,6 +2156,17 @@ VmsErrorCode StorageManagement::deleteFilesByTime(const Json::Value& req_info, J
         return VmsErrorCode::InvalidParameterError;
     }
 
+    /* Reject a reversed range: startTime must be earlier than or equal to endTime.
+       Wildcards ('*' -> startTime=-1 / endTime=int64 max) never trip this check. */
+    if(startTime > endTime)
+    {
+        LOG(error) << "deleteFilesByTime invalid time range: startTime " << start_time
+                   << " is later than endTime " << end_time << endl;
+        SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response,
+                       "startTime must be earlier than or equal to endTime")
+        return VmsErrorCode::InvalidParameterError;
+    }
+
     if(deleteFilesByTime(stream_id, startTime, endTime, spaceSaved) != 0)
     {
         SET_VMS_ERROR(VmsErrorCode::VMSInternalError, response)
