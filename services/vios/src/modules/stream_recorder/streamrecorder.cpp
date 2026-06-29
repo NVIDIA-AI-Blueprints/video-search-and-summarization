@@ -988,7 +988,10 @@ VmsErrorCode StreamRecorder::getConfiguration(Json::Value &out)
 
 VmsErrorCode StreamRecorder::getVersion(string &version)
 {
-    version = STREAM_RECORDER_VERSION;
+    // Report the build/release version injected by the Makefile (-DVST_VERSION),
+    // matching the Sensor MS and other microservices, instead of a hardcoded
+    // placeholder. See bug 6303142.
+    version = VST_VERSION;
     return VmsErrorCode::NoError;
 }
 
