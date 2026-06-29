@@ -2292,6 +2292,18 @@ VmsErrorCode StorageManagement::addOrRemoveFileInProtectList(const Json::Value& 
         return VmsErrorCode::MethodNotAllowedError;
     }
 
+    // Defense in depth: Json::Value::get()/find() throw Json::LogicError (uncaught
+    // -> SIGABRT, crashing the service) when invoked on a non-object such as an
+    // array body. The schema validator should already have rejected such bodies,
+    // but guard the handler too so a malformed body can never abort the process
+    // (bug 6217188).
+    if (!in.isObject())
+    {
+        LOG(error) << "Request body must be a JSON object with a 'filePath' field" << endl;
+        SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response, "Request body must be a JSON object with a 'filePath' field");
+        return VmsErrorCode::InvalidParameterError;
+    }
+
     vector<string> fileList;
 
     Json::Value fileListJson = in.get("filePath", EMPTY_STRING);
