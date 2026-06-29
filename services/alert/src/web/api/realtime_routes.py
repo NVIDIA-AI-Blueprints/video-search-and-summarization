@@ -285,9 +285,12 @@ def get_incident_service() -> IncidentService:
     if incident_cfg.get("type") == "elastic":
         index_base = incident_cfg.get("elastic", {}).get("index", index_base)
 
+    consolidation = config.get("rtvi_vlm", {}).get("consolidation", {})
+
     return IncidentService(
         es_client=get_elastic_client(),
         index_base=index_base,
+        consolidation=consolidation,
     )
 
 
@@ -582,14 +585,23 @@ async def list_incidents(
         ge=0,
         description="Number of incidents to skip (for pagination)",
     ),
+    consolidate: Optional[bool] = Query(
+        default=None,
+        description=(
+            "Group consecutive positives from the same camera and alert type "
+            "into a single event. Omit to use the configured default; set to "
+            "false to return raw chunk-level documents."
+        ),
+    ),
     service: IncidentService = Depends(get_incident_service),
 ):
     logger.info(
-        "GET /api/v1/realtime/incidents — sensor_id=%s category=%s limit=%d offset=%d",
+        "GET /api/v1/realtime/incidents — sensor_id=%s category=%s limit=%d offset=%d consolidate=%s",
         sensor_id,
         category,
         limit,
         offset,
+        consolidate,
     )
     response_data, status_code = await service.list_incidents(
         sensor_id=sensor_id,
@@ -598,6 +610,7 @@ async def list_incidents(
         end_time=end_time.isoformat() if end_time else None,
         limit=limit,
         offset=offset,
+        consolidate=consolidate,
     )
     return JSONResponse(status_code=status_code, content=response_data)
 

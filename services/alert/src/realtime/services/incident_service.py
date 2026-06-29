@@ -19,10 +19,11 @@ Service for querying incidents from Elasticsearch.
 """
 
 import asyncio
+import copy
 import logging
 import time
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from ..config import ErrorCode, ResponseStatus
 
@@ -47,6 +48,37 @@ except ImportError:
     INCIDENT_QUERY_FAILURES = None
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+# Two adjacent chunks may skip at most this many indices and still count as the
+# same continuous event (tolerates an occasional dropped/non-positive chunk).
+_MAX_CHUNK_SKIP = 2
+
+
+def _parse_ts(value) -> Optional[datetime]:
+    """Parse an ISO-8601 timestamp string into an aware datetime, or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _to_int(value) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _info_of(doc: dict) -> dict:
+    info = doc.get("info")
+    return info if isinstance(info, dict) else {}
+
+
 class IncidentService:
     """Service for querying incidents from Elasticsearch.
 
@@ -60,13 +92,19 @@ class IncidentService:
         self,
         es_client: Optional["ElasticClient"] = None,
         index_base: str = "mdx-vlm-incidents",
+        consolidation: Optional[dict] = None,
     ):
         self._es_client = es_client
         self._index_base = index_base
+        self._consolidation = consolidation or {}
 
         logger.info(
             "IncidentService initialized",
-            extra={"es_enabled": es_client is not None, "index_base": self._index_base},
+            extra={
+                "es_enabled": es_client is not None,
+                "index_base": self._index_base,
+                "consolidation_enabled": bool(self._consolidation.get("enabled", False)),
+            },
         )
 
     async def list_incidents(
@@ -77,8 +115,15 @@ class IncidentService:
         end_time: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        consolidate: Optional[bool] = None,
     ) -> Tuple[dict, int]:
-        """Query incidents from Elasticsearch."""
+        """Query incidents from Elasticsearch.
+
+        When consolidation is active, consecutive positives from the same
+        camera and alert type on the returned page are grouped into single
+        events. ``consolidate`` overrides the configured default per request;
+        ``total`` always reflects the raw Elasticsearch match count.
+        """
         now = datetime.now(timezone.utc).isoformat()
         ctx = {
             "sensor_id": sensor_id,
@@ -140,11 +185,20 @@ class IncidentService:
                 doc["_index"] = hit.get("_index")
                 incidents.append(doc)
 
+            do_consolidate = (
+                bool(self._consolidation.get("enabled", False))
+                if consolidate is None
+                else bool(consolidate)
+            )
+            items = self._consolidate(incidents) if do_consolidate else incidents
+
             logger.info(
                 "Incidents query completed",
                 extra={
                     **ctx,
-                    "returned": len(incidents),
+                    "returned": len(items),
+                    "raw_hits": len(incidents),
+                    "consolidated": do_consolidate,
                     "total": total_count,
                     "duration_s": round(duration, 3),
                 },
@@ -152,8 +206,8 @@ class IncidentService:
 
             return {
                 "status": ResponseStatus.SUCCESS,
-                "incidents": incidents,
-                "count": len(incidents),
+                "incidents": items,
+                "count": len(items),
                 "total": total_count,
                 "timestamp": now,
             }, 200
@@ -181,3 +235,132 @@ class IncidentService:
                 "message": f"Elasticsearch query failed: {str(exc)}",
                 "timestamp": now,
             }, 500
+
+    # ------------------------------------------------------------------
+    # Consolidation
+    # ------------------------------------------------------------------
+    def _consolidate(self, docs: List[dict]) -> List[dict]:
+        """Group consecutive same-camera, same-alert-type positives on the
+        current page into single events.
+
+        Operates only on the documents already returned for this page; the
+        underlying store is never modified and raw documents stay available
+        (``consolidate=false`` or the per-event ``info.rawIds``).
+        """
+        cfg = self._consolidation
+        gap_seconds = cfg.get("max_inter_alert_gap_seconds", 60)
+        max_duration = cfg.get("max_event_duration_seconds", 300)
+        representative = cfg.get("representative", "latest")
+
+        groups: dict = {}
+        for doc in docs:
+            key = (doc.get("sensorId"), doc.get("category"))
+            groups.setdefault(key, []).append(doc)
+
+        events: List[dict] = []
+        for items in groups.values():
+            items_sorted = sorted(items, key=lambda d: _parse_ts(d.get("timestamp")) or _EPOCH)
+            current: List[dict] = []
+            for doc in items_sorted:
+                if current and self._is_continuous(current, doc, gap_seconds, max_duration):
+                    current.append(doc)
+                else:
+                    if current:
+                        events.append(self._build_event(current, representative))
+                    current = [doc]
+            if current:
+                events.append(self._build_event(current, representative))
+
+        # Newest first, matching the raw query's sort order.
+        events.sort(
+            key=lambda e: _parse_ts(e.get("end")) or _parse_ts(e.get("timestamp")) or _EPOCH,
+            reverse=True,
+        )
+        return events
+
+    @staticmethod
+    def _is_continuous(current: List[dict], doc: dict, gap_seconds, max_duration) -> bool:
+        """Whether ``doc`` extends the open event ``current``.
+
+        Continuation requires the event to stay within the duration cap and
+        either belong to the same caption session with consecutive chunk
+        indices, or fall within the inter-alert gap of the previous chunk.
+        """
+        first = current[0]
+        prev = current[-1]
+
+        if max_duration is not None:
+            start = _parse_ts(first.get("timestamp"))
+            doc_end = _parse_ts(doc.get("end")) or _parse_ts(doc.get("timestamp"))
+            if start and doc_end and (doc_end - start).total_seconds() > max_duration:
+                return False
+
+        prev_info = _info_of(prev)
+        doc_info = _info_of(doc)
+        prev_idx = _to_int(prev_info.get("chunkIdx"))
+        doc_idx = _to_int(doc_info.get("chunkIdx"))
+        same_session = bool(
+            prev_info.get("requestId")
+            and prev_info.get("requestId") == doc_info.get("requestId")
+            and prev_idx is not None
+            and doc_idx is not None
+            and 0 < (doc_idx - prev_idx) <= _MAX_CHUNK_SKIP
+        )
+
+        within_gap = False
+        prev_end = _parse_ts(prev.get("end")) or _parse_ts(prev.get("timestamp"))
+        doc_start = _parse_ts(doc.get("timestamp"))
+        if prev_end and doc_start:
+            within_gap = (doc_start - prev_end).total_seconds() <= gap_seconds
+
+        return same_session or within_gap
+
+    @staticmethod
+    def _build_event(chunks: List[dict], representative: str) -> dict:
+        """Build one consolidated event from its chunks.
+
+        The event is a clone of the representative chunk — a real document, so
+        the result keeps the same shape as a raw incident — with the span
+        widened to cover all chunks and consolidation metadata added under
+        ``info``. Original document ids are recorded so the raw chunks remain
+        reachable.
+        """
+        if representative == "longest_reasoning":
+            rep = max(chunks, key=lambda c: len(_info_of(c).get("reasoning") or ""))
+        else:
+            rep = max(chunks, key=lambda c: _parse_ts(c.get("timestamp")) or _EPOCH)
+
+        event = copy.deepcopy(rep)
+
+        first_chunk = min(chunks, key=lambda c: _parse_ts(c.get("timestamp")) or _EPOCH)
+        last_chunk = max(
+            chunks,
+            key=lambda c: _parse_ts(c.get("end")) or _parse_ts(c.get("timestamp")) or _EPOCH,
+        )
+        if first_chunk.get("timestamp"):
+            event["timestamp"] = first_chunk["timestamp"]
+        end_value = last_chunk.get("end") or last_chunk.get("timestamp")
+        if end_value:
+            event["end"] = end_value
+
+        idxs = [i for i in (_to_int(_info_of(c).get("chunkIdx")) for c in chunks) if i is not None]
+        raw_ids = [c.get("_id") or c.get("Id") for c in chunks if (c.get("_id") or c.get("Id"))]
+
+        info = dict(event.get("info") or {})
+        info["isConsolidated"] = "true"
+        info["chunkCount"] = str(len(chunks))
+        if idxs:
+            info["chunkIdxRange"] = f"{min(idxs)}-{max(idxs)}"
+        if raw_ids:
+            info["rawIds"] = ",".join(str(r) for r in raw_ids)
+        event["info"] = info
+
+        merged_queries: list = []
+        for chunk in chunks:
+            llm = chunk.get("llm")
+            if isinstance(llm, dict) and isinstance(llm.get("queries"), list):
+                merged_queries.extend(llm["queries"])
+        if merged_queries and isinstance(event.get("llm"), dict):
+            event["llm"]["queries"] = merged_queries
+
+        return event
