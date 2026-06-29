@@ -51,6 +51,7 @@ These run against simulators with known inputs — not a live deployment.
 | `test_http_ondemand_verification` | POST to `/api/v1/verification/ondemand`: (1) valid request → 200; (2) unknown alert_type → 400; (3) NIM down → 503 | On-demand verification API contract, error handling, and VLM fault tolerance |
 | `test_kafka_sink_vlm` | Send incident with `info.video_path`; verify VLM result published to Kafka sink | Base64 encode + VLM + Kafka sink pipeline |
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
+| `test_realtime_alerts` (Test 8c) | Index 3 consecutive positives (same camera + alert type); `GET /api/v1/realtime/incidents?consolidate=true` returns one event, `consolidate=false` returns 3 raw, `total` stays the raw count | Read-time consolidation groups duplicates into one event while raw chunk records remain available |
 
 ## Structure
 
