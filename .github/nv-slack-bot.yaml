@@ -39,7 +39,7 @@ notifications:
       nvidia:
         channels:
           - id: C0BDC2SBZK9
-    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "success"
+    match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "success"
     message:
       body: ":white_check_mark: <{{url}}|Skills Eval Daily> passed — run {{run}}"
       vars:
@@ -52,7 +52,7 @@ notifications:
       nvidia:
         channels:
           - id: C0BDC2SBZK9
-    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "failure"
+    match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "failure"
     message:
       body: ":red_circle: <{{url}}|Skills Eval Daily FAILED> — run {{run}} <!subteam^S0BE3B5GAS0>"
       vars:
@@ -65,7 +65,7 @@ notifications:
       nvidia:
         channels:
           - id: C0BDC2SBZK9
-    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "timed_out"
+    match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "timed_out"
     message:
       body: ":hourglass_flowing_sand: <{{url}}|Skills Eval Daily TIMED OUT> — run {{run}} <!subteam^S0BE3B5GAS0>"
       vars:
@@ -78,7 +78,7 @@ notifications:
       nvidia:
         channels:
           - id: C0BDC2SBZK9
-    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "cancelled"
+    match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "cancelled"
     message:
       body: ":warning: <{{url}}|Skills Eval Daily was cancelled> — run {{run}}"
       vars:
@@ -97,7 +97,7 @@ notifications:
       nvidia:
         channels:
           - id: C0BDC2SBZK9
-    match: workflow_job.workflow_name = "Skills Eval Daily" and workflow_job.conclusion = "failure"
+    match: workflow_job.workflow_name = "Skills Eval Daily" and action = "completed" and workflow_job.conclusion = "failure"
     message:
       body: ":x: leg failed — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
       vars:
@@ -110,7 +110,7 @@ notifications:
       nvidia:
         channels:
           - id: C0BDC2SBZK9
-    match: workflow_job.workflow_name = "Skills Eval Daily" and workflow_job.conclusion = "cancelled"
+    match: workflow_job.workflow_name = "Skills Eval Daily" and action = "completed" and workflow_job.conclusion = "cancelled"
     message:
       body: ":hourglass: leg timed out / cancelled — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
       vars:
