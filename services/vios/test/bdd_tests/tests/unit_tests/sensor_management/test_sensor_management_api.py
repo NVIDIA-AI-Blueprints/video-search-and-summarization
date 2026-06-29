@@ -253,3 +253,23 @@ def check_sensor_configuration_fields(context: UnitTestContext) -> None:
     assert isinstance(data, dict), "Configuration must be a JSON object"
     assert len(data) > 0, "Configuration is empty"
     logger.info("Configuration has %d fields", len(data))
+
+
+@then("the configuration required array fields are JSON arrays")
+def check_configuration_required_arrays(context: UnitTestContext) -> None:
+    """Bug 6177255: required, non-nullable array fields in the GetConfiguration
+    swagger schema must be JSON arrays, never null, even when no values are set."""
+    data = validate_json_response(context.response)
+    assert isinstance(data, dict), "Configuration must be a JSON object"
+    for field in ("ntpServers", "deviceDiscoveryInterfaces"):
+        assert field in data, f"Configuration is missing required field '{field}'"
+        assert isinstance(data[field], list), (
+            f"Configuration field '{field}' must be a JSON array per the swagger "
+            f"contract, got {type(data[field]).__name__} ({data[field]!r}); "
+            f"empty configuration must serialize as [] not null"
+        )
+    logger.info(
+        "ntpServers=%r deviceDiscoveryInterfaces=%r",
+        data["ntpServers"],
+        data["deviceDiscoveryInterfaces"],
+    )
