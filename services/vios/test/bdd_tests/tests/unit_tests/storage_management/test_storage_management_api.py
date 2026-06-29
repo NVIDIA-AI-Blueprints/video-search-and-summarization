@@ -21,11 +21,13 @@ Tests: storage size, info, version, help, configuration, file list, protected fi
 import logging
 
 import pytest
+import requests
 from pytest_bdd import scenarios, given, when, then
 
 from ..unit_test_utils import (
     UnitTestContext,
     api_get,
+    api_post,
     validate_json_response,
     validate_list_response,
     validate_string_response,
@@ -226,3 +228,82 @@ def check_storage_configuration_fields(context: UnitTestContext) -> None:
     assert isinstance(data, dict), "Configuration must be a JSON object"
     assert len(data) > 0, "Configuration is empty"
     logger.info("Configuration has %d fields", len(data))
+
+
+# ---------------------------------------------------------------------------
+# Regression for NVBug 6217188: malformed (JSON array) body to
+# /storage/file/protect must be rejected with HTTP 400 and must not crash
+# streamprocessing-ms via an uncaught Json::LogicError (SIGABRT).
+# ---------------------------------------------------------------------------
+
+# Array-shaped body matching the bug report: a JSON array where the handler
+# expects an object. The exact field values are irrelevant -- it is the array
+# shape that triggers the Json::LogicError.
+MALFORMED_ARRAY_BODY = [
+    {
+        "sensorId": "regression-6217188",
+        "startTime": 1779692211032,
+        "endTime": 1779692250571,
+        "action": "add",
+    }
+]
+
+PROTECT_PATH = "/vst/api/v1/storage/file/protect"
+HEALTHCHECK_PATH = "/vst/api/v1/storage/info"
+
+
+@when("I POST a JSON array body to the storage file protect endpoint")
+def post_array_body_to_protect(
+    context: UnitTestContext, api_config: dict, unit_test_params: dict
+) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    try:
+        context.response = api_post(
+            api_config["base_url"],
+            PROTECT_PATH,
+            json_body=MALFORMED_ARRAY_BODY,
+            verify_ssl=api_config.get("verify_ssl", False),
+            timeout=timeout,
+        )
+    except requests.exceptions.RequestException as exc:
+        # On the unfixed build the upstream container aborts mid-request, so
+        # the connection may be reset rather than returning a proxied 5xx.
+        context.response = None
+        context.error = f"{type(exc).__name__}: {exc}"
+        logger.error("POST to %s failed at the transport layer: %s", PROTECT_PATH, context.error)
+
+
+@then("the storage protect request is rejected with status 400")
+def protect_rejected_400(context: UnitTestContext) -> None:
+    assert context.error is None, (
+        "Malformed array body should be rejected cleanly with HTTP 400, but the "
+        f"request did not complete (likely an upstream crash): {context.error}"
+    )
+    assert context.response is not None, "No response captured for the protect request"
+    assert context.response.status_code == 400, (
+        "Malformed array body must be rejected with HTTP 400, got "
+        f"{context.response.status_code}: {context.response.text[:500]}"
+    )
+
+
+@then("the streamprocessing storage service is still alive")
+def storage_service_still_alive(
+    context: UnitTestContext, api_config: dict, unit_test_params: dict
+) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    try:
+        health = api_get(
+            api_config["base_url"],
+            HEALTHCHECK_PATH,
+            verify_ssl=api_config.get("verify_ssl", False),
+            timeout=timeout,
+        )
+    except requests.exceptions.RequestException as exc:
+        pytest.fail(
+            "Storage service is unreachable after the malformed protect request "
+            f"(container likely crashed/restarting): {type(exc).__name__}: {exc}"
+        )
+    assert health.status_code == 200, (
+        "Storage service must remain available after a malformed protect request; "
+        f"GET {HEALTHCHECK_PATH} returned {health.status_code}: {health.text[:500]}"
+    )
