@@ -128,14 +128,19 @@ def _api_base_v1(base_url: str) -> str:
 def _agent_flags(agent: str, model: str, base_url: str) -> list[str]:
     """Harbor `-a <agent>` plus that agent's model/base-url/auth flags.
 
-    The claude-code path is unchanged from when it was inlined in
-    build_harbor_command — `--ak api_base=<.../v1>` points claude-code at
-    the NVIDIA Anthropic proxy and `--ae CLAUDE_CODE_DISABLE_THINKING=1`
-    strips the field the proxy rejects. The codex path mirrors the shape
-    (`--ak base_url=<.../v1>`); the OpenAI-compatible key is inherited from
-    the process env (harbor_env copies os.environ), so the coordinator .env
-    must export whatever key the codex agent reads. If you bump the harbor
-    version and its codex agent expects a different kwarg, adjust here.
+    claude-code takes its endpoint via the `--ak api_base=<.../v1>` agent
+    kwarg (and `--ae CLAUDE_CODE_DISABLE_THINKING=1` strips the field the
+    NVIDIA proxy rejects).
+
+    codex is DIFFERENT: harbor's CodexAgent ignores unknown agent kwargs
+    (its `__init__(model_name, *args, **kwargs)` swallows them) and only
+    forwards `OPENAI_API_KEY` — plus `OPENAI_BASE_URL` on newer harbor —
+    from the *process env* into `codex exec`. So a `--ak base_url=` here is
+    silently dropped and codex hits api.openai.com (observed: 401 at
+    wss://api.openai.com/v1/responses). The endpoint + key are therefore set
+    on the subprocess env in run_invocations / codex_env_overrides, NOT here.
+    Note CodexAgent also strips the model to `model_name.split("/")[-1]`, so
+    only the last path segment of `--model` reaches `codex exec`.
     """
     if agent == "claude-code":
         return [
@@ -145,20 +150,28 @@ def _agent_flags(agent: str, model: str, base_url: str) -> list[str]:
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
         ]
     if agent == "codex":
-        flags = [
-            "-a", "codex",
-            "--model", model,
-            "--ak", f"base_url={_api_base_v1(base_url)}",
-        ]
-        # Codex on the NVIDIA Responses API is a reasoning model; drive it at
-        # high effort by default (matches .github/skills-review's
-        # `codex exec ... model_reasoning_effort="high"`). Override with
-        # CODEX_REASONING_EFFORT, or set it empty to drop the flag entirely.
-        effort = os.environ.get("CODEX_REASONING_EFFORT", "high")
-        if effort:
-            flags += ["--ak", f"reasoning_effort={effort}"]
-        return flags
+        return ["-a", "codex", "--model", model]
     raise ValueError(f"unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)")
+
+
+def codex_env_overrides(base_url: str) -> dict[str, str]:
+    """Env vars that point harbor's codex agent at the NVIDIA endpoint.
+
+    harbor's codex agent reads `OPENAI_API_KEY` (required) and forwards
+    `OPENAI_BASE_URL` (newer harbor) from its process env; the codex CLI
+    honors `OPENAI_BASE_URL` for its built-in `openai` provider. Without
+    these it defaults to api.openai.com and 401s. The NVIDIA inference key
+    that already authenticates claude-code (ANTHROPIC_API_KEY) works for the
+    OpenAI-compatible endpoint too, so fall back to it when no codex-specific
+    key is set.
+    """
+    overrides = {"OPENAI_BASE_URL": _api_base_v1(base_url)}
+    key = (os.environ.get("CODEX_API_KEY")
+           or os.environ.get("OPENAI_API_KEY")
+           or os.environ.get("ANTHROPIC_API_KEY", ""))
+    if key:
+        overrides["OPENAI_API_KEY"] = key
+    return overrides
 
 
 def build_harbor_command(
@@ -339,6 +352,10 @@ def run_invocations(
     # nightly schedule (no inputs) is unaffected.
     model = os.environ.get("EVAL_MODEL") or model
     base_url = os.environ.get("EVAL_BASE_URL") or base_url
+    if agent == "codex":
+        # codex takes its endpoint + key from the process env, not --ak — set
+        # them so it reaches the NVIDIA endpoint instead of api.openai.com.
+        env.update(codex_env_overrides(base_url))
     if not model:
         print(f"FATAL: no model resolved (set ANTHROPIC_MODEL or {prefix}_MODEL; "
               f"EVAL_AGENT={agent})", file=sys.stderr)
