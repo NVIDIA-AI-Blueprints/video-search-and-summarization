@@ -18,6 +18,55 @@ include:
   - path: ./sdrc/docker-compose.yaml
 
 services:
+  turnserver:
+    image: ${TURN_SERVER_IMAGE:-coturn/coturn:latest}
+    profiles:
+      - "bp_wh_2d"
+      - "bp_wh_kafka_2d"
+      - "bp_wh_kafka_3d"
+      - "bp_wh_redis_2d"
+      - "bp_wh_redis_3d"
+      - "bp_wh_kafka_mv3dt"
+      - "bp_wh_redis_mv3dt"
+      - "bp_wh_auto_calib_2d"
+      - "bp_wh_auto_calib_3d"
+      - "bp_wh_auto_calib_mv3dt"
+    container_name: vss-turnserver
+    restart: unless-stopped
+    ports:
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/udp
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/tcp
+      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/udp
+      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/tcp
+    networks:
+      default:
+        aliases:
+          - turnserver
+          - vss-turnserver
+    environment:
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_MIN_RELAY_PORT: ${TURN_MIN_RELAY_PORT:-49160}
+      TURN_MAX_RELAY_PORT: ${TURN_MAX_RELAY_PORT:-49200}
+      TURN_REALM: ${TURN_REALM:-vss.local}
+      TURN_USERNAME: ${TURN_USERNAME:-vss}
+      TURN_PASSWORD: ${TURN_PASSWORD:-vss-turn}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-${EXTERNAL_IP:-${HOST_IP}}}
+    entrypoint: ["turnserver"]
+    command:
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --fingerprint
+      - --lt-cred-mech
+      - --realm=${TURN_REALM:-vss.local}
+      - --user=${TURN_USERNAME:-vss}:${TURN_PASSWORD:-vss-turn}
+      - --listening-ip=0.0.0.0
+      - --listening-port=${TURN_PORT:-3478}
+      - --min-port=${TURN_MIN_RELAY_PORT:-49160}
+      - --max-port=${TURN_MAX_RELAY_PORT:-49200}
+      - --external-ip=${TURN_EXTERNAL_IP:-${EXTERNAL_IP:-${HOST_IP}}}
+      - --log-file=stdout
+
   mosquitto:
     image: eclipse-mosquitto:2
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]

@@ -84,6 +84,33 @@ The root compose maps Elasticsearch data/log volumes to
 `$VSS_DATA_DIR/data_log/redis`. Missing or non-writable host directories can cause
 startup failures such as Kafka being unable to write `/tmp/kafka-data/cluster_id` or
 Elasticsearch being unable to open `gc.log`.
+
+### TURN / WebRTC relay
+
+The warehouse VST UI uses WebRTC for live playback. When VST containers run on the Compose bridge network, browsers cannot reach Docker-only media candidates directly, so `services/infra/compose.yml` includes a coturn-based `turnserver` service for warehouse profiles. It exposes the TURN listener and relay range on the host. Developer profiles do not start this TURN service.
+
+Default ports:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TURN_HOST_PORT` / `TURN_PORT` | `3478` | TURN UDP/TCP listener |
+| `TURN_MIN_RELAY_HOST_PORT` / `TURN_MAX_RELAY_HOST_PORT` | `49160` / `49200` | Host relay port range |
+| `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `49160` / `49200` | Container relay port range |
+
+Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile `.env` derives `VST_STATIC_TURNURL_LIST` for the bundled infra turnserver in the VST format `user:password@host:port`, and `services/vios/vst.env` passes that value through when present. Override `TURN_USERNAME` and `TURN_PASSWORD` for shared or remote deployments.
+
+For multiple advertised TURN addresses, set `VST_STATIC_TURNURL_LIST` as a comma-separated list, for example:
+
+```env
+TURN_HOST_PORT=6006
+TURN_PORT=3478
+TURN_USERNAME=admin
+TURN_PASSWORD=admin
+VST_STATIC_TURNURL_LIST=admin:admin@192.0.2.10:6006,admin:admin@198.51.100.10:6006
+```
+
+The warehouse VST streamprocessing startup helper also forces `network.use_coturn_auth_secret=false` and `network.coturn_turnurl_list_with_secret=[]`, matching the static username/password mode. Developer VST streamprocessing and NvStreamer services do not apply this WebRTC/TURN patch.
+
 ### LVS Compose notes
 
 Docker Compose does not use Kubernetes secrets or the NIM Operator. For the LVS profile, local model bring-up uses the **`NGC_CLI_API_KEY`** environment variable directly for image pulls and NIM/RT-VLM model access.
