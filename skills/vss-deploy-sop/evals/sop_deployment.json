@@ -1,0 +1,42 @@
+{
+  "description": "End-to-end deployment eval for the DS-SOP profile composed by build-vision-agent, in the canonical flow camera -> DS-SOP -> VIOS. Scope = SOP detection -> Kafka -> ELK/Kibana PLUS DS-SOP's annotated RTSP output -> VIOS/VST recording. The VSS Agent / report-generation phase is OUT OF SCOPE (build-vision-agent's Agent / LLM-NIM / Video-Report catalog entries are PENDING - see integrate-ds-sop.md > Scope notes). Mirrors phases 1-3 of the owner's vss-sop-skills/vss-sop-test.",
+  "skills": ["vss-deploy-sop", "vss-build-ds-sop"],
+  "resources": {
+    "platforms": {
+      "L40S": { "gpu_count": 1 },
+      "H100": { "gpu_count": 1 }
+    }
+  },
+  "expects": [
+    {
+      "query": "Build ds-sop:1.0.0 if absent (per the vss-build-ds-sop skill, from the INTERNAL RTSP-output source). Deploy the FULL generated SOP profile via the generated deploy skill: all services (VIOS + SDRC + NvStreamer + ELK + Kafka + ds-sop), not just the core. Stage the SOP models (NGC nv-metropolis-dev/vss-industrial/sop-data:1.0) and the test video (NGC nvidia/tao/sop-server-fan-installation-data:1.0-260213). Fill .env (HOST_IP, VSS_DATA_DIR, NGC_CLI_API_KEY); set ENABLE_MESSAGING=1, ENABLE_RTSP_OUTPUT=true, RTSP_PORT=8554, and VLLM_GPU_MEMORY_UTILIZATION per GPU VRAM (0.3 at >=80GB, raise on smaller). Register references/sop-vlm-captions-json-logstash.conf as its OWN Logstash pipeline.id. Run autonomously; leave the stack running.",
+      "checks": [
+        "docker ps shows all required containers Up: the ds-sop perception container (mdx-ds-sop-*), kafka, elasticsearch, logstash, kibana, the VIOS set (vss-vios-sensor, vss-vios-streamprocessing, vss-vios-ingress, vss-vios-postgres), the SDRC controller (sdr-controller), and the NvStreamer harness (vss-vios-nvstreamer)",
+        "curl -sf --max-time 10 http://localhost:9200/_cluster/health returns HTTP 200 and .status is 'green' or 'yellow'",
+        "curl -sf --max-time 10 http://localhost:8300/v1/ready returns HTTP 200 (ds-sop API ready)",
+        "curl -sf --max-time 10 http://localhost:8300/v1/models contains the id 'ds_sop_model'",
+        "the patched logstash config registers a SEPARATE pipeline.id that consumes topic mdx-vlm-captions with `codec => json` (NOT merged into the protobuf mdx-lvs pipeline); without it ES stays at 0 docs"
+      ]
+    },
+    {
+      "query": "Feed DS-SOP the camera/source DIRECTLY (NOT via a VIOS proxy) and verify SOP detection lands in Elasticsearch with REAL step responses. Use Basler camera-emulation (PYLON_CAMEMU + Emulation_0815-0000.pfs) or a local RTSP relay of the staged video, or the on-demand file path (POST http://localhost:8300/v1/chat/completions with the video, max_length_sec=10 - the deterministic path).",
+      "checks": [
+        "curl -sf 'http://localhost:9200/_cat/indices/mdx-vlm-captions*?format=json' returns at least one index",
+        "curl -sf 'http://localhost:9200/mdx-vlm-captions-*/_count' returns .count > 0",
+        "sampled docs from mdx-vlm-captions-* carry FLAT fields (chunk_idx, response, sensor_id, cv_boundary_score, first_timestamp, end_time, req_id, checker_result) - NOT protobuf-nested fields",
+        "the `response` field shows REAL SOP steps in sequence (e.g. '(1) installing the first fan...' -> power supplies -> cover), NOT every doc being '(10) ... not belong'",
+        "cv_boundary_score across docs is a healthy mix (at least some >= 0.5), not all approximately 0",
+        "doc _id equals req_id (idempotent upsert) and @timestamp is derived from first_timestamp + end_time (docs are NOT all on 1970-01-01)"
+      ]
+    },
+    {
+      "query": "Verify the canonical DS-SOP -> VIOS half: with ENABLE_RTSP_OUTPUT=true, DS-SOP re-streams the annotated result at rtsp://<host>:8554/ds-out/<stream-name>; register that as a VIOS sensor (POST http://localhost:30888/vst/api/v1/sensor/add with that sensorUrl - recording is automatic, recording_status alwayson; no record/start) so VST records it.",
+      "checks": [
+        "ffprobe rtsp://localhost:8554/ds-out/<stream-name> returns a valid H.264 video stream while a live request is processing (DS-SOP's annotated output is live)",
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/list shows a sensor whose sensorUrl is the ds-sop :8554/ds-out stream, with state 'online'",
+        "curl -sf http://localhost:30888/vst/api/v1/record/status shows recording active for that sensor (VST is recording the annotated stream)"
+      ]
+    }
+  ],
+  "out_of_scope_note": "VSS Agent end-to-end (MCP + LLM NIM + snapshot + report generation) is NOT tested here - that flow is not yet composable by build-vision-agent (Agent/LLM-NIM/Video-Report = PENDING). The owner's full agent+report validation lives in vss-sop-skills/vss-sop-test (Phase 4)."
+}

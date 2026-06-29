@@ -39,7 +39,7 @@ Index of every VSS microservice that has reference files the `build-vision-agent
 | VIOS (Video Storage) | `skills/vss-manage-video-io-storage/` | `integrate-vios-service.md` ✓ *(neutral contract; `component_services` + patch specifics in `references/patch-vios.md`)* | `deploy-vios-service.md` ✓ | `video-storage`, `rtsp-ingestion`, `video-upload`, `clip-extraction`, `snapshot`, `sensor-management` |
 | RT-VLM | `skills/vss-deploy-dense-captioning/` | `integrate-rt-vlm.md` ✓ *(neutral contract; `component_services` + patch specifics in `references/patch-rt-vlm.md`)* | `deploy-rt-vlm-service.md` ✓ *(canonical; sibling `kafka-workflows.md` is retained as a cited reference, not folded)* | `dense-captioning`, `vlm`, `vision-language`, `streaming-inference`, `on-demand-inference`, `alert-detection` |
 | ELK (Elasticsearch + Logstash + Kibana) | `skills/vss-build-vision-agent/` | `integrate-elk.md` ✓ | `deploy-elk.md` ✓ | `indexing`, `search`, `caption-storage`, `dashboard`, `kafka-ingestion`, `redis-ingestion` |
-| RTVI-SOP (DS-SOP) | `skills/vss-deploy-sop/` | `integrate-rtvi-sop.md` ✓ *(neutral contract; `component_services` + patch specifics in `references/patch-rtvi-sop.md`)* | `deploy-rtvi-sop.md` ✓ *(custom DeepStream SOP service; image `nvds-sop:1.0.0` built locally — occupies the RT-VLM perception slot)* | `sop-detection`, `sop-compliance`, `action-detection`, `vlm`, `vision-language`, `streaming-inference` |
+| DS-SOP | `skills/vss-deploy-sop/` | `integrate-ds-sop.md` ✓ *(neutral contract; `component_services` + patch specifics in `references/patch-ds-sop.md`)* | `deploy-ds-sop.md` ✓ *(custom DeepStream SOP service; image `ds-sop:1.0.0` built locally — occupies the RT-VLM perception slot)* | `sop-detection`, `sop-compliance`, `action-detection`, `vlm`, `vision-language`, `streaming-inference` |
 
 > **Note on ELK's location:** unlike RT-VLM, RT-CV, or VIOS — which are NVIDIA-built RTVI microservices owned by per-service teams — ELK is a third-party open-source stack (Elastic) used as VSS foundational infrastructure. Its reference files therefore live **co-located with the orchestrator skill** (`skills/vss-build-vision-agent/references/`) rather than in a sibling `skills/elk/` folder. This is the convention for foundational/infra components that the skill itself effectively owns; per-service NVIDIA microservices follow the canonical `skills/<service>/references/` pattern.
 
@@ -90,9 +90,9 @@ Tags used to match user prompts to microservices. Keep tags consistent across ca
 | `streaming-inference` | Processes live RTSP streams continuously | RT-VLM |
 | `on-demand-inference` | Processes uploaded video files on request | RT-VLM |
 | `alert-detection` | Emits structured alerts/incidents alongside captions | RT-VLM |
-| `sop-detection` | Monitors a procedural task and emits per-chunk SOP step records | RTVI-SOP |
-| `sop-compliance` | Flags missing / mis-ordered / cycle-complete SOP steps | RTVI-SOP |
-| `action-detection` | Temporal action segmentation of video (DDM-Net) | RTVI-SOP |
+| `sop-detection` | Monitors a procedural task and emits per-chunk SOP step records | DS-SOP |
+| `sop-compliance` | Flags missing / mis-ordered / cycle-complete SOP steps | DS-SOP |
+| `action-detection` | Temporal action segmentation of video (DDM-Net) | DS-SOP |
 | `indexing` | Indexes structured records for query | ELK (Elasticsearch) |
 | `search` | Full-text and structured search over indexed records | ELK (Elasticsearch) |
 | `caption-storage` | Persistent storage of caption / metadata records | ELK (Elasticsearch) |
