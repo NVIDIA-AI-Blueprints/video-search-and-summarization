@@ -119,11 +119,31 @@ class HarborCommand(unittest.TestCase):
 
         self.assertEqual(cmd[cmd.index("-a") + 1], "codex")
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
-        self.assertIn("base_url=https://inference-api.nvidia.com/v1", cmd)
-        # Reasoning effort defaults to high (NVIDIA Responses API codex model).
-        self.assertIn("reasoning_effort=high", cmd)
-        # The Anthropic-only thinking flag must NOT leak into a codex run.
+        # codex takes endpoint/key via the process env, NOT --ak; harbor's
+        # CodexAgent ignores unknown kwargs, so a base_url kwarg would be
+        # silently dropped (codex would hit api.openai.com -> 401).
+        self.assertNotIn("--ak", cmd)
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
+
+    def test_codex_env_overrides_point_at_nvidia_with_shared_key(self):
+        import os
+        saved = {k: os.environ.get(k) for k in
+                 ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
+        try:
+            for k in saved:
+                os.environ.pop(k, None)
+            os.environ["ANTHROPIC_API_KEY"] = "nv-shared-key"
+            overrides = run_leg.codex_env_overrides("https://inference-api.nvidia.com")
+            # base_url gets the /v1 suffix and points at NVIDIA, not OpenAI.
+            self.assertEqual(overrides["OPENAI_BASE_URL"], "https://inference-api.nvidia.com/v1")
+            # Falls back to the shared NVIDIA key when no codex-specific key.
+            self.assertEqual(overrides["OPENAI_API_KEY"], "nv-shared-key")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
     def test_build_command_rejects_unknown_agent(self):
         invocation = run_leg.HarborInvocation(
