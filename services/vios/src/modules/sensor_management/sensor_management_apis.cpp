@@ -21,6 +21,8 @@
 #include "gstnvvideodecoder.h"
 #include "health_probes.h"
 
+#include <algorithm>
+
 constexpr const char* SENSOR_API = "/api/v1/sensor/*";
 constexpr const char* DEBUG_API = "/api/v1/sensor/debug/*";
 constexpr const char* DEBUG_API_SUBSTR = "/api/v1/sensor/debug/";
@@ -626,6 +628,27 @@ VmsErrorCode SensorManagementApis::getSensorInfoList(const Json::Value& req_info
     vector<shared_ptr<SensorInfo>> currentSensors = m_deviceManager->getSensorList(false);
     bool shouldRefresh = vst_common::ShouldRefreshSensorCache(m_deviceManager->getDeviceId(), currentSensors.size());
     vector<shared_ptr<SensorInfo>> sensors = shouldRefresh ? m_deviceManager->getSensorList(true) : currentSensors;
+
+    // Return sensors in a deterministic, camera-name order (NVBug 6155392).
+    // The cache is a std::map keyed by a random UUID and the DB read has no
+    // ORDER BY, so without this sort the list order is unrelated to the camera
+    // name. Downstream consumers (e.g. the MV3DT perception service) register
+    // streams in the order returned here and rely on a predictable
+    // stream-to-camera mapping. Sort by name, then by id to keep the order
+    // stable for sensors that happen to share a name.
+    std::sort(sensors.begin(), sensors.end(),
+              [](const shared_ptr<SensorInfo>& a, const shared_ptr<SensorInfo>& b)
+              {
+                  if (a == nullptr || b == nullptr)
+                  {
+                      return b == nullptr ? false : true;
+                  }
+                  if (a->name != b->name)
+                  {
+                      return a->name < b->name;
+                  }
+                  return a->id < b->id;
+              });
 
     // Add connected sensors to list
     for (uint32_t i = 0; i < sensors.size(); i++ )

@@ -74,3 +74,11 @@ Feature: VST Sensor Management Service API Unit Tests
     And at least one sensor exists
     When I request timelines for the first sensor
     Then the sensor response status is 200
+
+  # Regression for NVBug 6155392: sensor/list must return sensors sorted by
+  # camera name (deterministic order), regardless of add order.
+  Scenario: Sensors are listed in ascending camera-name order regardless of add order
+    Given the VST sensor management API is accessible
+    And a set of camera sensors added in non-sequential name order
+    When I request the list of sensors
+    Then the camera sensors I added appear in ascending camera-name order
