@@ -225,4 +225,4 @@ jobs:
           name: skills-eval-daily-results-${{ matrix.slug }}-${{ github.run_id }}
           path: /tmp/skills-eval-daily-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
