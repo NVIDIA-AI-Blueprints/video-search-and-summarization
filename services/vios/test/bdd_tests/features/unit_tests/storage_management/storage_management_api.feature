@@ -58,3 +58,13 @@ Feature: VST Storage Management Service API Unit Tests
     When I POST a JSON array body to the storage file protect endpoint
     Then the storage protect request is rejected with status 400
     And the streamprocessing storage service is still alive
+  # Regression for NVBug 6141778: reject reversed delete-videos time range (startTime > endTime)
+  Scenario: Delete videos rejects a reversed time range
+    Given the VST storage management API is accessible
+    When I request to delete videos with a reversed time range
+    Then the delete videos response status is 400
+
+  Scenario: Delete videos accepts a valid forward time range
+    Given the VST storage management API is accessible
+    When I request to delete videos with a valid forward time range
+    Then the delete videos response status is 200
