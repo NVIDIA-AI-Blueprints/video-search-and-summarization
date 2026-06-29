@@ -49,6 +49,9 @@ spec:
             - name: admin
               containerPort: {{ required "service.envoyAdmin.port is required" .Values.service.envoyAdmin.port | int }}
               protocol: TCP
+            - name: envoy-proxy
+              containerPort: {{ required "service.envoyProxy.port is required" .Values.service.envoyProxy.port | int }}
+              protocol: TCP
           env:
             {{- include "sdrc.runtimeEnv" . | nindent 12 }}
           volumeMounts:
