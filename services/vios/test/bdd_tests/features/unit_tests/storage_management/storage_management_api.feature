@@ -18,6 +18,17 @@ Feature: VST Storage Management Service API Unit Tests
     Then the storage response status is 200
     And the storage response is a valid version string
 
+  # Regression for bug 6303142 (extended to the Storage MS): the version
+  # endpoint returned a hardcoded placeholder ("0.0.1") instead of the deployed
+  # release/build version. The Sensor MS reports the correct build version in
+  # the same deployment, so it is used as the source of truth.
+  Scenario: Storage version matches the deployed build version
+    Given the VST storage management API is accessible
+    When I request the storage management service version
+    And I request the sensor service version
+    Then the storage reported version is not the placeholder "0.0.1"
+    And the storage reported version matches the sensor reported build version
+
   Scenario: Get storage management service help
     Given the VST storage management API is accessible
     When I request the storage management service help
