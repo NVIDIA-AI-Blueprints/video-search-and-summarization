@@ -257,6 +257,48 @@ def assert_error_message_contains(context: UnitTestContext, expected: str) -> No
     )
 
 
+@then("the response includes existingSensorId matching the first sensor")
+def assert_existing_sensor_id(context: UnitTestContext) -> None:
+    assert isinstance(context.response_json, dict), (
+        f"Expected JSON object response, got: {context.response_json!r}"
+    )
+    assert "existingSensorId" in context.response_json, (
+        "Conflict response is missing the structured 'existingSensorId' JSON "
+        "field; the conflicting sensor identity must be exposed as a JSON key, "
+        "not only embedded in error_message.\n"
+        f"  response keys: {sorted(context.response_json.keys())}\n"
+        f"  full body: {context.response_json!r}"
+    )
+    actual = context.response_json["existingSensorId"]
+    assert actual == context.first_sensor_id, (
+        f"existingSensorId did not match the first sensor.\n"
+        f"  expected: {context.first_sensor_id!r}\n"
+        f"  actual:   {actual!r}\n"
+        f"  full body: {context.response_json!r}"
+    )
+
+
+@then("the response includes existingSensorName matching the first sensor")
+def assert_existing_sensor_name(context: UnitTestContext) -> None:
+    assert isinstance(context.response_json, dict), (
+        f"Expected JSON object response, got: {context.response_json!r}"
+    )
+    assert "existingSensorName" in context.response_json, (
+        "Conflict response is missing the structured 'existingSensorName' JSON "
+        "field; the conflicting sensor identity must be exposed as a JSON key, "
+        "not only embedded in error_message.\n"
+        f"  response keys: {sorted(context.response_json.keys())}\n"
+        f"  full body: {context.response_json!r}"
+    )
+    actual = context.response_json["existingSensorName"]
+    assert actual == context.added_sensor_name, (
+        f"existingSensorName did not match the first sensor.\n"
+        f"  expected: {context.added_sensor_name!r}\n"
+        f"  actual:   {actual!r}\n"
+        f"  full body: {context.response_json!r}"
+    )
+
+
 @then("I clean up the first added sensor")
 def cleanup_first_sensor(
     context: UnitTestContext, api_config: dict, unit_test_params: dict

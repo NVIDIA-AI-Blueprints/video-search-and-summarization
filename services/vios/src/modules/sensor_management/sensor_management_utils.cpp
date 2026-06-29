@@ -765,6 +765,8 @@ VmsErrorCode addSensor(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, con
     {
         string error_message = "Sensor exists already, sensorId: " + existingSensor->id + ", sensorName: " + existingSensor->name;
         LOG(error) << error_message << endl;
+        response["existingSensorId"] = existingSensor->id;
+        response["existingSensorName"] = existingSensor->name;
         SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response, error_message.c_str())
         return VmsErrorCode::InvalidParameterError;
     }
@@ -776,6 +778,8 @@ VmsErrorCode addSensor(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, con
             string error_message = string("User given name is invalid or already exists");
             if (nameConflictSensor)
             {
+                response["existingSensorId"] = nameConflictSensor->id;
+                response["existingSensorName"] = nameConflictSensor->name;
                 error_message += ", sensorId: " + nameConflictSensor->id + ", sensorName: " + nameConflictSensor->name;
             }
             SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response, error_message.c_str());
