@@ -71,8 +71,11 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          # ref: develop <-- after get merged into develop, I would need to uncomment this setting to specify
-          # develop branch as target branch for scheduled skill eval run
+          # The scheduled nightly fires from the DEFAULT branch (main) but must
+          # EVALUATE develop, where active skill/harness work lands. Schedule ->
+          # develop; workflow_dispatch -> the ref picked in the dropdown
+          # (github.ref) so on-demand runs can still target any branch.
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
           fetch-depth: 0   # plan diffs the cumulative head...base range
 
       - name: Compute matrix
@@ -110,6 +113,9 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
+          # Match the plan job: nightly evaluates develop; dispatch uses the
+          # chosen ref. Both jobs must check out the same tree.
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
           fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
@@ -146,7 +152,14 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
-          export PR_HEAD_SHA="${{ github.sha }}"
+          # Pin the box-side repo sync to the SHA the runner actually checked
+          # out — NOT github.sha. On a scheduled run github.sha is the default
+          # branch (main) tip, but the checkout above is develop; using it here
+          # would make BrevEnvironment._sync_repo_to_pr_head deploy main's code
+          # while the harness ran develop. git rev-parse HEAD = the checked-out
+          # commit (develop on the nightly, the dispatch ref otherwise), so both
+          # code sources stay on the same tree.
+          export PR_HEAD_SHA="$(git rev-parse HEAD)"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
           # Single-spec mode — plan already decided this leg's target, so
