@@ -2394,7 +2394,29 @@ VmsErrorCode StorageManagement::deleteFilesByNames(const Json::Value& req_info, 
     CivetServer::getParam(query_string, "id", id);
     if (id.empty() == false)
     {
+        // The upload response (POST /api/v1/storage/file) advertises both the
+        // file's unique object id ("id") and the "streamId" of the stream
+        // created to serve it; both look like valid delete handles to clients.
+        // Resolve against the object id first, then fall back to the streamId
+        // (which maps to that single uploaded file) before reporting failure —
+        // without the fallback, deleting by the returned streamId failed with
+        // InvalidParameterError and orphaned the uploaded file (bug 6164097).
+        //
+        // Deliberately NOT falling back to sensor id: a sensor-id lookup over
+        // [0, max] matches every recording for that sensor, so accepting it as
+        // a delete handle would mass-delete unrelated files (review: data-loss).
         vector<VideoRecordDBColumns> fileRecords = GET_DB_INSTANCE()->getVideoRecordFilePathsIdBased(id);
+        if (fileRecords.empty())
+        {
+            fileRecords = GET_DB_INSTANCE()->getVideoRecordFilePaths(
+                id, 0, std::numeric_limits<int64_t>::max());
+            if (!fileRecords.empty())
+            {
+                LOG(info) << "Resolved delete handle " << id
+                          << " by stream id to " << fileRecords.size()
+                          << " file(s)" << endl;
+            }
+        }
         if (fileRecords.empty())
         {
             LOG(error) << "File not found for Unique ID " << id << endl;

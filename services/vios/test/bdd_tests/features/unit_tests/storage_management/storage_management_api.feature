@@ -39,3 +39,22 @@ Feature: VST Storage Management Service API Unit Tests
     Given the VST storage management API is accessible
     When I request the protected file list
     Then the storage response status is 200
+
+  # Regression for NVBug 6164097: DELETE must accept any identifier the upload
+  # returns for a file (id or streamId), not just id.
+  Scenario: A file uploaded via POST can be deleted using the returned streamId
+    Given the VST storage management API is accessible
+    And the static test video is available
+    When I upload a media file via POST to the storage service
+    Then the upload response contains both an id and a streamId
+    When I delete the uploaded file using the returned streamId
+    Then the storage delete response status is 200
+    And the uploaded file is no longer present on the storage service
+
+  Scenario: A file uploaded via POST can still be deleted using the returned id
+    Given the VST storage management API is accessible
+    And the static test video is available
+    When I upload a media file via POST to the storage service
+    And I delete the uploaded file using the returned id
+    Then the storage delete response status is 200
+    And the uploaded file is no longer present on the storage service
