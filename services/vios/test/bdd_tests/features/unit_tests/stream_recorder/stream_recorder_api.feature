@@ -29,3 +29,13 @@ Feature: VST Stream Recorder Service API Unit Tests
     Given the VST stream recorder API is accessible
     When I request the recording timelines for all record streams
     Then the recorder response status is 200
+
+  # Regression for NVBug 6216297: aggregate /record/status must expose state
+  # under the same camelCase key "recordingStatus" as the per-stream endpoint.
+  Scenario: Aggregate record status uses the same camelCase key as the per-stream endpoint
+    Given the VST stream recorder API is accessible
+    And at least one record stream is present
+    When I request the per-stream record status for that stream
+    And I request the aggregate record status for all streams
+    Then the per-stream record status uses the camelCase key "recordingStatus"
+    And every aggregate record status entry uses the camelCase key "recordingStatus"

@@ -413,6 +413,11 @@ VmsErrorCode StreamRecorder::recordStatus(Json::Value &response)
             current_state = recording_status_unknown;
         }
         resp["id"] = stream_id;
+        // Use the camelCase "recordingStatus" key to match the per-stream
+        // GET /record/{streamId}/status endpoint and the project-wide camelCase
+        // swagger (NVBug 6216297). Retain the snake_case "recording_status" as a
+        // deprecated co-key for one release so existing consumers do not break.
+        resp["recordingStatus"] = current_state;
         resp["recording_status"] = current_state;
         response[stream_id] = resp;
     }
