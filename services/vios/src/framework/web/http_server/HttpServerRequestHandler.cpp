@@ -335,6 +335,14 @@ class RequestHandler : public CivetHandler
             mg_printf(conn, "%s\r\n", response.c_str());
         }
         mg_printf(conn,"Access-Control-Allow-Origin: *\r\n");
+        /* Emit a Deprecation header whenever the body still carries the retained
+         * snake_case error co-keys (error_code/error_message) so consumers are
+         * warned to migrate to the camelCase errorCode/errorMessage envelope
+         * before the co-keys are removed. See bug 6216283. */
+        if (response.isObject() && response.isMember("error_code"))
+        {
+            mg_printf(conn,"Deprecation: true\r\n");
+        }
         string content_type;
         if (response.isObject())
         {

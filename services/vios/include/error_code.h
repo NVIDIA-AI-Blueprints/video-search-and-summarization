@@ -40,14 +40,22 @@ inline constexpr char WHITESPACE_CHAR = ' ';
 inline constexpr int FATAL_ERROR_CODE = -100;
 
 
+/* The error envelope is camelCase per the project swagger (errorCode/errorMessage).
+ * error_code/error_message are retained as deprecated snake_case co-keys for one
+ * release so existing consumers do not break on upgrade. See bug 6216283. */
 #define SET_VMS_ERROR(err_code, value) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
+                                        value["errorCode"] = err.first; \
+                                        value["errorMessage"] = err.second; \
                                         value["error_code"] = err.first; \
                                         value["error_message"] = err.second; }
 
 #define SET_VMS_ERROR2(err_code, value, message) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
-                                        value["error_code"] = err.first; \
                                         string msg(message); \
-                                        if (msg.empty()) {value["error_message"] = err.second;} else {value["error_message"] = msg;} }
+                                        if (msg.empty()) {msg = err.second;} \
+                                        value["errorCode"] = err.first; \
+                                        value["errorMessage"] = msg; \
+                                        value["error_code"] = err.first; \
+                                        value["error_message"] = msg; }
 
 
 #define CHECK_JSON_OBJECT_IF_ERROR_RETURN(json_obj) {\

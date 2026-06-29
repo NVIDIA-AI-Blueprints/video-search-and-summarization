@@ -22,7 +22,7 @@ version, help, configuration.
 import logging
 
 import pytest
-from pytest_bdd import scenarios, given, when, then
+from pytest_bdd import scenarios, given, when, then, parsers
 
 from ..unit_test_utils import (
     UnitTestContext,
@@ -35,6 +35,9 @@ from ..unit_test_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A sensor ID that is guaranteed not to exist, used to exercise the error path.
+NONEXISTENT_SENSOR_ID = "__nonexistent__"
 
 scenarios("../../../features/unit_tests/sensor_management/sensor_management_api.feature")
 
@@ -217,6 +220,30 @@ def request_sensor_timelines_by_id(context: UnitTestContext, api_config: dict, u
     )
 
 
+@when("I request status for a non-existent sensor")
+def request_status_nonexistent(context: UnitTestContext, api_config: dict, unit_test_params: dict) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    context.response = api_get(
+        api_config["base_url"],
+        f"/vst/api/v1/sensor/{NONEXISTENT_SENSOR_ID}/status",
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=timeout,
+    )
+
+
+@when(parsers.parse('I request "{action}" for a non-existent sensor'))
+def request_action_nonexistent(
+    context: UnitTestContext, api_config: dict, unit_test_params: dict, action: str
+) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    context.response = api_get(
+        api_config["base_url"],
+        f"/vst/api/v1/sensor/{NONEXISTENT_SENSOR_ID}/{action}",
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=timeout,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Then
 # ---------------------------------------------------------------------------
@@ -225,6 +252,44 @@ def request_sensor_timelines_by_id(context: UnitTestContext, api_config: dict, u
 def check_sensor_status_200(context: UnitTestContext) -> None:
     assert context.response.status_code == 200, (
         f"Expected 200, got {context.response.status_code}: {context.response.text[:500]}"
+    )
+
+
+@then("the sensor response status is 404")
+def check_sensor_status_404(context: UnitTestContext) -> None:
+    assert context.response.status_code == 404, (
+        f"Expected 404 for a non-existent sensor, got {context.response.status_code}: "
+        f"{context.response.text[:500]}"
+    )
+
+
+@then(parsers.parse('the sensor error body uses camelCase keys with error code "{code}"'))
+def check_camelcase_error_envelope(context: UnitTestContext, code: str) -> None:
+    data = context.response.json()
+    assert isinstance(data, dict), (
+        f"Error body must be a JSON object, got {type(data).__name__}: {context.response.text[:500]}"
+    )
+    assert "errorCode" in data, (
+        f"Expected camelCase 'errorCode' key per the swagger, got keys {sorted(data)}: "
+        f"{context.response.text[:500]}"
+    )
+    assert data["errorCode"] == code, (
+        f"Expected errorCode '{code}', got '{data.get('errorCode')}': {context.response.text[:500]}"
+    )
+    assert "errorMessage" in data, (
+        f"Expected camelCase 'errorMessage' key per the swagger, got keys {sorted(data)}: "
+        f"{context.response.text[:500]}"
+    )
+
+
+@then('the sensor error body has no success "state" field')
+def check_error_body_has_no_state(context: UnitTestContext) -> None:
+    data = context.response.json()
+    assert isinstance(data, dict), (
+        f"Error body must be a JSON object, got {type(data).__name__}: {context.response.text[:500]}"
+    )
+    assert "state" not in data, (
+        f"Error envelope must not embed a success 'state' field, got: {context.response.text[:500]}"
     )
 
 

@@ -1073,10 +1073,11 @@ VmsErrorCode getSensorStatus(std::shared_ptr<nv_vms::SensorManagement> sensorMgm
     }
     else
     {
-        response["state"] = CAMERA_STATE_OFFLINE;
-        std::pair<string, string> code_pair = getCameraErrorCodeString(VmsErrorCode::CameraNotFoundError);
-        response["errorCode"] = code_pair.first;
-        response["errorMessage"] = code_pair.second;
+        /* A non-existent sensor is an error: emit the standard 404 error envelope
+         * (no success "state" field) so /status matches the sibling endpoints
+         * instead of returning 200 with an embedded error. See bug 6216283. */
+        SET_VMS_ERROR(VmsErrorCode::CameraNotFoundError, response)
+        return VmsErrorCode::CameraNotFoundError;
     }
     return VmsErrorCode::NoError;
 }

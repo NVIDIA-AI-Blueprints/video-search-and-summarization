@@ -74,3 +74,27 @@ Feature: VST Sensor Management Service API Unit Tests
     And at least one sensor exists
     When I request timelines for the first sensor
     Then the sensor response status is 200
+
+  # Bug 6216283: /sensor/{id}/status for a non-existent sensor must return a
+  # 404 error envelope (camelCase per the swagger) instead of a 200 success
+  # body that embeds the error and a "state":"offline" field.
+  Scenario: Status of a non-existent sensor returns a 404 camelCase error envelope
+    Given the VST sensor management API is accessible
+    When I request status for a non-existent sensor
+    Then the sensor response status is 404
+    And the sensor error body uses camelCase keys with error code "CameraNotFoundError"
+    And the sensor error body has no success "state" field
+
+  # Bug 6216283: every Sensor Management endpoint must emit one consistent
+  # camelCase error envelope on error, not the snake_case variant.
+  Scenario Outline: Error envelope for a non-existent sensor is consistent camelCase across endpoints
+    Given the VST sensor management API is accessible
+    When I request "<action>" for a non-existent sensor
+    Then the sensor response status is 404
+    And the sensor error body uses camelCase keys with error code "CameraNotFoundError"
+
+    Examples:
+      | action    |
+      | streams   |
+      | timelines |
+      | network   |

@@ -17,14 +17,13 @@
 
 #include <MessageBus.h>
 
-#define SET_VMS_ERROR(err_code, value) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
-                                        value["error_code"] = err.first; \
-                                        value["error_message"] = err.second; }
-
-#define SET_VMS_ERROR2(err_code, value, message) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
-                                        value["error_code"] = err.first; \
-                                        string msg(message); \
-                                        if (msg.empty()) {value["error_message"] = err.second;} else {value["error_message"] = msg;} }
+// SET_VMS_ERROR / SET_VMS_ERROR2 come from error_code.h (via MessageBus.h).
+// The previous local copies here were an identical duplicate of that macro;
+// once this fix updated the canonical error_code.h definition (to emit
+// camelCase errorCode/errorMessage alongside the snake_case keys), the stale
+// local copy diverged and broke the build under -Werror (redefinition). The
+// canonical macro is additive (keeps error_code/error_message), so dropping
+// the duplicate is backward compatible.
 
 bool MessageBus::sendMessage(const string& clientId, const string& message, std::shared_ptr<MessageObject> messageObj)
 {
