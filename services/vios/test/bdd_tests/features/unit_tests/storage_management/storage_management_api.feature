@@ -39,3 +39,19 @@ Feature: VST Storage Management Service API Unit Tests
     Given the VST storage management API is accessible
     When I request the protected file list
     Then the storage response status is 200
+
+  # Regression for NVBug 6221886: file/list must honour ?tag= (exact) and
+  # ?eventInfo= (substring) filters against the persisted metadata.
+  Scenario: Filter the media file list by an exact tag value
+    Given the VST storage management API is accessible
+    And three media files are uploaded with distinct tag and eventInfo metadata
+    And the uploaded files appear in the file list with their tag metadata
+    When I request the file list filtered by the tag shared by two of the files
+    Then only the files carrying that tag are returned
+
+  Scenario: Filter the media file list by an eventInfo substring
+    Given the VST storage management API is accessible
+    And three media files are uploaded with distinct tag and eventInfo metadata
+    And the uploaded files appear in the file list with their tag metadata
+    When I request the file list filtered by an eventInfo substring shared by two of the files
+    Then only the files whose eventInfo contains that substring are returned

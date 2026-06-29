@@ -3631,6 +3631,16 @@ VmsErrorCode StorageManagement::listLocalFiles(const Json::Value& req_info, cons
     CivetServer::getParam(query_string, "offset", offsetStr);
     CivetServer::getParam(query_string, "limit", limitStr);
 
+    // Optional metadata filters applied against the per-file metadata_json blob:
+    //   tag       -> exact match on metadata.tag
+    //   eventInfo -> substring match on metadata.eventInfo
+    // Both combine with each other (and with offset/limit) using AND semantics.
+    string tagFilter;
+    string eventInfoFilter;
+
+    CivetServer::getParam(query_string, "tag", tagFilter);
+    CivetServer::getParam(query_string, "eventInfo", eventInfoFilter);
+
     int offset = 0;  // Default offset
     int limit = 0;   // Default: no limit (return all)
 
@@ -3679,7 +3689,9 @@ VmsErrorCode StorageManagement::listLocalFiles(const Json::Value& req_info, cons
         return VmsErrorCode::InvalidParameterError;
     }
 
-    LOG(info) << "Listing local storage files - offset: " << offset << ", limit: " << limit << endl;
+    LOG(info) << "Listing local storage files - offset: " << offset << ", limit: " << limit
+              << ", tag: " << (tagFilter.empty() ? "<none>" : tagFilter)
+              << ", eventInfo: " << (eventInfoFilter.empty() ? "<none>" : eventInfoFilter) << endl;
 
     try
     {
@@ -3739,6 +3751,32 @@ VmsErrorCode StorageManagement::listLocalFiles(const Json::Value& req_info, cons
                 Json::Value fallbackMetadata;
                 fallbackMetadata["id"] = record.object_id_value;
                 fileInfo["metadata"] = fallbackMetadata;
+            }
+
+            // Apply optional metadata filters. A record with no parseable
+            // metadata can never satisfy a tag/eventInfo filter, so it is
+            // dropped whenever either filter is active.
+            if (!tagFilter.empty() || !eventInfoFilter.empty())
+            {
+                const Json::Value& md = fileInfo["metadata"];
+
+                if (!tagFilter.empty())
+                {
+                    if (!md.isMember("tag") || !md["tag"].isString() ||
+                        md["tag"].asString() != tagFilter)
+                    {
+                        continue;
+                    }
+                }
+
+                if (!eventInfoFilter.empty())
+                {
+                    if (!md.isMember("eventInfo") || !md["eventInfo"].isString() ||
+                        md["eventInfo"].asString().find(eventInfoFilter) == string::npos)
+                    {
+                        continue;
+                    }
+                }
             }
 
             // If sensor ID doesn't exist in files object, create an empty array

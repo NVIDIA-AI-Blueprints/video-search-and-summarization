@@ -1010,7 +1010,41 @@ paths:
         - v1
       summary: Get list of all media files
       description: This API endpoint returns a list of all media files linked to every sensor.
+        The result set can optionally be narrowed by the file metadata 'tag' (exact match) and
+        'eventInfo' (substring match) values, and paginated with offset/limit. All filters combine
+        using AND semantics.
       operationId: getAllFilesList
+      parameters:
+        - name: tag
+          in: query
+          required: false
+          description: Return only files whose metadata 'tag' value matches exactly.
+          schema:
+            type: string
+            maxLength: 256
+        - name: eventInfo
+          in: query
+          required: false
+          description: Return only files whose metadata 'eventInfo' value contains this substring.
+          schema:
+            type: string
+            maxLength: 256
+        - name: offset
+          in: query
+          required: false
+          description: Number of files to skip from the start of the result set.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of files to return. 0 (default) returns all matching files.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         '200':
           description: Successfully retrieved files list
