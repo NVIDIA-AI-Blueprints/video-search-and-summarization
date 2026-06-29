@@ -132,15 +132,17 @@ def _agent_flags(agent: str, model: str, base_url: str) -> list[str]:
     kwarg (and `--ae CLAUDE_CODE_DISABLE_THINKING=1` strips the field the
     NVIDIA proxy rejects).
 
-    codex is DIFFERENT: harbor's CodexAgent ignores unknown agent kwargs
-    (its `__init__(model_name, *args, **kwargs)` swallows them) and only
-    forwards `OPENAI_API_KEY` — plus `OPENAI_BASE_URL` on newer harbor —
-    from the *process env* into `codex exec`. So a `--ak base_url=` here is
-    silently dropped and codex hits api.openai.com (observed: 401 at
-    wss://api.openai.com/v1/responses). The endpoint + key are therefore set
-    on the subprocess env in run_invocations / codex_env_overrides, NOT here.
-    Note CodexAgent also strips the model to `model_name.split("/")[-1]`, so
-    only the last path segment of `--model` reaches `codex exec`.
+    codex is DIFFERENT on two counts:
+      1. Endpoint/key come from the *process env* (OPENAI_BASE_URL +
+         OPENAI_API_KEY), set in run_invocations / codex_env_overrides — NOT
+         via `--ak` (harbor's codex agent ignores unknown kwargs; a
+         `--ak base_url=` was silently dropped and codex hit api.openai.com).
+      2. harbor's stock codex agent sends `model.split("/")[-1]` on the wire,
+         dropping the provider prefix; the NVIDIA LiteLLM gateway 401s on the
+         bare leaf and needs the full `openai/openai/gpt-5-codex`. So we run a
+         custom subclass (agents.codex_full_model:FullModelCodex) via
+         `--agent-import-path` that keeps the full model id. `.github/skill-eval`
+         is already on PYTHONPATH (same as envs.brev_env).
     """
     if agent == "claude-code":
         return [
@@ -150,7 +152,10 @@ def _agent_flags(agent: str, model: str, base_url: str) -> list[str]:
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
         ]
     if agent == "codex":
-        return ["-a", "codex", "--model", model]
+        return [
+            "--agent-import-path", "agents.codex_full_model:FullModelCodex",
+            "--model", model,
+        ]
     raise ValueError(f"unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)")
 
 

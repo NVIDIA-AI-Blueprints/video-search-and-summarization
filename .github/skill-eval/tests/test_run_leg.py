@@ -117,11 +117,16 @@ class HarborCommand(unittest.TestCase):
             "codex",
         )
 
-        self.assertEqual(cmd[cmd.index("-a") + 1], "codex")
+        # codex runs through our custom agent (keeps the full model id);
+        # harbor's stock `-a codex` strips the prefix and the gateway 401s.
+        self.assertNotIn("-a", cmd)
+        self.assertEqual(
+            cmd[cmd.index("--agent-import-path") + 1],
+            "agents.codex_full_model:FullModelCodex",
+        )
+        # Full, un-stripped model id must be passed through.
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
-        # codex takes endpoint/key via the process env, NOT --ak; harbor's
-        # CodexAgent ignores unknown kwargs, so a base_url kwarg would be
-        # silently dropped (codex would hit api.openai.com -> 401).
+        # codex takes endpoint/key via the process env, NOT --ak.
         self.assertNotIn("--ak", cmd)
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
