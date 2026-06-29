@@ -408,9 +408,19 @@ resolve_vss_gateway_container() {
 }
 
 apply_vss_policy() {
-  local policy_file="${NEMOCLAW_POLICY_FILE}"
+  local policy_file policy_cli
+  policy_file="${NEMOCLAW_POLICY_FILE}"
 
-  if ! have nemoclaw; then
+  if [ "$NEMOCLAW_AGENT_RUNTIME" = "hermes" ]; then
+    if policy_cli="$(resolve_nemohermes)"; then
+      :
+    elif policy_cli="$(resolve_nemoclaw)"; then
+      :
+    else
+      log "ERROR: neither nemohermes nor nemoclaw is available; cannot apply preset from ${policy_file}"
+      return 1
+    fi
+  elif ! policy_cli="$(resolve_nemoclaw)"; then
     log "ERROR: nemoclaw CLI is not available; cannot apply preset from ${policy_file}"
     return 1
   fi
@@ -425,7 +435,7 @@ apply_vss_policy() {
   # was the legacy path; it replaces the whole policy (including base
   # filesystem/landlock/process rules) and OpenShell rejects the result.
   log "Applying VSS preset ${policy_file} to sandbox ${NEMOCLAW_SANDBOX_NAME}"
-  nemoclaw "$NEMOCLAW_SANDBOX_NAME" policy-add --from-file "$policy_file" --yes
+  "$policy_cli" "$NEMOCLAW_SANDBOX_NAME" policy-add --from-file "$policy_file" --yes
 }
 
 restart_vss_openclaw_gateway() {
@@ -573,8 +583,8 @@ upload_hermes_wrapper() {
   fi
 
   log "Installing VSS Orchestrator command bridge for Hermes"
-  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc \
-    "mkdir -p '$(dirname "$HERMES_REMOTE_WRAPPER_PATH")'" </dev/null
+  printf -v shell_cmd 'mkdir -p %q' "$(dirname "$HERMES_REMOTE_WRAPPER_PATH")"
+  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc "$shell_cmd" </dev/null
 
   printf -v shell_cmd 'cat > %q' "$HERMES_REMOTE_WRAPPER_PATH"
   if ! openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -c "$shell_cmd" < "$HERMES_WRAPPER_PATH"; then
@@ -722,7 +732,8 @@ sandbox_ready() {
     | strip_ansi \
     | awk -v name="$NEMOCLAW_SANDBOX_NAME" '$1 == name && $NF == "Ready" { found = 1 } END { exit found ? 0 : 1 }' \
     || return 1
-  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc "command -v ${agent_command} >/dev/null" </dev/null >/dev/null 2>&1
+  openshell sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" -- sh -lc \
+    'command -v "$1" >/dev/null' -- "$agent_command" </dev/null >/dev/null 2>&1
 }
 
 wait_for_sandbox_ready() {
