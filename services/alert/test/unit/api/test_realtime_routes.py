@@ -2630,3 +2630,22 @@ class TestAlwaysOnConcurrency:
         assert second_body["reason"] == "STREAM_ADD_SUCCESS"
         assert second_body["details"][0]["alert_rule_id"] == "alert-2"
         assert realtime_mock.start_alert.await_count == 2
+
+
+class TestGetIncidentsConsolidate:
+    """GET /api/v1/realtime/incidents — `consolidate` query param wiring."""
+
+    def test_consolidate_true_forwarded(self, client, mocks):
+        resp = client.get("/api/v1/realtime/incidents?consolidate=true")
+        assert resp.status_code == 200
+        assert mocks["incident"].list_incidents.await_args.kwargs["consolidate"] is True
+
+    def test_consolidate_false_forwarded(self, client, mocks):
+        resp = client.get("/api/v1/realtime/incidents?consolidate=false")
+        assert resp.status_code == 200
+        assert mocks["incident"].list_incidents.await_args.kwargs["consolidate"] is False
+
+    def test_consolidate_default_none(self, client, mocks):
+        resp = client.get("/api/v1/realtime/incidents")
+        assert resp.status_code == 200
+        assert mocks["incident"].list_incidents.await_args.kwargs["consolidate"] is None
