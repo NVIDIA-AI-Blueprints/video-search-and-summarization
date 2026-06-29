@@ -77,7 +77,7 @@ spec:
             {{- $streamProcessorService := default "sdrc" .Values.streamProcessorService }}
             {{- $streamProcessorServiceName := ternary "sdrc-controller" $streamProcessorService (eq $streamProcessorService "sdrc") }}
             - name: STREAM_PROCESSOR_MODULE_ENDPOINT
-              value: {{ or .Values.streamProcessorEndpoint (printf "http://%s:5003" (include "vss-vios-sensor.peerHost" (dict "root" . "short" $streamProcessorServiceName))) | quote }}
+              value: {{ or .Values.streamProcessorEndpoint (printf "http://%s:10000" (include "vss-vios-sensor.peerHost" (dict "root" . "short" $streamProcessorServiceName))) | quote }}
             - name: VST_INGRESS_ENDPOINT
               value: {{ include "vss-vios-sensor.vstIngressEndpointUrl" . | quote }}
           volumeMounts:
