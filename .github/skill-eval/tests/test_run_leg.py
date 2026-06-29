@@ -97,9 +97,44 @@ class HarborCommand(unittest.TestCase):
 
         self.assertIn("--include-task-name", cmd)
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
+        self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
         self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
         self.assertEqual(cmd[cmd.index("-o") + 1], "/tmp/results")
+
+    def test_build_command_codex_agent(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/alerts_cv"),
+            include_task_name="rtxpro6000bw",
+            chain_key="alerts_cv_rtxpro6000bw",
+        )
+
+        cmd = run_leg.build_harbor_command(
+            invocation,
+            Path("/tmp/results"),
+            "openai/openai/gpt-5-codex",
+            "https://inference-api.nvidia.com/v1",
+            "codex",
+        )
+
+        self.assertEqual(cmd[cmd.index("-a") + 1], "codex")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
+        self.assertIn("base_url=https://inference-api.nvidia.com/v1", cmd)
+        # Reasoning effort defaults to high (NVIDIA Responses API codex model).
+        self.assertIn("reasoning_effort=high", cmd)
+        # The Anthropic-only thinking flag must NOT leak into a codex run.
+        self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
+
+    def test_build_command_rejects_unknown_agent(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/alerts_cv"),
+            include_task_name="rtxpro6000bw",
+            chain_key="alerts_cv_rtxpro6000bw",
+        )
+        with self.assertRaises(ValueError):
+            run_leg.build_harbor_command(
+                invocation, Path("/tmp/results"), "m", "https://x/v1", "aider"
+            )
 
 
 class SkipMarkers(unittest.TestCase):

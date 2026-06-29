@@ -125,11 +125,48 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
+def _agent_flags(agent: str, model: str, base_url: str) -> list[str]:
+    """Harbor `-a <agent>` plus that agent's model/base-url/auth flags.
+
+    The claude-code path is unchanged from when it was inlined in
+    build_harbor_command — `--ak api_base=<.../v1>` points claude-code at
+    the NVIDIA Anthropic proxy and `--ae CLAUDE_CODE_DISABLE_THINKING=1`
+    strips the field the proxy rejects. The codex path mirrors the shape
+    (`--ak base_url=<.../v1>`); the OpenAI-compatible key is inherited from
+    the process env (harbor_env copies os.environ), so the coordinator .env
+    must export whatever key the codex agent reads. If you bump the harbor
+    version and its codex agent expects a different kwarg, adjust here.
+    """
+    if agent == "claude-code":
+        return [
+            "-a", "claude-code",
+            "--model", model,
+            "--ak", f"api_base={_api_base_v1(base_url)}",
+            "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
+        ]
+    if agent == "codex":
+        flags = [
+            "-a", "codex",
+            "--model", model,
+            "--ak", f"base_url={_api_base_v1(base_url)}",
+        ]
+        # Codex on the NVIDIA Responses API is a reasoning model; drive it at
+        # high effort by default (matches .github/skills-review's
+        # `codex exec ... model_reasoning_effort="high"`). Override with
+        # CODEX_REASONING_EFFORT, or set it empty to drop the flag entirely.
+        effort = os.environ.get("CODEX_REASONING_EFFORT", "high")
+        if effort:
+            flags += ["--ak", f"reasoning_effort={effort}"]
+        return flags
+    raise ValueError(f"unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)")
+
+
 def build_harbor_command(
     invocation: HarborInvocation,
     results_root: Path,
     model: str,
-    anthropic_base_url: str,
+    base_url: str,
+    agent: str = "claude-code",
 ) -> list[str]:
     return [
         "uvx",
@@ -141,14 +178,7 @@ def build_harbor_command(
         str(invocation.harbor_root),
         "--include-task-name",
         invocation.include_task_name,
-        "-a",
-        "claude-code",
-        "--model",
-        model,
-        "--ak",
-        f"api_base={_api_base_v1(anthropic_base_url)}",
-        "--ae",
-        "CLAUDE_CODE_DISABLE_THINKING=1",
+        *_agent_flags(agent, model, base_url),
         "--environment-build-timeout-multiplier",
         "3.0",
         "--agent-timeout-multiplier",
@@ -285,13 +315,28 @@ def run_invocations(
     harbor_timeout_sec: int,
 ) -> int:
     env = harbor_env(instance)
-    model = os.environ.get("ANTHROPIC_MODEL", "")
-    base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+    # Which agent Harbor evaluates (set by skills-eval-daily.yml from the
+    # workflow_dispatch dropdown; defaults to claude-code on the nightly
+    # schedule). Each agent draws its model + base-url from its own env vars
+    # so a codex run never silently reuses the Anthropic ones.
+    agent = os.environ.get("EVAL_AGENT", "claude-code")
+    if agent == "claude-code":
+        model = os.environ.get("ANTHROPIC_MODEL", "")
+        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+        model_var, base_var = "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"
+    elif agent == "codex":
+        model = os.environ.get("CODEX_MODEL", "")
+        base_url = os.environ.get("CODEX_BASE_URL", "") or os.environ.get("OPENAI_BASE_URL", "")
+        model_var, base_var = "CODEX_MODEL", "CODEX_BASE_URL (or OPENAI_BASE_URL)"
+    else:
+        print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
+              file=sys.stderr)
+        return 1
     if not model:
-        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
+        print(f"FATAL: {model_var} not set (EVAL_AGENT={agent})", file=sys.stderr)
         return 1
     if not base_url:
-        print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
+        print(f"FATAL: {base_var} not set (EVAL_AGENT={agent})", file=sys.stderr)
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
@@ -306,7 +351,7 @@ def run_invocations(
         ):
             continue
 
-        cmd = build_harbor_command(invocation, results_root, model, base_url)
+        cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
         rc = run_command(cmd, env, harbor_timeout_sec)
         if rc != 0 and overall_rc == 0:
