@@ -156,6 +156,64 @@ def check_storage_version_string(context: UnitTestContext) -> None:
     logger.info("Service version: %s", version)
 
 
+def _extract_version(response) -> str:
+    """Pull the version value out of a version-endpoint response.
+
+    Handles the object forms used across microservices (Storage MS:
+    ``{"storage_management_version": ...}``; Sensor MS: ``{"type": ...,
+    "version": ...}``) and the plain-string form.
+    """
+    assert response is not None, "Version endpoint was not queried"
+    assert response.status_code == 200, (
+        f"Expected status 200, got {response.status_code}: {response.text[:500]}"
+    )
+    data = response.json()
+    if isinstance(data, str):
+        return data.strip()
+    assert isinstance(data, dict), (
+        f"Unexpected version payload type {type(data).__name__}: {data!r}"
+    )
+    for key in ("storage_management_version", "version", "Version"):
+        if key in data and isinstance(data[key], str):
+            return data[key].strip()
+    raise AssertionError(f"No version field found in response: {data!r}")
+
+
+@when("I request the sensor service version")
+def request_sensor_version(context: UnitTestContext, api_config: dict, unit_test_params: dict) -> None:
+    timeout = unit_test_params.get("timeout", 30)
+    context.sensor_version_response = api_get(
+        api_config["base_url"],
+        "/vst/api/v1/sensor/version",
+        verify_ssl=api_config.get("verify_ssl", False),
+        timeout=timeout,
+    )
+
+
+@then('the storage reported version is not the placeholder "0.0.1"')
+def check_storage_version_not_placeholder(context: UnitTestContext) -> None:
+    storage_version = _extract_version(context.response)
+    logger.info("Storage MS reported version: %s", storage_version)
+    assert storage_version != "0.0.1", (
+        "Storage MS /storage/version returned the hardcoded placeholder '0.0.1' "
+        "instead of the deployed build version (bug 6303142)"
+    )
+
+
+@then("the storage reported version matches the sensor reported build version")
+def check_storage_version_matches_sensor(context: UnitTestContext) -> None:
+    storage_version = _extract_version(context.response)
+    sensor_version = _extract_version(context.sensor_version_response)
+    logger.info(
+        "Storage MS version: %s | Sensor MS (build) version: %s",
+        storage_version, sensor_version,
+    )
+    assert storage_version == sensor_version, (
+        f"Storage MS version mismatch: storage reports '{storage_version}' but "
+        f"the deployed build version is '{sensor_version}' (bug 6303142)"
+    )
+
+
 @then("the storage response is a list of supported API paths")
 def check_storage_help_list(context: UnitTestContext) -> None:
     data = validate_help_response(context.response)

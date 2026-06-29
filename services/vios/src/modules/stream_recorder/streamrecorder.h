@@ -31,8 +31,6 @@
 #include "Scheduler.h"
 #include "libasync++/async++.h"
 
-inline constexpr const char* STREAM_RECORDER_VERSION = "0.0.1";
-
 #define CHECK_RECORDER_INSTANCE(recorder)                             \
     do                                                                \
     {                                                                 \
