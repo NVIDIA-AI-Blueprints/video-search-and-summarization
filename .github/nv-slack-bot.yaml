@@ -1,0 +1,118 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# nv-slack-bot configuration — turns GitHub webhook events into Slack messages.
+# Docs: https://github.com/nv-gha-runners/github-apps/tree/main/packages/nv-slack-bot
+#
+# Scope: the "Skills Eval Daily" nightly sweep only. Posts to the configured
+# alerts channel; failures/timeouts tag the interested-parties group.
+#
+# NOTE: this app reads its config from the repository's DEFAULT BRANCH (main),
+# regardless of which branch the workflow checks out/evaluates. So this file
+# must live on main to be active.
+#
+# `match` / `message.vars` are JSONata over the webhook payload (root = $).
+# Do NOT put spaces inside {{var}} braces.
+
+$schema: https://public.gha-runners.nvidia.com/nv-slack-bot/schemas/config-v1.json
+enabled: true
+
+notifications:
+  # ── run-level: one event per nightly run ─────────────────────────────────
+  - name: "Skills Eval Daily — started"
+    event: workflow_run
+    slack:
+      nvidia:
+        channels:
+          - id: C0BDC2SBZK9
+    match: workflow_run.name = "Skills Eval Daily" and action = "requested"
+    message:
+      body: ":rocket: <{{url}}|Skills Eval Daily> started — run {{run}} ({{trigger}})"
+      vars:
+        url: workflow_run.html_url
+        run: workflow_run.run_number
+        trigger: workflow_run.event
+
+  - name: "Skills Eval Daily — succeeded"
+    event: workflow_run
+    slack:
+      nvidia:
+        channels:
+          - id: C0BDC2SBZK9
+    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "success"
+    message:
+      body: ":white_check_mark: <{{url}}|Skills Eval Daily> passed — run {{run}}"
+      vars:
+        url: workflow_run.html_url
+        run: workflow_run.run_number
+
+  - name: "Skills Eval Daily — failed"
+    event: workflow_run
+    slack:
+      nvidia:
+        channels:
+          - id: C0BDC2SBZK9
+    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "failure"
+    message:
+      body: ":red_circle: <{{url}}|Skills Eval Daily FAILED> — run {{run}} <!subteam^S0BE3B5GAS0>"
+      vars:
+        url: workflow_run.html_url
+        run: workflow_run.run_number
+
+  - name: "Skills Eval Daily — timed out"
+    event: workflow_run
+    slack:
+      nvidia:
+        channels:
+          - id: C0BDC2SBZK9
+    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "timed_out"
+    message:
+      body: ":hourglass_flowing_sand: <{{url}}|Skills Eval Daily TIMED OUT> — run {{run}} <!subteam^S0BE3B5GAS0>"
+      vars:
+        url: workflow_run.html_url
+        run: workflow_run.run_number
+
+  - name: "Skills Eval Daily — cancelled"
+    event: workflow_run
+    slack:
+      nvidia:
+        channels:
+          - id: C0BDC2SBZK9
+    match: workflow_run.name = "Skills Eval Daily" and workflow_run.conclusion = "cancelled"
+    message:
+      body: ":warning: <{{url}}|Skills Eval Daily was cancelled> — run {{run}}"
+      vars:
+        url: workflow_run.html_url
+        run: workflow_run.run_number
+
+  # ── job-level: the developer crux — only failed / timed-out legs ─────────
+  # A leg that exceeds its timeout-minutes is reported by GitHub with
+  # conclusion="cancelled" (not "timed_out"); for the nightly, superseding is
+  # rare, so a cancelled leg here is effectively a timed-out leg. Each failed /
+  # timed-out leg tags the group so owners see exactly which legs broke
+  # (this is in addition to the single run-level failure/timeout tag above).
+  - name: "Skills Eval Daily — leg failed"
+    event: workflow_job
+    slack:
+      nvidia:
+        channels:
+          - id: C0BDC2SBZK9
+    match: workflow_job.workflow_name = "Skills Eval Daily" and workflow_job.conclusion = "failure"
+    message:
+      body: ":x: leg failed — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
+      vars:
+        url: workflow_job.html_url
+        leg: workflow_job.name
+
+  - name: "Skills Eval Daily — leg timed out / cancelled"
+    event: workflow_job
+    slack:
+      nvidia:
+        channels:
+          - id: C0BDC2SBZK9
+    match: workflow_job.workflow_name = "Skills Eval Daily" and workflow_job.conclusion = "cancelled"
+    message:
+      body: ":hourglass: leg timed out / cancelled — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
+      vars:
+        url: workflow_job.html_url
+        leg: workflow_job.name
