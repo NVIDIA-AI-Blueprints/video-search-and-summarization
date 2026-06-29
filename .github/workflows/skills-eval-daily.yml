@@ -24,6 +24,20 @@ on:
   # `develop` in the ref dropdown, and GitHub runs develop's version of this
   # file (env passthrough + agent invocation all come from develop).
   workflow_dispatch:
+    inputs:
+      # Which agent/model Harbor evaluates inside each trial. This is the
+      # "model under test" — NOT the orchestrating skills_eval_agent.py
+      # (that stays Claude). The value maps straight to Harbor's `-a` flag
+      # and run_leg.py resolves the matching model/base-url/creds. The
+      # nightly `schedule` trigger passes no inputs, so it falls back to
+      # the default (claude-code) and keeps today's behaviour unchanged.
+      agent:
+        description: "Agent/model to evaluate in Harbor trials"
+        type: choice
+        default: claude-code
+        options:
+          - claude-code
+          - codex
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -157,6 +171,11 @@ jobs:
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
           export DAILY_RUN="true"
+          # Agent/model under test (run_leg.py -> Harbor `-a`). On the
+          # nightly schedule there are no inputs, so default to claude-code
+          # — today's behaviour. On workflow_dispatch this carries the
+          # operator's dropdown pick (claude-code | codex).
+          export EVAL_AGENT="${{ inputs.agent || 'claude-code' }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —
