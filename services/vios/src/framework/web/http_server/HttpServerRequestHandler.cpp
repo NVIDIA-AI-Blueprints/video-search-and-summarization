@@ -17,6 +17,9 @@
 
 #include <string.h>
 #include <iostream>
+#include <algorithm>
+#include <map>
+#include <vector>
 
 #include "HttpServerRequestHandler.h"
 #include "UserAuthHandler.h"
@@ -52,8 +55,117 @@ constexpr const char* HTTP_METHOD_POST = "POST";
 constexpr const char* HTTP_METHOD_PUT = "PUT";
 constexpr const char* HTTP_METHOD_PATCH = "PATCH";
 
+/* ---------------------------------------------------------------------------
+**  Centralized HTTP method policy (bug 6267433)
+**
+**  Method validation used to live inside individual handlers, so GET-only
+**  handlers silently executed their GET logic for POST/PUT/DELETE and returned
+**  200 instead of 405. This table maps each routed path (normalized: the /vst
+**  prefix is stripped before lookup) to the verbs its handler actually
+**  implements. The dispatch layer consults it so every routed path rejects
+**  unsupported verbs uniformly with 405 + Allow, and answers OPTIONS preflight.
+**
+**  Routes absent from the table have no policy and are left unvalidated to
+**  preserve their existing behavior.
+** -------------------------------------------------------------------------*/
+static const std::map<std::string, std::vector<std::string>>& getMethodPolicyTable()
+{
+    static const std::map<std::string, std::vector<std::string>> table = {
+        // Sensor management - read-only (GET) endpoints
+        {"/api/v1/sensor/list",          {HTTP_METHOD_GET}},
+        {"/api/v1/sensor/streams",       {HTTP_METHOD_GET}},
+        {"/api/v1/sensor/status",        {HTTP_METHOD_GET}},
+        {"/api/v1/sensor/version",       {HTTP_METHOD_GET}},
+        {"/api/v1/sensor/help",          {HTTP_METHOD_GET}},
+        {"/api/v1/sensor/qos",           {HTTP_METHOD_GET}},
+        {"/api/v1/sensor/timelines",     {HTTP_METHOD_GET}},
+        // Sensor management - write endpoints
+        {"/api/v1/sensor/add",           {HTTP_METHOD_POST}},
+        {"/api/v1/sensor/configuration", {HTTP_METHOD_GET, HTTP_METHOD_POST}},
+        // Sensor scan is a verb-agnostic trigger; clients invoke it via POST.
+        {"/api/v1/sensor/scan",          {HTTP_METHOD_GET, HTTP_METHOD_POST}},
+        // Storage management - read-only (GET) endpoint (handler rejects non-GET internally)
+        {"/api/v1/storage/info",         {HTTP_METHOD_GET}},
+        // Recorder - read-only (GET) endpoints (+ configuration read/update)
+        {"/api/v1/record/status",        {HTTP_METHOD_GET}},
+        {"/api/v1/record/version",       {HTTP_METHOD_GET}},
+        {"/api/v1/record/help",          {HTTP_METHOD_GET}},
+        {"/api/v1/record/streams",       {HTTP_METHOD_GET}},
+        {"/api/v1/record/timelines",     {HTTP_METHOD_GET}},
+        {"/api/v1/record/configuration", {HTTP_METHOD_GET, HTTP_METHOD_POST}},
+        // Storage management - read-only (GET) endpoints (+ configuration read/update)
+        {"/api/v1/storage/version",      {HTTP_METHOD_GET}},
+        {"/api/v1/storage/help",         {HTTP_METHOD_GET}},
+        {"/api/v1/storage/size",         {HTTP_METHOD_GET}},
+        {"/api/v1/storage/capacity",     {HTTP_METHOD_GET}},
+        {"/api/v1/storage/aging",        {HTTP_METHOD_GET}},
+        {"/api/v1/storage/streams",      {HTTP_METHOD_GET}},
+        {"/api/v1/storage/timelines",    {HTTP_METHOD_GET}},
+        {"/api/v1/storage/configuration",{HTTP_METHOD_GET, HTTP_METHOD_POST}},
+        // Live stream - read-only (GET) endpoints (+ configuration read/update)
+        {"/api/v1/live/version",         {HTTP_METHOD_GET}},
+        {"/api/v1/live/help",            {HTTP_METHOD_GET}},
+        {"/api/v1/live/streams",         {HTTP_METHOD_GET}},
+        {"/api/v1/live/configuration",   {HTTP_METHOD_GET, HTTP_METHOD_POST}},
+        // Replay stream - read-only (GET) endpoints (+ configuration read/update)
+        {"/api/v1/replay/version",       {HTTP_METHOD_GET}},
+        {"/api/v1/replay/help",          {HTTP_METHOD_GET}},
+        {"/api/v1/replay/streams",       {HTTP_METHOD_GET}},
+        {"/api/v1/replay/configuration", {HTTP_METHOD_GET, HTTP_METHOD_POST}},
+        // RTSP proxy - read-only (GET) endpoints (+ configuration read/update)
+        {"/api/v1/proxy/info",           {HTTP_METHOD_GET}},
+        {"/api/v1/proxy/streams",        {HTTP_METHOD_GET}},
+        {"/api/v1/proxy/configuration",  {HTTP_METHOD_GET, HTTP_METHOD_POST}},
+        // Metadata (read-only)
+        {"/v1/metadata",                 {HTTP_METHOD_GET}},
+        // Health probes (Kubernetes httpGet)
+        {"/v1/live",                     {HTTP_METHOD_GET}},
+        {"/v1/ready",                    {HTTP_METHOD_GET}},
+        {"/v1/startup",                  {HTTP_METHOD_GET}},
+    };
+    return table;
+}
 
-int log_message(const struct mg_connection *conn, const char *message) 
+// Returns the allowed methods for a normalized route, or nullptr when the route
+// has no method policy (validation is then skipped to preserve behavior).
+static const std::vector<std::string>* lookupAllowedMethods(const std::string& normalizedUri)
+{
+    const auto& table = getMethodPolicyTable();
+    auto it = table.find(normalizedUri);
+    return (it != table.end()) ? &it->second : nullptr;
+}
+
+static bool isMethodAllowed(const std::vector<std::string>& allowed, const std::string& method)
+{
+    return std::find(allowed.begin(), allowed.end(), method) != allowed.end();
+}
+
+// Builds the value for the Allow header: the route's supported methods plus
+// OPTIONS, which the dispatch layer always answers for CORS preflight.
+static std::string buildAllowHeader(const std::vector<std::string>* allowed)
+{
+    std::string header;
+    if (allowed != nullptr)
+    {
+        for (const auto& m : *allowed)
+        {
+            if (!header.empty())
+            {
+                header += ", ";
+            }
+            header += m;
+        }
+    }
+    if (!header.empty())
+    {
+        header += ", ";
+    }
+    header += HTTP_METHOD_OPTIONS;
+    return header;
+}
+
+
+int log_message(const struct mg_connection *conn, const char *message)
 {
     fprintf(stderr, "%s\n", message);
     LOG(verbose) << "HTTP SERVER: " << message << endl;
@@ -192,7 +304,57 @@ class RequestHandler : public CivetHandler
                 return ret;
             }
         }
-        
+
+        // Centralized HTTP method validation (bug 6267433). Enforced here in the
+        // dispatch layer so every routed path uniformly rejects verbs its handler
+        // does not implement with 405 + Allow, and answers OPTIONS preflight,
+        // instead of letting GET-only handlers run their GET logic for any verb.
+        {
+            const std::string METHOD_URL_PREFIX = "/vst";
+            std::string routeUri = uri;
+            if (routeUri.find(METHOD_URL_PREFIX) == 0)
+            {
+                routeUri = routeUri.substr(METHOD_URL_PREFIX.length());
+            }
+            const std::vector<std::string>* allowedMethods = lookupAllowedMethods(routeUri);
+
+            if (method == HTTP_METHOD_OPTIONS)
+            {
+                // Only answer preflight for routes with a known method policy, so
+                // the Allow header reflects the real supported verbs. Untabled
+                // routes have no policy to advertise; preserve their prior 404
+                // behavior rather than claiming only OPTIONS is supported.
+                if (allowedMethods == nullptr)
+                {
+                    return false;
+                }
+                // Answer CORS preflight here rather than returning 404.
+#ifdef USE_OTEL
+                if (span)
+                {
+                    span->SetAttribute(trace_semantic::kHttpStatusCode, 204);
+                    span->SetStatus(trace_api::StatusCode::kOk);
+                    span->End();
+                }
+#endif
+                return sendOptionsResponse(conn, allowedMethods);
+            }
+
+            if (allowedMethods != nullptr && !isMethodAllowed(*allowedMethods, method))
+            {
+                LOG(error) << "Method " << method << " not allowed for uri:" << uri << std::endl;
+#ifdef USE_OTEL
+                if (span)
+                {
+                    span->SetAttribute(trace_semantic::kHttpStatusCode, 405);
+                    span->SetStatus(trace_api::StatusCode::kError, "Method Not Allowed");
+                    span->End();
+                }
+#endif
+                return sendMethodNotAllowed(conn, allowedMethods, method);
+            }
+        }
+
         // read input
         Json::Value  in;
         result = this->getInputMessage(req_info, conn, in);
@@ -384,6 +546,54 @@ class RequestHandler : public CivetHandler
     bool handleDelete(CivetServer *server, struct mg_connection *conn)
     {
         return handle(server, conn);
+    }
+    // Route OPTIONS through the shared dispatch so method validation answers
+    // CORS preflight (bug 6267433) instead of falling through to a 404.
+    bool handleOptions(CivetServer *server, struct mg_connection *conn)
+    {
+        return handle(server, conn);
+    }
+
+    // Emits a uniform 405 Method Not Allowed: an Allow header listing the
+    // supported verbs plus the consistent error_code/error_message body.
+    bool sendMethodNotAllowed(struct mg_connection *conn,
+                              const std::vector<std::string>* allowedMethods,
+                              const std::string& method)
+    {
+        const std::string allowHeader = buildAllowHeader(allowedMethods);
+        Json::Value response;
+        const std::string message = "Method " + method + " is not allowed; supported methods: " + allowHeader;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, message.c_str());
+
+        std::pair<int, string> http_err_code = translateVmsErrorCodeToCameraHttpErrorCode(VmsErrorCode::MethodNotAllowedError);
+        const std::string body(Json::writeString(m_writerBuilder, response));
+
+        mg_printf(conn, "HTTP/1.1 %d %s\r\n", http_err_code.first, http_err_code.second.c_str());
+        mg_printf(conn, "Access-Control-Allow-Origin: *\r\n");
+        mg_printf(conn, "Allow: %s\r\n", allowHeader.c_str());
+        mg_printf(conn, "Access-Control-Allow-Methods: %s\r\n", allowHeader.c_str());
+        mg_printf(conn, "Content-Type: application/json\r\n");
+        mg_printf(conn, "Content-Length: %zd\r\n", body.size());
+        mg_printf(conn, "Connection: close\r\n");
+        mg_printf(conn, "\r\n");
+        mg_write(conn, body.c_str(), body.size());
+        return true;
+    }
+
+    // Answers a CORS preflight (OPTIONS) with 204 + Allow listing supported verbs.
+    bool sendOptionsResponse(struct mg_connection *conn,
+                             const std::vector<std::string>* allowedMethods)
+    {
+        const std::string allowHeader = buildAllowHeader(allowedMethods);
+        mg_printf(conn, "HTTP/1.1 204 No Content\r\n");
+        mg_printf(conn, "Access-Control-Allow-Origin: *\r\n");
+        mg_printf(conn, "Allow: %s\r\n", allowHeader.c_str());
+        mg_printf(conn, "Access-Control-Allow-Methods: %s\r\n", allowHeader.c_str());
+        mg_printf(conn, "Access-Control-Allow-Headers: Content-Type, Authorization\r\n");
+        mg_printf(conn, "Content-Length: 0\r\n");
+        mg_printf(conn, "Connection: close\r\n");
+        mg_printf(conn, "\r\n");
+        return true;
     }
 
   private:
