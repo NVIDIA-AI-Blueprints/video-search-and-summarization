@@ -109,7 +109,17 @@ def run_shell(command: list[str], log_path: Path, timeout: int) -> str:
 # =============================================================================
 
 
-def discover_question_files(questions_dir: Path) -> list[Path]:
+def discover_question_files(questions_dir: Path, question_file: Path | None = None) -> list[Path]:
+    if question_file is not None:
+        candidate = question_file.expanduser()
+        if not candidate.is_absolute() and not candidate.is_file():
+            candidate = questions_dir / candidate
+        if not candidate.is_file():
+            raise FileNotFoundError(f"Question file not found: {candidate}")
+        if not candidate.name.endswith("_eval.tsv"):
+            raise ValueError(f"Single-video question file must end with _eval.tsv: {candidate}")
+        return [candidate]
+
     files = sorted(questions_dir.glob("*_eval.tsv"))
     if not files:
         raise FileNotFoundError(f"No *_eval.tsv files found in {questions_dir}")
@@ -586,6 +596,14 @@ def write_total_report_md(path: Path, total: dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval-root", type=Path, default=Path.home() / "eval")
+    parser.add_argument(
+        "--question-file",
+        type=Path,
+        help=(
+            "Run only this *_eval.tsv file. Relative filenames are resolved from "
+            "<eval-root>/questions unless they already exist relative to the current directory."
+        ),
+    )
     parser.add_argument("--run-id")
     parser.add_argument("--lvs-backend-url", default=os.environ.get("LVS_BACKEND_URL", DEFAULT_LVS_BACKEND_URL))
     parser.add_argument("--video-url-template", default=os.environ.get("VIDEO_URL_TEMPLATE", DEFAULT_VIDEO_URL_TEMPLATE))
@@ -603,7 +621,7 @@ def main() -> int:
 
     questions_dir = args.eval_root / "questions"
     results_root = args.eval_root / "results"
-    question_files = discover_question_files(questions_dir)
+    question_files = discover_question_files(questions_dir, args.question_file)
     run_id, run_dir = make_run_dir(results_root, args.run_id)
     debug_dir = run_dir / "debug"
     debug_dir.mkdir(parents=True, exist_ok=True)

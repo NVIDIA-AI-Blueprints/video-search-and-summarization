@@ -121,6 +121,15 @@ Other modes:
 
 ```bash
 uv run python scripts/run_single.py --eval-root . --save-memory
+
+# Run only one single-video question TSV for faster iteration.
+# Relative filenames are looked up under <eval-root>/questions;
+# existing relative paths and absolute paths are also accepted.
+uv run python scripts/run_single.py \
+  --eval-root . \
+  --question-file log_1083757_body-cam_video_2_eval.tsv \
+  --save-memory
+
 uv run python scripts/run_cross.py --eval-root . --reset-memory
 uv run python scripts/run_cross.py --eval-root . --skip-ingest
 ```
