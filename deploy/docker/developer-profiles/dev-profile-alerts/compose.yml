@@ -14,6 +14,16 @@
 # limitations under the License.
 
 services:
+  models-download-alerts:
+    extends:
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      service: download-models
+    profiles: ["bp_developer_alerts_2d_cv"]
+    container_name: vss-rtvi-cv-init
+    volumes:
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.yaml:/opt/config/models-download.yaml:ro
+
 
   vss-behavior-analytics-alerts:
     extends:
@@ -104,6 +114,8 @@ services:
       DS_SHOW_SENSOR_ID: "true"
       DS_CONFIG_FILE: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/run_config-api-rtdetr-protobuf.txt
     depends_on:
+      models-download-alerts:
+        condition: service_completed_successfully
       kafka-topic-init-container:
         condition: service_completed_successfully
       rtvi-vlm:

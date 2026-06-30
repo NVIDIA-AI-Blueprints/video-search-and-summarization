@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Unified DeepStream perception entrypoint.
-# Dispatches based on DS_MODEL_FAMILY env var: cnn, rtdetr, sparse4d.
+# Dispatches based on DS_MODEL_FAMILY env var:
+#   - rtdetr-warehouse
+#   - rtdetr-gdino
+#   - sparse4d-warehouse
 
 set -euo pipefail
 
@@ -16,12 +19,17 @@ set -euo pipefail
 # Docker behavior is unchanged.
 export LD_LIBRARY_PATH=/usr/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 
-DS_MODEL_FAMILY="${DS_MODEL_FAMILY:?DS_MODEL_FAMILY must be set (cnn, rtdetr, sparse4d)}"
+DS_MODEL_FAMILY="${DS_MODEL_FAMILY:?DS_MODEL_FAMILY must be set (rtdetr-warehouse, rtdetr-gdino, sparse4d-warehouse)}"
 STREAM_TYPE="${STREAM_TYPE:-kafka}"
 DS_MODE_FLAG="${DS_MODE_FLAG:-1}"
 DS_MESSAGE_RATE="${DS_MESSAGE_RATE:-1}"
 DS_TRACKER_REID="${DS_TRACKER_REID:-false}"
 DS_SHOW_SENSOR_ID="${DS_SHOW_SENSOR_ID:-false}"
+DS_VISION_ENCODER="${DS_VISION_ENCODER:-false}"
+
+DS_APP_DIR="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app"
+DS_CONFIG_DIR="${DS_APP_DIR}/configs"
+DS_MOUNTED_CONFIGS_DIR="${DS_APP_DIR}/mounted-configs"
 
 # Prepend core DeepStream plugin dirs so GStreamer can find nvvideoconvert and
 # other elements required by metropolis_perception_app (e.g. alerts rtdetr-gdino).
@@ -37,15 +45,82 @@ build_extra_flags() {
     echo "$flags"
 }
 
+require_file() {
+    local file_path="$1"
+    local hint="$2"
+    if [[ ! -f "$file_path" ]]; then
+        echo "ERROR: Required file not found: ${file_path}"
+        [[ -n "$hint" ]] && echo "Hint: ${hint}"
+        exit 1
+    fi
+}
+
+resolve_config_file() {
+    local default_file="$1"
+    local configured_file="${DS_CONFIG_FILE:-$default_file}"
+    if [[ "$configured_file" = /* ]]; then
+        echo "$configured_file"
+    else
+        echo "${DS_CONFIG_DIR}/${configured_file}"
+    fi
+}
+
+stage_mounted_configs_if_present() {
+    local has_files=false
+    if [[ -d "$DS_MOUNTED_CONFIGS_DIR" ]]; then
+        shopt -s nullglob dotglob
+        local mounted_entries=("$DS_MOUNTED_CONFIGS_DIR"/*)
+        shopt -u nullglob dotglob
+        if ((${#mounted_entries[@]} > 0)); then
+            has_files=true
+        fi
+    fi
+
+    if [[ "$has_files" == "true" ]]; then
+        mkdir -p "$DS_CONFIG_DIR"
+        cp -a "${DS_MOUNTED_CONFIGS_DIR}/." "${DS_CONFIG_DIR}/"
+        echo "##### Staged profile configs from ${DS_MOUNTED_CONFIGS_DIR} -> ${DS_CONFIG_DIR} #####"
+    fi
+}
+
+patch_vision_encoder_configs_if_enabled() {
+    if [[ "$DS_VISION_ENCODER" != "true" ]]; then
+        return
+    fi
+
+    local vision_encoder_model="${VISION_ENCODER_MODEL:?VISION_ENCODER_MODEL must be set when DS_VISION_ENCODER=true}"
+    local vision_encoder_version="${VISION_ENCODER_VERSION:?VISION_ENCODER_VERSION must be set when DS_VISION_ENCODER=true}"
+    local vision_encoder_storage="/opt/storage"
+    local vision_encoder_onnx_file="${vision_encoder_model}_${vision_encoder_version}.onnx"
+    local vision_encoder_tokenizer_dir="${vision_encoder_model}_${vision_encoder_version}_tokenizer"
+    local marker_file="${vision_encoder_storage}/.${vision_encoder_model}_${vision_encoder_version}.done"
+    local onnx_path="${vision_encoder_storage}/${vision_encoder_onnx_file}"
+
+    require_file "$marker_file" "The model download init step may not have completed."
+    require_file "$onnx_path" "Expected ONNX artifact for DS_VISION_ENCODER=true."
+
+    for cfg in "${DS_CONFIG_DIR}/ds-main-config.txt" "${DS_CONFIG_DIR}/ds-main-redis-config.txt"; do
+        [[ -f "$cfg" ]] || continue
+        echo "##### Patching vision encoder paths in $(basename "$cfg") #####"
+        sed -i "/^\[text-embedder\]/,/^\[/{s|^onnx-model-path=.*|onnx-model-path=${onnx_path}|;}" "$cfg"
+        sed -i "/^\[text-embedder\]/,/^\[/{s|^tokenizer-dir=.*|tokenizer-dir=${vision_encoder_storage}/${vision_encoder_tokenizer_dir}/|;}" "$cfg"
+        sed -i "/^\[visionencoder\]/,/^\[/{s|^onnx-model=.*|onnx-model=${onnx_path}|;}" "$cfg"
+        sed -i "/^\[visionencoder\]/,/^\[/{s|^tensorrt-engine=.*|tensorrt-engine=${onnx_path}_batch16.plan|;}" "$cfg"
+    done
+}
+
 # ---------------------------------------------------------------------------
 # CNN family (warehouse-2d, search)
 # ---------------------------------------------------------------------------
 start_rtdetr_warehouse()
 {
     echo "##### RT-DETR Warehouse models will be used. #####"
-    cat /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-pgie-config.yml
+    require_file "${DS_CONFIG_DIR}/ds-pgie-config.yml" "Verify model/config mounts for RT-DETR warehouse."
+    cat "${DS_CONFIG_DIR}/ds-pgie-config.yml"
 
-    local config_file="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-main-config.txt"
+    local config_file
+    config_file="$(resolve_config_file "ds-main-config.txt")"
+    require_file "$config_file" "Set DS_CONFIG_FILE or ensure staged/in-image configs are present."
     local extra_flags
     extra_flags=$(build_extra_flags)
 
@@ -63,24 +138,20 @@ start_rtdetr_warehouse()
 start_rtdetr_gdino()
 {
     echo "##### RT-DETR GDINO models will be used. #####"
-    mkdir -p /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
-    cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/cfg_kafka.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/cfg_kafka.txt
-    cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/coco_classmap.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/coco_classmap.txt
-    cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/rtdetr-960x544.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/rtdetr-960x544.txt
-    cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/rtdetr-960x544-labels.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/rtdetr-960x544-labels.txt
-    cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/config_triton_nvinferserver_gdino.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_triton_nvinferserver_gdino.txt
-    cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/run_config-api-rtdetr-protobuf.txt /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/run_config-api-rtdetr-protobuf.txt
-
-    local config_file="${DS_CONFIG_FILE:-run_config-api-rtdetr-protobuf700.txt}"
+    local config_file
+    config_file="$(resolve_config_file "run_config-api-rtdetr-protobuf700.txt")"
+    require_file "$config_file" "Set DS_CONFIG_FILE or ensure GDINO runtime config is available."
     NUM_SENSORS="${NUM_SENSORS:-30}"
     ENGINES_DIR="/opt/engines"
     mkdir -p "${ENGINES_DIR}/gdino" "${ENGINES_DIR}/rtdetr-its"
     GDINO_TRT_PLAN="${ENGINES_DIR}/gdino/model_gdino_trt.plan"
 
+    require_file "models/rtdetr-its/resnet50_market1501.etlt" "Required tracker artifact missing from image/models volume."
     cp models/rtdetr-its/resnet50_market1501.etlt \
        /opt/nvidia/deepstream/deepstream/samples/models/Tracker/resnet50_market1501.etlt
 
     if [[ "${MODEL_NAME_2D:-}" == "GDINO" ]]; then
+        require_file "/opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx" "GDINO ONNX model must be available in shared storage."
 
         if [[ ! -f "$GDINO_TRT_PLAN" ]]; then
             echo "##### Building engine file for /opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx ... #####"
@@ -111,7 +182,7 @@ start_rtdetr_gdino()
         DS_MODE_FLAG=7
         echo "##### RT-DETR model being used... #####"
         # RT-DETR nvinfer config: engine filename uses b<NUM_SENSORS> (e.g. b4, b8, b30)
-        RTDETR_INFER_CONFIG="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/rtdetr-960x544.txt"
+        RTDETR_INFER_CONFIG="${DS_CONFIG_DIR}/rtdetr-960x544.txt"
         if [[ -f "$RTDETR_INFER_CONFIG" ]]; then
             sed -i "/^\[property\]/,/^\[/{s|^model-engine-file=.*|model-engine-file=${ENGINES_DIR}/rtdetr-its/model_epoch_035.fp16.onnx_b${NUM_SENSORS}_gpu0_fp16.engine|;}" "$RTDETR_INFER_CONFIG"
             sed -i "/^\[property\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$RTDETR_INFER_CONFIG"
@@ -212,7 +283,9 @@ start_sparse4d_warehouse()
 
     cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
 
-    local config_file="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-main-config.txt"
+    local config_file
+    config_file="$(resolve_config_file "ds-main-config.txt")"
+    require_file "$config_file" "Set DS_CONFIG_FILE or ensure Sparse4D config exists."
 
     cat "$config_file"
     echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5"
@@ -222,6 +295,10 @@ start_sparse4d_warehouse()
 # ---------------------------------------------------------------------------
 echo "===== DeepStream Perception ====="
 echo "DS_MODEL_FAMILY=$DS_MODEL_FAMILY  STREAM_TYPE=$STREAM_TYPE  DS_MODE_FLAG=$DS_MODE_FLAG"
+echo "DS_VISION_ENCODER=$DS_VISION_ENCODER"
+
+stage_mounted_configs_if_present
+patch_vision_encoder_configs_if_enabled
 
 case "$DS_MODEL_FAMILY" in
     rtdetr-warehouse)       start_rtdetr_warehouse ;;

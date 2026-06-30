@@ -16,6 +16,16 @@
 include:
 
 services:
+  models-download-warehouse-2d:
+    extends:
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      service: download-models
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
+    container_name: vss-rtvi-cv-init
+    volumes:
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/models-download.yaml:/opt/config/models-download.yaml:ro
+
 
   vss-behavior-analytics-2d:
     extends:
@@ -231,6 +241,8 @@ services:
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "false"
     depends_on:
+      models-download-warehouse-2d:
+        condition: service_completed_successfully
       sdr-controller:
         condition: service_started
       sensor-ms-2d:

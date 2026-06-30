@@ -85,33 +85,20 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  perception-2d-init:
-    image: debian:12-slim
+  models-download-search:
+    extends:
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      service: download-models
     profiles: ["perception-2d-init"]
     container_name: vss-rtvi-cv-init
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 6g
-        reservations:
-          cpus: '0.5'
-          memory: 1g
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/download-vision-encoder.sh:/opt/scripts/download-vision-encoder.sh:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/models-download.yaml:/opt/config/models-download.yaml:ro
     environment:
       VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
       VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
-      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
       STORAGE_UID: ${STORAGE_UID:-1001}
       STORAGE_GID: ${STORAGE_GID:-1001}
-    command:
-      - bash
-      - /opt/scripts/download-vision-encoder.sh
 
   perception-2d-fusion:
     extends:
@@ -120,30 +107,24 @@ services:
     profiles: ["perception-2d-fusion"]
     container_name: vss-rtvi-cv
     volumes:
-        # Config file mounts (read-only staging; ds-search-start.sh copies to the writable app dir)
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/ds-configs-ro:ro
-
-      # Search-profile wrapper script (patches configs, then calls ds-start.sh)
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/ds-search-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh:ro
+      # Config file mounts (read-only; canonical ds-start.sh stages mounted-configs -> configs)
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/:ro
 
       # Models directory — RT-DETR + vision encoder models (downloaded by init container)
       - $VSS_DATA_DIR/models/:/opt/storage/
-    command:
-      - bash
-      - -c
-      - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0
       HF_HUB_OFFLINE: 0
       DS_MODE_FLAG: "1"
       DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_VISION_ENCODER: "true"
       DS_TRACKER_REID: "true"
       DS_SHOW_SENSOR_ID: "false"
       VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
       VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
     depends_on:
-      perception-2d-init:
+      models-download-search:
         condition: service_completed_successfully
       sensor-ms:
         condition: service_started

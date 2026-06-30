@@ -104,6 +104,14 @@ cleans generated SDRC artifacts, and deletes the developer data directory
 (default: **`deploy/docker/data-dir`**) before recreating it. Use `--dry-run` to
 preview the commands and generated environment without starting containers.
 
+### RTVI CV startup policy
+
+- Docker uses one canonical RTVI CV startup entrypoint: `services/rtvi/rtvi-cv/ds-start.sh`.
+- Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
+- Per-profile startup wrapper scripts are not used.
+- **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
+- Model acquisition is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.yaml` manifests.
+
 ### Direct Compose usage and data directories
 
 `dev-profile.sh` creates and permissions developer-profile data directories automatically. If you run
@@ -241,7 +249,11 @@ The **warehouse** blueprint is driven by
 **`industry-profiles/warehouse-operations/`** and is started with direct Docker
 Compose from **`deploy/docker`**.
 
-1. **Download warehouse app data**
+1. **Model and app-data inputs**
+
+By default, warehouse Compose profiles now use the canonical `models-download-*` init services to pull required model artifacts from NGC using per-profile `models-download.yaml` manifests. Ensure `NGC_CLI_API_KEY` is set in the environment used for deployment.
+
+For pre-staged/offline flows, you can still pre-download and extract warehouse app data manually:
 
 ```bash
 ngc \
