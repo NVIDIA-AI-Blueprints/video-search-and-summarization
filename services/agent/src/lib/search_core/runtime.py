@@ -186,8 +186,10 @@ class SearchRuntime:
     enable_critic: bool = True
     # Search orchestrator default from functions.search.default_max_results.
     default_max_results: int = 10
-    # Embed primitive default from functions.embed_search.default_max_results.
-    embed_default_max_results: int = 10
+    # Result cap for the embed primitive when a request omits top_k. Defaults to
+    # 100 to match the deployed search profiles; a bare from_kwargs() runtime
+    # should not silently return only a handful of embed hits.
+    embed_default_max_results: int = 100
     embed_confidence_threshold: float = 0.1  # config.yml:80 override; code default is 0.2
     fusion_method: Literal["weighted_linear", "rrf"] = "rrf"
     w_attribute: float = 0.55
@@ -369,7 +371,7 @@ class SearchRuntime:
             # Embed clients
             cosmos_embed_endpoint=cosmos_embed_endpoint,
             cosmos_embed_model=env.get("RTVI_EMBED_MODEL", "cosmos-embed1-448p"),
-            embed_default_max_results=embed_cfg.get("default_max_results", 10),
+            embed_default_max_results=embed_cfg.get("default_max_results", 100),
             rtvi_cv_endpoint=rtvi_cv_endpoint,
             # VLM
             vlm_base_url=env.get("VLM_BASE_URL"),

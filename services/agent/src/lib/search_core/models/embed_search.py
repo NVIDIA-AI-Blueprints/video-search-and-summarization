@@ -14,10 +14,8 @@
 # limitations under the License.
 """Embed-search input/output models.
 
-The library's EmbedSearchInput is a v1 redesign of today's wire-shape QueryInput
-(see services/agent/src/vss_agents/tools/embed_search.py:106). The NAT shim
-translates QueryInput → EmbedSearchInput so /api/v1/embed_search keeps the
-existing wire format. See DESIGN.md §5.2 and §9.1.
+``EmbedSearchInput`` is a flat, typed request model; ``EmbedSearchOutput`` and
+``EmbedSearchResultItem`` are the flattened response shapes returned to callers.
 """
 
 from __future__ import annotations
@@ -28,6 +26,8 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from ..errors import InvalidInputError
+
 # ``SourceType`` and ``datetime`` appear as Pydantic field annotations on
 # this model; Pydantic v2 resolves the (stringified) annotations at
 # model_build time, so they must be importable at runtime. Don't move them
@@ -36,11 +36,7 @@ from .common import SourceType  # noqa: TC001  Pydantic-resolved at runtime
 
 
 class EmbedSearchInput(BaseModel):
-    """Flat, typed input for EmbedSearch.run().
-
-    Today's NAT input (QueryInput) uses a free-form params dict. This model
-    surfaces the same parameters as explicit, typed fields.
-    """
+    """Flat, typed input for ``EmbedSearch.run()``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -58,8 +54,7 @@ class EmbedSearchInput(BaseModel):
         le=1000,
         description=(
             "Cap on returned results. When None, the primitive's "
-            "embed_default_max_results (from SearchRuntime) wins — letting the "
-            "deployed embed_search config default override the model default."
+            "embed_default_max_results (from SearchRuntime) is used instead."
         ),
     )
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
@@ -67,15 +62,39 @@ class EmbedSearchInput(BaseModel):
     min_cosine_similarity: float = Field(default=0.0, ge=-1.0, le=1.0)
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
     # Bypass the embed-client call when the caller already has the vector.
-    # Replaces today's `embeddings: list[dict]` slot in QueryInput.
     precomputed_embedding: list[float] | None = None
+
+    def has_embedding_source(self) -> bool:
+        """True when at least one usable embedding source is present.
+
+        A whitespace-only ``query`` and an empty ``precomputed_embedding`` do
+        not count — they cannot produce a meaningful query vector.
+        """
+        return bool(
+            self.precomputed_embedding or self.image_url or self.video_url or (self.query and self.query.strip())
+        )
+
+    def validate_semantics(self) -> None:
+        """Raise :class:`InvalidInputError` for cross-field problems.
+
+        These checks are intentionally NOT Pydantic field validators: the values
+        each pass their own field constraints but are invalid in combination.
+        Centralizing them here keeps the primitive's ``run()`` thin and gives
+        callers (and tests) one place to exercise input semantics.
+        """
+        if not self.has_embedding_source():
+            raise InvalidInputError(
+                "EmbedSearchInput needs at least one of: query, image_url, video_url, precomputed_embedding"
+            )
+        if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
+            raise InvalidInputError(
+                f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
+                f"timestamp_end ({self.timestamp_end.isoformat()})"
+            )
 
 
 class EmbedSearchResultItem(BaseModel):
-    """A single embed-search result with all fields flattened.
-
-    Mirrors today's EmbedSearchResultItem at tools/embed_search.py around line 85.
-    """
+    """A single embed-search result with all fields flattened."""
 
     model_config = ConfigDict(extra="forbid")
     video_name: str = ""
