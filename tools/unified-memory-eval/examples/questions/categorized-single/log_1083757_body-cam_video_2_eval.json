@@ -1,0 +1,110 @@
+{
+  "video_id": "log_1083757_body-cam_video_2",
+  "questions": [
+    {
+      "qid": 1,
+      "category": "within_event",
+      "question": "What does the gloved person do inside the vehicle at the beginning of the video?",
+      "expected_answer_target": "The person reaches into the vehicle and deliberately manipulates objects around the dashboard and center console.",
+      "expected_event_ids": [1]
+    },
+    {
+      "qid": 2,
+      "category": "within_event",
+      "question": "What setting is visible when the camera first shows the police vehicle outside?",
+      "expected_answer_target": "A police vehicle with flashing lights is parked at a gas station at night near illuminated fuel pumps.",
+      "expected_event_ids": [3]
+    },
+    {
+      "qid": 3,
+      "category": "within_event",
+      "question": "How does the person in the red jacket respond during the initial restraint near the silver sedan?",
+      "expected_answer_target": "The person is physically restrained and raises their hands in compliance.",
+      "expected_event_ids": [4]
+    },
+    {
+      "qid": 4,
+      "category": "within_event",
+      "question": "How is the person in red secured during the prolonged arrest at the gas station?",
+      "expected_answer_target": "Officers handcuff and control the person on the ground, move them against a vehicle, and leave them fully restrained.",
+      "expected_event_ids": [6]
+    },
+    {
+      "qid": 5,
+      "category": "within_event",
+      "question": "What does the officer find while searching the vehicle during the later gas-pump arrest?",
+      "expected_answer_target": "The officer finds cash or documents on the driver's seat.",
+      "expected_event_ids": [14]
+    },
+    {
+      "qid": 6,
+      "category": "entity_relational",
+      "question": "How is the red-jacketed person handled from the initial restraint beside the silver sedan through the later ground arrest?",
+      "expected_answer_target": "The person is first restrained beside the sedan, then controlled on the ground, handcuffed, moved against a vehicle, and left fully restrained.",
+      "expected_event_ids": [4, 6]
+    },
+    {
+      "qid": 7,
+      "category": "entity_relational",
+      "question": "How do the flashing lights of the police vehicle arriving near the gas pumps affect the ongoing interaction with people on the ground?",
+      "expected_answer_target": "The arriving vehicle's flashing lights illuminate and emphasize the active arrest scene around the people on the ground.",
+      "expected_event_ids": [9]
+    },
+    {
+      "qid": 8,
+      "category": "entity_relational",
+    "question": "How do the silver police car's arrival, movement, and stopping change the otherwise calm scene outside the brick building?",
+      "expected_answer_target": "The car enters the still scene, moves toward the building, and stops nearby with its lights on.",
+      "expected_event_ids": [11, 12, 13]
+    },
+    {
+      "qid": 9,
+      "category": "entity_relational",
+      "question": "How does the officer connect the vehicle search with the detention of the person in the camouflage cap and plaid shirt?",
+      "expected_answer_target": "The officer searches the vehicle and finds items on the driver's seat before restraining and handcuffing the nearby person.",
+      "expected_event_ids": [14]
+    },
+    {
+      "qid": 10,
+      "category": "entity_relational",
+      "question": "How is the red-jacketed occupant inside the sedan connected to the officers and flashlight outside?",
+      "expected_answer_target": "The occupant is illuminated and observed from outside while officers approach, interact with, and restrain them near the driver's side.",
+    "expected_event_ids": [4]
+    },
+    {
+      "qid": 11,
+      "category": "temporal",
+      "question": "How does the scene shift from the opening interior search to the exterior police activity at the gas station?",
+      "expected_answer_target": "A gloved person first searches the vehicle interior, after which the view shifts outside to a police vehicle with flashing lights near the pumps.",
+      "expected_event_ids": [1, 3]
+    },
+    {
+      "qid": 12,
+      "category": "temporal",
+      "question": "After the person in red is secured on the ground during the earlier arrest, what additional police activity occurs next?",
+      "expected_answer_target": "The person remains restrained while additional police vehicles approach and illuminate the scene.",
+      "expected_event_ids": [6, 7]
+    },
+    {
+      "qid": 13,
+      "category": "temporal",
+      "question": "How does the building-side scene progress from stillness to the silver police car stopping nearby?",
+      "expected_answer_target": "A person initially stands near the quiet building, then a silver police car enters slowly and stops with its rear facing the camera.",
+      "expected_event_ids": [11, 12, 13]
+    },
+    {
+      "qid": 14,
+      "category": "temporal",
+      "question": "During the later gas-pump encounter, what happens between the vehicle search and the completed detention?",
+      "expected_answer_target": "The officer finds items in the vehicle, bends down to restrain the nearby person, and secures their hands behind their back.",
+      "expected_event_ids": [14]
+    },
+    {
+      "qid": 15,
+      "category": "temporal",
+      "question": "What additional police activity occurs while the later arrest near the gas pump is underway?",
+      "expected_answer_target": "A dark police SUV approaches with flashing blue lights and stops near the arrest scene.",
+      "expected_event_ids": [14, 15]
+    }
+  ]
+}

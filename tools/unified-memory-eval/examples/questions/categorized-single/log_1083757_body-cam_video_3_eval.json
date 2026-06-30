@@ -1,0 +1,110 @@
+{
+  "video_id": "log_1083757_body-cam_video_3",
+  "questions": [
+    {
+      "qid": 1,
+      "category": "within_event",
+      "question": "Where is the police vehicle parked at the beginning, and what vehicle is nearby?",
+      "expected_answer_target": "The police vehicle is parked at a gas station at night near a white car under the canopy.",
+      "expected_event_ids": [2]
+    },
+    {
+      "qid": 2,
+      "category": "within_event",
+      "question": "What does the person in the plaid shirt do near the gas pump early in the scene?",
+      "expected_answer_target": "The person moves near the gas pump and car while the police vehicle remains outside with its lights flashing.",
+      "expected_event_ids": [3]
+    },
+    {
+      "qid": 3,
+      "category": "within_event",
+      "question": "What objects are visible during the police-vehicle interior inspection around 40 to 49 seconds?",
+      "expected_answer_target": "A blue water bottle, red can, and miscellaneous objects are visible around the dashboard and center console.",
+      "expected_event_ids": [4]
+    },
+    {
+      "qid": 4,
+      "category": "within_event",
+      "question": "What area does the focused light illuminate during the interior inspection around 60 to 69 seconds?",
+      "expected_answer_target": "The focused light illuminates the cluttered center-console area.",
+      "expected_event_ids": [5]
+    },
+    {
+      "qid": 5,
+      "category": "within_event",
+      "question": "What does the officer inspect after opening the driver's side door later in the video?",
+      "expected_answer_target": "The officer thoroughly inspects the steering wheel and dashboard area.",
+      "expected_event_ids": [8]
+    },
+    {
+      "qid": 6,
+      "category": "entity_relational",
+      "question": "How is the person leaving the white car connected to the nearby police vehicle?",
+      "expected_answer_target": "The plaid-shirted person exits the white car and walks toward the police vehicle to interact with or respond to the officer.",
+      "expected_event_ids": [6]
+    },
+    {
+      "qid": 7,
+      "category": "entity_relational",
+    "question": "How does the exterior police activity relate to the initial inspection of the police-vehicle interior?",
+      "expected_answer_target": "The police vehicle remains at the gas station with emergency lights active while the inspection moves into the dashboard and console areas.",
+      "expected_event_ids": [3, 4]
+    },
+    {
+      "qid": 8,
+      "category": "entity_relational",
+      "question": "How does the open driver-side door give the officer access to the areas inspected inside the vehicle during the later search?",
+      "expected_answer_target": "The open door gives the officer access to inspect the steering wheel, dashboard, and illuminated cabin from the driver's side.",
+      "expected_event_ids": [8, 9]
+    },
+    {
+      "qid": 9,
+      "category": "entity_relational",
+      "question": "How are the gloved searcher and the small objects in the vehicle connected during the broad search?",
+      "expected_answer_target": "The gloved searcher methodically handles and examines objects such as papers, a blue-lidded container, and a gold chain.",
+      "expected_event_ids": [1]
+    },
+    {
+      "qid": 10,
+      "category": "entity_relational",
+      "question": "How does the stationary police vehicle support the ongoing search activity?",
+    "expected_answer_target": "It remains positioned near the gas station with its emergency lights flashing while the officer conducts the search, marking and illuminating the police activity.",
+    "expected_event_ids": [7]
+    },
+    {
+      "qid": 11,
+      "category": "temporal",
+      "question": "How does the view progress from the parked police vehicle outside to inspection inside the cabin?",
+      "expected_answer_target": "The vehicle is first shown outside with flashing lights, then the camera moves to its dashboard, center console, and visible interior objects.",
+      "expected_event_ids": [2, 4]
+    },
+    {
+      "qid": 12,
+      "category": "temporal",
+      "question": "Immediately after the plaid-shirted person exits the white car and walks toward the police vehicle, what is happening at the police vehicle?",
+      "expected_answer_target": "The police vehicle remains stationary near the gas station while the search activity continues.",
+      "expected_event_ids": [6, 7]
+    },
+    {
+      "qid": 13,
+      "category": "temporal",
+      "question": "How does the interior inspection progress from the center console to the later driver's-side search?",
+      "expected_answer_target": "The search first focuses on the illuminated center console and belongings, then shifts to the open driver's side and dashboard area.",
+      "expected_event_ids": [5, 8]
+    },
+    {
+      "qid": 14,
+      "category": "temporal",
+      "question": "What sequence does the officer follow when beginning the later driver's-side inspection?",
+      "expected_answer_target": "The officer approaches the driver's side, opens the door, and then inspects the steering wheel and dashboard.",
+      "expected_event_ids": [8]
+    },
+    {
+      "qid": 15,
+      "category": "temporal",
+      "question": "How does the later search move from the driver's-side inspection to activity inside the cabin?",
+      "expected_answer_target": "The officer inspects through the open driver's door and is then visible inside the illuminated cabin continuing the detailed inspection.",
+      "expected_event_ids": [8, 9]
+    }
+  ]
+}

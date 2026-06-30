@@ -363,6 +363,7 @@ def seed_video_context(events_doc: dict[str, Any], video_name: str, session_key:
 
 def answer_question(
     qid: str,
+    category: str,
     question: str,
     session_key: str,
     model: str,
@@ -389,7 +390,14 @@ def answer_question(
                     "supports the answer and matches the question scope. Do not cite every "
                     "event in the incident. Do not include broad background/context events "
                     "unless they are necessary to answer this specific question. For broad "
-                    "overview questions, cite representative events for each major phase, not all events."
+                    "overview questions, cite representative events for each major phase, not all events. "
+                    "For within_event questions, cite the single event that directly contains the "
+                    "requested description. For entity_relational questions, cite the smallest event "
+                    "set that directly expresses the requested relationship; do not include an earlier "
+                    "event solely as a temporal anchor. "
+                    "For temporal questions, cite the anchor event and the smallest set of subsequent "
+                    "events needed to establish the requested sequence. Exclude overlapping events "
+                    "that do not add a distinct stage. "
                     "For negative-control questions, use an empty array "
                     "unless a specific event directly supports the negative conclusion."
                 ),
@@ -415,6 +423,7 @@ def answer_question(
         "Return only valid JSON matching this schema:\n"
         f"{json.dumps(schema, indent=2)}\n\n"
         f"QID: {qid}\n"
+        f"Category: {category}\n"
         f"Question: {question}\n"
     )
     parsed, latency_ms, tool_calls = run_openclaw_json(message, session_key, model, timeout, log_path)
@@ -821,6 +830,7 @@ def main() -> int:
             log(f"  Q{qid}: answering")
             answer, cited_ids, citation_reason, latency_ms, tool_calls = answer_question(
                 qid,
+                category,
                 question,
                 session_key,
                 args.openclaw_model,

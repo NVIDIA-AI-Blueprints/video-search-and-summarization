@@ -8,6 +8,7 @@ from unittest import TestCase, main
 from unittest.mock import patch
 
 from scripts.run_single import (
+    answer_question,
     discover_question_files,
     parse_category,
     read_question_file,
@@ -150,6 +151,24 @@ class OpenClawJsonTest(TestCase):
         self.assertEqual(parsed, {"ready": True})
         self.assertEqual(latency_ms, 30)
         self.assertEqual(tool_calls, 2)
+
+    @patch("scripts.run_single.run_openclaw_json")
+    def test_question_prompt_includes_category_and_temporal_anchor_rule(
+        self, mocked_run_openclaw_json
+    ) -> None:
+        mocked_run_openclaw_json.return_value = (
+            {"answer": "Next action.", "cited_event_ids": [1, 2], "citation_reason": "Sequence."},
+            10,
+            1,
+        )
+
+        answer_question("11", "temporal", "What happens next?", "session", "model", 30, Path("log"))
+
+        prompt = mocked_run_openclaw_json.call_args.args[0]
+        self.assertIn("Category: temporal", prompt)
+        self.assertIn("For within_event questions, cite the single event", prompt)
+        self.assertIn("For entity_relational questions, cite the smallest event set", prompt)
+        self.assertIn("For temporal questions, cite the anchor event", prompt)
 
 
 if __name__ == "__main__":

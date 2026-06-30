@@ -142,7 +142,7 @@ uv run python scripts/run_single.py \
 
 # Custom filenames carry their source video ID in the JSON file.
 uv run python scripts/run_single.py \
-  --question-file examples/questions/categorized-single/new-body-cam1.json \
+  --question-file examples/questions/categorized-single/log_1083757_body-cam_video_1_eval.json \
   --results-dir results
 
 # Directory discovery is schema-aware: each runner ignores files belonging to the other eval type.

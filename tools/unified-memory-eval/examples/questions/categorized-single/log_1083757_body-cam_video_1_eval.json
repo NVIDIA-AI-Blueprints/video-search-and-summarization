@@ -1,0 +1,110 @@
+{
+  "video_id": "log_1083757_body-cam_video_1",
+  "questions": [
+  {
+    "qid": 1,
+    "category": "within_event",
+    "question": "Where does the opening vehicle stop take place, and what is visible around the stopped vehicle?",
+    "expected_answer_target": "The stop takes place at a gas station at night near a fuel pump. Vehicle lights, pumps, signage, and streetlight reflections are visible.",
+    "expected_event_ids": [1]
+  },
+  {
+    "qid": 2,
+    "category": "within_event",
+    "question": "What does the person in the red jacket do while officers restrain another occupant inside the vehicle?",
+    "expected_answer_target": "The person in the red jacket raises their hands in compliance.",
+    "expected_event_ids": [2]
+  },
+  {
+    "qid": 3,
+    "category": "within_event",
+    "question": "What do the two officers do to the person in the red shirt near the trash can and red pole?",
+    "expected_answer_target": "They restrain the person outdoors at night and apply handcuffs.",
+    "expected_event_ids": [12]
+  },
+  {
+    "qid": 4,
+    "category": "within_event",
+    "question": "What does the officer inspect with a flashlight while the silver sedan and white car have their driver doors open?",
+    "expected_answer_target": "The officer inspects both vehicles, including the rear-wheel area of the silver sedan.",
+    "expected_event_ids": [17]
+  },
+  {
+    "qid": 5,
+    "category": "within_event",
+    "question": "What is visible around the white sedan when it is parked under the lit canopy at night?",
+    "expected_answer_target": "The driver-side door is open, a person is seated inside, and a police vehicle with flashing blue lights is nearby.",
+    "expected_event_ids": [34]
+  },
+  {
+    "qid": 6,
+    "category": "entity_relational",
+    "question": "How is the red-jacketed individual handled during the early interaction inside or beside the vehicle?",
+    "expected_answer_target": "The individual is physically restrained and then moved or repositioned within the vehicle as the controlled search-related interaction continues.",
+    "expected_event_ids": [3, 4]
+  },
+  {
+    "qid": 7,
+    "category": "entity_relational",
+    "question": "How do the plaid-shirted individual and the other assistant work together while searching the handcuffed person in the red jacket?",
+    "expected_answer_target": "The plaid-shirted individual pulls and adjusts the person's jacket while the assistant holds the clothing steady.",
+    "expected_event_ids": [13]
+  },
+  {
+    "qid": 8,
+    "category": "entity_relational",
+    "question": "How does the officer interact with the seated driver and the driver-side area of the white sedan?",
+    "expected_answer_target": "The officer approaches and engages the seated driver, reaches into the driver-side area, retrieves objects, and continues searching while the driver remains compliant.",
+    "expected_event_ids": [35, 36, 38]
+  },
+  {
+    "qid": 9,
+    "category": "entity_relational",
+    "question": "How are the objects removed from the vehicle or driver handled as evidence?",
+    "expected_answer_target": "Officers retrieve multiple objects and place the seized materials into evidence bags or containers for documentation and secure handling.",
+    "expected_event_ids": [36]
+  },
+  {
+    "qid": 10,
+    "category": "entity_relational",
+    "question": "Across the described ground-search activity, what areas of the restrained person's body and clothing are examined?",
+    "expected_answer_target": "Officers search the person's jacket and upper body, arms, waist, torso, limbs, sides, and lower body while maintaining restraint.",
+    "expected_event_ids": [13, 22, 33]
+  },
+  {
+    "qid": 11,
+    "category": "temporal",
+    "question": "What happens after the person in the red jacket raises their hands during the early in-vehicle arrest interaction?",
+    "expected_answer_target": "The person is physically restrained and then moved or repositioned within the vehicle as part of the search interaction.",
+    "expected_event_ids": [2, 3, 4]
+  },
+  {
+    "qid": 12,
+    "category": "temporal",
+    "question": "How does the vehicle search unfold around 393-399 seconds?",
+    "expected_answer_target": "An officer starts searching the vehicle, removes items, then continues examining seats and storage areas.",
+    "expected_event_ids": [29, 30, 31]
+  },
+  {
+    "qid": 13,
+    "category": "temporal",
+    "question": "Immediately after officers search the person in the red hoodie and striped pants on the ground, what do they inspect next?",
+    "expected_answer_target": "They inspect the silver sedan and white car with their driver doors open, including the sedan's rear-wheel area.",
+    "expected_event_ids": [16, 17]
+  },
+  {
+    "qid": 14,
+    "category": "temporal",
+    "question": "How does the encounter progress from the white sedan stop to officer interaction and item retrieval at the driver-side area?",
+    "expected_answer_target": "The white sedan is stopped with the driver-side door open, an officer engages the seated driver, then reaches inside and removes or searches for items.",
+    "expected_event_ids": [34, 35, 36]
+  },
+  {
+    "qid": 15,
+    "category": "temporal",
+    "question": "How does the later vehicle search lead to the final removal of items near the end of the video?",
+    "expected_answer_target": "Officers conduct a broad vehicle search and later remove evidence or items found during the search.",
+    "expected_event_ids": [42, 46]
+  }
+  ]
+}
