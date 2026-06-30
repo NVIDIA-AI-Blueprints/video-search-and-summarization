@@ -20,6 +20,7 @@ Service for querying incidents from Elasticsearch.
 
 import asyncio
 import copy
+import hashlib
 import logging
 import time
 from datetime import datetime, timezone
@@ -239,7 +240,7 @@ class IncidentService:
 
         Operates only on the documents already returned for this page; the
         underlying store is never modified and raw documents stay available
-        (``consolidate=false`` or the per-event ``info.rawIds``).
+        via a ``consolidate=false`` query.
         """
         cfg = self._consolidation
         gap_seconds = cfg.get("max_inter_alert_gap_seconds", 60)
@@ -314,10 +315,10 @@ class IncidentService:
         """Build one consolidated event from its chunks.
 
         The event is a clone of the representative chunk — a real document, so
-        the result keeps the same shape as a raw incident — with the span
-        widened to cover all chunks and consolidation metadata added under
-        ``info``. Original document ids are recorded so the raw chunks remain
-        reachable.
+        the result keeps the same shape as a raw incident — with its own stable
+        identity, the span widened to cover all chunks, and consolidation
+        metadata added under ``info``. The underlying raw chunks remain
+        retrievable via a ``consolidate=false`` query over the same window.
         """
         if representative == "longest_reasoning":
             rep = max(chunks, key=lambda c: len(_info_of(c).get("reasoning") or ""))
@@ -331,6 +332,17 @@ class IncidentService:
             chunks,
             key=lambda c: _parse_ts(c.get("end")) or _parse_ts(c.get("timestamp")) or _EPOCH,
         )
+
+        event_key = "|".join((
+            str(rep.get("sensorId", "")),
+            str(rep.get("category", "")),
+            str(_info_of(first_chunk).get("requestId", "")),
+            str(first_chunk.get("timestamp", "")),
+        ))
+        event_id = "evt-" + hashlib.sha1(event_key.encode("utf-8")).hexdigest()
+        event["Id"] = event_id
+        event["_id"] = event_id
+
         if first_chunk.get("timestamp"):
             event["timestamp"] = first_chunk["timestamp"]
         end_value = last_chunk.get("end") or last_chunk.get("timestamp")
@@ -338,15 +350,12 @@ class IncidentService:
             event["end"] = end_value
 
         idxs = [i for i in (_to_int(_info_of(c).get("chunkIdx")) for c in chunks) if i is not None]
-        raw_ids = [c.get("_id") or c.get("Id") for c in chunks if (c.get("_id") or c.get("Id"))]
 
         info = dict(event.get("info") or {})
         info["isConsolidated"] = "true"
         info["chunkCount"] = str(len(chunks))
         if idxs:
             info["chunkIdxRange"] = f"{min(idxs)}-{max(idxs)}"
-        if raw_ids:
-            info["rawIds"] = ",".join(str(r) for r in raw_ids)
         event["info"] = info
 
         merged_queries: list = []
