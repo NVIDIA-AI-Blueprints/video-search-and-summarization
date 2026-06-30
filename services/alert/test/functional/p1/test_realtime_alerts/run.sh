@@ -600,18 +600,21 @@ for i in 1 2 3; do
 done
 curl -s -X POST "${ES_HOST}/${CONSOL_IDX}/_refresh" >/dev/null 2>&1
 
+CONSOL_WINDOW="start_time=2099-01-01T00:00:00Z&end_time=2099-01-01T01:00:00Z"
 RAW_CNT=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=false" \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
-CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=true")
+CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=true&${CONSOL_WINDOW}")
 CONS_CNT=$(echo "$CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
 CONS_TOTAL=$(echo "$CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
 CONS_FLAG=$(echo "$CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('isConsolidated','') if inc else '')" 2>/dev/null || echo "")
+# consolidate without a time window is rejected (a bounded window is required)
+NO_WINDOW_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$AB_HOST/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=true" 2>/dev/null || echo "0")
 
-if [ "$RAW_CNT" = "3" ] && [ "$CONS_CNT" = "1" ] && [ "$CONS_TOTAL" = "3" ] && [ "$CONS_FLAG" = "true" ]; then
-    print_status "ok" "PASS: 3 raw chunks -> 1 consolidated event (total stays raw=3)"
+if [ "$RAW_CNT" = "3" ] && [ "$CONS_CNT" = "1" ] && [ "$CONS_TOTAL" = "1" ] && [ "$CONS_FLAG" = "true" ] && [ "$NO_WINDOW_CODE" = "400" ]; then
+    print_status "ok" "PASS: 3 raw chunks -> 1 event (total=events=1); consolidate requires a window (400)"
     ((PASSED++))
 else
-    print_status "fail" "FAIL: consolidate (raw=$RAW_CNT cons=$CONS_CNT total=$CONS_TOTAL flag=$CONS_FLAG)"
+    print_status "fail" "FAIL: consolidate (raw=$RAW_CNT cons=$CONS_CNT total=$CONS_TOTAL flag=$CONS_FLAG no_window=$NO_WINDOW_CODE)"
     ((FAILED++))
 fi
 curl -s -X DELETE "${ES_HOST}/${CONSOL_IDX}" >/dev/null 2>&1 || true
