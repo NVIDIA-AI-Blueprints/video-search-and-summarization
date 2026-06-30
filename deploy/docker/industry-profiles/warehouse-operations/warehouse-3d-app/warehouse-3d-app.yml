@@ -151,7 +151,7 @@ services:
         fi
 
   bp-configurator-3d:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.06.30
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2.1-2026.06.5
     container_name: vss-configurator
     networks:
       default:
