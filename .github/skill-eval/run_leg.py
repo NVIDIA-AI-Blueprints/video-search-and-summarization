@@ -133,10 +133,16 @@ def build_harbor_command(
     agent: str = "claude-code",
 ) -> list[str]:
     if agent == "codex":
-        # Stock harbor codex agent. Auth is OPENAI_API_KEY from the GitHub
-        # Actions environment (the inference key added there as OPENAI_API_KEY);
-        # the claude-only api_base / thinking flags do not apply.
-        agent_flags = ["-a", "codex", "--model", model]
+        # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
+        # provider-prefixed model id — harbor's stock codex strips it to the
+        # last path segment, which the NVIDIA gateway 401s on. Endpoint via
+        # `--ak api_base`; OPENAI_API_KEY is read from the environment (same as
+        # claude-code reads ANTHROPIC_API_KEY), so it never lands on the CLI.
+        agent_flags = [
+            "-a", "agents.nv_codex:NvCodex",
+            "--model", model,
+            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+        ]
     else:
         agent_flags = [
             "-a", "claude-code",
@@ -299,13 +305,22 @@ def run_invocations(
     # unaffected. codex auth/endpoint come from the GitHub Actions env
     # (OPENAI_API_KEY), not from here.
     model = os.environ.get("EVAL_MODEL") or os.environ.get("ANTHROPIC_MODEL", "")
+    # Both agents hit the same NVIDIA endpoint via `--ak api_base`, so the
+    # base URL comes from ANTHROPIC_BASE_URL for either.
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
     if not model:
         print("FATAL: ANTHROPIC_MODEL not set (and EVAL_MODEL empty)", file=sys.stderr)
         return 1
-    if agent == "claude-code" and not base_url:
+    if not base_url:
         print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
         return 1
+    if agent == "codex":
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not anthropic_key:
+            print("FATAL: ANTHROPIC_API_KEY not set (required for EVAL_AGENT=codex)",
+                  file=sys.stderr)
+            return 1
+        env["OPENAI_API_KEY"] = anthropic_key
 
     results_root.mkdir(parents=True, exist_ok=True)
     skipped_after: dict[str, int] = {}
