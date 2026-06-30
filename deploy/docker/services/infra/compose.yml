@@ -18,8 +18,34 @@ include:
   - path: ./sdrc/docker-compose.yaml
 
 services:
+  turnserver-init:
+    image: alpine:3.23.4
+    profiles:
+      - "bp_wh_2d"
+      - "bp_wh_kafka_2d"
+      - "bp_wh_kafka_3d"
+      - "bp_wh_redis_2d"
+      - "bp_wh_redis_3d"
+      - "bp_wh_kafka_mv3dt"
+      - "bp_wh_redis_mv3dt"
+      - "bp_wh_auto_calib_2d"
+      - "bp_wh_auto_calib_3d"
+      - "bp_wh_auto_calib_mv3dt"
+    container_name: vss-turnserver-init
+    user: "0:0"
+    environment:
+      TURN_PASSWORD_FILE: /run/secrets/vss-turn/turn-password
+      TURN_PASSWORD_BYTES: ${TURN_PASSWORD_BYTES:-32}
+      TURN_PASSWORD_UID: "0"
+      TURN_PASSWORD_GID: "65534"
+    volumes:
+      - vss-turn-password:/run/secrets/vss-turn:rw
+      - ${VSS_APPS_DIR}/services/infra/turnserver/scripts/init-password.sh:/usr/local/bin/vss-turnserver-init-password.sh:ro
+    entrypoint: ["/usr/local/bin/vss-turnserver-init-password.sh"]
+    restart: "no"
+
   turnserver:
-    image: ${TURN_SERVER_IMAGE:-coturn/coturn:4.14.0}
+    image: coturn/coturn:4.14.0
     profiles:
       - "bp_wh_2d"
       - "bp_wh_kafka_2d"
@@ -32,6 +58,7 @@ services:
       - "bp_wh_auto_calib_3d"
       - "bp_wh_auto_calib_mv3dt"
     container_name: vss-turnserver
+    user: "65534:65534"
     restart: unless-stopped
     ports:
       - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/udp
@@ -48,24 +75,17 @@ services:
       TURN_MIN_RELAY_PORT: ${TURN_MIN_RELAY_PORT:-49160}
       TURN_MAX_RELAY_PORT: ${TURN_MAX_RELAY_PORT:-49200}
       TURN_REALM: ${TURN_REALM:-vss.local}
-      TURN_USERNAME: ${TURN_USERNAME:-vss}
-      TURN_PASSWORD: ${TURN_PASSWORD:-vss-turn}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_PASSWORD_FILE: /run/secrets/vss-turn/turn-password
+      TURN_PASSWORD_WAIT_SECONDS: ${TURN_PASSWORD_WAIT_SECONDS:-30}
       TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-${EXTERNAL_IP:-${HOST_IP}}}
-    entrypoint: ["turnserver"]
-    command:
-      - --no-cli
-      - --no-tls
-      - --no-dtls
-      - --fingerprint
-      - --lt-cred-mech
-      - --realm=${TURN_REALM:-vss.local}
-      - --user=${TURN_USERNAME:-vss}:${TURN_PASSWORD:-vss-turn}
-      - --listening-ip=0.0.0.0
-      - --listening-port=${TURN_PORT:-3478}
-      - --min-port=${TURN_MIN_RELAY_PORT:-49160}
-      - --max-port=${TURN_MAX_RELAY_PORT:-49200}
-      - --external-ip=${TURN_EXTERNAL_IP:-${EXTERNAL_IP:-${HOST_IP}}}
-      - --log-file=stdout
+    volumes:
+      - ${VSS_APPS_DIR}/services/infra/turnserver/scripts/entrypoint.sh:/usr/local/bin/vss-turnserver-entrypoint.sh:ro
+      - vss-turn-password:/run/secrets/vss-turn:ro
+    entrypoint: ["/usr/local/bin/vss-turnserver-entrypoint.sh"]
+    depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -333,6 +353,7 @@ services:
     restart: "no"
 
 volumes:
+  vss-turn-password:
   phoenix-data:
   mdx-logstash-libs:
   mdx-elastic-data:
