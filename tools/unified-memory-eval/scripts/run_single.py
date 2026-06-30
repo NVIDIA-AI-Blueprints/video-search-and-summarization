@@ -27,19 +27,31 @@ from typing import Any
 DEFAULT_LVS_BACKEND_URL = "http://127.0.0.1:38112"
 DEFAULT_VIDEO_URL_TEMPLATE = "{video_name}.mp4"
 DEFAULT_VLM_MODEL = "nim_nvidia_cosmos-reason2-8b_hf-1208"
+QUESTION_CATEGORIES = ("within_event", "entity_relational", "temporal")
 
 
 def log(message: str) -> None:
     print(message, flush=True)
 
 
-def read_json_rows(path: Path) -> list[dict[str, Any]]:
+def read_question_file(path: Path) -> tuple[str | None, list[dict[str, Any]]]:
     value = json.loads(path.read_text(encoding="utf-8"))
+    video_id: str | None = None
+    if isinstance(value, dict):
+        video_id_value = value.get("video_id")
+        if not isinstance(video_id_value, str) or not video_id_value.strip():
+            raise ValueError(f"Custom question file must contain a non-empty video_id: {path}")
+        video_id = video_id_value.strip()
+        value = value.get("questions")
     if not isinstance(value, list):
-        raise ValueError(f"Question file must contain a JSON array: {path}")
+        raise ValueError(f"Question file must contain a JSON array or a questions array: {path}")
     if not all(isinstance(row, dict) for row in value):
         raise ValueError(f"Every question must be a JSON object: {path}")
-    return value
+    return video_id, value
+
+
+def read_json_rows(path: Path) -> list[dict[str, Any]]:
+    return read_question_file(path)[1]
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -119,14 +131,25 @@ def discover_question_files(questions_dir: Path, question_file: Path | None = No
             candidate = questions_dir / candidate
         if not candidate.is_file():
             raise FileNotFoundError(f"Question file not found: {candidate}")
-        if not candidate.name.endswith("_eval.json"):
-            raise ValueError(f"Single-video question file must end with _eval.json: {candidate}")
+        if candidate.suffix != ".json":
+            raise ValueError(f"Single-video question file must be JSON: {candidate}")
         return [candidate]
 
     files = sorted(questions_dir.glob("*_eval.json"))
     if not files:
         raise FileNotFoundError(f"No *_eval.json files found in {questions_dir}")
     return files
+
+
+def resolve_video_name(question_file: Path, embedded_video_id: str | None = None) -> str:
+    if embedded_video_id:
+        return embedded_video_id
+    if question_file.name.endswith("_eval.json"):
+        return question_file.name.removesuffix("_eval.json")
+    raise ValueError(
+        "Custom --question-file JSON must contain video_id and questions; "
+        "legacy array files must end with _eval.json"
+    )
 
 
 def make_run_dir(results_root: Path, run_id: str | None) -> tuple[str, Path]:
@@ -200,8 +223,7 @@ def save_memory(
         f"\"event_count\": {event_count}"
         "}"
     )
-    output, _, _ = run_openclaw(message, session_key, model, timeout, log_path)
-    parsed = extract_json_object(output)
+    parsed, _, _ = run_openclaw_json(message, session_key, model, timeout, log_path)
     if parsed.get("saved") is not True:
         raise RuntimeError(f"OpenClaw did not confirm memory save: {parsed}")
     if parsed.get("video_id") != video_name:
@@ -279,6 +301,29 @@ def run_openclaw(message: str, session_key: str, model: str, timeout: int, log_p
     return result.stdout, latency_ms, 1
 
 
+def run_openclaw_json(
+    message: str,
+    session_key: str,
+    model: str,
+    timeout: int,
+    log_path: Path,
+    attempts: int = 3,
+) -> tuple[dict[str, Any], int, int]:
+    total_latency_ms = 0
+    total_tool_calls = 0
+    for attempt in range(1, attempts + 1):
+        output, latency_ms, tool_calls = run_openclaw(message, session_key, model, timeout, log_path)
+        total_latency_ms += latency_ms
+        total_tool_calls += tool_calls
+        try:
+            return extract_json_object(output), total_latency_ms, total_tool_calls
+        except ValueError:
+            if attempt == attempts:
+                raise
+            log(f"  OpenClaw returned malformed JSON; retrying ({attempt}/{attempts})")
+    raise AssertionError("unreachable")
+
+
 def seed_video_context(events_doc: dict[str, Any], video_name: str, session_key: str, model: str, timeout: int, log_path: Path) -> None:
     message = (
         "We are starting one VSS eval conversation for a single video.\n"
@@ -289,8 +334,7 @@ def seed_video_context(events_doc: dict[str, Any], video_name: str, session_key:
         f"{json.dumps(events_doc, indent=2)}\n\n"
         "Reply with only this JSON: {\"ready\": true}"
     )
-    output, _, _ = run_openclaw(message, session_key, model, timeout, log_path)
-    parsed = extract_json_object(output)
+    parsed, _, _ = run_openclaw_json(message, session_key, model, timeout, log_path)
     if parsed.get("ready") is not True:
         raise RuntimeError(f"OpenClaw seed response did not confirm readiness: {parsed}")
 
@@ -351,8 +395,7 @@ def answer_question(
         f"QID: {qid}\n"
         f"Question: {question}\n"
     )
-    output, latency_ms, tool_calls = run_openclaw(message, session_key, model, timeout, log_path)
-    parsed = extract_json_object(output)
+    parsed, latency_ms, tool_calls = run_openclaw_json(message, session_key, model, timeout, log_path)
     answer = str(parsed.get("answer", "")).strip()
     cited = parsed.get("cited_event_ids", [])
     if not isinstance(cited, list):
@@ -416,6 +459,14 @@ def parse_event_ids(value: Any) -> list[int]:
     return value
 
 
+def parse_category(value: Any) -> str:
+    category = str(value).strip().lower()
+    if category not in QUESTION_CATEGORIES:
+        allowed = ", ".join(QUESTION_CATEGORIES)
+        raise ValueError(f"category must be one of: {allowed}")
+    return category
+
+
 def prf(expected: set[int], predicted: set[int]) -> tuple[float, float, float]:
     if not expected and not predicted:
         return 1.0, 1.0, 1.0
@@ -426,7 +477,7 @@ def prf(expected: set[int], predicted: set[int]) -> tuple[float, float, float]:
     return precision, recall, f1
 
 
-def summarize_single_raw(raw_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize_single_raw(raw_rows: list[dict[str, Any]], include_categories: bool = True) -> dict[str, Any]:
     question_count = len(raw_rows)
     correct_answers = sum(int(row["answer_accuracy"]) for row in raw_rows)
     exact_evidence_matches = sum(int(row["exact_evidence_match"]) for row in raw_rows)
@@ -442,7 +493,19 @@ def summarize_single_raw(raw_rows: list[dict[str, Any]]) -> dict[str, Any]:
     precision = correct_cited_ids / total_cited_ids if total_cited_ids else 0.0
     recall = correct_cited_ids / expected_ids_count if expected_ids_count else 0.0
     f1 = 0.0 if precision + recall == 0 else (2 * precision * recall) / (precision + recall)
-    return {
+    category_metrics = (
+        {
+            category: summarize_single_raw(
+                [row for row in raw_rows if row["category"] == category],
+                include_categories=False,
+            )
+            for category in QUESTION_CATEGORIES
+            if any(row["category"] == category for row in raw_rows)
+        }
+        if include_categories
+        else {}
+    )
+    metrics = {
         "question_count": question_count,
         "correct_answers": correct_answers,
         "exact_evidence_matches": exact_evidence_matches,
@@ -455,6 +518,9 @@ def summarize_single_raw(raw_rows: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_evidence_recall": recall,
         "mean_evidence_f1_score": f1,
     }
+    if include_categories:
+        metrics["categories"] = category_metrics
+    return metrics
 
 
 def fmt_float(value: float) -> str:
@@ -479,13 +545,33 @@ def write_video_report_md(path: Path, video_id: str, metrics: dict[str, Any], ra
         f"| Mean Evidence Recall | `{fmt_float(metrics['mean_evidence_recall'])}` |",
         f"| Mean Evidence F1 Score | `{fmt_float(metrics['mean_evidence_f1_score'])}` |",
         "",
-        "| QID | Question | Expected IDs | Predicted IDs | Answer Accuracy | Exact Evidence | Precision | Recall | F1 |",
-        "|---:|---|---|---|---:|---:|---:|---:|---:|",
+        "## Category Breakdown",
+        "",
+        "| Category | Questions | Answer Accuracy | Exact Evidence | Precision | Recall | F1 |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
+    for category, category_metric in metrics["categories"].items():
+        lines.append(
+            f"| {category} | {category_metric['question_count']} | "
+            f"{fmt_float(category_metric['answer_accuracy'])} | "
+            f"{fmt_float(category_metric['exact_evidence_match'])} | "
+            f"{fmt_float(category_metric['mean_evidence_precision'])} | "
+            f"{fmt_float(category_metric['mean_evidence_recall'])} | "
+            f"{fmt_float(category_metric['mean_evidence_f1_score'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Questions",
+            "",
+            "| QID | Category | Question | Expected IDs | Predicted IDs | Answer Accuracy | Exact Evidence | Precision | Recall | F1 |",
+            "|---:|---|---|---|---|---:|---:|---:|---:|---:|",
+        ]
+    )
     for row in raw_rows:
         safe_question = str(row["question"]).replace("|", "\\|").replace("\n", " ")
         lines.append(
-            f"| {row['qid']} | {safe_question} | {','.join(map(str, row['expected_event_ids']))} | "
+            f"| {row['qid']} | {row['category']} | {safe_question} | {','.join(map(str, row['expected_event_ids']))} | "
             f"{','.join(map(str, row['predicted_event_ids']))} | {row['answer_accuracy']} | "
             f"{row['exact_evidence_match']} | {fmt_float(row['precision'])} | "
             f"{fmt_float(row['recall'])} | {fmt_float(row['f1_score'])} |"
@@ -505,6 +591,7 @@ def build_video_report_json(run_id: str, video_id: str, metrics: dict[str, Any])
             "mean_evidence_precision": metrics["mean_evidence_precision"],
             "mean_evidence_recall": metrics["mean_evidence_recall"],
             "mean_evidence_f1_score": metrics["mean_evidence_f1_score"],
+            "categories": metrics["categories"],
         },
         "counts": {
             "questions": metrics["question_count"],
@@ -532,6 +619,20 @@ def build_total_report(run_id: str, video_reports: list[dict[str, Any]], video_m
     precision = correct_cited_ids / total_cited_ids if total_cited_ids else 0.0
     recall = correct_cited_ids / expected_ids_count if expected_ids_count else 0.0
     f1 = 0.0 if precision + recall == 0 else (2 * precision * recall) / (precision + recall)
+    category_rows = {
+        category: [
+            row
+            for metrics in video_metrics
+            for row in metrics.get("raw_rows", [])
+            if row["category"] == category
+        ]
+        for category in QUESTION_CATEGORIES
+    }
+    category_metrics = {
+        category: summarize_single_raw(rows, include_categories=False)
+        for category, rows in category_rows.items()
+        if rows
+    }
     return {
         "run_id": run_id,
         "eval_type": "single_video_qa_total",
@@ -543,6 +644,7 @@ def build_total_report(run_id: str, video_reports: list[dict[str, Any]], video_m
             "mean_evidence_precision": precision,
             "mean_evidence_recall": recall,
             "mean_evidence_f1_score": f1,
+            "categories": category_metrics,
         },
         "counts": {
             "videos": videos,
@@ -586,9 +688,22 @@ def write_total_report_md(path: Path, total: dict[str, Any]) -> None:
         f"| Mean Evidence Recall | `{fmt_float(summary['mean_evidence_recall'])}` |",
         f"| Mean Evidence F1 Score | `{fmt_float(summary['mean_evidence_f1_score'])}` |",
         "",
+        "## Category Breakdown",
+        "",
+        "| Category | Questions | Answer Accuracy | Exact Evidence | Precision | Recall | F1 |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for category, metrics in summary["categories"].items():
+        lines.append(
+            f"| {category} | {metrics['question_count']} | {fmt_float(metrics['answer_accuracy'])} | "
+            f"{fmt_float(metrics['exact_evidence_match'])} | {fmt_float(metrics['mean_evidence_precision'])} | "
+            f"{fmt_float(metrics['mean_evidence_recall'])} | {fmt_float(metrics['mean_evidence_f1_score'])} |"
+        )
+    lines.extend([
+        "",
         "## Videos",
         "",
-    ]
+    ])
     lines.extend(f"- [{video['video_id']}]({video['video_id']}/report.md)" for video in total["videos"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -638,7 +753,8 @@ def main() -> int:
     video_reports: list[dict[str, Any]] = []
     video_metrics: list[dict[str, Any]] = []
     for question_file in question_files:
-        video_name = question_file.name.removesuffix("_eval.json")
+        embedded_video_id, question_rows = read_question_file(question_file)
+        video_name = resolve_video_name(question_file, embedded_video_id)
         video_url = args.video_url_template.format(video_name=video_name)
         session_key = f"vss-eval-single-{run_id}-{video_name}"
         video_dir = run_dir / video_name
@@ -672,12 +788,13 @@ def main() -> int:
             )
 
         raw_rows: list[dict[str, Any]] = []
-        for row in read_json_rows(question_file):
+        for row in question_rows:
             norm = normalize_row(row)
             qid = str(norm.get("qid", ""))
             question = str(norm.get("question", ""))
             expected_target = str(norm.get("expected_answer_target", ""))
             expected_event_ids = parse_event_ids(norm.get("expected_event_ids", []))
+            category = parse_category(norm.get("category", ""))
             log(f"  Q{qid}: answering")
             answer, cited_ids, citation_reason, latency_ms, tool_calls = answer_question(
                 qid,
@@ -693,6 +810,7 @@ def main() -> int:
             raw_rows.append(
                 {
                     "qid": qid,
+                    "category": category,
                     "question": question,
                     "expected_answer_target": expected_target,
                     "answer": answer,
@@ -712,6 +830,7 @@ def main() -> int:
             write_json(raw_json, raw_rows)
 
         metrics = summarize_single_raw(raw_rows)
+        metrics["raw_rows"] = raw_rows
         video_report = build_video_report_json(run_id, video_name, metrics)
         write_video_report_md(report_md, video_name, metrics, raw_rows)
         write_json(report_json, video_report)

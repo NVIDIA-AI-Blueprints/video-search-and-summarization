@@ -1,6 +1,7 @@
 [
   {
     "qid": 1,
+    "category": "within_event",
     "question": "Where is the shirtless man seated during the interview?",
     "expected_answer_target": "He is seated on the floor against a white tiled or cinderblock wall in a detention room.",
     "expected_event_ids": [
@@ -9,6 +10,7 @@
   },
   {
     "qid": 2,
+    "category": "within_event",
     "question": "What clothing is the seated man wearing?",
     "expected_answer_target": "The man is shirtless and wearing blue shorts.",
     "expected_event_ids": [
@@ -17,6 +19,7 @@
   },
   {
     "qid": 3,
+    "category": "within_event",
     "question": "What items are on the floor around the seated man?",
     "expected_answer_target": "Clothing items are scattered on the floor around him.",
     "expected_event_ids": [
@@ -25,6 +28,7 @@
   },
   {
     "qid": 4,
+    "category": "temporal",
     "question": "How does the seated man\u2019s posture change during the interview segment?",
     "expected_answer_target": "He leans forward and downward and eventually rests his head on the pile of clothes.",
     "expected_event_ids": [
@@ -33,6 +37,7 @@
   },
   {
     "qid": 5,
+    "category": "within_event",
     "question": "What emotional or physical state does the seated man appear to show?",
     "expected_answer_target": "He appears fatigued or resigned, with his head down and eyes closed.",
     "expected_event_ids": [
@@ -41,6 +46,7 @@
   },
   {
     "qid": 6,
+    "category": "within_event",
     "question": "What room features indicate an institutional detention setting?",
     "expected_answer_target": "The room has plain white walls, a small window showing adjacent cells, minimal furnishings, and dim lighting.",
     "expected_event_ids": [
@@ -49,6 +55,7 @@
   },
   {
     "qid": 7,
+    "category": "within_event",
     "question": "What obstructs the camera view in the hallway segment?",
     "expected_answer_target": "A hand in the foreground partially obstructs the view.",
     "expected_event_ids": [
@@ -57,6 +64,7 @@
   },
   {
     "qid": 8,
+    "category": "within_event",
     "question": "What does the hallway segment show in the background?",
     "expected_answer_target": "It shows a tiled hallway with fluorescent lighting, doors, signs, and notices.",
     "expected_event_ids": [
@@ -65,6 +73,7 @@
   },
   {
     "qid": 9,
+    "category": "entity_relational",
     "question": "What suggests the camera is body-mounted during the hallway segment?",
     "expected_answer_target": "The first-person perspective and movement through the corridor suggest the camera is mounted on a person\u2019s body.",
     "expected_event_ids": [
@@ -73,12 +82,14 @@
   },
   {
     "qid": 10,
+    "category": "within_event",
     "question": "Does any event describe the seated man standing up or leaving the detention room?",
     "expected_answer_target": "No; this is a negative-control question supported by absence across the event set.",
     "expected_event_ids": []
   },
   {
     "qid": 11,
+    "category": "entity_relational",
     "question": "Which events describe institutional police-interview environments or movement within them?",
     "expected_answer_target": "Events show a detention-room interview setting and a hallway or corridor in an institutional police facility.",
     "expected_event_ids": [

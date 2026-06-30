@@ -1,6 +1,7 @@
 [
   {
     "qid": 1,
+    "category": "within_event",
     "question": "What activity is shown inside the vehicle at the very start of the video?",
     "expected_answer_target": "A gloved person reaches into the vehicle interior and manipulates items around the dashboard and center console, suggesting a search or inspection.",
     "expected_event_ids": [
@@ -9,6 +10,7 @@
   },
   {
     "qid": 2,
+    "category": "within_event",
     "question": "What setting is established when the camera first shows the exterior scene?",
     "expected_answer_target": "The scene is a nighttime gas station area with fuel pumps, artificial lighting, and a police vehicle with flashing lights nearby.",
     "expected_event_ids": [
@@ -17,6 +19,7 @@
   },
   {
     "qid": 3,
+    "category": "entity_relational",
     "question": "Who is visible in the silver sedan during the initial approach?",
     "expected_answer_target": "A person in a red jacket with white stripes is inside the silver sedan while officers approach under flashlight and emergency lighting.",
     "expected_event_ids": [
@@ -26,6 +29,7 @@
   },
   {
     "qid": 4,
+    "category": "within_event",
     "question": "What physical action occurs during the initial arrest interaction near the silver sedan?",
     "expected_answer_target": "The red-jacketed suspect is physically restrained by someone in a plaid shirt and raises their hands in compliance.",
     "expected_event_ids": [
@@ -34,6 +38,7 @@
   },
   {
     "qid": 5,
+    "category": "temporal",
     "question": "How does the arrest progress after the suspect in red is taken to the ground?",
     "expected_answer_target": "Officers secure the person on the ground, handcuff them, move them against a vehicle for control, and leave them fully restrained.",
     "expected_event_ids": [
@@ -42,6 +47,7 @@
   },
   {
     "qid": 6,
+    "category": "within_event",
     "question": "What object and location context appear in the background during the prolonged arrest of the red-jacketed person?",
     "expected_answer_target": "Police vehicles with flashing lights, a trash can, and a gas pump are visible around the gas station arrest scene.",
     "expected_event_ids": [
@@ -50,6 +56,7 @@
   },
   {
     "qid": 7,
+    "category": "within_event",
     "question": "What calm scene is shown before a later police vehicle enters near the building?",
     "expected_answer_target": "At night outside a brick convenience-store-like building, a person stands near the entrance with red bollards along the walkway.",
     "expected_event_ids": [
@@ -58,6 +65,7 @@
   },
   {
     "qid": 8,
+    "category": "temporal",
     "question": "What does the silver police car do after entering the later building-side scene?",
     "expected_answer_target": "It enters slowly from the left and stops near the building with its rear facing the camera and lights on.",
     "expected_event_ids": [
@@ -67,6 +75,7 @@
   },
   {
     "qid": 9,
+    "category": "within_event",
     "question": "What does the officer find or inspect during the later arrest near the gas pump?",
     "expected_answer_target": "The officer searches the vehicle interior and finds cash or documents on the driver's seat.",
     "expected_event_ids": [
@@ -75,12 +84,14 @@
   },
   {
     "qid": 10,
+    "category": "within_event",
     "question": "Was medical aid or treatment described anywhere in the event set?",
     "expected_answer_target": "No medical aid or treatment is described; this is supported by absence across the provided events.",
     "expected_event_ids": []
   },
   {
     "qid": 11,
+    "category": "entity_relational",
     "question": "Which events describe police vehicles arriving or approaching the gas station/building scene?",
     "expected_answer_target": "All events that show police vehicles arriving, approaching, or moving into the scene near the gas station or building.",
     "expected_event_ids": [

@@ -1,0 +1,110 @@
+{
+  "video_id": "log_1083757_body-cam_video_1",
+  "questions": [
+  {
+    "qid": 1,
+    "category": "within_event",
+    "question": "Where does the opening vehicle stop take place, and what is visible around the stopped vehicle?",
+    "expected_answer_target": "A nighttime gas station stop near a fuel pump, with vehicle lights, pumps, signage, and streetlight reflections visible.",
+    "expected_event_ids": [1]
+  },
+  {
+    "qid": 2,
+    "category": "within_event",
+    "question": "Which event describes a person in a red jacket raising their hands in compliance inside the vehicle during the arrest?",
+    "expected_answer_target": "The red-jacketed person raises their hands while officers restrain another occupant inside the vehicle.",
+    "expected_event_ids": [2]
+  },
+  {
+    "qid": 3,
+    "category": "within_event",
+    "question": "Which event describes two officers restraining a person in a red shirt and applying handcuffs near a trash can and red pole?",
+    "expected_answer_target": "Two officers restrain the individual outdoors at night and apply handcuffs.",
+    "expected_event_ids": [12]
+  },
+  {
+    "qid": 4,
+    "category": "within_event",
+    "question": "Which event describes an officer using a flashlight to inspect both a silver sedan and a white car with driver doors open?",
+    "expected_answer_target": "The officer conducts a post-arrest vehicle inspection of the sedan and white car, including the rear wheel area.",
+    "expected_event_ids": [17]
+  },
+  {
+    "qid": 5,
+    "category": "within_event",
+    "question": "Does the event set directly state that a firearm was recovered from the vehicle or suspect?",
+    "expected_answer_target": "No firearm recovery is directly described; this is supported by absence across the event set.",
+    "expected_event_ids": []
+  },
+  {
+    "qid": 6,
+    "category": "entity_relational",
+    "question": "Which events show the red-jacketed individual being controlled by officers or searchers inside or beside the vehicle early in the video?",
+    "expected_answer_target": "The red-jacketed individual is restrained, repositioned, and searched during the early vehicle interaction.",
+    "expected_event_ids": [3, 4, 5]
+  },
+  {
+    "qid": 7,
+    "category": "entity_relational",
+    "question": "Which event shows a handcuffed person in a red jacket with white stripes being searched by a plaid-shirted individual while another person assists?",
+    "expected_answer_target": "A handcuffed person on the ground has their upper body and clothing searched by a plaid-shirted individual, with another person assisting.",
+    "expected_event_ids": [13]
+  },
+  {
+    "qid": 8,
+    "category": "entity_relational",
+    "question": "Which events connect the seated driver in the white sedan with an officer approaching, engaging, and reaching into the driver-side area?",
+    "expected_answer_target": "The officer approaches the white sedan, engages the seated driver, and reaches into the driver-side area to search or retrieve items.",
+    "expected_event_ids": [34, 35, 38]
+  },
+  {
+    "qid": 9,
+    "category": "entity_relational",
+    "question": "Which event links item removal from a vehicle or driver with evidence handling in bags or containers?",
+    "expected_answer_target": "Officers retrieve multiple objects and secure or document seized materials in evidence bags or containers.",
+    "expected_event_ids": [36]
+  },
+  {
+    "qid": 10,
+    "category": "entity_relational",
+    "question": "Which events involve officers searching the restrained person's body or clothing while that person remains on or near the ground?",
+    "expected_answer_target": "Officers search the restrained person's upper body, clothing, torso, limbs, or waist while the person is restrained on or near the ground.",
+    "expected_event_ids": [13, 16, 21, 22, 24, 26, 33]
+  },
+  {
+    "qid": 11,
+    "category": "temporal",
+    "question": "What happens immediately after the early in-vehicle arrest interaction involving the red-jacketed person raising their hands?",
+    "expected_answer_target": "The red-jacketed individual is physically restrained, repositioned, and searched in or beside the vehicle.",
+    "expected_event_ids": [2, 3, 4, 5]
+  },
+  {
+    "qid": 12,
+    "category": "temporal",
+    "question": "Which events establish the sequence where a vehicle search begins, items are removed, and the interior search continues around 393-399 seconds?",
+    "expected_answer_target": "An officer starts searching the vehicle, removes items, then continues examining seats and storage areas.",
+    "expected_event_ids": [29, 30, 31]
+  },
+  {
+    "qid": 13,
+    "category": "temporal",
+    "question": "What happens after the person is restrained and searched on the ground near the gas station?",
+    "expected_answer_target": "The scene transitions from ground restraint/body search to vehicle inspection with open driver doors.",
+    "expected_event_ids": [12, 13, 14, 16, 17]
+  },
+  {
+    "qid": 14,
+    "category": "temporal",
+    "question": "Which events show the progression from the white sedan stop to officer interaction and then item retrieval/search at the driver-side area?",
+    "expected_answer_target": "The white sedan is stopped with the driver-side door open, an officer engages the seated driver, then reaches inside and removes or searches for items.",
+    "expected_event_ids": [34, 35, 36, 38]
+  },
+  {
+    "qid": 15,
+    "category": "temporal",
+    "question": "Which events show the later progression from a vehicle search to final item removal near the end of the video?",
+    "expected_answer_target": "Officers conduct a broad vehicle search and later remove evidence or items found during the search.",
+    "expected_event_ids": [42, 46]
+  }
+  ]
+}

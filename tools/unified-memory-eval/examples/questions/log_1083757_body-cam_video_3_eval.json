@@ -1,6 +1,7 @@
 [
   {
     "qid": 1,
+    "category": "within_event",
     "question": "Where is the police vehicle first shown parked, and what nearby vehicle is visible?",
     "expected_answer_target": "At a gas station at night with flashing blue lights, near a white car under the canopy.",
     "expected_event_ids": [
@@ -9,6 +10,7 @@
   },
   {
     "qid": 2,
+    "category": "entity_relational",
     "question": "What is the individual in the plaid shirt doing near the beginning of the scene?",
     "expected_answer_target": "Moving near the gas pump and the car while police activity continues outside.",
     "expected_event_ids": [
@@ -17,6 +19,7 @@
   },
   {
     "qid": 3,
+    "category": "within_event",
     "question": "What items are visible during the police vehicle interior inspection around 40 to 49 seconds?",
     "expected_answer_target": "A blue water bottle, a red can, and miscellaneous objects on or near the dashboard and center console.",
     "expected_event_ids": [
@@ -25,6 +28,7 @@
   },
   {
     "qid": 4,
+    "category": "within_event",
     "question": "What part of the police vehicle interior is highlighted by the focused light around 60 to 69 seconds?",
     "expected_answer_target": "The cluttered center console area with dashboard controls, steering wheel, and personal belongings.",
     "expected_event_ids": [
@@ -33,6 +37,7 @@
   },
   {
     "qid": 5,
+    "category": "temporal",
     "question": "Who exits the white car around 80 to 90 seconds, and where do they go?",
     "expected_answer_target": "A person wearing a plaid shirt and cap exits the white car and walks toward the police vehicle.",
     "expected_event_ids": [
@@ -41,6 +46,7 @@
   },
   {
     "qid": 6,
+    "category": "temporal",
     "question": "What does the officer inspect after approaching and opening the driver's side door?",
     "expected_answer_target": "The steering wheel and dashboard area of the vehicle.",
     "expected_event_ids": [
@@ -49,6 +55,7 @@
   },
   {
     "qid": 7,
+    "category": "within_event",
     "question": "What location and lighting context are visible during the driver's-side inspection near 100 to 119 seconds?",
     "expected_answer_target": "A nighttime setting with exterior streetlights and a lit building visible outside the dimly lit vehicle interior.",
     "expected_event_ids": [
@@ -57,6 +64,7 @@
   },
   {
     "qid": 8,
+    "category": "within_event",
     "question": "What details indicate an officer is inside the police vehicle near 110 to 121 seconds?",
     "expected_answer_target": "A partially visible head or helmet appears inside the cabin while a detailed inspection is underway.",
     "expected_event_ids": [
@@ -65,6 +73,7 @@
   },
   {
     "qid": 9,
+    "category": "entity_relational",
     "question": "Which event directly describes close-up handling of items such as a blue-lidded container and gold chain?",
     "expected_answer_target": "The broad vehicle-search segment showing a gloved search and close-up handling of small items including a blue-lidded container and gold chain.",
     "expected_event_ids": [
@@ -73,12 +82,14 @@
   },
   {
     "qid": 10,
+    "category": "within_event",
     "question": "Does the event set describe any vehicle pursuit or high-speed chase?",
     "expected_answer_target": "No. The events describe stationary vehicles, searches, and inspection activity; absence across the event set supports the answer.",
     "expected_event_ids": []
   },
   {
     "qid": 11,
+    "category": "entity_relational",
     "question": "Which events describe the police vehicle itself, including exterior presence, flashing lights, stationary positioning, or interior cabin inspection?",
     "expected_answer_target": "All events focused on the police vehicle's exterior presence, emergency lights, stationary position, or interior inspection.",
     "expected_event_ids": [

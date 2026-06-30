@@ -1,6 +1,7 @@
 [
   {
     "qid": 1,
+    "category": "within_event",
     "question": "What was the shirtless restrained man wearing while seated in the lock-up room?",
     "expected_answer_target": "Blue shorts.",
     "expected_event_ids": [
@@ -9,6 +10,7 @@
   },
   {
     "qid": 2,
+    "category": "within_event",
     "question": "Where was the restrained shirtless man positioned during the main lock-up scene?",
     "expected_answer_target": "Against a tiled or white wall, seated on a bench or under a metal table in a detention room.",
     "expected_event_ids": [
@@ -17,6 +19,7 @@
   },
   {
     "qid": 3,
+    "category": "entity_relational",
     "question": "Who adjusted or secured the handcuffs on the restrained man?",
     "expected_answer_target": "A person with a visible tattoo.",
     "expected_event_ids": [
@@ -25,6 +28,7 @@
   },
   {
     "qid": 4,
+    "category": "within_event",
     "question": "What object was shown by hands during the lock-up scene?",
     "expected_answer_target": "An ID card, possibly shown to the camera.",
     "expected_event_ids": [
@@ -33,6 +37,7 @@
   },
   {
     "qid": 5,
+    "category": "within_event",
     "question": "What physical features of the restrained man are described?",
     "expected_answer_target": "Short dark hair and a beard.",
     "expected_event_ids": [
@@ -41,6 +46,7 @@
   },
   {
     "qid": 6,
+    "category": "within_event",
     "question": "What room features establish that the setting is a jail or correctional facility?",
     "expected_answer_target": "Tiled walls, metal tables, barred windows, fluorescent lighting, and a glass partition/counter area.",
     "expected_event_ids": [
@@ -49,6 +55,7 @@
   },
   {
     "qid": 7,
+    "category": "temporal",
     "question": "What movement did the restrained individual make near the end of the first event?",
     "expected_answer_target": "He moved toward a door, passing a counter with a glass partition.",
     "expected_event_ids": [
@@ -57,6 +64,7 @@
   },
   {
     "qid": 8,
+    "category": "temporal",
     "question": "What happened when the person in a dark jacket and jeans reached the door?",
     "expected_answer_target": "The person opened the door and walked through it.",
     "expected_event_ids": [
@@ -65,6 +73,7 @@
   },
   {
     "qid": 9,
+    "category": "entity_relational",
     "question": "Who was nearby when the person in the dark jacket and jeans walked through the door?",
     "expected_answer_target": "Another individual in a dark jacket and cap stood nearby, partially visible in the background.",
     "expected_event_ids": [
@@ -73,6 +82,7 @@
   },
   {
     "qid": 10,
+    "category": "within_event",
     "question": "Which event covers the long initial lock-up sequence with the restrained shirtless man?",
     "expected_answer_target": "Event 1, spanning about 0.01 to 79.51 seconds.",
     "expected_event_ids": [
@@ -81,6 +91,7 @@
   },
   {
     "qid": 11,
+    "category": "entity_relational",
     "question": "Which events describe activity in the lock-up or detention-facility setting?",
     "expected_answer_target": "All events shown are lock-up/detention-area activity, including the restrained man scene and the later doorway movement.",
     "expected_event_ids": [

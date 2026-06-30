@@ -53,7 +53,7 @@ VIDEO_URL_TEMPLATE={video_name}.mp4
 VLM_NAME=cosmos-reason1
 ```
 
-5. Choose and copy eval tasks from `./examples/questions` into `./questions`, or create your own JSON question files. Each file contains a top-level array of question objects. Use JSON arrays for `expected_event_ids` in single-video files. In cross-conversation files, use arrays for `expected_video_ids` and an object mapping each video ID to an event-ID array for `expected_event_ids`.
+5. Choose and copy eval tasks from `./examples/questions` into `./questions`, or create your own JSON question files. Legacy `*_eval.json` files contain a top-level question array and derive the video ID from the filename. Custom-named single-video files contain `video_id` plus a `questions` array. Single-video rows require a `category` of `within_event`, `entity_relational`, or `temporal`, and use JSON arrays for `expected_event_ids`. In cross-conversation files, use arrays for `expected_video_ids` and an object mapping each video ID to an event-ID array for `expected_event_ids`.
 
 ### Launch frozen summarization server
 
@@ -129,6 +129,11 @@ uv run python scripts/run_single.py \
   --eval-root . \
   --question-file log_1083757_body-cam_video_2_eval.json \
   --save-memory
+
+# Custom filenames carry their source video ID in the JSON file.
+uv run python scripts/run_single.py \
+  --eval-root . \
+  --question-file examples/questions/new-body-cam1.json
 
 uv run python scripts/run_cross.py --eval-root . --reset-memory
 uv run python scripts/run_cross.py --eval-root . --skip-ingest
