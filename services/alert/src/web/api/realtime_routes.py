@@ -603,6 +603,19 @@ async def list_incidents(
         offset,
         consolidate,
     )
+    if consolidate and (start_time is None or end_time is None):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "error": "validation_failed",
+                "message": (
+                    "consolidate=true requires both start_time and end_time "
+                    "(a bounded time window)"
+                ),
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            },
+        )
     response_data, status_code = await service.list_incidents(
         sensor_id=sensor_id,
         category=category,
