@@ -96,6 +96,10 @@ services:
       - ENABLE_AGING_POLICY=true
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
       - VST_STATIC_TURNURL_LIST=${VST_STATIC_TURNURL_LIST:-}
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
+      - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
+      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
@@ -105,6 +109,7 @@ services:
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - vss-turn-password:/run/secrets/vss-turn:ro
       - ${VSS_APPS_DIR}/services/vios/scripts/apply_turn_config.sh:/home/vst/vst_release/tools/apply_turn_config.sh:ro
     ulimits:
       nofile:
@@ -121,6 +126,8 @@ services:
       retries: 75
       start_period: 20s
     depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
       centralizedb:
         condition: service_healthy
       redis:
@@ -153,6 +160,10 @@ services:
       - ENABLE_AGING_POLICY=true
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
       - VST_STATIC_TURNURL_LIST=${VST_STATIC_TURNURL_LIST:-}
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
+      - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
+      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
@@ -164,6 +175,7 @@ services:
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - vss-turn-password:/run/secrets/vss-turn:ro
       - ${VSS_APPS_DIR}/services/vios/scripts/apply_turn_config.sh:/home/vst/vst_release/tools/apply_turn_config.sh:ro
     ulimits:
       nofile:
@@ -180,6 +192,8 @@ services:
       retries: 75
       start_period: 20s
     depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
       centralizedb:
         condition: service_healthy
       redis:
@@ -212,6 +226,10 @@ services:
       - ENABLE_AGING_POLICY=true
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
       - VST_STATIC_TURNURL_LIST=${VST_STATIC_TURNURL_LIST:-}
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
+      - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
+      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
@@ -223,6 +241,7 @@ services:
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
       - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - vss-turn-password:/run/secrets/vss-turn:ro
       - ${VSS_APPS_DIR}/services/vios/scripts/apply_turn_config.sh:/home/vst/vst_release/tools/apply_turn_config.sh:ro
     ulimits:
       nofile:
@@ -239,6 +258,8 @@ services:
       retries: 75
       start_period: 20s
     depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
       centralizedb:
         condition: service_healthy
       redis:
