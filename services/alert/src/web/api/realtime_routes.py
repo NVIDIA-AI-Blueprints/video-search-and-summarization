@@ -589,8 +589,8 @@ async def list_incidents(
         default=None,
         description=(
             "Group consecutive positives from the same camera and alert type "
-            "into a single event. Omit to use the configured default; set to "
-            "false to return raw chunk-level documents."
+            "into a single event. Omitted or false returns raw chunk-level "
+            "documents; set to true for the consolidated view."
         ),
     ),
     service: IncidentService = Depends(get_incident_service),
