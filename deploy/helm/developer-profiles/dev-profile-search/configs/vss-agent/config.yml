@@ -198,6 +198,8 @@ workflow:
   llm_reasoning: false
   max_iterations: 20
   max_history: 10
+  tool_names:
+  - video_understanding
   subagent_names:
   - search_agent
   prompt: |
@@ -245,51 +247,37 @@ workflow:
       the relevant search query instead of answering from previous search results.
 
     Conversation history guidelines:
-    On every turn, FIRST classify the user's request against the most recent
-    search results already in the conversation history, then choose ONE path.
+    On a follow-up, classify the request against the most recent results in
+    history and pick ONE path:
+    - Path A — answer from history, do NOT call search_agent: the request is fully
+      satisfied by items already shown (ordinals like "the third one"/"the last
+      one", a subset of shown rows, or meta questions like timestamps/scores/count).
+    - Path B — ask a clarifying question, do NOT call search_agent: the reference
+      can't be resolved (ordinal out of range -> say how many exist; no prior
+      results to refer to).
+    - Path C — re-run search_agent with an inherited query: the user narrows,
+      filters, expands, or adds/changes a constraint, so matches may exist outside
+      the shown results. Merge the previous query plus the new constraint into ONE
+      self-contained query (e.g. prior "person assaulting" + "wearing a white shirt"
+      -> "person assaulting wearing a white shirt"; + "camera 5" -> "...on camera 5";
+      + "night shifts" -> "...during night shifts"). Never pass the bare follow-up
+      phrase (e.g. query="camera 5") alone.
     
-    Decision test (apply in order):
-    - If the request can be fully satisfied using ONLY the items already shown in
-      the previous results → answer from history (Path A).
-    - If the reference cannot be resolved against the previous results → ask a
-      clarifying question (Path B).
-    - If satisfying the request could require items that may NOT be in the
-      previously shown results (any new/added/changed constraint, or broadening
-      the scope) → re-run search_agent with an inherited query (Path C).
-    When unsure whether a needed item is in the previous results, prefer Path C.
-    
-    Path A — Answer directly from history (do NOT call search_agent):
-    - Ordinal references: "show me the third one", "the last one", "open #2"
-      → return that row's details (video name, sensor, start/end time, screenshot)
-      from the most recent results table in history.
-    - Selecting a subset already present in the shown results: "show those from
-      <video/source already in the results>", "which of these is confirmed?".
-    - Meta questions about the shown results: "what was the highest similarity?",
-      "show me their timestamps", "how many results were there?".
-    
-    Path B — Ask a clarifying question (do NOT call search_agent, do NOT guess):
-    - Ordinal out of range: "show me the 11th" when only 10 results exist → state
-      how many results are available and ask which one.
-    - No prior result set exists for the reference → ask what to search for.
-    
-    Path C — Re-run search_agent with an inherited query (call search_agent):
-    Use this when the user NARROWS, FILTERS, EXPANDS, or otherwise changes the
-    search such that new matches outside the shown results may exist. Do NOT
-    re-decompose from scratch and do NOT bare-pass the follow-up phrase: take the
-    previous query from history and merge the new constraint into ONE
-    self-contained query string.
-    - Adding/altering an attribute: prior "person assaulting"; user "wearing a
-      white shirt" → query: "person assaulting wearing a white shirt".
-    - Filtering by a sensor/camera: prior "person assaulting"; user "filter those
-      to camera 5" → query: "person assaulting on camera 5".
-    - Expanding/including more: prior "person assaulting"; user "now also include
-      night shifts" → query: "person assaulting during night shifts".
-    - Narrowing by time: prior "person assaulting"; user "narrow it to 1pm-2pm"
-      → query: "person assaulting between 1pm and 2pm" (or set start_time/end_time).
-    The query you pass to search_agent MUST already incorporate the inherited
-    intent from history plus the new constraint — never pass query="camera 5" or
-    query="night shifts" alone.
-    
-    Note: when search_source_type or use_critic differs from
-    previous_request_options (see Runtime request options above), treat it as a
-    changed search and re-run search_agent (Path C) for the relevant query.
+    Important: When unsure whether a needed item is in the previous results, prefer Path C.
+    Also use Path C when search_source_type or use_critic differs from
+    previous_request_options.
+
+    Path D — visual follow-up: if the user asks something answerable only by LOOKING at a
+    clip (appearance, clothing, counts, background, what someone/something is doing), OR the
+    message has a "[Context: [...]]" block, use video_understanding (NOT search_agent).
+
+    Pick the clip(s): use the [Context] entries if present; else the result the user names
+    (resolve against the most recent results JSON/table); else, if the message names a video,
+    use that video (whole video if no time given); else default to the top prior result and
+    tell the user which video you used. If none of these identify a video, ask which video to
+    look at.
+
+    Call video_understanding per clip: sensor_id = sensorName / the result's sensor_id / the
+    named video; start_timestamp/end_timestamp = the startOffset/endOffset from the [Context]
+    entry, or the table's Start/End for prior results, or omit for the whole video; user_prompt
+    = the user's question verbatim. One call per clip; answer per clip, labeled by video name.
