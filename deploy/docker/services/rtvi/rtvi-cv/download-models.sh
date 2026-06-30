@@ -36,11 +36,11 @@ require_file() {
 }
 
 ensure_ngc_cli() {
-  if command -v ngc >/dev/null 2>&1; then
+  if command -v ngc >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && command -v envsubst >/dev/null 2>&1; then
     return
   fi
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq && apt-get install -y -qq ca-certificates wget unzip python3 > /dev/null
+  apt-get update -qq && apt-get install -y -qq ca-certificates wget unzip jq gettext-base > /dev/null
   cd /tmp
   wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
   unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
@@ -66,61 +66,35 @@ resolve_source_path() {
     return
   fi
 
-  python3 - "$package_dir" "$source_rel" <<'PY'
-import os
-import sys
+  local target_base candidate
+  target_base="$(basename "$source_rel")"
+  candidate="$(find "$package_dir" -mindepth 1 \( -path "*/${source_rel}" -o -name "${target_base}" \) | head -n1)"
+  if [[ -n "$candidate" ]]; then
+    echo "$candidate"
+    return
+  fi
 
-root = sys.argv[1]
-source_rel = sys.argv[2]
-target = source_rel.strip("/").replace("\\", "/")
-target_base = os.path.basename(target)
-
-for dirpath, dirnames, filenames in os.walk(root):
-    rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
-    rel_dir = "" if rel_dir == "." else rel_dir
-
-    for name in filenames:
-        rel = f"{rel_dir}/{name}".strip("/")
-        if rel == target or rel.endswith("/" + target) or name == target_base:
-            print(os.path.join(root, rel))
-            raise SystemExit(0)
-
-    for name in dirnames:
-        rel = f"{rel_dir}/{name}".strip("/")
-        if rel == target or rel.endswith("/" + target) or name == target_base:
-            print(os.path.join(root, rel))
-            raise SystemExit(0)
-
-raise SystemExit(1)
-PY
+  echo "ERROR: Unable to resolve sourcePath '${source_rel}' under '${package_dir}'."
+  exit 1
 }
 
 expand_manifest_to_json() {
-  python3 - "$MODELS_MANIFEST_PATH" <<'PY'
-import json
-import os
-import re
-import sys
+  local expanded_manifest downloads_json
+  expanded_manifest="$(envsubst < "$MODELS_MANIFEST_PATH")"
 
-manifest_path = sys.argv[1]
-raw = open(manifest_path, "r", encoding="utf-8").read()
-expanded = os.path.expandvars(raw)
-data = json.loads(expanded)
+  if ! echo "$expanded_manifest" | jq -e 'type == "array" or (type == "object" and (.downloads | type == "array"))' >/dev/null; then
+    echo "ERROR: Manifest must be a JSON array or an object with a 'downloads' array."
+    exit 1
+  fi
 
-downloads = data["downloads"] if isinstance(data, dict) else data
-if not isinstance(downloads, list):
-    raise SystemExit("Manifest must be a list or object with 'downloads' list.")
+  downloads_json="$(echo "$expanded_manifest" | jq -c 'if type == "array" then . else .downloads end')"
 
-for idx, item in enumerate(downloads):
-    if not isinstance(item, dict):
-        raise SystemExit(f"downloads[{idx}] must be an object.")
-    for field in ("model", "sourcePath", "destPath"):
-        if not item.get(field):
-            raise SystemExit(f"downloads[{idx}] missing required field '{field}'.")
-    item.setdefault("org", os.environ.get("NGC_ORG_DEFAULT", "nvidia"))
+  if ! echo "$downloads_json" | jq -e 'all(.[]; (type == "object") and (.model | type == "string" and length > 0) and (.sourcePath | type == "string" and length > 0) and (.destPath | type == "string" and length > 0))' >/dev/null; then
+    echo "ERROR: Each manifest entry must be an object with non-empty model/sourcePath/destPath."
+    exit 1
+  fi
 
-print(json.dumps(downloads))
-PY
+  echo "$downloads_json" | jq -c 'map(.org = (.org // env.NGC_ORG_DEFAULT))'
 }
 
 download_package() {
@@ -166,12 +140,7 @@ main() {
   manifest_json="$(expand_manifest_to_json)"
 
   local downloads_count
-  downloads_count="$(python3 - "$manifest_json" <<'PY'
-import json
-import sys
-print(len(json.loads(sys.argv[1])))
-PY
-)"
+  downloads_count="$(echo "$manifest_json" | jq 'length')"
 
   if [[ "$downloads_count" == "0" ]]; then
     echo "No download entries found in ${MODELS_MANIFEST_PATH}. Nothing to do."
@@ -182,37 +151,13 @@ PY
   local idx
 
   for (( idx=0; idx<downloads_count; idx++ )); do
-    local model_ref source_rel dest_rel org compat_link
-    model_ref="$(python3 - "$manifest_json" "$idx" <<'PY'
-import json, sys
-d=json.loads(sys.argv[1])[int(sys.argv[2])]
-print(d["model"])
-PY
-)"
-    source_rel="$(python3 - "$manifest_json" "$idx" <<'PY'
-import json, sys
-d=json.loads(sys.argv[1])[int(sys.argv[2])]
-print(d["sourcePath"])
-PY
-)"
-    dest_rel="$(python3 - "$manifest_json" "$idx" <<'PY'
-import json, sys
-d=json.loads(sys.argv[1])[int(sys.argv[2])]
-print(d["destPath"])
-PY
-)"
-    org="$(python3 - "$manifest_json" "$idx" <<'PY'
-import json, sys
-d=json.loads(sys.argv[1])[int(sys.argv[2])]
-print(d.get("org","nvidia"))
-PY
-)"
-    compat_link="$(python3 - "$manifest_json" "$idx" <<'PY'
-import json, sys
-d=json.loads(sys.argv[1])[int(sys.argv[2])]
-print(d.get("compatSymlink",""))
-PY
-)"
+    local entry model_ref source_rel dest_rel org compat_link
+    entry="$(echo "$manifest_json" | jq -c ".[$idx]")"
+    model_ref="$(echo "$entry" | jq -r '.model')"
+    source_rel="$(echo "$entry" | jq -r '.sourcePath')"
+    dest_rel="$(echo "$entry" | jq -r '.destPath')"
+    org="$(echo "$entry" | jq -r '.org')"
+    compat_link="$(echo "$entry" | jq -r '.compatSymlink // empty')"
 
     local marker dest_abs
     marker="$(tuple_marker "$dest_rel")"
