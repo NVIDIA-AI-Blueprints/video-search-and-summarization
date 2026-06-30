@@ -128,7 +128,7 @@ services:
         fi
 
   bp-configurator-mv3dt:
-    image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.0
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.06.30
     container_name: vss-configurator-mv3dt
     networks:
       default:
