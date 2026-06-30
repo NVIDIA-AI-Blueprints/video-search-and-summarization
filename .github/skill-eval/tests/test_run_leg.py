@@ -117,11 +117,13 @@ class HarborCommand(unittest.TestCase):
             "codex",
         )
 
-        # codex uses the stock harbor agent; auth is OPENAI_API_KEY from the
-        # GitHub Actions env, so no claude-only --ak / thinking flags apply.
-        self.assertEqual(cmd[cmd.index("-a") + 1], "codex")
+        # codex runs through the NvCodex subclass (keeps the full model id);
+        # endpoint via --ak api_base, key from the env (not on the CLI).
+        self.assertEqual(cmd[cmd.index("-a") + 1], "agents.nv_codex:NvCodex")
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
-        self.assertNotIn("--ak", cmd)
+        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
+        # The key must never be passed on the command line.
+        self.assertFalse(any("OPENAI_API_KEY" in part for part in cmd))
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
 
