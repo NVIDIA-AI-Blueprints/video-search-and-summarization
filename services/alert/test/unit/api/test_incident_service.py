@@ -273,7 +273,6 @@ class TestConsolidationGrouping:
         assert merged["timestamp"] == "2025-01-01T00:00:00.000Z"
         assert merged["end"] == "2025-01-01T00:00:55.000Z"
         assert len(merged["llm"]["queries"]) == 2
-        assert merged["info"]["rawIds"].count(",") == 1
 
     def test_session_consecutive_chunkidx_merges_beyond_gap(self):
         # Time gap exceeds the bound, but same requestId + consecutive chunkIdx.
@@ -371,19 +370,31 @@ class TestConsolidationGrouping:
         assert e["analyticsModule"]["source"] == "rtvi-vlm"
         assert e["place"]["name"] == "dock"
 
-    def test_rawids_bijection_no_loss(self):
+    def test_chunk_count_sums_to_input_no_loss(self):
         docs = [
             _chunk(idx=i, start=f"2025-01-01T00:0{i}:00.000Z", end=f"2025-01-01T00:0{i}:30.000Z")
             for i in range(1, 4)
         ]
         events = _consolidator()._consolidate(docs)
-        all_ids = []
-        total_chunks = 0
-        for e in events:
-            all_ids += e["info"]["rawIds"].split(",")
-            total_chunks += int(e["info"]["chunkCount"])
+        total_chunks = sum(int(e["info"]["chunkCount"]) for e in events)
         assert total_chunks == len(docs)
-        assert set(all_ids) == {d["_id"] for d in docs}
+
+    def test_event_id_distinct_from_raw_chunk_ids(self):
+        docs = [
+            _chunk(idx=1, doc_id="fp1", extra={"Id": "fp1"}),
+            _chunk(
+                idx=2,
+                start="2025-01-01T00:00:25.000Z",
+                end="2025-01-01T00:00:55.000Z",
+                doc_id="fp2",
+                extra={"Id": "fp2"},
+            ),
+        ]
+        event = _consolidator()._consolidate(docs)[0]
+        raw_ids = {"fp1", "fp2"}
+        assert event["Id"] not in raw_ids
+        assert event["_id"] == event["Id"]
+        assert event["Id"].startswith("evt-")
 
 
 class TestConsolidationService:
