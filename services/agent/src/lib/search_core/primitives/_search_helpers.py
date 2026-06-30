@@ -47,6 +47,7 @@ from ..agent_chunks import AgentMessageChunkType
 from ..clients.elastic import ElasticClient
 from ..clients.vst import get_sensor_id_from_stream_id
 from ..errors import BackendUnreachableError
+from ..errors import SearchError
 from ..models.attribute_search import AttributeSearchResult
 from ..models.embed_search import EmbedSearchOutput
 from ..models.search import CriticResult
@@ -706,16 +707,17 @@ async def execute_core_search(
             try:
                 with TimeMeasure("search: embed search"):
                     embed_search_output = await embed_search.ainvoke(query_input_json)
-            except ValueError as e:
-                error_msg = str(e)
-                logger.error(f"Embed search failed: {error_msg}")
+            except SearchError as e:
+                # Already a library error (InvalidInputError, IndexNotFoundError,
+                # BackendUnreachableError, ...). Surface it without re-wrapping so
+                # CLI exit codes and caller handling stay precise (e.g. invalid
+                # input keeps exit 2 rather than being masked as a backend fault).
+                logger.error(f"Embed search failed: {e}")
                 yield AgentMessageChunk(
                     type=AgentMessageChunkType.ERROR,
-                    content=f"Embed search failed: {error_msg}",
+                    content=f"Embed search failed: {e}",
                 )
-                # Library version: raise a library exception. NAT shim translates
-                # to HTTPException(404) for /api/v1/search wire compatibility.
-                raise BackendUnreachableError("embed_search", error_msg, e) from e
+                raise
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"Unexpected error in embed search: {error_msg}", exc_info=True)
