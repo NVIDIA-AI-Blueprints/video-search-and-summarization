@@ -47,14 +47,12 @@
 
 ```
 /vios-deployment build                               # build stream-processor + nvstreamer containers from source
-/vios-deployment build --target scaled               # build scaled microservices + nvstreamer containers from source
 /vios-deployment deploy                              # deploy stream-processor (default; "VST"/"VIOS" = stream-processor)
 /vios-deployment deploy --target nvstreamer          # deploy NVStreamer only
 /vios-deployment deploy --target all                 # deploy NVStreamer + stream-processor
-/vios-deployment deploy --target scaled              # deploy scaled microservices
-/vios-deployment deploy --target all --with-minio    # full stack with MinIO
+/vios-deployment deploy --with-monitoring            # deploy stream-processor + Grafana/Prometheus
 /vios-deployment stop                                # stop all services
-/vios-deployment stop --target vios                  # stop VIOS only
+/vios-deployment stop --target vst                   # stop VIOS only (alias: vios)
 /vios-deployment stop --target nvstreamer            # stop NVStreamer only
 /vios-deployment status                              # show running containers and their status
 ```
