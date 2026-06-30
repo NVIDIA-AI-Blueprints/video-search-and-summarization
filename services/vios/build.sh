@@ -34,7 +34,17 @@ MCP=0
 NO_CACHE=0
 BASE_IMAGE=0
 BASE_TAG=""
+TOOLCHAIN=0       # ./build.sh toolchain → build the compile-toolchain image
+BUILD_ALL=0       # ./build.sh all → toolchain → base → module containers → nvstreamer
+NO_AUTO_DEPS=0    # ./build.sh ... no-auto-deps → fail instead of auto-building missing toolchain/base
 MODULES=()  # Array to hold the modules
+
+# Toolchain image names. Must match the Makefile defaults (AARCH64_CC_IMAGE,
+# X86_BUILD_IMAGE) so the make wrapper picks up the same image we build here.
+# Override via env var to use a pre-pulled image from a registry:
+#   export X86_BUILD_IMAGE=my-registry.example.com/vios-build:custom
+X86_BUILD_IMAGE="${X86_BUILD_IMAGE:-vios-build:x86-24.04-cuda13.0.0}"
+AARCH64_CC_IMAGE="${AARCH64_CC_IMAGE:-vios-build:aarch64-cross-compiler}"
 # Registry and org for built images. Defaults to a bare local namespace so
 # local builds work out of the box (e.g. vios/vst:latest, nvstreamer:latest);
 # no registry is hardcoded in the public tree. Override to push elsewhere:
@@ -58,14 +68,36 @@ declare -A VALID_MODULES=(
 show_help() {
     echo "Usage: ./build.sh [options]"
     echo
-    echo "Options:"
+    echo "QUICK START (from a fresh clone):"
+    echo "  ./build.sh container module=sensor,streamprocessing"
+    echo "       ^ auto-builds the compile toolchain + base image on first run"
+    echo "  ./build.sh all                  # build everything for a full deploy"
+    echo
+    echo "Common Options:"
     echo "  arch=<arch>        Specify the architecture (amd64/x86_64 or arm64/aarch64). Default is x86_64/amd64."
     echo "  module=<modules>   Comma-separated list of modules to build (e.g., sensor,rtspserver,streamprocessing)."
     echo "  package            Build and package the modules."
-    echo "  container          Build, package, and create Docker containers (uses base image strategy for faster builds)."
+    echo "  container          Build, package, and create Docker containers. Auto-builds the toolchain"
+    echo "                     and base image on first run; subsequent runs reuse them."
+    echo "  toolchain          Build the compile-toolchain container ONLY (auto-invoked by other paths"
+    echo "                     when missing; you rarely need to call this directly)."
+    echo "  base-container     Build only the runtime base image (auto-invoked by 'container' when missing)."
+    echo "  all                One-shot: toolchain -> base -> module containers (sensor + streamprocessing"
+    echo "                     by default, or whatever module=... lists) -> nvstreamer container."
+    echo "  no-auto-deps       Disable the auto-build of toolchain / base. Use when you want strict failure"
+    echo "                     if those images are missing (CI; pulled-from-registry workflows)."
     echo "  tag=<name>         Docker image tag for application containers (used with container option)."
     echo "  base-tag=<name>    Docker tag for base image (default: latest)."
     echo "  push=<0|1>         Push Docker images to the registry (used with container option)."
+    echo
+    echo "Image-tag overrides (CLI flags; take precedence over env vars below):"
+    echo "  toolchain-image=<ref>  Override the compile toolchain image (arch-aware:"
+    echo "                          sets X86_BUILD_IMAGE for x86_64, AARCH64_CC_IMAGE for arm64)."
+    echo "                          Same value as 'arch=arm64' takes -> AARCH64_CC_IMAGE."
+    echo "  image-registry=<ref>   Override registry/org prefix for module + base images"
+    echo "                          (replaces IMAGE_REGISTRY env var; default 'vios')."
+    echo "  nvstreamer-image=<ref> Override the full NVStreamer image repository"
+    echo "                          (replaces NVSTREAMER_IMAGE env var; default 'nvstreamer')."
     echo "  vst-app            Build k8s based vst-app for all modules and scaling-app"
     echo "  streamprocessing-app Build k8s based streamprocessing-app (sensor, streamprocessing, postgres, ingress)"
     echo "  ingress            Build ingress container needed for scaling-app"
@@ -78,8 +110,11 @@ show_help() {
     echo "  nvstreamer         Build nvstreamer"
     echo "  vst-monolith       Build vst-monolith"
     echo "  no-cache           Build Docker images without using cache"
-    echo "  base-container     Build only the base image with system packages (for optimization)"
     echo "  help               Show this help message."
+    echo
+    echo "Toolchain images (set via env, falling back to Makefile defaults):"
+    echo "  X86_BUILD_IMAGE    (default: vios-build:x86-24.04-cuda13.0.0)"
+    echo "  AARCH64_CC_IMAGE   (default: vios-build:aarch64-cross-compiler)"
     echo
     echo "Examples:"
     echo "  ./build.sh (Same as => ./build.sh arch=x86_64 OR ./build.sh arch=amd64)"
@@ -233,11 +268,38 @@ while [[ "$#" -gt 0 ]]; do
         vst-monolith) VSTMONOLITH=1;;
         no-cache) NO_CACHE=1;;
         base-container) BASE_IMAGE=1;;
+        toolchain) TOOLCHAIN=1;;
+        all) BUILD_ALL=1;;
+        no-auto-deps) NO_AUTO_DEPS=1;;
+        # CLI-flag alternatives to the X86_BUILD_IMAGE / AARCH64_CC_IMAGE /
+        # IMAGE_REGISTRY / NVSTREAMER_IMAGE env vars. Applied AFTER the
+        # whole arg list is parsed so `arch=arm64 toolchain-image=…` works
+        # regardless of arg order. CLI > env > default.
+        toolchain-image=*) TOOLCHAIN_IMAGE_OVERRIDE="${1#*=}";;
+        image-registry=*) IMAGE_REGISTRY_OVERRIDE="${1#*=}";;
+        nvstreamer-image=*) NVSTREAMER_IMAGE_OVERRIDE="${1#*=}";;
         help) show_help; exit 0;;
         *) echo "Unknown parameter passed: $1"; show_help; exit 1;;
     esac
     shift
 done
+
+# Apply CLI flag overrides on top of env var defaults. The overrides take
+# precedence (CLI > env > built-in default). Toolchain override is arch-
+# aware so a single `toolchain-image=…` flag works for both x86 and arm.
+if [[ -n "${TOOLCHAIN_IMAGE_OVERRIDE:-}" ]]; then
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+        AARCH64_CC_IMAGE="$TOOLCHAIN_IMAGE_OVERRIDE"
+    else
+        X86_BUILD_IMAGE="$TOOLCHAIN_IMAGE_OVERRIDE"
+    fi
+fi
+if [[ -n "${IMAGE_REGISTRY_OVERRIDE:-}" ]]; then
+    IMAGE_REGISTRY="$IMAGE_REGISTRY_OVERRIDE"
+fi
+if [[ -n "${NVSTREAMER_IMAGE_OVERRIDE:-}" ]]; then
+    NVSTREAMER_IMAGE="$NVSTREAMER_IMAGE_OVERRIDE"
+fi
 
 # Print all variables
 echo "ARCH=$ARCH"
@@ -359,6 +421,168 @@ build_base_image() {
     echo ""
 
     cd - || exit 1
+}
+
+# ============================================================================
+# Toolchain / base auto-detect helpers
+# ============================================================================
+# These let `./build.sh container module=…` "just work" from a fresh clone.
+# Previously the user had to manually run a verbose `docker build` for the
+# toolchain (README section A) and `./build.sh base-container` (section B)
+# before any module build would succeed. Now both are detected on demand
+# and built automatically. Set `no-auto-deps` to revert to strict failure.
+
+# Resolve the toolchain image tag for the active ARCH. The Makefile reads
+# the same env vars, so build_toolchain_image and the make wrapper agree.
+get_toolchain_image_name() {
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+        echo "$AARCH64_CC_IMAGE"
+    else
+        echo "$X86_BUILD_IMAGE"
+    fi
+}
+
+# Cheap probe: returns 0 iff the named image is present in the local Docker
+# image store. Used by the ensure_* functions to avoid redundant builds.
+image_exists() {
+    local image_ref="$1"
+    docker image inspect "$image_ref" >/dev/null 2>&1
+}
+
+# Build the compile-toolchain container for the active ARCH. Standalone
+# subcommand entry point (`./build.sh toolchain`) and auto-build fallback.
+#
+# Push semantics mirror build_base_image: the explicit subcommand path
+# passes $PUSH (so `./build.sh toolchain push=1` pushes), and the
+# auto-build path (ensure_toolchain_image) passes 0 (auto-built deps are
+# never pushed implicitly — the user has to ask for that explicitly).
+build_toolchain_image() {
+    local push="${1:-0}"
+    local image_name
+    image_name=$(get_toolchain_image_name)
+
+    echo "=============================================="
+    echo "Building VIOS Compile Toolchain Image"
+    echo "=============================================="
+    echo "Image: $image_name"
+    echo "Arch:  $ARCH"
+    echo ""
+
+    local context dockerfile_arg=""
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+        context="cicd_files/aarch64/devel"
+        # arm64 devel/Dockerfile uses the default filename, no -f needed.
+    else
+        context="cicd_files/x86_64/devel"
+        # x86_64 ships the file as Dockerfile.devel (legacy name).
+        dockerfile_arg="-f $context/Dockerfile.devel"
+    fi
+
+    if [[ ! -d "$context" ]]; then
+        echo "[ERROR] Toolchain build context missing: $context"
+        echo "        This usually means the repo wasn't cloned with submodules,"
+        echo "        OR the script is being run from outside the services/vios/ dir."
+        exit 1
+    fi
+
+    local cache_flag=""
+    [[ $NO_CACHE -eq 1 ]] && cache_flag="--no-cache"
+
+    local t0
+    t0=$(date +%s)
+
+    # shellcheck disable=SC2086  # we want word-splitting on $dockerfile_arg / $cache_flag
+    docker build $cache_flag --network=host -t "$image_name" $dockerfile_arg "$context"
+
+    if [[ $? -ne 0 ]]; then
+        echo "[ERROR] Toolchain image build failed: $image_name"
+        exit 1
+    fi
+
+    echo ""
+    echo "Toolchain image built: $image_name"
+    print_per_image_build_timing_line "$t0" "$push"
+    echo ""
+
+    # Optional push. Only fires when build_toolchain_image was called with
+    # push=1 (i.e. explicit `./build.sh toolchain push=1`). The auto-build
+    # path (ensure_toolchain_image) always passes 0, so a `./build.sh
+    # container push=1` against a fresh clone won't accidentally push the
+    # auto-built toolchain to a registry.
+    if [[ $push -eq 1 ]]; then
+        # Warn (but don't block) on default local-only tags: pushing
+        # `vios-build:x86-24.04-cuda13.0.0` would target Docker Hub, which
+        # is rarely intended. The right pattern is to set X86_BUILD_IMAGE
+        # / AARCH64_CC_IMAGE to a fully-qualified registry path first.
+        if [[ "$image_name" != *"/"*"/"* ]]; then
+            echo "[WARN] Pushing without an explicit registry prefix: '$image_name'"
+            echo "       Docker will target Docker Hub. To push elsewhere, export"
+            echo "       X86_BUILD_IMAGE / AARCH64_CC_IMAGE with a registry prefix:"
+            echo "         X86_BUILD_IMAGE=my-registry.example.com/vios-build:x86-24.04-cuda13.0.0 \\"
+            echo "         ./build.sh toolchain push=1"
+        fi
+        echo "Pushing toolchain image: $image_name"
+        docker push "$image_name"
+        if [[ $? -ne 0 ]]; then
+            echo "[ERROR] Toolchain image push failed: $image_name"
+            exit 1
+        fi
+        echo "Toolchain image pushed: $image_name"
+    fi
+}
+
+# Idempotent: ensure the toolchain image is present locally. Build it if not.
+# Called before any path that invokes `make` (compile / package / clean /
+# tests / container — all eventually run `docker run -v $(TOP):/root $IMG`
+# inside the Makefile, so $IMG must exist).
+ensure_toolchain_image() {
+    local image_name
+    image_name=$(get_toolchain_image_name)
+
+    if image_exists "$image_name"; then
+        echo "[auto-deps] Toolchain image already present: $image_name"
+        return 0
+    fi
+
+    if [[ $NO_AUTO_DEPS -eq 1 ]]; then
+        echo "[ERROR] Toolchain image not found: $image_name"
+        echo "        Build it explicitly with:   ./build.sh toolchain"
+        echo "        Or omit 'no-auto-deps' to let this script build it for you."
+        exit 1
+    fi
+
+    echo "[auto-deps] Toolchain image missing — building it now ($image_name)."
+    echo "            Pass 'no-auto-deps' to fail instead of auto-building."
+    echo "            (auto-built deps are never pushed; use './build.sh toolchain push=1' explicitly)"
+    build_toolchain_image 0   # 0 = never push from the auto-build path
+}
+
+# Idempotent: ensure the base image (vst-base) is present locally. Build it
+# if not. Called before any CONTAINER build (Dockerfile.app FROM=$BASE_IMAGE).
+ensure_base_image() {
+    local base_tag base_image_name
+    if [[ -n "$BASE_TAG" ]]; then
+        base_tag="$BASE_TAG"
+    else
+        base_tag="${DEFAULT_TAGS["vst-base"]:-latest}"
+    fi
+    base_image_name="$IMAGE_REGISTRY/vst-base:$base_tag"
+
+    if image_exists "$base_image_name"; then
+        echo "[auto-deps] Base image already present: $base_image_name"
+        return 0
+    fi
+
+    if [[ $NO_AUTO_DEPS -eq 1 ]]; then
+        echo "[ERROR] Base image not found: $base_image_name"
+        echo "        Build it explicitly with:   ./build.sh base-container"
+        echo "        Or omit 'no-auto-deps' to let this script build it for you."
+        exit 1
+    fi
+
+    echo "[auto-deps] Base image missing — building it now ($base_image_name)."
+    echo "            Pass 'no-auto-deps' to fail instead of auto-building."
+    build_base_image 0  # 0 = don't push during auto-build
 }
 
 # Function to build the vios-ui and stage its dist output into the webroot dir
@@ -797,6 +1021,111 @@ build_streamprocessing_app() {
         tar czf vst-streamprocessing-app-package.tgz vst-streamprocessing-app-package/ || { echo "[ERROR] Tar creation failed"; }
     fi
 }
+
+# ============================================================================
+# Top-level subcommands that don't need module dispatch
+# ============================================================================
+
+# `./build.sh toolchain` — build the compile-toolchain image and exit.
+# This wraps the verbose `docker build -t vios-build:… -f cicd_files/…`
+# command the README used to ask users to copy-paste, and replaces the
+# separate `cicd_files/aarch64/devel/build_cross_compile_container.sh`
+# script so x86_64 and aarch64 share one entry point.
+#
+# `push=1` is honored — together with X86_BUILD_IMAGE / AARCH64_CC_IMAGE
+# overrides, it lets users publish the toolchain to their own registry.
+if [[ $TOOLCHAIN -eq 1 ]]; then
+    build_toolchain_image "$PUSH"
+    exit 0
+fi
+
+# `./build.sh all` — from a fresh clone, build everything in one command:
+# toolchain → base → module containers (sensor + streamprocessing by default,
+# or whatever module=… listed) → nvstreamer container.
+# Auto-deps are mandatory here (the whole point of `all`), so we ignore
+# NO_AUTO_DEPS for this path.
+if [[ $BUILD_ALL -eq 1 ]]; then
+    echo "=============================================="
+    echo "./build.sh all — full pipeline"
+    echo "=============================================="
+
+    # Default the module list if user didn't pass one. Sensor + streamprocessing
+    # is the smallest set that produces a functional deploy.
+    if [[ ${#MODULES[@]} -eq 0 ]]; then
+        MODULES=("sensor" "streamprocessing")
+        echo "[all] No module=… given, defaulting to: ${MODULES[*]}"
+    fi
+
+    ensure_toolchain_image
+    ensure_base_image
+
+    # Compile + containerize the requested modules.
+    CONTAINER=1
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
+        build_all 1 1 1
+    else
+        build_all 0 1 1
+    fi
+
+    # Build the NVStreamer container too — `--target all` deploy needs it.
+    echo ""
+    echo "[all] Building NVStreamer container..."
+    build_vios_ui_webroot
+    NVSTREAMER=1
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
+        build_all 1 0 0
+    else
+        build_all 0 0 0
+    fi
+
+    echo ""
+    echo "=============================================="
+    echo "./build.sh all — complete"
+    echo "=============================================="
+    echo ""
+    echo "Images built (locally tagged, not pushed):"
+    echo "  toolchain : $(get_toolchain_image_name)"
+    _base_tag="${BASE_TAG:-${DEFAULT_TAGS["vst-base"]:-latest}}"
+    echo "  base      : $IMAGE_REGISTRY/vst-base:$_base_tag"
+    for _m in "${MODULES[@]}"; do
+        _mt="${DEFAULT_TAGS[$_m]:-latest}"
+        echo "  module    : $IMAGE_REGISTRY/vst-${_m}:${TAG:-$_mt}"
+    done
+    echo "  nvstreamer: $NVSTREAMER_IMAGE:${DEFAULT_TAGS[nvstreamer]:-latest}"
+    echo ""
+    echo "To publish to your registry, set the registry env vars BEFORE running"
+    echo "the build (the tag is baked into the image at build time — see the"
+    echo "README's 'Pushing built images to a registry' section). Then push:"
+    echo ""
+    # Join MODULES with commas for the module= example. The array is
+    # space-separated by default which would be the wrong arg shape.
+    _mod_csv=$(IFS=, ; echo "${MODULES[*]}")
+    echo "  ./build.sh toolchain push=1"
+    echo "  ./build.sh base-container push=1"
+    echo "  ./build.sh container module=$_mod_csv push=1"
+    echo ""
+    exit 0
+fi
+
+# ============================================================================
+# Auto-detect missing prerequisites for everything else
+# ============================================================================
+# Every other path (TESTS, PACKAGE, CONTAINER, default compile, base-container
+# clean) eventually runs `make` which expects the toolchain image to exist —
+# the make wrapper does `docker run -v $(TOP):/root $TOOLCHAIN_IMG ...`.
+# Auto-detect handles fresh clones; idempotent on warm hosts (cheap docker
+# image inspect). Skipped for `help` and `clean`-only paths where compilation
+# isn't actually needed.
+if [[ $CLEAN -eq 0 ]]; then
+    ensure_toolchain_image
+fi
+# Base image is only needed when actually building module containers.
+# build_base_image / clean / package / default-compile do not need it.
+if [[ $CONTAINER -eq 1 ]] && [[ $BASE_IMAGE -eq 0 ]] \
+   && [[ $INGRESS -eq 0 ]] && [[ $NVSTREAMER_INGRESS -eq 0 ]] \
+   && [[ $MCP -eq 0 ]]; then
+    ensure_base_image
+fi
 
 if [[ ${#MODULES[@]} -eq 0 ]]; then
     # No modules specified
