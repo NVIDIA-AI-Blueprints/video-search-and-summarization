@@ -274,15 +274,15 @@ class TestConsolidationGrouping:
         assert merged["end"] == "2025-01-01T00:00:55.000Z"
         assert len(merged["llm"]["queries"]) == 2
 
-    def test_session_consecutive_chunkidx_merges_beyond_gap(self):
-        # Time gap exceeds the bound, but same requestId + consecutive chunkIdx.
+    def test_large_gap_splits_even_same_session(self):
+        # Same requestId + consecutive chunkIdx, but the inter-alert gap exceeds
+        # the bound (65s > 60s): the gap is authoritative, so these split.
         docs = [
             _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
             _chunk(idx=2, start="2025-01-01T00:01:35.000Z", end="2025-01-01T00:02:05.000Z"),
         ]
         events = _consolidator()._consolidate(docs)
-        assert len(events) == 1
-        assert events[0]["info"]["chunkCount"] == "2"
+        assert len(events) == 2
 
     def test_new_event_after_bound(self):
         docs = [
