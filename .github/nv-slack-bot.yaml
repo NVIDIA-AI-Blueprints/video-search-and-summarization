@@ -4,21 +4,28 @@
 # nv-slack-bot configuration — turns GitHub webhook events into Slack messages.
 # Docs: https://github.com/nv-gha-runners/github-apps/tree/main/packages/nv-slack-bot
 #
-# Scope: the "Skills Eval Daily" nightly sweep only. Posts to the configured
-# alerts channel; failures/timeouts tag the interested-parties group.
+# Scope: the "Skills Eval Daily" sweep only. Posts to the configured alerts
+# channel; failures/timeouts (run-level and per-leg) tag the interested-parties
+# group.
 #
-# NOTE: this app reads its config from the repository's DEFAULT BRANCH (main),
-# regardless of which branch the workflow checks out/evaluates. So this file
-# must live on main to be active.
+# Every message carries a shared identity so an interleaved feed stays readable:
+#   - the workflow name (self-identifying among other senders)
+#   - `run <id>` — the run id, the ONE token present on BOTH the run-level and
+#     per-leg payloads, so all messages of a run group/search together
+#   - a run/job link
+#   - run-level only: the friendly #run_number + a trigger label (nightly|manual)
+# We intentionally do NOT show head_branch: the scheduled nightly's head_branch
+# is the trigger ref (main) even though it evaluates develop, so it would mislead.
 #
-# `match` / `message.vars` are JSONata over the webhook payload (root = $).
-# Do NOT put spaces inside {{var}} braces.
+# NOTE: read from the repo's DEFAULT BRANCH (main), regardless of which branch a
+# run checks out. `match`/`vars` are JSONata over the payload (root = $); do not
+# put spaces inside {{var}} braces.
 
 $schema: https://public.gha-runners.nvidia.com/nv-slack-bot/schemas/config-v1.json
 enabled: true
 
 notifications:
-  # ── run-level: one event per nightly run ─────────────────────────────────
+  # ── run-level: one event per run ─────────────────────────────────────────
   - name: "Skills Eval Daily — started"
     event: workflow_run
     slack:
@@ -27,11 +34,12 @@ notifications:
           - id: C0BDC2SBZK9
     match: workflow_run.name = "Skills Eval Daily" and action = "requested"
     message:
-      body: ":rocket: <{{url}}|Skills Eval Daily> started — run {{run}} ({{trigger}})"
+      body: ":rocket: <{{url}}|Skills Eval Daily #{{num}}> started · {{trigger}} · run {{rid}}"
       vars:
         url: workflow_run.html_url
-        run: workflow_run.run_number
-        trigger: workflow_run.event
+        num: workflow_run.run_number
+        rid: workflow_run.id
+        trigger: 'workflow_run.event = "schedule" ? "nightly" : "manual"'
 
   - name: "Skills Eval Daily — succeeded"
     event: workflow_run
@@ -41,10 +49,12 @@ notifications:
           - id: C0BDC2SBZK9
     match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "success"
     message:
-      body: ":white_check_mark: <{{url}}|Skills Eval Daily> passed — run {{run}}"
+      body: ":white_check_mark: <{{url}}|Skills Eval Daily #{{num}}> passed · {{trigger}} · run {{rid}}"
       vars:
         url: workflow_run.html_url
-        run: workflow_run.run_number
+        num: workflow_run.run_number
+        rid: workflow_run.id
+        trigger: 'workflow_run.event = "schedule" ? "nightly" : "manual"'
 
   - name: "Skills Eval Daily — failed"
     event: workflow_run
@@ -54,10 +64,12 @@ notifications:
           - id: C0BDC2SBZK9
     match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "failure"
     message:
-      body: ":red_circle: <{{url}}|Skills Eval Daily FAILED> — run {{run}} <!subteam^S0BE3B5GAS0>"
+      body: ":red_circle: <{{url}}|Skills Eval Daily #{{num}}> FAILED · {{trigger}} · run {{rid}} <!subteam^S0BE3B5GAS0>"
       vars:
         url: workflow_run.html_url
-        run: workflow_run.run_number
+        num: workflow_run.run_number
+        rid: workflow_run.id
+        trigger: 'workflow_run.event = "schedule" ? "nightly" : "manual"'
 
   - name: "Skills Eval Daily — timed out"
     event: workflow_run
@@ -67,10 +79,12 @@ notifications:
           - id: C0BDC2SBZK9
     match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "timed_out"
     message:
-      body: ":hourglass_flowing_sand: <{{url}}|Skills Eval Daily TIMED OUT> — run {{run}} <!subteam^S0BE3B5GAS0>"
+      body: ":hourglass_flowing_sand: <{{url}}|Skills Eval Daily #{{num}}> TIMED OUT · {{trigger}} · run {{rid}} <!subteam^S0BE3B5GAS0>"
       vars:
         url: workflow_run.html_url
-        run: workflow_run.run_number
+        num: workflow_run.run_number
+        rid: workflow_run.id
+        trigger: 'workflow_run.event = "schedule" ? "nightly" : "manual"'
 
   - name: "Skills Eval Daily — cancelled"
     event: workflow_run
@@ -80,17 +94,17 @@ notifications:
           - id: C0BDC2SBZK9
     match: workflow_run.name = "Skills Eval Daily" and action = "completed" and workflow_run.conclusion = "cancelled"
     message:
-      body: ":warning: <{{url}}|Skills Eval Daily was cancelled> — run {{run}}"
+      body: ":warning: <{{url}}|Skills Eval Daily #{{num}}> cancelled · {{trigger}} · run {{rid}}"
       vars:
         url: workflow_run.html_url
-        run: workflow_run.run_number
+        num: workflow_run.run_number
+        rid: workflow_run.id
+        trigger: 'workflow_run.event = "schedule" ? "nightly" : "manual"'
 
-  # ── job-level: the developer crux — only failed / timed-out legs ─────────
-  # A leg that exceeds its timeout-minutes is reported by GitHub with
-  # conclusion="cancelled" (not "timed_out"); for the nightly, superseding is
-  # rare, so a cancelled leg here is effectively a timed-out leg. Each failed /
-  # timed-out leg tags the group so owners see exactly which legs broke
-  # (this is in addition to the single run-level failure/timeout tag above).
+  # ── per-leg: only failed / timed-out legs. Same `run <id>` token as the
+  # run-level messages so they group together (workflow_job has no run_number,
+  # hence run id not #N). A leg that exceeds its timeout-minutes is reported by
+  # GitHub as conclusion="cancelled".
   - name: "Skills Eval Daily — leg failed"
     event: workflow_job
     slack:
@@ -99,8 +113,9 @@ notifications:
           - id: C0BDC2SBZK9
     match: workflow_job.workflow_name = "Skills Eval Daily" and action = "completed" and workflow_job.conclusion = "failure"
     message:
-      body: ":x: leg failed — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
+      body: ":x: Skills Eval Daily · run {{rid}} · leg failed — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
       vars:
+        rid: workflow_job.run_id
         url: workflow_job.html_url
         leg: workflow_job.name
 
@@ -112,7 +127,8 @@ notifications:
           - id: C0BDC2SBZK9
     match: workflow_job.workflow_name = "Skills Eval Daily" and action = "completed" and workflow_job.conclusion = "cancelled"
     message:
-      body: ":hourglass: leg timed out / cancelled — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
+      body: ":hourglass: Skills Eval Daily · run {{rid}} · leg timed out / cancelled — <{{url}}|{{leg}}> <!subteam^S0BE3B5GAS0>"
       vars:
+        rid: workflow_job.run_id
         url: workflow_job.html_url
         leg: workflow_job.name
