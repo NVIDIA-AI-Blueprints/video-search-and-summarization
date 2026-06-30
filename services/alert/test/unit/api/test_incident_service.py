@@ -208,7 +208,6 @@ class TestIncidentServiceInit:
 # ---------------------------------------------------------------------------
 
 _CONSOL_DEFAULT = {
-    "enabled": True,
     "max_inter_alert_gap_seconds": 60,
     "max_event_duration_seconds": 300,
     "representative": "latest",
@@ -424,7 +423,8 @@ class TestConsolidationService:
         assert all(i["info"]["isConsolidated"] == "true" for i in data["incidents"])
 
     @pytest.mark.asyncio
-    async def test_default_follows_config_enabled_true(self, mock_es_client):
+    async def test_omit_param_returns_raw(self, mock_es_client):
+        # Consolidation is opt-in: omitting the param returns raw chunks.
         chunks = [
             _chunk(idx=1),
             _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z"),
@@ -432,25 +432,13 @@ class TestConsolidationService:
         mock_es_client.client.search.return_value = {
             "hits": {"total": {"value": 2}, "hits": [_as_hit(c) for c in chunks]}
         }
-        svc = IncidentService(es_client=mock_es_client, consolidation={"enabled": True})
-        data, _ = await svc.list_incidents()
-        assert data["count"] == 1
-
-    @pytest.mark.asyncio
-    async def test_default_follows_config_enabled_false(self, mock_es_client):
-        chunks = [
-            _chunk(idx=1),
-            _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z"),
-        ]
-        mock_es_client.client.search.return_value = {
-            "hits": {"total": {"value": 2}, "hits": [_as_hit(c) for c in chunks]}
-        }
-        svc = IncidentService(es_client=mock_es_client, consolidation={"enabled": False})
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
         data, _ = await svc.list_incidents()
         assert data["count"] == 2
+        assert all("isConsolidated" not in i.get("info", {}) for i in data["incidents"])
 
     @pytest.mark.asyncio
-    async def test_explicit_param_overrides_config(self, mock_es_client):
+    async def test_consolidate_true_groups_with_tuning_only_config(self, mock_es_client):
         chunks = [
             _chunk(idx=1),
             _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z"),
@@ -458,6 +446,6 @@ class TestConsolidationService:
         mock_es_client.client.search.return_value = {
             "hits": {"total": {"value": 2}, "hits": [_as_hit(c) for c in chunks]}
         }
-        svc = IncidentService(es_client=mock_es_client, consolidation={"enabled": False})
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
         data, _ = await svc.list_incidents(consolidate=True)
         assert data["count"] == 1
