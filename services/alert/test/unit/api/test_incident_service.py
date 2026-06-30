@@ -345,6 +345,19 @@ class TestConsolidationGrouping:
         assert events[0]["sensorId"] == "cam-2"
         assert events[-1]["sensorId"] == "cam-1"
 
+    def test_events_sorted_by_start_not_end(self):
+        docs = [
+            # cam-1: started earliest, ends latest (two chunks merged)
+            _chunk(sensor="cam-1", idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(sensor="cam-1", idx=2, start="2025-01-01T00:00:20.000Z", end="2025-01-01T00:05:00.000Z"),
+            # cam-2: started later but ends earlier
+            _chunk(sensor="cam-2", idx=1, start="2025-01-01T00:03:00.000Z", end="2025-01-01T00:03:30.000Z"),
+        ]
+        events = _consolidator()._consolidate(docs)
+        assert len(events) == 2
+        assert events[0]["sensorId"] == "cam-2"  # later start ranks first
+        assert events[1]["sensorId"] == "cam-1"
+
     def test_empty_input(self):
         assert _consolidator()._consolidate([]) == []
 
