@@ -19,11 +19,15 @@ of Elastic or the embed service.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
+from elasticsearch import NotFoundError as ESNotFoundError
 import pytest
 
 from lib.search_core import EmbedSearch
+from lib.search_core.errors import IndexNotFoundError
+from lib.search_core.errors import InvalidInputError
 from lib.search_core.models.embed_search import EmbedSearchInput
 
 # ---------------------------------------------------------------------- mocks
@@ -221,8 +225,207 @@ class TestEmbedSearchContract:
     @pytest.mark.asyncio
     async def test_empty_input_raises(self, make_search):
         e, _es, _embed, _vst = make_search()
-        with pytest.raises(ValueError, match="at least one"):
+        with pytest.raises(InvalidInputError, match="at least one"):
             await e.run(EmbedSearchInput(source_type="video_file"))
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_query_raises(self, make_search):
+        e, _es, embed, _vst = make_search()
+        with pytest.raises(InvalidInputError, match="at least one"):
+            await e.run(EmbedSearchInput(query="   ", source_type="video_file"))
+        assert embed.text_calls == 0  # never hit the embed service
+
+    @pytest.mark.asyncio
+    async def test_timestamp_start_after_end_raises(self, make_search):
+        e, _es, _embed, _vst = make_search()
+        with pytest.raises(InvalidInputError, match="must not be after"):
+            await e.run(
+                EmbedSearchInput(
+                    query="q",
+                    source_type="video_file",
+                    timestamp_start="2025-01-02T00:00:00Z",
+                    timestamp_end="2025-01-01T00:00:00Z",
+                )
+            )
+
+    @pytest.mark.asyncio
+    async def test_missing_index_raises_index_not_found(self, make_search):
+        e, es, _embed, _vst = make_search()
+
+        async def _raise(**_kwargs: Any) -> Any:
+            raise ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
+
+        es.search = _raise  # type: ignore[method-assign]
+        with pytest.raises(IndexNotFoundError) as exc_info:
+            await e.run(EmbedSearchInput(query="q", source_type="video_file"))
+        assert exc_info.value.index == "video_embeddings"
+        assert exc_info.value.backend == "elasticsearch"
+
+    @pytest.mark.asyncio
+    async def test_malformed_hit_is_skipped(self, make_search):
+        # A hit missing "_score" is unprocessable; the primitive skips it per-hit
+        # (best-effort mapping) rather than failing the whole search.
+        bad_hits = [{"_id": "bad", "_source": {"llm": {}}}]
+        e, _es, _embed, _vst = make_search(hits=bad_hits)
+        out = await e.run(EmbedSearchInput(query="q", source_type="video_file"))
+        assert out.results == []
+
+    @pytest.mark.asyncio
+    async def test_one_corrupt_hit_does_not_fail_whole_search(self, make_search):
+        # A non-dict "sensor" makes one hit unprocessable; the good hit still returns.
+        good = _default_hits()[0]
+        corrupt = {"_id": "corrupt", "_score": 0.85, "_source": {"llm": {}, "sensor": "not-a-dict"}}
+        e, _es, _embed, _vst = make_search(hits=[corrupt, good])
+        out = await e.run(EmbedSearchInput(query="q", source_type="video_file"))
+        assert len(out.results) == 1
+        assert out.results[0].sensor_id == "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
+
+    @pytest.mark.asyncio
+    async def test_null_description_does_not_crash(self, make_search):
+        hit = {
+            "_id": "h1",
+            "_score": 0.85,
+            "_source": {
+                "llm": {"queries": []},
+                "sensor": {
+                    "id": "8fce43a6-1c35-4d6a-b6e3-391c42090a87",
+                    "description": None,
+                    "info": {"path": "/tmp/8fce43a6-1c35-4d6a-b6e3-391c42090a87/v.mp4"},
+                },
+                "timestamp": "2025-01-01T00:00:00",
+                "end": "2025-01-01T00:00:05",
+            },
+        }
+        e, _es, _embed, _vst = make_search(hits=[hit])
+        out = await e.run(EmbedSearchInput(query="q", source_type="video_file"))
+        assert len(out.results) == 1
+        assert out.results[0].description == ""
+
+    @pytest.mark.asyncio
+    async def test_null_sensor_id_does_not_crash(self, make_search):
+        hit = {
+            "_id": "h1",
+            "_score": 0.85,
+            "_source": {
+                "llm": {"queries": []},
+                "sensor": {"id": None, "info": {"path": "/tmp/no-uuid/v.mp4"}},
+                "timestamp": "2025-01-01T00:00:00",
+                "end": "2025-01-01T00:00:05",
+            },
+        }
+        e, _es, _embed, _vst = make_search(hits=[hit])
+        out = await e.run(EmbedSearchInput(query="q", source_type="video_file"))
+        assert len(out.results) == 1
+        assert out.results[0].sensor_id == ""
+
+    @pytest.mark.asyncio
+    async def test_rtsp_missing_index_message_is_readable(self, make_search):
+        e, es, _embed, _vst = make_search()
+
+        async def _raise(**_kwargs: Any) -> Any:
+            raise ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
+
+        es.search = _raise  # type: ignore[method-assign]
+        with pytest.raises(IndexNotFoundError) as exc_info:
+            await e.run(EmbedSearchInput(query="q", source_type="rtsp"))
+        # index attribute preserves the raw list; the message is comma-joined.
+        assert exc_info.value.index == ["mdx-embed-filtered-*", "-video_embeddings"]
+        assert "mdx-embed-filtered-*, -video_embeddings" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_exclude_videos_by_resolved_uuid(self, make_search):
+        # RTSP-style: exclude entry references the resolved UUID, not sensor name.
+        e, _es, _embed, _vst = make_search()
+        first = await e.run(EmbedSearchInput(query="q", source_type="video_file"))
+        r = first.results[0]
+        assert r.sensor_id == "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
+
+        e2, _, _, _ = make_search()
+        out = await e2.run(
+            EmbedSearchInput(
+                query="q",
+                source_type="video_file",
+                exclude_videos=[
+                    {
+                        "sensor_id": r.sensor_id,  # the UUID, as returned to callers
+                        "start_timestamp": r.start_time,
+                        "end_timestamp": r.end_time,
+                    }
+                ],
+            )
+        )
+        assert len(out.results) == 0
+
+
+def _knn(body: dict) -> dict:
+    """Pull the knn clause out of either the filtered or unfiltered query shape."""
+    query = body["query"]
+    if "bool" in query:
+        return query["bool"]["must"][0]["nested"]["query"]["knn"]
+    return query["nested"]["query"]["knn"]
+
+
+class TestEmbedSearchQueryShape:
+    """ES query construction details the embed path depends on."""
+
+    @pytest.mark.asyncio
+    async def test_default_k_uses_configured_default(self, make_search):
+        e, es, _embed, _vst = make_search()
+        await e.run(EmbedSearchInput(query="q", source_type="video_file"))
+        # top_k unset -> k == default_max_results (10 from the fixture)
+        assert es.last_body["size"] == 10
+        assert _knn(es.last_body)["k"] == 10
+
+    @pytest.mark.asyncio
+    async def test_top_k_without_filters_uses_top_k(self, make_search):
+        e, es, _embed, _vst = make_search()
+        await e.run(EmbedSearchInput(query="q", source_type="video_file", top_k=3))
+        assert _knn(es.last_body)["k"] == 3
+
+    @pytest.mark.asyncio
+    async def test_top_k_overfetches_with_threshold(self, make_search):
+        e, es, _embed, _vst = make_search()
+        await e.run(EmbedSearchInput(query="q", source_type="video_file", top_k=3, min_cosine_similarity=0.5))
+        assert _knn(es.last_body)["k"] == 15  # 3 * 5
+
+    @pytest.mark.asyncio
+    async def test_top_k_overfetches_with_filters(self, make_search):
+        e, es, _embed, _vst = make_search()
+        await e.run(EmbedSearchInput(query="q", source_type="video_file", top_k=2, description="warehouse"))
+        assert _knn(es.last_body)["k"] == 10  # 2 * 5
+
+    @pytest.mark.asyncio
+    async def test_description_filter_present(self, make_search):
+        e, es, _embed, _vst = make_search()
+        await e.run(EmbedSearchInput(query="q", source_type="video_file", description="warehouse"))
+        assert "filter" in es.last_body["query"]["bool"]
+
+    @pytest.mark.asyncio
+    async def test_uuid_video_source_uses_terms_clause(self, make_search):
+        e, es, _embed, _vst = make_search()
+        uuid = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
+        await e.run(EmbedSearchInput(query="q", source_type="video_file", video_sources=[uuid]))
+        filter_clause = es.last_body["query"]["bool"]["filter"][0]
+        assert filter_clause == {"terms": {"sensor.id.keyword": [uuid]}}
+
+    @pytest.mark.asyncio
+    async def test_top_k_caps_results(self, make_search):
+        many_hits = [
+            {
+                "_id": f"h{i}",
+                "_score": 0.85,
+                "_source": {
+                    "llm": {"queries": []},
+                    "sensor": {"id": f"8fce43a6-1c35-4d6a-b6e3-39000000000{i}", "info": {"path": "/tmp/v.mp4"}},
+                    "timestamp": "2025-01-01T00:00:00",
+                    "end": "2025-01-01T00:00:05",
+                },
+            }
+            for i in range(5)
+        ]
+        e, _es, _embed, _vst = make_search(hits=many_hits)
+        out = await e.run(EmbedSearchInput(query="q", source_type="video_file", top_k=2))
+        assert len(out.results) == 2
 
 
 class TestEmbedSearchOutputShape:

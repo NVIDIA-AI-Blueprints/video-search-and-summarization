@@ -52,6 +52,26 @@ class BackendUnreachableError(SearchError):
             self.__cause__ = cause
 
 
+class IndexNotFoundError(BackendUnreachableError):
+    """A required Elasticsearch index does not exist.
+
+    A specialization of :class:`BackendUnreachableError` so existing
+    ``except BackendUnreachableError`` handlers (and the CLI's exit-code-3
+    mapping) keep working, while callers that care can distinguish "the backend
+    is up but the index is missing — ingest videos first" from a transport
+    failure.
+    """
+
+    def __init__(self, index: str | list[str], cause: Exception | None = None) -> None:
+        shown = ", ".join(index) if isinstance(index, list) else index
+        super().__init__(
+            "elasticsearch",
+            f"Search index '{shown}' does not exist. Please ensure videos have been ingested before searching.",
+            cause,
+        )
+        self.index = index
+
+
 class InvalidInputError(SearchError):
     """Input model passed Pydantic validation but the values are semantically invalid.
 

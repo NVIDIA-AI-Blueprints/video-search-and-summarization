@@ -82,6 +82,21 @@ class _PrimitiveAdapter:
         return self._unwrap(out) if self._unwrap else out
 
 
+def _precomputed_from_embeddings(embeddings: Any) -> list[float] | None:
+    """Extract a precomputed vector from an ``embeddings`` list.
+
+    Returns ``embeddings[0]["vector"]`` when it is a non-empty list, else None
+    so the primitive falls back to query/image/video embedding.
+    """
+    if not embeddings or not isinstance(embeddings, list):
+        return None
+    first = embeddings[0]
+    vec = first.get("vector", []) if isinstance(first, dict) else []
+    if isinstance(vec, list) and vec:
+        return [float(x) for x in vec]
+    return None
+
+
 def _coerce_embed_payload(payload: Any) -> EmbedSearchInput:
     """`execute_core_search` builds `{"params": ..., "source_type": ...}` JSON
     on the embed path; detect that shape and delegate to the shared translator.
@@ -94,9 +109,14 @@ def _coerce_embed_payload(payload: Any) -> EmbedSearchInput:
         payload = json.loads(payload)
     if isinstance(payload, dict):
         if "params" in payload or "prompts" in payload:
+            # Forward the extras (``embeddings`` -> precomputed vector,
+            # ``exclude_videos``) that live alongside ``params`` in the envelope,
+            # otherwise they would be silently dropped.
             return params_to_embed_input(
                 payload.get("params") or {},
                 payload.get("source_type", "video_file"),
+                precomputed_embedding=_precomputed_from_embeddings(payload.get("embeddings")),
+                exclude_videos=payload.get("exclude_videos"),
             )
         return EmbedSearchInput(**payload)
     if hasattr(payload, "model_dump"):

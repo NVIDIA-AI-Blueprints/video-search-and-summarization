@@ -40,6 +40,7 @@ __all__ = [
     "EmbedSearch",
     "ErrorEvent",
     "FinalResultEvent",
+    "IndexNotFoundError",
     "InvalidInputError",
     "NoResultsError",
     "PartialResultEvent",
@@ -62,6 +63,7 @@ _LAZY_EXPORTS = {
     "EmbedSearch": ".primitives.embed_search",
     "ErrorEvent": ".events",
     "FinalResultEvent": ".events",
+    "IndexNotFoundError": ".errors",
     "InvalidInputError": ".errors",
     "NoResultsError": ".errors",
     "PartialResultEvent": ".events",
@@ -80,6 +82,7 @@ if TYPE_CHECKING:
     from . import models as models
     from .errors import BackendUnreachableError
     from .errors import ConfigurationError
+    from .errors import IndexNotFoundError
     from .errors import InvalidInputError
     from .errors import NoResultsError
     from .errors import SearchError
