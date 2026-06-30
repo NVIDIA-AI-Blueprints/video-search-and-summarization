@@ -409,6 +409,73 @@ class TestConsolidationGrouping:
         assert event["_id"] == event["Id"]
         assert event["Id"].startswith("evt-")
 
+    def test_gap_exactly_at_bound_merges(self):
+        # gap == max_inter_alert_gap_seconds (60s) is inclusive -> merge
+        docs = [
+            _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(idx=2, start="2025-01-01T00:01:30.000Z", end="2025-01-01T00:02:00.000Z"),
+        ]
+        assert len(_consolidator()._consolidate(docs)) == 1
+
+    def test_gap_one_second_over_bound_splits(self):
+        docs = [
+            _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(idx=2, start="2025-01-01T00:01:31.000Z", end="2025-01-01T00:02:01.000Z"),
+        ]
+        assert len(_consolidator()._consolidate(docs)) == 2
+
+    def test_duration_exactly_at_cap_merges(self):
+        # span == max_event_duration_seconds is inclusive -> merge
+        cfg = dict(_CONSOL_DEFAULT, max_event_duration_seconds=60)
+        docs = [
+            _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(idx=2, start="2025-01-01T00:00:30.000Z", end="2025-01-01T00:01:00.000Z"),
+        ]
+        assert len(_consolidator(cfg)._consolidate(docs)) == 1
+
+    def test_duration_one_second_over_cap_splits(self):
+        cfg = dict(_CONSOL_DEFAULT, max_event_duration_seconds=60)
+        docs = [
+            _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(idx=2, start="2025-01-01T00:00:30.000Z", end="2025-01-01T00:01:01.000Z"),
+        ]
+        assert len(_consolidator(cfg)._consolidate(docs)) == 2
+
+    def test_null_max_duration_is_unbounded(self):
+        # max_event_duration_seconds=None disables the outer cap entirely
+        cfg = dict(_CONSOL_DEFAULT, max_event_duration_seconds=None)
+        docs = [
+            _chunk(
+                idx=i,
+                start=f"2025-01-01T00:{i:02d}:00.000Z",
+                end=f"2025-01-01T00:{i:02d}:30.000Z",
+            )
+            for i in range(0, 12)  # ~11 min span, well past the old 300s cap
+        ]
+        events = _consolidator(cfg)._consolidate(docs)
+        assert len(events) == 1
+        assert events[0]["info"]["chunkCount"] == "12"
+
+    def test_missing_timestamp_does_not_crash(self):
+        good = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
+        bad = _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z")
+        bad.pop("timestamp")
+        bad.pop("end")
+        events = _consolidator()._consolidate([good, bad])
+        # no exception; a chunk with no parseable time cannot chain -> separate
+        assert len(events) == 2
+        assert sum(int(e["info"]["chunkCount"]) for e in events) == 2
+
+    def test_missing_info_key_handled(self):
+        c1 = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
+        c2 = _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z")
+        c1.pop("info")
+        c2.pop("info")
+        events = _consolidator()._consolidate([c1, c2])
+        assert len(events) == 1
+        assert events[0]["info"]["isConsolidated"] == "true"
+        assert events[0]["info"]["chunkCount"] == "2"
+
 
 class TestConsolidationService:
     """IncidentService.list_incidents — consolidation behaviour."""
