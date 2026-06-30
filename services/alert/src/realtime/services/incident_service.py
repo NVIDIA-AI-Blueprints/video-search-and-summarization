@@ -266,9 +266,9 @@ class IncidentService:
             if current:
                 events.append(self._build_event(current, representative))
 
-        # Newest first, matching the raw query's sort order.
+        # Order: event start descending
         events.sort(
-            key=lambda e: _parse_ts(e.get("end")) or _parse_ts(e.get("timestamp")) or _EPOCH,
+            key=lambda e: _parse_ts(e.get("timestamp")) or _EPOCH,
             reverse=True,
         )
         return events
