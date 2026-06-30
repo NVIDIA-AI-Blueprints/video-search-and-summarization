@@ -430,7 +430,7 @@ class TestConsolidationService:
         assert all("isConsolidated" not in i.get("info", {}) for i in data["incidents"])
 
     @pytest.mark.asyncio
-    async def test_consolidate_true_groups_and_keeps_raw_total(self, mock_es_client):
+    async def test_consolidate_true_total_is_event_count(self, mock_es_client):
         chunks = [
             _chunk(sensor="cam-1", idx=1),
             _chunk(sensor="cam-1", idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z"),
@@ -442,9 +442,30 @@ class TestConsolidationService:
         svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
         data, code = await svc.list_incidents(consolidate=True)
         assert code == 200
-        assert data["total"] == 3
-        assert data["count"] == 2
+        assert data["count"] == 2          # cam-1 (2 chunks) -> 1 event, cam-2 -> 1
+        assert data["total"] == 2          # total counts events, not raw chunks
         assert all(i["info"]["isConsolidated"] == "true" for i in data["incidents"])
+
+    @pytest.mark.asyncio
+    async def test_consolidate_paginates_on_events(self, mock_es_client):
+        # Three far-apart positives -> three separate events; pagination must
+        # apply to events (never split one across a page boundary).
+        chunks = [
+            _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(idx=5, start="2025-01-01T00:05:00.000Z", end="2025-01-01T00:05:30.000Z"),
+            _chunk(idx=9, start="2025-01-01T00:10:00.000Z", end="2025-01-01T00:10:30.000Z"),
+        ]
+        mock_es_client.client.search.return_value = {
+            "hits": {"total": {"value": 3}, "hits": [_as_hit(c) for c in chunks]}
+        }
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
+        page1, _ = await svc.list_incidents(consolidate=True, limit=2, offset=0)
+        page2, _ = await svc.list_incidents(consolidate=True, limit=2, offset=2)
+        assert page1["count"] == 2 and page1["total"] == 3   # page 1: 2 of 3 events
+        assert page2["count"] == 1 and page2["total"] == 3   # page 2: remaining event
+        ids1 = {e["Id"] for e in page1["incidents"]}
+        ids2 = {e["Id"] for e in page2["incidents"]}
+        assert ids1.isdisjoint(ids2)                          # no event on both pages
 
     @pytest.mark.asyncio
     async def test_omit_param_returns_raw(self, mock_es_client):
