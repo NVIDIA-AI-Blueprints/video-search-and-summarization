@@ -2636,9 +2636,23 @@ class TestGetIncidentsConsolidate:
     """GET /api/v1/realtime/incidents — `consolidate` query param wiring."""
 
     def test_consolidate_true_forwarded(self, client, mocks):
-        resp = client.get("/api/v1/realtime/incidents?consolidate=true")
+        resp = client.get(
+            "/api/v1/realtime/incidents?consolidate=true"
+            "&start_time=2025-01-01T00:00:00Z&end_time=2025-01-01T01:00:00Z"
+        )
         assert resp.status_code == 200
         assert mocks["incident"].list_incidents.await_args.kwargs["consolidate"] is True
+
+    def test_consolidate_without_window_returns_400(self, client):
+        resp = client.get("/api/v1/realtime/incidents?consolidate=true")
+        assert resp.status_code == 400
+        assert "start_time" in resp.json()["message"]
+
+    def test_consolidate_with_only_start_time_returns_400(self, client):
+        resp = client.get(
+            "/api/v1/realtime/incidents?consolidate=true&start_time=2025-01-01T00:00:00Z"
+        )
+        assert resp.status_code == 400
 
     def test_consolidate_false_forwarded(self, client, mocks):
         resp = client.get("/api/v1/realtime/incidents?consolidate=false")
