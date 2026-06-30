@@ -117,49 +117,12 @@ class HarborCommand(unittest.TestCase):
             "codex",
         )
 
-        # codex runs through our custom agent (keeps the full model id);
-        # harbor's stock `-a codex` strips the prefix and the gateway 401s.
-        self.assertNotIn("-a", cmd)
-        self.assertEqual(
-            cmd[cmd.index("--agent-import-path") + 1],
-            "agents.codex_full_model:FullModelCodex",
-        )
-        # Full, un-stripped model id must be passed through.
+        # codex uses the stock harbor agent; auth is OPENAI_API_KEY from the
+        # GitHub Actions env, so no claude-only --ak / thinking flags apply.
+        self.assertEqual(cmd[cmd.index("-a") + 1], "codex")
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
-        # codex takes endpoint/key via the process env, NOT --ak.
         self.assertNotIn("--ak", cmd)
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
-
-    def test_codex_env_overrides_point_at_nvidia_with_shared_key(self):
-        import os
-        saved = {k: os.environ.get(k) for k in
-                 ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
-        try:
-            for k in saved:
-                os.environ.pop(k, None)
-            os.environ["ANTHROPIC_API_KEY"] = "nv-shared-key"
-            overrides = run_leg.codex_env_overrides("https://inference-api.nvidia.com")
-            # base_url gets the /v1 suffix and points at NVIDIA, not OpenAI.
-            self.assertEqual(overrides["OPENAI_BASE_URL"], "https://inference-api.nvidia.com/v1")
-            # Falls back to the shared NVIDIA key when no codex-specific key.
-            self.assertEqual(overrides["OPENAI_API_KEY"], "nv-shared-key")
-        finally:
-            for k, v in saved.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-
-    def test_build_command_rejects_unknown_agent(self):
-        invocation = run_leg.HarborInvocation(
-            harbor_root=Path("/tmp/datasets/alerts_cv"),
-            include_task_name="rtxpro6000bw",
-            chain_key="alerts_cv_rtxpro6000bw",
-        )
-        with self.assertRaises(ValueError):
-            run_leg.build_harbor_command(
-                invocation, Path("/tmp/results"), "m", "https://x/v1", "aider"
-            )
 
 
 class SkipMarkers(unittest.TestCase):

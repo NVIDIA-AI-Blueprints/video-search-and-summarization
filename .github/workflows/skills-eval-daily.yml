@@ -25,31 +25,21 @@ on:
   # file (env passthrough + agent invocation all come from develop).
   workflow_dispatch:
     inputs:
-      # Which agent/model Harbor evaluates inside each trial. This is the
-      # "model under test" — NOT the orchestrating skills_eval_agent.py
-      # (that stays Claude). The value maps straight to Harbor's `-a` flag
-      # and run_leg.py resolves the matching model/base-url/creds. The
-      # nightly `schedule` trigger passes no inputs, so it falls back to
-      # the default (claude-code) and keeps today's behaviour unchanged.
+      # Agent under test inside each Harbor trial. The nightly `schedule`
+      # trigger passes no inputs, so it falls back to claude-code and keeps
+      # today's behaviour unchanged. codex auth comes from OPENAI_API_KEY in
+      # the GitHub Actions environment.
       agent:
-        description: "Agent/model to evaluate in Harbor trials"
+        description: "Agent to evaluate in Harbor trials"
         type: choice
         default: claude-code
         options:
           - claude-code
           - codex
-      # Optional per-run overrides typed straight into the Run-workflow form,
-      # so a codex (or alternate-model) run needs NO new entries in the
-      # coordinator .env — leave them blank to use the .env defaults
-      # (ANTHROPIC_* shared config, or the agent's CODEX_*/CLAUDE_CODE_*).
-      # These win over both. run_leg.py applies the precedence; a blank field
-      # is treated as "not set" and falls through.
+      # Optional model id typed into the Run-workflow form; blank = use the
+      # coordinator .env default (ANTHROPIC_MODEL).
       model:
-        description: "Model id under test (blank = .env default, e.g. openai/openai/gpt-5-codex)"
-        type: string
-        default: ""
-      base_url:
-        description: "Inference base URL incl. /v1 (blank = .env default, e.g. https://inference-api.nvidia.com/v1)"
+        description: "Model id under test (blank = default, e.g. openai/openai/gpt-5-codex)"
         type: string
         default: ""
 
@@ -185,22 +175,12 @@ jobs:
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
           export DAILY_RUN="true"
-          # Agent/model under test (run_leg.py -> Harbor `-a`). On the
-          # nightly schedule there are no inputs, so default to claude-code
-          # — today's behaviour. On workflow_dispatch this carries the
-          # operator's dropdown pick (claude-code | codex).
+          # Agent under test + optional model override from the
+          # workflow_dispatch form. The nightly schedule passes no inputs, so
+          # EVAL_AGENT defaults to claude-code and EVAL_MODEL is blank (run_leg.py
+          # then falls back to ANTHROPIC_MODEL) — today's behaviour unchanged.
           export EVAL_AGENT="${{ inputs.agent || 'claude-code' }}"
-          # Per-run model / base-url typed into the Run-workflow form. Blank
-          # on the nightly schedule (and when the operator leaves them empty),
-          # so run_leg.py falls back to the .env config. These take precedence
-          # over CODEX_*/CLAUDE_CODE_* and the shared ANTHROPIC_* when set.
           export EVAL_MODEL="${{ inputs.model }}"
-          export EVAL_BASE_URL="${{ inputs.base_url }}"
-          if [ "$EVAL_AGENT" = "codex" ]; then
-            echo "::notice title=Agent under test::EVAL_AGENT=codex model=${EVAL_MODEL:-${CODEX_MODEL:-${ANTHROPIC_MODEL:-<unset>}}} base_url=${EVAL_BASE_URL:-${CODEX_BASE_URL:-${ANTHROPIC_BASE_URL:-<unset>}}}"
-          else
-            echo "::notice title=Agent under test::EVAL_AGENT=${EVAL_AGENT} model=${EVAL_MODEL:-${CLAUDE_CODE_MODEL:-${ANTHROPIC_MODEL:-<unset>}}} base_url=${EVAL_BASE_URL:-${CLAUDE_CODE_BASE_URL:-${ANTHROPIC_BASE_URL:-<unset>}}}"
-          fi
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —
