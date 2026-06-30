@@ -20,7 +20,7 @@ services:
     profiles: ["bp_wh_2d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     container_name: vss-agent-ui
     ports:
-      - 3000:3000
+      - ${VSS_UI_HOST_PORT:-3000}:3000
     restart: always
     depends_on:
       vss-agent:

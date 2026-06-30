@@ -34,6 +34,14 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 
 Post-deploy readiness probe: `curl -sf http://${HOST_IP}:38111/v1/ready` should return exit 0 once `vss-lvs` is serving. The VSS Agent at `http://${HOST_IP}:8000/health` is the cross-profile readiness signal; this one confirms the LVS-specific microservice.
 
+For LVS with `LLM_MODE=local` or `LLM_MODE=local_shared`, also require:
+
+```bash
+curl -sf http://${HOST_IP}:${LLM_PORT:-30081}/v1/health/ready
+```
+
+This prevents a deploy from passing when the local LLM NIM is down.
+
 ## Default models
 
 | Role | `*_NAME` (env) | `*_NAME_SLUG` | Served by |
@@ -149,6 +157,8 @@ The RT-VLM container reads sizing knobs from `dev-profile-lvs/.env` with the `RT
 
 The sizing flow is identical to base: pick the fraction with the formula in [`base.md`](base.md#sizing-math), write it into `dev-profile-lvs/generated.env` (one place — there is no per-hardware `hw-*.env` for RT-VLM), re-resolve the compose, deploy, watch the rtvi-vlm logs for `Maximum concurrency for X tokens per GPU: Y x` to confirm the KV-cache budget.
 
+**Skill deploy requirement:** when LVS runs RT-VLM on the same GPU as a local LLM (`LLM_MODE=local_shared` and `VLM_MODE=local_shared`), do not leave `RTVI_VLLM_GPU_MEMORY_UTILIZATION` empty. For H100 and RTXPRO6000BW shared deployments, write `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` into `generated.env` before resolving Compose.
+
 ## LVS-specific write location for the worked example
 
 Run the math from [`base.md` § Worked example](base.md#worked-example--nemotron-nano-9b--cosmos-reason2-8b-on-h100-80-gb-shared) — the fractions are identical. The only LVS-specific bit is **where** the VLM fraction is written:
@@ -188,11 +198,7 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 
 ## Endpoints (after deploy)
 
-`PUBLIC` = the deployed public origin (`docker inspect vss-agent` →
-`VSS_AGENT_EXTERNAL_URL`; on Brev the `https://7777-<id>.brevlab.com` secure
-link). Report the ingress URLs, not raw ports — see
-[`base.md`](base.md#endpoints-after-deploy) / [`brev.md`](brev.md). Rows marked
-*(direct)* are internal service ports: on-host `curl` only, not browser-reachable on Brev.
+See [`base.md` — Endpoints](base.md#endpoints-after-deploy) for how `${PUBLIC}` is resolved and Brev secure-link behavior. Rows marked *(direct)* are on-host only, not browser-reachable on Brev.
 
 | Service | URL to report (through ingress) |
 |---|---|

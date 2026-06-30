@@ -1954,8 +1954,8 @@ namespace vst_common
         if (!(iequals(request_method, "get")))
         {
             LOG(error) << "Request Method is not supported" << endl;
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, out, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, out, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
 
         int streamCount = 0;

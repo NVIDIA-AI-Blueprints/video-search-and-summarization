@@ -860,7 +860,7 @@ paths:
               example:
                 dhcpV4: "false"
                 dhcpV6: "Off"
-                ipAddressV4: "10.24.219.177"
+                ipAddressV4: "192.0.2.10"
                 ipAddressV6: ""
                 isIpv4Enabled: false
                 isIpv6Enabled: false
@@ -1717,7 +1717,7 @@ components:
           type: string
           maxLength: 128
           pattern: ".*"
-          example: 10.24.213.119
+          example: 192.0.2.10
         action:
           type: string
           enum:

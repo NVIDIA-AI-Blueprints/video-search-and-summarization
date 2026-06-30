@@ -1,5 +1,5 @@
 ## Description: <br>
-Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, camera onboarding. Not for non-alert analytics. <br>
+Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, camera onboarding. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers operating the VSS alert pipeline for real-time video monitoring, Alert-Bridge subscription management, Slack incident notifications, and camera onboarding. <br>
+Developers and operations engineers managing video surveillance alert pipelines use this skill to configure real-time monitoring, create alert subscriptions, set up Slack notifications, query incidents, and onboard cameras within an NVIDIA VSS deployment. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,9 +19,10 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Alert Notify Reference](references/alert-notify.md) <br>
 - [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Alert Notify Reference](references/alert-notify.md) <br>
+- [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
@@ -38,7 +39,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-28 evaluation tasks across 3-tier NVSkills-Eval (external profile, astra-sandbox environment, 2 attempts per task, 50% pass threshold). Overall verdict: PASS. <br>
+Evaluated against 7 internal evaluation tasks (6 positive skill-activation, 1 negative). NVSkills-Eval profile: external. Pass threshold: 50%. Overall verdict: PASS. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -62,13 +63,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 82% (+32%) | 64% (+11%) |
-| Correctness | 8 | 87% (+0%) | 86% (+17%) |
-| Discoverability | 8 | 96% (+3%) | 85% (+17%) |
-| Effectiveness | 8 | 71% (+2%) | 62% (+12%) |
-| Efficiency | 8 | 82% (+9%) | 74% (+21%) |
-
-Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline.
+| Security | 7 | 100% (+0%) | 93% (-7%) |
+| Correctness | 7 | 89% (+55%) | 78% (+33%) |
+| Discoverability | 7 | 99% (+55%) | 89% (+26%) |
+| Effectiveness | 7 | 62% (+44%) | 51% (+27%) |
+| Efficiency | 7 | 89% (+51%) | 80% (+22%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

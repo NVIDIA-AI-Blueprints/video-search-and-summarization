@@ -28,9 +28,14 @@
 services:
   perception:
     image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0}
-    network_mode: "host"
     runtime: nvidia
     container_name: vss-rtvi-cv
+    ports:
+      - ${RTVI_CV_HOST_PORT:-9000}:${RTVI_CV_PORT:-9000}
+    networks:
+      default:
+        aliases:
+          - vss-rtvi-cv
     deploy:
       restart_policy:
         condition: on-failure

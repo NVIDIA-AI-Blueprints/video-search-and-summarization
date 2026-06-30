@@ -35,8 +35,8 @@ chmod +x ~/jqbin/jq
 export PATH="/home/appuser/jqbin:${PATH}"
 
 # bootstrap kafka hosts
-KAFKA_HOST=${BOOTSTRAP_HOST:-localhost}
-KAFKA_PORT=${KAFKA_PORT:-9092}
+KAFKA_HOST=${BOOTSTRAP_HOST:-kafka}
+KAFKA_PORT=${KAFKA_PORT:-29092}
 
 echo 'Waiting for Kafka to come up in order to create the kafka-topics'
 

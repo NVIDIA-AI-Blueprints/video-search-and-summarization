@@ -51,6 +51,7 @@ type=3
 num-sources=1
 gpu-id=0
 cudadec-memtype=0
+drop-on-latency=1
 latency=300
 init-rtsp-reconnect-interval-sec=5
 rtsp-reconnect-interval-sec=60
@@ -127,7 +128,7 @@ enable=0
 gpu-id=0
 border-width=1
 text-size=15
-text-color=1;1;1;1
+text-color=1;1;1;1;
 text-bg-color=0.3;0.3;0.3;1
 font=Arial
 show-clock=0
@@ -155,6 +156,7 @@ nvbuf-memory-type=0
 attach-sys-ts-as-ntp=0
 drop-pipeline-eos=1
 extract-sei-sim-time=1
+drop-backward-sei=1
 
 [primary-gie]
 enable=1
