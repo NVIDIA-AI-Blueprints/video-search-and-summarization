@@ -92,7 +92,7 @@ python3 deployment/stream-processing/oneclick_dc_deployment.py deploy --interact
 - SDRC overlay: `deployment/stream-processing/docker-compose/sdrc/` (only active when `VST_USE_SDRC=true` + `COMPOSE_PROFILES=sdrc` in `compose.env`)
 - NVStreamer compose: `deployment/stream-processing/docker-compose/nvstreamer/`
 
-**Deployment mode** (SDRC vs direct) is selected by the toggle block at the top of `compose.env`. Direct mode is the default — 4 containers, single-pod, no SDR/Envoy. SDRC mode adds `sdr-controller` + the init chain for header-routed multi-pod operation.
+**Deployment mode** (SDRC vs direct) is an **adaptor-independent** toggle selected by the block at the top of `compose.env` (`VST_USE_SDRC`, `COMPOSE_PROFILES`, `NGINX_MODE`). **SDRC mode is now the default** — it adds `sdr-controller` + the init chain for header-routed multi-pod operation (also works single-pod). Direct mode (no SDR/Envoy, single-pod only) is the alternative; deploy it with `oneclick_dc_deployment.py deploy --no-sdrc`, which rewrites `compose.env` to `VST_USE_SDRC=false` / `NGINX_MODE=vst` / cleared `COMPOSE_PROFILES` / stream-processor on `:30001`. SDRC-vs-direct is orthogonal to the `VST_ADAPTOR` (`vst`/`mms`) choice — `vst-sdrc` is **not** an adaptor.
 
 **Access URLs (after deploy):**
 - VIOS UI: `http://<HOST_IP>:30888/vst/#/dashboard`
