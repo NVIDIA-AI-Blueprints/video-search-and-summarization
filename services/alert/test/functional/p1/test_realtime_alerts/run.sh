@@ -620,6 +620,42 @@ fi
 curl -s -X DELETE "${ES_HOST}/${CONSOL_IDX}" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
+# Test 8d: consolidation groups are isolated by (sensor, category)
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8d: consolidation grouping isolation by sensor and category..."
+ISO_IDX="mdx-vlm-incidents-2099-02-02"
+ISO_WINDOW="start_time=2099-02-02T00:00:00Z&end_time=2099-02-02T01:00:00Z"
+curl -s -X DELETE "${ES_HOST}/${ISO_IDX}" >/dev/null 2>&1 || true
+# sensor A / alert: two consecutive chunks (merge -> 1 event)
+# sensor A / intrusion: one chunk (separate category -> own event)
+# sensor B / alert: one chunk (separate sensor -> own event)
+iso_put() {  # <docId> <sensor> <category> <startISO> <endISO> <chunkIdx>
+    curl -s -X PUT "${ES_HOST}/${ISO_IDX}/_doc/$1" -H "Content-Type: application/json" \
+        -d "{\"sensorId\":\"$2\",\"category\":\"$3\",\"timestamp\":\"$4\",\"end\":\"$5\",\"info\":{\"requestId\":\"r\",\"chunkIdx\":\"$6\",\"verdict\":\"confirmed\"}}" \
+        >/dev/null 2>&1
+}
+iso_put isoA1 p1-iso-a alert     "2099-02-02T00:00:00.000Z" "2099-02-02T00:00:30.000Z" 1
+iso_put isoA2 p1-iso-a alert     "2099-02-02T00:00:25.000Z" "2099-02-02T00:00:55.000Z" 2
+iso_put isoA3 p1-iso-a intrusion "2099-02-02T00:00:00.000Z" "2099-02-02T00:00:30.000Z" 1
+iso_put isoB1 p1-iso-b alert     "2099-02-02T00:00:00.000Z" "2099-02-02T00:00:30.000Z" 1
+curl -s -X POST "${ES_HOST}/${ISO_IDX}/_refresh" >/dev/null 2>&1
+
+ISO_A=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=p1-iso-a&consolidate=true&${ISO_WINDOW}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+ISO_B=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=p1-iso-b&consolidate=true&${ISO_WINDOW}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+
+# sensor A -> 2 events (alert merged + intrusion); sensor B -> 1 event
+if [ "$ISO_A" = "2" ] && [ "$ISO_B" = "1" ]; then
+    print_status "ok" "PASS: groups isolated by (sensor, category) (A=2 events, B=1 event)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: grouping isolation (A=$ISO_A expected 2, B=$ISO_B expected 1)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${ISO_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
 # Test 9: Caption-start failure — RTVI rejects generate_captions_alerts
 #         Expects: stream rolled back on RTVI, rule absent in AB
 # ---------------------------------------------------------------------------
