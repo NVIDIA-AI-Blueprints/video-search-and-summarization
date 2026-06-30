@@ -50,6 +50,11 @@ except ImportError:
 
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+# Upper bound on raw chunks scanned for a consolidated query. Consolidation
+# requires a bounded time window (enforced at the route), so this is only a
+# safety net for an unexpectedly dense window; Elasticsearch caps from_+size
+# at index.max_result_window (10000 by default).
+_SCAN_CAP = 10000
 
 
 def _parse_ts(value) -> Optional[datetime]:
@@ -116,10 +121,11 @@ class IncidentService:
     ) -> Tuple[dict, int]:
         """Query incidents from Elasticsearch.
 
-        When consolidation is active, consecutive positives from the same
-        camera and alert type on the returned page are grouped into single
-        events. ``consolidate`` overrides the configured default per request;
-        ``total`` always reflects the raw Elasticsearch match count.
+        With ``consolidate`` true the whole matched window is grouped into
+        events and ``offset``/``limit`` paginate the events, so an event is
+        never split across pages; ``total`` is the number of events. With
+        ``consolidate`` false the raw chunk documents are returned with
+        Elasticsearch-side pagination and ``total`` is the raw match count.
         """
         now = datetime.now(timezone.utc).isoformat()
         ctx = {
@@ -158,6 +164,61 @@ class IncidentService:
             query = {"bool": {"must": must_clauses}} if must_clauses else {"match_all": {}}
             index_pattern = f"{self._index_base}-*"
 
+            def _hits_to_docs(resp):
+                out = []
+                for hit in resp.get("hits", {}).get("hits", []):
+                    doc = hit.get("_source", {})
+                    doc["_id"] = hit.get("_id")
+                    doc["_index"] = hit.get("_index")
+                    out.append(doc)
+                return out
+
+            def _es_total(resp):
+                t = resp.get("hits", {}).get("total", {})
+                return t.get("value", 0) if isinstance(t, dict) else t
+
+            if consolidate:
+                response = await asyncio.to_thread(
+                    self._es_client.client.search,
+                    index=index_pattern,
+                    query=query,
+                    from_=0,
+                    size=_SCAN_CAP,
+                    sort=[{"timestamp": {"order": "asc"}}],
+                )
+                duration = time.monotonic() - t0
+                if INCIDENT_QUERY_DURATION is not None:
+                    INCIDENT_QUERY_DURATION.observe(duration)
+
+                raw_docs = _hits_to_docs(response)
+                if _es_total(response) > len(raw_docs):
+                    logger.warning(
+                        "Consolidation scan hit the cap; narrow the time window",
+                        extra={**ctx, "scanned": len(raw_docs), "cap": _SCAN_CAP},
+                    )
+
+                events = self._consolidate(raw_docs)
+                page = events[offset:offset + limit]
+
+                logger.info(
+                    "Incidents query completed",
+                    extra={
+                        **ctx,
+                        "returned": len(page),
+                        "raw_scanned": len(raw_docs),
+                        "events": len(events),
+                        "consolidated": True,
+                        "duration_s": round(duration, 3),
+                    },
+                )
+                return {
+                    "status": ResponseStatus.SUCCESS,
+                    "incidents": page,
+                    "count": len(page),
+                    "total": len(events),
+                    "timestamp": now,
+                }, 200
+
             response = await asyncio.to_thread(
                 self._es_client.client.search,
                 index=index_pattern,
@@ -166,40 +227,27 @@ class IncidentService:
                 size=limit,
                 sort=[{"timestamp": {"order": "desc"}}],
             )
-
             duration = time.monotonic() - t0
             if INCIDENT_QUERY_DURATION is not None:
                 INCIDENT_QUERY_DURATION.observe(duration)
 
-            hits = response.get("hits", {})
-            total = hits.get("total", {})
-            total_count = total.get("value", 0) if isinstance(total, dict) else total
-
-            incidents = []
-            for hit in hits.get("hits", []):
-                doc = hit.get("_source", {})
-                doc["_id"] = hit.get("_id")
-                doc["_index"] = hit.get("_index")
-                incidents.append(doc)
-
-            items = self._consolidate(incidents) if consolidate else incidents
+            incidents = _hits_to_docs(response)
+            total_count = _es_total(response)
 
             logger.info(
                 "Incidents query completed",
                 extra={
                     **ctx,
-                    "returned": len(items),
-                    "raw_hits": len(incidents),
-                    "consolidated": bool(consolidate),
+                    "returned": len(incidents),
+                    "consolidated": False,
                     "total": total_count,
                     "duration_s": round(duration, 3),
                 },
             )
-
             return {
                 "status": ResponseStatus.SUCCESS,
-                "incidents": items,
-                "count": len(items),
+                "incidents": incidents,
+                "count": len(incidents),
                 "total": total_count,
                 "timestamp": now,
             }, 200
