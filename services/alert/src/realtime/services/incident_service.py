@@ -103,7 +103,6 @@ class IncidentService:
             extra={
                 "es_enabled": es_client is not None,
                 "index_base": self._index_base,
-                "consolidation_enabled": bool(self._consolidation.get("enabled", False)),
             },
         )
 
@@ -185,12 +184,7 @@ class IncidentService:
                 doc["_index"] = hit.get("_index")
                 incidents.append(doc)
 
-            do_consolidate = (
-                bool(self._consolidation.get("enabled", False))
-                if consolidate is None
-                else bool(consolidate)
-            )
-            items = self._consolidate(incidents) if do_consolidate else incidents
+            items = self._consolidate(incidents) if consolidate else incidents
 
             logger.info(
                 "Incidents query completed",
@@ -198,7 +192,7 @@ class IncidentService:
                     **ctx,
                     "returned": len(items),
                     "raw_hits": len(incidents),
-                    "consolidated": do_consolidate,
+                    "consolidated": bool(consolidate),
                     "total": total_count,
                     "duration_s": round(duration, 3),
                 },

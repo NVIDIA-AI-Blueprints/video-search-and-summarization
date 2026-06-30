@@ -292,10 +292,10 @@ rtvi_vlm:
   enable_realtime_persistence: true
 
   # Realtime alert consolidation — group repeated VLM positives from the same
-  # camera and alert type into a single event at read time. Raw chunk-level
-  # documents are left untouched in Elasticsearch.
+  # camera and alert type into a single event. Controlled per request via the
+  # `consolidate` query param on GET /api/v1/realtime/incidents (omitted/false =
+  # raw chunk-level documents; true = consolidated). The keys below only tune the grouping.
   consolidation:
-    enabled: true                      # default for the `consolidate` query param
     max_inter_alert_gap_seconds: 60    # a positive arriving after this gap starts a new event
     max_event_duration_seconds: 300    # cap on a single consolidated event (null = unbounded)
     representative: "latest"           # chunk that supplies the representative fields: latest | longest_reasoning
