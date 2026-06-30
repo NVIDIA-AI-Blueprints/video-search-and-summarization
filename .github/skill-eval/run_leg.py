@@ -125,67 +125,25 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
-def _agent_flags(agent: str, model: str, base_url: str) -> list[str]:
-    """Harbor `-a <agent>` plus that agent's model/base-url/auth flags.
-
-    claude-code takes its endpoint via the `--ak api_base=<.../v1>` agent
-    kwarg (and `--ae CLAUDE_CODE_DISABLE_THINKING=1` strips the field the
-    NVIDIA proxy rejects).
-
-    codex is DIFFERENT on two counts:
-      1. Endpoint/key come from the *process env* (OPENAI_BASE_URL +
-         OPENAI_API_KEY), set in run_invocations / codex_env_overrides — NOT
-         via `--ak` (harbor's codex agent ignores unknown kwargs; a
-         `--ak base_url=` was silently dropped and codex hit api.openai.com).
-      2. harbor's stock codex agent sends `model.split("/")[-1]` on the wire,
-         dropping the provider prefix; the NVIDIA LiteLLM gateway 401s on the
-         bare leaf and needs the full `openai/openai/gpt-5-codex`. So we run a
-         custom subclass (agents.codex_full_model:FullModelCodex) via
-         `--agent-import-path` that keeps the full model id. `.github/skill-eval`
-         is already on PYTHONPATH (same as envs.brev_env).
-    """
-    if agent == "claude-code":
-        return [
-            "-a", "claude-code",
-            "--model", model,
-            "--ak", f"api_base={_api_base_v1(base_url)}",
-            "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
-        ]
-    if agent == "codex":
-        return [
-            "--agent-import-path", "agents.codex_full_model:FullModelCodex",
-            "--model", model,
-        ]
-    raise ValueError(f"unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)")
-
-
-def codex_env_overrides(base_url: str) -> dict[str, str]:
-    """Env vars that point harbor's codex agent at the NVIDIA endpoint.
-
-    harbor's codex agent reads `OPENAI_API_KEY` (required) and forwards
-    `OPENAI_BASE_URL` (newer harbor) from its process env; the codex CLI
-    honors `OPENAI_BASE_URL` for its built-in `openai` provider. Without
-    these it defaults to api.openai.com and 401s. The NVIDIA inference key
-    that already authenticates claude-code (ANTHROPIC_API_KEY) works for the
-    OpenAI-compatible endpoint too, so fall back to it when no codex-specific
-    key is set.
-    """
-    overrides = {"OPENAI_BASE_URL": _api_base_v1(base_url)}
-    key = (os.environ.get("CODEX_API_KEY")
-           or os.environ.get("OPENAI_API_KEY")
-           or os.environ.get("ANTHROPIC_API_KEY", ""))
-    if key:
-        overrides["OPENAI_API_KEY"] = key
-    return overrides
-
-
 def build_harbor_command(
     invocation: HarborInvocation,
     results_root: Path,
     model: str,
-    base_url: str,
+    anthropic_base_url: str,
     agent: str = "claude-code",
 ) -> list[str]:
+    if agent == "codex":
+        # Stock harbor codex agent. Auth is OPENAI_API_KEY from the GitHub
+        # Actions environment (the inference key added there as OPENAI_API_KEY);
+        # the claude-only api_base / thinking flags do not apply.
+        agent_flags = ["-a", "codex", "--model", model]
+    else:
+        agent_flags = [
+            "-a", "claude-code",
+            "--model", model,
+            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+            "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
+        ]
     return [
         "uvx",
         "harbor",
@@ -196,7 +154,7 @@ def build_harbor_command(
         str(invocation.harbor_root),
         "--include-task-name",
         invocation.include_task_name,
-        *_agent_flags(agent, model, base_url),
+        *agent_flags,
         "--environment-build-timeout-multiplier",
         "3.0",
         "--agent-timeout-multiplier",
@@ -333,41 +291,20 @@ def run_invocations(
     harbor_timeout_sec: int,
 ) -> int:
     env = harbor_env(instance)
-    # Which agent Harbor evaluates (set by skills-eval-daily.yml from the
-    # workflow_dispatch dropdown; defaults to claude-code on the nightly
-    # schedule).
+    # Agent to evaluate: the workflow_dispatch dropdown (claude-code | codex);
+    # the nightly schedule passes no input, so default to claude-code.
     agent = os.environ.get("EVAL_AGENT", "claude-code")
-    model = os.environ.get("ANTHROPIC_MODEL", "")
+    # EVAL_MODEL (the workflow_dispatch form field) overrides the default; a
+    # blank field falls through to ANTHROPIC_MODEL so scheduled runs are
+    # unaffected. codex auth/endpoint come from the GitHub Actions env
+    # (OPENAI_API_KEY), not from here.
+    model = os.environ.get("EVAL_MODEL") or os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if agent == "codex":
-        prefix = "CODEX"
-    elif agent == "claude-code":
-        prefix = "CLAUDE_CODE"
-    else:
-        print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
-              file=sys.stderr)
-        return 1
-    # `os.environ.get(...) or model` keeps the shared value when the
-    # per-agent override is missing or an empty string.
-    model = os.environ.get(f"{prefix}_MODEL") or model
-    base_url = os.environ.get(f"{prefix}_BASE_URL") or base_url
-    # Highest precedence: EVAL_MODEL / EVAL_BASE_URL typed into the
-    # workflow_dispatch form (skills-eval-daily.yml inputs). A blank field is
-    # exported as "" and falls through to the resolution above, so the
-    # nightly schedule (no inputs) is unaffected.
-    model = os.environ.get("EVAL_MODEL") or model
-    base_url = os.environ.get("EVAL_BASE_URL") or base_url
-    if agent == "codex":
-        # codex takes its endpoint + key from the process env, not --ak — set
-        # them so it reaches the NVIDIA endpoint instead of api.openai.com.
-        env.update(codex_env_overrides(base_url))
     if not model:
-        print(f"FATAL: no model resolved (set ANTHROPIC_MODEL or {prefix}_MODEL; "
-              f"EVAL_AGENT={agent})", file=sys.stderr)
+        print("FATAL: ANTHROPIC_MODEL not set (and EVAL_MODEL empty)", file=sys.stderr)
         return 1
-    if not base_url:
-        print(f"FATAL: no base_url resolved (set ANTHROPIC_BASE_URL or {prefix}_BASE_URL; "
-              f"EVAL_AGENT={agent})", file=sys.stderr)
+    if agent == "claude-code" and not base_url:
+        print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
