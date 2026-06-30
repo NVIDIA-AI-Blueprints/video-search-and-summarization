@@ -50,9 +50,6 @@ except ImportError:
 
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-# Two adjacent chunks may skip at most this many indices and still count as the
-# same continuous event (tolerates an occasional dropped/non-positive chunk).
-_MAX_CHUNK_SKIP = 2
 
 
 def _parse_ts(value) -> Optional[datetime]:
@@ -277,9 +274,10 @@ class IncidentService:
     def _is_continuous(current: List[dict], doc: dict, gap_seconds, max_duration) -> bool:
         """Whether ``doc`` extends the open event ``current``.
 
-        Continuation requires the event to stay within the duration cap and
-        either belong to the same caption session with consecutive chunk
-        indices, or fall within the inter-alert gap of the previous chunk.
+        Continuation requires the event to stay within the outer duration cap
+        and the next positive to arrive within ``max_inter_alert_gap_seconds``
+        of the previous chunk. The time gap is authoritative — there is no
+        per-session bypass. Unparseable timestamps end the current event.
         """
         first = current[0]
         prev = current[-1]
@@ -290,25 +288,11 @@ class IncidentService:
             if start and doc_end and (doc_end - start).total_seconds() > max_duration:
                 return False
 
-        prev_info = _info_of(prev)
-        doc_info = _info_of(doc)
-        prev_idx = _to_int(prev_info.get("chunkIdx"))
-        doc_idx = _to_int(doc_info.get("chunkIdx"))
-        same_session = bool(
-            prev_info.get("requestId")
-            and prev_info.get("requestId") == doc_info.get("requestId")
-            and prev_idx is not None
-            and doc_idx is not None
-            and 0 < (doc_idx - prev_idx) <= _MAX_CHUNK_SKIP
-        )
-
-        within_gap = False
         prev_end = _parse_ts(prev.get("end")) or _parse_ts(prev.get("timestamp"))
         doc_start = _parse_ts(doc.get("timestamp"))
-        if prev_end and doc_start:
-            within_gap = (doc_start - prev_end).total_seconds() <= gap_seconds
-
-        return same_session or within_gap
+        if prev_end is None or doc_start is None:
+            return False
+        return (doc_start - prev_end).total_seconds() <= gap_seconds
 
     @staticmethod
     def _build_event(chunks: List[dict], representative: str) -> dict:
