@@ -120,6 +120,8 @@ env:
     value: ""
   - name: NVIDIA_VISIBLE_DEVICES
     value: "0"
+  - name: VIA_DEV_API
+    value: "true"
   - name: VLM_MODEL_TO_USE
     value: openai-compat
   - name: VLM_SYSTEM_PROMPT
