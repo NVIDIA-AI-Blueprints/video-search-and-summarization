@@ -97,17 +97,19 @@ Default ports:
 | `TURN_MIN_RELAY_HOST_PORT` / `TURN_MAX_RELAY_HOST_PORT` | `49160` / `49200` | Host relay port range |
 | `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `49160` / `49200` | Container relay port range |
 
-Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile `.env` derives `VST_STATIC_TURNURL_LIST` for the bundled infra turnserver in the VST format `user:password@host:port`, and `services/vios/vst.env` passes that value through when present. Override `TURN_USERNAME` and `TURN_PASSWORD` for shared or remote deployments.
+Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile uses a non-secret default `TURN_USERNAME` and starts a `turnserver-init` job that generates a random password once in the `vss-turn-password` Docker volume. Coturn and VST mount that same generated file; the VST startup helper derives the static TURN URL in the format `user:password@host:port` from `TURN_USERNAME`, the generated password file, `TURN_PUBLIC_HOST`, and `TURN_HOST_PORT`.
 
-For multiple advertised TURN addresses, set `VST_STATIC_TURNURL_LIST` as a comma-separated list, for example:
+For the bundled turnserver, leave `VST_STATIC_TURNURL_LIST` empty:
 
 ```env
 TURN_HOST_PORT=3478
 TURN_PORT=3478
 TURN_USERNAME=vss
-TURN_PASSWORD=vss-turn
-VST_STATIC_TURNURL_LIST=vss:vss-turn@192.0.2.10:3478,vss:vss-turn@192.0.2.11:3478
+TURN_PASSWORD_BYTES=32
+VST_STATIC_TURNURL_LIST=
 ```
+
+Remove the Compose-created `vss-turn-password` Docker volume and restart the warehouse profile to rotate the generated password. Only set `VST_STATIC_TURNURL_LIST` for external or multiple TURN endpoints; treat it as sensitive because it embeds TURN credentials.
 
 The warehouse VST streamprocessing startup helper also forces `network.use_coturn_auth_secret=false` and `network.coturn_turnurl_list_with_secret=[]`, matching the static username/password mode. Developer VST streamprocessing and NvStreamer services do not apply this WebRTC/TURN patch.
 
