@@ -547,11 +547,27 @@ async def delete_realtime_alert(
     response_model=IncidentListResponse,
     summary="List incidents from Elasticsearch",
     description=(
-        "Query incidents from Elasticsearch with optional filtering by sensor_id, "
-        "category, and time range. Supports pagination via limit and offset."
+        "Query incidents from Elasticsearch, optionally filtered by sensor_id, "
+        "category, and time range, with pagination via limit and offset.\n\n"
+        "**Raw view (default):** with `consolidate` omitted or false, returns raw "
+        "chunk-level documents (nvschema). `count` is the number of documents on "
+        "the page; `total` is the raw Elasticsearch match count.\n\n"
+        "**Consolidated view:** with `consolidate=true`, consecutive positives "
+        "from the same camera and alert type are grouped into single events "
+        "(same nvschema, with `info.isConsolidated=\"true\"`, `info.chunkCount` "
+        "and `info.chunkIdxRange`). This view requires a bounded time window: "
+        "both `start_time` and `end_time` must be supplied (otherwise 400). "
+        "Grouping runs over the whole window before pagination, so an event is "
+        "never split across pages; `count` is the number of events on the page "
+        "and `total` is the number of events in the window. The raw documents "
+        "remain available via the default view and are never modified."
     ),
     responses={
         200: {"description": "Incidents list", "model": IncidentListResponse},
+        400: {
+            "description": "consolidate=true without both start_time and end_time",
+            "model": RealtimeAlertErrorResponse,
+        },
         422: {"description": "Invalid timestamp format", "model": RealtimeAlertErrorResponse},
         500: {"description": "Elasticsearch query failed", "model": RealtimeAlertErrorResponse},
         503: {"description": "Elasticsearch unavailable", "model": RealtimeAlertErrorResponse},
@@ -568,11 +584,17 @@ async def list_incidents(
     ),
     start_time: Optional[datetime] = Query(
         default=None,
-        description="Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z)",
+        description=(
+            "Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z). "
+            "Required when consolidate=true."
+        ),
     ),
     end_time: Optional[datetime] = Query(
         default=None,
-        description="Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z)",
+        description=(
+            "Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z). "
+            "Required when consolidate=true."
+        ),
     ),
     limit: int = Query(
         default=100,
@@ -590,7 +612,9 @@ async def list_incidents(
         description=(
             "Group consecutive positives from the same camera and alert type "
             "into a single event. Omitted or false returns raw chunk-level "
-            "documents; set to true for the consolidated view."
+            "documents; true returns the consolidated view and requires both "
+            "start_time and end_time. When true, count and total count events "
+            "rather than raw documents."
         ),
     ),
     service: IncidentService = Depends(get_incident_service),
