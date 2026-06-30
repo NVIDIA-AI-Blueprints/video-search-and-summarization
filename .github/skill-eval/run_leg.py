@@ -321,6 +321,7 @@ def run_invocations(
                   file=sys.stderr)
             return 1
         env["OPENAI_API_KEY"] = anthropic_key
+        env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
 
     results_root.mkdir(parents=True, exist_ok=True)
     skipped_after: dict[str, int] = {}
