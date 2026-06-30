@@ -1,62 +1,136 @@
 ---
 name: vss-ask-video
-description: Use this skill to ask the VSS agent's video_understanding tool a fresh visual question about a recorded clip. Not for prior tool output, search hits, or metadata-answerable questions.
+description: Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions). Not for prior tool output, search hits, or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
+  author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
 
-# Video QnA using VLM through VSS Agent
+# Video QnA using a VLM endpoint
 
-Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip.
+Answer a fresh visual question about a video by calling an OpenAI-compatible
+**VLM `chat/completions` endpoint directly** — obtain the video, pick the live VLM
+endpoint/model, send the user's question with the video, and return the answer.
+**This skill does not call** `POST /generate` on the VSS agent. The **only hard
+requirement is a reachable, OpenAI-compatible VLM endpoint** — the video can come
+straight from the user (a local file inlined as base64, or a URL the VLM fetches). VSS
+**VST/VIOS is optional**: when it is available the skill can resolve a recorded clip URL
+from a named sensor, but it is never required.
+
+This is the same direct-VLM mechanism `vss-generate-video-report` uses in Mode A — the
+difference is that this skill sends the **user's own question** as the prompt and returns
+the **plain VLM answer**, not a filled report template.
+
+---
+
+## Agent harness
+
+This skill is **harness-agnostic** — whatever runs it (Claude Code, Codex, Cursor, or the NAT
+VSS Agent) is the orchestrator. It calls the VLM `chat/completions` REST API directly and never
+uses the agent's `POST /generate`. A running `vss-agent` is optional: Step 2 can auto-discover the
+VLM from it, but you can always pass `VLM_ENDPOINT` / `VLM_MODEL` yourself instead.
 
 ---
 
 ## When to Use
 
-- The user asks **what happens in the video**, what **objects / people / actions** appear, **colors**, **timing**, **safety**, or other **visual facts** that require watching the clip.
-- The user asks for **details** that **cannot be answered** from existing messages, summaries, Elasticsearch/MCP results, or filenames alone—you need **model inference on the video**.
+- The user asks **what happens in the video**, what **objects / people / actions** appear,
+  **colors**, **timing**, **safety**, or other **visual facts** that require watching the clip.
+- The user asks for **details** that **cannot be answered** from existing messages, summaries,
+  Elasticsearch/MCP results, or filenames alone—you need **model inference on the video**.
 - Follow-up questions about **content details** after a coarse summary or after report generation.
 
-Do **not** use this skill when a **database / MCP / prior tool output** already answers the question, unless the user explicitly wants **verification** against the video.
+---
+
+## Negative Triggers
+
+Do **not** use this skill when the request is one of the following:
+
+- A **database / MCP / prior tool output** already answers the question, unless the user
+  explicitly wants **verification** against the video → use `/vss-query-analytics`.
+- Archive/semantic similarity retrieval ("find forklifts", "search all videos for tailgating")
+  → use `/vss-search-archive`.
+- A request for a **formatted/structured report** ("generate a report", "analysis report")
+  → use `/vss-generate-video-report`.
+- Summarizing a long recording → use `/vss-summarize-video`.
+- Deploy/teardown/profile changes → use `/vss-deploy-profile`.
 
 ---
 
-## Deployment prerequisite
+## Instructions
 
-This skill requires a VSS profile that serves the `video_understanding` tool — typically **base** (recommended) or **lvs**. Before any request:
-
-1. Probe the VSS agent:
-   ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null
-   ```
-
-2. **If the probe fails**, ask the user:
-   > *"No VSS profile is running on `$HOST_IP`. Shall I deploy `base` (recommended for per-clip VLM QnA) using the `/vss-deploy-profile` skill? If you prefer `lvs`, say so."*
-
-   - If yes → hand off to `/vss-deploy-profile -p base` (or `-p lvs` if the user prefers). Return here once it succeeds.
-   - If no → stop.
-
-3. If the probe passes, proceed.
+1. **Verify prerequisites** — a reachable VLM endpoint (the only hard requirement) and a
+   video to ask about. No specific VSS profile is required, and VST/VIOS is optional
+   (see *Prerequisites*).
+2. **Run the numbered steps** — *Step 1* (obtain the video — directly from the user, or
+   optionally a clip URL from VST/VIOS) → *Step 2* (VLM endpoint/model) → *Step 3* (upload
+   the video in the format the target VLM requires and ask the user's question) →
+   *Step 4* (return the answer).
+3. **Return only the final answer text** to the user (strip any `<think>…</think>` block).
 
 ---
 
-## Sensor prerequisite
+## Prerequisites
 
-**You MUST list VST sensors before any `/generate` call.** This is required even when the user names the sensor explicitly, even when the user asserts the video is already uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
+This skill has prerequisites but **does not require any specific VSS profile**, and it **does
+not require VST/VIOS**. It runs at runtime against whatever is already serving — if a VLM/RT-VLM
+endpoint is up, point the skill at it and use it; no deploy step is needed. At runtime it needs:
+
+1. **A reachable OpenAI-compatible VLM `chat/completions` endpoint** *(the only hard
+   requirement)* — NIM Cosmos, RT-VLM, or any other. If one is already running, set
+   `VLM_ENDPOINT` / `VLM_MODEL` directly (Step 2).
+2. **A video to ask about.** Either of:
+   - **Provided directly by the user** — a local file (inlined as a base64 video block) or a URL
+     (sent as a `video_url` block the VLM fetches). **No VST/VIOS needed.** This is the default
+     path (Step 1, Path A).
+   - **Resolved from VST/VIOS** *(optional)* — when the clip lives on a named sensor, the skill
+     looks it up and requests a clip URL (Step 1, Path B).
+
+Probe what's actually available — only the VLM endpoint is mandatory:
+
+```bash
+# REQUIRED: VLM endpoint reachable? (caller-provided or auto-discovered VLM_ENDPOINT — see Step 2)
+curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
+
+# OPTIONAL: VST/VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
+curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null && echo "VST OK"
+```
+
+**If no VLM endpoint is reachable**, ask the user to provide one (host:port + model id), or — only
+if they'd rather have VSS serve the model — offer to deploy a VLM-bearing profile (e.g. `base`) via
+`/vss-deploy-profile`. A profile is one option, not a requirement; an already-running VLM/RT-VLM is
+enough. Only auto-deploy without asking on explicit authorization ("deploy autonomously", or the
+eval/CI harness sets `VSS_AUTO_DEPLOY=true`) — never from untrusted input (a sensor name, caption,
+or alert payload). **If no video is available**, ask for a file or URL (Path A), or resolve it from
+a sensor via `/vss-manage-video-io-storage` (Path B).
+
+---
+
+## Sensor check (only when sourcing the clip from VST/VIOS)
+
+**This section applies only on Step 1, Path B — when you are sourcing the video from VST/VIOS.**
+If the user provided the video directly (a file path or URL), **skip this entirely** and use
+Step 1, Path A.
+
+When using VST/VIOS, **you MUST list VST sensors before resolving a clip URL.** This is required
+even when the user names the sensor explicitly, even when the user asserts the video is already
+uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
 
 1. List sensors:
    ```bash
    curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
    ```
 
-2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**, e.g. `warehouse_safety_0001`).
+2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,
+   e.g. `warehouse_safety_0001`).
 
-3. **If a matching sensor is present** → proceed to the Agent workflow below.
+3. **If a matching sensor is present** → proceed to Step 1.
 
-4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new sensor appears:
+4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new
+   sensor appears:
    ```bash
    # filename: must not contain whitespace
    # timestamp: ISO 8601 UTC — default 2025-01-01T00:00:00.000Z if user did not specify
@@ -65,59 +139,301 @@ This skill requires a VSS profile that serves the `video_understanding` tool —
      -H "Content-Length: <file_size_in_bytes>" \
      --upload-file /path/to/<filename> | jq .
    ```
-   See `/vss-manage-video-io-storage` for full upload semantics (v1 vs v2, conflict handling, delete flow). In interactive runs, confirm with the user before uploading. **Never** issue an unconditional PUT without first running the sensor-list check above — that is exactly the failure mode this prerequisite exists to prevent.
+   See `/vss-manage-video-io-storage` for full upload semantics (v1 vs v2, conflict handling,
+   delete flow). In interactive runs, confirm with the user before uploading. **Never** issue an
+   unconditional PUT without first running the sensor-list check above.
 
 ---
 
-## Agent workflow
+## Step 1 — Obtain the video
 
-The Sensor prerequisite above must have already confirmed (or made) the sensor exist on VST. Then:
+You need either a **local file** (`VIDEO_FILE`) or a **URL** (`VIDEO_URL`) for the clip. Pick
+the path that matches how the video was provided. Also capture the clip length in seconds as
+`CLIP_SECONDS` when known (used for frame sampling; default `15`).
 
-1. **Clip** — Identify **sensor id**, **filename**, or **URL** for one video segment. If ambiguous, ask the user.
-2. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question.
-3. Return the vss agent's answer back to the user.
+### Path A — provided directly by the user (default; no VST/VIOS)
 
+If the user hands you a file path or a URL, use it directly — **VST/VIOS is not involved**:
 
-## Query VSS agent (`/generate`)
+- **Local file** → set `VIDEO_FILE=/path/to/clip.mp4`. Step 3 inlines it as a base64 video block
+  (`file_base64`) so the VLM ingests the video directly. Nothing is downloaded.
+- **URL the VLM can fetch** → set `VIDEO_URL=<url>`. Step 3 sends it as a `video_url` block; if the
+  VLM is remote and can't reach the URL, inline it instead (`file_base64`).
+
+Then go straight to Step 2 — **skip the Sensor check**.
+
+### Path B — resolve from VST/VIOS (optional)
+
+When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage` to:
+
+1. Confirm the named `<sensor-id>` exists (handled by the *Sensor check* above — required on
+   this path).
+2. Fetch `/storage/<streamId>/timelines` for the recorded range when the user did not name a
+   specific segment.
+3. Request a clip URL (default to the full recorded range when the user did not ask about a
+   specific time window):
+
+   ```bash
+   curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
+   ```
+
+   Bind the result to `VIDEO_URL` (a direct `mp4` URL) and capture `CLIP_SECONDS`
+   (endTime − startTime; default `15` if you analyzed the whole short clip).
+
+Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
+target VLM — **Step 3 picks the right upload format**. A **local / in-cluster** VLM can usually
+fetch `VIDEO_URL` directly; a **remote** VLM generally cannot reach `localhost`, a private
+`HOST_IP`, or VST-internal URLs, so Step 3 downloads the clip and sends it inline (full-file
+base64). A user-supplied `VIDEO_FILE` (Path A) is always inlined — there is no URL to fetch.
+
+---
+
+## Step 2 — Resolve the VLM endpoint and model
+
+If the caller already provides a VLM endpoint, use it directly — this skill only requires a
+reachable OpenAI-compatible `chat/completions` endpoint:
 
 ```bash
-# Set from deployment (compose / .env / host where vss-agent listens)
-export VSS_AGENT_BASE_URL="http://localhost:8000"
-
-curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"input_message": "Call video_understanding tool to answer the following question about <sensor-id>: <user query>"}' | jq .
+# Caller-provided (preferred when the full agent stack is not deployed):
+#   VLM_ENDPOINT  e.g. http://${HOST_IP}:30082/v1   (must end in /v1)
+#   VLM_MODEL     e.g. nvidia/cosmos-reason1-7b
 ```
 
-### Response contract and extraction
+Otherwise auto-discover the live endpoint from the running `vss-agent` container. The deploy may
+serve the VLM through either of two OpenAI-compatible stacks — read the live values, do not guess.
 
-`/generate` returns a JSON object with the assistant output in `value`, for example:
-
-```json
-{"value":"<agent-think><agent-think-step ...>...</agent-think-step></agent-think>\n\n<final answer>\n\n"}
-```
-
-There is no separate clean-answer field. The consumable answer is the text in `.value` after removing any `<agent-think>...</agent-think>` block.
-
-Required handling for this skill (and any downstream caller):
-
-1. Read `.value` from the JSON response.
-2. Strip `<agent-think>...</agent-think>` sections wherever they appear.
-3. Return only the remaining final-answer text to the user.
-
-Example extraction:
+Read the agent's env with `docker inspect`, **not** `docker exec`: the `vss-agent` image is
+distroless (no `sh`/`bash`/`printenv` on `PATH`), so `docker exec vss-agent sh -lc …` fails with
+`exec: "sh": executable file not found`. `docker inspect` reads the configured env without a shell:
 
 ```bash
-curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"input_message":"Call video_understanding tool to answer the following question about <sensor-id>: <user query>"}' \
-| jq -r '.value' \
-| python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<agent-think>.*?</agent-think>\s*", "", t, flags=re.S); print(t.strip())'
+# Only when an agent is actually running; otherwise supply VLM_ENDPOINT/VLM_MODEL directly (above).
+if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
+  eval "$(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    | grep -E '^(HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL|RTVI_VLM_MODEL_TO_USE)=' \
+    | sed 's/^/export /')"
+fi
 ```
+
+Selection rule (only when `VLM_ENDPOINT` is not already set):
+
+```bash
+if [ -z "${VLM_ENDPOINT:-}" ]; then
+  if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
+    # RT-VLM (lvs / alerts). The API model id is VLM_NAME (e.g. nim_nvidia_cosmos-reason2-8b_hf-1208)
+    # — it matches RT-VLM's /v1/models and is what the agent itself uses (config rtvi_vlm.model_name:
+    # ${VLM_NAME}). Do NOT use RTVI_VLM_MODEL_TO_USE: it is an RT-VLM *backend selector* (e.g.
+    # "cosmos-reason2"), not an API model id, and it is not even exposed on the vss-agent container.
+    VLM_BACKEND="rtvlm"
+    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
+    [ -z "${VLM_ENDPOINT}" ] && [ -n "${VLM_BASE_URL:-}" ] && VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
+    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:8018/v1"   # lvs/alerts default
+    VLM_MODEL="${VLM_NAME:-${RTVI_VLM_MODEL_TO_USE}}"
+  elif [ -n "${VLM_BASE_URL:-}" ] && [ "${VLM_MODE:-}" != "none" ]; then
+    VLM_BACKEND="nim_cosmos"
+    VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
+    VLM_MODEL="${VLM_NAME}"
+  else
+    VLM_BACKEND="rtvlm"
+    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
+    [ -z "${VLM_ENDPOINT}" ] && [ -n "${VLM_BASE_URL:-}" ] && VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
+    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default
+    VLM_MODEL="${VLM_NAME:-${RTVI_VLM_MODEL_TO_USE}}"
+  fi
+fi
+```
+
+Probe `/v1/models` before sending a chat request to confirm the endpoint is alive and the model
+is loaded:
+
+```bash
+curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | jq -r '.data[].id'
+```
+
+If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to the other backend
+(or surface the error — never silently pick a model that isn't on the server).
+
+---
+
+## Step 3 — Upload the clip in the target VLM's format and ask the question
+
+Send the **user's question** (not a fixed prompt) to the OpenAI-compatible `chat/completions`
+endpoint — but **upload the clip in the format the target VLM/microservice requires**, the same
+way the agent's `video_understanding` tool does (`src/vss_agents/tools/video_understanding.py`,
+`_build_vlm_messages`). There is no one-size-fits-all payload:
+
+**The input you have decides the block** — there's no priority to agonize over; all three work
+if the VLM supports them:
+
+| `UPLOAD_FORMAT` | What it sends | Use when the input is… |
+|---|---|---|
+| `video_url` | a `video_url` block with the URL (the VLM fetches it) | a **URL** the VLM can reach (a VST clip URL, or a user-supplied URL) |
+| `file_base64` | the MP4 inlined as a `data:video/mp4;base64,…` URI | a **local file** (or already-base64 data) — the VLM ingests the video directly |
+
+So: URL → `video_url`; local file / base64 → `file_base64`. Use `file_base64` (not `video_url`)
+whenever the VLM can't fetch the URL — a **remote** VLM that can't reach a `localhost`/internal
+`VIDEO_URL`. Mind the RT-VLM inline-base64 cap (~7.5 MB, `nim_compat.py max_length=10000000`). Set
+`UPLOAD_FORMAT` to force either one.
+
+On a NIM Cosmos **video block** — *both* the `video_url` path and the `file_base64` data-URI
+path — also send `mm_processor_kwargs` / `media_io_kwargs` to match the agent's frame-sampling and
+visual-token budget. This is **required**, not optional: without `media_io_kwargs.num_frames` the
+NIM under-samples the inline MP4 and can return a confident but wrong description (verified against
+`cosmos-reason2-8b`). Read the live `video_understanding` settings if the `vss-agent` container is
+up, else use the documented defaults.
+
+```bash
+USER_QUESTION='<the user's question, verbatim>'
+
+# Reasoning is OFF by default (matches the base-profile video_understanding config: reasoning=false).
+# Append the Cosmos Reason reasoning suffix ONLY when the user explicitly asks for reasoning
+# (and only for cosmos-reason models). With reasoning off, the response has no <think> block.
+PROMPT="${USER_QUESTION}"
+if [ "${REASONING:-false}" = "true" ]; then
+PROMPT="${PROMPT}
+
+Answer the question using the following format:
+
+<think>
+Your reasoning.
+</think>
+
+Write your final answer immediately after the </think> tag."
+fi
+
+# Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly).
+[ -z "${VLM_BACKEND:-}" ] && {
+  case "${VLM_MODEL:-}" in
+    nvidia/cosmos*) VLM_BACKEND="nim_cosmos" ;;
+    *)              VLM_BACKEND="rtvlm" ;;
+  esac
+}
+
+# Pick the format from the input you have (override by setting UPLOAD_FORMAT):
+#   a URL        -> video_url   (the VLM fetches it)
+#   a local file -> file_base64 (inline the MP4 as a data: URI; the VLM ingests the video)
+if [ -z "${UPLOAD_FORMAT:-}" ]; then
+  if [ -n "${VIDEO_URL:-}" ]; then
+    UPLOAD_FORMAT="video_url"
+  elif [ -n "${VIDEO_FILE:-}" ]; then
+    UPLOAD_FORMAT="file_base64"
+  else
+    echo "No video input: set VIDEO_URL (a URL) or VIDEO_FILE (a local path)"; exit 1
+  fi
+fi
+
+# Frame-sampling + visual-token budget — these are the base-profile video_understanding
+# defaults; override via env if your deployment customized them.
+MAX_FPS="${MAX_FPS:-2}"; MAX_FRAMES="${MAX_FRAMES:-30}"
+MIN_PIXELS="${MIN_PIXELS:-3136}"; MAX_PIXELS="${MAX_PIXELS:-8388608}"
+
+# num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
+CLIP_SECONDS=$(awk -v s="${CLIP_SECONDS:-15}" 'BEGIN{printf "%d", s}')
+NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
+[ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
+[ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
+
+# When the clip must be inlined, work from a local file: use a user-supplied VIDEO_FILE
+# (Path A) as-is, otherwise download VIDEO_URL (Path B) once.
+LOCAL_CLIP="${VIDEO_FILE:-}"
+if [ -z "$LOCAL_CLIP" ] && [ "$UPLOAD_FORMAT" = "file_base64" ]; then
+  LOCAL_CLIP=/tmp/ask_video_clip.mp4
+  curl -sf --max-time 300 "${VIDEO_URL}" -o "$LOCAL_CLIP" || { echo "Failed to fetch clip for inline upload"; exit 1; }
+fi
+
+# Build the media content block(s) per UPLOAD_FORMAT. (base64 -w0 is GNU coreutils.)
+MM_KWARGS=""
+case "$UPLOAD_FORMAT" in
+  video_url)
+    [ -n "${VIDEO_URL:-}" ] || { echo "UPLOAD_FORMAT=video_url needs a fetchable VIDEO_URL — for a local VIDEO_FILE use file_base64"; exit 1; }
+    MEDIA_CONTENT="{\"type\": \"video_url\", \"video_url\": {\"url\": $(jq -n --arg u "${VIDEO_URL}" '$u')}}"
+    ;;
+  file_base64)
+    B64=$(base64 -w0 "$LOCAL_CLIP")
+    MEDIA_CONTENT="{\"type\": \"video_url\", \"video_url\": {\"url\": \"data:video/mp4;base64,${B64}\"}}"
+    ;;
+esac
+
+# Cosmos NIM frame-sampling + visual-token budget. REQUIRED on both video-block paths
+# (`video_url` AND `file_base64` data-URI): without `media_io_kwargs.num_frames` the NIM
+# under-samples the inline MP4 and can hallucinate (verified on cosmos-reason2-8b). Not needed
+# for RT-VLM (preprocesses server-side).
+if [ "${VLM_BACKEND}" = "nim_cosmos" ] && { [ "$UPLOAD_FORMAT" = "video_url" ] || [ "$UPLOAD_FORMAT" = "file_base64" ]; }; then
+  case "$VLM_MODEL" in
+    *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+    *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
+  esac
+fi
+
+curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d @- <<EOF | jq -r '.choices[0].message.content'
+{
+  "model": $(jq -n --arg m "${VLM_MODEL}" '$m'),
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": $(jq -n --arg t "${PROMPT}" '$t')},
+        ${MEDIA_CONTENT}
+      ]
+    }
+  ],
+  "max_tokens": 1024,
+  "temperature": 0.0${MM_KWARGS}
+}
+EOF
+```
+
+---
+
+## Step 4 — Return the answer
+
+Return only the VLM's answer text to the user.
+
+- If the response contains a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only
+  the text after `</think>`.
+- Do not wrap the answer in a report template — this skill returns the plain answer (light
+  markdown is fine).
+
+---
+
+## Examples
+
+- "What's happening in this clip? `/home/me/forklift.mp4`" → **no VST/VIOS**: set
+  `VIDEO_FILE`, inline it as a base64 video block (Path A), call the VLM, return the answer.
+- "Is the worker wearing PPE? `https://example.com/clip.mp4`" → set `VIDEO_URL` (Path A); a
+  local VLM fetches it directly, a remote VLM gets it inlined.
+- "Is the worker in `warehouse_safety_0001` wearing PPE?" → sensor name → VST/VIOS (Path B):
+  resolve clip URL, call the VLM, return the answer.
+- "At what timestamp did the worker climb the ladder?" → same VST path; the answer includes a timestamp.
+- "What color is the truck at 00:12 in `dock_cam`?" → VST path; resolve the segment around 00:12, call the VLM.
+
+---
+
+## Error Handling
+
+- If a probe, `curl`, or VLM call fails, stop and report the failing endpoint, HTTP status or
+  command error, and the next useful recovery step. Do not fabricate an answer.
+- If **no video is available** (neither `VIDEO_FILE` nor `VIDEO_URL`, and no sensor to resolve),
+  stop and ask the user for a file or URL — do not call the VLM without a video.
+- If `UPLOAD_FORMAT=video_url` but only a local `VIDEO_FILE` was provided, switch to
+  `file_base64` — there is no URL for the VLM to fetch.
+- If `/v1/models` succeeds but `${VLM_MODEL}` is not listed, fall back to the other backend or
+  surface the mismatch — never send a chat request for a model the server has not loaded.
+- If the VLM endpoint is **remote** and `VIDEO_URL` is a `localhost` / private-`HOST_IP` /
+  VST-internal URL, do **not** send a `video_url` block — Step 3 inlines the media instead
+  (`UPLOAD_FORMAT=file_base64`). Only surface an error if the inline upload itself fails
+  (download error, `base64` missing, or payload rejected as too large).
+- If the VLM response is empty, malformed, or contains only a reasoning block, surface that
+  response problem and suggest checking model readiness/logs before retrying.
 
 ---
 
 ## Cross-Reference
 
-- **vss-manage-video-io-storage** — VST storage/replay URLs so **`VIDEO_URL`** is valid for the VLM.
-- **vss-generate-video-report** — timestamped **reports** via **Mode A (direct VLM)** or **Mode B (video-analytics incidents)**; this skill is **VSS-agent `/generate`** for ad-hoc **video Q&A**.
+- **`/vss-manage-video-io-storage`** — *optional* (Step 1, Path B): sensor list, timelines, and
+  the clip URL when sourcing the video from VST/VIOS. Not needed when the user supplies the video.
+- **`/vss-generate-video-report`** — timestamped **reports** via Mode A (the same direct-VLM
+  mechanism) or Mode B (video-analytics incidents); this skill returns an ad-hoc **answer**, not a report.
+- **`/vss-query-analytics`** — read already-computed incidents/metrics (no live VLM inference).
