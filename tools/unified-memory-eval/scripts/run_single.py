@@ -27,6 +27,8 @@ from typing import Any
 DEFAULT_LVS_BACKEND_URL = "http://127.0.0.1:38112"
 DEFAULT_VIDEO_URL_TEMPLATE = "{video_name}.mp4"
 DEFAULT_VLM_MODEL = "nim_nvidia_cosmos-reason2-8b_hf-1208"
+DEFAULT_QUESTION_DIR = Path("questions")
+DEFAULT_RESULTS_DIR = Path("results")
 QUESTION_CATEGORIES = ("within_event", "entity_relational", "temporal")
 
 
@@ -124,21 +126,41 @@ def run_shell(command: list[str], log_path: Path, timeout: int) -> str:
 # =============================================================================
 
 
-def discover_question_files(questions_dir: Path, question_file: Path | None = None) -> list[Path]:
+def discover_question_files(
+    question_dir: Path | None = None,
+    question_file: Path | None = None,
+) -> list[Path]:
+    if question_dir is not None and question_file is not None:
+        raise ValueError("--question-file and --question-dir are mutually exclusive")
+
     if question_file is not None:
         candidate = question_file.expanduser()
         if not candidate.is_absolute() and not candidate.is_file():
-            candidate = questions_dir / candidate
+            candidate = DEFAULT_QUESTION_DIR / candidate
         if not candidate.is_file():
             raise FileNotFoundError(f"Question file not found: {candidate}")
         if candidate.suffix != ".json":
             raise ValueError(f"Single-video question file must be JSON: {candidate}")
         return [candidate]
 
-    files = sorted(questions_dir.glob("*_eval.json"))
-    if not files:
-        raise FileNotFoundError(f"No *_eval.json files found in {questions_dir}")
-    return files
+    resolved_dir = (question_dir or DEFAULT_QUESTION_DIR).expanduser()
+    if not resolved_dir.is_dir():
+        raise FileNotFoundError(f"Question directory not found: {resolved_dir}")
+
+    files = set(resolved_dir.glob("*_eval.json"))
+    for candidate in resolved_dir.glob("*.json"):
+        if candidate in files:
+            continue
+        try:
+            value = json.loads(candidate.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and "video_id" in value and "questions" in value:
+            files.add(candidate)
+    discovered = sorted(files)
+    if not discovered:
+        raise FileNotFoundError(f"No single-video question files found in {resolved_dir}")
+    return discovered
 
 
 def resolve_video_name(question_file: Path, embedded_video_id: str | None = None) -> str:
@@ -715,15 +737,18 @@ def write_total_report_md(path: Path, total: dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--eval-root", type=Path, default=Path.home() / "eval")
-    parser.add_argument(
+    question_source = parser.add_mutually_exclusive_group()
+    question_source.add_argument(
         "--question-file",
         type=Path,
-        help=(
-            "Run only this *_eval.json file. Relative filenames are resolved from "
-            "<eval-root>/questions unless they already exist relative to the current directory."
-        ),
+        help="Run one single-video question JSON file.",
     )
+    question_source.add_argument(
+        "--question-dir",
+        type=Path,
+        help="Run every valid single-video question JSON file in this directory.",
+    )
+    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--run-id")
     parser.add_argument("--lvs-backend-url", default=os.environ.get("LVS_BACKEND_URL", DEFAULT_LVS_BACKEND_URL))
     parser.add_argument("--video-url-template", default=os.environ.get("VIDEO_URL_TEMPLATE", DEFAULT_VIDEO_URL_TEMPLATE))
@@ -739,10 +764,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    questions_dir = args.eval_root / "questions"
-    results_root = args.eval_root / "results"
-    question_files = discover_question_files(questions_dir, args.question_file)
-    run_id, run_dir = make_run_dir(results_root, args.run_id)
+    question_files = discover_question_files(args.question_dir, args.question_file)
+    run_id, run_dir = make_run_dir(args.results_dir, args.run_id)
     debug_dir = run_dir / "debug"
     debug_dir.mkdir(parents=True, exist_ok=True)
     log(f"Run directory: {run_dir}")

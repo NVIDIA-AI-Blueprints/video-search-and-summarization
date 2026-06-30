@@ -29,27 +29,26 @@ class DiscoverQuestionFilesTest(TestCase):
 
             self.assertEqual(discover_question_files(questions_dir), [first, second])
 
-    def test_resolves_selected_filename_from_questions_dir(self) -> None:
+    def test_accepts_selected_question_file(self) -> None:
         with TemporaryDirectory() as temp_dir:
-            questions_dir = Path(temp_dir)
-            selected = questions_dir / "video_2_eval.json"
+            selected = Path(temp_dir) / "video_2_eval.json"
             selected.touch()
 
-            self.assertEqual(discover_question_files(questions_dir, Path(selected.name)), [selected])
+            self.assertEqual(discover_question_files(question_file=selected), [selected])
 
     def test_accepts_explicit_question_file_path(self) -> None:
         with TemporaryDirectory() as temp_dir:
             selected = Path(temp_dir) / "video_2_eval.json"
             selected.touch()
 
-            self.assertEqual(discover_question_files(Path("unused"), selected), [selected])
+            self.assertEqual(discover_question_files(question_file=selected), [selected])
 
     def test_accepts_explicit_non_eval_json(self) -> None:
         with TemporaryDirectory() as temp_dir:
             selected = Path(temp_dir) / "new-body-cam1.json"
             selected.touch()
 
-            self.assertEqual(discover_question_files(Path(temp_dir), selected), [selected])
+            self.assertEqual(discover_question_files(question_file=selected), [selected])
 
     def test_rejects_explicit_non_json_file(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -57,12 +56,28 @@ class DiscoverQuestionFilesTest(TestCase):
             selected.touch()
 
             with self.assertRaisesRegex(ValueError, "must be JSON"):
-                discover_question_files(Path(temp_dir), selected)
+                discover_question_files(question_file=selected)
 
     def test_reports_missing_selected_file(self) -> None:
         with TemporaryDirectory() as temp_dir:
             with self.assertRaisesRegex(FileNotFoundError, "Question file not found"):
-                discover_question_files(Path(temp_dir), Path("missing_eval.json"))
+                discover_question_files(question_file=Path(temp_dir) / "missing_eval.json")
+
+    def test_discovers_custom_metadata_file_and_ignores_cross_file(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            question_dir = Path(temp_dir)
+            custom = question_dir / "custom.json"
+            custom.write_text('{"video_id":"video","questions":[]}', encoding="utf-8")
+            (question_dir / "cross.json").write_text(
+                '[{"scenario_id":"s1","turn_id":1,"family":"locator","question":"q"}]',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(discover_question_files(question_dir=question_dir), [custom])
+
+    def test_rejects_mixed_file_and_directory_selectors(self) -> None:
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            discover_question_files(Path("questions"), Path("question.json"))
 
 
 class VideoNameTest(TestCase):

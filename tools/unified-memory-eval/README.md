@@ -53,7 +53,16 @@ VIDEO_URL_TEMPLATE={video_name}.mp4
 VLM_NAME=cosmos-reason1
 ```
 
-5. Choose and copy eval tasks from `./examples/questions` into `./questions`, or create your own JSON question files. Legacy `*_eval.json` files contain a top-level question array and derive the video ID from the filename. Custom-named single-video files contain `video_id` plus a `questions` array. Single-video rows require a `category` of `within_event`, `entity_relational`, or `temporal`, and use JSON arrays for `expected_event_ids`. In cross-conversation files, use arrays for `expected_video_ids` and an object mapping each video ID to an event-ID array for `expected_event_ids`.
+5. Choose and copy eval tasks from `./examples/questions` into `./questions`, or create your own JSON question files. The examples are grouped by eval design:
+
+```text
+examples/questions/
+  legacy-single/       # Original focused single-video question sets
+  categorized-single/  # Balanced within-event, entity-relational, and temporal sets
+  cross-incidents/     # Cross-conversation scenario sets
+```
+
+Legacy `*_eval.json` files contain a top-level question array and derive the video ID from the filename. Custom-named single-video files contain `video_id` plus a `questions` array. Single-video rows require a `category` of `within_event`, `entity_relational`, or `temporal`, and use JSON arrays for `expected_event_ids`. In cross-conversation files, use arrays for `expected_video_ids` and an object mapping each video ID to an event-ID array for `expected_event_ids`.
 
 ### Launch frozen summarization server
 
@@ -99,17 +108,20 @@ nohup uv run uvicorn frozen_summarization_server.app:app \
 
 ### Run evals
 
-From this folder, point `--eval-root` here so scripts use the local `questions/` and write local `results/`.
+From this folder, both runners read `questions/` and write `results/` by default. Use either
+`--question-file` for one input or `--question-dir` for every valid input of that runner's type.
+Those two selectors are mutually exclusive. Use `--results-dir` independently to change the output root.
 
 1. Run evals scoped to a single video. Also save summaries to openclaw memory as these run:
 ```bash
-uv run python scripts/run_single.py --eval-root . --save-memory
+uv run python scripts/run_single.py --question-dir questions/legacy-single --results-dir results --save-memory
 ```
 
 2. Run evals that are cross-conversations and use memory from earlier conversations:
 ```
 uv run python scripts/run_cross.py \
-  --eval-root . \
+  --question-file questions/cross-incidents/cross-incidents.json \
+  --results-dir results \
   --skip-ingest
 ```
 
@@ -120,23 +132,22 @@ For details, view the machine-readable data `total.json`, `report.json`.
 Other modes:
 
 ```bash
-uv run python scripts/run_single.py --eval-root . --save-memory
+uv run python scripts/run_single.py --question-dir questions/legacy-single --save-memory
 
 # Run only one single-video question JSON file for faster iteration.
-# Relative filenames are looked up under <eval-root>/questions;
-# existing relative paths and absolute paths are also accepted.
 uv run python scripts/run_single.py \
-  --eval-root . \
-  --question-file log_1083757_body-cam_video_2_eval.json \
+  --question-file questions/legacy-single/log_1083757_body-cam_video_2_eval.json \
+  --results-dir results \
   --save-memory
 
 # Custom filenames carry their source video ID in the JSON file.
 uv run python scripts/run_single.py \
-  --eval-root . \
-  --question-file examples/questions/new-body-cam1.json
+  --question-file examples/questions/categorized-single/new-body-cam1.json \
+  --results-dir results
 
-uv run python scripts/run_cross.py --eval-root . --reset-memory
-uv run python scripts/run_cross.py --eval-root . --skip-ingest
+# Directory discovery is schema-aware: each runner ignores files belonging to the other eval type.
+uv run python scripts/run_cross.py --question-dir questions/cross-incidents --results-dir results --reset-memory
+uv run python scripts/run_cross.py --question-dir questions/cross-incidents --results-dir results --skip-ingest
 ```
 
 ## References

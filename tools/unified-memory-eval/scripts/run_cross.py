@@ -27,7 +27,8 @@ from typing import Any
 # =============================================================================
 
 DEFAULT_SUMMARY_DIR = Path(__file__).resolve().parents[1] / "frozen_summarization_server" / "data"
-DEFAULT_QUESTION_FILE = Path("questions/cross-incidents.json")
+DEFAULT_QUESTION_DIR = Path("questions")
+DEFAULT_RESULTS_DIR = Path("results")
 
 
 def log(message: str) -> None:
@@ -41,6 +42,61 @@ def read_json_rows(path: Path) -> list[dict[str, Any]]:
     if not all(isinstance(row, dict) for row in value):
         raise ValueError(f"Every question must be a JSON object: {path}")
     return value
+
+
+def discover_question_files(
+    question_dir: Path | None = None,
+    question_file: Path | None = None,
+) -> list[Path]:
+    if question_dir is not None and question_file is not None:
+        raise ValueError("--question-file and --question-dir are mutually exclusive")
+
+    if question_file is not None:
+        candidate = question_file.expanduser()
+        if not candidate.is_absolute() and not candidate.is_file():
+            candidate = DEFAULT_QUESTION_DIR / candidate
+        if not candidate.is_file():
+            raise FileNotFoundError(f"Question file not found: {candidate}")
+        if candidate.suffix != ".json":
+            raise ValueError(f"Cross-video question file must be JSON: {candidate}")
+        return [candidate]
+
+    resolved_dir = (question_dir or DEFAULT_QUESTION_DIR).expanduser()
+    if not resolved_dir.is_dir():
+        raise FileNotFoundError(f"Question directory not found: {resolved_dir}")
+
+    files: list[Path] = []
+    required_keys = {"scenario_id", "turn_id", "family", "question"}
+    for candidate in sorted(resolved_dir.glob("*.json")):
+        try:
+            value = json.loads(candidate.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(value, list)
+            and value
+            and all(isinstance(row, dict) and required_keys <= set(row) for row in value)
+        ):
+            files.append(candidate)
+    if not files:
+        raise FileNotFoundError(f"No cross-video question files found in {resolved_dir}")
+    return files
+
+
+def load_question_files(question_files: list[Path]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    scenario_sources: dict[str, Path] = {}
+    for question_file in question_files:
+        file_rows = read_json_rows(question_file)
+        for scenario_id in {str(row.get("scenario_id", "")) for row in file_rows}:
+            previous = scenario_sources.get(scenario_id)
+            if previous is not None:
+                raise ValueError(
+                    f"Scenario {scenario_id!r} appears in both {previous} and {question_file}"
+                )
+            scenario_sources[scenario_id] = question_file
+        rows.extend(file_rows)
+    return rows
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -660,8 +716,18 @@ def write_report(path: Path, report_json: dict[str, Any], rows: list[dict[str, A
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--eval-root", type=Path, default=Path.home() / "eval")
-    parser.add_argument("--question-file", type=Path, default=None)
+    question_source = parser.add_mutually_exclusive_group()
+    question_source.add_argument(
+        "--question-file",
+        type=Path,
+        help="Run one cross-video question JSON file.",
+    )
+    question_source.add_argument(
+        "--question-dir",
+        type=Path,
+        help="Run every valid cross-video question JSON file in this directory.",
+    )
+    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--summary-dir", type=Path, default=DEFAULT_SUMMARY_DIR)
     parser.add_argument("--run-id")
     parser.add_argument("--openclaw-model", default=os.environ.get("OPENCLAW_MODEL", "openai/gpt-5.5"))
@@ -678,9 +744,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    question_file = args.question_file or args.eval_root / DEFAULT_QUESTION_FILE
-    results_root = args.eval_root / "results"
-    run_id, run_dir = make_run_dir(results_root, args.run_id)
+    question_files = discover_question_files(args.question_dir, args.question_file)
+    run_id, run_dir = make_run_dir(args.results_dir, args.run_id)
     debug_dir = run_dir / "debug"
     debug_dir.mkdir(parents=True, exist_ok=True)
     log(f"Run directory: {run_dir}")
@@ -688,7 +753,7 @@ def main() -> int:
     summaries = load_summaries(args.summary_dir)
     log(f"Loaded {len(summaries)} summaries from {args.summary_dir}")
 
-    question_rows = read_json_rows(question_file)
+    question_rows = load_question_files(question_files)
     grouped = group_scenarios(question_rows)
     warnings = validate_questions(question_rows, summaries)
     validation_path = debug_dir / "validation_warnings.txt"
