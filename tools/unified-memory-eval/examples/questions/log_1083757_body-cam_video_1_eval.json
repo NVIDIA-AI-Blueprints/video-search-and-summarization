@@ -1,0 +1,105 @@
+[
+  {
+    "qid": 1,
+    "question": "Where does the opening vehicle stop take place, and what is visible around the stopped vehicle?",
+    "expected_answer_target": "A nighttime gas station stop near a fuel pump, with vehicle lights, pumps, signage, and streetlight reflections visible.",
+    "expected_event_ids": [
+      1
+    ]
+  },
+  {
+    "qid": 2,
+    "question": "Which event describes a person in a red jacket raising their hands in compliance inside the vehicle during the arrest?",
+    "expected_answer_target": "The red-jacketed person raises their hands while officers restrain another occupant inside the vehicle.",
+    "expected_event_ids": [
+      2
+    ]
+  },
+  {
+    "qid": 3,
+    "question": "Which events directly show the red-jacketed individual being restrained, repositioned, and searched inside or beside the vehicle early in the video?",
+    "expected_answer_target": "The red-jacketed individual is physically controlled, moved, and searched during the early vehicle interaction.",
+    "expected_event_ids": [
+      3,
+      4,
+      5
+    ]
+  },
+  {
+    "qid": 4,
+    "question": "Which event describes two officers restraining a person in a red shirt and applying handcuffs near a trash can and red pole?",
+    "expected_answer_target": "Two officers restrain the individual outdoors at night and apply handcuffs.",
+    "expected_event_ids": [
+      12
+    ]
+  },
+  {
+    "qid": 5,
+    "question": "Which event describes a handcuffed person in a red jacket with white stripes being searched on the ground by someone in a plaid shirt?",
+    "expected_answer_target": "A handcuffed person on the ground has their upper body and clothing searched by a plaid-shirted individual, with another person assisting.",
+    "expected_event_ids": [
+      13
+    ]
+  },
+  {
+    "qid": 6,
+    "question": "Which event shows an officer using a flashlight to inspect both a silver sedan and a white car with driver doors open?",
+    "expected_answer_target": "The officer conducts a post-arrest vehicle inspection of the sedan and white car, including the rear wheel area.",
+    "expected_event_ids": [
+      17
+    ]
+  },
+  {
+    "qid": 7,
+    "question": "Which events establish the short sequence where a vehicle search begins, items are removed, and the interior search continues around the 393-399 second mark?",
+    "expected_answer_target": "An officer starts searching the vehicle, removes items, then continues examining seats and storage areas.",
+    "expected_event_ids": [
+      29,
+      30,
+      31
+    ]
+  },
+  {
+    "qid": 8,
+    "question": "Which events show an officer interacting with a seated driver at the white sedan and reaching into the driver-side area?",
+    "expected_answer_target": "The officer approaches the white sedan, engages the seated driver, and reaches into the driver-side area to search or retrieve items.",
+    "expected_event_ids": [
+      34,
+      35,
+      38
+    ]
+  },
+  {
+    "qid": 9,
+    "question": "Which event describes officers removing multiple items from a vehicle or driver and placing seized materials into evidence bags or containers?",
+    "expected_answer_target": "Officers retrieve multiple objects and secure/document seized materials in evidence bags or containers.",
+    "expected_event_ids": [
+      36
+    ]
+  },
+  {
+    "qid": 10,
+    "question": "Does the event set directly state that a firearm was recovered from the vehicle or suspect?",
+    "expected_answer_target": "No firearm recovery is directly described; this is supported by absence across the event set.",
+    "expected_event_ids": []
+  },
+  {
+    "qid": 11,
+    "question": "Which events across the entire video describe body searches, pat-downs, or searches of a restrained person's clothing or body?",
+    "expected_answer_target": "All events that describe officers searching a person's body, clothing, arms, waist, torso, limbs, or personal items.",
+    "expected_event_ids": [
+      3,
+      8,
+      13,
+      16,
+      19,
+      21,
+      22,
+      24,
+      26,
+      33,
+      41,
+      45
+    ]
+  }
+]

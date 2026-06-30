@@ -4,7 +4,7 @@ Small eval harness for VSS/OpenClaw memory experiments.
 
 It contains:
 
-- `questions/`: TSV eval questions for single-video QA and cross-conversation memory scenarios.
+- `questions/`: JSON eval questions for single-video QA and cross-conversation memory scenarios.
 - `frozen_summarization_server/`: LVS-compatible frozen summary replay server and BWC fixtures.
 - `scripts/run_single.py`: single-video summary + follow-up QA eval.
 - `scripts/run_cross.py`: cross-conversation memory eval with locator, follow-up, and comparison turns.
@@ -53,7 +53,7 @@ VIDEO_URL_TEMPLATE={video_name}.mp4
 VLM_NAME=cosmos-reason1
 ```
 
-5. Choose and copy over eval tasks from `./example/questions` into `./questions`. Or generate/create your own questions in this format, and place them in `./questions`.
+5. Choose and copy eval tasks from `./examples/questions` into `./questions`, or create your own JSON question files. Each file contains a top-level array of question objects. Use JSON arrays for `expected_event_ids` in single-video files. In cross-conversation files, use arrays for `expected_video_ids` and an object mapping each video ID to an event-ID array for `expected_event_ids`.
 
 ### Launch frozen summarization server
 
@@ -122,12 +122,12 @@ Other modes:
 ```bash
 uv run python scripts/run_single.py --eval-root . --save-memory
 
-# Run only one single-video question TSV for faster iteration.
+# Run only one single-video question JSON file for faster iteration.
 # Relative filenames are looked up under <eval-root>/questions;
 # existing relative paths and absolute paths are also accepted.
 uv run python scripts/run_single.py \
   --eval-root . \
-  --question-file log_1083757_body-cam_video_2_eval.tsv \
+  --question-file log_1083757_body-cam_video_2_eval.json \
   --save-memory
 
 uv run python scripts/run_cross.py --eval-root . --reset-memory

@@ -2,42 +2,53 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Score one VSS question-answer TSV against its ground-truth question TSV."""
+"""Score one VSS JSON answer set against its ground-truth JSON questions."""
 
 from __future__ import annotations
 
 import argparse
-import csv
 import json
-import re
 from pathlib import Path
+from typing import Any
 
 
-ID_RE = re.compile(r"\d+")
-
-
-def parse_ids(value: str | None) -> set[int]:
-    if not value:
+def parse_ids(value: Any) -> set[int]:
+    if value is None:
         return set()
-    return {int(match.group(0)) for match in ID_RE.finditer(value)}
+    if not isinstance(value, list) or not all(type(event_id) is int for event_id in value):
+        raise ValueError("Event IDs must be a JSON array of integers")
+    return set(value)
 
 
-def norm_key(row: dict[str, str], *names: str) -> str:
+def norm_value(row: dict[str, Any], *names: str) -> Any:
     lowered = {key.strip().lower().replace(" ", "_"): value for key, value in row.items()}
     for name in names:
         key = name.strip().lower().replace(" ", "_")
         if key in lowered:
-            return lowered[key].strip()
-    return ""
+            return lowered[key]
+    return None
 
 
-def read_tsv(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle, delimiter="\t"))
+def norm_text(row: dict[str, Any], *names: str) -> str:
+    value = norm_value(row, *names)
+    return "" if value is None else str(value).strip()
 
 
-def boolish(value: str) -> bool | None:
-    lowered = value.strip().lower()
+def read_json_rows(path: Path) -> list[dict[str, Any]]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, list):
+        raise ValueError(f"Input file must contain a JSON array: {path}")
+    if not all(isinstance(row, dict) for row in value):
+        raise ValueError(f"Every input row must be a JSON object: {path}")
+    return value
+
+
+def boolish(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    lowered = str(value).strip().lower()
     if lowered in {"true", "yes", "1", "y"}:
         return True
     if lowered in {"false", "no", "0", "n"}:
@@ -89,9 +100,9 @@ def compare_one(
     report: Path,
     metrics_json: Path,
 ) -> dict:
-    question_rows = read_tsv(questions)
-    answer_rows = read_tsv(answers)
-    answers_by_qid = {norm_key(row, "qid", "qID", "QID"): row for row in answer_rows}
+    question_rows = read_json_rows(questions)
+    answer_rows = read_json_rows(answers)
+    answers_by_qid = {norm_text(row, "qid"): row for row in answer_rows}
 
     scored_rows: list[dict] = []
     total_questions = len(question_rows)
@@ -105,15 +116,15 @@ def compare_one(
     missing_ids_count = 0
 
     for qrow in question_rows:
-        qid = norm_key(qrow, "qid")
-        question = norm_key(qrow, "question")
-        target = norm_key(qrow, "expected_answer_target")
-        expected_ids = parse_ids(norm_key(qrow, "expected_event_ids"))
+        qid = norm_text(qrow, "qid")
+        question = norm_text(qrow, "question")
+        target = norm_text(qrow, "expected_answer_target")
+        expected_ids = parse_ids(norm_value(qrow, "expected_event_ids"))
         arow = answers_by_qid.get(qid, {})
-        answer = norm_key(arow, "answer")
-        cited_ids = parse_ids(norm_key(arow, "cited_ids", "cited_event_ids"))
-        answer_match = boolish(norm_key(arow, "answer_match", "answer_matches_expected"))
-        notes = norm_key(arow, "notes", "answer_match_notes")
+        answer = norm_text(arow, "answer")
+        cited_ids = parse_ids(norm_value(arow, "cited_ids", "cited_event_ids", "predicted_event_ids"))
+        answer_match = boolish(norm_value(arow, "answer_match", "answer_matches_expected", "answer_accuracy"))
+        notes = norm_text(arow, "notes", "answer_match_notes", "judge_notes")
 
         intersection = expected_ids & cited_ids
         extras = cited_ids - expected_ids

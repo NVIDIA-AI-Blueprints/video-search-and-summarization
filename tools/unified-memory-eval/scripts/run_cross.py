@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 import re
@@ -28,16 +27,20 @@ from typing import Any
 # =============================================================================
 
 DEFAULT_SUMMARY_DIR = Path(__file__).resolve().parents[1] / "frozen_summarization_server" / "data"
-DEFAULT_QUESTION_FILE = Path("questions/cross-incidents.tsv")
+DEFAULT_QUESTION_FILE = Path("questions/cross-incidents.json")
 
 
 def log(message: str) -> None:
     print(message, flush=True)
 
 
-def read_tsv(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle, delimiter="\t"))
+def read_json_rows(path: Path) -> list[dict[str, Any]]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, list):
+        raise ValueError(f"Question file must contain a JSON array: {path}")
+    if not all(isinstance(row, dict) for row in value):
+        raise ValueError(f"Every question must be a JSON object: {path}")
+    return value
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -45,8 +48,11 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
-def normalize_row(row: dict[str, str]) -> dict[str, str]:
-    return {key.strip().lower().replace(" ", "_"): value.strip() for key, value in row.items()}
+def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key.strip().lower().replace(" ", "_"): value.strip() if isinstance(value, str) else value
+        for key, value in row.items()
+    }
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -132,35 +138,33 @@ def split_csv(value: str | None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def parse_expected_video_ids(value: str | None) -> list[str]:
-    return split_csv(value)
+def parse_expected_video_ids(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(video_id, str) for video_id in value):
+        raise ValueError("expected_video_ids must be a JSON array of strings")
+    return [video_id.strip() for video_id in value if video_id.strip()]
 
 
 def parse_id_list(value: str) -> list[int]:
     return [int(match.group(0)) for match in re.finditer(r"\d+", value)]
 
 
-def parse_expected_evidence(value: str | None, expected_video_ids: list[str]) -> set[tuple[str, int]]:
-    """Parse either bare IDs or grouped video:id syntax from TSV expected_event_ids."""
-    if not value:
+def parse_expected_evidence(value: Any, expected_video_ids: list[str]) -> set[tuple[str, int]]:
+    """Parse the {video_id: [event_id]} expected-evidence JSON object."""
+    if value is None:
         return set()
-    text = value.strip()
+    if not isinstance(value, dict):
+        raise ValueError("expected_event_ids must be a JSON object mapping video IDs to integer arrays")
+    unexpected_videos = set(value) - set(expected_video_ids)
+    if unexpected_videos:
+        raise ValueError(f"expected_event_ids contains videos not listed in expected_video_ids: {unexpected_videos}")
     evidence: set[tuple[str, int]] = set()
-    if ":" in text:
-        for group in text.split(";"):
-            if ":" not in group:
-                continue
-            video_id, ids = group.split(":", 1)
-            video_id = video_id.strip()
-            for event_id in parse_id_list(ids):
-                evidence.add((video_id, event_id))
-        return evidence
-    if not expected_video_ids:
-        return set()
-    if len(expected_video_ids) == 1:
-        return {(expected_video_ids[0], event_id) for event_id in parse_id_list(text)}
-    # Ambiguous ungrouped multi-video evidence should not happen, but keep it scoreable.
-    return {(video_id, event_id) for video_id in expected_video_ids for event_id in parse_id_list(text)}
+    for video_id, event_ids in value.items():
+        if not isinstance(event_ids, list) or not all(type(event_id) is int for event_id in event_ids):
+            raise ValueError("expected_event_ids values must be JSON arrays of integers")
+        evidence.update((str(video_id), event_id) for event_id in event_ids)
+    return evidence
 
 
 def parse_predicted_video_ids(value: Any) -> list[str]:
@@ -245,8 +249,8 @@ def load_summaries(summary_dir: Path) -> dict[str, Any]:
     return summaries
 
 
-def group_scenarios(rows: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
-    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
+def group_scenarios(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for raw in rows:
         row = normalize_row(raw)
         grouped[row["scenario_id"]].append(row)
@@ -258,7 +262,7 @@ def group_scenarios(rows: list[dict[str, str]]) -> dict[str, list[dict[str, str]
     return dict(sorted(grouped.items()))
 
 
-def validate_questions(rows: list[dict[str, str]], summaries: dict[str, Any]) -> list[str]:
+def validate_questions(rows: list[dict[str, Any]], summaries: dict[str, Any]) -> list[str]:
     warnings: list[str] = []
     video_ids = set(summaries)
     for raw in rows:
@@ -418,7 +422,7 @@ def seed_scenario_context(
 
 
 def answer_cross_question(
-    row: dict[str, str],
+    row: dict[str, Any],
     session_key: str,
     model: str,
     timeout: int,
@@ -684,7 +688,7 @@ def main() -> int:
     summaries = load_summaries(args.summary_dir)
     log(f"Loaded {len(summaries)} summaries from {args.summary_dir}")
 
-    question_rows = read_tsv(question_file)
+    question_rows = read_json_rows(question_file)
     grouped = group_scenarios(question_rows)
     warnings = validate_questions(question_rows, summaries)
     validation_path = debug_dir / "validation_warnings.txt"
@@ -744,12 +748,12 @@ def main() -> int:
 
             turn_id = int(row["turn_id"])
             locator_accuracy: int | None = None
-            if row["turn_id"] == "1":
+            if turn_id == 1:
                 locator_accuracy = 1 if set(expected_videos).issubset(set(predicted_videos)) else 0
 
             answer_accuracy: int | None = None
             notes = ""
-            if row["turn_id"] != "1" and not args.skip_judge:
+            if turn_id != 1 and not args.skip_judge:
                 log(f"  {scenario_id} T{row['turn_id']}: judging")
                 answer_match, notes = judge_answer(
                     row.get("question", ""),
@@ -759,7 +763,7 @@ def main() -> int:
                     args.judge_timeout,
                 )
                 answer_accuracy = 1 if answer_match else 0
-            elif row["turn_id"] != "1" and args.skip_judge:
+            elif turn_id != 1 and args.skip_judge:
                 notes = "judge skipped"
 
             raw_rows.append(

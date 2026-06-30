@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 import re
@@ -34,9 +33,13 @@ def log(message: str) -> None:
     print(message, flush=True)
 
 
-def read_tsv(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle, delimiter="\t"))
+def read_json_rows(path: Path) -> list[dict[str, Any]]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, list):
+        raise ValueError(f"Question file must contain a JSON array: {path}")
+    if not all(isinstance(row, dict) for row in value):
+        raise ValueError(f"Every question must be a JSON object: {path}")
+    return value
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -44,7 +47,7 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
-def normalize_row(row: dict[str, str]) -> dict[str, str]:
+def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     return {key.strip().lower().replace(" ", "_"): value for key, value in row.items()}
 
 
@@ -116,13 +119,13 @@ def discover_question_files(questions_dir: Path, question_file: Path | None = No
             candidate = questions_dir / candidate
         if not candidate.is_file():
             raise FileNotFoundError(f"Question file not found: {candidate}")
-        if not candidate.name.endswith("_eval.tsv"):
-            raise ValueError(f"Single-video question file must end with _eval.tsv: {candidate}")
+        if not candidate.name.endswith("_eval.json"):
+            raise ValueError(f"Single-video question file must end with _eval.json: {candidate}")
         return [candidate]
 
-    files = sorted(questions_dir.glob("*_eval.tsv"))
+    files = sorted(questions_dir.glob("*_eval.json"))
     if not files:
-        raise FileNotFoundError(f"No *_eval.tsv files found in {questions_dir}")
+        raise FileNotFoundError(f"No *_eval.json files found in {questions_dir}")
     return files
 
 
@@ -405,10 +408,12 @@ def judge_answer(question: str, expected_target: str, answer: str, judge_model: 
 # =============================================================================
 
 
-def parse_event_ids(value: str | None) -> list[int]:
-    if not value:
+def parse_event_ids(value: Any) -> list[int]:
+    if value is None:
         return []
-    return [int(match.group(0)) for match in re.finditer(r"\d+", value)]
+    if not isinstance(value, list) or not all(type(event_id) is int for event_id in value):
+        raise ValueError("expected_event_ids must be a JSON array of integers")
+    return value
 
 
 def prf(expected: set[int], predicted: set[int]) -> tuple[float, float, float]:
@@ -600,7 +605,7 @@ def main() -> int:
         "--question-file",
         type=Path,
         help=(
-            "Run only this *_eval.tsv file. Relative filenames are resolved from "
+            "Run only this *_eval.json file. Relative filenames are resolved from "
             "<eval-root>/questions unless they already exist relative to the current directory."
         ),
     )
@@ -633,7 +638,7 @@ def main() -> int:
     video_reports: list[dict[str, Any]] = []
     video_metrics: list[dict[str, Any]] = []
     for question_file in question_files:
-        video_name = question_file.name.removesuffix("_eval.tsv")
+        video_name = question_file.name.removesuffix("_eval.json")
         video_url = args.video_url_template.format(video_name=video_name)
         session_key = f"vss-eval-single-{run_id}-{video_name}"
         video_dir = run_dir / video_name
@@ -667,12 +672,12 @@ def main() -> int:
             )
 
         raw_rows: list[dict[str, Any]] = []
-        for row in read_tsv(question_file):
+        for row in read_json_rows(question_file):
             norm = normalize_row(row)
-            qid = norm.get("qid", "")
-            question = norm.get("question", "")
-            expected_target = norm.get("expected_answer_target", "")
-            expected_event_ids = parse_event_ids(norm.get("expected_event_ids", ""))
+            qid = str(norm.get("qid", ""))
+            question = str(norm.get("question", ""))
+            expected_target = str(norm.get("expected_answer_target", ""))
+            expected_event_ids = parse_event_ids(norm.get("expected_event_ids", []))
             log(f"  Q{qid}: answering")
             answer, cited_ids, citation_reason, latency_ms, tool_calls = answer_question(
                 qid,
