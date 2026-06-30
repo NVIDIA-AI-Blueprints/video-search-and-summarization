@@ -1253,8 +1253,8 @@ VmsErrorCode StorageManagement::checkStorageCapacity(const Json::Value & req_inf
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     vector<string> fileList;
@@ -1298,7 +1298,7 @@ VmsErrorCode StorageManagement::getStorageConfiguration(const Json::Value & req_
     }
     else
     {
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
         ret = VmsErrorCode::MethodNotAllowedError;
     }
     return ret;
@@ -2003,8 +2003,8 @@ VmsErrorCode StorageManagement::getUsedStorageSize(const Json::Value& req_info, 
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     int streamCount = 0;
@@ -2204,8 +2204,8 @@ VmsErrorCode StorageManagement::updateStorageSize(const Json::Value& req_info, c
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     vector<string> fileList;
@@ -2254,8 +2254,8 @@ VmsErrorCode StorageManagement::doAging(const Json::Value& req_info, const Json:
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     vector<string> fileList;
@@ -2287,8 +2287,8 @@ VmsErrorCode StorageManagement::addOrRemoveFileInProtectList(const Json::Value& 
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     vector<string> fileList;
@@ -2385,8 +2385,8 @@ VmsErrorCode StorageManagement::deleteFilesByNames(const Json::Value& req_info, 
     if (!(iequals(request_method, "delete")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     string id;
@@ -2733,8 +2733,8 @@ VmsErrorCode StorageManagement::getStorageInfo(const Json::Value& req_info, Json
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     DeviceConfig config = GET_CONFIG();
@@ -2774,8 +2774,8 @@ VmsErrorCode StorageManagement::getProtectedFiles(const Json::Value& req_info, J
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     {
@@ -3056,8 +3056,8 @@ VmsErrorCode StorageManagement::importFileFromCloud(const Json::Value& req_info,
     if (!(iequals(request_method, "post")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     // Check max sensors limit
@@ -3322,8 +3322,8 @@ VmsErrorCode StorageManagement::listCloudFiles(const Json::Value& req_info, cons
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     // Parse query parameters
@@ -3620,8 +3620,8 @@ VmsErrorCode StorageManagement::listLocalFiles(const Json::Value& req_info, cons
     if (!(iequals(request_method, "get")))
     {
         LOG(error) << "Request Method is not supported" << endl;
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        return VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        return VmsErrorCode::MethodNotAllowedError;
     }
 
     // Parse query parameters (both are optional)

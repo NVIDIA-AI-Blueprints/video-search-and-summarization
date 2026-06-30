@@ -346,33 +346,33 @@ commons:
       # pre_cluster_threshold: 0.6 for nv-warehouse-4cams, else 0.5 (used in ds-pgie-config.yml)
       - pre_cluster_threshold: '"0.6" if "${SAMPLE_VIDEO_DATASET}" == "nv-warehouse-4cams" else "0.5"'
       - person_detection_threshold: '"0.5" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-loading-dock-3cams-synthetic" else "0.6"'
-      - msg-broker-conn-str: '"localhost;6379;" if "${STREAM_TYPE}" == "redis" else "localhost;9092;mdx-raw"'
+      - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-raw"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
       - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
-      - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
+      - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["kafka:29092"]'
     3d:
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
-      - msg-broker-conn-str: '"localhost;6379;" if "${STREAM_TYPE}" == "redis" else "localhost;9092;mdx-bev"'
+      - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-bev"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
       - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
-      - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
+      - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["kafka:29092"]'
     mv3dt:
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
-      - msg-broker-conn-str: '"localhost;6379;" if "${STREAM_TYPE}" == "redis" else "localhost;9092;mdx-bev"'
+      - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-bev"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
       - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
-      - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
+      - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["kafka:29092"]'
 
   file_operations:
     2d:

@@ -25,6 +25,10 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics-mv3dt
+    networks:
+      default:
+        aliases:
+          - vss-behavior-analytics
     command: python3 apps/analytics/main_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
     depends_on:
       broker-health-check:
@@ -43,6 +47,10 @@ services:
 
   nvstreamer-mv3dt:
     container_name: vss-vios-nvstreamer-mv3dt
+    networks:
+      default:
+        aliases:
+          - vss-vios-nvstreamer
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
@@ -52,7 +60,8 @@ services:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
-    network_mode: "host"
+    ports:
+      - ${NVSTREAMER_HTTP_HOST_PORT:-31000}:${NVSTREAMER_HTTP_PORT:-31000}
     deploy:
       restart_policy:
         condition: on-failure
@@ -80,14 +89,13 @@ services:
       network: host
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
     container_name: vss-configurator-mv3dt-init
-    network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
       STREAM_TYPE: $STREAM_TYPE
       MAX_RETRIES: 60
       RETRY_INTERVAL: 2
-      BOOTSTRAP_HOST: localhost
-      KAFKA_PORT: 9092
+      BOOTSTRAP_HOST: ${STREAM_TYPE}
+      KAFKA_PORT: 29092
       REDIS_PORT: 6379
       KAFKA_TOPICS: '[{"name": "mdx-raw"},
         {"name": "mdx-bev"},
@@ -122,7 +130,10 @@ services:
   bp-configurator-mv3dt:
     image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.0
     container_name: vss-configurator-mv3dt
-    network_mode: "host"
+    networks:
+      default:
+        aliases:
+          - vss-configurator
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
     user: "0:0"
     environment:
@@ -148,12 +159,12 @@ services:
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs
       NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs
       MESSAGE_BROKER_TYPE: $STREAM_TYPE
-      WDM_REDIS_HOST: localhost
+      WDM_REDIS_HOST: redis
       WDM_REDIS_PORT: 6379
       WDM_REDIS_STREAM_NAME: vst.event
       WDM_REDIS_MSG_KEY: sensor.id
       WDM_KFK_MSG_KEY: vst.event
-      WDM_KFK_BOOTSTRAP_URL: localhost:9092
+      WDM_KFK_BOOTSTRAP_URL: kafka:29092
       WDM_KFK_TOPIC: mdx-notification
       WDM_WL_ID_FIELD: camera_id
       WDM_WL_EVENT_FIELD: event
@@ -200,7 +211,6 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app
       dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
-    network_mode: "host"
     profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
     container_name: vss-kibana-init-mv3dt
     volumes:
@@ -216,6 +226,10 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
     container_name: vss-video-analytics-api-mv3dt
+    networks:
+      default:
+        aliases:
+          - vss-video-analytics-api
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -226,7 +240,6 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app
       dockerfile: Dockerfiles/import-calibration.Dockerfile
-    network_mode: "host"
     profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
     container_name: vss-import-calibration-output-mv3dt
     volumes:
@@ -266,7 +279,7 @@ services:
       DS_HTTP_PORT: "9000"
       BATCH_SIZE: "${NUM_STREAMS:-4}"
       MAX_BATCH_SIZE: "${NUM_STREAMS:-4}"
-      MQTT_HOST: "${MQTT_HOST:-localhost}"
+      MQTT_HOST: "${MQTT_HOST:-mosquitto}"
       MQTT_PORT: "${MQTT_PORT:-1883}"
       DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
       STREAM_TYPE: ${STREAM_TYPE}

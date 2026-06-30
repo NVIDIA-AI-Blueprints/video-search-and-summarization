@@ -25,6 +25,14 @@ needs to be rebuilt when the things it bakes in change.
 - `test/bdd_tests/docker-entrypoint.sh`
 - `test/bdd_tests/pyproject.toml` (any change -- deps or pytest config)
 - `test/bdd_tests/poetry.lock`
+- `test/bdd_tests/test_videos/*` (sample clips baked to `/app/test_videos`)
+
+> **Note on `test_videos/`:** the clip binaries are **gitignored** -- they are
+> NOT in the repo, only baked into the published image. The pushed image is the
+> source of truth. Before rebuilding you must repopulate
+> `test/bdd_tests/test_videos/` from the current published image (or a backup);
+> see `test/bdd_tests/test_videos/README.md`. A rebuild from a clean checkout
+> without these files would bake an empty `/app/test_videos`.
 
 **Rebuild NOT required** -- bind-mounted at runtime by
 `cicd_files/docker-compose-test/start_test.sh`:

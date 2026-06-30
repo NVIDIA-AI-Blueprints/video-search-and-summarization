@@ -41,7 +41,7 @@ sensor-name-list=Camera;Camera_01;Camera_02;Camera_03
 use-nvmultiurisrcbin=1
 stream-name-display=1
 max-batch-size=4
-http-ip=localhost
+http-ip=0.0.0.0
 http-port=9000
 #Set low latency mode for bitstreams having I and IPPP frames on decoder
 low-latency-mode=1
@@ -128,7 +128,7 @@ msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.s
 #msg-broker-conn-str=qvs-ds-kafka-01;9092;metromind-raw
 #topic=metromind-raw
 # msg-broker-conn-str=mdx-kafka-cluster-kafka-brokers;9092;mdx-raw
-msg-broker-conn-str=localhost;9092;mdx-bev
+msg-broker-conn-str=kafka;29092;mdx-bev
 #topic=mdx-raw
 topic=mdx-bev
 #Optional:
