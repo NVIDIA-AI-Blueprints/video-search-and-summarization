@@ -774,7 +774,7 @@ PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_a
   "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2"
 
-# --- Setup paths: data directory and selective downloads (assert dry-run output) ---
+# --- Setup paths: data directory and profile-specific setup messaging (assert dry-run output) ---
 _out_setup="$(mktemp)"
 cd "${REPO_ROOT}"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_setup}" 2>&1
@@ -818,26 +818,26 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alerts profile: dry-run must include NGC model download steps (rtdetr-its, trafficcamnet, gdino/mask_grounding_dino)
+# Alerts profile: dry-run should indicate model download was moved to compose init service.
 _out_alerts="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m verification -d > "${_out_alerts}" 2>&1
-if grep -q "models/rtdetr-its" "${_out_alerts}" && grep -q "trafficcamnet" "${_out_alerts}" && grep -q "models/gdino" "${_out_alerts}" && grep -q "mask_grounding_dino" "${_out_alerts}" && grep -q "mgdino_mask_head_pruned_dynamic_batch.onnx" "${_out_alerts}" && grep -q "ngc registry model" "${_out_alerts}"; then
-  echo "PASS: alerts dry-run output includes NGC model download steps"
+if grep -q "Alerts model download moved to compose init service (models-download-alerts)." "${_out_alerts}" && ! grep -q "ngc registry model download-version" "${_out_alerts}"; then
+  echo "PASS: alerts dry-run output reflects compose-init model download handoff"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts dry-run output missing NGC model download steps (models/rtdetr-its, trafficcamnet, models/gdino, mask_grounding_dino, mgdino_mask_head_pruned_dynamic_batch.onnx, ngc registry model)"
+  echo "FAIL: alerts dry-run output should show compose-init handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_alerts}"
 
-# Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvidia TAO).
+# Search profile: dry-run should indicate model download was moved to compose init service.
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvidia/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvidia" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
-  echo "PASS: search dry-run output includes NGC model download steps"
+if grep -q "Search model download moved to compose init service (models-download-search)." "${_out_search}" && ! grep -q "ngc registry model download-version" "${_out_search}"; then
+  echo "PASS: search dry-run output reflects compose-init model download handoff"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvidia/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvidia, ngc registry model)"
+  echo "FAIL: search dry-run output should show compose-init handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
@@ -990,22 +990,6 @@ EOF
     ((TESTS_PASSED++)) || true
   fi
 }
-
-run_ngc_download_fail_fast_test \
-  "NGC search RT-DETR download failure fails fast" \
-  "search" \
-  "\\[ERROR\\] Failed to download RT-DETR model from NGC (exit 42)" \
-  -p search -i 127.0.0.1 -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts trafficcamnet download failure fails fast" \
-  "alerts-first" \
-  "\\[ERROR\\] Failed to download trafficcamnet RT-DETR model from NGC (exit 42)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
-run_ngc_download_fail_fast_test \
-  "NGC alerts grounding DINO download failure fails fast" \
-  "alerts-second" \
-  "\\[ERROR\\] Failed to download grounding DINO model from NGC (exit 43)" \
-  -p alerts -i 127.0.0.1 -m verification -H OTHER
 
 # --- Profile env split: stable .env plus script-modifiable overrides.env ---
 _common_overrides_env_keys=(
