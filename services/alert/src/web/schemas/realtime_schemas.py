@@ -602,10 +602,25 @@ class IncidentListResponse(BaseModel):
     status: str = Field(default=ResponseStatus.SUCCESS)
     incidents: List[dict] = Field(
         default=[],
-        description="List of incident documents from Elasticsearch",
+        description=(
+            "Incident documents in nvschema shape. By default these are raw "
+            "chunk-level documents from Elasticsearch; when consolidate=true "
+            "they are consolidated events (same schema, with info.isConsolidated "
+            "set to \"true\")."
+        ),
     )
-    count: int = Field(description="Number of incidents returned")
-    total: int = Field(description="Total number of matching incidents in ES")
+    count: int = Field(
+        description=(
+            "Number of items in `incidents` on this page — raw documents, or "
+            "consolidated events when consolidate=true."
+        )
+    )
+    total: int = Field(
+        description=(
+            "Total matches for the query. Raw chunk count by default; the number "
+            "of consolidated events in the requested window when consolidate=true."
+        )
+    )
     timestamp: str = Field(description="ISO-8601 response timestamp")
 
 
