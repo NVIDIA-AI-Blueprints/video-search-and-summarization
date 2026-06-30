@@ -137,7 +137,7 @@ The repo ships agent skills under `services/vios/.claude/sqa/` that map natural-
 
 | Say this | What it does |
 | --- | --- |
-| *"deploy vios"* | Default deploy; probes NVStreamer and asks whether to bring it up. |
+| *"deploy vios"* | Default deploy — VIOS only (NVStreamer is opt-in; not deployed unless requested). |
 | *"deploy vios + nvstreamer"* / *"deploy full stack"* | Brings up both. |
 | *"deploy vios without nvstreamer"* | VIOS only (RTSP from an external camera/VMS). |
 | *"deploy vios in milestone adaptor mode"* | Sets `VST_ADAPTOR=milestone_onvif` + `NGINX_MODE=mms`; prompts for VMS `ip`/`user`/`password`. |
