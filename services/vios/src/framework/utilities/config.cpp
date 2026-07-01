@@ -765,6 +765,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.use_camera_groups = overlay.get("use_camera_groups", false).asBool();
         m_vmsConfig.enable_recentering = overlay.get("enable_recentering", false).asBool();
         m_vmsConfig.overlay_text_font_type = overlay.get("overlay_text_font_type", DEFAULT_CUOSD_FONT_TYPE).asString();
+        m_vmsConfig.bbox_debug_font_size = overlay.get("bbox_debug_font_size", 0).asInt();
         m_vmsConfig.bbox_tolerance_ms = overlay.get("bbox_tolerance_ms", 0).asInt();
         m_vmsConfig.enable_overlay_skip_frame = overlay.get("enable_overlay_skip_frame", false).asBool();
         m_vmsConfig.halo_safety_udp_port = overlay.get("halo_safety_udp_port", -1).asInt();

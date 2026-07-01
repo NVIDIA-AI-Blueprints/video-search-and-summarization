@@ -128,6 +128,7 @@ struct DeviceConfig
     string floor_map_file_path;
     string overlay_3d_sensor_name;
     string overlay_text_font_type;
+    int bbox_debug_font_size;
     int bbox_tolerance_ms;
     bool enable_overlay_skip_frame;
     std::map<std::string, std::vector<int>, std::less<>> color_map;
