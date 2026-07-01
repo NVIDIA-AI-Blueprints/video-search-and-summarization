@@ -297,24 +297,18 @@ def run_invocations(
     harbor_timeout_sec: int,
 ) -> int:
     env = harbor_env(instance)
-    # Agent to evaluate: the workflow_dispatch dropdown (claude-code | codex);
-    # the nightly schedule passes no input, so default to claude-code.
     agent = os.environ.get("EVAL_AGENT", "claude-code")
-    # EVAL_MODEL (the workflow_dispatch form field) overrides the default; a
-    # blank field falls through to ANTHROPIC_MODEL so scheduled runs are
-    # unaffected. codex auth/endpoint come from the GitHub Actions env
-    # (OPENAI_API_KEY), not from here.
-    model = os.environ.get("EVAL_MODEL") or os.environ.get("ANTHROPIC_MODEL", "")
-    # Both agents hit the same NVIDIA endpoint via `--ak api_base`, so the
-    # base URL comes from ANTHROPIC_BASE_URL for either.
+    model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if not model:
-        print("FATAL: ANTHROPIC_MODEL not set (and EVAL_MODEL empty)", file=sys.stderr)
-        return 1
     if not base_url:
         print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
         return 1
     if agent == "codex":
+        model = os.environ.get("CODEX_MODEL", "")
+        if not model:
+            print("FATAL: CODEX_MODEL not set (required for EVAL_AGENT=codex)",
+                  file=sys.stderr)
+            return 1
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not anthropic_key:
             print("FATAL: ANTHROPIC_API_KEY not set (required for EVAL_AGENT=codex)",
@@ -322,6 +316,9 @@ def run_invocations(
             return 1
         env["OPENAI_API_KEY"] = anthropic_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
+    if not model:
+        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
+        return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
     skipped_after: dict[str, int] = {}
