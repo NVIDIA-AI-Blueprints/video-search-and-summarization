@@ -30,9 +30,20 @@ trap 'rm -rf "${TMP_ROOT}"' EXIT
 require_file() {
   local path="$1"
   if [[ ! -f "$path" ]]; then
-    echo "ERROR: Required file not found: ${path}"
+    echo "ERROR: Required file not found: ${path}" >&2
     exit 1
   fi
+}
+
+# NGC ships arch-specific CLI builds and the init image matches the host arch, so on ARM
+# hosts (e.g. DGX-Spark/Thor) we must fetch the arm64 build, not the amd64 one. Historically
+# the download step ran on the host and inherited whatever CLI the operator installed; moving
+# it into the container means we must select the arch ourselves.
+ngc_cli_zip_for_arch() {
+  case "${1:-$(uname -m)}" in
+    aarch64|arm64) echo "ngccli_arm64.zip" ;;
+    *)             echo "ngccli_linux.zip" ;;
+  esac
 }
 
 ensure_ngc_cli() {
@@ -42,19 +53,12 @@ ensure_ngc_cli() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq && apt-get install -y -qq ca-certificates wget unzip jq gettext-base > /dev/null
   cd /tmp
-  wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
-  unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
+  local ngc_cli_zip
+  ngc_cli_zip="$(ngc_cli_zip_for_arch)"
+  wget -q "https://ngc.nvidia.com/downloads/${ngc_cli_zip}" -O ngccli.zip
+  unzip -q ngccli.zip && chmod +x ngc-cli/ngc
   export PATH="/tmp/ngc-cli:${PATH}"
   ngc --version
-}
-
-detect_ref_kind() {
-  local package_ref="$1"
-  if [[ "$package_ref" == nvidia/vss-warehouse/* ]]; then
-    echo "resource"
-  else
-    echo "model"
-  fi
 }
 
 resolve_source_path() {
@@ -74,7 +78,7 @@ resolve_source_path() {
     return
   fi
 
-  echo "ERROR: Unable to resolve sourcePath '${source_rel}' under '${package_dir}'."
+  echo "ERROR: Unable to resolve sourcePath '${source_rel}' under '${package_dir}'." >&2
   exit 1
 }
 
@@ -83,58 +87,80 @@ expand_manifest_to_json() {
   expanded_manifest="$(envsubst < "$MODELS_MANIFEST_PATH")"
 
   if ! echo "$expanded_manifest" | jq -e 'type == "array" or (type == "object" and (.downloads | type == "array"))' >/dev/null; then
-    echo "ERROR: Manifest must be a JSON array or an object with a 'downloads' array."
+    echo "ERROR: Manifest must be a JSON array or an object with a 'downloads' array." >&2
     exit 1
   fi
 
   downloads_json="$(echo "$expanded_manifest" | jq -c 'if type == "array" then . else .downloads end')"
 
   if ! echo "$downloads_json" | jq -e 'all(.[]; (type == "object") and (.model | type == "string" and length > 0) and (.sourcePath | type == "string" and length > 0) and (.destPath | type == "string" and length > 0))' >/dev/null; then
-    echo "ERROR: Each manifest entry must be an object with non-empty model/sourcePath/destPath."
+    echo "ERROR: Each manifest entry must be an object with non-empty model/sourcePath/destPath." >&2
     exit 1
   fi
 
-  echo "$downloads_json" | jq -c 'map(.org = (.org // env.NGC_ORG_DEFAULT))'
+  echo "$downloads_json" | jq -c --arg default_org "$NGC_ORG_DEFAULT" 'map(.org = (.org // $default_org))'
 }
 
+# Developer profiles acquire individual NGC *model* packages (nvidia/tao/*).
+# Whole-tree NGC *resource* bundles (e.g. vss-warehouse-app-data) are intentionally
+# NOT handled here: warehouse profiles receive them via the pre-extracted VSS_DATA_DIR
+# mount, mirroring Helm's separate job-download-ngc-app-data. See the consolidation ADR
+# (Appendix B) for the rationale.
 download_package() {
   local package_ref="$1"
   local org="$2"
   local package_key="${package_ref//[^A-Za-z0-9._-]/_}"
   local package_dir="${TMP_ROOT}/${package_key}"
-  mkdir -p "$package_dir"
 
-  local kind
-  kind="$(detect_ref_kind "$package_ref")"
-
-  if [[ "$kind" == "resource" ]]; then
-    ngc registry resource download-version "$package_ref" --org "$org" --dest "$package_dir"
-    shopt -s nullglob globstar
-    for archive in "${package_dir}"/**/*.tar.gz "${package_dir}"/**/*.tgz; do
-      tar -xzf "$archive" -C "$package_dir"
-    done
-    shopt -u nullglob globstar
-  else
-    ngc registry model download-version "$package_ref" --org "$org" --dest "$package_dir"
+  # The temp dir is a pure function of the package ref, so its presence means we already
+  # pulled this package earlier in the run -- reuse it instead of re-downloading (this is
+  # the per-run cache; avoids an associative array so the script runs on bash 3.2+ too).
+  if [[ -d "$package_dir" ]]; then
+    echo "$package_dir"
+    return
   fi
+
+  mkdir -p "$package_dir"
+  ngc registry model download-version "$package_ref" --org "$org" --dest "$package_dir"
 
   echo "$package_dir"
 }
 
+# Marker is derived from the full destination path (path separators flattened) so two
+# entries that share a basename but differ by directory never collide on one marker.
 tuple_marker() {
   local dest_rel="$1"
-  local base
-  base="$(basename "$dest_rel")"
-  if [[ "$base" == *.* ]]; then
-    base="${base%.*}"
+  local key="${dest_rel//\//__}"
+  echo "${MODELS_DEST_ROOT}/.${key}.done"
+}
+
+# Apply the model-tree permission contract (Contract #4) to a single written artifact
+# only -- never recursively across the whole shared volume, so engine plans and any
+# pre-staged/unrelated files keep their ownership and mode.
+apply_artifact_perms() {
+  local path="$1"
+  chown -R "${STORAGE_UID}:${STORAGE_GID}" "$path"
+  if [[ -d "$path" ]]; then
+    find "$path" -type d -exec chmod 0777 {} +
+    find "$path" -type f -exec chmod 0644 {} +
+  else
+    chmod 0644 "$path"
+    # TensorRT writes engine plans next to the model, so the containing dir needs 0777.
+    local parent
+    parent="$(dirname "$path")"
+    chown "${STORAGE_UID}:${STORAGE_GID}" "$parent"
+    chmod 0777 "$parent"
   fi
-  echo "${MODELS_DEST_ROOT}/.${base}.done"
 }
 
 main() {
   require_file "$MODELS_MANIFEST_PATH"
   ensure_ngc_cli
   mkdir -p "$MODELS_DEST_ROOT"
+  # Root dir must stay writable by the fixed perception UID (engine plans land here too);
+  # scoped to the root node only, not a recursive sweep of pre-existing contents.
+  chown "${STORAGE_UID}:${STORAGE_GID}" "$MODELS_DEST_ROOT" 2>/dev/null || true
+  chmod 0777 "$MODELS_DEST_ROOT" 2>/dev/null || true
 
   local manifest_json
   manifest_json="$(expand_manifest_to_json)"
@@ -147,7 +173,6 @@ main() {
     exit 0
   fi
 
-  declare -A package_cache
   local idx
 
   for (( idx=0; idx<downloads_count; idx++ )); do
@@ -168,11 +193,8 @@ main() {
       continue
     fi
 
-    if [[ -z "${package_cache[$model_ref]:-}" ]]; then
-      package_cache[$model_ref]="$(download_package "$model_ref" "$org")"
-    fi
     local package_dir source_abs
-    package_dir="${package_cache[$model_ref]}"
+    package_dir="$(download_package "$model_ref" "$org")"
     source_abs="$(resolve_source_path "$package_dir" "$source_rel")"
 
     mkdir -p "$(dirname "$dest_abs")"
@@ -182,6 +204,8 @@ main() {
     else
       cp -a "$source_abs" "$dest_abs"
     fi
+
+    apply_artifact_perms "$dest_abs"
 
     if [[ -n "$compat_link" ]]; then
       local compat_path
@@ -193,10 +217,6 @@ main() {
 
     touch "$marker"
   done
-
-  chown -R "${STORAGE_UID}:${STORAGE_GID}" "${MODELS_DEST_ROOT}"
-  find "${MODELS_DEST_ROOT}" -type d -exec chmod 0777 {} +
-  find "${MODELS_DEST_ROOT}" -type f -exec chmod 0644 {} +
 
   echo "Model download init completed for ${downloads_count} manifest entries."
 }
