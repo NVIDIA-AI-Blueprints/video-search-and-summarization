@@ -674,7 +674,13 @@ jobs:
       # deploy/docker exactly like the container-source check) via `docker
       # export`, which flattens the layers so codec files deleted at build time
       # correctly do not appear. No local build -> no base-image rate-limit flakes.
+      # Gated on NGC_CLI_API_KEY (same as the login above): the pinned image lives
+      # in a private nvcr.io registry, so without the secret (fork PRs, dev boxes)
+      # the docker pull would fail. The always-on unit test + Dockerfile assertion
+      # above, plus the Dockerfile build-time guard in the gated publish build,
+      # keep enforcing the policy when this scan is skipped.
       - name: Scan the deployed agent image for patent-encumbered codecs
+        if: ${{ env.NGC_CLI_API_KEY != '' }}
         run: python3 .github/scripts/check_no_patented_codecs.py --from-deploy vss-agent
 
   # ---------------------------------------------------------------------------
