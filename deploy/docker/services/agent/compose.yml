@@ -17,7 +17,7 @@
 
 services:
   vss-va-mcp:
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: nvcr.io/nv-metropolis-dev/met-moe-agents/vss-agent:3.2.0-26.05.5-f6a2547b9b0e@sha256:6d19dd1178ca42abe1de64fcbbd3e3eedc9ee3494850edbcef068b2e472902f5
     container_name: vss-va-mcp
     profiles:
     - bp_wh_2d
@@ -62,7 +62,7 @@ services:
 
   vss-agent:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: nvcr.io/nv-metropolis-dev/met-moe-agents/vss-agent:3.2.0-26.05.5-f6a2547b9b0e@sha256:6d19dd1178ca42abe1de64fcbbd3e3eedc9ee3494850edbcef068b2e472902f5
     container_name: vss-agent
     profiles:
     - bp_wh_2d
