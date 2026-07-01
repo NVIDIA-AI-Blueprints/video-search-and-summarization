@@ -129,6 +129,10 @@ class MultiIncidentFormatterInput(BaseModel):
         gt=0,
         le=10000,
     )
+    vlm_verified: bool | None = Field(
+        default=None,
+        description="Optional runtime override for VLM-verified incident lookup. If omitted, incidents tool config default is used.",
+    )
 
     @field_validator("start_time", "end_time")
     @classmethod
@@ -172,6 +176,7 @@ async def _fetch_incidents(
         "end_time": formatter_input.end_time,
         "max_count": formatter_input.max_result_size,
         "includes": ["object_ids", "info", "category"],
+        "vlm_verified": formatter_input.vlm_verified,
     }
     result = await incidents_tool.ainvoke(input=tool_input)
 
