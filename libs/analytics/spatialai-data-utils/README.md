@@ -250,14 +250,14 @@ the `eval` extra when it is absent.
 ## Contributing
 
 Contributions are accepted under Apache-2.0 with a DCO sign-off. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for full details, including
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for full details, including
 file-level license-header conventions for new files and for changes to
 third-party-derived files.
 
 ## License
 
 `spatialai_data_utils` is released under the Apache License, Version 2.0
-(see the root [`LICENSE`](LICENSE) file). Third-party attributions and the
+(see the root [`LICENSE`](../../../LICENSE) file). Third-party attributions and the
 full upstream license texts for adapted/vendored code are collected in the
 root [`NOTICE`](NOTICE) file, and per-dependency licenses for everything
 installed at runtime (plus optional extras) are listed in
