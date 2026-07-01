@@ -51,8 +51,8 @@ require_file() {
     local file_path="$1"
     local hint="$2"
     if [[ ! -f "$file_path" ]]; then
-        echo "ERROR: Required file not found: ${file_path}"
-        [[ -n "$hint" ]] && echo "Hint: ${hint}"
+        echo "ERROR: Required file not found: ${file_path}" >&2
+        [[ -n "$hint" ]] && echo "Hint: ${hint}" >&2
         exit 1
     fi
 }
@@ -96,11 +96,12 @@ patch_vision_encoder_configs_if_enabled() {
     local vision_encoder_storage="/opt/storage"
     local vision_encoder_onnx_file="${vision_encoder_model}_${vision_encoder_version}.onnx"
     local vision_encoder_tokenizer_dir="${vision_encoder_model}_${vision_encoder_version}_tokenizer"
-    local marker_file="${vision_encoder_storage}/.${vision_encoder_model}_${vision_encoder_version}.done"
     local onnx_path="${vision_encoder_storage}/${vision_encoder_onnx_file}"
 
-    require_file "$marker_file" "The model download init step may not have completed."
-    require_file "$onnx_path" "Expected ONNX artifact for DS_VISION_ENCODER=true."
+    # Ordering/readiness is guaranteed by the Compose init service
+    # (depends_on: models-download-*: service_completed_successfully); validating the
+    # real artifact here is the meaningful runtime check.
+    require_file "$onnx_path" "Expected ONNX artifact for DS_VISION_ENCODER=true; the model download init step may not have completed."
 
     for cfg in "${DS_CONFIG_DIR}/ds-main-config.txt" "${DS_CONFIG_DIR}/ds-main-redis-config.txt"; do
         [[ -f "$cfg" ]] || continue
