@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ui-container-source-${{ github.ref }}
@@ -38,6 +39,28 @@ jobs:
       - name: Unit-test the gate helper
         run: python3 .github/scripts/test_source_check_only_nonbuild.py
 
+      # Resolve the PR's real target branch so the docs/tests-only gate below
+      # diffs against the right base. This job runs on the pull-request/<N>
+      # mirror (a push event, so github.base_ref is empty), so look the base up
+      # from the PR. Without this the gate defaults to origin/develop, which
+      # wrongly flags every docs-only PR that targets a divergent release branch
+      # (e.g. dev/3.2.x diverges from develop, so its whole delta reads as
+      # "build-relevant" and the SHA check runs and false-fails). Falls back to
+      # origin/develop when the base can't be resolved.
+      - name: Resolve PR base branch
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base_ref="origin/develop"
+          if [[ "${GITHUB_REF_NAME}" =~ ^pull-request/([0-9]+)$ ]]; then
+            pr="${BASH_REMATCH[1]}"
+            target="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '.base.ref' 2>/dev/null || true)"
+            if [ -n "$target" ]; then base_ref="origin/${target}"; fi
+          fi
+          echo "base_ref=${base_ref}" >> "$GITHUB_OUTPUT"
+          echo "Gate base branch: ${base_ref}"
+
       # Docs/tests-only PRs never change what enters the UI image — the build
       # context honors services/ui/.dockerignore, which excludes **/*.md and
       # test/spec files — yet they change the services/ui tree SHA and would
@@ -49,7 +72,7 @@ jobs:
         continue-on-error: true  # fail safe: a helper error must not block PRs
         run: |
           # Any failure or non-"true" result falls through to the full check.
-          if ! skip=$(python3 .github/scripts/source_check_only_nonbuild.py --image-name vss-agent-ui); then
+          if ! skip=$(python3 .github/scripts/source_check_only_nonbuild.py --image-name vss-agent-ui --base-ref "${{ steps.base.outputs.base_ref }}"); then
             echo "filter helper failed; running the full source check." >&2
             skip=false
           fi
