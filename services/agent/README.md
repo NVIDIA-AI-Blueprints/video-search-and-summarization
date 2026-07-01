@@ -205,7 +205,7 @@ or are only needed for specific features.
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |
 | `NGC_CLI_API_KEY` | cond. | — | Required when `LLM_MODE` / `VLM_MODE` is `local` or `local_shared` (Docker Compose) |
 | `NVIDIA_API_KEY` | cond. | — | Required for build.nvidia.com remote endpoints |
-| `INSTALL_PROPRIETARY_CODECS` | no | `false` | Install OpenCV/FFmpeg at container startup to enable video decoding (see [Proprietary multimedia codecs](#proprietary-multimedia-codecs)) |
+| `INSTALL_PROPRIETARY_CODECS` | no | `true` in the Compose/Helm deployments (the bare image installs nothing when the variable is unset) | Install OpenCV/FFmpeg at container startup to enable video decoding (see [Proprietary multimedia codecs](#proprietary-multimedia-codecs)) |
 
 ## Proprietary multimedia codecs
 
@@ -220,19 +220,24 @@ leaks into the image. Tools that decode video (video understanding/captioning, f
 timestamp, S3 picture URL) therefore fail with a clear error in the default image and
 require opting in to the proprietary codecs.
 
-To enable video decoding, set `INSTALL_PROPRIETARY_CODECS=true`. At container startup the
-agent downloads `opencv-python-headless` **from PyPI onto your own machine** (never from an
-NVIDIA source) and adds it to the runtime path. By enabling this you are obtaining and using
-patent-encumbered codecs and are responsible for any associated licensing.
+Video decoding is **enabled by default** in the Docker Compose and Helm deployments
+(`INSTALL_PROPRIETARY_CODECS=true`). At container startup the agent downloads
+`opencv-python-headless` **from PyPI onto your own machine** (never from an NVIDIA source) and
+adds it to the runtime path. By leaving this enabled you are obtaining and using
+patent-encumbered codecs and are responsible for any associated licensing. Set
+`INSTALL_PROPRIETARY_CODECS=false` to keep them off (the bare image, with the variable unset,
+also installs nothing).
 
 ```bash
-# Docker Compose
-INSTALL_PROPRIETARY_CODECS=true docker compose ... up
+# Docker Compose — opt out of the codec download
+INSTALL_PROPRIETARY_CODECS=false docker compose ... up
 ```
 
 Notes:
 
-- Default is `false`; nothing patent-encumbered ships in the image.
+- The image itself never bundles anything patent-encumbered; the Compose/Helm deployments
+  default `INSTALL_PROPRIETARY_CODECS=true`, so codecs are downloaded at startup unless you set
+  it to `false`.
 - The download (~45–90 MB) happens once per container and is cached under `/vss-agent/.codecs`
   (override with `VSS_PROPRIETARY_CODECS_DIR`). A `.installed` marker skips re-download on restart.
 - **Air-gapped deployments:** pre-download the matching wheel and point
