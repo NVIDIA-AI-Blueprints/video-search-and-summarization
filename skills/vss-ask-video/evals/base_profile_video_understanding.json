@@ -34,7 +34,7 @@
       "checks": [
         "curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://localhost:30888/vst/api/v1/sensor/version returns 200",
         "curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams returns HTTP 200 and a non-empty JSON body",
-        "Either VLM_BASE_URL + VLM_NAME (NIM Cosmos) or RTVI_VLM_BASE_URL + RTVI_VLM_MODEL_TO_USE (RT-VLM Cosmos) are resolvable from the vss-agent container environment (e.g. docker exec vss-agent env returns one set), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"
+        "Either VLM_BASE_URL + VLM_NAME (NIM Cosmos) or RTVI_VLM_BASE_URL + RTVI_VLM_MODEL_TO_USE (RT-VLM Cosmos) are resolvable from the vss-agent container environment (read via `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`; the image is distroless so `docker exec vss-agent env` will not work), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"
       ]
     },
     {

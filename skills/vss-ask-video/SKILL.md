@@ -208,10 +208,15 @@ distroless (no `sh`/`bash`/`printenv` on `PATH`), so `docker exec vss-agent sh -
 
 ```bash
 # Only when an agent is actually running; otherwise supply VLM_ENDPOINT/VLM_MODEL directly (above).
+# Assign into a fixed whitelist of vars WITHOUT eval, so a hostile or malformed env value
+# (e.g. VLM_NAME='x; rm -rf /') is always treated as data and never executed.
 if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
-  eval "$(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}' \
-    | grep -E '^(HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL|RTVI_VLM_MODEL_TO_USE)=' \
-    | sed 's/^/export /')"
+  while IFS='=' read -r _k _v; do
+    case "$_k" in
+      HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL|RTVI_VLM_MODEL_TO_USE)
+        printf -v "$_k" '%s' "$_v"; export "$_k" ;;
+    esac
+  done < <(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}')
 fi
 ```
 
@@ -234,13 +239,31 @@ if [ -z "${VLM_ENDPOINT:-}" ]; then
     VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
     VLM_MODEL="${VLM_NAME}"
   else
-    VLM_BACKEND="rtvlm"
-    VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
-    [ -z "${VLM_ENDPOINT}" ] && [ -n "${VLM_BASE_URL:-}" ] && VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
-    [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default
-    VLM_MODEL="${VLM_NAME:-${RTVI_VLM_MODEL_TO_USE}}"
+    # Fallback discovery: set VLM_BACKEND to match the endpoint we actually resolve, so the
+    # nim_cosmos mm_processor_kwargs step below fires when we land on a NIM Cosmos endpoint.
+    if [ -n "${RTVI_VLM_BASE_URL:-}" ]; then
+      VLM_BACKEND="rtvlm"
+      VLM_ENDPOINT="${RTVI_VLM_BASE_URL%/}/v1"
+      VLM_MODEL="${VLM_NAME:-${RTVI_VLM_MODEL_TO_USE}}"
+    elif [ -n "${VLM_BASE_URL:-}" ]; then
+      VLM_BACKEND="nim_cosmos"
+      VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
+      VLM_MODEL="${VLM_NAME}"
+    else
+      VLM_BACKEND="nim_cosmos"
+      VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default (NIM Cosmos)
+      VLM_MODEL="${VLM_NAME}"
+    fi
   fi
 fi
+
+# Never proceed with an empty model id (e.g. nim_cosmos when VLM_NAME was unset, or a
+# caller who supplied VLM_ENDPOINT but not VLM_MODEL): adopt the first id the endpoint
+# actually serves, then hard-fail if it is still empty rather than sending model="".
+if [ -z "${VLM_MODEL:-}" ] && [ -n "${VLM_ENDPOINT:-}" ]; then
+  VLM_MODEL="$(curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | jq -r '.data[0].id // empty')"
+fi
+[ -n "${VLM_MODEL:-}" ] || { echo "Could not resolve a VLM model id for ${VLM_ENDPOINT:-<unset>}; set VLM_MODEL explicitly"; exit 1; }
 ```
 
 Probe `/v1/models` before sending a chat request to confirm the endpoint is alive and the model
@@ -272,7 +295,9 @@ if the VLM supports them:
 
 So: URL → `video_url`; local file / base64 → `file_base64`. Use `file_base64` (not `video_url`)
 whenever the VLM can't fetch the URL — a **remote** VLM that can't reach a `localhost`/internal
-`VIDEO_URL`. Mind the RT-VLM inline-base64 cap (~7.5 MB, `nim_compat.py max_length=10000000`). Set
+`VIDEO_URL`. Mind the RT-VLM inline-base64 cap: `nim_compat.py max_length=10000000` limits the
+base64 **string** to 10M characters, which — since base64 adds ~33% — means a raw clip of only
+**~7.5 MB** (a 10 MB MP4 base64-encodes to ~13.3M chars and is rejected). Set
 `UPLOAD_FORMAT` to force either one.
 
 On a NIM Cosmos **video block** — *both* the `video_url` path and the `file_base64` data-URI
