@@ -16,17 +16,9 @@
 include:
 
 services:
-  models-download-warehouse-3d:
-    extends:
-      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: download-models
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
-    container_name: vss-rtvi-cv-init
-    volumes:
-      - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.yaml:/opt/config/models-download.yaml:ro
-
-
+  # Warehouse models are delivered via the pre-extracted VSS_DATA_DIR app-data bundle
+  # (see deploy/docker/README.md and the consolidation ADR, Appendix B); no model-download
+  # init service is used here.
   vss-behavior-analytics-3d:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
@@ -314,8 +306,6 @@ services:
       NETWORK_HEIGHT: 540
       HARDWARE_PROFILE: $HARDWARE_PROFILE
     depends_on:
-      models-download-warehouse-3d:
-        condition: service_completed_successfully
       sdr-controller:
         condition: service_started
       sensor-ms-3d:

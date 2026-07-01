@@ -27,6 +27,8 @@ DS_TRACKER_REID="${DS_TRACKER_REID:-false}"
 DS_SHOW_SENSOR_ID="${DS_SHOW_SENSOR_ID:-false}"
 DS_VISION_ENCODER="${DS_VISION_ENCODER:-false}"
 
+# DS_APP_DIR defaults to the in-image app path; overridable so the staging/patching
+# transform can be exercised against a temp tree in tests (default is unchanged at runtime).
 DS_APP_DIR="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app"
 DS_CONFIG_DIR="${DS_APP_DIR}/configs"
 DS_MOUNTED_CONFIGS_DIR="${DS_APP_DIR}/mounted-configs"
@@ -90,6 +92,7 @@ patch_vision_encoder_configs_if_enabled() {
 
     local vision_encoder_model="${VISION_ENCODER_MODEL:?VISION_ENCODER_MODEL must be set when DS_VISION_ENCODER=true}"
     local vision_encoder_version="${VISION_ENCODER_VERSION:?VISION_ENCODER_VERSION must be set when DS_VISION_ENCODER=true}"
+    # Shared model tree root; matches download-models.sh MODELS_DEST_ROOT. Default unchanged at runtime.
     local vision_encoder_storage="/opt/storage"
     local vision_encoder_onnx_file="${vision_encoder_model}_${vision_encoder_version}.onnx"
     local vision_encoder_tokenizer_dir="${vision_encoder_model}_${vision_encoder_version}_tokenizer"
@@ -292,7 +295,6 @@ start_sparse4d_warehouse()
     exec ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5
 }
 
-# ---------------------------------------------------------------------------
 echo "===== DeepStream Perception ====="
 echo "DS_MODEL_FAMILY=$DS_MODEL_FAMILY  STREAM_TYPE=$STREAM_TYPE  DS_MODE_FLAG=$DS_MODE_FLAG"
 echo "DS_VISION_ENCODER=$DS_VISION_ENCODER"

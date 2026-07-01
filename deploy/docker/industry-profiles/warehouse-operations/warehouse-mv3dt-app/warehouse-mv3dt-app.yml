@@ -16,16 +16,9 @@
 include:
 
 services:
-  models-download-warehouse-mv3dt:
-    extends:
-      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: download-models
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
-    container_name: vss-rtvi-cv-init
-    volumes:
-      - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/models-download.yaml:/opt/config/models-download.yaml:ro
-
+  # Warehouse models are delivered via the pre-extracted VSS_DATA_DIR app-data bundle
+  # (see deploy/docker/README.md and the consolidation ADR, Appendix B); no model-download
+  # init service is used here.
   vss-behavior-analytics-mv3dt:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
@@ -303,8 +296,6 @@ services:
       LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libgomp.so.1:/usr/lib/x86_64-linux-gnu/libGLdispatch.so.0"
     command: ["./ds-start-mv3dt.sh"]
     depends_on:
-      models-download-warehouse-mv3dt:
-        condition: service_completed_successfully
       sensor-ms-mv3dt:
         condition: service_started
       broker-health-check:

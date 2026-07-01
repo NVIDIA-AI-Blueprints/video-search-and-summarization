@@ -185,9 +185,9 @@ The **warehouse** blueprint is driven by **`industry-profiles/warehouse-operatio
 
 1. **Model and app-data inputs**
 
-By default, warehouse Compose profiles now use the canonical `models-download-*` init services to pull required model artifacts from NGC using per-profile `models-download.yaml` manifests. Ensure `NGC_CLI_API_KEY` is set in the environment used for deployment.
+Warehouse profiles obtain **all** required inputs — models, videos, and playback/calibration data — from the `vss-warehouse-app-data` NGC resource bundle, which you download and extract once and point `VSS_DATA_DIR` at. Unlike the developer profiles, warehouse does **not** use a `models-download-*` init service: the bundle is a whole-tree artifact consumed across several services via `VSS_DATA_DIR`, so it is pre-staged on the host (the Docker analogue of Helm's `job-download-ngc-app-data`).
 
-For pre-staged/offline flows, you can still pre-download and extract warehouse app data manually:
+Download and extract the warehouse app data:
 
 ```bash
 ngc \
