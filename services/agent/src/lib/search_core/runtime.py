@@ -45,6 +45,7 @@ from typing import Literal
 from pydantic import SecretStr
 
 from .errors import ConfigurationError
+from .models.common import FusionMethod  # noqa: TC001  used in dataclass field annotation
 
 # =============================================================================
 # Helpers
@@ -191,7 +192,7 @@ class SearchRuntime:
     # should not silently return only a handful of embed hits.
     embed_default_max_results: int = 100
     embed_confidence_threshold: float = 0.1  # config.yml:80 override; code default is 0.2
-    fusion_method: Literal["weighted_linear", "rrf"] = "rrf"
+    fusion_method: FusionMethod = "rrf"
     w_attribute: float = 0.55
     w_embed: float = 0.35
     rrf_k: int = 60

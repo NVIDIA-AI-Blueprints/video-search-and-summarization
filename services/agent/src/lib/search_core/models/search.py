@@ -14,10 +14,10 @@
 # limitations under the License.
 """Search-orchestrator input/output models.
 
-Faithful port of services/agent/src/vss_agents/tools/search.py:1571-1671 with
-one deliberate omission: SearchInput does NOT carry use_attribute_search —
-that lives in SearchOptions (DESIGN.md §3) because it is an orchestrator
-config-time flag, not a user-routable knob.
+``SearchInput`` is the user-facing request; ``SearchOutput`` wraps the ranked
+``SearchResult`` items (each carrying an optional per-result ``CriticResult``
+verdict). ``use_attribute_search`` is deliberately absent — it is an
+orchestrator config-time flag, not a user-routable field on the request.
 """
 
 from __future__ import annotations
@@ -27,6 +27,8 @@ from datetime import datetime  # noqa: TC003  Pydantic field annotation; resolve
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+
+from ..errors import InvalidInputError
 
 # ``SourceType`` and ``datetime`` are used in Pydantic field annotations
 # below; Pydantic v2 resolves the stringified annotations at model_build
@@ -53,15 +55,30 @@ class SearchInput(BaseModel):
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
     # low-confidence searches, so don't clamp the lower bound to 0.
     min_cosine_similarity: float = Field(default=0.0, ge=-1.0, le=1.0)
-    agent_mode: bool  # required, matches tools/search.py
+    agent_mode: bool
     use_critic: bool = True
+
+    def validate_semantics(self) -> None:
+        """Raise :class:`InvalidInputError` for cross-field problems.
+
+        These values each pass their own field constraints but are invalid in
+        combination; centralizing them keeps the primitive's ``run()``/``stream()``
+        thin and gives callers one place to exercise input semantics.
+        """
+        if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
+            raise InvalidInputError(
+                f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
+                f"timestamp_end ({self.timestamp_end.isoformat()})"
+            )
+        if self.top_k is not None and self.top_k < 1:
+            raise InvalidInputError(f"top_k must be >= 1 when provided (got {self.top_k})")
 
 
 class CriticResult(BaseModel):
     """Per-search-result verdict from the critic agent.
 
-    Mirrors tools/search.py:1628-1636. Values use the same enum vocabulary
-    as CriticAgentResult — confirmed / rejected / unverified.
+    Values use the same enum vocabulary as ``CriticAgentResult`` —
+    confirmed / rejected / unverified.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -70,10 +87,7 @@ class CriticResult(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """A single search result item.
-
-    Mirrors tools/search.py:1640-1657.
-    """
+    """A single search result item."""
 
     model_config = ConfigDict(extra="forbid")
     video_name: str

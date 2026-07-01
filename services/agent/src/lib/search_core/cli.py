@@ -56,6 +56,7 @@ from pathlib import Path
 import sys
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import get_args
 
 from pydantic import SecretStr
 from pydantic import ValidationError
@@ -63,6 +64,7 @@ from pydantic import ValidationError
 from .errors import BackendUnreachableError
 from .errors import ConfigurationError
 from .errors import InvalidInputError
+from .models.common import FusionMethod
 
 if TYPE_CHECKING:
     from .host import VSSSearch
@@ -71,6 +73,9 @@ logger = logging.getLogger(__name__)
 
 PRIMITIVES = ("embed_search", "attribute_search", "search", "critic")
 SOURCE_TYPES = ("video_file", "rtsp")
+# Derived from the shared FusionMethod literal so CLI choices can never drift
+# from the strategies the orchestrator actually implements.
+FUSION_METHODS = get_args(FusionMethod)
 _REQUIRED_RUNTIME_ARGS = (
     ("es_endpoint", "--es-endpoint"),
     ("cosmos_embed_endpoint", "--cosmos-embed-endpoint"),
@@ -233,7 +238,7 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
     )
     runtime.add_argument("--embed-confidence-threshold", type=_parse_cosine_similarity, default=None)
     runtime.add_argument("--search-max-iterations", type=_parse_positive_int, default=None)
-    runtime.add_argument("--fusion-method", choices=("weighted_linear", "rrf"), default=None)
+    runtime.add_argument("--fusion-method", choices=FUSION_METHODS, default=None)
     runtime.add_argument("--w-attribute", type=float, default=None)
     runtime.add_argument("--w-embed", type=float, default=None)
     runtime.add_argument("--rrf-k", type=_parse_positive_int, default=None)

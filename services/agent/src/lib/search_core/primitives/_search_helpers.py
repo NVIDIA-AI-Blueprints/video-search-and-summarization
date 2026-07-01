@@ -12,35 +12,35 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Internal helpers for Search.
+"""Search orchestration: thin async IO over pure helpers.
 
-Ported byte-for-byte from services/agent/src/vss_agents/tools/search.py (lines
-61-1457) with these edits:
-  - NAT and registered-function machinery removed (SearchConfig and the
-    `search` entry point stay in the NAT shim).
-  - Model class definitions removed; helpers use the library's models.
-  - Upward imports rewritten to library-local paths.
-  - `fastapi.HTTPException` replaced with library `BackendUnreachableError` so
-    search_core has no web-framework dep. NAT shim translates back to HTTP.
-  - `VSSESClient.get_es_client` calls replaced with injected `ElasticClient`
-    instances or `ElasticClient.from_endpoint(...)`.
-  - Query decomposition is performed entirely by the NAT layer before this
-    library is called. The library consumes prepared SearchInput fields only.
+Two layers cooperate here:
+  - pure, synchronous helpers (attribute->result mapping, video-source
+    resolution) that unit-test with plain data; the fusion math, chunk merging,
+    top-percent filtering, and embed->result coercion live in :mod:`._fusion`; and
+  - :func:`execute_core_search`, a thin async generator that wires the injected
+    embed/attribute/critic/behavior-ES adapters to those pure helpers and yields
+    progress chunks then a final :class:`SearchOutput`.
+
+Error policy is hybrid: systemic failures (any :class:`SearchError` —
+``IndexNotFoundError`` / ``BackendUnreachableError`` / ``InvalidInputError``)
+propagate so callers get precise errors and exit codes; only genuinely
+best-effort work degrades softly (a single video's attribute lookup during
+fusion, and the additive critic-verification pass).
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from datetime import timedelta
 import json
 import logging
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import cast
 
+from .._internal.sanitize import scrub_log
 from .._internal.time_convert import datetime_to_iso8601
-from .._internal.time_convert import iso8601_to_datetime
+from .._internal.time_convert import safe_iso8601_to_datetime
 from .._internal.time_measure import TimeMeasure
 from ..agent_chunks import AgentMessageChunk
 from ..agent_chunks import AgentMessageChunkType
@@ -49,11 +49,15 @@ from ..clients.vst import get_sensor_id_from_stream_id
 from ..errors import BackendUnreachableError
 from ..errors import SearchError
 from ..models.attribute_search import AttributeSearchResult
+from ..models.common import VideoInfo
+from ..models.critic import CriticAgentResult
+from ..models.critic import VideoResult as CriticVideoResult
 from ..models.embed_search import EmbedSearchOutput
 from ..models.search import CriticResult
 from ..models.search import SearchInput
 from ..models.search import SearchOutput
 from ..models.search import SearchResult
+from . import _fusion
 from ._attribute_helpers import enrich_attribute_results
 from ._attribute_helpers import resolve_index_by_source_type
 from ._attribute_helpers import search_by_object_embedding
@@ -65,14 +69,46 @@ logger = logging.getLogger(__name__)
 
 
 # ==========================================================================
-# Constants
+# Coercion helpers (mirror _attribute_helpers._coerce_str)
 # ==========================================================================
 
-_SIMILARITY_RATIO_THRESHOLD = 0.9
+
+def _coerce_str(value: Any, default: str = "") -> str:
+    """Coerce a possibly-missing / odd-typed value to a clean string.
+
+    A genuinely absent value (``None`` or ``""``) becomes ``default``; falsy-but-
+    valid values like ``0`` are preserved (so object id ``0`` survives).
+    """
+    if value is None or value == "":
+        return default
+    return str(value)
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    """Coerce a possibly-missing / odd-typed value to a float, or the default."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _video_info_for_critic(result: SearchResult) -> VideoInfo | None:
+    """Build a :class:`VideoInfo` for critic verification, or None.
+
+    A result whose start/end timestamps do not parse cannot be clip-verified, so
+    it is skipped (returns None) rather than crashing the critic pass.
+    """
+    start_dt = safe_iso8601_to_datetime(result.start_time)
+    end_dt = safe_iso8601_to_datetime(result.end_time)
+    if start_dt is None or end_dt is None:
+        return None
+    return VideoInfo(sensor_id=result.sensor_id, start_timestamp=start_dt, end_timestamp=end_dt)
 
 
 # ==========================================================================
-# Attribute helpers (search.py L141-L257)
+# Attribute helpers
 # ==========================================================================
 
 
@@ -84,7 +120,12 @@ async def _run_attribute_only_search(
     min_similarity: float | None,
     exclude_videos: list[dict[str, str]] | None = None,
 ) -> list[SearchResult]:
-    """Run attribute-only search in append mode. Mirrors search.py:141-198."""
+    """Run attribute-only search in append mode.
+
+    Systemic failures (missing index, backend unreachable, invalid input) are
+    re-raised so callers get precise errors; any other unexpected error degrades
+    to an empty result rather than sinking the primary path.
+    """
     logger.info(f"Running attribute-only search (append mode), input: {search_input.model_dump_json()}")
     exclude_videos = exclude_videos or []
     try:
@@ -132,26 +173,30 @@ def attribute_result_to_search_result(
     video_name: str | None = None,
     description: str = "",
 ) -> SearchResult:
-    """Convert AttributeSearchResult → SearchResult. Mirrors search.py:201-256."""
-    if isinstance(attr_result, dict):
-        validated_result = AttributeSearchResult.model_validate(attr_result)
-    elif isinstance(attr_result, AttributeSearchResult):
-        validated_result = attr_result
-    else:
-        validated_result = AttributeSearchResult.model_validate(attr_result)
+    """Convert an ``AttributeSearchResult`` (or raw payload) to a ``SearchResult``.
+
+    Every field read from the (untrusted) attribute payload is coerced so a null
+    or odd-typed value degrades gracefully instead of raising. ``object_id == 0``
+    is preserved rather than collapsed to an empty id.
+    """
+    validated_result = (
+        attr_result
+        if isinstance(attr_result, AttributeSearchResult)
+        else AttributeSearchResult.model_validate(attr_result)
+    )
 
     metadata = validated_result.metadata
-    similarity = (
-        float(metadata.frame_score)
-        if (metadata.frame_score is not None and metadata.frame_score > 0.0)
-        else float(metadata.behavior_score)
-    )
+    frame_score = metadata.frame_score
+    if frame_score is not None and _coerce_float(frame_score) > 0.0:
+        similarity = _coerce_float(frame_score)
+    else:
+        similarity = _coerce_float(metadata.behavior_score)
     # frame_timestamp is nullable; fall back to "" (the "no timestamp" convention
     # used by embed results) so SearchResult's required str fields stay typed and
-    # _merge_consecutive_results routes them to its no-timestamp bucket.
-    start_time = metadata.start_time or metadata.frame_timestamp or ""
-    end_time = metadata.end_time or metadata.frame_timestamp or ""
-    result_video_name = video_name or metadata.video_name or metadata.sensor_id
+    # merge_consecutive_results routes them to its no-timestamp bucket.
+    start_time = _coerce_str(metadata.start_time) or _coerce_str(metadata.frame_timestamp)
+    end_time = _coerce_str(metadata.end_time) or _coerce_str(metadata.frame_timestamp)
+    result_video_name = _coerce_str(video_name) or _coerce_str(metadata.video_name) or _coerce_str(metadata.sensor_id)
     if not description:
         description = f"Attribute match at {metadata.frame_timestamp or 'unknown time'}"
 
@@ -160,15 +205,15 @@ def attribute_result_to_search_result(
         description=description,
         start_time=start_time,
         end_time=end_time,
-        sensor_id=metadata.sensor_id,
-        screenshot_url=validated_result.screenshot_url or "",
+        sensor_id=_coerce_str(metadata.sensor_id),
+        screenshot_url=_coerce_str(validated_result.screenshot_url),
         similarity=similarity,
-        object_ids=[str(metadata.object_id)],
+        object_ids=[_coerce_str(metadata.object_id)],
     )
 
 
 # ==========================================================================
-# Video sources resolution (search.py L374-413)
+# Video sources resolution
 # ==========================================================================
 
 
@@ -205,94 +250,7 @@ def _resolve_video_sources_for_search(
 
 
 # ==========================================================================
-# Fusion math (search.py L416-543)
-# ==========================================================================
-
-
-def _apply_weighted_linear_fusion(
-    video_data: list[dict[str, Any]],
-    w_embed: float,
-    w_attribute: float,
-) -> list[SearchResult]:
-    """Weighted linear fusion. Mirrors L416-452."""
-    reranked_results = []
-    for video in video_data:
-        embed_score = video["embed_score"]
-        attribute_score = video["normalised_attribute_score"]
-        fusion_score = w_embed * embed_score + w_attribute * attribute_score
-        reranked_result = SearchResult(
-            video_name=video["embed_result"].video_name,
-            description=video["embed_result"].description,
-            start_time=video["embed_result"].start_time,
-            end_time=video["embed_result"].end_time,
-            sensor_id=video["embed_result"].sensor_id,
-            screenshot_url=video["screenshot_url"],
-            similarity=fusion_score,
-            object_ids=video["object_ids"],
-        )
-        reranked_results.append((fusion_score, reranked_result))
-    reranked_results.sort(key=lambda x: x[0], reverse=True)
-    return [result for _, result in reranked_results]
-
-
-def _apply_rrf_fusion(
-    video_data: list[dict[str, Any]],
-    rrf_k: int,
-    rrf_w: float,
-) -> list[SearchResult]:
-    """Reciprocal Rank Fusion. Mirrors L455-493."""
-    sorted_video_data = sorted(video_data, key=lambda x: x["embed_score"], reverse=True)
-    reranked_results = []
-    for rank, video in enumerate(sorted_video_data, start=1):
-        rrf_score = 1.0 / (rank + rrf_k) + rrf_w * video["normalised_attribute_score"]
-        reranked_result = SearchResult(
-            video_name=video["embed_result"].video_name,
-            description=video["embed_result"].description,
-            start_time=video["embed_result"].start_time,
-            end_time=video["embed_result"].end_time,
-            sensor_id=video["embed_result"].sensor_id,
-            screenshot_url=video["screenshot_url"],
-            similarity=rrf_score,
-            object_ids=video["object_ids"],
-        )
-        reranked_results.append((rrf_score, reranked_result))
-    reranked_results.sort(key=lambda x: x[0], reverse=True)
-    return [result for _, result in reranked_results]
-
-
-def _apply_rrf_fusion_with_attribute_rank(
-    video_data: list[dict[str, Any]],
-    rrf_k: int,
-    rrf_w: float,
-) -> list[SearchResult]:
-    """RRF using both embed and attribute ranks. Mirrors L496-543."""
-    sorted_by_embed = sorted(video_data, key=lambda x: x["embed_score"], reverse=True)
-    embed_ranks = {id(video): rank for rank, video in enumerate(sorted_by_embed, start=1)}
-    sorted_by_attribute = sorted(video_data, key=lambda x: x["normalised_attribute_score"], reverse=True)
-    attribute_ranks = {id(video): rank for rank, video in enumerate(sorted_by_attribute, start=1)}
-
-    reranked_results = []
-    for video in video_data:
-        rank_embed = embed_ranks[id(video)]
-        rank_attribute = attribute_ranks[id(video)]
-        rrf_score = 1.0 / (rank_embed + rrf_k) + rrf_w * (1.0 / (rank_attribute + rrf_k))
-        reranked_result = SearchResult(
-            video_name=video["embed_result"].video_name,
-            description=video["embed_result"].description,
-            start_time=video["embed_result"].start_time,
-            end_time=video["embed_result"].end_time,
-            sensor_id=video["embed_result"].sensor_id,
-            screenshot_url=video["screenshot_url"],
-            similarity=rrf_score,
-            object_ids=video["object_ids"],
-        )
-        reranked_results.append((rrf_score, reranked_result))
-    reranked_results.sort(key=lambda x: x[0], reverse=True)
-    return [result for _, result in reranked_results]
-
-
-# ==========================================================================
-# fusion_search_rerank (search.py L546-713)
+# fusion_search_rerank
 # ==========================================================================
 
 
@@ -308,10 +266,14 @@ async def fusion_search_rerank(
     w_attribute: float = 0.55,
     w_embed: float = 0.35,
 ) -> list[SearchResult]:
-    """Rerank embed_search results using weighted linear or RRF fusion.
+    """Rerank embed results by fusing each video's embed score with attribute matches.
 
-    For each video: run attribute_search; compute normalised attribute score;
-    apply chosen fusion method.
+    Per-video attribute lookups are best-effort: an unexpected failure (or an
+    unparseable clip timestamp) degrades that single video to its embed-only
+    score. Systemic failures (any :class:`SearchError`) propagate and abort the
+    whole rerank, so callers get a precise error instead of silently-degraded
+    results. The assembled candidates are handed to :mod:`._fusion` for the
+    chosen fusion method (an unknown method raises :class:`InvalidInputError`).
     """
     logger.info(
         f"{fusion_method.upper()} fusion reranking {len(embed_results)} videos using {len(attributes)} attributes"
@@ -319,8 +281,14 @@ async def fusion_search_rerank(
 
     async def _get_attribute_results(embed_result: SearchResult) -> tuple[SearchResult, Any]:
         try:
-            start_dt = iso8601_to_datetime(embed_result.start_time)
-            end_dt = iso8601_to_datetime(embed_result.end_time)
+            start_dt = safe_iso8601_to_datetime(embed_result.start_time)
+            end_dt = safe_iso8601_to_datetime(embed_result.end_time)
+            if start_dt is None or end_dt is None:
+                logger.warning(
+                    f"Skipping fusion attribute lookup for {scrub_log(embed_result.video_name)}: "
+                    "unparseable start/end timestamp"
+                )
+                return embed_result, None
 
             if end_dt <= start_dt:
                 original_start = start_dt
@@ -332,14 +300,15 @@ async def fusion_search_rerank(
                 )
 
             filter_sensor_id = ""
-
             if embed_result.sensor_id and vst_internal_url:
+                # Stream-id -> sensor-id resolution is best-effort enrichment with
+                # a defined fallback (video_name / sensor_id), so it never aborts.
                 try:
                     filter_sensor_id = await get_sensor_id_from_stream_id(embed_result.sensor_id, vst_internal_url)
                     if filter_sensor_id != embed_result.sensor_id:
                         logger.info(f"Converted stream_id '{embed_result.sensor_id}' to sensor_id '{filter_sensor_id}'")
                 except Exception as e:
-                    logger.warning(f"VST conversion failed: {e}. Using fallback")
+                    logger.warning(f"VST conversion failed: {scrub_log(str(e))}. Using fallback")
 
             if not filter_sensor_id:
                 filter_sensor_id = embed_result.video_name or embed_result.sensor_id or ""
@@ -354,171 +323,37 @@ async def fusion_search_rerank(
                 "min_similarity": 0.4,
                 "fuse_multi_attribute": True,
             }
-
-            try:
-                attribute_results = await attribute_search_fn.ainvoke(attr_params)
-            except Exception as e:
-                logger.error(f"Attribute search failed for {embed_result.video_name}: {e}")
-                attribute_results = None
-
+            attribute_results = await attribute_search_fn.ainvoke(attr_params)
             return embed_result, attribute_results
+        except SearchError:
+            # Systemic failure (missing index, backend unreachable, invalid input)
+            # affects every video equally — propagate rather than degrade.
+            raise
         except Exception as e:
-            logger.error(f"Failed to process embed result {embed_result.video_name}: {e}")
+            logger.warning(
+                f"Fusion attribute lookup failed for {scrub_log(embed_result.video_name)}: {scrub_log(str(e))}",
+                exc_info=True,
+            )
             return embed_result, None
 
+    # No return_exceptions: a systemic SearchError from any video propagates.
     results_list = await asyncio.gather(*[_get_attribute_results(er) for er in embed_results])
 
-    video_data: list[dict[str, Any]] = []
-
-    for embed_result, attribute_results in results_list:
-        embed_score = embed_result.similarity
-        attribute_scores: list[float] = []
-        attribute_screenshot_url = None
-        object_ids: list[str] = []
-
-        if attribute_results and isinstance(attribute_results, list):
-            validated_results = [
-                item if isinstance(item, AttributeSearchResult) else AttributeSearchResult.model_validate(item)
-                for item in attribute_results
-            ]
-        else:
-            validated_results = []
-
-        if validated_results:
-            for result in validated_results:
-                frame_score = result.metadata.frame_score
-                behavior_score = result.metadata.behavior_score
-                score = float(frame_score) if (frame_score is not None and frame_score > 0.0) else float(behavior_score)
-                attribute_scores.append(score)
-                object_id = result.metadata.object_id
-                if object_id and str(object_id) not in object_ids:
-                    object_ids.append(str(object_id))
-            attribute_screenshot_url = validated_results[0].screenshot_url or ""
-
-        normalised_attribute_score = sum(attribute_scores) / len(attributes) if len(attributes) > 0 else 0.0
-
-        video_data.append(
-            {
-                "embed_result": embed_result,
-                "embed_score": embed_score,
-                "normalised_attribute_score": normalised_attribute_score,
-                "screenshot_url": (
-                    attribute_screenshot_url if attribute_screenshot_url else embed_result.screenshot_url
-                ),
-                "object_ids": object_ids,
-            }
-        )
-
-    if fusion_method == "weighted_linear":
-        final_results = _apply_weighted_linear_fusion(video_data, w_embed, w_attribute)
-    elif fusion_method == "rrf":
-        final_results = _apply_rrf_fusion(video_data, rrf_k, rrf_w)
-    elif fusion_method == "rrf_with_attribute_rank":
-        final_results = _apply_rrf_fusion_with_attribute_rank(video_data, rrf_k, rrf_w)
-    else:
-        raise ValueError(
-            f"Unknown fusion_method: {fusion_method}. Must be 'weighted_linear', 'rrf', or 'rrf_with_attribute_rank'"
-        )
-
+    candidates = _fusion.build_fusion_candidates(list(results_list), len(attributes))
+    final_results = _fusion.apply_fusion(
+        candidates,
+        fusion_method,
+        rrf_k=rrf_k,
+        rrf_w=rrf_w,
+        w_embed=w_embed,
+        w_attribute=w_attribute,
+    )
     logger.info(f"{fusion_method.upper()} fusion reranking complete: {len(final_results)} videos reranked")
     return final_results
 
 
 # ==========================================================================
-# _merge_consecutive_results (search.py L719-816)
-# ==========================================================================
-
-
-def _merge_consecutive_results(results: list[SearchResult]) -> list[SearchResult]:
-    """Merge consecutive/overlapping chunks from the same sensor. Mirrors L719-816."""
-    if not results:
-        return results
-
-    timestamped: list[SearchResult] = []
-    no_timestamp: list[SearchResult] = []
-    for r in results:
-        if not r.start_time or not r.end_time:
-            no_timestamp.append(r)
-            continue
-        try:
-            iso8601_to_datetime(r.start_time)
-            iso8601_to_datetime(r.end_time)
-            timestamped.append(r)
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Skipping merge for result with malformed timestamp (sensor={r.sensor_id}): {e}")
-            no_timestamp.append(r)
-
-    merged: list[SearchResult] = list(no_timestamp)
-    if not timestamped:
-        merged.sort(key=lambda r: r.similarity, reverse=True)
-        return merged
-
-    by_sensor: dict[str, list[SearchResult]] = {}
-    for result in timestamped:
-        by_sensor.setdefault(result.sensor_id, []).append(result)
-
-    for sensor_id, sensor_results in by_sensor.items():
-        # Sort by parsed datetime, not the raw ISO string: mixed encodings
-        # ('+00:00' vs 'Z', differing fractional-second widths) sort wrongly
-        # lexically and would group the wrong consecutive chunks. These results
-        # are all in `timestamped`, so start_time is guaranteed parseable.
-        sorted_results = sorted(sensor_results, key=lambda r: iso8601_to_datetime(r.start_time))
-
-        groups: list[list[SearchResult]] = []
-        group_chunks: list[SearchResult] = [sorted_results[0]]
-        group_end_dt = iso8601_to_datetime(sorted_results[0].end_time)
-
-        for result in sorted_results[1:]:
-            result_start_dt = iso8601_to_datetime(result.start_time)
-            group_avg_sim = sum(c.similarity for c in group_chunks) / len(group_chunks)
-            pair_max = max(group_avg_sim, result.similarity)
-            pair_min = min(group_avg_sim, result.similarity)
-            sim_compatible = pair_max == 0 or (pair_min / pair_max) >= _SIMILARITY_RATIO_THRESHOLD
-
-            if result_start_dt <= group_end_dt and sim_compatible:
-                result_end_dt = iso8601_to_datetime(result.end_time)
-                if result_end_dt > group_end_dt:
-                    group_end_dt = result_end_dt
-                group_chunks.append(result)
-            else:
-                groups.append(group_chunks)
-                group_chunks = [result]
-                group_end_dt = iso8601_to_datetime(result.end_time)
-        groups.append(group_chunks)
-
-        for group in groups:
-            first = group[0]
-            end_dt = max(iso8601_to_datetime(g.end_time) for g in group)
-            similarity = sum(g.similarity for g in group) / len(group)
-
-            seen_ids: set[str] = set()
-            merged_object_ids: list[str] = []
-            for g in group:
-                for oid in g.object_ids:
-                    if oid not in seen_ids:
-                        merged_object_ids.append(oid)
-                        seen_ids.add(oid)
-
-            merged.append(
-                SearchResult(
-                    video_name=first.video_name,
-                    description=first.description,
-                    start_time=first.start_time,
-                    end_time=datetime_to_iso8601(end_dt),
-                    sensor_id=sensor_id,
-                    screenshot_url=first.screenshot_url,
-                    similarity=similarity,
-                    object_ids=merged_object_ids,
-                    critic_result=None,
-                )
-            )
-
-    merged.sort(key=lambda r: r.similarity, reverse=True)
-    return merged
-
-
-# ==========================================================================
-# execute_core_search (search.py L824-1426)
+# execute_core_search
 # ==========================================================================
 
 
@@ -530,22 +365,18 @@ async def execute_core_search(
     critic_agent: Any | None = None,
     behavior_es: Any | None = None,
 ) -> AsyncGenerator[AgentMessageChunk | SearchOutput]:
-    """Core search execution: yields progress chunks, then final SearchOutput.
+    """Core search execution: yields progress chunks, then a final SearchOutput.
 
-    Three execution paths:
-      1. Attribute-only (has_action=False and attributes exist)
-      2. Embed-only (no attributes)
-      3. Fusion (has_action=True and attributes exist, embed score >= threshold)
+    Routes to one of four paths:
+      1. object_id re-search (direct behavior kNN by an existing object's vector)
+      2. attribute-only (attributes present and ``has_action`` is false)
+      3. embed-only (no attributes)
+      4. fusion (attributes present and embed confidence is high enough)
 
-    All function references (``attribute_search_fn``, ``critic_agent``) must be
-    pre-loaded by the caller — the library does not depend on the NAT Builder.
-    The library's Search primitive does this in its from_runtime wiring; the
-    NAT shims (tools/search.py, agents/search_agent.py) do it at registration.
+    The injected adapters (``embed_search``, ``attribute_search_fn``,
+    ``critic_agent``, ``behavior_es``) each expose an async ``.ainvoke`` and are
+    supplied by the caller; this generator only wires them to the pure helpers.
     """
-    from ..models.common import VideoInfo
-    from ..models.critic import CriticAgentResult
-    from ..models.critic import VideoResult as CriticVideoResult
-
     original_query = search_input.original_query or search_input.query
 
     # ----- OBJECT_ID PATH: Direct behavior KNN -----
@@ -582,7 +413,13 @@ async def execute_core_search(
                     timestamp_end=search_input.timestamp_end,
                     source_type=search_input.source_type,
                 )
-            except BackendUnreachableError:
+            except SearchError:
+                # Any systemic library error (missing index, backend unreachable,
+                # invalid input) affects every object equally — propagate it so the
+                # caller gets a precise error/exit code, matching the hybrid policy
+                # used on the attribute-only and fusion paths. A benign "object not
+                # found" surfaces as a plain ValueError below and still degrades to
+                # an empty result.
                 raise
             except Exception as e:
                 logger.warning(f"Object ID {oid} search failed: {e}")
@@ -595,12 +432,16 @@ async def execute_core_search(
         for obj_results in results_list:
             all_results.extend(obj_results)
 
-        seen: dict = {}
+        seen: dict[str, AttributeSearchResult] = {}
         for r in all_results:
-            key = str(r.metadata.object_id)
-            if key not in seen or r.metadata.behavior_score > seen[key].metadata.behavior_score:
+            key = _coerce_str(r.metadata.object_id)
+            if key not in seen or _coerce_float(r.metadata.behavior_score) > _coerce_float(
+                seen[key].metadata.behavior_score
+            ):
                 seen[key] = r
-        attr_results = sorted(seen.values(), key=lambda r: r.metadata.behavior_score, reverse=True)[:top_k]
+        attr_results = sorted(seen.values(), key=lambda r: _coerce_float(r.metadata.behavior_score), reverse=True)[
+            :top_k
+        ]
 
         vst_internal_url = getattr(config, "vst_internal_url", None)
         vst_external_url = getattr(config, "vst_external_url", None)
@@ -653,18 +494,17 @@ async def execute_core_search(
         elif attribute_list:
             is_attribute_only = True
 
-    # ----- EXECUTION FLOW: Three paths -----
-    # The object-id path above already assigned ``search_results`` and
-    # returned before this point, so the reassignment here is dead code on
-    # that branch — but mypy can't see it. Reusing the same name without a
-    # fresh annotation lets the no-redef check pass.
+    # ----- EXECUTION FLOW: embed / attribute-only / fusion -----
+    # The object_id path above returns before reaching here, so this
+    # ``search_results`` init is only hit on the remaining paths. Reusing the
+    # name without a fresh annotation keeps mypy's no-redef check happy.
     search_results = []
     do_search = True
-    rejected_results: set = set()
-    confirmed_results: set = set()
+    rejected_results: set[VideoInfo] = set()
+    confirmed_results: set[VideoInfo] = set()
     iteration_num = 0
     search_messages: list[str] = []
-    persistent_critic_results: dict = {}
+    persistent_critic_results: dict[VideoInfo, CriticResult] = {}
 
     while do_search and iteration_num < config.search_max_iterations:
         iteration_num += 1
@@ -683,9 +523,7 @@ async def execute_core_search(
             )
 
             if attribute_search_fn is None:
-                raise ValueError(
-                    "attribute_search_fn must be pre-loaded by the Search primitive; library does not use NAT Builder"
-                )
+                raise ValueError("attribute_search_fn must be pre-loaded by the Search primitive")
 
             with TimeMeasure("search: attribute-only search"):
                 search_results = await _run_attribute_only_search(
@@ -739,22 +577,7 @@ async def execute_core_search(
             else:
                 embed_output = EmbedSearchOutput.model_validate(embed_search_output)
 
-            search_results = []
-            for item in embed_output.results:
-                if not item.video_name:
-                    logger.warning("Skipping result with empty video_name")
-                    continue
-                search_results.append(
-                    SearchResult(
-                        video_name=item.video_name,
-                        description=item.description,
-                        start_time=item.start_time,
-                        end_time=item.end_time,
-                        sensor_id=item.sensor_id,
-                        screenshot_url=item.screenshot_url,
-                        similarity=item.similarity_score,
-                    )
-                )
+            search_results = _fusion.embed_output_to_search_results(embed_output)
 
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.THOUGHT,
@@ -826,25 +649,21 @@ async def execute_core_search(
                             type=AgentMessageChunkType.THOUGHT,
                             content="Fusion reranking complete",
                         )
-                    except Exception as e:
-                        logger.error(f"Error in fusion_search reranking: {e}", exc_info=True)
+                    except SearchError as e:
+                        # Hybrid policy: a systemic fusion failure is fatal.
+                        # Per-video attribute degradation is handled inside
+                        # fusion_search_rerank and never reaches here.
+                        logger.error(f"Fusion reranking failed: {e}", exc_info=True)
                         yield AgentMessageChunk(
                             type=AgentMessageChunkType.ERROR,
-                            content=f"Fusion reranking failed, using embed results: {e!s}",
+                            content=f"Fusion reranking failed: {e}",
                         )
+                        raise
 
         # Percentage-based filtering
-        top_pct = getattr(config, "top_percent_filter", None)
-        if top_pct and 0 < top_pct < 1.0 and search_results:
-            max_sim = max(r.similarity for r in search_results)
-            sim_threshold = max_sim * top_pct
-            before_count = len(search_results)
-            search_results = [r for r in search_results if r.similarity >= sim_threshold]
-            logger.info(
-                f"Top-percent filter: kept {len(search_results)}/{before_count} results (>= {sim_threshold:.4f})"
-            )
+        search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
 
-        search_results = _merge_consecutive_results(search_results)
+        search_results = _fusion.merge_consecutive_results(search_results)
 
         # Critic verification
         if config.enable_critic and search_input.use_critic and critic_agent and search_results:
@@ -858,13 +677,10 @@ async def execute_core_search(
 
                 search_videos: list[VideoInfo] = []
                 for result in search_results:
-                    # SearchResult timestamps are wire-shape ISO 8601 strings;
-                    # Pydantic v2 coerces them to datetime on VideoInfo construction.
-                    info = VideoInfo(
-                        sensor_id=result.sensor_id,
-                        start_timestamp=cast("datetime", result.start_time),
-                        end_timestamp=cast("datetime", result.end_time),
-                    )
+                    info = _video_info_for_critic(result)
+                    if info is None:
+                        # No parseable timestamps -> cannot be clip-verified.
+                        continue
                     if info not in confirmed_results and info not in rejected_results:
                         search_videos.append(info)
 
@@ -900,14 +716,8 @@ async def execute_core_search(
                         )
 
                 for result in search_results:
-                    # SearchResult timestamps are wire-shape ISO 8601 strings;
-                    # Pydantic v2 coerces them to datetime on VideoInfo construction.
-                    info = VideoInfo(
-                        sensor_id=result.sensor_id,
-                        start_timestamp=cast("datetime", result.start_time),
-                        end_timestamp=cast("datetime", result.end_time),
-                    )
-                    if info in persistent_critic_results:
+                    info = _video_info_for_critic(result)
+                    if info is not None and info in persistent_critic_results:
                         result.critic_result = persistent_critic_results[info]
 
                 verified_count = sum(1 for vr in critic_results.values() if vr.result == CriticAgentResult.CONFIRMED)
