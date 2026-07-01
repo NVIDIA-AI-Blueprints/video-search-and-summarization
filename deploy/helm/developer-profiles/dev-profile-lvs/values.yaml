@@ -45,6 +45,9 @@ global:
   # NGC model ids — shared by vss-agent (LLM_NAME / VLM_NAME) and vss-summarization (LVS_LLM_MODEL_NAME, VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME). Override per subchart if needed.
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
   vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+  # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
+  vios:
+    useSdrc: true
 
 # Set global.external* and optional global.kibanaPublicUrl in values-lvs.yaml. Images/replicas: charts/<name>/values.yaml.
 

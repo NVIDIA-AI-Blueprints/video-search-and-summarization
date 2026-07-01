@@ -110,7 +110,9 @@ services:
       test:
         - CMD-SHELL
         - >
-          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT}; printf "GET /v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT};
+          printf "GET /v1/ready HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3;
+          read -r status <&3; [[ "$${status}" == HTTP/*" 200 "* ]]'
       interval: 20s
       timeout: 3s
       retries: 60
