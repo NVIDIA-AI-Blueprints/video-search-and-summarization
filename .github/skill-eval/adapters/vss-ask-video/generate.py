@@ -112,7 +112,7 @@ def generate_solve_script(platform: str) -> str:
         "# vss-ask-video calls the VLM /v1/chat/completions endpoint directly\n"
         "# (NOT POST /generate). The solution script asserts VST + a VLM\n"
         "# endpoint are reachable, then defers to the verifier.\n"
-        "set -uo pipefail\n"
+        "set -euo pipefail\n"
         "\n"
         'HOST_IP="${HOST_IP:-localhost}"\n'
         "\n"
