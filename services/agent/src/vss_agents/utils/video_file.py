@@ -15,9 +15,13 @@
 import logging
 import os
 
-import cv2
+try:
+    import cv2
+except ImportError:  # pragma: no cover - proprietary codecs not installed in default image
+    cv2 = None  # type: ignore[assignment]
 
 from vss_agents.data_models.vss import MediaInfoOffset
+from vss_agents.utils.optional_cv2 import ensure_codecs
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +32,7 @@ def get_video_duration(file_path: str) -> float:
         logger.error(f"Video file does not exist: {file_path}")
         return 0.0
 
+    ensure_codecs(cv2)
     video_capture = cv2.VideoCapture(file_path)
 
     # Check if video was opened successfully

@@ -627,6 +627,57 @@ jobs:
         run: python3 .github/scripts/check_folder_structure.py
 
   # ---------------------------------------------------------------------------
+  # Job 11b: No patent-encumbered media codecs in the agent image (OSRB)
+  # Defense in depth: (1) unit-test the shared scanner, (2) assert the
+  # Dockerfile still strips the codecs and wires the build-time guard so the
+  # protection cannot be silently removed, and (3) scan the ALREADY-PUBLISHED
+  # agent image the blueprint pins (pulled from nvcr.io, resolved the same way
+  # as the container-source check) for any FFmpeg/H.264/H.265 codec library.
+  # No local build, so it can't flake on base-image registry rate limits; the
+  # Dockerfile's build-time guard still enforces this in the publish build.
+  # ---------------------------------------------------------------------------
+  codec-scan:
+    name: No Patented Codecs (agent image)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the codec scanner
+        run: python3 .github/scripts/test_check_no_patented_codecs.py
+
+      # Cheap, always-runs guard so the protection can't be silently removed
+      # even if the published-image pull below is skipped (e.g. missing NGC key).
+      - name: Assert Dockerfile strips codecs and wires the build-time guard
+        run: |
+          DF=services/agent/docker/Dockerfile
+          fail() { echo "ERROR: $1 (see $DF)"; exit 1; }
+          grep -qF 'opencv_python_headless.libs' "$DF" \
+            || fail "OpenCV/FFmpeg removal step missing"
+          grep -qF 'libav*.so*' "$DF" \
+            || fail "FFmpeg shared-library removal glob missing"
+          grep -qF 'patent-encumbered codec libraries present in image' "$DF" \
+            || fail "build-time codec guard missing"
+          echo "OK: Dockerfile removes bundled codecs and enforces the build-time guard."
+
+      # NGC_CLI_API_KEY lets us pull the published agent image from nvcr.io.
+      - name: Log in to NGC
+        if: ${{ env.NGC_CLI_API_KEY != '' }}
+        run: echo "${NGC_CLI_API_KEY}" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+
+      # Scan the ALREADY-PUBLISHED agent image the blueprint pins (resolved from
+      # deploy/docker exactly like the container-source check) via `docker
+      # export`, which flattens the layers so codec files deleted at build time
+      # correctly do not appear. No local build -> no base-image rate-limit flakes.
+      - name: Scan the deployed agent image for patent-encumbered codecs
+        run: python3 .github/scripts/check_no_patented_codecs.py --from-deploy vss-agent
+
+  # ---------------------------------------------------------------------------
   # Job 12: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:

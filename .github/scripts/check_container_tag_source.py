@@ -208,18 +208,25 @@ _CONFIG_ACCEPT = (
 
 
 def _parse_image_ref(image_ref: str) -> tuple[str, str, str] | None:
-    """Split ``registry/name:tag`` (or ``registry/name@digest``).
+    """Split ``registry/name:tag``, ``registry/name@digest``, or
+    ``registry/name:tag@digest``.
 
     Returns ``(registry, name, reference)`` or ``None`` if the ref doesn't have
     a recognizable host prefix and tag/digest. The reference is either a
-    ``sha256:...`` digest or a tag string.
+    ``sha256:...`` digest or a tag string (digest wins when both are present,
+    since it's the immutable, authoritative pointer).
     """
-    # Digest form
+    # Digest form (optionally with a leading ``:tag`` we must strip from the
+    # repo name, e.g. ``registry/name:tag@sha256:...``).
     if "@" in image_ref:
         repo_part, _, digest = image_ref.partition("@")
         if "/" not in repo_part or not digest.startswith("sha256:"):
             return None
         registry, _, name = repo_part.partition("/")
+        # A ``:`` in the last path component is a tag, not part of the name.
+        last_segment = name.rsplit("/", 1)[-1]
+        if ":" in last_segment:
+            name = name.rsplit(":", 1)[0]
         return registry, name, digest
 
     # Tag form
