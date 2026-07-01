@@ -27,6 +27,11 @@ from pydantic import ConfigDict
 # wire to preserve today's behavior.
 SourceType = Literal["video_file", "rtsp"]
 
+# Fusion reranking strategies supported by the Search orchestrator. Shared so the
+# runtime, the Search primitive, and the CLI's ``--fusion-method`` choices stay
+# in lockstep instead of drifting across three separate literal definitions.
+FusionMethod = Literal["weighted_linear", "rrf", "rrf_with_attribute_rank"]
+
 
 class VideoInfo(BaseModel):
     """A video segment identified by sensor and time bounds.
