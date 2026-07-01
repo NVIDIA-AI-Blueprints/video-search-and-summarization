@@ -18,7 +18,12 @@ import math
 import shutil
 import subprocess
 
-import cv2
+try:
+    import cv2
+except ImportError:  # pragma: no cover - proprietary codecs not installed in default image
+    cv2 = None  # type: ignore[assignment]
+
+from vss_agents.utils.optional_cv2 import ensure_codecs
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,7 @@ def frame_select(video_path: str, start_timestamp: float, end_timestamp: float, 
     Returns:
         List of base64 encoded JPEG frame images
     """
+    ensure_codecs(cv2)
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logger.error(f"Could not open video file: {video_path}")

@@ -18,7 +18,6 @@ from collections.abc import AsyncGenerator
 import logging
 
 import boto3
-import cv2
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -26,6 +25,13 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+
+try:
+    import cv2
+except ImportError:  # pragma: no cover - proprietary codecs not installed in default image
+    cv2 = None  # type: ignore[assignment]
+
+from vss_agents.utils.optional_cv2 import ensure_codecs
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +110,7 @@ async def s3_picture_url(config: S3PictureURLConfig, _builder: Builder) -> Async
             logger.info(f"Getting video URL for sensor {s3_picture_url_input.sensor_id}")
             #
             # use cv2 to get the first frame of the video
+            ensure_codecs(cv2)
             video_path = s3_client.generate_presigned_url(
                 "get_object",
                 Params={

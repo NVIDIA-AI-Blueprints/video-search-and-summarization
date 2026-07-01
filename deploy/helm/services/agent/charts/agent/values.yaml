@@ -171,6 +171,13 @@ env:
   value: ''
 - name: OPENAI_API_KEY
   value: ''
+# Patent-encumbered media codecs (H.264/H.265) are NOT bundled in the image for
+# licensing reasons. Defaults to 'true': opencv-python-headless is installed from
+# PyPI at container startup so video decoding works out of the box. Set to 'false'
+# to keep patent-encumbered codecs off at runtime too. Compose parity:
+# deploy/docker/services/agent/compose.yml.
+- name: INSTALL_PROPRIETARY_CODECS
+  value: 'true'
 # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
 # deploy/docker/services/agent/compose.yml.
 - name: RAG_SERVER_URL
