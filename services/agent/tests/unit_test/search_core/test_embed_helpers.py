@@ -28,54 +28,11 @@ def test_select_index_rtsp():
     assert h.select_search_index("rtsp", video_embed_index="vi", video_embed_index_wildcard="w-*") == ["w-*", "-vi"]
 
 
-# ---------------------------------------------------------------- escaping
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("plain", "plain"),
-        ("a*b", "a\\*b"),
-        ("a?b", "a\\?b"),
-        ("a\\b", "a\\\\b"),
-    ],
-)
-def test_escape_wildcard(raw, expected):
-    assert h.escape_wildcard(raw) == expected
-
-
-def test_should_clauses_no_duplicate_url_keyword():
-    clauses = h.should_clauses_for_source("cam1")
-    # The legacy path emitted sensor.info.url.keyword twice; we keep only the
-    # broader "*name*" form.
-    url_keyword_clauses = [c for c in clauses if "wildcard" in c and "sensor.info.url.keyword" in c["wildcard"]]
-    assert len(url_keyword_clauses) == 1
-    assert len(clauses) == 6
+# (escaping + video_sources filter now live in _internal/es_filters.py and are
+#  covered by test_es_filters.py)
 
 
 # ---------------------------------------------------------------- filters
-
-
-def test_video_sources_filter_none():
-    assert h.build_video_sources_filter(None, "video_file") is None
-    assert h.build_video_sources_filter([], "video_file") is None
-
-
-def test_video_sources_filter_uuid_only_uses_terms():
-    assert h.build_video_sources_filter([_UUID], "video_file") == {"terms": {"sensor.id.keyword": [_UUID]}}
-
-
-def test_video_sources_filter_rtsp_treats_uuid_as_name():
-    # rtsp: UUIDs live in the path, not sensor.id, so even a UUID is a name.
-    clause = h.build_video_sources_filter([_UUID], "rtsp")
-    assert "bool" in clause
-    assert clause["bool"]["minimum_should_match"] == 1
-
-
-def test_video_sources_filter_mixed():
-    clause = h.build_video_sources_filter([_UUID, "cam1"], "video_file")
-    should = clause["bool"]["should"]
-    assert {"terms": {"sensor.id.keyword": [_UUID]}} in should
 
 
 def test_description_filter_none():

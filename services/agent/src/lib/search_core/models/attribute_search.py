@@ -14,12 +14,9 @@
 # limitations under the License.
 """Attribute-search input/output models.
 
-Mirrors tools/attribute_search.py:97 (AttributeSearchInput) and L145-L171
-(metadata + result), with two tightenings:
-  - source_type uses SourceType Literal instead of plain str (DESIGN.md §5.3).
-  - Output wrapped in AttributeSearchOutput (today returns bare list).
-The NAT shim widens source_type back to str and unwraps the envelope so the
-existing /api/v1/attribute_search response shape is preserved.
+``AttributeSearchInput`` is the request model; ``AttributeSearchOutput`` wraps
+the list of ``AttributeSearchResult`` items (each carrying an optional screenshot
+URL plus flattened ``AttributeSearchMetadata``).
 """
 
 from __future__ import annotations
@@ -30,6 +27,8 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+
+from ..errors import InvalidInputError
 
 # ``SourceType`` and ``datetime`` appear in Pydantic field annotations on
 # these models; Pydantic v2 needs them importable at runtime so it can
@@ -52,21 +51,34 @@ class AttributeSearchInput(BaseModel):
     fuse_multi_attribute: bool = True
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
 
+    def normalized_queries(self) -> list[str]:
+        """Return the query as a list of non-blank, stripped attribute strings."""
+        raw = [self.query] if isinstance(self.query, str) else list(self.query)
+        return [q.strip() for q in raw if isinstance(q, str) and q.strip()]
+
+    def validate_semantics(self) -> None:
+        """Raise :class:`InvalidInputError` for cross-field problems.
+
+        These are values that each pass their own field constraints but are
+        invalid in combination; centralizing them keeps the primitive's ``run()``
+        thin and gives callers one place to exercise input semantics.
+        """
+        if not self.normalized_queries():
+            raise InvalidInputError("AttributeSearchInput.query must contain at least one non-empty attribute")
+        if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
+            raise InvalidInputError(
+                f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
+                f"timestamp_end ({self.timestamp_end.isoformat()})"
+            )
+
 
 class AttributeSearchMetadata(BaseModel):
     """Per-result metadata produced by AttributeSearch.
 
-    Nullable string fields and the open-shape ``bbox`` dict mirror the legacy
-    NAT model (tools/attribute_search.py:145-157 in HEAD). The behavior data
-    upstream genuinely produces ``None`` for any of the timestamp/name fields
-    when a hit lacks the corresponding source field, and the bbox payload uses
-    ``leftX/rightX/topY/bottomY`` keys — a strict typed model here would
-    reject real, valid documents at the ``_build_result`` boundary.
-
-    ``frame_timestamp`` is nullable too: ``_build_result`` produces ``None`` when
-    a hit has no best-frame timestamp and its ``_source`` carries neither
-    ``timestamp`` nor ``end``. The one consumer (``enrich_attribute_results``)
-    already guards ``if ts``, so ``None`` is safe.
+    Timestamp/name fields are nullable because a behavior document may lack the
+    corresponding source field, and ``bbox`` is an open-shape dict
+    (``leftX/rightX/topY/bottomY``) — a stricter model would reject real, valid
+    documents during hit mapping. Consumers already guard for ``None``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -91,7 +103,7 @@ class AttributeSearchResult(BaseModel):
 
 
 class AttributeSearchOutput(BaseModel):
-    """Output envelope. NAT shim unwraps to a bare list for wire compatibility."""
+    """Output envelope wrapping the list of attribute-search results."""
 
     model_config = ConfigDict(extra="forbid")
     results: list[AttributeSearchResult] = Field(default_factory=list)

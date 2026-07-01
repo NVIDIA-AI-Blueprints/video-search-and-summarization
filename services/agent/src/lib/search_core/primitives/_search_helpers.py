@@ -117,6 +117,11 @@ async def _run_attribute_only_search(
             search_results.sort(key=lambda x: x.similarity, reverse=True)
 
         return search_results
+    except SearchError:
+        # Surface real failures (missing index, backend unreachable, invalid
+        # input) on the primary attribute-only path so callers get precise
+        # errors/exit codes instead of a misleading empty result.
+        raise
     except Exception as e:
         logger.error(f"Attribute-only search failed: {e}", exc_info=True)
         return []
