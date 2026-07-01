@@ -36,7 +36,15 @@ from typing import List, Dict, DefaultDict
 import numpy as np
 from pyquaternion import Quaternion
 
-from nuscenes.eval.common.data_classes import EvalBoxes
+try:
+    from nuscenes.eval.common.data_classes import EvalBoxes
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
 
 from spatialai_data_utils.eval.tracking.data_classes import TrackingBox
 from spatialai_data_utils.datasets.scenes import get_scene_info_from_token

@@ -44,10 +44,18 @@ import sklearn
 import tqdm
 import pandas
 
-from nuscenes.eval.tracking.constants import MOT_METRIC_MAP, TRACKING_METRICS
-from nuscenes.eval.tracking.mot import MOTAccumulatorCustom
-from nuscenes.eval.tracking.render import TrackingRenderer
-from nuscenes.eval.tracking.utils import print_threshold_metrics, create_motmetrics
+try:
+    from nuscenes.eval.tracking.constants import MOT_METRIC_MAP, TRACKING_METRICS
+    from nuscenes.eval.tracking.mot import MOTAccumulatorCustom
+    from nuscenes.eval.tracking.render import TrackingRenderer
+    from nuscenes.eval.tracking.utils import print_threshold_metrics, create_motmetrics
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
 
 from spatialai_data_utils.eval.tracking.data_classes import (
     TrackingBox,

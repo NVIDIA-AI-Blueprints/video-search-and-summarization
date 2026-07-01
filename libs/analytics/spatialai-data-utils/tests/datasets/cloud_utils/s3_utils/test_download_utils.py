@@ -18,15 +18,16 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
 
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.common import (
-    convert_https_to_s3_url,
-    format_aws_s3_base_prefix_path,
+from spatialai_data_utils.datasets.cloud_utils.common import (
+    parse_object_storage_url,
+    format_base_prefix_path,
+    get_storage_client,
 )
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils import (
+from spatialai_data_utils.datasets.cloud_utils.download_utils import (
     sort_file_by_timestamp, 
     sort_files_in_folders,
-    download_and_merge_data_from_s3,
-    get_calibration_from_s3
+    download_and_merge_data_from_storage,
+    get_calibration_from_storage
 )
 
 
@@ -131,57 +132,132 @@ def test_sort_files_in_folders_exits_when_mdx_bev_empty(tmp_path):
         sort_files_in_folders(str(base_dir))
 
 
-# Test cases for format_aws_s3_base_prefix_path
-def test_format_aws_s3_base_prefix_path_with_slash():
-    result = format_aws_s3_base_prefix_path("test/path/")
+# Test cases for format_base_prefix_path
+def test_format_base_prefix_path_with_slash():
+    result = format_base_prefix_path("test/path/")
     assert result == "test/path/"
 
 
-def test_format_aws_s3_base_prefix_path_without_slash():
-    result = format_aws_s3_base_prefix_path("test/path")
+def test_format_base_prefix_path_without_slash():
+    result = format_base_prefix_path("test/path")
     assert result == "test/path/"
 
 
-def test_format_aws_s3_base_prefix_path_empty():
-    result = format_aws_s3_base_prefix_path("")
+def test_format_base_prefix_path_empty():
+    result = format_base_prefix_path("")
     assert result == ""
 
 
-# Test cases for convert_https_to_s3_url
-def test_convert_https_to_s3_url_standard_format():
+@patch("spatialai_data_utils.datasets.cloud_utils.common.boto3.client")
+def test_get_storage_client_aws_uses_default_s3_endpoint(mock_boto3_client):
+    env_variables = {
+        "STORAGE_PROVIDER": "aws",
+        "AWS_ACCESS_KEY_ID": "aws_key",
+        "AWS_SECRET_ACCESS_KEY": "aws_secret",
+        "AWS_REGION": "us-east-1",
+        "AWS_BUCKET": "aws-bucket",
+    }
+
+    get_storage_client(env_variables)
+
+    call_kwargs = mock_boto3_client.call_args.kwargs
+    assert call_kwargs["aws_access_key_id"] == "aws_key"
+    assert call_kwargs["aws_secret_access_key"] == "aws_secret"
+    assert call_kwargs["region_name"] == "us-east-1"
+    assert call_kwargs["endpoint_url"] is None
+
+
+@patch("spatialai_data_utils.datasets.cloud_utils.common.boto3.client")
+def test_get_storage_client_gcs_uses_configured_endpoint(mock_boto3_client):
+    env_variables = {
+        "STORAGE_PROVIDER": "gcs",
+        "GCS_HMAC_ACCESS_KEY_ID": "gcs_key",
+        "GCS_HMAC_SECRET_ACCESS_KEY": "gcs_secret",
+        "GCS_REGION": "auto",
+        "GCS_BUCKET": "gcs-bucket",
+        "GCS_ENDPOINT_URL": "https://storage.googleapis.com",
+    }
+
+    get_storage_client(env_variables)
+
+    call_kwargs = mock_boto3_client.call_args.kwargs
+    assert call_kwargs["aws_access_key_id"] == "gcs_key"
+    assert call_kwargs["aws_secret_access_key"] == "gcs_secret"
+    assert call_kwargs["region_name"] == "auto"
+    assert call_kwargs["endpoint_url"] == "https://storage.googleapis.com"
+    assert call_kwargs["config"].signature_version == "s3v4"
+    assert call_kwargs["config"].s3 == {"addressing_style": "path"}
+
+
+@patch("spatialai_data_utils.datasets.cloud_utils.common.boto3.client")
+def test_get_storage_client_gcs_uses_custom_endpoint(mock_boto3_client):
+    env_variables = {
+        "STORAGE_PROVIDER": "gcs",
+        "GCS_HMAC_ACCESS_KEY_ID": "gcs_key",
+        "GCS_HMAC_SECRET_ACCESS_KEY": "gcs_secret",
+        "GCS_REGION": "auto",
+        "GCS_BUCKET": "gcs-bucket",
+        "GCS_ENDPOINT_URL": "https://custom-gcs.example.com",
+    }
+
+    get_storage_client(env_variables)
+
+    call_kwargs = mock_boto3_client.call_args.kwargs
+    assert call_kwargs["endpoint_url"] == "https://custom-gcs.example.com"
+    assert call_kwargs["config"].signature_version == "s3v4"
+    assert call_kwargs["config"].s3 == {"addressing_style": "path"}
+
+
+# Test cases for parse_object_storage_url
+def test_parse_object_storage_url_aws_path_style_https():
     url = "https://s3.amazonaws.com/bucket-name/path/to/file.json"
-    result = convert_https_to_s3_url(url)
-    assert result == "s3://bucket-name/path/to/file.json"
+    assert parse_object_storage_url(url) == ("aws", "bucket-name", "path/to/file.json")
 
 
-def test_convert_https_to_s3_url_regional_format():
+def test_parse_object_storage_url_aws_virtual_hosted_https():
     url = "https://bucket-name.s3.us-east-1.amazonaws.com/path/to/file.json"
-    result = convert_https_to_s3_url(url)
-    assert result == "s3://bucket-name/path/to/file.json"
+    assert parse_object_storage_url(url) == ("aws", "bucket-name", "path/to/file.json")
 
 
-def test_convert_https_to_s3_url_with_query_params():
+def test_parse_object_storage_url_aws_with_query_params():
     url = "https://s3.amazonaws.com/bucket-name/path/to/file.json?s3.param=value"
-    result = convert_https_to_s3_url(url)
-    assert result == "s3://bucket-name/path/to/file.json?s3.param=value"
+    assert parse_object_storage_url(url) == (
+        "aws",
+        "bucket-name",
+        "path/to/file.json?s3.param=value",
+    )
 
 
-def test_convert_https_to_s3_url_invalid_format():
+def test_parse_object_storage_url_gcs_uri():
+    url = "gs://bucket-name/path/to/file.json"
+    assert parse_object_storage_url(url) == ("gcs", "bucket-name", "path/to/file.json")
+
+
+def test_parse_object_storage_url_gcs_path_style_https():
+    url = "https://storage.googleapis.com/bucket-name/path/to/file.json"
+    assert parse_object_storage_url(url) == ("gcs", "bucket-name", "path/to/file.json")
+
+
+def test_parse_object_storage_url_gcs_virtual_hosted_https():
+    url = "https://bucket-name.storage.googleapis.com/path/to/file.json"
+    assert parse_object_storage_url(url) == ("gcs", "bucket-name", "path/to/file.json")
+
+
+def test_parse_object_storage_url_invalid_format():
     url = "https://example.com/file.json"
-    result = convert_https_to_s3_url(url)
-    assert result == "https://example.com/file.json"  # Returns original URL unchanged
+    assert parse_object_storage_url(url) == (None, None, None)
 
 
-# Test cases for download_and_merge_data_from_s3 (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.multiprocessing.Pool')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.get_s3_client')
-def test_download_and_merge_data_from_s3_success(mock_get_s3_client, mock_pool):
+# Test cases for download_and_merge_data_from_storage (mocked)
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.multiprocessing.Pool')
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.get_storage_client')
+def test_download_and_merge_data_from_storage_success(mock_get_storage_client, mock_pool):
     # Mock S3 client and paginator
     mock_s3_client = MagicMock()
     mock_paginator = MagicMock()
     mock_page_iterator = MagicMock()
     
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     mock_s3_client.get_paginator.return_value = mock_paginator
     mock_paginator.paginate.return_value = mock_page_iterator
     
@@ -206,13 +282,13 @@ def test_download_and_merge_data_from_s3_success(mock_get_s3_client, mock_pool):
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "sim1",
     }
     
     # Mock os.makedirs to avoid actual directory creation
     with patch('os.makedirs'), patch('builtins.open', mock_open()) as mock_file:
-        download_and_merge_data_from_s3(
+        download_and_merge_data_from_storage(
             args,
             env_variables,
             "/tmp"
@@ -223,14 +299,14 @@ def test_download_and_merge_data_from_s3_success(mock_get_s3_client, mock_pool):
     mock_s3_client.download_file.assert_called()
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.get_s3_client')
-def test_download_and_merge_data_from_s3_no_files(mock_get_s3_client):
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.get_storage_client')
+def test_download_and_merge_data_from_storage_no_files(mock_get_storage_client):
     # Mock S3 client and paginator
     mock_s3_client = MagicMock()
     mock_paginator = MagicMock()
     mock_page_iterator = MagicMock()
     
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     mock_s3_client.get_paginator.return_value = mock_paginator
     mock_paginator.paginate.return_value = mock_page_iterator
     
@@ -247,27 +323,27 @@ def test_download_and_merge_data_from_s3_no_files(mock_get_s3_client):
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "sim1",
     }
 
     # Mock os.makedirs to avoid actual directory creation
     with patch('os.makedirs'), patch('builtins.open', mock_open()) as mock_file:
-        download_and_merge_data_from_s3(
+        download_and_merge_data_from_storage(
             args,
             env_variables,
             "/tmp"
         )
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.download_single_file_from_s3_streaming')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.get_s3_client')
-def test_download_and_merge_data_from_s3_raises_on_failed_download(mock_get_s3_client, mock_download_file, tmp_path):
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.download_single_file_from_storage_streaming')
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.get_storage_client')
+def test_download_and_merge_data_from_storage_raises_on_failed_download(mock_get_storage_client, mock_download_file, tmp_path):
     mock_s3_client = MagicMock()
     mock_paginator = MagicMock()
     mock_page_iterator = MagicMock()
 
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     mock_s3_client.get_paginator.return_value = mock_paginator
     mock_paginator.paginate.return_value = mock_page_iterator
     mock_page_iterator.__iter__.return_value = [
@@ -287,22 +363,22 @@ def test_download_and_merge_data_from_s3_raises_on_failed_download(mock_get_s3_c
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "sim1",
     }
 
-    with pytest.raises(RuntimeError, match="Failed to download 1 S3 objects"):
-        download_and_merge_data_from_s3(args, env_variables, str(tmp_path))
+    with pytest.raises(RuntimeError, match="Failed to download 1 object-storage objects"):
+        download_and_merge_data_from_storage(args, env_variables, str(tmp_path))
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.download_single_file_from_s3_streaming')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.get_s3_client')
-def test_download_and_merge_data_from_s3_raises_on_merge_failure(mock_get_s3_client, mock_download_file, tmp_path):
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.download_single_file_from_storage_streaming')
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.get_storage_client')
+def test_download_and_merge_data_from_storage_raises_on_merge_failure(mock_get_storage_client, mock_download_file, tmp_path):
     mock_s3_client = MagicMock()
     mock_paginator = MagicMock()
     mock_page_iterator = MagicMock()
 
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     mock_s3_client.get_paginator.return_value = mock_paginator
     mock_paginator.paginate.return_value = mock_page_iterator
     mock_page_iterator.__iter__.return_value = [
@@ -322,30 +398,34 @@ def test_download_and_merge_data_from_s3_raises_on_merge_failure(mock_get_s3_cli
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "sim1",
     }
 
     with pytest.raises(RuntimeError, match="Failed to merge 1 downloaded files"):
-        download_and_merge_data_from_s3(args, env_variables, str(tmp_path))
+        download_and_merge_data_from_storage(args, env_variables, str(tmp_path))
 
 
-# Test cases for get_calibration_from_s3 (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.get_s3_client')
-def test_get_calibration_from_s3_s3_url(mock_get_s3_client):
+# Test cases for get_calibration_from_storage (mocked)
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.get_storage_client')
+def test_get_calibration_from_storage_s3_url(mock_get_storage_client):
     mock_s3_client = MagicMock()
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     
-    with patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.os.path.exists', return_value=False), \
-         patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.os.makedirs') as mock_makedirs, \
+    with patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.path.exists', return_value=False), \
+         patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.makedirs') as mock_makedirs, \
          patch('builtins.open', mock_open()) as mock_file:
-        get_calibration_from_s3(
-            access_key_id="test_key",
-            secret_access_key="test_secret",
-            region="us-east-1", 
-            calibration_url="s3://test-bucket/path/calibration.json",
-            simulation_id="sim1",
-            output_root_dir="/tmp"
+        get_calibration_from_storage(
+            {
+                "STORAGE_PROVIDER": "aws",
+                "AWS_ACCESS_KEY_ID": "test_key",
+                "AWS_SECRET_ACCESS_KEY": "test_secret",
+                "AWS_REGION": "us-east-1",
+                "AWS_BUCKET": "test-bucket",
+            },
+            "s3://test-bucket/path/calibration.json",
+            "sim1",
+            "/tmp",
         )
     
     mock_makedirs.assert_called_once_with("/tmp/sim1", exist_ok=True)
@@ -356,52 +436,126 @@ def test_get_calibration_from_s3_s3_url(mock_get_s3_client):
     )
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.requests.get')
-def test_get_calibration_from_s3_http_url(mock_requests_get):
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.get_storage_client')
+def test_get_calibration_from_storage_gcs_url(mock_get_storage_client):
+    mock_storage_client = MagicMock()
+    mock_get_storage_client.return_value = mock_storage_client
+
+    env_variables = {
+        "STORAGE_PROVIDER": "gcs",
+        "GCS_HMAC_ACCESS_KEY_ID": "gcs_key",
+        "GCS_HMAC_SECRET_ACCESS_KEY": "gcs_secret",
+        "GCS_BUCKET": "gcs-bucket",
+        "GCS_ENDPOINT_URL": "https://storage.googleapis.com",
+    }
+
+    with patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.path.exists', return_value=False), \
+         patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.makedirs') as mock_makedirs:
+        get_calibration_from_storage(
+            env_variables,
+            "gs://gcs-bucket/path/calibration.json",
+            "sim1",
+            "/tmp",
+        )
+
+    mock_makedirs.assert_called_once_with("/tmp/sim1", exist_ok=True)
+    mock_storage_client.download_file.assert_called_once_with(
+        "gcs-bucket",
+        "path/calibration.json",
+        "/tmp/sim1/calibration.json",
+    )
+
+
+@patch('spatialai_data_utils.datasets.cloud_utils.download_utils.requests.get')
+def test_get_calibration_from_storage_http_url(mock_requests_get):
     mock_response = MagicMock()
     mock_response.content = b'{"calibration": "data"}'
     mock_requests_get.return_value = mock_response
     
-    with patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.os.path.exists', return_value=False), \
-         patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.os.makedirs'), \
+    with patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.path.exists', return_value=False), \
+         patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.makedirs'), \
          patch('builtins.open', mock_open()) as mock_file:
-        get_calibration_from_s3(
-            access_key_id="test_key",
-            secret_access_key="test_secret",
-            region="us-east-1", 
-            calibration_url="https://example.com/calibration.json",
-            simulation_id="sim1",
-            output_root_dir="/tmp"
+        get_calibration_from_storage(
+            {},
+            "https://example.com/calibration.json",
+            "sim1",
+            "/tmp",
         )
     
     mock_requests_get.assert_called_once_with("https://example.com/calibration.json")
 
 
-def test_get_calibration_from_s3_file_exists_skip():
-    with patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.os.path.exists', return_value=True), \
-         patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.os.makedirs'):
+def test_get_calibration_from_storage_file_exists_skip():
+    with patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.path.exists', return_value=True), \
+         patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.makedirs'):
         # Should not raise any exception and should skip download
-        get_calibration_from_s3(
-            access_key_id="test_key",
-            secret_access_key="test_secret",
-            region="us-east-1", 
-            calibration_url="s3://test-bucket/calibration.json",
-            simulation_id="sim1",
-            output_root_dir="/tmp",
-            overwrite_file=False
+        get_calibration_from_storage(
+            {
+                "STORAGE_PROVIDER": "aws",
+                "AWS_ACCESS_KEY_ID": "test_key",
+                "AWS_SECRET_ACCESS_KEY": "test_secret",
+                "AWS_REGION": "us-east-1",
+                "AWS_BUCKET": "test-bucket",
+            },
+            "s3://test-bucket/calibration.json",
+            "sim1",
+            "/tmp",
+            overwrite_file=False,
         )
 
 
-def test_get_calibration_from_s3_invalid_url():
-    with patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.download_utils.os.makedirs'), \
+def test_get_calibration_from_storage_invalid_url():
+    with patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.makedirs'), \
          pytest.raises(ValueError, match="Unsupported URL scheme"):
-        get_calibration_from_s3(
-            access_key_id="test_key",
-            secret_access_key="test_secret",
-            region="us-east-1", 
-            calibration_url="ftp://example.com/calibration.json",
-            simulation_id="sim1",
-            output_root_dir="/tmp"
+        get_calibration_from_storage(
+            {},
+            "ftp://example.com/calibration.json",
+            "sim1",
+            "/tmp",
+        )
+
+
+def test_get_calibration_from_storage_rejects_gcs_url_when_provider_is_aws():
+    env_variables = {
+        "STORAGE_PROVIDER": "aws",
+        "AWS_ACCESS_KEY_ID": "test_key",
+        "AWS_SECRET_ACCESS_KEY": "test_secret",
+        "AWS_REGION": "us-east-1",
+        "AWS_BUCKET": "test-bucket",
+    }
+
+    with patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.makedirs'), \
+         pytest.raises(
+             ValueError,
+             match="Calibration URL provider 'gcs' does not match STORAGE_PROVIDER 'aws'",
+         ):
+        get_calibration_from_storage(
+            env_variables,
+            "gs://gcs-bucket/path/calibration.json",
+            "sim1",
+            "/tmp",
+        )
+
+
+def test_get_calibration_from_storage_rejects_s3_url_when_provider_is_gcs():
+    env_variables = {
+        "STORAGE_PROVIDER": "gcs",
+        "GCS_HMAC_ACCESS_KEY_ID": "gcs_key",
+        "GCS_HMAC_SECRET_ACCESS_KEY": "gcs_secret",
+        "GCS_BUCKET": "gcs-bucket",
+        "GCS_ENDPOINT_URL": "https://storage.googleapis.com",
+    }
+
+    with patch('spatialai_data_utils.datasets.cloud_utils.download_utils.os.makedirs'), \
+         pytest.raises(
+             ValueError,
+             match="Calibration URL provider 'aws' does not match STORAGE_PROVIDER 'gcs'",
+         ):
+        get_calibration_from_storage(
+            env_variables,
+            "s3://test-bucket/path/calibration.json",
+            "sim1",
+            "/tmp",
         )
 
 

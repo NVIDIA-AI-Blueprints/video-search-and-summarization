@@ -14,6 +14,12 @@ All four take their input(s) and output as **positional arguments**
 and exit non-zero if the underlying library helper returns a status
 other than `completed` / `skipped`.
 
+> **Requires the `viz` extra.** These tools decode/encode video with OpenCV
+> (`cv2`), an optional dependency: `pip install 'spatialai-data-utils[viz]'`.
+> The helpers raise a clear `ImportError` if it is missing. OpenCV ships with
+> bundled `ffmpeg` libraries and codecs — review their licenses and terms of
+> distribution and use before installing.
+
 For other multi-job patterns (e.g. parallel `frames → video` across
 many directories, or programmatic batching with per-job overrides),
 drive the library helpers directly — see [Programmatic API](#programmatic-api)

@@ -30,7 +30,7 @@ The `calculate_origin.py` tool calculates Bird's Eye View (BEV) group origins an
 
 ## Key Features
 
-✅ **Single-Group Fallback**: If calibration lacks groups, assigns all sensors to one group (`bev-sensor-1`) via `--n-sensor-groups` — run a clustering/grouping tool first for real multi-group splits  
+✅ **Single-Group Fallback**: If calibration lacks groups, assigns all sensors to one group (`bev-sensor-1`) via `--n-sensor-groups` — run a clustering/grouping tool first for real multi-group splits
 ✅ **Flexible FOV Calculation**: Supports both attribute-based and frustum-based FOV generation  
 ✅ **Sensor Filtering**: Process only specific cameras  
 ✅ **Visualization**: Generate visual maps of camera groups  
@@ -790,10 +790,12 @@ python tools/camera_grouping/create_camera_clusters.py data/scene/calibration.js
 
 ### Visualization Options
 
-Visualization is **always** generated for this tool — there is no `--visualize` / `--no-visualize` toggle.
+Visualization is opt-in via `--visualize` (off by default); the other `--vis_*`
+flags below only take effect when `--visualize` is set.
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
+| `--visualize` | flag | False | Generate visualization of camera clusters on the map |
 | `--vis_no_camera_id_labels` | flag | False | Disable camera ID labels in visualization |
 | `--vis_separate_images` | flag | False | Generate separate images per cluster instead of combined (default: combined for clustering) |
 
@@ -821,7 +823,10 @@ python tools/camera_grouping/create_camera_clusters.py data/scene --max_camera_p
 
 **Output:**
 - `data/scene/calibration_clustered.json`
-- `data/scene/calibration_clustered_map.png` (combined visualization if `Top.png` exists)
+
+By default no map is written. Add `--visualize` to also produce
+`calibration_clustered_map.png` (a combined map if `Top.png` exists; see
+Example 6).
 
 ### Example 2: Override Cluster Count
 
@@ -865,6 +870,7 @@ python tools/camera_grouping/create_camera_clusters.py data/scene \
 # Generate separate visualization for each cluster
 python tools/camera_grouping/create_camera_clusters.py data/scene \
     --max_camera_per_group 10 \
+    --visualize \
     --vis_separate_images
 ```
 
@@ -952,7 +958,7 @@ python create_camera_clusters.py data/small_scene --max_camera_per_group 10 --n_
 | 4                    | 37              | ~17.2s           |
 
 Notes:
-- Configuration: `--height_range 1.0 8.0 --max_camera_distance 30 --max_distance_threshold 90.0 --min_overlap_threshold 0.0001 --mode densify --start_camera_index 0 --disable_param_tuning` (frustum FOV and visualization are on by default).
+- Configuration: `--height_range 1.0 8.0 --max_camera_distance 30 --max_distance_threshold 90.0 --min_overlap_threshold 0.0001 --mode densify --start_camera_index 0 --disable_param_tuning` (frustum FOV is on by default; pass `--visualize` to also render the cluster map).
 - Overlap threshold is a ratio (0–1). Distance is in meters.
 - Larger `max_camera_per_group` → fewer clusters → slightly faster.
 - Times measured on this dataset; expect small variance (±1–2s) by hardware/load.
@@ -1759,6 +1765,7 @@ python tools/camera_grouping/reassign_camera_groups.py \
 | `--image_size` | int int | 1920 1080 | Image size for frustum FOV |
 | `--max_camera_distance` | float | 30.0 | Max frustum distance from camera |
 | `--map_file` | str | None | Map image (auto-detects sibling `Top.png`) |
+| `--visualize` | flag | False | Generate visualization of the reassigned groups on the map |
 | `--vis_no_camera_id_labels` | flag | False | Toggle camera-ID labels on the visualization |
 | `--output_suffix` | str | "reassigned" | Suffix for output files |
 
@@ -1815,7 +1822,7 @@ python tools/camera_grouping/calculate_origin.py --help | grep -A 20 "Examples:"
 
 ---
 
-**Last Updated**: 2026-06-02  
+**Last Updated**: 2026-06-02
 **Tools Location**: `tools/camera_grouping/`  
 **Core Module**: `spatialai_data_utils.core.cameras.bev`  
 **Status**: ✅ Production Ready (all tools)
