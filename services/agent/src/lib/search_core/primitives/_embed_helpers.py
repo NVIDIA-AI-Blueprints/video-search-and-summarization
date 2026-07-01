@@ -30,6 +30,8 @@ import re
 from typing import TYPE_CHECKING
 from typing import Any
 
+from .._internal.es_filters import build_video_sources_filter
+from .._internal.es_filters import escape_wildcard
 from .._internal.time_convert import datetime_to_iso8601
 from .._internal.time_convert import safe_iso8601_to_datetime
 from .._internal.uuid_string import is_standard_uuid_string
@@ -72,61 +74,6 @@ def select_search_index(
 # =============================================================================
 # ES query construction
 # =============================================================================
-
-
-def escape_wildcard(value: str) -> str:
-    """Escape ES wildcard metacharacters (``\\``, ``*``, ``?``) in ``value``."""
-    return value.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
-
-
-def should_clauses_for_source(name: str) -> list[dict[str, Any]]:
-    """Build the ``should`` clauses that match a single non-UUID source name.
-
-    Covers exact id, wildcard id, url/path wildcards, and url/path regexp. A
-    single ``*name*`` clause is used per field; the broad wildcard subsumes any
-    suffix-only variant.
-    """
-    escaped = escape_wildcard(name)
-    regex_escaped = re.escape(name)
-    return [
-        {"term": {"sensor.id.keyword": name}},
-        {"wildcard": {"sensor.id.keyword": f"*{escaped}*"}},
-        {"wildcard": {"sensor.info.url.keyword": f"*{escaped}*"}},
-        {"wildcard": {"sensor.info.path.keyword": f"*{escaped}*"}},
-        {"regexp": {"sensor.info.url": f".*{regex_escaped}"}},
-        {"regexp": {"sensor.info.path": f".*{regex_escaped}"}},
-    ]
-
-
-def build_video_sources_filter(
-    video_sources: list[str] | None,
-    source_type: str,
-) -> dict[str, Any] | None:
-    """Build the ES filter clause restricting results to ``video_sources``.
-
-    For ``rtsp`` every source is treated as a name (UUIDs live in the path, not
-    ``sensor.id``); for ``video_file`` UUID sources get a fast ``terms`` clause
-    and names fall back to wildcard/regexp matching.
-    """
-    if not video_sources:
-        return None
-
-    if source_type == "rtsp":
-        uuid_sources: list[str] = []
-        non_uuid_sources = list(video_sources)
-    else:
-        uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
-        non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
-
-    if uuid_sources and not non_uuid_sources:
-        return {"terms": {"sensor.id.keyword": uuid_sources}}
-
-    should_clauses: list[dict[str, Any]] = []
-    if uuid_sources:
-        should_clauses.append({"terms": {"sensor.id.keyword": uuid_sources}})
-    for vname in non_uuid_sources:
-        should_clauses.extend(should_clauses_for_source(vname))
-    return {"bool": {"should": should_clauses, "minimum_should_match": 1}}
 
 
 def build_description_filter(description: str | None) -> dict[str, Any] | None:

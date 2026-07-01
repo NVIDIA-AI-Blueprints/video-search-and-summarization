@@ -14,9 +14,9 @@
 # limitations under the License.
 """AttributeSearch — object-attribute video search primitive.
 
-Self-contained: all helper logic lives in `_attribute_helpers.py` under this
-package; no upward dependency on `vss_agents.tools.attribute_search`. The NAT
-shim (after Gap F) imports from here, not the reverse.
+Thin orchestrator over an injected behavior Elasticsearch surface and RTVI CV
+text embedder. Screenshot/clip enrichment uses the VST URLs (passed as strings);
+all query/mapping logic lives in ``_attribute_helpers.py``.
 """
 
 from __future__ import annotations
@@ -24,19 +24,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING
-from typing import cast
 
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchOutput
 from . import _attribute_helpers
 
 if TYPE_CHECKING:
-    from elasticsearch import AsyncElasticsearch
-
-    from ..clients.embed_base import EmbedClient
     from ..clients.protocols import CVTextEmbedder
     from ..clients.protocols import ElasticIndex
-    from ..clients.protocols import VSTSnapshot
     from ..runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
@@ -50,7 +45,6 @@ class AttributeSearch:
         *,
         es: ElasticIndex,
         embed: CVTextEmbedder,
-        vst: VSTSnapshot,
         behavior_index: str,
         behavior_index_wildcard: str,
         frames_index: str | None,
@@ -62,7 +56,6 @@ class AttributeSearch:
     ) -> None:
         self._es = es
         self._embed = embed
-        self._vst = vst
         self._behavior_index = behavior_index
         self._behavior_index_wildcard = behavior_index_wildcard
         self._frames_index = frames_index
@@ -73,27 +66,20 @@ class AttributeSearch:
         self._vst_internal_url = vst_internal_url
 
     async def run(self, inp: AttributeSearchInput) -> AttributeSearchOutput:
-        """Execute attribute search; mirrors tools/attribute_search.py:1465-1476
-        delegating into the ported `search_attributes` helper.
-        """
-        # The helpers only require an async `.search(index=..., body=...)`
-        # surface. Passing the ElasticClient wrapper keeps backend errors
-        # normalized while still allowing tests to inject lightweight mocks.
+        """Execute attribute search and return the ranked results."""
+        inp.validate_semantics()
         results = await _attribute_helpers.search_attributes(
             search_input=inp,
-            # CVTextEmbedder duck-types as EmbedClient for the text-only path
-            # the helper exercises; ditto the ElasticIndex duck-type below.
-            embed_client=cast("EmbedClient", self._embed),
+            embed_client=self._embed,
             index=self._behavior_index,
             vst_external_url=self._vst_external_url,
-            es=cast("AsyncElasticsearch", self._es),
+            es=self._es,
             vst_internal_url=self._vst_internal_url,
             frames_index=self._frames_index,
             enable_frame_lookup=self._enable_frame_lookup,
             behavior_index_wildcard=self._behavior_index_wildcard,
             frames_index_wildcard=self._frames_index_wildcard,
         )
-
         logger.info(f"AttributeSearch returned {len(results)} result(s)")
         return AttributeSearchOutput(results=results)
 
@@ -104,11 +90,9 @@ class AttributeSearch:
         *,
         es: ElasticIndex | None = None,
         embed: CVTextEmbedder | None = None,
-        vst: VSTSnapshot | None = None,
     ) -> AttributeSearch:
         from ..clients.elastic import ElasticClient  # local — avoid cycle
         from ..clients.rtvi_cv_embed import RTVICVEmbedClient
-        from ..clients.vst import VSTClient
 
         # Attribute search reads the mdx-behavior-* indices, which may live on
         # a separate Elasticsearch cluster from the video-embedding endpoint.
@@ -117,7 +101,6 @@ class AttributeSearch:
         return cls(
             es=es or ElasticClient.from_runtime_behavior(rt),
             embed=embed or RTVICVEmbedClient.from_runtime(rt),
-            vst=vst or VSTClient.from_runtime(rt),
             behavior_index=rt.behavior_index,
             behavior_index_wildcard=rt.behavior_index_wildcard,
             frames_index=rt.frames_index,
