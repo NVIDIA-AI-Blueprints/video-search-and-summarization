@@ -69,6 +69,10 @@ class MultiReportAgentInput(BaseModel):
         description="Maximum number of incidents to return. If not specified, uses max_incidents from config.",
         gt=0,
     )
+    vlm_verified: bool | None = Field(
+        default=None,
+        description="Optional runtime override for VLM-verified incident lookup. If not specified, uses video_analytics config default.",
+    )
 
 
 class MultiReportAgentConfig(FunctionBaseConfig, name="multi_report_agent"):
@@ -115,6 +119,7 @@ async def multi_report_agent(config: MultiReportAgentConfig, builder: Builder) -
         start_time: str | None = None,
         end_time: str | None = None,
         max_result_size: int | None = None,
+        vlm_verified: bool | None = None,
     ) -> AsyncGenerator[AgentMessageChunk]:
         """
         Execute multi-incident report generation.
@@ -147,6 +152,7 @@ async def multi_report_agent(config: MultiReportAgentConfig, builder: Builder) -
                 "start_time": start_time,
                 "end_time": end_time,
                 "max_result_size": effective_max_size,
+                "vlm_verified": vlm_verified,
             }
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: multi_incident_formatter\nArgs: {tool_args}"
