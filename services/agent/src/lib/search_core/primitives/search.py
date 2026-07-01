@@ -14,12 +14,11 @@
 # limitations under the License.
 """Search — orchestrator that fuses embed_search + attribute_search + critic.
 
-Self-contained: all orchestration logic lives in `_search_helpers.py` under
-this package; no upward dependency on `vss_agents.tools.search`. NAT shim
-(after Gap F) imports from here, not the reverse.
+Self-contained: all orchestration logic lives in ``_search_helpers.py`` (thin
+async wiring) and ``_fusion.py`` (pure fusion math) under this package.
 
-Query decomposition is NAT-owned and happens before the library is called.
-The library consumes prepared SearchInput fields only.
+Query decomposition happens before the library is called; the orchestrator
+consumes prepared ``SearchInput`` fields only.
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Literal
 
 from .._internal.embed_translation import params_to_embed_input
 from ..errors import SearchError
@@ -54,6 +52,7 @@ if TYPE_CHECKING:
     from ..clients.protocols import ElasticIndex
     from ..clients.protocols import VLMAnalyzer
     from ..clients.protocols import VSTSnapshot
+    from ..models.common import FusionMethod
     from ..runtime import SearchRuntime
 
 
@@ -163,8 +162,8 @@ class Search:
     Library shape: takes SearchInput, returns SearchOutput; `.stream()` yields
     typed `SearchEvent` instances (StatusEvent / FinalResultEvent / ErrorEvent).
 
-    Agent-mode query decomposition is out of scope for this library. NAT
-    populates prepared SearchInput fields before calling into core search.
+    Agent-mode query decomposition is out of scope for this library; callers
+    populate prepared SearchInput fields before invoking core search.
     """
 
     def __init__(
@@ -177,7 +176,7 @@ class Search:
         behavior_index: str,
         behavior_index_wildcard: str = "mdx-behavior-*",
         use_attribute_search: bool = False,
-        fusion_method: Literal["weighted_linear", "rrf"] = "rrf",
+        fusion_method: FusionMethod = "rrf",
         w_attribute: float = 0.55,
         w_embed: float = 0.35,
         rrf_k: int = 60,
@@ -227,6 +226,7 @@ class Search:
 
     async def run(self, inp: SearchInput) -> SearchOutput:
         """Single-shot: collect chunks, return final SearchOutput."""
+        inp.validate_semantics()
         return await _search_helpers.execute_core_search_wrapper(
             search_input=inp,
             embed_search=self._embed_adapter,
@@ -241,6 +241,7 @@ class Search:
         terminal event (FinalResultEvent or ErrorEvent) is emitted.
         """
         try:
+            inp.validate_semantics()
             async for chunk in _search_helpers.execute_core_search(
                 search_input=inp,
                 embed_search=self._embed_adapter,
@@ -261,9 +262,9 @@ class Search:
             yield ErrorEvent(error_code="UnexpectedError", message=str(e))
             return
 
-        # for-else: the generator exited without yielding SearchOutput, which
-        # violates the §8 contract. Emit a terminal ErrorEvent so callers still
-        # see exactly one terminator.
+        # The generator exited without yielding SearchOutput, which violates the
+        # streaming contract. Emit a terminal ErrorEvent so callers still see
+        # exactly one terminator.
         yield ErrorEvent(
             error_code="NoFinalResult",
             message="execute_core_search exited without yielding SearchOutput",
@@ -284,8 +285,8 @@ class Search:
     ) -> Search:
         """Construct from SearchRuntime.
 
-        Query decomposition is NAT-owned and must happen before this primitive
-        receives SearchInput.
+        Query decomposition must happen before this primitive receives
+        SearchInput.
 
         Critic policy: explicit `critic` wins; else if rt.enable_critic and
         vlm_analyzer is provided, build via CriticAgent.from_runtime; else None.
