@@ -92,6 +92,11 @@ class ReportAgentInput(BaseModel):
         default=None, description="Type of the source. Must be 'sensor' or 'place'. Required if source is provided."
     )
 
+    vlm_verified: bool | None = Field(
+        default=None,
+        description="Optional runtime override for VLM-verified incident lookup. If None, uses video_analytics config default.",
+    )
+
     vlm_reasoning: bool | None = Field(
         default=None,
         description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default.",
@@ -253,6 +258,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             start_time: datetime | None = None,
             end_time: datetime | None = None,
             incident_id: str | None = None,
+            vlm_verified: bool | None = None,
             vlm_reasoning: bool | None = None,
             llm_reasoning: bool | None = None,
         ) -> AsyncGenerator[AgentMessageChunk]:
@@ -279,6 +285,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 start_time=start_time,
                 end_time=end_time,
                 incident_id=incident_id,
+                vlm_verified=vlm_verified,
                 vlm_reasoning=vlm_reasoning,
                 llm_reasoning=llm_reasoning,
             )
@@ -424,7 +431,11 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         if report_input.incident_id:
             logger.info(f"Getting incident by ID: {report_input.incident_id}")
 
-            tool_call_args = {"id": report_input.incident_id, "includes": ["objectIds", "info"]}
+            tool_call_args = {
+                "id": report_input.incident_id,
+                "includes": ["objectIds", "info"],
+                "vlm_verified": report_input.vlm_verified,
+            }
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: get_incident\nArgs: {tool_call_args}"
             )
@@ -460,6 +471,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 "includes": ["objectIds", "info"],
                 "source": report_input.source,
                 "source_type": report_input.source_type,
+                "vlm_verified": report_input.vlm_verified,
                 "start_time": report_input.start_time.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 if report_input.start_time
                 else None,

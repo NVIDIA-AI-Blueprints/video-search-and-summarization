@@ -61,6 +61,10 @@ class GetIncidentInput(BaseModel):
 
     id: str = Field(description="The incident ID to retrieve")
     includes: list[str] | None = Field(default=None, description="The metadata fields to include in the output")
+    vlm_verified: bool | None = Field(
+        default=None,
+        description="Optional runtime override for VLM verified lookup. If omitted, falls back to server config.",
+    )
 
 
 class GetIncidentsInputBase(BaseModel):
@@ -84,6 +88,10 @@ class GetIncidentsInputBase(BaseModel):
     )
     max_count: int = Field(default=10, description="The maximum number of incidents to return")
     includes: list[str] | None = Field(default=None, description="The metadata fields to include in the output")
+    vlm_verified: bool | None = Field(
+        default=None,
+        description="Optional runtime override for VLM verified lookup. If omitted, falls back to server config.",
+    )
 
     @field_validator("start_time", "end_time")
     @classmethod
@@ -382,8 +390,9 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
         """
         query = IncidentQueryBuilder.build_query_by_id(incident_id=input.id)
 
-        # Choose index based on config vlm_verified setting
-        index_key = "vlm_incidents" if _config.vlm_verified else "incidents"
+        # Choose index based on runtime override with config fallback
+        effective_vlm_verified = _config.vlm_verified if input.vlm_verified is None else input.vlm_verified
+        index_key = "vlm_incidents" if effective_vlm_verified else "incidents"
 
         # Default fields to include
         incident_fields = ["Id", "id", "timestamp", "end", "sensorId"]
@@ -415,7 +424,10 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
         Returns:
             dict: A dictionary containing the list of incidents and a flag indicating if there are more incidents available
         """
-        # Get vlm_verdict if it exists on the input model (only present when vlm_verified=True)
+        # Runtime override with config fallback.
+        effective_vlm_verified = _config.vlm_verified if input.vlm_verified is None else input.vlm_verified
+
+        # Get vlm_verdict if it exists on the input model.
         vlm_verdict = getattr(input, "vlm_verdict", None)
 
         # Build query using IncidentQueryBuilder
@@ -426,7 +438,7 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
                 source_type=input.source_type,
                 start_time=input.start_time,
                 end_time=input.end_time,
-                vlm_verified=_config.vlm_verified,
+                vlm_verified=effective_vlm_verified,
                 vlm_verdict=vlm_verdict,
             )
         else:
@@ -436,12 +448,12 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
                 source_type=None,
                 start_time=input.start_time,
                 end_time=input.end_time,
-                vlm_verified=_config.vlm_verified,
+                vlm_verified=effective_vlm_verified,
                 vlm_verdict=vlm_verdict,
             )
 
-        # Choose index based on config vlm_verified setting
-        index_key = "vlm_incidents" if _config.vlm_verified else "incidents"
+        # Choose index based on runtime override with config fallback.
+        index_key = "vlm_incidents" if effective_vlm_verified else "incidents"
 
         # Fetch extra records to check if there are more
         fetch_size = input.max_count + 1
@@ -496,7 +508,7 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
                 query["query"]["bool"]["minimum_should_match"] = 1
 
                 # Add VLM verdict filter if applicable
-                if _config.vlm_verified and vlm_verdict is not None:
+                if effective_vlm_verified and vlm_verdict is not None:
                     if vlm_verdict == "all":
                         pass
                     elif vlm_verdict == "not-confirmed":
@@ -903,19 +915,11 @@ async def video_analytics(_config: VideoAnalyticsToolConfig, _builder: Builder) 
         group.add_function(name="get_incident", fn=_get_incident, description=_get_incident.__doc__)
 
     if "get_incidents" in _config.include:
-        # When vlm_verified=True, include vlm_verdict parameter otherwise, exclude vlm_verdict parameter completely
-        if _config.vlm_verified:
 
-            async def _get_incidents_vlm(input: GetIncidentsInputWithVLM) -> dict:
-                return await _get_incidents(input)
+        async def _get_incidents_vlm(input: GetIncidentsInputWithVLM) -> dict:
+            return await _get_incidents(input)
 
-            group.add_function(name="get_incidents", fn=_get_incidents_vlm, description=_get_incidents.__doc__)
-        else:
-
-            async def _get_incidents_base(input: GetIncidentsInputBase) -> dict:
-                return await _get_incidents(input)
-
-            group.add_function(name="get_incidents", fn=_get_incidents_base, description=_get_incidents.__doc__)
+        group.add_function(name="get_incidents", fn=_get_incidents_vlm, description=_get_incidents.__doc__)
 
     if "get_sensor_ids" in _config.include:
         group.add_function(name="get_sensor_ids", fn=_get_sensor_ids, description=_get_sensor_ids.__doc__)
