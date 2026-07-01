@@ -10,8 +10,7 @@
 #       "model": "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2",
 #       "sourcePath": "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx",
 #       "destPath": "rtdetr_warehouse_v1.0.2.fp16.onnx",
-#       "org": "nvidia",
-#       "compatSymlink": "optional-link-name"
+#       "org": "nvidia"
 #     }
 #   ]
 # }
@@ -176,13 +175,12 @@ main() {
   local idx
 
   for (( idx=0; idx<downloads_count; idx++ )); do
-    local entry model_ref source_rel dest_rel org compat_link
+    local entry model_ref source_rel dest_rel org
     entry="$(echo "$manifest_json" | jq -c ".[$idx]")"
     model_ref="$(echo "$entry" | jq -r '.model')"
     source_rel="$(echo "$entry" | jq -r '.sourcePath')"
     dest_rel="$(echo "$entry" | jq -r '.destPath')"
     org="$(echo "$entry" | jq -r '.org')"
-    compat_link="$(echo "$entry" | jq -r '.compatSymlink // empty')"
 
     local marker dest_abs
     marker="$(tuple_marker "$dest_rel")"
@@ -207,15 +205,8 @@ main() {
 
     apply_artifact_perms "$dest_abs"
 
-    if [[ -n "$compat_link" ]]; then
-      local compat_path
-      compat_path="${MODELS_DEST_ROOT}/${compat_link}"
-      if [[ ! -e "$compat_path" ]]; then
-        ln -s "$(basename "$dest_rel")" "$compat_path"
-      fi
-    fi
-
     touch "$marker"
+    chown "${STORAGE_UID}:${STORAGE_GID}" "$marker"
   done
 
   echo "Model download init completed for ${downloads_count} manifest entries."

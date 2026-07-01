@@ -16,8 +16,7 @@
       "model": "nvidia/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
       "org": "nvidia",
       "sourcePath": "${VISION_ENCODER_MODEL}_vdeployable_${VISION_ENCODER_VERSION}/${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_weights.bin",
-      "destPath": "${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_weights.bin",
-      "compatSymlink": "siglip2_${VISION_ENCODER_VERSION}_weights.bin"
+      "destPath": "${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_weights.bin"
     },
     {
       "model": "nvidia/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
