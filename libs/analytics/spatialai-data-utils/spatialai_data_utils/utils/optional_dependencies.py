@@ -30,6 +30,30 @@ _TORCH_PYTORCH3D_INSTALL_HINT = (
 )
 
 
+# OpenCV (`cv2`) is an optional runtime dependency: it is NOT declared as an
+# install-require so the published wheel / locked dependency set does not ship
+# the OpenCV distribution (which bundles ffmpeg). Callers that need the
+# visualization / video code paths install it themselves.
+_OPENCV_INSTALL_HINT = (
+    "Install the `viz` extra (brings a headless OpenCV build):\n"
+    "  pip install 'spatialai-data-utils[viz]'\n"
+    "Note: OpenCV ships with bundled ffmpeg libraries and codecs -- review "
+    "their licenses and terms of distribution and use before installing."
+)
+
+
+# nuscenes-devkit is an optional dependency (the `eval` extra): it is NOT
+# declared as an install-require so the default install / locked dependency
+# set stays free of OpenCV, which nuscenes-devkit pulls transitively (and which
+# bundles ffmpeg, flagged by OSRB). The eval subpackage and core.boxes.aicity_box
+# subclass nuscenes classes at import time, so it cannot be deferred lazily.
+_NUSCENES_INSTALL_HINT = (
+    "Install the `eval` extra (brings nuscenes-devkit and, transitively, OpenCV):\n"
+    "  pip install 'spatialai-data-utils[eval]'\n"
+    "  # or directly: pip install nuscenes-devkit==1.2.0"
+)
+
+
 def import_torch(context: str):
     """Import torch for torch-dependent code paths."""
     try:
@@ -50,3 +74,45 @@ def import_box3d_overlap(context: str) -> Callable:
             f"{context} requires `pytorch3d` to be installed. {_TORCH_PYTORCH3D_INSTALL_HINT}"
         ) from exc
     return box3d_overlap
+
+
+def import_cv2(context: str):
+    """Import OpenCV (`cv2`) for visualization / video code paths.
+
+    OpenCV is an optional dependency (see :data:`_OPENCV_INSTALL_HINT`); call
+    this at the top of any function that needs ``cv2`` so the package keeps
+    importing — and all non-OpenCV code paths keep working — when it is not
+    installed. Raises a clear :class:`ImportError` with install instructions
+    at call time instead of failing at import time.
+    """
+    try:
+        import cv2
+    except ImportError as exc:
+        raise ImportError(
+            f"{context} requires OpenCV (`cv2`) to be installed. {_OPENCV_INSTALL_HINT}"
+        ) from exc
+    return cv2
+
+
+def nuscenes_import_error(context: str) -> ImportError:
+    """Build a clear :class:`ImportError` for the optional nuscenes-devkit dep.
+
+    Unlike torch / cv2 (used inside function bodies, so importable lazily), the
+    eval subpackage and ``core.boxes.aicity_box`` subclass nuscenes classes at
+    module-import time, so nuscenes cannot be deferred — these modules must
+    raise at import when it is missing. Wrap the module-level
+    ``from nuscenes... import ...`` so this is raised ONLY when nuscenes itself
+    is absent, letting any other import failure (e.g. nuscenes installed but
+    cv2 missing, or a broken nuscenes submodule) propagate unmasked::
+
+        try:
+            from nuscenes... import ...
+        except ModuleNotFoundError as exc:
+            if exc.name == "nuscenes":
+                raise nuscenes_import_error(__name__) from exc
+            raise
+    """
+    return ImportError(
+        f"{context} requires the optional evaluation dependency `nuscenes-devkit`. "
+        f"{_NUSCENES_INSTALL_HINT}"
+    )

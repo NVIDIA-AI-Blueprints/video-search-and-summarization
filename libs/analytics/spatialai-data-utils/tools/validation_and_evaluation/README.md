@@ -1,6 +1,6 @@
 # Validation and Evaluation
 
-Validates generated MTMC data from S3 and, in full mode, evaluates Sparse4D
+Validates generated MTMC data from object storage and, in full mode, evaluates Sparse4D
 detection output with BEV-sensor-specific metrics.
 
 Sparse4D produces 3D detections for a set of camera sensors. In this tool, a
@@ -11,6 +11,22 @@ Detection evaluation reports mean Average Precision (mAP) and the per-class
 true-positive error metrics used by the bundled nuScenes-style evaluator.
 
 ## Requirements
+
+> **Requires the `eval` extra.** Detection evaluation uses the bundled
+> nuScenes-style evaluator (`spatialai_data_utils.eval.*`), which imports the
+> nuScenes dev-kit: `pip install 'spatialai-data-utils[eval]'`. Note
+> `nuscenes-devkit` pulls OpenCV transitively (which ships with bundled
+> `ffmpeg` libraries and codecs) — review their licenses and terms of
+> distribution and use before installing.
+>
+> **Docker image and video visualization:** [`docker/Dockerfile`](../../docker/Dockerfile)
+> replaces the standard OpenCV wheel with a custom build compiled without
+> FFmpeg, GStreamer, or their codecs. Evaluation and image-based visualization
+> work in this image, but OpenCV video reading and writing do not. For video
+> visualization, use a clean environment with
+> `pip install "spatialai-data-utils[viz]"`, which pulls OpenCV with bundled
+> FFmpeg libraries and codecs; review their licenses and terms of distribution
+> and use before proceeding.
 
 Inputs are expected to be in NVSchema line-delimited JSON format:
 
@@ -44,32 +60,78 @@ Representative `mdx-bev` record:
 
 ## Environment
 
-Create `tools/validation_and_evaluation/.env` from `.env.example`:
+Configure the existing `tools/validation_and_evaluation/.env` file:
 
 ```env
 HOST_IP=localhost
-AWS_ACCESS_KEY_ID="<AWS_ACCESS_KEY_ID>"
-AWS_SECRET_ACCESS_KEY="<AWS_SECRET_ACCESS_KEY>"
-AWS_REGION="<AWS_REGION>"
-AWS_BUCKET="<AWS_BUCKET_NAME>"
-AWS_S3_BASE_PREFIX_PATH="generated/"
-SIMULATION_ID="<SIMULATION_ID>"
+
+STORAGE_PROVIDER="aws"  # aws or gcs
+
+AWS_ACCESS_KEY_ID=<AWS_ACCESS_KEY_ID>
+AWS_SECRET_ACCESS_KEY=<AWS_SECRET_ACCESS_KEY>
+AWS_REGION=<AWS_REGION>
+AWS_BUCKET=<AWS_BUCKET_NAME>
+
+GCS_HMAC_ACCESS_KEY_ID=<GCS_HMAC_ACCESS_KEY_ID>
+GCS_HMAC_SECRET_ACCESS_KEY=<GCS_HMAC_SECRET_ACCESS_KEY>
+GCS_BUCKET=<GCS_BUCKET_NAME>
+GCS_ENDPOINT_URL=https://storage.googleapis.com
+
+BASE_PREFIX_PATH=generated/
+SIMULATION_ID=<SIMULATION_ID>
 ```
 
 The tool downloads into `results/<SIMULATION_ID>/`.
+
+`BASE_PREFIX_PATH` must be the object-storage prefix before `SIMULATION_ID`.
+For example, if objects are under
+`s3://<bucket>/generated/<SIMULATION_ID>/ground-truth/`, set:
+
+```env
+BASE_PREFIX_PATH="generated/"
+```
+
+## Docker Usage
+
+Build the image from the repository root if needed:
+
+```bash
+docker build -f docker/Dockerfile -t spatialai_data_utils .
+```
+
+Run the validation and evaluation flow from the repository root. Mount the env file explicitly so a different simulation can be used without replacing `tools/validation_and_evaluation/.env`:
+
+```bash
+# Create a results directory with necessary permissions
+mkdir -p "$(pwd)/results"
+sudo chown -R "$USER:$USER" "$(pwd)/results"
+
+# Launch Docker with the validation tool, env file, and results directory mounted
+docker run --rm -it --user "$(id -u):$(id -g)" \
+  -v "$(pwd)/tools/validation_and_evaluation:/workspace/tools/validation_and_evaluation" \
+  -v "$(pwd)/tools/validation_and_evaluation/.env:/workspace/tools/validation_and_evaluation/.env:ro" \
+  -v "$(pwd)/results:/workspace/results" \
+  -w /workspace \
+  spatialai_data_utils \
+  python tools/validation_and_evaluation/run_validation_and_evaluation.py \
+    --calibration_url <calibration-URL>
+```
+
+Local outputs are written to `results/<SIMULATION_ID>/` on the host because
+`results/` is bind-mounted.
 
 ## Data Validation Checks
 
 Full mode performs validation before and after download:
 
-- S3 ground-truth count: checks
-  `<AWS_S3_BASE_PREFIX_PATH><SIMULATION_ID>/ground-truth/mega_gt` before
+- Object-storage ground-truth count: checks
+  `<BASE_PREFIX_PATH><SIMULATION_ID>/ground-truth/mega_gt` before
   downloading. It errors below
   `simulation_seconds * fps * ground_truth_record_count_error_threshold_ratio`
   and warns below
   `simulation_seconds * fps * ground_truth_record_count_warning_threshold_ratio`.
-- S3 bin-file validation: checks sensor bridge bin directories under
-  `ground-truth/` unless `--skip_s3_bin_files_check` is set.
+- Object-storage bin-file validation: checks sensor bridge bin directories under
+  `ground-truth/` unless `--skip_bin_files_check` is set.
 - Ground-truth file validation: checks non-empty content, synchronized sensor
   timestamps, known calibration sensors, expected record count, and non-empty
   object `type` values.
@@ -96,9 +158,9 @@ Full mode:
 
 - Downloads and merges `ground-truth/`, `mdx-bev/`, and related datasets.
 - Downloads `calibration.json`.
-- Checks the S3 ground-truth record count before downloading/evaluating.
+- Checks the object-storage ground-truth record count before downloading/evaluating.
 - Validates ground-truth data and BEV data.
-- Optionally checks S3 bin files unless `--skip_s3_bin_files_check` is set.
+- Optionally checks object-storage bin files unless `--skip_bin_files_check` is set.
 - Splits GT and prediction data by BEV sensor and runs detection evaluation.
 - Writes per-sensor metrics and uploads a combined summary CSV.
 
@@ -119,20 +181,20 @@ Boolean flags use `action="store_true"`. Pass the flag by itself; do not append
 Correct:
 
 ```bash
---skip_s3_bin_files_check --only_mdx_bev_validation
+--skip_bin_files_check --only_mdx_bev_validation
 ```
 
 Incorrect:
 
 ```bash
---skip_s3_bin_files_check True --only_mdx_bev_validation True
+--skip_bin_files_check True --only_mdx_bev_validation True
 ```
 
 ## Key Arguments
 
 | Argument | Default | Description |
 |---|---:|---|
-| `--calibration_url` | required | S3 or HTTPS URL for `calibration.json`. |
+| `--calibration_url` | required | S3, GCS, or HTTPS URL for `calibration.json`. |
 | `--confidence_threshold` | `0.0` | Filters predictions below this score before evaluation. |
 | `--num_frames_to_eval` | `200000` | Maximum frames to include during detection evaluation. |
 | `--ground_truth_frame_offset_secs` | `0.0` | Temporal offset applied to GT during detection evaluation. |
@@ -146,7 +208,7 @@ Incorrect:
 | `--max_tolerance_ms_for_bev_record` | `34` | Maximum expected spacing between consecutive BEV records. |
 | `--bev_intra_record_timestamp_tolerance_ms` | `34` | Maximum timestamp spread allowed across camera entries inside one BEV record before warning. |
 | `--bev_delay` | `33` | Warn when the first BEV record starts more than this many milliseconds after the first GT record. |
-| `--skip_s3_bin_files_check` | `False` | Boolean flag. Skip the S3 bin-file count check in full mode. |
+| `--skip_bin_files_check` | `False` | Boolean flag. Skip the object-storage bin-file count check in full mode. |
 | `--only_mdx_bev_validation` | `False` | Boolean flag. Validate only `mdx-bev` and skip GT validation/evaluation. |
 
 ## Timestamp Checks
@@ -213,7 +275,7 @@ Each per-sensor `detection_metrics.csv` is also printed to the terminal as a
 Pandas dataframe. The combined `detection_metrics_summary.csv` is uploaded to:
 
 ```text
-<AWS_S3_BASE_PREFIX_PATH><SIMULATION_ID>/evaluation_results/detection_metrics_summary.csv
+<BASE_PREFIX_PATH><SIMULATION_ID>/evaluation_results/detection_metrics_summary.csv
 ```
 
 ## Tests

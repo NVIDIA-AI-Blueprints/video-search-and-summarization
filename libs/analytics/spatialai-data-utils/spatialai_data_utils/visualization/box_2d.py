@@ -53,7 +53,7 @@ Typical Usage:
 4. Display or save annotated image
 """
 
-import cv2
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 
 
 def draw_box_2d(image, box_2d, color=(255, 255, 255), thinkness=2):
@@ -71,6 +71,7 @@ def draw_box_2d(image, box_2d, color=(255, 255, 255), thinkness=2):
     :return: The image with the bounding box drawn.
     :rtype: numpy.ndarray
     """
+    cv2 = import_cv2("draw_box_2d")
     left, top, right, bottom = box_2d
     image = cv2.rectangle(
         image, (int(left), int(top)), (int(right), int(bottom)), color, thinkness

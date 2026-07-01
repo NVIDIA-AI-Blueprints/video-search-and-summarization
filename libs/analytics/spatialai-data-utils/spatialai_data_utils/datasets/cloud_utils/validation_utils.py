@@ -15,19 +15,23 @@
 
 import concurrent.futures
 import logging
+import sys
 
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.common import (
-    count_the_files_in_s3,
+from spatialai_data_utils.datasets.cloud_utils.common import (
+    count_the_files_in_storage,
+    format_base_prefix_path,
+    get_base_prefix_path,
     get_ldrcolor_directories,
-    get_s3_client,
+    get_storage_bucket,
+    get_storage_client,
     list_files,
 )
 
 
-def _count_lines_in_s3_object(s3_client, bucket, key):
+def _count_lines_in_storage_object(storage_client, bucket, key):
     """Optimized line counting using streaming and chunked reading."""
     try:
-        response = s3_client.get_object(Bucket=bucket, Key=key)
+        response = storage_client.get_object(Bucket=bucket, Key=key)
         line_count = 0
         chunk_size = 8192
 
@@ -40,41 +44,32 @@ def _count_lines_in_s3_object(s3_client, bucket, key):
         return 0
 
 
-def count_lines_in_s3_object(env_variables, key):
-    """Count lines in a single S3 object using environment configuration."""
-    s3_client = get_s3_client(
-        env_variables["AWS_ACCESS_KEY_ID"],
-        env_variables["AWS_SECRET_ACCESS_KEY"],
-        env_variables["AWS_REGION"],
-    )
-    return _count_lines_in_s3_object(s3_client, env_variables["AWS_BUCKET"], key)
+def count_lines_in_storage_object(env_variables, key):
+    """Count lines in a single object-storage object using environment configuration."""
+    storage_client = get_storage_client(env_variables)
+    return _count_lines_in_storage_object(storage_client, get_storage_bucket(env_variables), key)
 
 
-def count_the_bev_records_in_s3(env_variables, aws_s3_base_prefix_path, max_workers=8):
-    """Count BEV records in S3 with parallel processing and progress tracking."""
+def count_the_bev_records_in_storage(env_variables, storage_prefix_path, max_workers=8):
+    """Count BEV records in object storage with parallel processing and progress tracking."""
     logging.info("Counting lines in each file in mdx-bev directory")
 
     file_keys = [
-        key for key in list_files(env_variables, aws_s3_base_prefix_path)
+        key for key in list_files(env_variables, storage_prefix_path)
         if not key.endswith("/")
     ]
 
     if not file_keys:
-        logging.info("No files found in the specified S3 prefix")
+        logging.info("No files found in the specified object-storage prefix")
         return 0
 
-    s3_client = get_s3_client(
-        env_variables["AWS_ACCESS_KEY_ID"],
-        env_variables["AWS_SECRET_ACCESS_KEY"],
-        env_variables["AWS_REGION"],
-        max_pool_connections=max_workers,
-    )
-    bucket = env_variables["AWS_BUCKET"]
+    storage_client = get_storage_client(env_variables, max_pool_connections=max_workers)
+    bucket = get_storage_bucket(env_variables)
 
     total_lines = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_key = {
-            executor.submit(_count_lines_in_s3_object, s3_client, bucket, key): key
+            executor.submit(_count_lines_in_storage_object, storage_client, bucket, key): key
             for key in file_keys
         }
 
@@ -89,14 +84,14 @@ def count_the_bev_records_in_s3(env_variables, aws_s3_base_prefix_path, max_work
     return total_lines
 
 
-def check_if_bev_files_are_present_in_s3(args, env_variables, fps):
+def check_if_bev_files_are_present_in_storage(args, env_variables, fps):
     """
-    Count BEV prediction records in S3 and compute validation thresholds.
+    Count BEV prediction records in object storage and compute validation thresholds.
 
     :param args: Parsed validation arguments containing simulation duration and
         BEV record-count threshold ratios.
     :type args: argparse.Namespace
-    :param env_variables: Environment/configuration values containing S3 bucket,
+    :param env_variables: Environment/configuration values containing storage bucket,
         base prefix, and simulation ID.
     :type env_variables: dict
     :param fps: Frames per second used to compute expected record thresholds.
@@ -105,13 +100,12 @@ def check_if_bev_files_are_present_in_s3(args, env_variables, fps):
         threshold.
     :rtype: dict
     """
-    aws_s3_base_prefix_path = (
-        f"{env_variables['AWS_S3_BASE_PREFIX_PATH']}{env_variables['SIMULATION_ID']}/mdx-bev/"
-    )
-    logging.info(f"Counting the records in bev files in s3 path: {aws_s3_base_prefix_path}")
+    base_prefix_path = format_base_prefix_path(get_base_prefix_path(env_variables))
+    storage_prefix_path = f"{base_prefix_path}{env_variables['SIMULATION_ID']}/mdx-bev/"
+    logging.info(f"Counting BEV records in object-storage path: {storage_prefix_path}")
 
-    actual_count = count_the_bev_records_in_s3(env_variables, aws_s3_base_prefix_path)
-    logging.info(f"Number of files in s3: {actual_count}")
+    actual_count = count_the_bev_records_in_storage(env_variables, storage_prefix_path)
+    logging.info(f"Number of BEV records in object storage: {actual_count}")
 
     warning_threshold_record_count = int(
         args.simulation_seconds * fps * args.bev_record_count_warning_threshold_ratio
@@ -127,14 +121,14 @@ def check_if_bev_files_are_present_in_s3(args, env_variables, fps):
     }
 
 
-def check_if_all_ground_truth_files_are_present_in_s3(args, env_variables, fps):
+def check_if_all_ground_truth_files_are_present_in_storage(args, env_variables, fps):
     """
-    Count ground-truth files in S3 and compute validation thresholds.
+    Count ground-truth files in object storage and compute validation thresholds.
 
     :param args: Parsed validation arguments containing simulation duration and
         ground-truth record-count threshold ratios.
     :type args: argparse.Namespace
-    :param env_variables: Environment/configuration values containing S3 bucket,
+    :param env_variables: Environment/configuration values containing storage bucket,
         base prefix, and simulation ID.
     :type env_variables: dict
     :param fps: Frames per second used to compute expected file thresholds.
@@ -143,14 +137,12 @@ def check_if_all_ground_truth_files_are_present_in_s3(args, env_variables, fps):
         threshold.
     :rtype: dict
     """
-    aws_s3_base_prefix_path = (
-        f"{env_variables['AWS_S3_BASE_PREFIX_PATH']}"
-        f"{env_variables['SIMULATION_ID']}/ground-truth/mega_gt"
-    )
-    logging.info(f"Counting the files in s3 with prefix: {aws_s3_base_prefix_path}")
+    base_prefix_path = format_base_prefix_path(get_base_prefix_path(env_variables))
+    storage_prefix_path = f"{base_prefix_path}{env_variables['SIMULATION_ID']}/ground-truth/mega_gt"
+    logging.info(f"Counting ground-truth files in object-storage prefix: {storage_prefix_path}")
 
-    actual_count = count_the_files_in_s3(env_variables, aws_s3_base_prefix_path)
-    logging.info(f"Number of files in s3: {actual_count}")
+    actual_count = count_the_files_in_storage(env_variables, storage_prefix_path)
+    logging.info(f"Number of ground-truth files in object storage: {actual_count}")
 
     warning_threshold_record_count = int(
         args.simulation_seconds
@@ -172,9 +164,9 @@ def check_if_all_ground_truth_files_are_present_in_s3(args, env_variables, fps):
 
 def extract_sensor_name_from_ldrcolor_path(path):
     """
-    Extract the calibration sensor name from an S3 ``LdrColor`` directory path.
+    Extract the calibration sensor name from an object-storage ``LdrColor`` directory path.
 
-    :param path: S3 directory path containing an ``LdrColor`` segment.
+    :param path: Object-storage directory path containing an ``LdrColor`` segment.
     :type path: str
     :return: Sensor name with render-specific suffixes removed.
     :rtype: str
@@ -184,15 +176,15 @@ def extract_sensor_name_from_ldrcolor_path(path):
     return sensor_name
 
 
-def validate_bin_sensors_present_in_s3(
+def validate_bin_sensors_present_in_storage(
     ldrcolor_directories,
     unique_bev_groups,
     bev_to_sensor_map,
 ):
     """
-    Validate that S3 ``LdrColor`` directories contain the expected BEV sensors.
+    Validate that object-storage ``LdrColor`` directories contain the expected BEV sensors.
 
-    :param ldrcolor_directories: S3 directory prefixes containing ``LdrColor``
+    :param ldrcolor_directories: Object-storage directory prefixes containing ``LdrColor``
         files.
     :type ldrcolor_directories: list[str]
     :param unique_bev_groups: BEV group names expected from ground-truth
@@ -225,7 +217,7 @@ def validate_bin_sensors_present_in_s3(
     if status:
         return {
             "status": True,
-            "message": "All sensors are present in s3. Continuing to next step...",
+            "message": "All sensors are present in object storage. Continuing to next step...",
         }
 
     return {
@@ -234,7 +226,7 @@ def validate_bin_sensors_present_in_s3(
     }
 
 
-def check_if_all_bin_files_are_present_in_s3(
+def check_if_all_bin_files_are_present_in_storage(
     args,
     env_variables,
     fps,
@@ -242,7 +234,7 @@ def check_if_all_bin_files_are_present_in_s3(
     unique_bev_groups,
 ):
     """
-    Validate sensor bridge BIN file presence and counts in S3.
+    Validate sensor bridge BIN file presence and counts in object storage.
 
     Finds ``LdrColor`` directories under the ground-truth prefix, verifies that
     the discovered sensors match the expected BEV group mapping, and checks each
@@ -251,8 +243,8 @@ def check_if_all_bin_files_are_present_in_s3(
     :param args: Parsed validation arguments containing simulation duration and
         ground-truth record-count threshold ratios.
     :type args: argparse.Namespace
-    :param env_variables: Environment/configuration values containing AWS
-        credentials, region, bucket, base prefix, and simulation ID.
+    :param env_variables: Environment/configuration values containing storage
+        provider credentials, bucket, base prefix, and simulation ID.
     :type env_variables: dict
     :param fps: Frames per second used to compute expected BIN file counts.
     :type fps: int | float
@@ -265,26 +257,20 @@ def check_if_all_bin_files_are_present_in_s3(
     """
     message = ""
 
-    s3_client = get_s3_client(
-        env_variables["AWS_ACCESS_KEY_ID"],
-        env_variables["AWS_SECRET_ACCESS_KEY"],
-        env_variables["AWS_REGION"],
-    )
+    storage_client = get_storage_client(env_variables)
 
-    ground_truth_base_path = (
-        f"{env_variables['AWS_S3_BASE_PREFIX_PATH']}"
-        f"{env_variables['SIMULATION_ID']}/ground-truth/"
-    )
+    base_prefix_path = format_base_prefix_path(get_base_prefix_path(env_variables))
+    ground_truth_base_path = f"{base_prefix_path}{env_variables['SIMULATION_ID']}/ground-truth/"
     logging.info(f"Looking for sensor bridge bin directories in: {ground_truth_base_path}")
 
     ldrcolor_directories = get_ldrcolor_directories(
-        s3_client,
-        env_variables["AWS_BUCKET"],
+        storage_client,
+        get_storage_bucket(env_variables),
         ground_truth_base_path,
     )
     logging.info(f"Found sensor bridge bin directories: {ldrcolor_directories}")
 
-    sensors_missing = validate_bin_sensors_present_in_s3(
+    sensors_missing = validate_bin_sensors_present_in_storage(
         ldrcolor_directories,
         unique_bev_groups,
         bev_to_sensor_map,
@@ -293,7 +279,7 @@ def check_if_all_bin_files_are_present_in_s3(
         logging.info(f"{sensors_missing['message']}")
     else:
         logging.error(f"!!{sensors_missing['message']} Exiting...")
-        exit(1)
+        sys.exit(1)
 
     warning_threshold_record_count = int(
         args.simulation_seconds
@@ -306,17 +292,17 @@ def check_if_all_bin_files_are_present_in_s3(
         * args.ground_truth_record_count_error_threshold_ratio
     )
 
-    for aws_s3_base_prefix_path in ldrcolor_directories:
-        actual_count = count_the_files_in_s3(env_variables, aws_s3_base_prefix_path)
+    for storage_prefix_path in ldrcolor_directories:
+        actual_count = count_the_files_in_storage(env_variables, storage_prefix_path)
         logging.info(
-            f"Number of bin files in s3 for {aws_s3_base_prefix_path}: {actual_count}"
+            f"Number of bin files in object storage for {storage_prefix_path}: {actual_count}"
         )
 
         if actual_count < error_threshold_record_count:
             return {
                 "status": False,
                 "message": (
-                    f"Number of bin files in s3 for {aws_s3_base_prefix_path} is "
+                    f"Number of bin files in object storage for {storage_prefix_path} is "
                     f"{actual_count} which is less than expected error threshold count "
                     f"{error_threshold_record_count}. Total number of bin files expected "
                     f"in ground truth is {fps * args.simulation_seconds}."
@@ -324,7 +310,7 @@ def check_if_all_bin_files_are_present_in_s3(
             }
         elif actual_count < warning_threshold_record_count:
             message += (
-                f"Number of bin files in s3 for {aws_s3_base_prefix_path} is "
+                f"Number of bin files in object storage for {storage_prefix_path} is "
                 f"{actual_count} which is less than expected warning threshold count "
                 f"{warning_threshold_record_count}.\n"
             )
@@ -335,7 +321,7 @@ def check_if_all_bin_files_are_present_in_s3(
             f"{fps * args.simulation_seconds}."
         )
     else:
-        message = "All bin files are present in s3."
+        message = "All bin files are present in object storage."
 
     return {
         "status": True,
