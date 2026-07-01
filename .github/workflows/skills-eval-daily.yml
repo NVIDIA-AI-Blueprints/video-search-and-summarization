@@ -142,6 +142,7 @@ jobs:
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
