@@ -21,15 +21,19 @@ import os
 import re
 import shutil
 import tempfile
+import sys
 from datetime import datetime
 
 import requests
 from boto3.s3.transfer import TransferConfig
 
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.common import (
-    convert_https_to_s3_url,
-    format_aws_s3_base_prefix_path,
-    get_s3_client,
+from spatialai_data_utils.datasets.cloud_utils.common import (
+    format_base_prefix_path,
+    get_base_prefix_path,
+    get_storage_bucket,
+    get_storage_client,
+    get_storage_provider,
+    parse_object_storage_url,
 )
 
 
@@ -70,7 +74,7 @@ def sort_files_in_folders(base_path):
             "Cannot perform evaluation on empty prediction files."
         )
         print("--------------------------------------------------------------")
-        exit(1)
+        sys.exit(1)
 
 
 def sort_file_by_timestamp(
@@ -119,7 +123,7 @@ def sort_file_by_timestamp(
                     logging.error(
                         f"Error processing message: {input_file_path} \n {line} \n {exc}"
                     )
-                    exit(1)
+                    sys.exit(1)
 
         with open(output_file_path, "w") as output_file:
             for timestamp_dir in sorted(
@@ -139,20 +143,37 @@ def sort_file_by_timestamp(
         shutil.rmtree(temp_dir_path)
 
 
-def download_single_file_from_s3_streaming(
-    s3_client,
+def download_single_file_from_storage_streaming(
+    storage_client,
     bucket,
     file_key,
     temp_dir,
     dataset,
     transfer_config,
 ):
-    """Download a single file from S3 to a temporary file using TransferConfig."""
+    """
+    Download a single object-storage file to a temporary file.
+
+    :param storage_client: Boto3 S3-compatible storage client.
+    :type storage_client: botocore.client.BaseClient
+    :param bucket: Source storage bucket name.
+    :type bucket: str
+    :param file_key: Object key to download.
+    :type file_key: str
+    :param temp_dir: Temporary directory where the downloaded file is written.
+    :type temp_dir: str
+    :param dataset: Dataset name used to group downloaded files.
+    :type dataset: str
+    :param transfer_config: Transfer configuration for boto3 downloads.
+    :type transfer_config: boto3.s3.transfer.TransferConfig
+    :return: Local temporary file path if successful, otherwise ``None``.
+    :rtype: str | None
+    """
     try:
         safe_filename = file_key.replace("/", "_").replace("\\", "_")
         temp_file_path = os.path.join(temp_dir, safe_filename)
 
-        s3_client.download_file(
+        storage_client.download_file(
             Bucket=bucket,
             Key=file_key,
             Filename=temp_file_path,
@@ -165,18 +186,23 @@ def download_single_file_from_s3_streaming(
         return None
 
 
-def fetch_s3_keys_for_dataset(s3_client, bucket, prefix, dataset):
+def fetch_storage_keys_for_dataset(storage_client, bucket, prefix, dataset):
     """
-    Fetch all S3 keys for a single dataset.
-    :param s3_client: Boto3 S3 client
-    :param bucket: S3 bucket name
-    :param prefix: S3 prefix path for the dataset
+    Fetch all object-storage keys for a single dataset.
+    :param storage_client: Boto3 S3-compatible storage client
+    :type storage_client: botocore.client.BaseClient
+    :param bucket: Storage bucket name
+    :type bucket: str
+    :param prefix: Object-storage prefix path for the dataset
+    :type prefix: str
     :param dataset: Dataset name
+    :type dataset: str
     :return: List of file objects with metadata
+    :rtype: list[dict]
     """
     file_objects = []
     try:
-        paginator = s3_client.get_paginator("list_objects_v2")
+        paginator = storage_client.get_paginator("list_objects_v2")
 
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             if "Contents" in page:
@@ -192,7 +218,7 @@ def fetch_s3_keys_for_dataset(s3_client, bucket, prefix, dataset):
 
         return file_objects
     except Exception as exc:
-        logging.error(f"Error fetching S3 keys for {dataset}: {exc}")
+        logging.error(f"Error fetching object-storage keys for {dataset}: {exc}")
         return []
 
 
@@ -231,16 +257,16 @@ def sort_dataset(dataset, path, simulation_id):
         return False
 
 
-def download_and_merge_data_from_s3(args, env_variables, local_path, overwrite=False, max_workers=4):
+def download_and_merge_data_from_storage(args, env_variables, local_path, overwrite=False, max_workers=4):
     """
-    Download and merge data from S3 using a three-phase approach.
-    Phase 1: Fetch all S3 keys for all datasets
+    Download and merge data from configured object storage using a three-phase approach.
+    Phase 1: Fetch all object-storage keys for all datasets
     Phase 2: Download all files using single ThreadPoolExecutor
     Phase 3: Sort all datasets using multiprocessing.Pool
     """
 
     simulation_id = env_variables["SIMULATION_ID"]
-    bucket = env_variables["AWS_BUCKET"]
+    bucket = get_storage_bucket(env_variables)
     dataset_to_download = (
         ["mdx-bev"]
         if args.only_mdx_bev_validation
@@ -248,27 +274,25 @@ def download_and_merge_data_from_s3(args, env_variables, local_path, overwrite=F
     )
     logging.info(f"Starting three-phase download for {simulation_id}.")
 
-    s3_client = get_s3_client(
-        env_variables["AWS_ACCESS_KEY_ID"],
-        env_variables["AWS_SECRET_ACCESS_KEY"],
-        env_variables["AWS_REGION"],
+    storage_client = get_storage_client(
+        env_variables,
         max_pool_connections=100,
     )
 
-    aws_s3_base_prefix_path = format_aws_s3_base_prefix_path(
-        env_variables["AWS_S3_BASE_PREFIX_PATH"]
+    base_prefix_path = format_base_prefix_path(
+        get_base_prefix_path(env_variables)
     )
 
     for dataset in dataset_to_download:
         os.makedirs(os.path.join(local_path, simulation_id, dataset), exist_ok=True)
 
-    logging.info("Phase 1: Fetching all S3 keys for all datasets...")
+    logging.info("Phase 1: Fetching all object-storage keys for all datasets...")
 
     all_file_objects = []
     dataset_file_counts = {}
 
     for dataset in dataset_to_download:
-        prefix = f"{aws_s3_base_prefix_path}{simulation_id}/{dataset}/"
+        prefix = f"{base_prefix_path}{simulation_id}/{dataset}/"
         local_file_path = os.path.join(
             local_path,
             simulation_id,
@@ -281,10 +305,10 @@ def download_and_merge_data_from_s3(args, env_variables, local_path, overwrite=F
             dataset_file_counts[dataset] = -1
             continue
 
-        file_objects = fetch_s3_keys_for_dataset(s3_client, bucket, prefix, dataset)
+        file_objects = fetch_storage_keys_for_dataset(storage_client, bucket, prefix, dataset)
 
         if not file_objects:
-            logging.info(f"No files found in {prefix} directory of s3.")
+            logging.info(f"No files found in object-storage prefix {prefix}.")
             dataset_file_counts[dataset] = 0
         else:
             file_count = len(file_objects)
@@ -308,7 +332,7 @@ def download_and_merge_data_from_s3(args, env_variables, local_path, overwrite=F
                             "Cannot perform evaluation on empty prediction files."
                         )
                         print("--------------------------------------------------------------")
-                        exit(1)
+                        sys.exit(1)
         return
 
     total_files = len(all_file_objects)
@@ -342,8 +366,8 @@ def download_and_merge_data_from_s3(args, env_variables, local_path, overwrite=F
 
             for obj in all_file_objects:
                 future = executor.submit(
-                    download_single_file_from_s3_streaming,
-                    s3_client,
+                    download_single_file_from_storage_streaming,
+                    storage_client,
                     bucket,
                     obj["Key"],
                     temp_download_dir,
@@ -377,7 +401,7 @@ def download_and_merge_data_from_s3(args, env_variables, local_path, overwrite=F
             if len(failed_downloads) > 10:
                 missing_keys += ", ..."
             raise RuntimeError(
-                f"Failed to download {len(failed_downloads)} S3 objects; "
+                f"Failed to download {len(failed_downloads)} object-storage objects; "
                 f"aborting merge. Missing keys: {missing_keys}"
             )
 
@@ -471,49 +495,19 @@ def download_and_merge_data_from_s3(args, env_variables, local_path, overwrite=F
                         "Cannot perform evaluation on empty prediction files."
                     )
                     print("--------------------------------------------------------------")
-                    exit(1)
+                    sys.exit(1)
 
     logging.info(f"All three phases complete for {simulation_id}!")
 
 
-def get_calibration_from_s3(
-    access_key_id,
-    secret_access_key,
-    region,
+def get_calibration_from_storage(
+    env_variables,
     calibration_url,
     simulation_id,
     output_root_dir,
     overwrite_file=True,
 ):
-    """
-    Download a calibration file from S3 or HTTP server.
-
-    The destination is ``<output_root_dir>/<simulation_id>/calibration.json``.
-    Existing files are skipped unless ``overwrite_file`` is true. HTTPS S3 URLs
-    are converted to ``s3://`` URLs before download.
-
-    :param access_key_id: AWS access key ID used for S3 downloads.
-    :type access_key_id: str
-    :param secret_access_key: AWS secret access key used for S3 downloads.
-    :type secret_access_key: str
-    :param region: AWS region for the S3 client.
-    :type region: str
-    :param calibration_url: Source URL for the calibration file. Supported
-        schemes are ``s3://``, S3 HTTPS URLs, and HTTP/HTTPS server URLs.
-    :type calibration_url: str
-    :param simulation_id: Simulation ID used to build the local output path.
-    :type simulation_id: str
-    :param output_root_dir: Root directory where calibration files are written.
-    :type output_root_dir: str
-    :param overwrite_file: Whether to overwrite an existing local calibration
-        file.
-    :type overwrite_file: bool
-    :return: None.
-    :rtype: None
-    :raises ValueError: If ``calibration_url`` has an unsupported scheme.
-    :raises requests.HTTPError: If an HTTP download returns an error status.
-    """
-
+    """Download a calibration file from configured object storage or HTTP."""
     logging.info(f"Downloading calibration file for {simulation_id}.")
     local_file_path = os.path.join(output_root_dir, simulation_id, "calibration.json")
     os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
@@ -522,30 +516,21 @@ def get_calibration_from_s3(
         logging.info(f"File: {local_file_path} already exists. Skipping download.")
         return
 
-    if re.match(r"^(https?://.*\?s3\.|s3://)", calibration_url):
-        logging.info(f"Converting http-server URL to s3 uri: {calibration_url}")
-        calibration_url = convert_https_to_s3_url(calibration_url)
-        logging.info(f"Converted http-server URL to s3 uri: {calibration_url}")
-        source_type = "s3"
+    source_provider, bucket, key = parse_object_storage_url(calibration_url)
+    if source_provider:
+        configured_provider = get_storage_provider(env_variables)
+        if source_provider != configured_provider:
+            raise ValueError(
+                f"Calibration URL provider '{source_provider}' does not match "
+                f"STORAGE_PROVIDER '{configured_provider}'."
+            )
+        storage_client = get_storage_client(env_variables)
+        storage_client.download_file(bucket, key, local_file_path)
     elif re.match(r"^(http://|https://)", calibration_url):
-        source_type = "http-server"
-    elif calibration_url.startswith("s3://"):
-        source_type = "s3"
-    else:
-        raise ValueError(f"Unsupported URL scheme: {calibration_url}")
-
-    if source_type == "s3":
-        s3_client = get_s3_client(access_key_id, secret_access_key, region)
-        bucket = calibration_url.split("/")[2]
-        key = "/".join(calibration_url.split("/")[3:])
-        s3_client.download_file(bucket, key, local_file_path)
-
-    elif source_type == "http-server":
         response = requests.get(calibration_url)
         response.raise_for_status()
         with open(local_file_path, "wb") as file:
             file.write(response.content)
-
     else:
         raise ValueError(f"Unsupported URL scheme: {calibration_url}")
 

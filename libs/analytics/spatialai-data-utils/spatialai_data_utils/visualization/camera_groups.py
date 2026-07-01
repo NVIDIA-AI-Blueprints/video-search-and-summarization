@@ -25,7 +25,6 @@ from __future__ import annotations
 import logging
 import os
 
-import cv2
 import numpy as np
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 from shapely.ops import unary_union
@@ -36,6 +35,7 @@ from spatialai_data_utils.core.cameras.polygon import (
     parse_polygon,
 )
 from spatialai_data_utils.core.cameras.utils import load_map_data
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 from spatialai_data_utils.utils.string_utils import natural_sort_key
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,7 @@ def transform_polygon(polygon, translation, scale, map_height=1080, resize_facto
 def draw_polygon(img, transformed_polygon, color):
     """Draw a polygon on an image using OpenCV."""
 
+    cv2 = import_cv2("draw_polygon")
     if isinstance(transformed_polygon, Polygon):
         pts = np.array(transformed_polygon.exterior.coords, dtype=np.int32)
         cv2.polylines(img, [pts], isClosed=True, color=color, thickness=2)

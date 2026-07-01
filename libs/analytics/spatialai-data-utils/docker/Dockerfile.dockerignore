@@ -1,0 +1,11 @@
+.git
+.pytest_cache
+.venv
+__pycache__
+*.egg-info
+*.pyc
+coverage
+htmlcov
+results
+test_installation.py
+tests/coverage

@@ -18,23 +18,27 @@ import os
 
 import pandas as pd
 
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.common import get_s3_client
+from spatialai_data_utils.datasets.cloud_utils.common import (
+    get_storage_bucket,
+    get_storage_client,
+)
 
-def combine_and_upload_detection_metrics_csv_to_s3(
+
+def combine_and_upload_detection_metrics_csv_to_storage(
     env_variables,
     input_csvs_path,
     local_output_csv_dump_path,
-    s3_dump_path,
+    storage_output_path,
 ):
     """
-    Combine per-sensor detection metrics CSV files and upload the result to S3.
+    Combine per-sensor detection metrics CSV files and upload the result to object storage.
 
     Recursively searches ``input_csvs_path`` for ``detection_metrics.csv`` files,
     concatenates them into one CSV, writes the combined CSV locally, and uploads
-    the combined content to the configured S3 bucket.
+    the combined content to the configured object-storage bucket.
 
-    :param env_variables: Environment/configuration values containing AWS
-        credentials, region, and bucket name.
+    :param env_variables: Environment/configuration values containing storage
+        provider credentials and bucket name.
     :type env_variables: dict
     :param input_csvs_path: Root directory to search for detection metrics CSV
         files.
@@ -42,8 +46,8 @@ def combine_and_upload_detection_metrics_csv_to_s3(
     :param local_output_csv_dump_path: Local path where the combined CSV is
         written before upload.
     :type local_output_csv_dump_path: str
-    :param s3_dump_path: Destination object key for the combined CSV in S3.
-    :type s3_dump_path: str
+    :param storage_output_path: Destination object key for the combined CSV.
+    :type storage_output_path: str
     :return: None.
     :rtype: None
     """
@@ -58,13 +62,10 @@ def combine_and_upload_detection_metrics_csv_to_s3(
     if all_dfs:
         combined_df = pd.concat(all_dfs, ignore_index=True)
         combined_df.to_csv(local_output_csv_dump_path, index=False)
-        upload_csv_to_s3(
+        upload_csv_to_storage(
             combined_df,
-            env_variables["AWS_ACCESS_KEY_ID"],
-            env_variables["AWS_SECRET_ACCESS_KEY"],
-            env_variables["AWS_REGION"],
-            env_variables["AWS_BUCKET"],
-            s3_dump_path,
+            env_variables,
+            storage_output_path,
         )
     else:
         logging.info(
@@ -72,35 +73,25 @@ def combine_and_upload_detection_metrics_csv_to_s3(
         )
 
 
-def upload_csv_to_s3(
-    df,
-    access_key_id,
-    secret_access_key,
-    region,
-    bucket,
-    output_directory_path,
-):
+def upload_csv_to_storage(df, env_variables, output_directory_path):
     """
-    Upload a pandas DataFrame as CSV content to S3.
+    Upload a pandas DataFrame as CSV content to configured object storage.
 
     :param df: DataFrame to serialize as CSV.
     :type df: pandas.DataFrame
-    :param access_key_id: AWS access key ID.
-    :type access_key_id: str
-    :param secret_access_key: AWS secret access key.
-    :type secret_access_key: str
-    :param region: AWS region for the S3 client.
-    :type region: str
-    :param bucket: Destination S3 bucket.
-    :type bucket: str
-    :param output_directory_path: Destination object key in S3.
+    :param env_variables: Environment/configuration values containing storage
+        provider credentials and bucket name.
+    :type env_variables: dict
+    :param output_directory_path: Destination object key in the configured
+        storage bucket.
     :type output_directory_path: str
     :return: None.
     :rtype: None
     """
-    s3_client = get_s3_client(access_key_id, secret_access_key, region)
+    storage_client = get_storage_client(env_variables)
+    bucket = get_storage_bucket(env_variables)
     logging.info(f"Uploading {output_directory_path} to {bucket}")
-    s3_client.put_object(
+    storage_client.put_object(
         Bucket=bucket,
         Key=output_directory_path,
         Body=df.to_csv(index=False),

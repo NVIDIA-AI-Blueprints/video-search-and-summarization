@@ -51,17 +51,24 @@ from typing import Any, Dict, Optional, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from nuscenes.eval.common.data_classes import EvalBoxes
-from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_tp
-from nuscenes.eval.detection.constants import TP_METRICS
-from nuscenes.eval.detection.render import (
-    class_pr_curve,
-    class_tp_curve,
-    dist_pr_curve,
-    summary_plot,
-)
-
-from nuscenes.eval.common.loaders import load_prediction
+try:
+    from nuscenes.eval.common.data_classes import EvalBoxes
+    from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_tp
+    from nuscenes.eval.detection.constants import TP_METRICS
+    from nuscenes.eval.detection.render import (
+        class_pr_curve,
+        class_tp_curve,
+        dist_pr_curve,
+        summary_plot,
+    )
+    from nuscenes.eval.common.loaders import load_prediction
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
 
 from spatialai_data_utils.configs.eval.detection import DET_CONFIG_IOU3D
 from spatialai_data_utils.eval.common.loaders import load_gt

@@ -38,11 +38,11 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable, List, Optional
 
-import cv2
 import numpy as np
 import tqdm
 
 from spatialai_data_utils.constants import FPS as DEFAULT_FPS
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 from spatialai_data_utils.visualization.draw_utils import draw_camera_tag
 from spatialai_data_utils.visualization.video_utils.frame2video import (
     DEFAULT_CODEC,
@@ -118,6 +118,7 @@ def _prepare_tile(
     release the GIL during their CPU-heavy regions, which is what
     lets threading parallelise per-frame decode work.
     """
+    cv2 = import_cv2("frames_to_video_grid")
     if path and os.path.exists(path):
         tile = cv2.imread(path)
     else:
@@ -153,6 +154,7 @@ def _compose_grid(
     final output has consistent dimensions
     ``(n_cols * tile_w, n_rows * tile_h)`` throughout the video.
     """
+    cv2 = import_cv2("frames_to_video_grid")
     n_rows = math.ceil(len(tiles) / n_cols)
     padded = list(tiles)
     while len(padded) < n_rows * n_cols:
@@ -310,6 +312,7 @@ def frames_to_video_grid(
         return STATUS_NO_FRAMES_FOUND
 
     # Read the first frame to determine source size + tile size.
+    cv2 = import_cv2("frames_to_video_grid")
     first_frame = cv2.imread(master_paths[0])
     if first_frame is None:
         return STATUS_READ_ERROR

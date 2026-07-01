@@ -24,7 +24,7 @@ importable as a library (see [Library API](#library-api)).
 
 ## Package installation
 
-`spatialai_data_utils` supports **Python 3.10+** (tested and released on
+`spatialai_data_utils` supports **Python 3.11+** (tested and released on
 3.13). Create a clean conda env for development:
 
 ```bash
@@ -35,11 +35,48 @@ conda activate spatialai_data_utils
 > **Why `torch` and `pytorch3d` are not declared as install requires:**
 > `torch` needs a CUDA variant chosen at install time, and `pytorch3d`
 > must be built from source against a matching `torch`
-> (`--no-build-isolation`). They are pinned in [`Pipfile`](Pipfile) but
+> (`--no-build-isolation`). They are documented in [`Pipfile`](Pipfile) but
 > installed manually for both source and wheel flows below. SDU itself
-> works with either CPU-only or CUDA torch — the library uses torch only
-> for tensor ops and `torch.utils.data.Dataset`. `fvcore` and `iopath`
-> (pytorch3d build deps) are bundled in the wheel.
+> works with either CPU-only or CUDA torch — the library uses torch (with
+> `pytorch3d`) only for the **3D-IoU computation in the `eval` subpackage**
+> (`eval.common.utils.iou_3d` / `iou_3d_matrix` and the HOTA
+> `_calculate_3DBBox_ious`); those functions raise a clear `ImportError`
+> at call time when the deps are missing, and the rest of the library —
+> including the rest of `eval` — runs without them. `torch` + `pytorch3d`
+> ship in the `full` extra (`full` = `viz` + `eval` + torch + pytorch3d).
+> Because `pytorch3d` must build against an already-installed `torch` (it
+> can't install under build isolation), `full` must be installed with the
+> manual build flow, e.g.
+> `pip install --no-build-isolation 'spatialai-data-utils[full]'` (with
+> torch already present); `viz` and `eval` stay plain `pip install`-able.
+> `fvcore` and `iopath` (pytorch3d build deps) are bundled in the wheel.
+>
+> **Why OpenCV (`cv2`) is not declared as an install require:**
+> OpenCV bundles libraries and codecs that carry license and distribution
+> restrictions; read the license and the terms of distribution and use before
+> installing it. It is only needed by the visualization / video code paths
+> (`spatialai_data_utils.visualization`, `tools/video_utils`), which raise a
+> clear `ImportError` at call time when it is missing. Install the `viz` extra
+> only if you need those features:
+>
+> ```bash
+> pip install 'spatialai-data-utils[viz]'
+> ```
+>
+> **Why `nuscenes-devkit` is not declared as an install require:**
+> The evaluation stack — `spatialai_data_utils.eval` (detection mAP,
+> tracking, HOTA, AICity MTMC) and `core.boxes.aicity_box` — builds on the
+> nuScenes dev-kit, which pulls OpenCV transitively (hence `ffmpeg`, per
+> above). To keep the default install / [`Pipfile.lock`](Pipfile.lock) free
+> of OpenCV, nuScenes is an **opt-in `eval` extra**. These modules subclass
+> nuScenes classes at import time, so — unlike the visualization paths —
+> they cannot degrade gracefully: they raise a clear `ImportError` at
+> **import** time when nuScenes is missing. Install the extra (which also
+> brings OpenCV) if you need evaluation:
+>
+> ```bash
+> pip install 'spatialai-data-utils[eval]'
+> ```
 
 ### Option A: Install from source (recommended for development)
 
@@ -55,10 +92,13 @@ pip install 'pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@3
 
 # 3. Install SDU (editable)
 pip install --no-cache-dir -e ./release
+# ...or with optional extras, e.g. the evaluation stack (nuScenes, also
+# pulls OpenCV): pip install --no-cache-dir -e './release[eval]'
 ```
 
 Pipenv variant — installs every required runtime dep (everything in
-[`Pipfile`](Pipfile)) but still leaves `torch` / `pytorch3d` to you:
+[`Pipfile`](Pipfile)) but still leaves `torch` / `pytorch3d` to you (and,
+being optional extras, the `eval` / `viz` features too):
 
 ```bash
 pip install pipenv
@@ -76,14 +116,36 @@ index:
 pip install 'torch>=2.10.0' --index-url https://download.pytorch.org/whl/cpu   # or CUDA build
 pip install 'pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@33824be' \
     --no-build-isolation
-pip install spatialai-data-utils==2.0.0 \
+pip install spatialai-data-utils==2.0.1 \
     --extra-index-url=https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple
+# add optional extras as needed, e.g. the evaluation stack:
+#   pip install 'spatialai-data-utils[eval]==2.0.1' --extra-index-url=...
 ```
 
 If you already have a CUDA `torch` in your environment (e.g. from
-sparse4d), skip step 1. Bump `==2.0.0` to the version you want to
+sparse4d), skip step 1. Bump `==2.0.1` to the version you want to
 install; available versions can be browsed at
 <https://edge.urm.nvidia.com/artifactory/sw-metropolis-pypi/spatialai-data-utils/>.
+
+### Option C: Docker
+
+A self-contained CPU image is provided in [`docker/Dockerfile`](docker/Dockerfile)
+(builds `pytorch3d` from source in a builder stage and ships only the
+runtime deps in the final image):
+
+```bash
+docker build -f docker/Dockerfile -t spatialai_data_utils .
+```
+
+The image uses a custom OpenCV build compiled without FFmpeg, GStreamer, or
+their codecs. Evaluation and image-based visualization are supported, but
+OpenCV video reading and writing are not. For video visualization, use a
+clean environment with `pip install "spatialai-data-utils[viz]"`, which
+pulls OpenCV with bundled FFmpeg libraries and codecs; review their licenses
+and terms of distribution and use before proceeding.
+
+Tool-specific Docker run examples live in the validation_and_evaluation README, such as
+[`tools/validation_and_evaluation/README.md`](tools/validation_and_evaluation/README.md).
 
 ### Removing the environment
 
@@ -96,8 +158,12 @@ conda remove -n spatialai_data_utils --all
 
 The library lives under `spatialai_data_utils/`. The top-level
 `__init__.py` stays deliberately bare so callers that only need, say,
-`loaders.calibration` don't pay for transitively pulling `cv2` / `tqdm`
-via `visualization.render`.
+`loaders.calibration` don't pay for transitively pulling the
+visualization stack (`tqdm`, the drawing helpers) via
+`visualization.render`. OpenCV (`cv2`) goes a step further — it is
+imported lazily inside the functions that use it (see
+`utils.optional_dependencies.import_cv2`), so even importing
+`visualization.render` never requires it.
 
 | Sub-package | What's in it |
 |---|---|
@@ -171,19 +237,27 @@ Tests are organised to mirror the library tree (`tests/core/`,
 `tests/eval/`, `tests/loaders/`, `tests/visualization/`, ...). A handful
 of tests exercise the optional `torch` / `pytorch3d` path
 (`tests/test_optional_torch_deps.py`); they skip cleanly if the optional
-deps are not installed.
+deps are not installed. The optional OpenCV (`cv2`) path has its own
+suite (`tests/test_optional_opencv_deps.py`): it verifies the package and
+the `visualization` sub-package import without `cv2`, and that the
+visualization / video functions raise a clear `ImportError` at call time
+when it is absent. The optional nuScenes (`eval` extra) path is covered by
+`tests/test_optional_nuscenes_deps.py`: it verifies the package and the
+non-eval sub-packages import without `nuscenes`, and that the `eval`
+modules / `core.boxes.aicity_box` raise a clear `ImportError` pointing at
+the `eval` extra when it is absent.
 
 ## Contributing
 
 Contributions are accepted under Apache-2.0 with a DCO sign-off. See
-[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for full details, including
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for full details, including
 file-level license-header conventions for new files and for changes to
 third-party-derived files.
 
 ## License
 
 `spatialai_data_utils` is released under the Apache License, Version 2.0
-(see the root [`LICENSE`](../../../LICENSE) file). Third-party attributions and the
+(see the root [`LICENSE`](LICENSE) file). Third-party attributions and the
 full upstream license texts for adapted/vendored code are collected in the
 root [`NOTICE`](NOTICE) file, and per-dependency licenses for everything
 installed at runtime (plus optional extras) are listed in
