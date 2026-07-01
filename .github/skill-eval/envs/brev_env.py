@@ -419,9 +419,25 @@ class BrevEnvironment(BaseEnvironment):
         re-wipes the caches and re-pays the cold start. The per-trial harbor
         timeout already budgets for a cold deploy.
 
-        Runs as the normal (docker-group) user — the same identity the
-        trial's deploy uses; no sudo. `network prune` leaves the built-in
-        bridge/host/none networks, which is correct. Fails loud (`set -u`,
+        Also wipes the VIOS/NvStreamer **host bind-mount** state that a docker
+        volume purge cannot reach — recorded video, uploaded clips and
+        auto-discovered sensor DBs (container paths ``streamer_videos``,
+        ``vst_data``, ``vst_video``). Left behind on the warm pool box,
+        NvStreamer re-discovers stale videos on the next deploy and appends
+        ``_N`` collision suffixes to fresh uploads, breaking ``nvstreamer_ops``
+        step-1 identifier/filePath checks. The host source paths vary by deploy
+        layout (dev-profile ``$VSS_DATA_DIR/videos/<profile>`` +
+        ``data_log/*`` vs standalone ``NVSTREAMER_VIDEO_*`` /
+        ``CLIP_STORAGE_PATH``), so we resolve them **exactly** by inspecting the
+        running containers' bind mounts before removing them, plus a
+        ``data_log``-marker filesystem fallback for dirs orphaned with no
+        container to inspect. This best-effort sweep never fails the reset.
+
+        Docker teardown runs as the normal (docker-group) user; the host-state
+        wipe falls back to ``sudo`` because containers write those bind mounts
+        as UID 1001/root (same reason the repo-sync step sudo-falls-back on
+        ``git clean``). `network prune` leaves the built-in bridge/host/none
+        networks, which is correct. Fails loud (`set -u`,
         explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
         if any container, volume, or user-defined network survives, so a
         half-reset box surfaces as a trial error rather than silent cross-trial
@@ -429,6 +445,15 @@ class BrevEnvironment(BaseEnvironment):
         """
         cmd = r"""set -uo pipefail
 docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
+# Capture the actual host bind SOURCES for VST video/data mounts BEFORE removing
+# the containers, so the wipe further down hits the exact dirs the last deploy
+# used — regardless of layout (dev-profile $VSS_DATA_DIR/videos/<profile> +
+# data_log/*, or standalone NVSTREAMER_VIDEO_* / CLIP_STORAGE_PATH). The
+# container destinations are fixed even though host sources vary per deploy.
+vst_bind_srcs=$(docker ps -aq 2>/dev/null | xargs -r docker inspect \
+  --format '{{range .Mounts}}{{if eq .Type "bind"}}{{println .Destination .Source}}{{end}}{{end}}' 2>/dev/null \
+  | awk '$1=="/home/vst/vst_release/streamer_videos" || $1=="/home/vst/vst_release/vst_data" || $1=="/home/vst/vst_release/vst_video"{print $2}' \
+  | sort -u || true)
 cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
 vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
 docker network prune -f >/dev/null 2>&1 || true
@@ -448,6 +473,33 @@ if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
   echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
   exit 1
 fi
+# Wipe the VIOS/NvStreamer host bind-mount state the docker purge above cannot
+# reach: recorded video, uploaded clips and auto-discovered sensor DBs. Left on
+# the warm pool box these cause NvStreamer filename-collision _N suffixes on the
+# next deploy (breaks nvstreamer_ops step-1 id/filePath checks). Two passes:
+#  (1) the exact host sources captured from the just-removed containers' binds
+#      (layout-agnostic — works for dev-profile and standalone deploys alike);
+#  (2) a filesystem fallback keyed off each deploy's `data_log` marker dir (+ its
+#      sibling `videos` tree) to catch dirs orphaned when no container was present
+#      to inspect (historical contamination or a crashed prior run).
+# Best-effort with sudo fallback (containers write as UID 1001/root, like the
+# repo-sync git clean); contents are cleared but the correctly-permissioned
+# parent dirs are kept so the next deploy's bind mounts stay writable. Never
+# fails the reset.
+printf '%s\n' "$vst_bind_srcs" | while IFS= read -r src; do
+  case "$src" in ""|/|/home|/root|/opt|/tmp|/usr|/var|/etc|/bin|/sbin|/lib|/boot) continue;; esac
+  [ -d "$src" ] || continue
+  find "$src" -mindepth 1 -delete >/dev/null 2>&1 \
+    || sudo find "$src" -mindepth 1 -delete >/dev/null 2>&1 || true
+done
+while IFS= read -r dl; do
+  root=$(dirname "$dl")
+  for sub in "$dl" "$root/videos"; do
+    [ -d "$sub" ] || continue
+    find "$sub" -mindepth 1 -delete >/dev/null 2>&1 \
+      || sudo find "$sub" -mindepth 1 -delete >/dev/null 2>&1 || true
+  done
+done < <(find "$HOME" -maxdepth 6 -type d -name data_log -prune 2>/dev/null || true)
 echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
 """
         logger.info(
