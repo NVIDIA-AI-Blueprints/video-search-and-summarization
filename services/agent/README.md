@@ -205,6 +205,42 @@ or are only needed for specific features.
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |
 | `NGC_CLI_API_KEY` | cond. | — | Required when `LLM_MODE` / `VLM_MODE` is `local` or `local_shared` (Docker Compose) |
 | `NVIDIA_API_KEY` | cond. | — | Required for build.nvidia.com remote endpoints |
+| `INSTALL_PROPRIETARY_CODECS` | no | `false` | Install OpenCV/FFmpeg at container startup to enable video decoding (see [Proprietary multimedia codecs](#proprietary-multimedia-codecs)) |
+
+## Proprietary multimedia codecs
+
+The pre-built VSS Agent container image **does not bundle `opencv-python-headless`**.
+That wheel ships FFmpeg libraries that contain **patent-encumbered codecs** (H.264, H.265,
+and variants), which NVIDIA cannot redistribute. Following the VST team's approach, **all
+FFmpeg/codec libraries are removed while building the container** (`libav*`, `libswscale`,
+`libswresample`, `libpostproc`, `libx264/5`, ...), and an installation script reinstalls
+them at runtime only when the operator opts in. A build-time guard in the Dockerfile and a
+CI job (`.github/scripts/check_no_patented_codecs.py`) fail the build if any such library
+leaks into the image. Tools that decode video (video understanding/captioning, frame
+timestamp, S3 picture URL) therefore fail with a clear error in the default image and
+require opting in to the proprietary codecs.
+
+To enable video decoding, set `INSTALL_PROPRIETARY_CODECS=true`. At container startup the
+agent downloads `opencv-python-headless` **from PyPI onto your own machine** (never from an
+NVIDIA source) and adds it to the runtime path. By enabling this you are obtaining and using
+patent-encumbered codecs and are responsible for any associated licensing.
+
+```bash
+# Docker Compose
+INSTALL_PROPRIETARY_CODECS=true docker compose ... up
+```
+
+Notes:
+
+- Default is `false`; nothing patent-encumbered ships in the image.
+- The download (~45–90 MB) happens once per container and is cached under `/vss-agent/.codecs`
+  (override with `VSS_PROPRIETARY_CODECS_DIR`). A `.installed` marker skips re-download on restart.
+- **Air-gapped deployments:** pre-download the matching wheel and point
+  `VSS_PROPRIETARY_CODECS_WHEEL` at it to install without network access.
+- If the install fails (e.g. no network), the agent still starts; only video-decoding
+  features are unavailable.
+- On GPU deployments, hardware decode via PyNvVideoCodec/NVDEC is the codec-royalty-covered
+  alternative and does not require this opt-in.
 
 ## Testing
 

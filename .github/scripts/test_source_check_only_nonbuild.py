@@ -91,6 +91,36 @@ class TestResolveServiceRefs(unittest.TestCase):
         self.assertEqual(unresolved, set())
 
 
+class TestParseImageRef(unittest.TestCase):
+    def test_tag_only(self):
+        self.assertEqual(
+            chk._parse_image_ref("nvcr.io/nvidia/vss-core/vss-agent:3.2.0"),
+            ("nvcr.io", "nvidia/vss-core/vss-agent", "3.2.0"),
+        )
+
+    def test_digest_only(self):
+        self.assertEqual(
+            chk._parse_image_ref("nvcr.io/nvidia/vss-core/vss-agent@sha256:" + "a" * 64),
+            ("nvcr.io", "nvidia/vss-core/vss-agent", "sha256:" + "a" * 64),
+        )
+
+    def test_tag_and_digest_strips_tag_from_name(self):
+        # Regression: a ``name:tag@digest`` ref must not glue ``:tag`` onto the
+        # repo name, or the manifest URL 404s.
+        self.assertEqual(
+            chk._parse_image_ref("nvcr.io/nv-metropolis-dev/met/vss-agent:3.2.0-abc@sha256:" + "b" * 64),
+            ("nvcr.io", "nv-metropolis-dev/met/vss-agent", "sha256:" + "b" * 64),
+        )
+
+    def test_registry_port_with_digest(self):
+        # The ``:port`` on the registry host must survive; only a tag in the last
+        # path component is stripped.
+        self.assertEqual(
+            chk._parse_image_ref("localhost:5000/foo/bar:tag@sha256:" + "c" * 64),
+            ("localhost:5000", "foo/bar", "sha256:" + "c" * 64),
+        )
+
+
 class TestServiceTagChanged(unittest.TestCase):
     def run_with(self, head, base):
         with mock.patch.object(gate, "resolve_service_refs", side_effect=[head, base]):
