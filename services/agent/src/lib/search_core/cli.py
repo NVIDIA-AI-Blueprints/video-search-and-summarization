@@ -242,6 +242,39 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
     runtime.add_argument("--log-level", default="WARNING", help="Python logging level for the CLI process.")
 
 
+def _add_output_args(p: argparse.ArgumentParser) -> None:
+    output = p.add_argument_group("output options")
+    output.add_argument(
+        "--output",
+        choices=("json", "jsonl", "table"),
+        default="json",
+        help=(
+            "Output format: a single JSON object (default), one JSON object per result row "
+            "(jsonl, ideal for piping), or a human-readable table. Ignored for --stream, which "
+            "always emits event JSON lines."
+        ),
+    )
+    output.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Indent the JSON output. This is the default when stdout is an interactive terminal.",
+    )
+    output.add_argument(
+        "--raw",
+        action="store_true",
+        help="Emit compact single-line JSON. This is the default when stdout is not a terminal.",
+    )
+    output.add_argument(
+        "--include-embedding",
+        action="store_true",
+        help=(
+            "Include the query embedding vector in the output. Omitted by default because it is "
+            "large and rarely needed; pass this when you want to reuse the vector as a "
+            "precomputed_embedding for follow-up searches."
+        ),
+    )
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="vss-cli",
@@ -260,6 +293,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Emit SearchEvent JSON lines instead of a single output JSON. Only valid for `search`.",
     )
     _add_runtime_args(p)
+    _add_output_args(p)
     p.set_defaults(cli_name="vss-cli")
     return p.parse_args(argv)
 
@@ -345,6 +379,7 @@ def _parse_archive_search_args(argv: list[str] | None = None) -> argparse.Namesp
         help="Emit SearchEvent JSON lines instead of a single output JSON.",
     )
     _add_runtime_args(p)
+    _add_output_args(p)
     p.set_defaults(cli_name="search-archive", primitive="search")
     return p.parse_args(argv)
 
@@ -644,6 +679,122 @@ def _validate_critic_request(
         raise ConfigurationError("critic verification requires explicit --vlm-base-url and --vlm-model runtime options")
 
 
+# Keys under which each primitive/search output nests its list of result rows.
+_ROW_KEYS = ("results", "data", "video_results")
+_MAX_CELL = 40
+
+
+def _drop_embeddings(data: Any) -> None:
+    """Remove ``query_embedding`` vectors from a dumped output in place.
+
+    The embedding is a large, low-signal artifact for both humans and agents, so
+    it is excluded from CLI output unless ``--include-embedding`` is passed.
+    """
+    if isinstance(data, dict):
+        data.pop("query_embedding", None)
+        for value in data.values():
+            _drop_embeddings(value)
+    elif isinstance(data, list):
+        for item in data:
+            _drop_embeddings(item)
+
+
+def _extract_rows(model: Any) -> list[dict[str, Any]]:
+    """Return the primary list of result rows from an output model.
+
+    Looks for the first known result key (``results`` / ``data`` /
+    ``video_results``); if none is present, the whole object is treated as a
+    single row.
+    """
+    data = model.model_dump(mode="json")
+    for key in _ROW_KEYS:
+        value = data.get(key)
+        if isinstance(value, list):
+            return [row if isinstance(row, dict) else {"value": row} for row in value]
+    return [data]
+
+
+def _is_scalar(value: Any) -> bool:
+    return isinstance(value, (str, int, float, bool))
+
+
+def _flatten_scalars(row: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a row to scalar columns, descending one level into nested dicts.
+
+    Top-level scalars keep their name; nested scalars become ``parent.child``.
+    Lists and deeper structures are dropped — the full detail is available via
+    ``--output json``/``jsonl``.
+    """
+    flat: dict[str, Any] = {}
+    for key, value in row.items():
+        if isinstance(value, dict):
+            for sub_key, sub_value in value.items():
+                if _is_scalar(sub_value) or sub_value is None:
+                    flat[f"{key}.{sub_key}"] = sub_value
+        elif _is_scalar(value) or value is None:
+            flat[key] = value
+    return flat
+
+
+def _render_table(rows: list[dict[str, Any]]) -> str:
+    """Render result rows as an aligned, truncated text table."""
+    if not rows:
+        return "(no results)"
+
+    flat_rows = [_flatten_scalars(row) for row in rows]
+
+    columns: list[str] = []
+    for flat in flat_rows:
+        for key in flat:
+            if key not in columns:
+                columns.append(key)
+
+    def cell(value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value)
+        return text if len(text) <= _MAX_CELL else text[: _MAX_CELL - 1] + "\u2026"
+
+    table = [{col: cell(flat.get(col)) for col in columns} for flat in flat_rows]
+    # Drop columns that are empty across every row (keep at least one).
+    columns = [col for col in columns if any(row[col] for row in table)] or columns
+
+    widths = {col: max(len(col), *(len(row[col]) for row in table)) for col in columns}
+    lines = [
+        "  ".join(col.ljust(widths[col]) for col in columns),
+        "  ".join("-" * widths[col] for col in columns),
+    ]
+    lines.extend("  ".join(row[col].ljust(widths[col]) for col in columns) for row in table)
+    return "\n".join(lines)
+
+
+def _render_output(model: Any, args: argparse.Namespace) -> str:
+    """Serialize a primitive/search output for stdout in the requested format.
+
+    - ``json`` (default): the full output object. The query embedding is omitted
+      unless ``--include-embedding`` is set. Indentation defaults to the
+      terminal (pretty on a TTY / ``--pretty``, compact otherwise / ``--raw``).
+    - ``jsonl``: one JSON object per result row, ideal for streaming/piping.
+    - ``table``: a compact, human-readable table of result rows.
+    """
+    output_format = getattr(args, "output", "json")
+
+    if output_format == "table":
+        return _render_table(_extract_rows(model))
+    if output_format == "jsonl":
+        return "\n".join(json.dumps(row, separators=(",", ":")) for row in _extract_rows(model))
+
+    # mode="json" yields JSON-native values (enums -> values, datetimes -> ISO
+    # strings), matching model_dump_json() while letting us post-process the dict.
+    data = model.model_dump(mode="json")
+    if not getattr(args, "include_embedding", False):
+        _drop_embeddings(data)
+    pretty = args.pretty or (not args.raw and sys.stdout.isatty())
+    if pretty:
+        return json.dumps(data, indent=2)
+    return json.dumps(data, separators=(",", ":"))
+
+
 async def _write_search_stream(stream: Any) -> int:
     exit_code = 0
     async for event in stream:
@@ -668,7 +819,7 @@ async def _run_archive_search(args: argparse.Namespace) -> int:
                 return await _write_search_stream(vss.search_stream(**payload))
 
             out = await vss.search(**payload)
-            sys.stdout.write(out.model_dump_json() + "\n")
+            sys.stdout.write(_render_output(out, args) + "\n")
             sys.stdout.flush()
             return 0
     finally:
@@ -692,7 +843,7 @@ async def _run(args: argparse.Namespace) -> int:
                 return await _write_search_stream(vss.search_stream(**payload))
 
             out = await getattr(vss, args.primitive)(**payload)
-            sys.stdout.write(out.model_dump_json() + "\n")
+            sys.stdout.write(_render_output(out, args) + "\n")
             sys.stdout.flush()
             return 0
     finally:

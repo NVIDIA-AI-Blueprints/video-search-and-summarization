@@ -4,13 +4,22 @@
 
 from __future__ import annotations
 
+import argparse
+import json
+
 import pytest
 
 from lib.search_core.cli import _build_archive_search_payload
 from lib.search_core.cli import _build_facade
 from lib.search_core.cli import _config_env_from_args
+from lib.search_core.cli import _extract_rows
 from lib.search_core.cli import _parse_archive_search_args
+from lib.search_core.cli import _render_output
 from lib.search_core.errors import InvalidInputError
+from lib.search_core.models.embed_search import EmbedSearchOutput
+from lib.search_core.models.embed_search import EmbedSearchResultItem
+from lib.search_core.models.search import SearchOutput
+from lib.search_core.models.search import SearchResult
 
 
 def test_search_archive_flags_build_structured_search_input() -> None:
@@ -206,3 +215,103 @@ def test_search_archive_rejects_out_of_range_similarity() -> None:
         assert e.code == 2
     else:
         raise AssertionError("expected argparse to reject cosine similarity > 1")
+
+
+def _embed_output() -> EmbedSearchOutput:
+    return EmbedSearchOutput(
+        query_embedding=[0.1, 0.2, 0.3],
+        results=[
+            EmbedSearchResultItem(
+                video_name="clip.mp4",
+                start_time="2025-01-01T00:00:00Z",
+                end_time="2025-01-01T00:00:05Z",
+                sensor_id="8fce43a6-1c35-4d6a-b6e3-391c42090a87",
+                similarity_score=0.7,
+            )
+        ],
+    )
+
+
+def test_render_output_omits_embedding_by_default() -> None:
+    # Even compact/raw output drops the embedding so agents get minimal JSON.
+    args = argparse.Namespace(pretty=False, raw=True, include_embedding=False)
+    rendered = _render_output(_embed_output(), args)
+    parsed = json.loads(rendered)
+    assert "\n" not in rendered  # compact single line
+    assert "query_embedding" not in parsed
+    assert parsed["results"][0]["video_name"] == "clip.mp4"
+
+
+def test_render_output_include_embedding_opts_in() -> None:
+    args = argparse.Namespace(pretty=False, raw=True, include_embedding=True)
+    parsed = json.loads(_render_output(_embed_output(), args))
+    assert parsed["query_embedding"] == [0.1, 0.2, 0.3]
+
+
+def test_render_output_pretty_is_indented() -> None:
+    args = argparse.Namespace(pretty=True, raw=False, include_embedding=False, output="json")
+    rendered = _render_output(_embed_output(), args)
+    assert "\n" in rendered  # indented
+    assert "query_embedding" not in json.loads(rendered)
+
+
+def _two_result_embed_output() -> EmbedSearchOutput:
+    out = _embed_output()
+    out.results.append(
+        EmbedSearchResultItem(
+            video_name="clip2.mp4",
+            start_time="2025-01-01T00:01:00Z",
+            end_time="2025-01-01T00:01:05Z",
+            sensor_id="11111111-2222-3333-4444-555555555555",
+            similarity_score=0.6,
+        )
+    )
+    return out
+
+
+def test_render_output_jsonl_emits_one_object_per_result() -> None:
+    args = argparse.Namespace(pretty=False, raw=True, include_embedding=False, output="jsonl")
+    rendered = _render_output(_two_result_embed_output(), args)
+    lines = rendered.splitlines()
+    assert len(lines) == 2
+    assert [json.loads(line)["video_name"] for line in lines] == ["clip.mp4", "clip2.mp4"]
+    # embedding never appears in per-row output
+    assert all("query_embedding" not in json.loads(line) for line in lines)
+
+
+def test_render_output_table_has_header_and_rows() -> None:
+    args = argparse.Namespace(pretty=False, raw=True, include_embedding=False, output="table")
+    rendered = _render_output(_two_result_embed_output(), args)
+    lines = rendered.splitlines()
+    # header + separator + 2 data rows
+    assert len(lines) == 4
+    assert "video_name" in lines[0]
+    assert "similarity_score" in lines[0]
+    assert "clip.mp4" in lines[2]
+    assert "clip2.mp4" in lines[3]
+
+
+def test_render_output_table_empty_results() -> None:
+    args = argparse.Namespace(pretty=False, raw=True, include_embedding=False, output="table")
+    rendered = _render_output(EmbedSearchOutput(query_embedding=[0.1], results=[]), args)
+    assert rendered == "(no results)"
+
+
+def test_extract_rows_uses_search_data_key() -> None:
+    out = SearchOutput(
+        data=[
+            SearchResult(
+                video_name="v.mp4",
+                description="d",
+                start_time="2025-01-01T00:00:00Z",
+                end_time="2025-01-01T00:00:05Z",
+                sensor_id="s",
+                screenshot_url="u",
+                similarity=0.5,
+            )
+        ],
+        search_messages=[],
+    )
+    rows = _extract_rows(out)
+    assert len(rows) == 1
+    assert rows[0]["video_name"] == "v.mp4"
