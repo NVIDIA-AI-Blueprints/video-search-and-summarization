@@ -1172,6 +1172,11 @@ function state_up() {
   set_env_var "VSS_APPS_DIR" "${deployment_directory}"
   set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
+  # Forward the proprietary-codec setting (default on) into generated.env so the
+  # agent/RTVI compose services, which read ${INSTALL_PROPRIETARY_CODECS:-true}
+  # via --env-file, install the patent-encumbered codecs at startup by default.
+  # Export INSTALL_PROPRIETARY_CODECS=false to keep them off at runtime too.
+  set_env_var "INSTALL_PROPRIETARY_CODECS" "${INSTALL_PROPRIETARY_CODECS:-true}"
   set_env_var "VST_CONFIG_PATH" "${deployment_directory}/services/vios/configs"
   set_env_var "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/config.yml"
   if [[ -f "${_profile_dir}/vss-agent/configs/va_mcp_server_config.yml" ]]; then

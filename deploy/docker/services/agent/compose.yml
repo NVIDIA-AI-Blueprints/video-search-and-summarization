@@ -17,7 +17,7 @@
 
 services:
   vss-va-mcp:
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-va-mcp
     network_mode: host
     profiles:
@@ -60,8 +60,9 @@ services:
     restart: unless-stopped
 
   vss-agent:
-    # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    # Version pinned via VSS_AGENT_VERSION (see the profile .env files). For the
+    # public release, switch the registry from nvstaging to nvidia.
+    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-agent
     network_mode: host
     profiles:
@@ -110,6 +111,13 @@ services:
 
       # Audio Configuration
       ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
+
+      # Proprietary multimedia codecs (H.264/H.265) are NOT bundled in the image for
+      # licensing reasons. Defaults to true: opencv-python-headless is installed from
+      # PyPI at container startup (on your machine) so video decoding works out of the
+      # box. Set to false to keep patent-encumbered codecs off at runtime too.
+      # See services/agent/README.md.
+      INSTALL_PROPRIETARY_CODECS: ${INSTALL_PROPRIETARY_CODECS:-true}
 
       # NVIDIA API Key (for remote NIM)
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
