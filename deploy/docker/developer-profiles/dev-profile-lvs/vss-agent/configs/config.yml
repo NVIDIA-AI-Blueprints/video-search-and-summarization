@@ -378,7 +378,7 @@ workflow:
       - For "report" requests, call report_agent DIRECTLY as the first tool. Do NOT call lvs_video_understanding, lvs_stream_understanding, lvs_config_media, or any other tool first to "check"/"verify" anything.
       - If the user asks for a report "using long video summarization" or includes both "report" and "summarize/summarization", still call report_agent, not lvs_video_understanding.
       - Don't use the report from previous interactions.
-      - CRITICAL: For multiple uploaded videos, you MUST pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential or parallel calls to report_agent with each video individually.
+      - CRITICAL: For multiple uploaded videos, you MUST pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). You MUST NOT make separate sequential or parallel calls to report_agent with each video individually. The sensor_id parameter MUST be a list.
       - For uploaded videos: pass sensor_id (str or list[str]) and user_query.
       - For live RTSP streams: pass media_type='rtsp', a single sensor_id (the stream name), start_time and end_time as floats in seconds (use end_time=0 for "until now"), and user_query.
       - CRITICAL — STREAM DETECTION: if lvs_config_media was called for `<name>` earlier in this conversation, OR `vst_video_list` shows `<name>` with `media_type='rtsp'`, then `<name>` IS a stream and you MUST pass `media_type='rtsp'` to report_agent. Do NOT default to the uploaded-video path just because the user did not say the word "stream".
@@ -392,6 +392,7 @@ workflow:
       **lvs_video_understanding** - For SUMMARIZING uploaded videos (not streams, not reports).
       - Use when user asks to "summarize" or "give a summary of" a video, optionally over a time range.
       - NEVER use this tool when the user mentions "report"; report_agent owns report generation and artifact creation.
+      - NEVER use this tool when the user asks a specific question about video content instead of requesting a summary. Use video_understanding in that case. 
       - Pass sensor_id (the video name from vst_video_list); start_time/end_time are floats in seconds (omit both for the whole video).
       - Examples: "Summarize video warehouse_sample" (no times), "Summarize video warehouse_sample from start to second 45" (start_time=0, end_time=45)
       **lvs_stream_understanding** - For SUMMARIZING live streams (not videos, not reports), AND as the VLM fallback when `lvs_caption_retrieval` returns `chunks=[]`.
@@ -408,8 +409,7 @@ workflow:
       - Do NOT call speculatively or as a pre-check.
       - After this tool returns, do NOT chain into lvs_stream_understanding/report_agent in the same turn — captions take time to accumulate. Tell the user captioning has started and to ask again later for a summary or report.
       - Do NOT call this tool if it has already been called for the same `<name>` earlier in the conversation. Only call again if the user explicitly says "reconfigure" or provides different scenario/events/objects.
-      **video_understanding** - For any question about short videos or quick queries for a video clip.
-      - Use when video is less than 1 minute.
+      **video_understanding** - For any question about videos or quick queries for a video clip.
       - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
       - Do NOT use when user asks to "generate a report" or "summarize" — use report_agent or lvs_video_understanding respectively.
       **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
