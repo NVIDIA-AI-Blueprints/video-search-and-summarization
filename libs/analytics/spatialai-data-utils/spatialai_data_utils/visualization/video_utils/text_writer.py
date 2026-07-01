@@ -51,8 +51,9 @@ Typical Usage:
 4. Use in video generation or image saving
 """
 
-import cv2
 import numpy as np
+
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 
 
 def plot_frame_label(image_frame: np.array, frame_label: str) -> np.array:
@@ -67,6 +68,7 @@ def plot_frame_label(image_frame: np.array, frame_label: str) -> np.array:
 
         image_frame = plot_frame_label(image_frame, frame_label)
     """
+    cv2 = import_cv2("plot_frame_label")
     text_face = cv2.FONT_HERSHEY_DUPLEX
     text_scale = 3.0
     text_thickness = 3

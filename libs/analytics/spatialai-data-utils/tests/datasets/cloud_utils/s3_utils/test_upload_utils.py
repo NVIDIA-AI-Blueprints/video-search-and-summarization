@@ -19,18 +19,18 @@ import pandas as pd
 from unittest.mock import patch, MagicMock, mock_open
 from io import StringIO
 
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.upload_utils import (
-    combine_and_upload_detection_metrics_csv_to_s3,
-    upload_csv_to_s3
+from spatialai_data_utils.datasets.cloud_utils.upload_utils import (
+    combine_and_upload_detection_metrics_csv_to_storage,
+    upload_csv_to_storage
 )
 
 
-# Test cases for combine_and_upload_detection_metrics_csv_to_s3
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.upload_utils.upload_csv_to_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.upload_utils.pd.read_csv')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.upload_utils.os.walk')
+# Test cases for combine_and_upload_detection_metrics_csv_to_storage
+@patch('spatialai_data_utils.datasets.cloud_utils.upload_utils.upload_csv_to_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.upload_utils.pd.read_csv')
+@patch('spatialai_data_utils.datasets.cloud_utils.upload_utils.os.walk')
 @patch('pandas.DataFrame.to_csv')
-def test_combine_and_upload_detection_metrics_csv_to_s3_success(mock_to_csv, mock_walk, mock_read_csv, mock_upload_csv):
+def test_combine_and_upload_detection_metrics_csv_to_storage_success(mock_to_csv, mock_walk, mock_read_csv, mock_upload_csv):
     # Mock os.walk to return directories with detection_metrics.csv files
     mock_walk.return_value = [
         ('/path/to/results1', [], ['detection_metrics.csv', 'other_file.txt']),
@@ -50,7 +50,7 @@ def test_combine_and_upload_detection_metrics_csv_to_s3_success(mock_to_csv, moc
         "AWS_BUCKET": "test-bucket"
     }
     
-    combine_and_upload_detection_metrics_csv_to_s3(
+    combine_and_upload_detection_metrics_csv_to_storage(
         env_variables, 
         "/input/path", 
         "/output/path/combined.csv", 
@@ -65,19 +65,16 @@ def test_combine_and_upload_detection_metrics_csv_to_s3_success(mock_to_csv, moc
     # Verify that to_csv was called to save the combined DataFrame locally
     mock_to_csv.assert_called_once_with("/output/path/combined.csv", index=False)
     
-    # Verify that upload_csv_to_s3 was called with the combined DataFrame
+    # Verify that upload_csv_to_storage was called with the combined DataFrame
     mock_upload_csv.assert_called_once()
     call_args = mock_upload_csv.call_args
     assert call_args[0][0].equals(pd.concat([df1, df2], ignore_index=True))  # Combined DataFrame
-    assert call_args[0][1] == "test_key"
-    assert call_args[0][2] == "test_secret"
-    assert call_args[0][3] == "us-east-1"
-    assert call_args[0][4] == "test-bucket"
-    assert call_args[0][5] == "s3/path/combined.csv"
+    assert call_args[0][1] == env_variables
+    assert call_args[0][2] == "s3/path/combined.csv"
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.upload_utils.os.walk')
-def test_combine_and_upload_detection_metrics_csv_to_s3_no_files(mock_walk):
+@patch('spatialai_data_utils.datasets.cloud_utils.upload_utils.os.walk')
+def test_combine_and_upload_detection_metrics_csv_to_storage_no_files(mock_walk):
     # Mock os.walk to return directories without detection_metrics.csv files
     mock_walk.return_value = [
         ('/path/to/results1', [], ['other_file.txt']),
@@ -92,7 +89,7 @@ def test_combine_and_upload_detection_metrics_csv_to_s3_no_files(mock_walk):
     }
     
     # Should not raise an exception, just log and exit
-    combine_and_upload_detection_metrics_csv_to_s3(
+    combine_and_upload_detection_metrics_csv_to_storage(
         env_variables, 
         "/input/path", 
         "/output/path/combined.csv", 
@@ -102,27 +99,27 @@ def test_combine_and_upload_detection_metrics_csv_to_s3_no_files(mock_walk):
     # Verify os.walk was called
     mock_walk.assert_called_once_with("/input/path")
 
-# Test cases for upload_csv_to_s3
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.upload_utils.get_s3_client')
-def test_upload_csv_to_s3_success(mock_get_s3_client):
+# Test cases for upload_csv_to_storage
+@patch('spatialai_data_utils.datasets.cloud_utils.upload_utils.get_storage_client')
+def test_upload_csv_to_storage_success(mock_get_storage_client):
     # Mock S3 client
     mock_s3_client = MagicMock()
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     
     # Create test DataFrame
     df = pd.DataFrame({'col1': [1, 2, 3], 'col2': ['a', 'b', 'c']})
     
-    upload_csv_to_s3(
-        df, 
-        "test_key", 
-        "test_secret", 
-        "us-east-1", 
-        "test-bucket", 
-        "s3/path/file.csv"
-    )
+    env_variables = {
+        "AWS_ACCESS_KEY_ID": "test_key",
+        "AWS_SECRET_ACCESS_KEY": "test_secret",
+        "AWS_REGION": "us-east-1",
+        "AWS_BUCKET": "test-bucket",
+    }
+
+    upload_csv_to_storage(df, env_variables, "s3/path/file.csv")
     
-    # Verify S3 client was created with correct parameters
-    mock_get_s3_client.assert_called_once_with("test_key", "test_secret", "us-east-1")
+    # Verify storage client was created with environment configuration
+    mock_get_storage_client.assert_called_once_with(env_variables)
     
     # Verify put_object was called with correct parameters
     mock_s3_client.put_object.assert_called_once()
@@ -136,23 +133,23 @@ def test_upload_csv_to_s3_success(mock_get_s3_client):
     assert csv_content == expected_csv
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.upload_utils.get_s3_client')
-def test_upload_csv_to_s3_empty_dataframe(mock_get_s3_client):
+@patch('spatialai_data_utils.datasets.cloud_utils.upload_utils.get_storage_client')
+def test_upload_csv_to_storage_empty_dataframe(mock_get_storage_client):
     # Mock S3 client
     mock_s3_client = MagicMock()
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     
     # Create empty DataFrame
     df = pd.DataFrame()
     
-    upload_csv_to_s3(
-        df, 
-        "test_key", 
-        "test_secret", 
-        "us-east-1", 
-        "test-bucket", 
-        "s3/path/empty.csv"
-    )
+    env_variables = {
+        "AWS_ACCESS_KEY_ID": "test_key",
+        "AWS_SECRET_ACCESS_KEY": "test_secret",
+        "AWS_REGION": "us-east-1",
+        "AWS_BUCKET": "test-bucket",
+    }
+
+    upload_csv_to_storage(df, env_variables, "s3/path/empty.csv")
     
     # Verify put_object was called
     mock_s3_client.put_object.assert_called_once()
@@ -164,3 +161,28 @@ def test_upload_csv_to_s3_empty_dataframe(mock_get_s3_client):
     csv_content = call_args[1]['Body']
     expected_csv = df.to_csv(index=False)
     assert csv_content == expected_csv
+
+
+@patch('spatialai_data_utils.datasets.cloud_utils.upload_utils.get_storage_client')
+def test_upload_csv_to_storage_uses_gcs_bucket(mock_get_storage_client):
+    mock_storage_client = MagicMock()
+    mock_get_storage_client.return_value = mock_storage_client
+
+    df = pd.DataFrame({'col1': [1], 'col2': ['gcs']})
+
+    env_variables = {
+        "STORAGE_PROVIDER": "gcs",
+        "GCS_HMAC_ACCESS_KEY_ID": "gcs_key",
+        "GCS_HMAC_SECRET_ACCESS_KEY": "gcs_secret",
+        "GCS_BUCKET": "gcs-bucket",
+        "GCS_ENDPOINT_URL": "https://storage.googleapis.com",
+    }
+
+    upload_csv_to_storage(df, env_variables, "gcs/path/file.csv")
+
+    mock_get_storage_client.assert_called_once_with(env_variables)
+    mock_storage_client.put_object.assert_called_once()
+    call_args = mock_storage_client.put_object.call_args
+    assert call_args.kwargs["Bucket"] == "gcs-bucket"
+    assert call_args.kwargs["Key"] == "gcs/path/file.csv"
+    assert call_args.kwargs["Body"] == df.to_csv(index=False)

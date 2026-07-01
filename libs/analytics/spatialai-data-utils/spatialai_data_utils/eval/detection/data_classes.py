@@ -35,9 +35,18 @@ from typing import List, Dict, Tuple
 
 import numpy as np
 
-from nuscenes.eval.common.data_classes import MetricData, EvalBox
-from nuscenes.eval.common.utils import center_distance
-from nuscenes.eval.detection.constants import TP_METRICS
+try:
+    from nuscenes.eval.common.data_classes import MetricData, EvalBox
+    from nuscenes.eval.common.utils import center_distance
+    from nuscenes.eval.detection.constants import TP_METRICS
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
+
 from spatialai_data_utils.eval.common.utils import iou_3d
 
 

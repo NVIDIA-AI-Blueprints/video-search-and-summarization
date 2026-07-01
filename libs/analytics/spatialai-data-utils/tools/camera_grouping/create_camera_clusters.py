@@ -32,10 +32,10 @@ Use cases:
 
 Output files:
 - calibration_<suffix>.json: Calibration file with cluster assignments
-- map_plotted_<suffix>.png: Visualization of camera clusters
+- map_plotted_<suffix>.png: Visualization of camera clusters (only when --visualize)
 
 Usage Examples:
-    # Basic usage (visualization on by default)
+    # Basic usage (no visualization by default; add --visualize to render the map)
     python create_camera_clusters.py data/scene --max_camera_per_group 10
     
     # Use pre-computed FOV polygons instead of frustum
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic usage (visualization on by default)
+  # Basic usage (no visualization by default; add --visualize to render the map)
   python %(prog)s data/scene --max_camera_per_group 10
   
   # Use pre-computed FOV polygons instead of frustum
@@ -214,6 +214,12 @@ Examples:
         default=[1920, 1080],
         metavar=("WIDTH", "HEIGHT"),
         help="Image dimensions (width, height) in pixels for frustum calculation (default: 1920 1080)",
+    )
+
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Generate visualization of camera clusters on the map",
     )
 
     parser.add_argument(
@@ -366,7 +372,7 @@ Examples:
             height_range=height_range,
             image_size=image_size,
             sensor_names=sensor_names,
-            visualize=True,
+            visualize=args.visualize,
             label_camera_ids=not args.vis_no_camera_id_labels,
             vis_separate_images=args.vis_separate_images,
             mode=mode,

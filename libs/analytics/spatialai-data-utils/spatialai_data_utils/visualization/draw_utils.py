@@ -33,7 +33,6 @@ import logging
 import os
 from typing import Any, List, Optional, Tuple, Union
 
-import cv2
 import numpy as np
 
 from spatialai_data_utils.constants import (
@@ -41,6 +40,7 @@ from spatialai_data_utils.constants import (
     KEY_W2C_MATRIX,
 )
 from spatialai_data_utils.core.cameras.utils import get_calib_field
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,6 @@ __all__ = [
     "build_world2img_from_calib",
 ]
 
-DEFAULT_FONT = cv2.FONT_HERSHEY_SIMPLEX
 DEFAULT_FONT_SCALE = 2
 DEFAULT_FONT_THICKNESS = 2
 DEFAULT_CAM_TAG_BG_COLOR = (66, 66, 66)
@@ -137,8 +136,10 @@ def draw_camera_tag(
         timestamp line).
     :rtype: numpy.ndarray
     """
+    cv2 = import_cv2("draw_camera_tag")
+    default_font = cv2.FONT_HERSHEY_SIMPLEX
     cam_w, cam_h = cv2.getTextSize(
-        cam_name, DEFAULT_FONT, font_scale, font_thickness,
+        cam_name, default_font, font_scale, font_thickness,
     )[0]
     cam_baseline_y = _CAM_TAG_TOP_PAD + cam_h
 
@@ -152,7 +153,7 @@ def draw_camera_tag(
         ts_scale = font_scale * _CAM_TAG_TIMESTAMP_SCALE_RATIO
         ts_thickness = max(1, font_thickness - 1)
         ts_w, ts_h = cv2.getTextSize(
-            timestamp, DEFAULT_FONT, ts_scale, ts_thickness,
+            timestamp, default_font, ts_scale, ts_thickness,
         )[0]
         line_gap = int(_CAM_TAG_LINE_GAP_RATIO * cam_h)
         ts_baseline_y = cam_baseline_y + line_gap + ts_h
@@ -183,13 +184,13 @@ def draw_camera_tag(
     # background is heavily transparent.
     cv2.putText(
         image, cam_name, (_CAM_TAG_LEFT_PAD, cam_baseline_y),
-        DEFAULT_FONT, font_scale, text_color,
+        default_font, font_scale, text_color,
         font_thickness, cv2.LINE_AA,
     )
     if timestamp:
         cv2.putText(
             image, timestamp, (_CAM_TAG_LEFT_PAD, ts_baseline_y),
-            DEFAULT_FONT, ts_scale, text_color,
+            default_font, ts_scale, text_color,
             ts_thickness, cv2.LINE_AA,
         )
     return image
@@ -258,6 +259,7 @@ def load_image(
         import h5py
         with h5py.File(frame_path[0], "r") as f:
             return f[frame_path[1]][:]
+    cv2 = import_cv2("load_image")
     image = cv2.imread(frame_path)
     if image is None:
         logger.warning("Failed to load image %s", frame_path)
@@ -288,6 +290,7 @@ def save_viz(
         from *frame_path*.
     :type h5_file: bool or None
     """
+    cv2 = import_cv2("save_viz")
     use_h5 = _is_h5_path(frame_path) if h5_file is None else h5_file
     basename = os.path.basename(frame_path[1] if use_h5 else frame_path)
     out_path = os.path.join(vis_dir, cam_name, basename)
