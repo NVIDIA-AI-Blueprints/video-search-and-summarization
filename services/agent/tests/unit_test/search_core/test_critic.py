@@ -142,6 +142,16 @@ class TestCriticVerdict:
         out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
         assert out.video_results[0].result == CriticAgentResult.REJECTED
 
+    @pytest.mark.asyncio
+    async def test_explicit_confirmed_verdict_is_honored(self):
+        # An explicit "confirmed" verdict is trusted even when a stray criterion
+        # parses False (parity with the explicit rejected/unverified handling).
+        vlm = _FakeVLM('{"result": "confirmed", "criteria_met": {"running": false}}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.CONFIRMED
+        assert out.video_results[0].criteria_met == {"running": False}
+
 
 class TestCriticBatching:
     @pytest.mark.asyncio
@@ -169,6 +179,22 @@ class TestCriticBatching:
             )
         )
         assert len(vlm.calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_eval_cap_counts_verifiable_only(self):
+        # Empty-sensor entries are filtered BEFORE the cap, so they cannot consume
+        # cap slots and starve the genuinely verifiable videos.
+        vlm = _FakeVLM("{}")
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        await c.run(
+            CriticAgentInput(
+                query="q",
+                evaluation_count=2,
+                videos=[_video(""), _video(""), _video("s1"), _video("s2"), _video("s3")],
+            )
+        )
+        assert len(vlm.calls) == 2
+        assert {call["sensor_id"] for call in vlm.calls} == {"s1", "s2"}
 
 
 class TestCriticTimeFormat:

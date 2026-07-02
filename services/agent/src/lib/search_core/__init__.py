@@ -15,7 +15,7 @@
 """lib.search_core — VSS search primitives library.
 
 NAT-free Python library for embed_search, attribute_search, search, and
-critic_agent. See libs/vss-search-core/DESIGN.md for the contract.
+critic_agent.
 
 Design conventions (not CI-enforced — please respect them in review):
   - No `os.environ` / `os.getenv` / `dotenv.*` under primitives/ or clients/.

@@ -22,7 +22,6 @@ stay consistent across primitives.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .uuid_string import is_standard_uuid_string
@@ -36,19 +35,25 @@ def escape_wildcard(value: str) -> str:
 def should_clauses_for_source(name: str) -> list[dict[str, Any]]:
     """Build the ``should`` clauses that match a single non-UUID source name.
 
-    Covers exact id, wildcard id, url/path wildcards, and url/path regexp. A
-    single ``*name*`` clause is used per field; the broad wildcard subsumes any
-    suffix-only variant.
+    Covers exact id plus ``*name*`` substring wildcards on the id, url, and path
+    keyword fields. A blank/whitespace name yields no clauses so it can never
+    become a match-all ``**`` filter.
+
+    The former ``regexp`` clauses were dropped: they escaped ``name`` with Python
+    ``re.escape`` (which emits ``\\`` sequences that are invalid in Lucene regexp
+    syntax and can make Elasticsearch reject the query) and anchored only as a
+    suffix (``.*name``), which is asymmetric with the ``*name*`` wildcards. The
+    keyword-field substring wildcards already cover the intended matches without
+    that Lucene-escaping hazard.
     """
+    if not name.strip():
+        return []
     escaped = escape_wildcard(name)
-    regex_escaped = re.escape(name)
     return [
         {"term": {"sensor.id.keyword": name}},
         {"wildcard": {"sensor.id.keyword": f"*{escaped}*"}},
         {"wildcard": {"sensor.info.url.keyword": f"*{escaped}*"}},
         {"wildcard": {"sensor.info.path.keyword": f"*{escaped}*"}},
-        {"regexp": {"sensor.info.url": f".*{regex_escaped}"}},
-        {"regexp": {"sensor.info.path": f".*{regex_escaped}"}},
     ]
 
 
@@ -60,18 +65,23 @@ def build_video_sources_filter(
 
     For ``rtsp`` every source is treated as a name (UUIDs live in the path, not
     ``sensor.id``); for ``video_file`` UUID sources get a fast ``terms`` clause
-    and names fall back to wildcard/regexp matching. Returns None when there are
-    no sources to filter on.
+    and names fall back to substring-wildcard matching. Blank/whitespace entries
+    are skipped so they cannot widen the filter to match everything. Returns None
+    when there are no usable sources to filter on.
     """
     if not video_sources:
         return None
 
+    non_blank = [v for v in video_sources if v.strip()]
+    if not non_blank:
+        return None
+
     if source_type == "rtsp":
         uuid_sources: list[str] = []
-        non_uuid_sources = list(video_sources)
+        non_uuid_sources = list(non_blank)
     else:
-        uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
-        non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
+        uuid_sources = [v for v in non_blank if is_standard_uuid_string(v)]
+        non_uuid_sources = [v for v in non_blank if not is_standard_uuid_string(v)]
 
     if uuid_sources and not non_uuid_sources:
         return {"terms": {"sensor.id.keyword": uuid_sources}}

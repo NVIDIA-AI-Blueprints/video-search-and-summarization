@@ -37,7 +37,10 @@ import json
 import logging
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Protocol
 
+from .._internal.coerce import _coerce_float
+from .._internal.coerce import _coerce_str
 from .._internal.sanitize import scrub_log
 from .._internal.time_convert import datetime_to_iso8601
 from .._internal.time_convert import safe_iso8601_to_datetime
@@ -47,6 +50,7 @@ from ..agent_chunks import AgentMessageChunkType
 from ..clients.elastic import ElasticClient
 from ..clients.vst import get_sensor_id_from_stream_id
 from ..errors import BackendUnreachableError
+from ..errors import ConfigurationError
 from ..errors import SearchError
 from ..models.attribute_search import AttributeSearchResult
 from ..models.common import VideoInfo
@@ -65,33 +69,77 @@ from ._attribute_helpers import search_by_object_embedding
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from ..clients.protocols import ElasticIndex
+
 logger = logging.getLogger(__name__)
 
+# Downstream input models (``EmbedSearchInput`` / ``AttributeSearchInput``) cap
+# ``top_k`` at this value (``Field(le=1000)``). Overfetching / critic-driven
+# growth is clamped to it so a large user ``top_k`` never trips a Pydantic
+# ``ValidationError`` deep in a primitive.
+_DOWNSTREAM_MAX_TOP_K = 1000
 
-# ==========================================================================
-# Coercion helpers (mirror _attribute_helpers._coerce_str)
-# ==========================================================================
+# A stable per-result identity for critic bookkeeping. Merging consecutive chunks
+# extends a result's ``end_time`` between iterations, so keying verdicts by the
+# full (sensor, start, end) window would let a merged result look "new" and get
+# re-sent to the VLM. Sensor id + the chunk's start_time is stable across merges
+# because :func:`_fusion.merge_consecutive_results` keeps the earliest start.
+CriticKey = tuple[str, str]
 
 
-def _coerce_str(value: Any, default: str = "") -> str:
-    """Coerce a possibly-missing / odd-typed value to a clean string.
+class SupportsAinvoke(Protocol):
+    """The single-method async adapter surface the orchestrator invokes.
 
-    A genuinely absent value (``None`` or ``""``) becomes ``default``; falsy-but-
-    valid values like ``0`` are preserved (so object id ``0`` survives).
+    ``embed_search`` / ``attribute_search_fn`` / ``critic_agent`` are all wrapped
+    by ``search.py``'s ``_PrimitiveAdapter`` (or a test double) exposing exactly
+    this method, so the orchestrator can stay ignorant of the concrete primitive.
     """
-    if value is None or value == "":
-        return default
-    return str(value)
+
+    async def ainvoke(self, payload: Any) -> Any: ...
 
 
-def _coerce_float(value: Any, default: float = 0.0) -> float:
-    """Coerce a possibly-missing / odd-typed value to a float, or the default."""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+class SearchConfig(Protocol):
+    """The config surface :func:`execute_core_search` reads by attribute.
+
+    ``search.py`` builds this as a ``SimpleNamespace``; the Protocol documents
+    (and type-checks) exactly which fields the orchestrator consumes. Fields that
+    the orchestrator reads defensively via ``getattr`` (``behavior_es_endpoint``,
+    ``behavior_index_wildcard``, ``attribute_search_tool``, ``top_percent_filter``)
+    are intentionally omitted so an incomplete config still satisfies the type.
+    """
+
+    default_max_results: int
+    search_max_iterations: int
+    embed_confidence_threshold: float
+    use_attribute_search: bool
+    enable_critic: bool
+    fusion_method: str
+    w_attribute: float
+    w_embed: float
+    rrf_k: int
+    rrf_w: float
+    vst_internal_url: str
+    vst_external_url: str
+    behavior_index: str
+
+
+def _critic_key(result: SearchResult) -> CriticKey:
+    """Stable identity for a result across re-search/merge iterations."""
+    return (result.sensor_id, result.start_time)
+
+
+def _exclude_entry(result: SearchResult) -> dict[str, str]:
+    """Build an ``exclude_videos`` entry matching the embed/attribute filters.
+
+    The embed and attribute paths both match an exclusion on the raw
+    ``(sensor_id, start_timestamp, end_timestamp)`` strings, so a rejected
+    result's own fields are the correct keys to suppress it on re-search.
+    """
+    return {
+        "sensor_id": result.sensor_id,
+        "start_timestamp": result.start_time,
+        "end_timestamp": result.end_time,
+    }
 
 
 def _video_info_for_critic(result: SearchResult) -> VideoInfo | None:
@@ -115,16 +163,19 @@ def _video_info_for_critic(result: SearchResult) -> VideoInfo | None:
 async def _run_attribute_only_search(
     attribute_list: list[str],
     search_input: SearchInput,
-    attribute_search_fn: Any,
+    attribute_search_fn: SupportsAinvoke,
     top_k: int,
     min_similarity: float | None,
     exclude_videos: list[dict[str, str]] | None = None,
+    search_messages: list[str] | None = None,
 ) -> list[SearchResult]:
     """Run attribute-only search in append mode.
 
     Systemic failures (missing index, backend unreachable, invalid input) are
     re-raised so callers get precise errors; any other unexpected error degrades
-    to an empty result rather than sinking the primary path.
+    to an empty result. When it degrades, a note is appended to ``search_messages``
+    (when provided) so an empty result is distinguishable from a genuine
+    no-matches outcome.
     """
     logger.info(f"Running attribute-only search (append mode), input: {search_input.model_dump_json()}")
     exclude_videos = exclude_videos or []
@@ -165,6 +216,8 @@ async def _run_attribute_only_search(
         raise
     except Exception as e:
         logger.error(f"Attribute-only search failed: {e}", exc_info=True)
+        if search_messages is not None:
+            search_messages.append("Attribute search degraded; returning partial/empty results.")
         return []
 
 
@@ -257,7 +310,7 @@ def _resolve_video_sources_for_search(
 async def fusion_search_rerank(
     embed_results: list[SearchResult],
     attributes: list[str],
-    attribute_search_fn: Any,
+    attribute_search_fn: SupportsAinvoke,
     vst_internal_url: str | None = None,
     source_type: str = "video_file",
     fusion_method: str = "rrf",
@@ -359,11 +412,11 @@ async def fusion_search_rerank(
 
 async def execute_core_search(
     search_input: SearchInput,
-    embed_search: Any,
-    config: Any,
-    attribute_search_fn: Any | None = None,
-    critic_agent: Any | None = None,
-    behavior_es: Any | None = None,
+    embed_search: SupportsAinvoke,
+    config: SearchConfig,
+    attribute_search_fn: SupportsAinvoke | None = None,
+    critic_agent: SupportsAinvoke | None = None,
+    behavior_es: ElasticIndex | None = None,
 ) -> AsyncGenerator[AgentMessageChunk | SearchOutput]:
     """Core search execution: yields progress chunks, then a final SearchOutput.
 
@@ -374,15 +427,17 @@ async def execute_core_search(
       4. fusion (attributes present and embed confidence is high enough)
 
     The injected adapters (``embed_search``, ``attribute_search_fn``,
-    ``critic_agent``, ``behavior_es``) each expose an async ``.ainvoke`` and are
-    supplied by the caller; this generator only wires them to the pure helpers.
+    ``critic_agent``) each expose an async ``.ainvoke``; ``behavior_es`` is an
+    Elasticsearch surface used only by the object_id path. All are supplied by
+    the caller; this generator only wires them to the pure helpers.
     """
     original_query = search_input.original_query or search_input.query
 
     # ----- OBJECT_ID PATH: Direct behavior KNN -----
     if search_input.object_ids:
-        if not getattr(config, "behavior_es_endpoint", None):
-            raise ValueError("behavior_es_endpoint config is required for object_id re-search")
+        behavior_es_endpoint = getattr(config, "behavior_es_endpoint", None)
+        if not behavior_es_endpoint:
+            raise ConfigurationError("behavior_es_endpoint config is required for object_id re-search")
 
         top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
 
@@ -391,7 +446,7 @@ async def execute_core_search(
             content=f"Searching for similar objects to: {search_input.object_ids}",
         )
 
-        es = behavior_es if behavior_es is not None else ElasticClient.from_endpoint(config.behavior_es_endpoint)
+        es = behavior_es if behavior_es is not None else ElasticClient.from_endpoint(behavior_es_endpoint)
 
         behavior_index_wildcard = getattr(config, "behavior_index_wildcard", "mdx-behavior-*")
         object_search_index = resolve_index_by_source_type(
@@ -422,7 +477,7 @@ async def execute_core_search(
                 # an empty result.
                 raise
             except Exception as e:
-                logger.warning(f"Object ID {oid} search failed: {e}")
+                logger.warning(f"Object ID {oid} search failed: {e}", exc_info=True)
                 return []
 
         with TimeMeasure("search: object_ids behavior KNN"):
@@ -443,9 +498,7 @@ async def execute_core_search(
             :top_k
         ]
 
-        vst_internal_url = getattr(config, "vst_internal_url", None)
-        vst_external_url = getattr(config, "vst_external_url", None)
-        await enrich_attribute_results(attr_results, vst_internal_url, vst_external_url)
+        await enrich_attribute_results(attr_results, config.vst_internal_url, config.vst_external_url)
 
         search_results = [attribute_result_to_search_result(r) for r in attr_results]
         result_count = len(search_results)
@@ -459,7 +512,15 @@ async def execute_core_search(
     # ----- SETUP COMMON QUERY PARAMETERS -----
     top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
     original_top_k = top_k
-    top_k = top_k * 2
+    # Overfetch 2x so critic-driven replacement has spare candidates to promote,
+    # but clamp to the downstream models' ``le=1000`` bound — a large user top_k
+    # (e.g. 900) would otherwise double to 1800 and trip a Pydantic
+    # ValidationError deep in the embed/attribute primitive.
+    top_k = min(top_k * 2, _DOWNSTREAM_MAX_TOP_K)
+
+    # Collected here (before routing) so a routing-affecting decision like
+    # single-word attribute pruning can surface an observable note.
+    search_messages: list[str] = []
 
     query_params: dict[str, str] = {"query": search_input.query}
 
@@ -488,6 +549,13 @@ async def execute_core_search(
         if len(attribute_list) < original_count:
             pruned_count = original_count - len(attribute_list)
             logger.info(f"Pruned {pruned_count} single-word attribute(s). Remaining: {attribute_list}")
+            if not attribute_list:
+                # Pruning emptied the list, which silently flips routing from
+                # attribute-only/fusion to embed-only. Surface it so the change
+                # is observable rather than buried in an INFO log.
+                msg = f"All {original_count} attribute(s) were single-word and pruned; routing to embed-only search."
+                search_messages.append(msg)
+                yield AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content=msg)
 
         if search_input.has_action is not None:
             is_attribute_only = not search_input.has_action
@@ -500,19 +568,35 @@ async def execute_core_search(
     # name without a fresh annotation keeps mypy's no-redef check happy.
     search_results = []
     do_search = True
-    rejected_results: set[VideoInfo] = set()
-    confirmed_results: set[VideoInfo] = set()
+    # Critic bookkeeping is keyed by a STABLE per-result identity (see CriticKey)
+    # so a verdict survives the end_time drift that merge_consecutive_results
+    # introduces across re-search iterations.
+    rejected_keys: set[CriticKey] = set()
+    confirmed_keys: set[CriticKey] = set()
+    # Running exclusion list built from rejected results, threaded into each
+    # re-search so rejected candidates are not simply re-fetched.
+    exclude_videos: list[dict[str, str]] = []
     iteration_num = 0
-    search_messages: list[str] = []
-    persistent_critic_results: dict[VideoInfo, CriticResult] = {}
+    persistent_critic_results: dict[CriticKey, CriticResult] = {}
 
     while do_search and iteration_num < config.search_max_iterations:
         iteration_num += 1
         do_search = False
         logger.info(f"[Search] Running embed search iteration {iteration_num}")
 
+        # ``top_k`` may have grown via critic-driven re-search; clamp to the
+        # downstream models' bound so the fetch size never trips a ValidationError.
+        top_k = min(top_k, _DOWNSTREAM_MAX_TOP_K)
         query_params["top_k"] = str(top_k)
-        query_input_json = json.dumps({"params": query_params, "source_type": search_input.source_type})
+        # Thread the running exclusion list into the embed envelope so a re-search
+        # surfaces NEW candidates instead of re-fetching rejected ones.
+        query_input_json = json.dumps(
+            {
+                "params": query_params,
+                "source_type": search_input.source_type,
+                "exclude_videos": exclude_videos,
+            }
+        )
 
         # PATH 1: Attribute-only
         if is_attribute_only and attribute_list and getattr(config, "attribute_search_tool", None):
@@ -523,15 +607,17 @@ async def execute_core_search(
             )
 
             if attribute_search_fn is None:
-                raise ValueError("attribute_search_fn must be pre-loaded by the Search primitive")
+                raise ConfigurationError("attribute_search_fn must be pre-loaded by the Search primitive")
 
             with TimeMeasure("search: attribute-only search"):
                 search_results = await _run_attribute_only_search(
                     attribute_list=attribute_list,
                     search_input=search_input,
                     attribute_search_fn=attribute_search_fn,
-                    top_k=original_top_k,
+                    top_k=min(original_top_k, _DOWNSTREAM_MAX_TOP_K),
                     min_similarity=0.0,
+                    exclude_videos=exclude_videos,
+                    search_messages=search_messages,
                 )
 
             yield AgentMessageChunk(
@@ -600,7 +686,7 @@ async def execute_core_search(
                     )
 
                     if attribute_search_fn is None:
-                        raise ValueError("attribute_search_fn must be pre-loaded by the Search primitive")
+                        raise ConfigurationError("attribute_search_fn must be pre-loaded by the Search primitive")
 
                     with TimeMeasure("search: attribute-only fallback"):
                         search_results = await _run_attribute_only_search(
@@ -609,6 +695,8 @@ async def execute_core_search(
                             attribute_search_fn=attribute_search_fn,
                             top_k=top_k,
                             min_similarity=0.0,
+                            exclude_videos=exclude_videos,
+                            search_messages=search_messages,
                         )
 
                     yield AgentMessageChunk(
@@ -628,7 +716,7 @@ async def execute_core_search(
                         )
 
                         if attribute_search_fn is None:
-                            raise ValueError("attribute_search_fn must be pre-loaded by the Search primitive")
+                            raise ConfigurationError("attribute_search_fn must be pre-loaded by the Search primitive")
 
                         with TimeMeasure("search: fusion search rerank"):
                             reranked_results = await fusion_search_rerank(
@@ -665,7 +753,17 @@ async def execute_core_search(
 
         search_results = _fusion.merge_consecutive_results(search_results)
 
-        # Critic verification
+        # Critic verification.
+        #
+        # DELIBERATE DEVIATION from the hybrid error policy used elsewhere in
+        # this module: the embed / attribute / fusion paths re-raise any
+        # ``SearchError`` so callers get precise exit codes, but the critic block
+        # catches *everything* (including ``SearchError``) and soft-fails with a
+        # ``search_messages`` note. The critic is EXPERIMENTAL, additive
+        # verification layered on top of already-valid search results — a dead
+        # VLM/VST backend must NOT downgrade an otherwise-successful search into
+        # an error. We therefore never re-raise here and never let a critic fault
+        # change the process exit code.
         if config.enable_critic and search_input.use_critic and critic_agent and search_results:
             try:
                 critic_results: dict[VideoInfo, CriticVideoResult] = {}
@@ -675,14 +773,23 @@ async def execute_core_search(
                     content=f"Verifying {len(search_results)} results with critic agent",
                 )
 
+                # Map each candidate VideoInfo back to its stable key and result
+                # so verdicts (returned keyed by VideoInfo) can be recorded under
+                # the merge-stable identity.
                 search_videos: list[VideoInfo] = []
+                info_to_key: dict[VideoInfo, CriticKey] = {}
+                info_to_result: dict[VideoInfo, SearchResult] = {}
                 for result in search_results:
                     info = _video_info_for_critic(result)
                     if info is None:
                         # No parseable timestamps -> cannot be clip-verified.
                         continue
-                    if info not in confirmed_results and info not in rejected_results:
-                        search_videos.append(info)
+                    crit_key = _critic_key(result)
+                    if crit_key in confirmed_keys or crit_key in rejected_keys:
+                        continue
+                    search_videos.append(info)
+                    info_to_key[info] = crit_key
+                    info_to_result[info] = result
 
                 if len(search_videos) > 0:
                     critic_input = {"query": original_query, "videos": search_videos}
@@ -691,11 +798,17 @@ async def execute_core_search(
                     critic_results = {r.video_info: r for r in critic_output.video_results}
 
                     for info, video_result in critic_results.items():
+                        recorded_key = info_to_key.get(info)
+                        if recorded_key is None:
+                            continue
                         match video_result.result:
                             case CriticAgentResult.CONFIRMED:
-                                confirmed_results.add(info)
+                                confirmed_keys.add(recorded_key)
                             case CriticAgentResult.REJECTED:
-                                rejected_results.add(info)
+                                rejected_keys.add(recorded_key)
+                                # Suppress the rejected clip on re-search and grow
+                                # the fetch so a replacement can take its slot.
+                                exclude_videos.append(_exclude_entry(info_to_result[info]))
                                 top_k += 1
                                 do_search = True
                             case CriticAgentResult.UNVERIFIED:
@@ -710,15 +823,17 @@ async def execute_core_search(
                         do_search = False
 
                     for info, vr in critic_results.items():
-                        persistent_critic_results[info] = CriticResult(
-                            result=vr.result.value,
-                            criteria_met=vr.criteria_met or {},
-                        )
+                        recorded_key = info_to_key.get(info)
+                        if recorded_key is not None:
+                            persistent_critic_results[recorded_key] = CriticResult(
+                                result=vr.result.value,
+                                criteria_met=vr.criteria_met or {},
+                            )
 
                 for result in search_results:
-                    info = _video_info_for_critic(result)
-                    if info is not None and info in persistent_critic_results:
-                        result.critic_result = persistent_critic_results[info]
+                    crit_key = _critic_key(result)
+                    if crit_key in persistent_critic_results:
+                        result.critic_result = persistent_critic_results[crit_key]
 
                 verified_count = sum(1 for vr in critic_results.values() if vr.result == CriticAgentResult.CONFIRMED)
                 unverified_count = sum(1 for vr in critic_results.values() if vr.result == CriticAgentResult.UNVERIFIED)
@@ -737,25 +852,31 @@ async def execute_core_search(
                 search_messages.append(msg)
                 yield AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content=msg)
 
+    # TRUE reject-replacement semantics: drop every result the critic REJECTED so
+    # a rejected clip cannot keep its slot (and squeeze out a replacement) after
+    # the final top_k cap. This is applied unconditionally — even at the default
+    # search_max_iterations=1, where no re-search happens, the rejected result is
+    # still removed from the output.
+    search_results = [r for r in search_results if _critic_key(r) not in rejected_keys]
+
     result_count = len(search_results)
     yield AgentMessageChunk(
         type=AgentMessageChunkType.THOUGHT,
         content=f"Found {result_count} result{'s' if result_count != 1 else ''}",
     )
 
-    if original_top_k is not None:
-        search_results = search_results[:original_top_k]
+    search_results = search_results[:original_top_k]
 
     yield SearchOutput(data=search_results, search_messages=search_messages)
 
 
 async def execute_core_search_wrapper(
     search_input: SearchInput,
-    embed_search: Any,
-    config: Any,
-    attribute_search_fn: Any | None = None,
-    critic_agent: Any | None = None,
-    behavior_es: Any | None = None,
+    embed_search: SupportsAinvoke,
+    config: SearchConfig,
+    attribute_search_fn: SupportsAinvoke | None = None,
+    critic_agent: SupportsAinvoke | None = None,
+    behavior_es: ElasticIndex | None = None,
 ) -> SearchOutput:
     """Non-streaming wrapper: collects chunks, returns final SearchOutput."""
     async for update in execute_core_search(

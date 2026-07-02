@@ -22,9 +22,8 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 
-# Library tightens AttributeSearchInput.source_type from `str` to this Literal —
-# see DESIGN.md §5.3 "Tightening". The NAT shim widens back to plain str at the
-# wire to preserve today's behavior.
+# Constrains source_type to the two supported ingest kinds so an unknown value
+# is rejected at the model boundary rather than deep in a primitive.
 SourceType = Literal["video_file", "rtsp"]
 
 # Fusion reranking strategies supported by the Search orchestrator. Shared so the
@@ -39,12 +38,11 @@ class VideoInfo(BaseModel):
     Used by CriticAgentInput.videos and by the orchestrator when handing
     candidates to the critic for VLM verification.
 
-    `frozen=True` makes instances hashable so they work as dict keys / set
-    members — matches the NAT-side `agents/critic_agent.py` shape, which
-    tools/search.py:1380-1393 relies on for de-duplication of critic verdicts.
+    ``frozen=True`` makes instances hashable so they work as dict keys / set
+    members, which the orchestrator relies on to de-duplicate critic verdicts.
 
     Pydantic v2 coerces ISO 8601 strings to datetime automatically, so wire
-    inputs from `SearchResult.start_time` (string) construct cleanly.
+    inputs from ``SearchResult.start_time`` (a string) construct cleanly.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

@@ -14,8 +14,9 @@
 # limitations under the License.
 """TimeMeasure context manager.
 
-Ported byte-identical from vss_agents/utils/time_measure.py. PERF and STATUS
-log levels are also registered so the level name lookup matches the NAT side.
+Times a block of code and logs the elapsed duration. The PERF and STATUS log
+levels are registered here so their level names resolve consistently wherever
+this helper's log records are emitted.
 """
 
 from __future__ import annotations

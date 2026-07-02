@@ -14,12 +14,11 @@
 # limitations under the License.
 """Critic-agent input/output models.
 
-Mirrors services/agent/src/vss_agents/agents/critic_agent.py:156-200.
-Re-homes the enum and result classes from inside critic_agent.py — they were
-imported by tools/search.py:1320-1322 and live with the critic logically.
+Houses the critic's enum and result classes alongside the critic logic they
+belong to, rather than inline with the orchestrator that consumes them.
 
-Critic ships as EXPERIMENTAL in v1 (DESIGN.md §6.4): wire format may change
-before promotion to stable.
+Critic ships as EXPERIMENTAL in v1: the wire format may change before it is
+promoted to stable.
 """
 
 from __future__ import annotations
@@ -36,16 +35,13 @@ from pydantic import Field
 from .common import VideoInfo  # noqa: TC001  Pydantic-resolved at runtime
 
 # Wire-shared format selector — 'iso' for ISO 8601 UTC strings, 'offset' for
-# seconds-since-stream-start. Used by the NAT shim, the library primitive, and
-# the VLM analyzer protocol so the three stay in lockstep.
+# seconds-since-stream-start. Shared so the primitive and the VLM analyzer
+# protocol agree on how timestamps are expressed.
 TimeFormat = Literal["iso", "offset"]
 
 
 class CriticAgentResult(StrEnum):
-    """Verdict produced by the critic agent for a single video clip.
-
-    Mirrors services/agent/src/vss_agents/agents/critic_agent.py:168-173.
-    """
+    """Verdict produced by the critic agent for a single video clip."""
 
     CONFIRMED = "confirmed"
     REJECTED = "rejected"

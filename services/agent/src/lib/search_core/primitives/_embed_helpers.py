@@ -33,6 +33,7 @@ from typing import Any
 from .._internal.es_filters import build_video_sources_filter
 from .._internal.es_filters import escape_wildcard
 from .._internal.time_convert import datetime_to_iso8601
+from .._internal.time_convert import iso8601_instants_match
 from .._internal.time_convert import safe_iso8601_to_datetime
 from .._internal.uuid_string import is_standard_uuid_string
 
@@ -100,14 +101,22 @@ def build_timestamp_filter(
     timestamp_start: datetime | None,
     timestamp_end: datetime | None,
 ) -> dict[str, Any] | None:
-    """Build the ES range filter for the result time window."""
+    """Build the ES range filter for the result time window using OVERLAP semantics.
+
+    A segment ``[timestamp, end]`` overlaps the requested window when its
+    ``end >= start`` and its ``timestamp <= end`` — so a segment that straddles a
+    window boundary still matches. This mirrors the attribute path
+    (``_attribute_helpers.build_behavior_overlap_filter``); previously this used
+    CONTAINMENT (``timestamp >= start AND end <= end``), which silently dropped
+    straddling segments.
+    """
     if not timestamp_start and not timestamp_end:
         return None
     must: list[dict[str, Any]] = []
     if timestamp_start:
-        must.append({"range": {"timestamp": {"gte": timestamp_start.isoformat()}}})
+        must.append({"range": {"end": {"gte": timestamp_start.isoformat()}}})
     if timestamp_end:
-        must.append({"range": {"end": {"lte": timestamp_end.isoformat()}}})
+        must.append({"range": {"timestamp": {"lte": timestamp_end.isoformat()}}})
     return {"bool": {"must": must}} if len(must) > 1 else must[0]
 
 
@@ -279,11 +288,23 @@ def is_excluded(
     or the resolved stream UUID. Matching both is important for RTSP, where the
     raw id is a camera name but callers build exclude lists from the returned
     ``sensor_id`` (the UUID).
+
+    Timestamps are compared by instant (via :func:`iso8601_instants_match`), not
+    by exact string, so this stays consistent with the attribute path
+    (``_attribute_helpers._is_attribute_excluded``). Critical for critic
+    re-search: the orchestrator builds an exclude entry from a REJECTED result
+    whose ``end_time`` was reformatted by ``merge_consecutive_results`` (a
+    round-trip that turns e.g. ``.752Z`` into ``.752000Z``), which an
+    exact-string comparison would fail to match against the raw re-fetched hit.
     """
     for ex in exclude_videos:
         ex_sensor = ex.get("sensor_id", "")
         sensor_matches = ex_sensor == sensor_id_raw or (stream_id is not None and ex_sensor == stream_id)
-        if sensor_matches and start_time == ex.get("start_timestamp", "") and end_time == ex.get("end_timestamp", ""):
+        if (
+            sensor_matches
+            and iso8601_instants_match(start_time, ex.get("start_timestamp", ""))
+            and iso8601_instants_match(end_time, ex.get("end_timestamp", ""))
+        ):
             return True
     return False
 
