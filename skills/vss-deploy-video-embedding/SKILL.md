@@ -8,7 +8,7 @@ description: >
   Redis/Kafka/OTel integration, common failure modes, and teardown.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.2.1"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
@@ -31,8 +31,8 @@ Use this skill when you need to:
 - **Legacy 3.1 name:** RT-Embed.
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
-- **Image:** `nvcr.io/nvidia/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
-- **Default tag:** `3.2.0` (override with `RTVI_EMBED_TAG`).
+- **Image:** `nvcr.io/nvstaging/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
+- **Default tag:** `3.2.1-26.07.1` (override with `RTVI_EMBED_TAG`).
 - **Profile:** `bp_developer_search_2d`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.

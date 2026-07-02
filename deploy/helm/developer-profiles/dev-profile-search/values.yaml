@@ -290,8 +290,8 @@ rtvi:
     enabled: true
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
-      tag: "3.2.0"
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+      tag: "3.2.1-26.07.1"
       pullPolicy: IfNotPresent
     port: 8000
     service:
