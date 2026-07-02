@@ -27,14 +27,31 @@ logger = logging.getLogger(__name__)
 _DROP_PATTERNS: tuple[str, ...] = (
     r"_moe_gen",
     r"^(?:action2llm|llm2action|llm2sound|llm2vae|sound2llm|vae2llm)\.",
-    r"^(?:action_modality_embed|sound_modality_embed)$",
+    r"^(?:action_modality_embed|audio_modality_embed|sound_modality_embed)$",
+    # Cross-modal in/out projections (newer Cosmos3 export naming).
+    r"^(?:action_|audio_)?proj_(?:in|out)\.",
     r"^time_embedder\.",
+    # Generation joint-attention branch inside the shared self_attn blocks.
+    r"\.self_attn\.(?:add_[qkv]_proj|to_add_out|norm_added_[qk])\.",
+    # VAE / sound-tokenizer generation modules.
+    r"^(?:encoder|decoder|quant_conv|post_quant_conv)\.",
 )
 _DROP_RE = re.compile("|".join(_DROP_PATTERNS))
 
 _KEY_MAPPING: dict[str, str] = {
+    # Diffusers-style attention -> HF Qwen3 names (newer Cosmos3 export). Run
+    # before the prefix rules; generation joint-attn (add_*/to_add_out/
+    # norm_added_*) is already dropped above so these only see und-tower attn.
+    r"\.self_attn\.to_q\.": ".self_attn.q_proj.",
+    r"\.self_attn\.to_k\.": ".self_attn.k_proj.",
+    r"\.self_attn\.to_v\.": ".self_attn.v_proj.",
+    r"\.self_attn\.to_out\.": ".self_attn.o_proj.",
+    r"\.self_attn\.norm_q\.": ".self_attn.q_norm.",
+    r"\.self_attn\.norm_k\.": ".self_attn.k_norm.",
     # Flat Qwen3 -> nested HF Qwen3-VL. Negative lookahead skips already-nested keys.
     r"^model\.(?!language_model\.)(.+)$": r"model.language_model.\1",
+    # Bare language-tower keys (newer export drops the leading `model.`).
+    r"^(layers|embed_tokens|norm)\.(.+)$": r"model.language_model.\1.\2",
     r"^lm_head\.(.+)$": r"language_model.lm_head.\1",
     r"^(blocks|deepstack_merger_list|merger|patch_embed|pos_embed)\.(.+)$": r"visual.\1.\2",
 }
