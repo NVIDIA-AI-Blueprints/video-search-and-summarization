@@ -308,7 +308,7 @@ services:
 
   # ── RTVI VLM service (profile-gated: only starts when COMPOSE_PROFILES includes "rtvi") ──
   rtvi-vlm:
-    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2}
+    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.07.1}
     container_name: rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
