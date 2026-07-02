@@ -9,11 +9,11 @@
 
 Why this exists
 ---------------
-`docker compose --env-file .env config > resolved.yml` filters out services
+`docker compose --env-file .env --env-file generated.env config > resolved.yml` filters out services
 that don't match the active COMPOSE_PROFILES, but leaves depends_on: entries
 pointing at those filtered-out services. Compose's schema validator rejects
 any depends_on target that isn't a defined service in the file — even when
-the entry is `required: false` — so `docker compose --env-file <env> -f resolved.yml up -d`
+the entry is `required: false` — so `docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`
 aborts with:
 
     service "X" depends on undefined service "Y": invalid compose project
@@ -31,7 +31,7 @@ files. The dependencies are correctly marked optional in the source; profile
 filtering is what creates the dangling references in the resolved artifact.
 
 This MUST run after `docker compose ... config > resolved.yml` and before
-`docker compose --env-file <env> -f resolved.yml up -d`. The vss-deploy-profile skill (SKILL.md Step 3d)
+`docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`. The vss-deploy-profile skill (SKILL.md Step 3d)
 calls this as part of every deploy.
 
 Usage

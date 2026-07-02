@@ -24,8 +24,8 @@ It is a superset of the default LVS config: regular caption retrieval remains
 enabled, and `frag_retrieval` adds Enterprise RAG document grounding.
 
 Use the normal `/vss-deploy-profile` workflow for deployment. The source
-`.env` remains read-only; apply non-secret overrides to
-`deploy/docker/developer-profiles/dev-profile-lvs/generated.env`.
+`.env` and `overrides.env` remain read-only; initialize `generated.env` from
+`overrides.env` and apply non-secret overrides there.
 `generated.env` is ignored by the repository, but it is still a plaintext file:
 do not commit it, paste it into logs, or store long-lived credentials there.
 Prefer a vault, Docker secrets, or ephemeral shell environment variables for
@@ -36,7 +36,7 @@ API keys.
 ```bash
 REPO=${REPO:-$(git rev-parse --show-toplevel)}
 cd "$REPO"
-cp deploy/docker/developer-profiles/dev-profile-lvs/.env \
+cp deploy/docker/developer-profiles/dev-profile-lvs/overrides.env \
   deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 ```
 
@@ -80,11 +80,15 @@ EOF
 ```bash
 REPO=${REPO:-$(git rev-parse --show-toplevel)}
 cd "$REPO/deploy/docker"
-docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
+docker compose \
+  --env-file developer-profiles/dev-profile-lvs/.env \
+  --env-file developer-profiles/dev-profile-lvs/generated.env \
   config > resolved.yml
 uv run "$REPO/skills/vss-deploy-profile/scripts/normalize_resolved_yml.py" \
   "$REPO/deploy/docker/resolved.yml"
-docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
+docker compose \
+  --env-file developer-profiles/dev-profile-lvs/.env \
+  --env-file developer-profiles/dev-profile-lvs/generated.env \
   -f resolved.yml up -d
 ```
 
@@ -93,6 +97,7 @@ When `rag-secret.override.yml` is needed, use:
 ```bash
 read -rsp "RAG API key: " RAG_API_KEY
 RAG_API_KEY="$RAG_API_KEY" docker compose \
+  --env-file developer-profiles/dev-profile-lvs/.env \
   --env-file developer-profiles/dev-profile-lvs/generated.env \
   -f resolved.yml -f rag-secret.override.yml up -d
 unset RAG_API_KEY

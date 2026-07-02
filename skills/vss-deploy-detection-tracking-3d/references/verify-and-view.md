@@ -135,9 +135,11 @@ If `mdx-bev` is empty but `mdx-raw` is growing: fusion isn't producing output �
 **Container health from Step 1 is not sufficient** — perception and fusion can be `Up`/`healthy` while `Active sources : 0` and the broker offsets stay flat. Do **not** report success or hand the user the URLs until every check below is green. This block ties Steps 2–4 together and adds the exact VST sensor-set check:
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_STABLE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
 NUM_STREAMS=$(grep '^NUM_STREAMS=' "$ENV_FILE" | cut -d= -f2)
-MINIMAL_PROFILE_VAL=$(grep '^MINIMAL_PROFILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"')
+MINIMAL_PROFILE_VAL=$(grep '^MINIMAL_PROFILE=' "$ENV_STABLE" | cut -d= -f2 | tr -d '"')
 VST_HOST="${HOST_IP:-localhost}"; VST_PORT="${VST_PORT:-30888}"
 CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
 

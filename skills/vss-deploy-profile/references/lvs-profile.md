@@ -146,9 +146,9 @@ This is "remote mode pointed at a local container" — keep `VLM_MODE=remote` so
 
 For VLM **weight cost** (params × bits ÷ 8 × 1.3) and the general formula, see [`base.md` § Sizing math](base.md#sizing-math) — it applies unchanged. RT-VLM's own runtime is a thin wrapper around vLLM, so weights still dominate.
 
-The RT-VLM container reads sizing knobs from `dev-profile-lvs/.env` with the `RTVI_VLM_` / `RTVI_VLLM_` prefix; they propagate inside the container as the standard vLLM env vars (see `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`).
+The RT-VLM container reads sizing knobs from the LVS profile env layers (`dev-profile-lvs/.env` plus `generated.env`, initialized from `overrides.env`) with the `RTVI_VLM_` / `RTVI_VLLM_` prefix; they propagate inside the container as the standard vLLM env vars (see `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`).
 
-| `dev-profile-lvs/.env` var | Inside-container var | Default | Purpose |
+| LVS profile env var | Inside-container var | Default | Purpose |
 |---|---|---|---|
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `VLLM_GPU_MEMORY_UTILIZATION` | empty (vLLM default ≈ 0.9) | **Primary sizing knob.** Fraction of total GPU memory RT-VLM may use — weights + KV cache + activations included. Same semantics as `--gpu-memory-utilization` and `NIM_KVCACHE_PERCENT` (see [`base.md`](base.md#nim_kvcache_percent--gb-on-common-gpus)). |
 | `RTVI_VLM_MAX_MODEL_LEN` | `VLM_MAX_MODEL_LEN` | `32768` | Max context length. Lower this first when OOM mid-inference. |
@@ -221,7 +221,7 @@ deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 ## Debugging
 
 - **`docker logs vss-rtvi-vlm`** — startup takes up to 20 min on first run (model download from NGC). Look for `Maximum concurrency for X tokens per GPU: Y x` to confirm vLLM is up and the KV-cache budget is what you set.
-- **`vss-lvs` returns `400 BadParameters: No such model '<id>'`** (summarization fails in the UI) — `VLM_NAME` doesn't match what RT-VLM advertises. Verify with `curl http://${HOST_IP}:8018/v1/models | jq`; the `id` field must equal `VLM_NAME` in `dev-profile-lvs/generated.env` (the deployed values). For the default integrated path that's `nim_nvidia_cosmos3-nano-reasoner_bf16-final` (NOT `nvidia/cosmos3-nano-reasoner`). Fix → `docker compose --env-file <env> -f resolved.yml up -d --no-deps --force-recreate vss-lvs vss-agent`. If the same UI chat thread is stuck in the failed-tool loop, refresh or start a fresh prompt.
+- **`vss-lvs` returns `400 BadParameters: No such model '<id>'`** (summarization fails in the UI) — `VLM_NAME` doesn't match what RT-VLM advertises. Verify with `curl http://${HOST_IP}:8018/v1/models | jq`; the `id` field must equal `VLM_NAME` in `dev-profile-lvs/generated.env` (the deployed values). For the default integrated path that's `nim_nvidia_cosmos3-nano-reasoner_bf16-final` (NOT `nvidia/cosmos3-nano-reasoner`). Fix → `docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d --no-deps --force-recreate vss-lvs vss-agent`. If the same UI chat thread is stuck in the failed-tool loop, refresh or start a fresh prompt.
 - **VLM never produces summaries** — check that the topic `mdx-vlm-captions` is being written. `docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic mdx-vlm-captions --max-messages 1`.
 - **Empty Kibana dashboards** — shared `logstash` may have failed to load the `mdx-lvs` pipeline or protobuf codec; `docker logs logstash` should show pipeline startup for `mdx-lvs-logstash.conf`.
 - **OOM in RT-VLM under load** — lower `RTVI_VLLM_GPU_MEMORY_UTILIZATION` by 0.05; if that doesn't help, drop `RTVI_VLM_MAX_MODEL_LEN` to `16384` and `RTVI_VLLM_MAX_NUM_SEQS` to `64`.

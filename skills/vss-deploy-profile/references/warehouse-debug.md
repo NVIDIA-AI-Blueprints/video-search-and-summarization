@@ -55,7 +55,7 @@ bp_wh-only stack (RTVI VLM + agent):
   vss-va-mcp
   phoenix
 
-vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_PORT)
+vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_HOST_PORT)
 ```
 
 ## Full Container List by Profile
@@ -140,7 +140,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 | `vss-agent` | Orchestrator |
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
-| `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies kibana + analytics API there) |
+| `vss-haproxy-ingress` | Front-door on `HAPROXY_HOST_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies kibana + analytics API there) |
 | `phoenix` | Telemetry / observability |
 
 > **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). Warehouse uses **RTVI VLM only** — `vss-agent` connects to it directly. `VLM_MODE=none` in the warehouse `.env`. Do not search for a VLM NIM container — it does not exist in this stack.
@@ -305,7 +305,7 @@ tables live there to avoid drift when ports/services change.
 
 Before starting, collect two pieces of information (ask if unknown):
 
-1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose / cleanup commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env`. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
+1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. Cleanup reads `generated.env` because it carries the runtime data paths. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
 2. **`MODE`** — `2d`, `3d`, or `mv3dt`. Detect from the running perception container:
 
 ```bash
@@ -316,7 +316,8 @@ docker inspect vss-rtvi-cv --format '{{range .Config.Env}}{{println .}}{{end}}' 
 If that returns nothing (container not running or named differently), fall back to reading the env file:
 
 ```bash
-grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/.env
+grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/generated.env \
+  || grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/overrides.env
 ```
 
 `vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`.
@@ -480,8 +481,10 @@ docker logs --tail 50 vss-agent-ui     2>&1 | grep -E "ERROR|error|fail"      | 
 docker logs --tail 50 vss-haproxy-ingress 2>&1 | grep -E "ERROR|error|fail"   | tail -20
 # LLM NIM container name = LLM_NAME_SLUG from .env (e.g. nvidia-nemotron-nano-9b-v2)
 # Warehouse industry-profile compose commands read from .env directly
-# (no generated.env flow — that pattern is only for dev-profile-*).
-LLM_SLUG=$(grep '^LLM_NAME_SLUG=' "$REPO/deploy/docker/industry-profiles/warehouse-operations/.env" | cut -d= -f2 | tr -d '"')
+# Prefer generated.env after a deployment; fall back to overrides.env on a fresh checkout.
+ENV_FILE="$REPO/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="$REPO/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
+LLM_SLUG=$(grep '^LLM_NAME_SLUG=' "$ENV_FILE" | cut -d= -f2 | tr -d '"')
 docker logs --tail 50 "$LLM_SLUG" 2>&1 | grep -E "ERROR|error|fail|CUDA" | tail -20
 ```
 
@@ -600,7 +603,7 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | GPU 100 % sustained, low FPS | GPU oversaturated | Reduce `NUM_STREAMS`; redeploy |
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify `.env` values; redeploy |
-| `vss-haproxy-ingress` up but UI 502 / report links broken | `EXTERNAL_IP` / `HAPROXY_PORT` not browser-reachable | Set `EXTERNAL_IP` to a real reachable hostname (see `warehouse.md` Phase 5); redeploy |
+| `vss-haproxy-ingress` up but UI 502 / report links broken | `EXTERNAL_IP` / `HAPROXY_HOST_PORT` not browser-reachable | Set `EXTERNAL_IP` to a real reachable hostname and verify `VSS_PUBLIC_PORT` matches the host-published ingress port (see `warehouse.md` Phase 5); redeploy |
 | Brev: UI loads but API calls fail / mixed-content errors in browser console | `VSS_PUBLIC_*` overrides not applied — browser-facing URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com` | Apply [Brev secure link overrides](warehouse.md#brev-secure-link-overrides): set `VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss`, `VSS_PUBLIC_HOST=7777-<BREV_ENV_ID>.brevlab.com`, `VSS_PUBLIC_PORT=443`; redeploy |
 | Brev: HAProxy returns 404 on all paths | `Host:` header in the request doesn't match HAProxy `h_main` ACL | Verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`); redeploy |
 | Brev: WebSocket chat connection refused / falls back to HTTP | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not `443` | Fix the `.env` overrides and redeploy |
@@ -628,15 +631,18 @@ Only proceed on explicit **"yes"**.
 
 If yes:
 
-1. Apply the fix (edit `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env` or correct the missing resource).
+1. Apply the fix (edit profile defaults in `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`, shared service defaults under `<repo>/deploy/docker/services/`, runtime/profile overrides in `generated.env`, or correct the missing resource).
 2. Tear down:
 
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  down
 docker volume prune -f
 docker system prune -f
-bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
+bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
 ```
 
 3. Bring up:
@@ -647,6 +653,7 @@ cd <repo>/deploy/docker
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 nohup docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
   up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"

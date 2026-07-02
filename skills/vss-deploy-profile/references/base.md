@@ -190,7 +190,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 2. **Write** it into the env file the resolved compose will load. The path is `deploy/docker/services/nim/<model-slug>/hw-<HARDWARE_PROFILE>(-shared).env` — pick or create whichever `HARDWARE_PROFILE` label fits (use the host's actual profile for documentation value, or `OTHER` if none matches and you're not contributing back).
    - **LLM NIM**: `NIM_KVCACHE_PERCENT=<v>` **and** `NIM_GPU_MEM_FRACTION=<v>`. **VLM NIM**: `NIM_KVCACHE_PERCENT=<v>` **and** `NIM_PASSTHROUGH_ARGS="--gpu-memory-utilization <v>"`. Also set `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` if you need to constrain context/concurrency.
    - vLLM: edit the model's `compose.yml` to set `--gpu-memory-utilization <value>` (or pass through an env var if the compose supports it)
-3. **Re-resolve and deploy**: `docker compose --env-file <env> config > resolved.yml && docker compose --env-file <env> -f resolved.yml up -d`. `--env-file` is required on `up` too — without it `COMPOSE_PROFILES` is unset and `up` exits 0 with zero services (see `SKILL.md` Step 5). Before running `up -d`, verify `resolved.yml` includes the right LLM/VLM service for your `LLM_NAME_SLUG` / `VLM_NAME_SLUG` and that the sizing values you wrote are visible in its `environment:` block.
+3. **Re-resolve and deploy**: `docker compose --env-file <stable-env> --env-file <generated-env> config > resolved.yml && docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`. both `--env-file` arguments are required on `up` too — without them `COMPOSE_PROFILES` is unset or incomplete and `up` exits 0 with zero services (see `SKILL.md` Step 5). Before running `up -d`, verify `resolved.yml` includes the right LLM/VLM service for your `LLM_NAME_SLUG` / `VLM_NAME_SLUG` and that the sizing values you wrote are visible in its `environment:` block.
 4. **Watch container logs** for the KV-cache report on startup (NIM logs `KV cache size: X GB` once it boots; vLLM logs `Maximum concurrency for X tokens per GPU: Y x`):
    - **OOM at model load** → lower fraction by 0.05 and redeploy.
    - **OOM mid-inference** (after a few requests, on long prompts) → also lower `NIM_MAX_MODEL_LEN` / `--max-model-len` and `NIM_MAX_NUM_SEQS` (e.g. from `4096`/`16` to `2048`/`4`).
@@ -202,7 +202,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 ## Swapping a different LLM/VLM
 
-The skill never invokes `dev-profile.sh`. Swapping a model is purely an `.env` edit + (if needed) a new compose file under `deploy/docker/services/nim/<slug>/`. Use this decision tree.
+The skill never invokes `dev-profile.sh`. Swapping a model is a `generated.env` edit + (if needed) a new compose file under `deploy/docker/services/nim/<slug>/`. Use this decision tree.
 
 ### Step 1 — Is the model already in tree?
 
@@ -223,7 +223,7 @@ VLM_NAME=nvidia/cosmos-reason1-7b
 VLM_NAME_SLUG=cosmos-reason1-7b
 ```
 
-The slug must match the directory name exactly. `COMPOSE_PROFILES` then auto-includes `llm_<mode>_<slug>` and `vlm_<mode>_<slug>`, picking up the right service from the in-tree compose. Re-run the dry-run (`docker compose --env-file <env> config > resolved.yml`) and verify `resolved.yml` contains the expected service. Confirm the `hw-<HARDWARE_PROFILE>(-shared).env` exists for the new model on this host (per the [GPU VRAM reference](#gpu-vram-reference) above).
+The slug must match the directory name exactly. `COMPOSE_PROFILES` then auto-includes `llm_<mode>_<slug>` and `vlm_<mode>_<slug>`, picking up the right service from the in-tree compose. Re-run the dry-run (`docker compose --env-file <stable-env> --env-file <generated-env> config > resolved.yml`) and verify `resolved.yml` contains the expected service. Confirm the `hw-<HARDWARE_PROFILE>(-shared).env` exists for the new model on this host (per the [GPU VRAM reference](#gpu-vram-reference) above).
 
 ### Step 2 — Is the model published as a NIM on build.nvidia.com?
 
@@ -488,4 +488,4 @@ Common failure modes and what they mean for base:
 
 - `cosmos-reason2-8b` NIM cannot restart after stop/crash — must redeploy full stack
 - Reports are in-memory by default — lost on container restart (mount a volume to persist)
-- `VLM_NIM_KVCACHE_PERCENT` defaults to `0.7` — may need tuning on memory-constrained GPUs
+- `VLM_NIM_KVCACHE_PERCENT` defaults to `0.7` in `deploy/docker/services/nim/nim.env` — may need tuning on memory-constrained GPUs

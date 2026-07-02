@@ -15,6 +15,10 @@
 
 include:
   - path: ./haproxy/compose.yml
+    env_file:
+      - ${VSS_APPS_DIR}/services/agent/agent.env
+      - ${VSS_APPS_DIR}/services/alert/alert.env
+      - ${VSS_APPS_DIR}/services/vios/vst.env
   - path: ./sdrc/docker-compose.yaml
 
 services:

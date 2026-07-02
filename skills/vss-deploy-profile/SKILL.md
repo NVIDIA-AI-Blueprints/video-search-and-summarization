@@ -35,17 +35,17 @@ Match the user's request to a profile, then load that profile's reference for si
 
 ## Instructions
 
-The deployment flow is always: copy `.env` to `generated.env`, apply overrides, dry-run compose into `resolved.yml`, review, normalize, deploy, then wait for readiness.
+The deployment flow is always: copy `overrides.env` to `generated.env`, apply overrides, dry-run compose into `resolved.yml` with both env layers, review, normalize, deploy with the same env layers, then wait for readiness.
 
 ```bash
-# 1. cp dev-profile-<profile>/.env dev-profile-<profile>/generated.env  (clean copy)
-# 2. Apply env overrides to generated.env  (source .env stays untouched)
-# 3. docker compose --env-file generated.env config > resolved.yml      (dry-run)
+# 1. cp dev-profile-<profile>/overrides.env dev-profile-<profile>/generated.env  (clean copy)
+# 2. Apply env overrides to generated.env  (source .env and overrides.env stay untouched)
+# 3. docker compose --env-file .env --env-file generated.env config > resolved.yml  (dry-run)
 # 4. Review resolved.yml
-# 5. docker compose --env-file generated.env -f resolved.yml up -d
+# 5. docker compose --env-file .env --env-file generated.env -f resolved.yml up -d
 ```
 
-`.env` is read-only checked-in defaults; `generated.env` is the per-deploy working copy. Step 1c covers this in full.
+`.env` is the read-only checked-in stable-default layer. `overrides.env` is the read-only checked-in profile override layer for values the deploy scripts may modify per host/profile. `generated.env` is the per-deploy working copy created from `overrides.env`. Step 1c covers this in full.
 
 ## Prerequisites
 
@@ -129,7 +129,7 @@ Full procedure lives in [`references/teardown.md`](references/teardown.md).
 ### Step 0a — Credentials gate (run before any env mutation)
 
 Validate every credential and selected remote endpoint the chosen profile
-needs **before** Step 1c copies `.env` to `generated.env`. A 401 here is a
+needs **before** Step 1c copies `overrides.env` to `generated.env`. A 401 here is a
 30-second failure; the same 401 inside a NIM cold-start is a 10–20 min
 failure. Run the discovery and probe flow in
 [`references/credentials.md`](references/credentials.md), including
@@ -151,9 +151,10 @@ Before building env overrides, confirm:
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
 | **`HOST_IP`** | In-cluster dial address: `ip route get 1.1.1.1` src (like `dev-profile.sh`; correct on LAN + cloud). If that interface is a VPN/tunnel, fall back to the LAN IP and **prompt the user** — [Network addressing](references/prerequisites.md#addressing). |
 | **`EXTERNAL_IP`** | Browser-facing address; defaults to `${HOST_IP}`. Override when the browser path differs — cloud public IP, Brev secure-link (Step 1d), or tunnel; **ask the user where they browse from if unsure**. [Network addressing](references/prerequisites.md#addressing). |
-| **`HAPROXY_PORT`** | Browser-facing ingress port. Default `7777`; ensure it is free. |
+| **`HAPROXY_HOST_PORT`** | Browser-facing ingress host port. Default `7777`; change it in `generated.env` if the host port conflicts. |
+| **`HAPROXY_PORT`** | HAProxy container listen port. Default `7777`; leave it unchanged unless a platform-specific path, such as Brev, requires it. |
 
-Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_PORT`, `VSS_PUBLIC_HOST`, and `VSS_PUBLIC_PORT` are populated with browser-reachable values. Otherwise the stack may appear healthy while UI/API/VST links 404 or loop through Cloudflare Access.
+Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_HOST_PORT`, `VSS_PUBLIC_HOST`, and `VSS_PUBLIC_PORT` are populated with browser-reachable values. Otherwise the stack may appear healthy while UI/API/VST links 404 or loop through Cloudflare Access.
 
 ### Step 1b — Prepare the data directory
 
@@ -162,17 +163,18 @@ Layout (asset paths, ownership, mount points, profile-specific subdirs) is docum
 
 ### Step 1c — Initialize `generated.env`
 
-The skill's per-deploy working copy. Always start from a fresh copy of the source `.env` , never mutate the source.
+The skill's per-deploy working copy. Always start from a fresh copy of `overrides.env`, never mutate `.env` or `overrides.env`.
 
 ```bash
 PROFILE=base
 ENV_SRC=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/.env
+ENV_POST=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/overrides.env
 ENV_GEN=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/generated.env
 
-cp "$ENV_SRC" "$ENV_GEN"
+cp "$ENV_POST" "$ENV_GEN"
 ```
 
-All subsequent writes (Brev `EXTERNAL_IP`, the env_overrides dict from Step 2) go to `$ENV_GEN`. `$ENV_SRC` is read-only from here on.
+All subsequent writes (Brev `EXTERNAL_IP`, the env_overrides dict from Step 2) go to `$ENV_GEN`. `$ENV_SRC` and `$ENV_POST` are read-only from here on, and Compose must receive `$ENV_SRC` before `$ENV_GEN`.
 
 ### Step 1d — Brev only: detect first, then set `EXTERNAL_IP` to the secure-link domain
 
@@ -199,12 +201,12 @@ reference has worked examples for that profile's common scenarios.
 
 ### Step 3 — Apply overrides + dry-run
 
-**Working env file:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c).
+**Working env files:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/.env` plus `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c from `overrides.env`).
 
-> **Reminder (see Step 1c):** apply all overrides (Step 2 dict + Brev `EXTERNAL_IP`) to `generated.env`; `--env-file` always points at it, and post-deploy verifiers read it for the actually-deployed values.
+> **Reminder (see Step 1c):** apply all overrides (Step 2 dict + Brev `EXTERNAL_IP`) to `generated.env`; Compose gets `.env` first and `generated.env` second, and post-deploy verifiers read `generated.env` for the actually-deployed override values.
 
 ```bash
-# (Step 1c already ran: cp $ENV_SRC $ENV_GEN)
+# (Step 1c already ran: cp $ENV_POST $ENV_GEN)
 
 # Apply the env_overrides dict from Step 2 to generated.env
 # (read lines, update matching keys, append new keys, write)
@@ -214,7 +216,7 @@ reference has worked examples for that profile's common scenarios.
 
 # Resolve compose
 cd $REPO/deploy/docker
-docker compose --env-file $ENV_GEN config > resolved.yml
+docker compose --env-file $ENV_SRC --env-file $ENV_GEN config > resolved.yml
 ```
 
 The resolved YAML is saved to `<repo>/deploy/docker/resolved.yml`.
@@ -303,10 +305,10 @@ Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 
 ```bash
 cd $REPO/deploy/docker
-docker compose --env-file $ENV_GEN -f resolved.yml up -d
+docker compose --env-file $ENV_SRC --env-file $ENV_GEN -f resolved.yml up -d
 ```
 
-> **`--env-file` is mandatory.** Without the same `generated.env` used in Step 3, `COMPOSE_PROFILES` may be unset and `up -d` can exit 0 with zero selected services.
+> **Both `--env-file` arguments are mandatory and ordered.** Without the same `.env` + `generated.env` pair used in Step 3, `COMPOSE_PROFILES` may be unset or incomplete and `up -d` can exit 0 with zero selected services.
 
 > **Avoid broad `--force-recreate` on ordinary retries** — it destroys warm
 > NIM containers (another 3–5 min torch.compile + CUDA-graph capture each).
