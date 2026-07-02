@@ -20,6 +20,14 @@ straight from the user (a local file inlined as base64, or a URL the VLM fetches
 **VST/VIOS is optional**: when it is available the skill can resolve a recorded clip URL
 from a named sensor, but it is never required.
 
+> **Hard rule — never call `/generate`.** Every question, including **temporal /
+> timing ones** ("at what timestamp did X happen", "how long", "when does Y start"),
+> is answered by a single **`POST {VLM_ENDPOINT}/v1/chat/completions`** call built in
+> Step 3. Do **not** `POST` to `http://<host>:8000/generate` (the VSS agent's summarize
+> pipeline) or `/v1/summarize` under any circumstances — a timestamp question does **not**
+> mean you should switch to the summarization pipeline; ask the VLM directly and read the
+> timing out of its answer.
+
 This is the same direct-VLM mechanism `vss-generate-video-report` uses in Mode A — the
 difference is that this skill sends the **user's own question** as the prompt and returns
 the **plain VLM answer**, not a filled report template.
@@ -213,7 +221,7 @@ distroless (no `sh`/`bash`/`printenv` on `PATH`), so `docker exec vss-agent sh -
 if docker ps --format '{{.Names}}' | grep -qx vss-agent; then
   while IFS='=' read -r _k _v; do
     case "$_k" in
-      HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL|RTVI_VLM_MODEL_TO_USE)
+      HOST_IP|VLM_MODE|VLM_MODEL_TYPE|VLM_BASE_URL|VLM_NAME|RTVI_VLM_BASE_URL)
         printf -v "$_k" '%s' "$_v"; export "$_k" ;;
     esac
   done < <(docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}')
@@ -227,32 +235,33 @@ if [ -z "${VLM_ENDPOINT:-}" ]; then
   if [ "${VLM_MODEL_TYPE:-}" = "rtvi" ]; then
     # RT-VLM (lvs / alerts). The API model id is VLM_NAME (e.g. nim_nvidia_cosmos-reason2-8b_hf-1208)
     # — it matches RT-VLM's /v1/models and is what the agent itself uses (config rtvi_vlm.model_name:
-    # ${VLM_NAME}). Do NOT use RTVI_VLM_MODEL_TO_USE: it is an RT-VLM *backend selector* (e.g.
-    # "cosmos-reason2"), not an API model id, and it is not even exposed on the vss-agent container.
+    # ${VLM_NAME}). We deliberately do NOT read RTVI_VLM_MODEL_TO_USE: it is an RT-VLM *backend
+    # selector* (e.g. "cosmos-reason2"), not an API model id, and it is not exposed on the
+    # vss-agent container. If VLM_NAME is empty the /v1/models guard below resolves the real id.
     VLM_BACKEND="rtvlm"
     VLM_ENDPOINT="${RTVI_VLM_BASE_URL:+${RTVI_VLM_BASE_URL%/}/v1}"
     [ -z "${VLM_ENDPOINT}" ] && [ -n "${VLM_BASE_URL:-}" ] && VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
     [ -z "${VLM_ENDPOINT}" ] && VLM_ENDPOINT="http://${HOST_IP}:8018/v1"   # lvs/alerts default
-    VLM_MODEL="${VLM_NAME:-${RTVI_VLM_MODEL_TO_USE}}"
+    VLM_MODEL="${VLM_NAME:-}"
   elif [ -n "${VLM_BASE_URL:-}" ] && [ "${VLM_MODE:-}" != "none" ]; then
     VLM_BACKEND="nim_cosmos"
     VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
-    VLM_MODEL="${VLM_NAME}"
+    VLM_MODEL="${VLM_NAME:-}"
   else
     # Fallback discovery: set VLM_BACKEND to match the endpoint we actually resolve, so the
     # nim_cosmos mm_processor_kwargs step below fires when we land on a NIM Cosmos endpoint.
     if [ -n "${RTVI_VLM_BASE_URL:-}" ]; then
       VLM_BACKEND="rtvlm"
       VLM_ENDPOINT="${RTVI_VLM_BASE_URL%/}/v1"
-      VLM_MODEL="${VLM_NAME:-${RTVI_VLM_MODEL_TO_USE}}"
+      VLM_MODEL="${VLM_NAME:-}"
     elif [ -n "${VLM_BASE_URL:-}" ]; then
       VLM_BACKEND="nim_cosmos"
       VLM_ENDPOINT="${VLM_BASE_URL%/}/v1"
-      VLM_MODEL="${VLM_NAME}"
+      VLM_MODEL="${VLM_NAME:-}"
     else
       VLM_BACKEND="nim_cosmos"
       VLM_ENDPOINT="http://${HOST_IP}:30082/v1"  # base default (NIM Cosmos)
-      VLM_MODEL="${VLM_NAME}"
+      VLM_MODEL="${VLM_NAME:-}"
     fi
   fi
 fi
