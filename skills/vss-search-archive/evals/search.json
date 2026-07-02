@@ -30,12 +30,12 @@
     {
       "query": "Find all instances of forklifts in the sample warehouse video. Agent backend is on localhost.",
       "checks": [
-        "The agent issued exactly one `search-archive` command through the running `vss-agent` container / pod AND did not call `POST http://localhost:8000/generate` for search",
-        "The `search-archive` command passed backend/runtime values as explicit CLI args, including `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, and `--vst-external-url`; it did not rely on `$VSS_AGENT_CONFIG_FILE` or endpoint env fallback inside the CLI",
-        "The `search-archive` command included `--query` text that paraphrases or contains `forklifts` and included `--video-source` for the resolved sample warehouse source \u2014 not a different user query, not a paraphrase that dropped the object noun",
-        "The `search-archive` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
+        "The agent issued exactly one `vss-cli search` command through the running `vss-agent` container / pod AND did not call `POST http://localhost:8000/generate` for search",
+        "The `vss-cli search` command passed backend/runtime values as explicit CLI args, including `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, and `--vst-external-url`; it did not rely on `$VSS_AGENT_CONFIG_FILE` or endpoint env fallback inside the CLI",
+        "The `vss-cli search` command included `--query` text that paraphrases or contains `forklifts` and included `--video-source` for the resolved sample warehouse source \u2014 not a different user query, not a paraphrase that dropped the object noun",
+        "The `vss-cli search` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
         "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers \u2014 not a raw JSON dump, not a chat-style bullet list",
-        "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the `search-archive` output \u2014 no fabricated timestamps, no paraphrased similarity scores",
+        "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the `vss-cli search` output \u2014 no fabricated timestamps, no paraphrased similarity scores",
         "Every screenshot_url / clip_url cited in the agent's final report matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...) \u2014 otherwise the user cannot open them from outside the Brev box",
         "If a search hit has non-null `critic_result`, the report displays a critic result outcome column and a criteria column listing all evaluation criteria relevant to that result (formatted with \u2713 for true and \u2717 for false); if `critic_result` is null, the report marks critic verification as skipped.",
         "The agent's final reply includes a `Verification Step` offer at the end of the report, telling the user that screenshots can be downloaded and inspected \u2014 it does NOT silently download screenshots without opt-in",
@@ -45,23 +45,23 @@
     {
       "query": "Find a person wearing a white jacket climbing a ladder in sample-warehouse-ladder. Agent backend is on localhost. You are pre-authorized to run the Verification Step autonomously, without asking for confirmation.",
       "checks": [
-        "The agent issued exactly one `search-archive` command through the running `vss-agent` container / pod AND did not call `POST http://localhost:8000/generate` for search",
-        "The `search-archive` command passed backend/runtime values as explicit CLI args, including `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, and `--vst-external-url`; it did not rely on `$VSS_AGENT_CONFIG_FILE` or endpoint env fallback inside the CLI",
-        "The `search-archive` command preserved both halves of the fused query: `--query` contains the action (`climbing a ladder`), `--attribute` contains the appearance attribute (`white jacket`), and `--has-action true` is present \u2014 the agent did NOT silently drop one half to simplify the search",
-        "The `search-archive` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
+        "The agent issued exactly one `vss-cli search` command through the running `vss-agent` container / pod AND did not call `POST http://localhost:8000/generate` for search",
+        "The `vss-cli search` command passed backend/runtime values as explicit CLI args, including `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, and `--vst-external-url`; it did not rely on `$VSS_AGENT_CONFIG_FILE` or endpoint env fallback inside the CLI",
+        "The `vss-cli search` command preserved both halves of the fused query: `--query` contains the action (`climbing a ladder`), `--attribute` contains the appearance attribute (`white jacket`), and `--has-action true` is present \u2014 the agent did NOT silently drop one half to simplify the search",
+        "The `vss-cli search` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
         "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers \u2014 not a raw JSON dump, not a chat-style bullet list",
-        "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the `search-archive` output \u2014 no fabricated timestamps, no paraphrased similarity scores",
+        "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the `vss-cli search` output \u2014 no fabricated timestamps, no paraphrased similarity scores",
         "Every screenshot_url / clip_url cited in the agent's final report matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...) \u2014 otherwise the user cannot open them from outside the Brev box",
         "The agent did NOT pause to re-ask the user for consent before running the Verification Step \u2014 the query pre-authorized it, so the agent proceeded autonomously to download and inspect screenshots instead of re-offering the `Verification Step` as an opt-in",
-        "The trajectory shows the agent running curl against each `screenshot_url` returned in the `search-archive` output to save it under `/tmp/`, AND then reading the saved image file with its image-inspection capability \u2014 a well-formed download is not sufficient, the agent must actually look at the pixels",
-        "The agent's final `Video Search Results` report includes, for every inspected hit, an explicit verdict (confirmed match / rejected / uncertain) grounded in the screenshot content \u2014 not just the raw similarity score echoed from `search-archive`"
+        "The trajectory shows the agent running curl against each `screenshot_url` returned in the `vss-cli search` output to save it under `/tmp/`, AND then reading the saved image file with its image-inspection capability \u2014 a well-formed download is not sufficient, the agent must actually look at the pixels",
+        "The agent's final `Video Search Results` report includes, for every inspected hit, an explicit verdict (confirmed match / rejected / uncertain) grounded in the screenshot content \u2014 not just the raw similarity score echoed from `vss-cli search`"
       ]
     },
     {
       "query": "Find a neon-pink monster truck in the ingested sample warehouse video. Agent backend is on localhost.",
       "checks": [
-        "The agent issued a `search-archive` command with explicit backend/runtime flags and `--query` containing `neon-pink monster truck` (or an equivalent paraphrase), and did not call `POST http://localhost:8000/generate` for search \u2014 it did NOT refuse the query up front",
-        "The `search-archive` output returned zero hits because this object is not present in the video. The agent did NOT claim success, did NOT fabricate matches, and did NOT silently return an empty report \u2014 per the skill's mandatory workflow, zero matches trigger the troubleshooting loop",
+        "The agent issued a `vss-cli search` command with explicit backend/runtime flags and `--query` containing `neon-pink monster truck` (or an equivalent paraphrase), and did not call `POST http://localhost:8000/generate` for search \u2014 it did NOT refuse the query up front",
+        "The `vss-cli search` output returned zero hits because this object is not present in the video. The agent did NOT claim success, did NOT fabricate matches, and did NOT silently return an empty report \u2014 per the skill's mandatory workflow, zero matches trigger the troubleshooting loop",
         "The agent's final reply explicitly acknowledges the zero-hit outcome and explains why (e.g. the query may be too specific, the object may not be present, or suggests the user loosen the query / lower similarity threshold) \u2014 per the troubleshooting.md guidance"
       ]
     },

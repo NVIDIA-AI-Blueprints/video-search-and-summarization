@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Hermetic end-to-end coverage for search_core and the search-archive CLI."""
+"""Hermetic end-to-end coverage for search_core and the `vss-cli search` CLI."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import sys
 import threading
 from typing import TYPE_CHECKING
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 
@@ -273,9 +274,12 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             "start_time": _START_TIME,
             "end_time": _END_TIME,
             "sensor_id": _STREAM_ID,
+            # startTime is percent-encoded (quote(..., safe="")): the timestamp
+            # is untrusted data, so ':'/'+'/etc. are escaped to prevent query
+            # tampering. '%3A' decodes back to ':' at the VST server.
             "screenshot_url": (
                 f"{mock_services.external_vst_url}/vst/api/v1/replay/stream/"
-                f"{_STREAM_ID}/picture?startTime={_START_TIME}"
+                f"{_STREAM_ID}/picture?startTime={quote(_START_TIME, safe='')}"
             ),
             "similarity": 0.86,
             "object_ids": [],
@@ -461,7 +465,7 @@ def test_search_archive_cli_validation_errors_exit_2(
     )
 
     assert result.returncode == 2
-    assert "[search-archive] invalid input:" in result.stderr
+    assert "[vss-cli] invalid input:" in result.stderr
     assert mock_services.requests == []
 
 
@@ -472,6 +476,7 @@ def test_search_archive_cli_missing_runtime_args_exit_4(agent_root: Path) -> Non
         env=_subprocess_env(agent_root),
         text=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,
         timeout=30,
         check=False,
     )
@@ -521,19 +526,23 @@ def _run_search_archive(
         env=_subprocess_env(agent_root),
         text=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,
         timeout=30,
         check=False,
     )
 
 
 def _search_archive_command() -> list[str]:
-    script = Path(sys.executable).with_name("search-archive")
+    # Search is now a `vss-cli` primitive (the standalone `search-archive` script
+    # was folded into `vss-cli search`); the `search` positional comes first.
+    script = Path(sys.executable).with_name("vss-cli")
     if script.exists():
-        return [str(script)]
+        return [str(script), "search"]
     return [
         sys.executable,
         "-c",
-        "from lib.search_core.cli import archive_search_main; raise SystemExit(archive_search_main())",
+        "from lib.search_core.cli import main; raise SystemExit(main())",
+        "search",
     ]
 
 

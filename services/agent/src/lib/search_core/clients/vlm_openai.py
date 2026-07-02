@@ -37,6 +37,7 @@ import cv2
 import httpx
 
 from .._internal.retry import create_retry_strategy
+from .._internal.sanitize import scrub_log
 from ..errors import BackendUnreachableError
 
 if TYPE_CHECKING:
@@ -51,6 +52,15 @@ _VLM_RETRYABLE_ERRORS = (httpx.TimeoutException, httpx.TransportError)
 
 class _RetryableVLMStatusError(Exception):
     """Raised for HTTP 5xx responses so tenacity retries the request."""
+
+
+class _FrameExtractionError(ValueError):
+    """Raised when decoding/selecting frames from a VST clip fails.
+
+    A ``ValueError`` subclass so it is distinguishable from response-parse
+    ValueErrors, letting ``analyze`` report clip/frame problems separately from
+    "invalid VLM response format".
+    """
 
 
 class OpenAIVLMAnalyzer:
@@ -143,11 +153,19 @@ class OpenAIVLMAnalyzer:
                 "POST", self._chat_completions_url, headers=headers, json=payload
             )
             return _extract_chat_content(response.json())
+        except BackendUnreachableError:
+            # Library errors from the injected VST dependency (backend="vst") or
+            # elsewhere already carry backend context — let them propagate as-is
+            # rather than masking them as a VLM error.
+            raise
+        except _FrameExtractionError as e:
+            logger.error("VLM frame extraction failed: %s", scrub_log(e))
+            raise BackendUnreachableError("vlm", f"Frame extraction from VST clip failed: {e}", e) from e
         except (httpx.HTTPError, _RetryableVLMStatusError) as e:
-            logger.error("VLM request failed: %s", e)
+            logger.error("VLM request failed: %s", scrub_log(e))
             raise BackendUnreachableError("vlm", str(e), e) from e
         except (KeyError, IndexError, TypeError, ValueError) as e:
-            logger.error("Invalid VLM response: %s", e)
+            logger.error("Invalid VLM response: %s", scrub_log(e))
             raise BackendUnreachableError("vlm", f"Invalid VLM response format: {e}", e) from e
 
     async def _request_with_retries(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
@@ -158,7 +176,7 @@ class OpenAIVLMAnalyzer:
             with retry:
                 response = await self._get_client().request(method, url, **kwargs)
                 if response.status_code >= 500:
-                    raise _RetryableVLMStatusError(f"HTTP {response.status_code}: {response.text[:200]}")
+                    raise _RetryableVLMStatusError(f"HTTP {response.status_code}: {scrub_log(response.text[:200])}")
                 response.raise_for_status()
                 return response
         raise _RetryableVLMStatusError("VLM request failed")
@@ -205,7 +223,7 @@ class OpenAIVLMAnalyzer:
             self._max_fps,
         )
         if not frame_b64s:
-            raise ValueError("No frames selected from VST clip")
+            raise _FrameExtractionError("No frames selected from VST clip")
         return [
             {
                 "type": "text",
@@ -276,12 +294,12 @@ def _select_base64_frames(video_bytes: bytes, duration_seconds: float, max_frame
 def _frame_select(video_path: str, duration_seconds: float, step_size: float) -> list[str]:
     cap = cv2.VideoCapture(str(Path(video_path)))
     if not cap.isOpened():
-        raise ValueError(f"Could not open video file: {video_path}")
+        raise _FrameExtractionError(f"Could not open video file: {video_path}")
     try:
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if fps <= 0 or total_frames <= 0:
-            raise ValueError("Video has no readable frames")
+            raise _FrameExtractionError("Video has no readable frames")
         end_frame = min(total_frames - 1, math.ceil(duration_seconds * fps))
         step_size_frame = max(1, math.floor(step_size * fps))
         selected_frames = list(range(0, end_frame, step_size_frame))
@@ -293,10 +311,10 @@ def _frame_select(video_path: str, duration_seconds: float, step_size: float) ->
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ok, frame = cap.read()
             if not ok:
-                raise ValueError(f"Could not read frame {frame_idx} from {video_path}")
+                raise _FrameExtractionError(f"Could not read frame {frame_idx} from {video_path}")
             ok, buffer = cv2.imencode(".jpg", frame)
             if not ok:
-                raise ValueError(f"Could not encode frame {frame_idx} from {video_path}")
+                raise _FrameExtractionError(f"Could not encode frame {frame_idx} from {video_path}")
             base64_frames.append(base64.b64encode(buffer.tobytes()).decode("ascii"))
         return base64_frames
     finally:

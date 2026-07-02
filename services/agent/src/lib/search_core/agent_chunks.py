@@ -14,14 +14,10 @@
 # limitations under the License.
 """AgentMessageChunk / AgentMessageChunkType — streaming-chunk types.
 
-These types are part of the legacy NAT streaming contract: ``search_agent.py``
-does ``isinstance(update, AgentMessageChunk)`` against chunks yielded by
-``execute_core_search``. To keep that check valid there must be exactly ONE
-class object, and that object must be importable from both the library and
-the legacy ``vss_agents.agents.data_models`` namespace.
-
-This module is the canonical home; ``vss_agents.agents.data_models``
-re-imports the same names so external callers don't need to change.
+Consumers ``isinstance``-check chunks yielded during orchestrator streaming, so
+there must be exactly ONE class object shared across every import site. This
+module is the canonical home; compatibility namespaces re-import these same
+names rather than redefining them, keeping the identity check valid.
 """
 
 from __future__ import annotations

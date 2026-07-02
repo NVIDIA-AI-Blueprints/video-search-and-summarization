@@ -1,14 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Unit tests for the pure attribute-search helpers (no async, no backends)."""
+"""Unit tests for the attribute-search helpers.
+
+Most helpers are pure/synchronous and are exercised with plain dicts; the small
+set of async IO/enrichment helpers is exercised with lightweight mocks (no live
+backends) at the bottom of the file.
+"""
 
 from __future__ import annotations
 
 from datetime import UTC
 from datetime import datetime
+from typing import Any
 
 import pytest
 
+from lib.search_core._internal.time_convert import iso8601_instants_match
 from lib.search_core.models.attribute_search import AttributeSearchMetadata
 from lib.search_core.models.attribute_search import AttributeSearchResult
 from lib.search_core.primitives import _attribute_helpers as ah
@@ -211,3 +218,342 @@ def test_deduplicate_keeps_distinct_objects():
     r1 = _result("s", "1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
     r2 = _result("s", "2", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
     assert len(ah.deduplicate_by_object([r1, r2])) == 2
+
+
+def test_deduplicate_reads_aligned_candidate_source():
+    # H2: candidates are aligned 1:1 with results, so the widen reads the RIGHT
+    # candidate's _source even though a leading hit was skipped upstream.
+    r1 = _result("s", "1", "2025-01-01T00:00:05Z", "2025-01-01T00:00:06Z")
+    r2 = _result("s", "1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:10Z")
+    aligned_candidates = [
+        {"_source": {"timestamp": "2025-01-01T00:00:05Z", "end": "2025-01-01T00:00:06Z"}},
+        {"_source": {"timestamp": "2025-01-01T00:00:00Z", "end": "2025-01-01T00:00:10Z"}},
+    ]
+    merged = ah.deduplicate_by_object([r1, r2], aligned_candidates)
+    assert len(merged) == 1
+    assert merged[0].metadata.start_time == "2025-01-01T00:00:00Z"
+    assert merged[0].metadata.end_time == "2025-01-01T00:00:10Z"
+
+
+def test_deduplicate_does_not_merge_unknown_sensor():
+    # H3: id-less rows carry the "unknown" sentinel and must stay distinct.
+    r1 = _result("unknown", "unknown", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+    r2 = _result("unknown", "unknown", "2025-01-01T00:00:02Z", "2025-01-01T00:00:03Z")
+    assert len(ah.deduplicate_by_object([r1, r2])) == 2
+
+
+def test_deduplicate_does_not_merge_unknown_object_id():
+    r1 = _result("cam1", "unknown", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+    r2 = _result("cam1", "unknown", "2025-01-01T00:00:02Z", "2025-01-01T00:00:03Z")
+    assert len(ah.deduplicate_by_object([r1, r2])) == 2
+
+
+def test_deduplicate_mixes_unknown_and_known():
+    known1 = _result("cam1", "1", "2025-01-01T00:00:05Z", "2025-01-01T00:00:06Z")
+    known2 = _result("cam1", "1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:10Z")
+    unknown1 = _result("unknown", "unknown", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+    unknown2 = _result("unknown", "unknown", "2025-01-01T00:00:02Z", "2025-01-01T00:00:03Z")
+    merged = ah.deduplicate_by_object([known1, known2, unknown1, unknown2])
+    # known1/known2 collapse to one; the two unknowns stay distinct.
+    assert len(merged) == 3
+
+
+# ---------------------------------------------------------------- exclusion
+
+
+def test_timestamps_match_exact():
+    assert iso8601_instants_match("2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z")
+
+
+def test_timestamps_match_z_vs_offset():
+    # "Z" and "+00:00" spell the same instant and must compare equal.
+    assert iso8601_instants_match("2025-01-01T00:00:00Z", "2025-01-01T00:00:00+00:00")
+
+
+def test_timestamps_match_different_instants():
+    assert not iso8601_instants_match("2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+
+
+def test_timestamps_match_unparseable_falls_back_to_equality():
+    assert not iso8601_instants_match("bad", "worse")
+    assert iso8601_instants_match("same", "same")
+
+
+def test_is_attribute_excluded_by_raw_sensor_id():
+    assert ah._is_attribute_excluded(
+        sensor_id_raw="cam1",
+        stream_id=None,
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:10Z",
+        exclude_videos=[
+            {"sensor_id": "cam1", "start_timestamp": "2025-01-01T00:00:00Z", "end_timestamp": "2025-01-01T00:00:10Z"}
+        ],
+    )
+
+
+def test_is_attribute_excluded_by_resolved_stream_id():
+    # #9: exclude entry references the resolved stream id, raw id is a camera name.
+    assert ah._is_attribute_excluded(
+        sensor_id_raw="cam1",
+        stream_id="8fce43a6-1c35-4d6a-b6e3-391c42090a87",
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:10Z",
+        exclude_videos=[
+            {
+                "sensor_id": "8fce43a6-1c35-4d6a-b6e3-391c42090a87",
+                "start_timestamp": "2025-01-01T00:00:00Z",
+                "end_timestamp": "2025-01-01T00:00:10Z",
+            }
+        ],
+    )
+
+
+def test_is_attribute_excluded_tolerates_timestamp_spelling():
+    # #9: "Z" (result) vs "+00:00" (exclude entry) must still match.
+    assert ah._is_attribute_excluded(
+        sensor_id_raw="cam1",
+        stream_id=None,
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:10Z",
+        exclude_videos=[
+            {
+                "sensor_id": "cam1",
+                "start_timestamp": "2025-01-01T00:00:00+00:00",
+                "end_timestamp": "2025-01-01T00:00:10+00:00",
+            }
+        ],
+    )
+
+
+def test_is_attribute_excluded_no_match_on_sensor():
+    assert not ah._is_attribute_excluded(
+        sensor_id_raw="cam1",
+        stream_id="uuid",
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:10Z",
+        exclude_videos=[
+            {"sensor_id": "other", "start_timestamp": "2025-01-01T00:00:00Z", "end_timestamp": "2025-01-01T00:00:10Z"}
+        ],
+    )
+
+
+# ---------------------------------------------------------------- append ranking
+
+
+def test_append_rank_key_orders_by_score_then_ids():
+    hi = _result("camB", "2", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+    hi.metadata.behavior_score = 0.9
+    lo = _result("camA", "1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+    lo.metadata.behavior_score = 0.4
+    ordered = sorted([lo, hi], key=ah._append_rank_key)
+    assert [r.metadata.behavior_score for r in ordered] == [0.9, 0.4]
+
+
+def test_append_rank_key_deterministic_tiebreak():
+    a = _result("camA", "1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+    b = _result("camA", "2", "2025-01-01T00:00:00Z", "2025-01-01T00:00:01Z")
+    a.metadata.behavior_score = 0.5
+    b.metadata.behavior_score = 0.5
+    ordered = sorted([b, a], key=ah._append_rank_key)
+    assert [r.metadata.object_id for r in ordered] == ["1", "2"]
+
+
+# ---------------------------------------------------------------- async: frame lookup
+
+
+class _MockFramesEs:
+    """Minimal ElasticIndex surface for frame-lookup tests."""
+
+    def __init__(self, *, score: float = 0.8, hits: list[dict] | None = None, raise_exc: Exception | None = None):
+        self._score = score
+        self._hits = hits
+        self._raise = raise_exc
+        self.bodies: list[dict[str, Any]] = []
+
+    async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
+        self.bodies.append(body)
+        if self._raise is not None:
+            raise self._raise
+        if self._hits is not None:
+            return {"hits": {"hits": self._hits}}
+        return {
+            "hits": {
+                "hits": [
+                    {
+                        "_score": self._score,
+                        "_source": {
+                            "id": "frame1",
+                            "timestamp": "2025-01-01T00:00:03Z",
+                            "objects": [{"id": "42", "bbox": {"leftX": 1, "rightX": 2, "topY": 3, "bottomY": 4}}],
+                        },
+                    }
+                ]
+            }
+        }
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_get_frame_reports_score_verbatim_no_double_transform():
+    # #6: the Painless script already returns (1 + cosine) / 2, so Python reports
+    # _score verbatim rather than re-normalizing.
+    es = _MockFramesEs(score=0.8)
+    result = await ah._get_frame_from_behavior(
+        frames_index="frames",
+        sensor_id="cam1",
+        object_id="42",
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:10Z",
+        query_embedding=[0.1, 0.2],
+        es=es,
+    )
+    _frame_id, _bbox, frame_score, _ts = result
+    assert frame_score == 0.8  # not (0.8 + 1) / 2
+
+
+@pytest.mark.asyncio
+async def test_get_frame_script_shifts_cosine_into_non_negative_range():
+    # #7: negative cosine would make script_score throw; the script shifts cosine
+    # into (1 + cosine) / 2 so the score is always non-negative.
+    es = _MockFramesEs(score=0.5)
+    await ah._get_frame_from_behavior(
+        frames_index="frames",
+        sensor_id="cam1",
+        object_id="42",
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:10Z",
+        query_embedding=[0.1],
+        es=es,
+    )
+    script = es.bodies[0]["query"]["function_score"]["script_score"]["script"]["source"]
+    assert "(maxScore + 1.0) / 2.0" in script
+
+
+@pytest.mark.asyncio
+async def test_get_frame_no_hits_returns_empty_tuple():
+    es = _MockFramesEs(hits=[])
+    assert await ah._get_frame_from_behavior(
+        frames_index="frames",
+        sensor_id="cam1",
+        object_id="42",
+        start_time="s",
+        end_time="e",
+        query_embedding=[0.1],
+        es=es,
+    ) == (None, None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_get_frame_swallows_errors():
+    es = _MockFramesEs(raise_exc=RuntimeError("boom"))
+    assert await ah._get_frame_from_behavior(
+        frames_index="frames",
+        sensor_id="cam1",
+        object_id="42",
+        start_time="s",
+        end_time="e",
+        query_embedding=[0.1],
+        es=es,
+    ) == (None, None, None, None)
+
+
+def _candidate(object_id: Any, sensor_id: Any = "cam1") -> dict:
+    return {"_source": {"object": {"id": object_id}, "sensor": {"id": sensor_id}}}
+
+
+@pytest.mark.asyncio
+async def test_perform_frame_lookups_skips_without_window():
+    es = _MockFramesEs()
+    out = await ah._perform_frame_lookups(
+        candidates=[_candidate(1), _candidate(2)],
+        query_embedding=[0.1],
+        frames_index="frames",
+        timestamp_start=None,
+        timestamp_end=None,
+        es=es,
+    )
+    assert out == [None, None]
+    assert es.bodies == []  # no lookups issued
+
+
+@pytest.mark.asyncio
+async def test_perform_frame_lookups_aligns_results_to_candidates():
+    # A candidate missing an id maps to None in place; ids are looked up around it,
+    # keeping the returned list positionally aligned with candidates.
+    es = _MockFramesEs(score=0.8)
+    candidates = [_candidate(1), _candidate(None), _candidate(3)]
+    out = await ah._perform_frame_lookups(
+        candidates=candidates,
+        query_embedding=[0.1],
+        frames_index="frames",
+        timestamp_start=datetime(2025, 1, 1, tzinfo=UTC),
+        timestamp_end=datetime(2025, 1, 2, tzinfo=UTC),
+        es=es,
+    )
+    assert len(out) == 3
+    assert isinstance(out[0], tuple)
+    assert out[1] is None  # id-less candidate skipped, position preserved
+    assert isinstance(out[2], tuple)
+    assert len(es.bodies) == 2  # only the two id-bearing candidates were looked up
+
+
+# ---------------------------------------------------------------- async: screenshots (H1)
+
+
+def _enrichable(sensor: str | None, frame_ts: str | None) -> AttributeSearchResult:
+    return AttributeSearchResult(
+        metadata=AttributeSearchMetadata(
+            sensor_id=sensor or "",
+            object_id="1",
+            object_type="p",
+            frame_timestamp=frame_ts,
+            start_time="2025-01-01T00:00:00Z",
+            end_time="2025-01-01T00:00:10Z",
+            behavior_score=0.9,
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_attach_screenshots_keeps_result_missing_timestamp(monkeypatch):
+    # H1: a result without a frame_timestamp is kept (without a screenshot), never dropped.
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "streamX"
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    result = _enrichable("cam1", frame_ts=None)
+    out = await ah._attach_screenshots([result], vst_internal_url=None, vst_external_url="http://vst", attr_query="q")
+    assert len(out) == 1
+    assert out[0].screenshot_url is None
+    assert out[0].metadata.video_name == "cam1"  # raw sensor id captured as display name
+
+
+@pytest.mark.asyncio
+async def test_attach_screenshots_keeps_result_on_vst_failure(monkeypatch):
+    # H1: a VST resolution failure keeps the result (without a screenshot).
+    async def _boom(sensor_id: str, base_url: str) -> str:
+        raise RuntimeError("vst down")
+
+    monkeypatch.setattr(ah, "get_stream_id", _boom)
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+    out = await ah._attach_screenshots([result], vst_internal_url=None, vst_external_url="http://vst", attr_query="q")
+    assert len(out) == 1
+    assert out[0].screenshot_url is None
+
+
+@pytest.mark.asyncio
+async def test_attach_screenshots_builds_url_on_success(monkeypatch):
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "streamX"
+
+    def _url(base: str, stream_id: str, ts: str) -> str:
+        return f"{base}/{stream_id}/{ts}"
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    monkeypatch.setattr(ah, "build_screenshot_url", _url)
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+    out = await ah._attach_screenshots([result], vst_internal_url=None, vst_external_url="http://vst", attr_query="q")
+    assert out[0].metadata.sensor_id == "streamX"
+    assert out[0].screenshot_url == "http://vst/streamX/2025-01-01T00:00:05Z"

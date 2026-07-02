@@ -38,9 +38,11 @@ from typing import Literal
 
 from elasticsearch import NotFoundError as ESNotFoundError
 
+from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter
 from .._internal.sanitize import scrub_log
 from .._internal.time_convert import datetime_to_iso8601
+from .._internal.time_convert import iso8601_instants_match
 from .._internal.time_convert import iso8601_to_datetime
 from .._internal.time_convert import safe_iso8601_to_datetime
 from .._internal.time_measure import TimeMeasure
@@ -72,6 +74,15 @@ _BEHAVIOR_SOURCE_FIELDS = [
     "timestamp",
     "end",
 ]
+
+# Sentinel used by :func:`hit_to_result` when an object/sensor id is absent. Rows
+# carrying it are never merged during dedup (a missing id is not evidence that
+# two detections are the same object).
+_UNKNOWN_ID = "unknown"
+
+# Result of a per-object best-frame lookup: (frame_id, bbox, frame_score,
+# frame_timestamp). Any element may be None when the enhancement misses.
+FrameLookupResult = tuple[int | None, dict[str, Any] | None, float | None, str | None]
 
 
 # =============================================================================
@@ -128,7 +139,18 @@ def build_behavior_knn_body(
     min_similarity: float,
     filter_clauses: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Build the behavior-index kNN search body."""
+    """Build the behavior-index kNN search body.
+
+    Score space: the behavior index stores cosine ``dense_vector`` fields, and
+    Elasticsearch reports the kNN ``_score`` for a cosine vector as the shifted
+    value ``(1 + cosine) / 2`` (mapped to ``[0, 1]``, never negative). We pass
+    ``min_similarity`` straight through as the ES ``min_score``, so it is a
+    threshold in that same ``(1 + cosine) / 2`` space — NOT raw cosine in
+    ``[-1, 1]``. Callers that reason in raw cosine must shift first
+    (``min_score = (1 + cosine) / 2``). This is intentionally consistent with the
+    frame-lookup score (see :func:`_get_frame_from_behavior`), which also reports
+    ``(1 + cosine) / 2``.
+    """
     fetch_k = compute_fetch_k(top_k)
     knn_query: dict[str, Any] = {
         "field": "embeddings.vector",
@@ -156,18 +178,6 @@ def midpoint_iso(start_iso: str, end_iso: str) -> str | None:
     return datetime_to_iso8601(start_dt + (end_dt - start_dt) / 2)
 
 
-def _coerce_str(value: Any, default: str = "") -> str:
-    """Coerce a possibly-missing / odd-typed value to a clean string.
-
-    Distinguishes a genuinely absent value (``None`` or ``""``) from falsy-but-
-    valid values like ``0`` so that, for example, object id ``0`` is preserved
-    rather than collapsed to the default.
-    """
-    if value is None or value == "":
-        return default
-    return str(value)
-
-
 def _behavior_bbox(obj: dict[str, Any]) -> dict[str, Any] | None:
     bbox = obj.get("bbox") or {}
     if not bbox:
@@ -182,7 +192,7 @@ def _behavior_bbox(obj: dict[str, Any]) -> dict[str, Any] | None:
 
 def hit_to_result(
     hit: dict[str, Any],
-    frame_result: Any,
+    frame_result: FrameLookupResult | None,
     input_timestamp_start: datetime | None = None,
     input_timestamp_end: datetime | None = None,
 ) -> AttributeSearchResult:
@@ -196,9 +206,9 @@ def hit_to_result(
     source = hit.get("_source") or {}
     obj = source.get("object") or {}
     sensor = source.get("sensor") or {}
-    object_id = _coerce_str(obj.get("id"), "unknown")
-    sensor_id = _coerce_str(sensor.get("id"), "unknown")
-    object_type = _coerce_str(obj.get("type"), "unknown")
+    object_id = _coerce_str(obj.get("id"), _UNKNOWN_ID)
+    sensor_id = _coerce_str(sensor.get("id"), _UNKNOWN_ID)
+    object_type = _coerce_str(obj.get("type"), _UNKNOWN_ID)
 
     frame_bbox = None
     query_to_frame_score = None
@@ -246,23 +256,44 @@ def deduplicate_by_object(
     results: list[AttributeSearchResult],
     candidates: list[dict[str, Any]] | None = None,
 ) -> list[AttributeSearchResult]:
-    """Merge duplicate (sensor_id, object_id) results, widening the time range."""
-    merged: dict[tuple[str, str], tuple[AttributeSearchResult, int]] = {}
+    """Merge duplicate ``(sensor_id, object_id)`` results, widening the time range.
+
+    When ``candidates`` is provided it MUST be positionally aligned with
+    ``results`` (``candidates[i]`` is the raw hit that produced ``results[i]``);
+    callers build the two lists in lockstep so a skipped hit cannot desync the
+    indices and make the time-widen read the wrong ``_source``.
+
+    Rows whose sensor or object id is the ``"unknown"`` sentinel are never merged
+    — a missing id is not evidence that two detections are the same object — so
+    each such row is preserved as a distinct result.
+    """
+    # Output slots preserve first-seen order; each remembers the candidate index
+    # that produced it so a later duplicate can widen its time range correctly.
+    slots: list[tuple[AttributeSearchResult, int]] = []
+    key_to_slot: dict[tuple[str, str], int] = {}
     duplicate_count = 0
     merge_count = 0
 
     for idx, result in enumerate(results):
         if not result.metadata:
             continue
-        key = (result.metadata.sensor_id, result.metadata.object_id)
+        sensor_id = result.metadata.sensor_id
+        object_id = result.metadata.object_id
+        mergeable = sensor_id != _UNKNOWN_ID and object_id != _UNKNOWN_ID
+        key = (sensor_id, object_id)
 
-        if key not in merged:
-            merged[key] = (result, idx)
+        if not mergeable or key not in key_to_slot:
+            if mergeable:
+                key_to_slot[key] = len(slots)
+            slots.append((result, idx))
             continue
 
-        existing_result, existing_idx = merged[key]
+        slot_pos = key_to_slot[key]
+        existing_result, existing_idx = slots[slot_pos]
         duplicate_count += 1
         if not (candidates and existing_idx < len(candidates) and idx < len(candidates)):
+            continue
+        if not existing_result.metadata:
             continue
 
         existing_source = candidates[existing_idx].get("_source", {})
@@ -282,9 +313,9 @@ def deduplicate_by_object(
     if duplicate_count > 0:
         logger.info(
             f"Deduplication: found {duplicate_count} duplicate(s), merged {merge_count} time range(s). "
-            f"Kept {len(merged)} unique result(s) from {len(results)} total."
+            f"Kept {len(slots)} unique result(s) from {len(results)} total."
         )
-    return [result for result, _ in merged.values()]
+    return [result for result, _ in slots]
 
 
 def _earlier(candidate: str | None, current: str | None) -> str | None:
@@ -307,6 +338,35 @@ def _later(candidate: str | None, current: str | None) -> str | None:
             return candidate
         return current
     return candidate or current
+
+
+def _is_attribute_excluded(
+    *,
+    sensor_id_raw: str,
+    stream_id: str | None,
+    start_time: str | None,
+    end_time: str | None,
+    exclude_videos: list[dict[str, str]],
+) -> bool:
+    """Return True when this (sensor, window) is in ``exclude_videos``.
+
+    Mirrors ``_embed_helpers.is_excluded``: an entry matches when its
+    ``sensor_id`` equals either the raw behavior ``sensor.id`` or the resolved
+    stream id, and its start/end match by instant (tolerating ``Z`` vs
+    ``+00:00`` and differing fractional-second widths) via the shared
+    :func:`iso8601_instants_match`. Matching the resolved id matters for RTSP,
+    where callers build exclude lists from the returned (resolved) ``sensor_id``.
+    """
+    for ex in exclude_videos:
+        ex_sensor = ex.get("sensor_id", "")
+        sensor_matches = ex_sensor == sensor_id_raw or (stream_id is not None and ex_sensor == stream_id)
+        if not sensor_matches:
+            continue
+        if iso8601_instants_match(start_time, ex.get("start_timestamp", "")) and iso8601_instants_match(
+            end_time, ex.get("end_timestamp", "")
+        ):
+            return True
+    return False
 
 
 # =============================================================================
@@ -360,11 +420,19 @@ async def _get_frame_from_behavior(
     end_time: str | None,
     query_embedding: list[float],
     es: ElasticIndex,
-) -> tuple[int | None, dict | None, float | None, str | None]:
+) -> FrameLookupResult:
     """Best-effort per-object best-frame lookup via a Painless cosine score.
 
     Frame lookup is an enhancement: any failure returns an empty result so the
     parent search still yields behavior-level matches.
+
+    Score space: the Painless script shifts raw cosine ``[-1, 1]`` into
+    ``(1 + cosine) / 2`` (``[0, 1]``) BEFORE returning it as ``_score``. This is
+    required because Elasticsearch ``script_score`` rejects negative scores, so a
+    negative cosine would otherwise throw and silently lose the frame. Because the
+    script already normalizes, Python reports ``_score`` verbatim (no second
+    transform) — the returned ``frame_score`` is in ``(1 + cosine) / 2`` space,
+    matching the behavior-index score (see :func:`build_behavior_knn_body`).
     """
     try:
         search_frames_index_str = frames_index if isinstance(frames_index, str) else ",".join(frames_index)
@@ -391,7 +459,9 @@ async def _get_frame_from_behavior(
             "    } "
             "  } "
             "} "
-            "return maxScore > -2.0 ? maxScore : 0.0;"
+            # Shift cosine [-1, 1] into [0, 1]: script_score rejects negative
+            # scores, so a negative cosine would throw and lose the frame.
+            "return maxScore > -2.0 ? (maxScore + 1.0) / 2.0 : 0.0;"
         )
         search_query = {
             "query": {
@@ -438,8 +508,9 @@ async def _get_frame_from_behavior(
 
         best_hit = hits[0]
         frame_source = best_hit["_source"]
-        raw_score = best_hit["_score"]
-        best_score = (raw_score + 1.0) / 2.0 if raw_score > 0.0 else 0.0
+        # The script already normalized cosine to (1 + cosine) / 2 in [0, 1];
+        # report it verbatim rather than transforming a second time.
+        best_score = float(best_hit["_score"])
         best_frame_id = frame_source.get("id")
         best_timestamp = frame_source.get("timestamp", "")
 
@@ -469,8 +540,13 @@ async def _perform_frame_lookups(
     timestamp_start: datetime | None,
     timestamp_end: datetime | None,
     es: ElasticIndex,
-) -> list[tuple[int | None, dict | None, float | None, str | None] | None]:
-    """Run per-candidate frame lookups in parallel; misses/errors map to None."""
+) -> list[FrameLookupResult | None]:
+    """Run per-candidate frame lookups in parallel; misses/errors map to None.
+
+    The returned list is positionally aligned with ``candidates``: element ``i``
+    is the frame result for ``candidates[i]`` (``None`` when that candidate had no
+    id, missed, or raised), so the caller can zip results back to hits by index.
+    """
     if not timestamp_start or not timestamp_end:
         logger.warning("Frame lookup requires timestamp_start and timestamp_end - skipping frame lookups")
         return [None] * len(candidates)
@@ -621,7 +697,7 @@ async def _extend_clip_to_one_second(
 
 def _safe_hit_to_result(
     hit: dict[str, Any],
-    frame_result: Any,
+    frame_result: FrameLookupResult | None,
 ) -> AttributeSearchResult | None:
     """Map a hit to a result, skipping (and logging) any single unprocessable hit."""
     try:
@@ -671,6 +747,10 @@ async def search_by_attributes(
         return []
 
     results: list[AttributeSearchResult] = []
+    # Keep the candidate that produced each result positionally aligned with
+    # ``results``: a skipped (unprocessable) hit must not desync the indices dedup
+    # relies on to widen the correct hit's time range.
+    aligned_candidates: list[dict[str, Any]] = []
     if enable_frame_lookup and frames_index:
         with TimeMeasure("attribute_search: frame lookups"):
             frame_results = await _perform_frame_lookups(
@@ -686,20 +766,31 @@ async def search_by_attributes(
             item = _safe_hit_to_result(hit, frame_result)
             if item is not None:
                 results.append(item)
+                aligned_candidates.append(hit)
     else:
         for hit in candidates:
             item = _safe_hit_to_result(hit, None)
             if item is not None:
                 results.append(item)
+                aligned_candidates.append(hit)
 
     with TimeMeasure("attribute_search: deduplication"):
-        results = deduplicate_by_object(results, candidates)
+        results = deduplicate_by_object(results, aligned_candidates)
 
-    exclude_set = {
-        (ev.get("sensor_id", ""), ev.get("start_timestamp", ""), ev.get("end_timestamp", "")) for ev in exclude_videos
-    }
+    # Stream-id resolution happens later at the enrichment layer, so only the raw
+    # behavior ``sensor.id`` is available here; the helper still matches when the
+    # exclude entry uses that raw id and normalizes timestamps either way.
     results = [
-        r for r in results if (r.metadata.sensor_id, r.metadata.start_time, r.metadata.end_time) not in exclude_set
+        r
+        for r in results
+        if r.metadata
+        and not _is_attribute_excluded(
+            sensor_id_raw=r.metadata.sensor_id,
+            stream_id=None,
+            start_time=r.metadata.start_time,
+            end_time=r.metadata.end_time,
+            exclude_videos=exclude_videos,
+        )
     ]
 
     if 0 < top_k < len(results):
@@ -779,12 +870,14 @@ async def search_attributes(
     logger.info(f"Searching {len(queries)} attribute(s) (fuse_multi_attribute={search_input.fuse_multi_attribute})")
 
     source_type = search_input.source_type
-    if source_type == "video_file":
-        search_index: str | list[str] = index
-        search_frames_index: str | list[str] | None = frames_index
+    search_index: str | list[str] = resolve_index_by_source_type(index, source_type, behavior_index_wildcard)
+    search_frames_index: str | list[str] | None
+    if frames_index:
+        search_frames_index = resolve_index_by_source_type(frames_index, source_type, frames_index_wildcard)
+    elif source_type == "video_file":
+        search_frames_index = None
     else:
-        search_index = [behavior_index_wildcard, "-" + index]
-        search_frames_index = [frames_index_wildcard, "-" + frames_index] if frames_index else frames_index_wildcard
+        search_frames_index = frames_index_wildcard
 
     logger.info(f"Search index(es): {search_index} (source_type={source_type})")
 
@@ -824,7 +917,13 @@ async def _fuse_multi_attribute(
     vst_internal_url: str | None,
     es: ElasticIndex,
 ) -> list[AttributeSearchResult]:
-    """Fuse mode: run each attribute (top_k=1) and share one screenshot."""
+    """Fuse mode: run each attribute (top_k=1), then resolve one screenshot per result.
+
+    Each attribute runs independently; a per-attribute failure is isolated the
+    same way append mode isolates one — systemic ``SearchError`` (missing index,
+    backend unreachable) re-raises, while a non-systemic failure only drops that
+    attribute's contribution instead of sinking the whole fuse request.
+    """
     single = search_input.model_copy(update={"top_k": 1, "fuse_multi_attribute": True})
     tasks = [
         search_single_attribute(
@@ -838,44 +937,25 @@ async def _fuse_multi_attribute(
         )
         for q in queries
     ]
-    results_list = await asyncio.gather(*tasks)
-    all_results = [result for results in results_list for result in results]
+    results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+    all_results: list[AttributeSearchResult] = []
+    for query, outcome in zip(queries, results_list, strict=True):
+        if isinstance(outcome, SearchError):
+            raise outcome
+        if isinstance(outcome, BaseException):
+            if not isinstance(outcome, Exception):
+                raise outcome  # never swallow CancelledError / KeyboardInterrupt
+            logger.warning(f"Attribute search failed for '{scrub_log(query)}': {outcome}", exc_info=outcome)
+            continue
+        all_results.extend(outcome)
     logger.info(f"Found {len(all_results)} result(s) from {len(queries)} attribute(s)")
 
-    object_ids: list[int] = []
-    sensor_id: str | None = None
-    frame_timestamps: list[str] = []
-    for result in all_results:
-        if not result.metadata:
-            continue
-        try:
-            object_ids.append(int(result.metadata.object_id))
-            if sensor_id is None:
-                sensor_id = result.metadata.sensor_id
-            if result.metadata.frame_timestamp:
-                frame_timestamps.append(result.metadata.frame_timestamp)
-        except (ValueError, TypeError):
-            pass
-
-    if sensor_id and vst_external_url and search_input.timestamp_start and search_input.timestamp_end:
-        try:
-            start_time = search_input.timestamp_start.isoformat().replace("+00:00", "Z")
-            vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
-            stream_id = await get_stream_id(sensor_id, vst_internal_for_resolution)
-            if stream_id:
-                screenshot_timestamp = start_time
-                if frame_timestamps:
-                    sorted_timestamps = sorted(frame_timestamps)
-                    screenshot_timestamp = sorted_timestamps[len(sorted_timestamps) // 2]
-                screenshot_url = build_screenshot_url(vst_external_url, stream_id, screenshot_timestamp)
-                for result in all_results:
-                    if screenshot_url and not result.screenshot_url:
-                        result.screenshot_url = screenshot_url
-                    if result.metadata:
-                        result.metadata.sensor_id = stream_id
-                logger.info(f"Generated screenshot for {len(object_ids)} object(s) at stream {stream_id}")
-        except Exception as e:
-            logger.warning(f"Failed to generate screenshot: {e}", exc_info=True)
+    # Resolve stream ids / screenshots per result: a fused result set can span
+    # several sensors, so relabeling every result with one sensor's stream id (and
+    # sharing one screenshot) would misattribute matches on other sensors.
+    if vst_external_url:
+        await enrich_attribute_results(all_results, vst_internal_url, vst_external_url)
 
     return all_results
 
@@ -931,10 +1011,21 @@ async def _append_multi_attribute(
     logger.info(f"Append mode: {len(all_results)} total result(s) from {len(queries)} attribute(s)")
 
     all_results = deduplicate_by_object(all_results)
+    # Results are concatenated in query order; rank globally by behavior_score
+    # before the top_k slice so a higher-scoring later-attribute match is not
+    # truncated in favor of a lower-scoring earlier one. Tiebreak deterministically
+    # on (sensor_id, object_id).
+    all_results.sort(key=_append_rank_key)
     top_k = search_input.top_k
     if top_k > 0 and len(all_results) > top_k:
         all_results = all_results[:top_k]
     return all_results
+
+
+def _append_rank_key(result: AttributeSearchResult) -> tuple[float, str, str]:
+    """Sort key for append-mode ranking: highest ``behavior_score`` first."""
+    metadata = result.metadata
+    return (-metadata.behavior_score, metadata.sensor_id, metadata.object_id)
 
 
 async def _attach_screenshots(
@@ -943,13 +1034,26 @@ async def _attach_screenshots(
     vst_external_url: str,
     attr_query: str,
 ) -> list[AttributeSearchResult]:
-    """Resolve stream ids and screenshot URLs for append-mode results (best-effort)."""
-    valid: list[AttributeSearchResult] = []
+    """Resolve stream ids and screenshot URLs for append-mode results (best-effort).
+
+    Enrichment must NEVER drop a valid result: a result missing a
+    ``frame_timestamp`` or whose VST resolution fails is still returned (without a
+    screenshot), matching the parity of :func:`enrich_attribute_results` and the
+    fuse path. Every input result is present in the returned list.
+    """
     for result in attr_results:
-        if not (result.metadata and result.metadata.sensor_id and result.metadata.frame_timestamp):
+        if not (result.metadata and result.metadata.sensor_id):
+            continue
+        # Capture the raw sensor id as a display name before it is overwritten by
+        # the resolved stream id below.
+        result.metadata.video_name = result.metadata.sensor_id
+        if not result.metadata.frame_timestamp:
+            logger.warning(
+                f"Result for sensor {scrub_log(result.metadata.sensor_id)} lacks a frame_timestamp; "
+                f"returning it without a screenshot for attribute '{scrub_log(attr_query)}'"
+            )
             continue
         try:
-            result.metadata.video_name = result.metadata.sensor_id
             vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
             stream_id = await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
             if stream_id:
@@ -958,7 +1062,9 @@ async def _attach_screenshots(
                     result.screenshot_url = build_screenshot_url(
                         vst_external_url, stream_id, result.metadata.frame_timestamp
                     )
-            valid.append(result)
         except Exception as e:
-            logger.debug(f"Failed to generate screenshot for attribute '{scrub_log(attr_query)}': {e}")
-    return valid
+            logger.warning(
+                f"Failed to generate screenshot for attribute '{scrub_log(attr_query)}' "
+                f"(sensor {scrub_log(result.metadata.sensor_id)}); returning without screenshot: {e}"
+            )
+    return attr_results

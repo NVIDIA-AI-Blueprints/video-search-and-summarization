@@ -17,6 +17,7 @@ import pytest
 from lib.search_core import RuntimeSnapshot
 from lib.search_core import SearchOptions
 from lib.search_core import SearchRuntime
+from lib.search_core.errors import BackendUnreachableError
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.runtime import _interpolate
 
@@ -35,6 +36,15 @@ class TestInterpolate:
 
     def test_non_empty_value_overrides_default(self) -> None:
         assert _interpolate("${X:-fallback}", {"X": "set"}) == "set"
+
+    def test_newline_in_value_is_rejected(self) -> None:
+        # A value with an embedded newline could inject arbitrary YAML keys.
+        with pytest.raises(ConfigurationError, match="newline"):
+            _interpolate("es: ${X}", {"X": "http://es:9200\ninjected: true"})
+
+    def test_carriage_return_in_value_is_rejected(self) -> None:
+        with pytest.raises(ConfigurationError, match="newline"):
+            _interpolate("es: ${X}", {"X": "a\rb"})
 
     def test_no_default_form_unset_resolves_to_empty(self) -> None:
         assert _interpolate("${X}", {}) == ""
@@ -254,3 +264,259 @@ functions:
         assert snap.runtime.vlm_max_frames == 12
         assert snap.runtime.vlm_max_fps == 4
         assert snap.runtime.vst_clip_enable_audio is True
+
+
+# --------------------------------------------------------------- config load errors
+
+
+def _minimal_config_body() -> str:
+    return """
+functions:
+  embed_search:
+    es_endpoint: http://es:9200
+    cosmos_embed_endpoint: http://embed:8017
+    vst_internal_url: http://vst:30888
+    vst_external_url: http://vst.external
+  attribute_search:
+    rtvi_cv_endpoint: http://cv:9000
+"""
+
+
+class TestConfigLoadErrors:
+    """Malformed / unreadable config maps to ConfigurationError (exit 4), not exit 1."""
+
+    def test_malformed_yaml_raises_configuration_error(self, tmp_path) -> None:
+        config = tmp_path / "config.yml"
+        # Unbalanced brackets → yaml.YAMLError, which must become ConfigurationError.
+        config.write_text("functions: {search: [unclosed\n")
+        with pytest.raises(ConfigurationError, match="parse YAML"):
+            RuntimeSnapshot.from_config_file(config, env={})
+
+    def test_directory_as_config_raises_configuration_error(self, tmp_path) -> None:
+        directory = tmp_path / "a_directory"
+        directory.mkdir()
+        # Path.read_text on a directory raises IsADirectoryError (an OSError).
+        with pytest.raises(ConfigurationError, match="could not read config file"):
+            RuntimeSnapshot.from_config_file(directory, env={})
+
+    def test_missing_file_raises_configuration_error(self, tmp_path) -> None:
+        with pytest.raises(ConfigurationError, match="could not read config file"):
+            RuntimeSnapshot.from_config_file(tmp_path / "does-not-exist.yml", env={})
+
+
+# --------------------------------------------------------------- from_remote
+
+
+def _patch_httpx_with_handler(monkeypatch, handler) -> None:
+    """Route from_remote's httpx.Client through a MockTransport running `handler`."""
+    import httpx
+
+    real_client = httpx.Client
+
+    def factory(**kwargs):
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", factory)
+
+
+def _valid_remote_payload() -> dict:
+    return {
+        "es_endpoint": "http://es:9200",
+        "cosmos_embed_endpoint": "http://embed:8017",
+        "rtvi_cv_endpoint": "http://cv:9000",
+        "vst_internal_url": "http://vst:30888",
+        "vst_external_url": "http://vst:7777",
+        "search": {"use_attribute_search": True},
+    }
+
+
+class TestFromRemote:
+    """from_remote maps transport/HTTP/JSON failures onto library errors."""
+
+    def test_success_returns_snapshot(self, monkeypatch) -> None:
+        import httpx
+
+        def handler(request):
+            return httpx.Response(200, json=_valid_remote_payload())
+
+        _patch_httpx_with_handler(monkeypatch, handler)
+        snap = RuntimeSnapshot.from_remote("http://agent:8000")
+        assert snap.runtime.es_endpoint == "http://es:9200"
+        assert snap.search.use_attribute_search is True
+
+    def test_connection_error_maps_to_backend_unreachable(self, monkeypatch) -> None:
+        import httpx
+
+        def handler(request):
+            raise httpx.ConnectError("refused", request=request)
+
+        _patch_httpx_with_handler(monkeypatch, handler)
+        with pytest.raises(BackendUnreachableError) as excinfo:
+            RuntimeSnapshot.from_remote("http://agent:8000")
+        assert excinfo.value.backend == "agent"
+        assert isinstance(excinfo.value.__cause__, httpx.ConnectError)
+
+    def test_timeout_maps_to_backend_unreachable(self, monkeypatch) -> None:
+        import httpx
+
+        def handler(request):
+            raise httpx.ConnectTimeout("slow", request=request)
+
+        _patch_httpx_with_handler(monkeypatch, handler)
+        with pytest.raises(BackendUnreachableError) as excinfo:
+            RuntimeSnapshot.from_remote("http://agent:8000")
+        assert excinfo.value.backend == "agent"
+
+    def test_non_200_maps_to_configuration_error(self, monkeypatch) -> None:
+        import httpx
+
+        def handler(request):
+            return httpx.Response(503, text="unavailable")
+
+        _patch_httpx_with_handler(monkeypatch, handler)
+        with pytest.raises(ConfigurationError, match="HTTP 503"):
+            RuntimeSnapshot.from_remote("http://agent:8000")
+
+    def test_invalid_json_maps_to_configuration_error(self, monkeypatch) -> None:
+        import httpx
+
+        def handler(request):
+            return httpx.Response(200, text="not json")
+
+        _patch_httpx_with_handler(monkeypatch, handler)
+        with pytest.raises(ConfigurationError, match="invalid JSON"):
+            RuntimeSnapshot.from_remote("http://agent:8000")
+
+    def test_search_runtime_from_remote_returns_flat_runtime(self, monkeypatch) -> None:
+        import httpx
+
+        def handler(request):
+            return httpx.Response(200, json=_valid_remote_payload())
+
+        _patch_httpx_with_handler(monkeypatch, handler)
+        rt = SearchRuntime.from_remote("http://agent:8000")
+        assert rt.es_endpoint == "http://es:9200"
+
+
+# --------------------------------------------------------------- from_dict validation & coercion
+
+
+class TestFromDictValidation:
+    """A partial or stringly-typed payload must map to library errors, not TypeError/str fields."""
+
+    def test_missing_required_fields_raises_configuration_error(self) -> None:
+        with pytest.raises(ConfigurationError) as excinfo:
+            RuntimeSnapshot.from_dict({"es_endpoint": "http://es:9200"})
+        message = str(excinfo.value)
+        # It should name the absent required fields rather than raising TypeError.
+        assert "cosmos_embed_endpoint" in message
+        assert "rtvi_cv_endpoint" in message
+        assert "vst_internal_url" in message
+        assert "vst_external_url" in message
+
+    def test_partial_payload_does_not_raise_typeerror(self) -> None:
+        # Regression: bare SearchRuntime.from_kwargs(**partial) used to raise TypeError.
+        with pytest.raises(ConfigurationError):
+            RuntimeSnapshot.from_dict({})
+
+    def _full_payload(self, **overrides) -> dict:
+        payload = {
+            "es_endpoint": "http://es:9200",
+            "cosmos_embed_endpoint": "http://embed:8017",
+            "rtvi_cv_endpoint": "http://cv:9000",
+            "vst_internal_url": "http://vst:30888",
+            "vst_external_url": "http://vst:7777",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_stringly_typed_int_is_coerced(self) -> None:
+        snap = RuntimeSnapshot.from_dict(self._full_payload(default_max_results="7"))
+        assert snap.runtime.default_max_results == 7
+        assert isinstance(snap.runtime.default_max_results, int)
+
+    def test_stringly_typed_bool_is_coerced(self) -> None:
+        # "no" would be truthy if stored verbatim in a bool field.
+        snap = RuntimeSnapshot.from_dict(self._full_payload(enable_critic="no"))
+        assert snap.runtime.enable_critic is False
+
+    def test_stringly_typed_float_is_coerced(self) -> None:
+        snap = RuntimeSnapshot.from_dict(self._full_payload(embed_confidence_threshold="0.25"))
+        assert snap.runtime.embed_confidence_threshold == pytest.approx(0.25)
+
+    def test_bad_int_raises_configuration_error(self) -> None:
+        with pytest.raises(ConfigurationError, match="default_max_results"):
+            RuntimeSnapshot.from_dict(self._full_payload(default_max_results="not-a-number"))
+
+    def test_bad_bool_raises_configuration_error(self) -> None:
+        with pytest.raises(ConfigurationError, match="enable_critic"):
+            RuntimeSnapshot.from_dict(self._full_payload(enable_critic="maybe"))
+
+    def test_plaintext_vlm_api_key_is_rewrapped_as_secret(self) -> None:
+        snap = RuntimeSnapshot.from_dict(self._full_payload(vlm_api_key="sk-super-secret"))
+        # Never stored as a plaintext str; re-wrapped as SecretStr.
+        assert snap.runtime.vlm_api_key is not None
+        assert not isinstance(snap.runtime.vlm_api_key, str)
+        assert snap.runtime.vlm_api_key.get_secret_value() == "sk-super-secret"
+
+    def test_plaintext_vlm_api_key_not_leaked_in_repr(self) -> None:
+        snap = RuntimeSnapshot.from_dict(self._full_payload(vlm_api_key="sk-super-secret"))
+        assert "sk-super-secret" not in repr(snap.runtime)
+        assert "sk-super-secret" not in str(snap.runtime)
+
+
+# --------------------------------------------------------------- from_env / from_config_file coercion
+
+
+class TestNumericCoercion:
+    def test_from_env_bad_int_raises_configuration_error(self) -> None:
+        env = dict(_HELM_ENV)
+        env["CRITIC_EVALUATION_COUNT"] = "not-an-int"
+        with pytest.raises(ConfigurationError, match="CRITIC_EVALUATION_COUNT"):
+            SearchRuntime.from_env(env)
+
+    def test_from_env_valid_int_is_parsed(self) -> None:
+        env = dict(_HELM_ENV)
+        env["CRITIC_EVALUATION_COUNT"] = "4"
+        rt = SearchRuntime.from_env(env)
+        assert rt.critic_evaluation_count == 4
+
+    def test_from_config_file_coerces_quoted_numbers(self, tmp_path) -> None:
+        config = tmp_path / "config.yml"
+        config.write_text(
+            """
+functions:
+  embed_search:
+    es_endpoint: http://es:9200
+    cosmos_embed_endpoint: http://embed:8017
+    vst_internal_url: http://vst:30888
+    vst_external_url: http://vst.external
+  attribute_search:
+    rtvi_cv_endpoint: http://cv:9000
+  search:
+    default_max_results: "9"
+    w_attribute: "0.6"
+""",
+        )
+        snap = RuntimeSnapshot.from_config_file(config, env={})
+        assert snap.runtime.default_max_results == 9
+        assert snap.runtime.w_attribute == pytest.approx(0.6)
+
+    def test_from_config_file_bad_number_raises_configuration_error(self, tmp_path) -> None:
+        config = tmp_path / "config.yml"
+        config.write_text(
+            """
+functions:
+  embed_search:
+    es_endpoint: http://es:9200
+    cosmos_embed_endpoint: http://embed:8017
+    vst_internal_url: http://vst:30888
+    vst_external_url: http://vst.external
+  attribute_search:
+    rtvi_cv_endpoint: http://cv:9000
+  search:
+    rrf_k: not-a-number
+""",
+        )
+        with pytest.raises(ConfigurationError, match="rrf_k"):
+            RuntimeSnapshot.from_config_file(config, env={})

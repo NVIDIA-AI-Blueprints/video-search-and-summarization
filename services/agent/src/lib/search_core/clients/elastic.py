@@ -30,11 +30,13 @@ process the pools are otherwise reaped at process exit.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
+import urllib.parse
 
 from elasticsearch import ApiError as ESApiError
 from elasticsearch import AsyncElasticsearch
@@ -42,7 +44,9 @@ from elasticsearch import ConnectionError as ESConnectionError
 from elasticsearch import NotFoundError as ESNotFoundError
 from elasticsearch import TransportError as ESTransportError
 
+from .._internal.sanitize import scrub_log
 from ..errors import BackendUnreachableError
+from ..errors import IndexNotFoundError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -50,6 +54,24 @@ if TYPE_CHECKING:
     from ..runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
+
+
+def _redact_endpoint(endpoint: str) -> str:
+    """Return an endpoint safe to log: strip userinfo (user:pass@) and scrub.
+
+    ES endpoints can embed HTTP basic-auth credentials in the netloc; those
+    must never reach the logs (nor may raw control characters — CWE-117).
+    """
+    try:
+        parsed = urllib.parse.urlsplit(endpoint)
+    except ValueError:
+        return scrub_log(endpoint)
+    if parsed.username or parsed.password:
+        netloc = parsed.hostname or ""
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        parsed = parsed._replace(netloc=netloc)
+    return scrub_log(urllib.parse.urlunsplit(parsed))
 
 
 class ElasticClient:
@@ -65,13 +87,27 @@ class ElasticClient:
     (VSSESClient) but without coupling search_core to it.
     """
 
-    _clients: ClassVar[dict[str, AsyncElasticsearch]] = {}
+    # Keyed by (endpoint, event loop): an AsyncElasticsearch is bound to the
+    # loop it was created on (its httpx pool captures that loop). Reusing one
+    # across a fresh ``asyncio.run`` — a new loop — raises "event loop is
+    # closed". Keying by the running loop object (not its id, which CPython
+    # reuses after a closed loop is freed) gives each loop its own client and
+    # never returns a client bound to a different, already-closed loop.
+    _clients: ClassVar[dict[tuple[str, asyncio.AbstractEventLoop | None], AsyncElasticsearch]] = {}
 
     def __init__(self, *, endpoint: str, client: AsyncElasticsearch) -> None:
         self._endpoint = endpoint
         self._client = client
 
     # ---- Construction --------------------------------------------------------
+
+    @staticmethod
+    def _current_loop() -> asyncio.AbstractEventLoop | None:
+        """Return the running event loop, or None if called outside a loop."""
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return None
 
     @classmethod
     def from_endpoint(
@@ -83,12 +119,14 @@ class ElasticClient:
     ) -> ElasticClient:
         """Return a shared client for the given endpoint, creating one if needed.
 
-        Each distinct endpoint gets its own AsyncElasticsearch; callers sharing
-        the endpoint share the underlying client. Transport settings are fixed
-        at first initialization per endpoint; subsequent callers reuse the
-        existing client and these kwargs are ignored.
+        Each distinct (endpoint, event-loop) pair gets its own
+        AsyncElasticsearch; callers on the same loop sharing the endpoint share
+        the underlying client. Transport settings are fixed at first
+        initialization per key; subsequent callers reuse the existing client and
+        these kwargs are ignored.
         """
-        existing = cls._clients.get(endpoint)
+        key = (endpoint, cls._current_loop())
+        existing = cls._clients.get(key)
         if existing is not None:
             return cls(endpoint=endpoint, client=existing)
         new = AsyncElasticsearch(
@@ -100,7 +138,7 @@ class ElasticClient:
         # concurrent callers wins, the rest reuse the winner's client. The
         # loser's `new` is GC'd; AsyncElasticsearch holds no resources until
         # first IO, so this leaks nothing.
-        client = cls._clients.setdefault(endpoint, new)
+        client = cls._clients.setdefault(key, new)
         if client is not new:
             # Lost the race — don't leave the unused AsyncElasticsearch around
             # holding a closed httpx pool. close() is sync-safe to schedule.
@@ -142,8 +180,11 @@ class ElasticClient:
         # either, so the cast-style ignore preserves the legacy call shape.
         try:
             return await self._client.search(index=index, body=body, **kwargs)  # type: ignore[arg-type]
-        except ESNotFoundError:
-            raise
+        except ESNotFoundError as e:
+            # Honor the "no framework leak" contract: a missing index maps to
+            # the library's IndexNotFoundError (a BackendUnreachableError) with
+            # the raw elasticsearch error chained via __cause__.
+            raise IndexNotFoundError(index, e) from e
         except (ESConnectionError, ESApiError, ESTransportError) as e:
             raise BackendUnreachableError("elasticsearch", str(e), e) from e
 
@@ -160,11 +201,11 @@ class ElasticClient:
     @classmethod
     async def close_all(cls) -> None:
         """Close every client and clear the registry. Idempotent."""
-        for endpoint, client in list(cls._clients.items()):
+        for (endpoint, _loop), client in list(cls._clients.items()):
             try:
                 await client.close()
             except Exception:
-                logger.debug("Error closing ES client for %s", endpoint, exc_info=True)
+                logger.debug("Error closing ES client for %s", _redact_endpoint(endpoint), exc_info=True)
         cls._clients.clear()
 
     # ---- Direct access for legacy call sites that still want the raw client.

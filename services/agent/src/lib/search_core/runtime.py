@@ -28,12 +28,15 @@ Four builders, three runtime-state shapes:
   RuntimeSnapshot.from_remote     — fetch the full {runtime, search_options} bundle
   RuntimeSnapshot.from_dict       — parse a JSON-decoded payload
 
-See DESIGN.md §3 for the full contract.
+Builders map every failure onto the library error hierarchy: unreadable or
+malformed config and non-200/invalid-JSON remote responses raise
+ConfigurationError; connection/timeout failures raise BackendUnreachableError.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import MISSING
 from dataclasses import dataclass
 from dataclasses import field
 import os
@@ -44,6 +47,7 @@ from typing import Literal
 
 from pydantic import SecretStr
 
+from .errors import BackendUnreachableError
 from .errors import ConfigurationError
 from .models.common import FusionMethod  # noqa: TC001  used in dataclass field annotation
 
@@ -82,21 +86,159 @@ def _bool(s: str | None) -> bool:
     return s.strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Config values arrive from YAML or a JSON snapshot where a quoted scalar
+# (``"7"``) or a stringly-typed boolean (``"no"``) would otherwise be stored
+# verbatim on the frozen dataclass — an int field holding a str, or a truthy
+# ``"no"`` string. The coercion helpers below normalise those to the field's
+# declared type and raise ConfigurationError (exit 4) on values that cannot be
+# interpreted, instead of silently poisoning runtime behaviour.
+_BOOL_CONFIG_FIELDS = frozenset(
+    {
+        "vst_clip_enable_audio",
+        "enable_frame_lookup",
+        "enable_critic",
+    }
+)
+_INT_CONFIG_FIELDS = frozenset(
+    {
+        "vlm_max_frames",
+        "vlm_max_fps",
+        "default_max_results",
+        "embed_default_max_results",
+        "rrf_k",
+        "search_max_iterations",
+        "max_concurrent_verifications",
+        "request_timeout_seconds",
+        "critic_evaluation_count",
+    }
+)
+_FLOAT_CONFIG_FIELDS = frozenset(
+    {
+        "embed_confidence_threshold",
+        "w_attribute",
+        "w_embed",
+        "rrf_w",
+        "top_percent_filter",
+    }
+)
+_TRUE_STRINGS = frozenset({"1", "true", "yes", "on"})
+_FALSE_STRINGS = frozenset({"0", "false", "no", "off"})
+
+
+def _coerce_config_bool(name: str, value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _TRUE_STRINGS:
+            return True
+        if normalized in _FALSE_STRINGS:
+            return False
+    raise ConfigurationError(f"config value '{name}' must be a boolean, got {value!r}")
+
+
+def _coerce_config_int(name: str, value: Any) -> int:
+    # bool is an int subclass; accept it explicitly so `True`/`False` in a
+    # numeric field is a clear error rather than a silent 1/0.
+    if isinstance(value, bool):
+        raise ConfigurationError(f"config value '{name}' must be an integer, got {value!r}")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, (str, float)):
+        try:
+            return int(value)
+        except (TypeError, ValueError) as e:
+            raise ConfigurationError(f"config value '{name}' must be an integer, got {value!r}") from e
+    raise ConfigurationError(f"config value '{name}' must be an integer, got {value!r}")
+
+
+def _coerce_config_float(name: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ConfigurationError(f"config value '{name}' must be a number, got {value!r}")
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError as e:
+            raise ConfigurationError(f"config value '{name}' must be a number, got {value!r}") from e
+    raise ConfigurationError(f"config value '{name}' must be a number, got {value!r}")
+
+
+def _coerce_secret(name: str, value: Any) -> SecretStr:
+    # Re-wrap a plaintext wire value as SecretStr so the invariant holds and no
+    # plaintext key survives on the dataclass / in its repr.
+    if isinstance(value, SecretStr):
+        return value
+    if isinstance(value, str):
+        return SecretStr(value)
+    raise ConfigurationError(f"config value '{name}' must be a string secret")
+
+
+def _coerce_config_value(name: str, value: Any) -> Any:
+    """Coerce one raw config value to the SearchRuntime field's declared type."""
+    if value is None:
+        return None
+    if name in _BOOL_CONFIG_FIELDS:
+        return _coerce_config_bool(name, value)
+    if name in _INT_CONFIG_FIELDS:
+        return _coerce_config_int(name, value)
+    if name in _FLOAT_CONFIG_FIELDS:
+        return _coerce_config_float(name, value)
+    if name == "vlm_api_key":
+        return _coerce_secret(name, value)
+    return value
+
+
+def _coerce_runtime_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    """Coerce every SearchRuntime kwarg to its declared type (see helpers above)."""
+    return {name: _coerce_config_value(name, value) for name, value in kwargs.items()}
+
+
+def _env_int(env: Mapping[str, str], key: str) -> int | None:
+    """Read an optional int env var, mapping a bad value to ConfigurationError."""
+    raw = env.get(key)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise ConfigurationError(f"env var '{key}' must be an integer, got {raw!r}") from e
+
+
 # ${VAR} and ${VAR:-default} with shell `:-` semantics: the default fires when
 # the variable is UNSET *or* set to the empty string. Plain env.get(key, default)
 # would return "" for an empty-but-set var, diverging from the shell and from
-# NAT's config interpolation. Don't change this without updating the four
-# pinned cases in DESIGN.md §14.
+# NAT's config interpolation. The pinned `:-` cases are covered by TestInterpolate
+# in tests/unit_test/search_core/test_runtime.py — keep them green if you change this.
 _INTERP_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
 
 
 def _interpolate(text: str, env: Mapping[str, str]) -> str:
-    """Resolve ${VAR} and ${VAR:-default} against `env`."""
+    """Resolve ``${VAR}`` and ``${VAR:-default}`` against `env`.
+
+    Known limitations (intentional, to keep the surface small and match NAT's
+    interpolation): variable names must be uppercase (``[A-Z_][A-Z0-9_]*``),
+    defaults are literal text with no nested ``${...}`` expansion, and no other
+    shell expansions (``${VAR:+x}``, ``${VAR/…}``, command substitution) are
+    supported.
+
+    Security: interpolated values must not contain newlines. A value with an
+    embedded ``\\n``/``\\r`` could otherwise inject arbitrary YAML keys once the
+    rendered text is parsed, so such values are rejected with a
+    ``ConfigurationError`` rather than spliced into the document.
+    """
 
     def _sub(m: re.Match[str]) -> str:
         val = env.get(m.group(1))
         if val is None or val == "":
             return m.group(2) or ""
+        if "\n" in val or "\r" in val:
+            raise ConfigurationError(
+                f"interpolated value for '{m.group(1)}' contains a newline; refusing to inject into config",
+            )
         return val
 
     return _INTERP_RE.sub(_sub, text)
@@ -150,7 +292,7 @@ class SearchRuntime:
     behavior_es_endpoint: str | None = None
     # COSMOS_EMBED_ENDPOINT and RTVI_EMBED port 8017 are the same physical
     # service in current deployments — one logical embed service exposed via
-    # two env names. See DESIGN.md §3 from_env() notes.
+    # two env names (see from_env() below).
     cosmos_embed_endpoint: str
     cosmos_embed_model: str = "cosmos-embed1-448p"  # from RTVI_EMBED_MODEL
     rtvi_cv_endpoint: str
@@ -278,7 +420,7 @@ class SearchRuntime:
             video_embed_index=env.get("ELASTIC_SEARCH_INDEX", "video_embeddings"),
             enable_critic=_bool(env.get("ENABLE_CRITIC", "true")),
             critic_time_format="offset" if env.get("CRITIC_TIME_FORMAT") == "offset" else "iso",
-            critic_evaluation_count=int(env["CRITIC_EVALUATION_COUNT"]) if env.get("CRITIC_EVALUATION_COUNT") else None,
+            critic_evaluation_count=_env_int(env, "CRITIC_EVALUATION_COUNT"),
         )
 
     @classmethod
@@ -349,53 +491,54 @@ class SearchRuntime:
         vlm_model_type: Literal["nim", "openai"] = "openai" if env.get("VLM_MODEL_TYPE") == "openai" else "nim"
         vlm_key_env = "OPENAI_API_KEY" if vlm_model_type == "openai" else "NVIDIA_API_KEY"
 
-        return cls(
+        kwargs: dict[str, Any] = {
             # ES + behavior
-            es_endpoint=es_endpoint,
-            behavior_es_endpoint=_first_non_empty(
+            "es_endpoint": es_endpoint,
+            "behavior_es_endpoint": _first_non_empty(
                 search_cfg.get("behavior_es_endpoint"),
                 env.get("BEHAVIOR_ES_ENDPOINT"),
                 es_endpoint,
             ),
-            video_embed_index=_first_non_empty(
+            "video_embed_index": _first_non_empty(
                 embed_cfg.get("es_index"),
                 env.get("ELASTIC_SEARCH_INDEX"),
                 "video_embeddings",
             ),
-            behavior_index=attr_cfg.get("behavior_index", "mdx-behavior-2025-01-01"),
-            # Attribute-search frame-lookup knobs (attribute_search.py:185-194)
-            frames_index=attr_cfg.get("frames_index"),
-            enable_frame_lookup=attr_cfg.get("enable_frame_lookup", True),
+            "behavior_index": attr_cfg.get("behavior_index", "mdx-behavior-2025-01-01"),
+            # Attribute-search frame-lookup knobs
+            "frames_index": attr_cfg.get("frames_index"),
+            "enable_frame_lookup": attr_cfg.get("enable_frame_lookup", True),
             # VST
-            vst_internal_url=vst_internal_url,
-            vst_external_url=vst_external_url,
+            "vst_internal_url": vst_internal_url,
+            "vst_external_url": vst_external_url,
             # Embed clients
-            cosmos_embed_endpoint=cosmos_embed_endpoint,
-            cosmos_embed_model=env.get("RTVI_EMBED_MODEL", "cosmos-embed1-448p"),
-            embed_default_max_results=embed_cfg.get("default_max_results", 100),
-            rtvi_cv_endpoint=rtvi_cv_endpoint,
+            "cosmos_embed_endpoint": cosmos_embed_endpoint,
+            "cosmos_embed_model": env.get("RTVI_EMBED_MODEL", "cosmos-embed1-448p"),
+            "embed_default_max_results": embed_cfg.get("default_max_results", 100),
+            "rtvi_cv_endpoint": rtvi_cv_endpoint,
             # VLM
-            vlm_base_url=env.get("VLM_BASE_URL"),
-            vlm_model_name=env.get("VLM_NAME"),
-            vlm_model_type=vlm_model_type,
-            vlm_api_key=SecretStr(env[vlm_key_env]) if env.get(vlm_key_env) else None,
-            vlm_max_frames=video_understanding_cfg.get("max_frames", 60),
-            vlm_max_fps=video_understanding_cfg.get("max_fps", 2),
-            vst_clip_enable_audio=clip_cfg.get("enable_audio", False),
+            "vlm_base_url": env.get("VLM_BASE_URL"),
+            "vlm_model_name": env.get("VLM_NAME"),
+            "vlm_model_type": vlm_model_type,
+            "vlm_api_key": SecretStr(env[vlm_key_env]) if env.get(vlm_key_env) else None,
+            "vlm_max_frames": video_understanding_cfg.get("max_frames", 60),
+            "vlm_max_fps": video_understanding_cfg.get("max_fps", 2),
+            "vst_clip_enable_audio": clip_cfg.get("enable_audio", False),
             # Search orchestrator profile knobs — the whole point of this builder
-            enable_critic=search_cfg.get("enable_critic", True),
-            embed_confidence_threshold=search_cfg.get("embed_confidence_threshold", 0.1),
-            search_max_iterations=search_cfg.get("search_max_iterations", 1),
-            critic_time_format=critic_cfg.get("time_format", "iso"),
-            critic_evaluation_count=critic_cfg.get("num_videos_to_evaluate"),
-            default_max_results=search_cfg.get("default_max_results", 10),
-            fusion_method=search_cfg.get("fusion_method", "rrf"),
-            w_attribute=search_cfg.get("w_attribute", 0.55),
-            w_embed=search_cfg.get("w_embed", 0.35),
-            rrf_k=search_cfg.get("rrf_k", 60),
-            rrf_w=search_cfg.get("rrf_w", 0.5),
-            top_percent_filter=search_cfg.get("top_percent_filter"),
-        )
+            "enable_critic": search_cfg.get("enable_critic", True),
+            "embed_confidence_threshold": search_cfg.get("embed_confidence_threshold", 0.1),
+            "search_max_iterations": search_cfg.get("search_max_iterations", 1),
+            "critic_time_format": critic_cfg.get("time_format", "iso"),
+            "critic_evaluation_count": critic_cfg.get("num_videos_to_evaluate"),
+            "default_max_results": search_cfg.get("default_max_results", 10),
+            "fusion_method": search_cfg.get("fusion_method", "rrf"),
+            "w_attribute": search_cfg.get("w_attribute", 0.55),
+            "w_embed": search_cfg.get("w_embed", 0.35),
+            "rrf_k": search_cfg.get("rrf_k", 60),
+            "rrf_w": search_cfg.get("rrf_w", 0.5),
+            "top_percent_filter": search_cfg.get("top_percent_filter"),
+        }
+        return cls(**_coerce_runtime_kwargs(kwargs))
 
     @classmethod
     def from_remote(cls, agent_url: str, *, timeout: float = 5.0) -> SearchRuntime:
@@ -408,7 +551,7 @@ class SearchRuntime:
 
         WARNING: in Helm the agent returns in-cluster DNS URLs that are NOT
         reachable from a developer laptop. Use the exec transport (vss-cli via
-        kubectl exec) for laptop-to-Helm flows. See DESIGN.md §10a.
+        kubectl exec) for laptop-to-Helm flows.
         """
         return RuntimeSnapshot.from_remote(agent_url, timeout=timeout).runtime
 
@@ -449,8 +592,17 @@ class RuntimeSnapshot:
         # may add fields we don't yet know about; older agents may omit fields
         # we have defaults for. Either way we don't blow up.
         runtime_payload = {k: v for k, v in payload.items() if k != "search" and k in _SEARCH_RUNTIME_FIELDS}
+        # A partial payload that drops a field the frozen dataclass requires would
+        # raise a bare TypeError (outside the library error hierarchy). Validate
+        # up front and report exactly what's absent as a ConfigurationError.
+        missing = sorted(_REQUIRED_SEARCH_RUNTIME_FIELDS - runtime_payload.keys())
+        if missing:
+            raise ConfigurationError(f"runtime snapshot is missing required field(s): {', '.join(missing)}")
+        # Wire values are untrusted: coerce numeric/bool fields and re-wrap the
+        # VLM key as SecretStr so no plaintext key is stored (or leaked via repr).
+        coerced = _coerce_runtime_kwargs(runtime_payload)
         return cls(
-            runtime=SearchRuntime.from_kwargs(**runtime_payload),
+            runtime=SearchRuntime.from_kwargs(**coerced),
             search=SearchOptions(
                 use_attribute_search=bool(search_block.get("use_attribute_search", False))
                 if isinstance(search_block, Mapping)
@@ -461,33 +613,67 @@ class RuntimeSnapshot:
     @classmethod
     def from_remote(cls, agent_url: str, *, timeout: float = 5.0) -> RuntimeSnapshot:
         """Fetch from a running agent. See SearchRuntime.from_remote() warning
-        about Helm in-cluster DNS."""
+        about Helm in-cluster DNS.
+
+        Framework failures never escape: a connection/timeout maps to
+        ``BackendUnreachableError("agent", ...)`` while a non-200 response or an
+        invalid JSON body maps to ``ConfigurationError``. The original exception
+        is chained via ``from e``.
+        """
         # httpx is imported locally so the bare API doesn't drag it in.
+        import json
+
         import httpx
 
-        with httpx.Client(timeout=timeout) as c:
-            response = c.get(f"{agent_url.rstrip('/')}/api/v1/runtime/config")
-            response.raise_for_status()
-            payload = response.json()
+        url = f"{agent_url.rstrip('/')}/api/v1/runtime/config"
+        try:
+            with httpx.Client(timeout=timeout) as c:
+                response = c.get(url)
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPStatusError as e:
+            raise ConfigurationError(f"agent at {url} returned HTTP {e.response.status_code}") from e
+        except httpx.TransportError as e:
+            # ConnectError / ConnectTimeout / ReadTimeout / ... all subclass this.
+            raise BackendUnreachableError("agent", f"could not reach agent at {url}: {e}", e) from e
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ConfigurationError(f"agent at {url} returned invalid JSON: {e}") from e
         return cls.from_dict(payload)
 
 
 # Derived once at import time. Used by RuntimeSnapshot.from_dict to drop fields
 # the host doesn't recognize (forward compatibility) rather than blow up.
 _SEARCH_RUNTIME_FIELDS = frozenset(f.name for f in SearchRuntime.__dataclass_fields__.values())
+# Fields with no default (and no default_factory) that SearchRuntime.__init__
+# requires; from_dict validates their presence before constructing so a partial
+# payload raises ConfigurationError instead of a bare TypeError.
+_REQUIRED_SEARCH_RUNTIME_FIELDS = frozenset(
+    f.name for f in SearchRuntime.__dataclass_fields__.values() if f.default is MISSING and f.default_factory is MISSING
+)
 
 
 def _load_config_functions(path: str | Path, *, env: Mapping[str, str] | None = None) -> Mapping[str, Any]:
     """Load the NAT config's functions block after shell-style interpolation.
 
     Kept in runtime.py so config parsing has one owner. PyYAML is imported
-    locally to keep bare runtime/model imports light.
+    locally to keep bare runtime/model imports light. File-read failures
+    (missing path, a directory, permission errors) and YAML parse failures are
+    re-raised as ``ConfigurationError`` (exit 4) rather than escaping as raw
+    ``OSError``/``yaml.YAMLError`` (which would surface as an unexpected exit 1).
     """
     import yaml
 
     effective_env = os.environ if env is None else env
-    rendered = _interpolate(Path(path).read_text(), effective_env)
-    doc = yaml.safe_load(rendered) or {}
+    try:
+        raw = Path(path).read_text()
+    except OSError as e:
+        # Covers IsADirectoryError, FileNotFoundError, PermissionError, ...
+        raise ConfigurationError(f"could not read config file {str(path)!r}: {e}") from e
+    rendered = _interpolate(raw, effective_env)
+    try:
+        doc = yaml.safe_load(rendered) or {}
+    except yaml.YAMLError as e:
+        raise ConfigurationError(f"could not parse YAML config {str(path)!r}: {e}") from e
     functions = doc.get("functions", {}) or {}
     if not isinstance(functions, Mapping):
         raise ConfigurationError("NAT config 'functions' block must be a mapping")

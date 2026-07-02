@@ -269,3 +269,223 @@ class TestAttributeSearchContract:
         out = await attr.run(AttributeSearchInput(query="q", source_type="video_file"))
         assert len(out.results) == 1
         assert out.results[0].metadata.sensor_id == "cam1"
+
+    @pytest.mark.asyncio
+    async def test_dedup_after_skipped_hit_reads_aligned_source(self, make_attr):
+        # H2: a corrupt hit (skipped) precedes two duplicate object hits with
+        # different time spans. Because candidates stay aligned with results, the
+        # widen reads the correct hit's _source and merges to the union span.
+        corrupt = {"_id": "bad", "_source": {"object": {}, "sensor": {}}}  # missing _score
+        narrow = {
+            "_id": "h-narrow",
+            "_score": 0.9,
+            "_source": {
+                "object": {"id": 42, "type": "Person"},
+                "sensor": {"id": "cam1"},
+                "timestamp": "2025-01-01T00:00:05Z",
+                "end": "2025-01-01T00:00:06Z",
+            },
+        }
+        wide = {
+            "_id": "h-wide",
+            "_score": 0.9,
+            "_source": {
+                "object": {"id": 42, "type": "Person"},
+                "sensor": {"id": "cam1"},
+                "timestamp": "2025-01-01T00:00:00Z",
+                "end": "2025-01-01T00:00:10Z",
+            },
+        }
+        attr, _es, _embed = make_attr(behavior_hits=[corrupt, narrow, wide])
+        out = await attr.run(AttributeSearchInput(query="q", source_type="video_file", top_k=5))
+        assert len(out.results) == 1
+        assert out.results[0].metadata.start_time == "2025-01-01T00:00:00Z"
+        assert out.results[0].metadata.end_time == "2025-01-01T00:00:10Z"
+
+    @pytest.mark.asyncio
+    async def test_idless_hits_are_not_merged(self, make_attr):
+        # H3: two id-less hits both map to the ("unknown","unknown") key but must
+        # stay distinct rather than collapse into one.
+        idless1 = {"_id": "a", "_score": 0.9, "_source": {"object": {}, "sensor": {}, "timestamp": "t", "end": "u"}}
+        idless2 = {"_id": "b", "_score": 0.8, "_source": {"object": {}, "sensor": {}, "timestamp": "t", "end": "u"}}
+        attr, _es, _embed = make_attr(behavior_hits=[idless1, idless2])
+        out = await attr.run(
+            AttributeSearchInput(query="q", source_type="video_file", top_k=5, fuse_multi_attribute=False)
+        )
+        assert len(out.results) == 2
+
+    @pytest.mark.asyncio
+    async def test_append_global_ranking_before_top_k(self, make_attr):
+        # #8: a lower-scoring first-attribute hit must not crowd out a
+        # higher-scoring second-attribute hit when the top_k slice is applied.
+        def _make_es_router():
+            low = _behavior_hit(object_id=1, sensor_id="camLow", score=0.4)
+            high = _behavior_hit(object_id=2, sensor_id="camHigh", score=0.95)
+            queue = [[low], [high]]
+
+            class _RouterEs:
+                def __init__(self) -> None:
+                    self.i = 0
+                    self.calls: list[Any] = []
+
+                async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
+                    self.calls.append(index)
+                    if body and "knn" in body:
+                        hits = queue[self.i] if self.i < len(queue) else []
+                        self.i += 1
+                        return {"hits": {"hits": hits}}
+                    return {"hits": {"hits": []}}
+
+                async def aclose(self) -> None:
+                    return None
+
+            return _RouterEs()
+
+        es = _make_es_router()
+        attr = AttributeSearch(
+            es=es,
+            embed=_MockEmbed(),
+            behavior_index="behavior_index",
+            behavior_index_wildcard="mdx-behavior-*",
+            frames_index=None,
+            enable_frame_lookup=False,
+            default_max_results=10,
+            vst_external_url="",
+            vst_internal_url=None,
+        )
+        out = await attr.run(
+            AttributeSearchInput(
+                query=["dark", "bright"], source_type="video_file", top_k=1, fuse_multi_attribute=False
+            )
+        )
+        assert len(out.results) == 1
+        # The higher-scoring second-attribute hit wins the single slot.
+        assert out.results[0].metadata.sensor_id == "camHigh"
+
+    @pytest.mark.asyncio
+    async def test_exclude_by_resolved_stream_id_and_timestamp_tolerance(self):
+        # #9: exclude entry uses the resolved stream id spelling "+00:00" while the
+        # result carries the raw sensor id and "Z"; timestamp tolerance + raw-id
+        # matching must still exclude it.
+        es = _MockEs([_behavior_hit(sensor_id="cam1")])
+        attr = AttributeSearch(
+            es=es,
+            embed=_MockEmbed(),
+            behavior_index="behavior_index",
+            behavior_index_wildcard="mdx-behavior-*",
+            frames_index=None,
+            enable_frame_lookup=False,
+            default_max_results=10,
+            vst_external_url="",
+            vst_internal_url=None,
+        )
+        out = await attr.run(
+            AttributeSearchInput(
+                query="q",
+                source_type="video_file",
+                exclude_videos=[
+                    {
+                        "sensor_id": "cam1",
+                        "start_timestamp": "2025-01-01T00:00:00+00:00",
+                        "end_timestamp": "2025-01-01T00:00:10+00:00",
+                    }
+                ],
+            )
+        )
+        assert out.results == []
+
+
+class TestFuseMode:
+    @pytest.mark.asyncio
+    async def test_fuse_continues_on_single_attribute_error(self):
+        # M4: a non-systemic failure for one attribute must not sink the fuse request.
+        class _SelectiveEmbed:
+            def __init__(self, bad_query: str) -> None:
+                self.bad_query = bad_query
+                self.calls = 0
+
+            async def get_text_embedding(self, text: str) -> list[float]:
+                self.calls += 1
+                if text == self.bad_query:
+                    raise ValueError("embed failed for this attribute")
+                return [0.1, 0.2, 0.3]
+
+            async def aclose(self) -> None:
+                return None
+
+        es = _MockEs([_behavior_hit()])
+        embed = _SelectiveEmbed(bad_query="red hat")
+        attr = AttributeSearch(
+            es=es,
+            embed=embed,  # type: ignore[arg-type]
+            behavior_index="behavior_index",
+            behavior_index_wildcard="mdx-behavior-*",
+            frames_index=None,
+            enable_frame_lookup=False,
+            default_max_results=10,
+            vst_external_url="",
+            vst_internal_url=None,
+        )
+        out = await attr.run(
+            AttributeSearchInput(query=["person", "red hat"], source_type="video_file", fuse_multi_attribute=True)
+        )
+        assert embed.calls == 2
+        assert len(out.results) == 1  # "person" survived; "red hat" was dropped
+
+    @pytest.mark.asyncio
+    async def test_fuse_propagates_systemic_error(self, make_attr):
+        # M4: a missing index affects every attribute — fail fast in fuse mode too.
+        attr, _es, _embed = make_attr(raise_not_found=True)
+        with pytest.raises(IndexNotFoundError):
+            await attr.run(
+                AttributeSearchInput(query=["person", "red hat"], source_type="video_file", fuse_multi_attribute=True)
+            )
+
+    @pytest.mark.asyncio
+    async def test_fuse_resolves_screenshot_per_result(self, monkeypatch):
+        # M5: results on different sensors each resolve their OWN stream id; fuse
+        # must not relabel every result with the first result's stream id.
+        from lib.search_core.primitives import _attribute_helpers as ah
+
+        async def _stream_id(sensor_id: str, base_url: str) -> str:
+            return f"{sensor_id}-stream"
+
+        def _url(base: str, stream_id: str, ts: str) -> str:
+            return f"{base}/{stream_id}/{ts}"
+
+        monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+        monkeypatch.setattr(ah, "build_screenshot_url", _url)
+
+        queue = [[_behavior_hit(object_id=1, sensor_id="cam1")], [_behavior_hit(object_id=2, sensor_id="cam2")]]
+
+        class _RouterEs:
+            def __init__(self) -> None:
+                self.i = 0
+
+            async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
+                if body and "knn" in body:
+                    hits = queue[self.i] if self.i < len(queue) else []
+                    self.i += 1
+                    return {"hits": {"hits": hits}}
+                return {"hits": {"hits": []}}
+
+            async def aclose(self) -> None:
+                return None
+
+        attr = AttributeSearch(
+            es=_RouterEs(),
+            embed=_MockEmbed(),
+            behavior_index="behavior_index",
+            behavior_index_wildcard="mdx-behavior-*",
+            frames_index=None,
+            enable_frame_lookup=False,
+            default_max_results=10,
+            vst_external_url="http://vst",
+            vst_internal_url=None,
+        )
+        out = await attr.run(
+            AttributeSearchInput(query=["a", "b"], source_type="video_file", fuse_multi_attribute=True)
+        )
+        assert len(out.results) == 2
+        stream_ids = {r.metadata.sensor_id for r in out.results}
+        assert stream_ids == {"cam1-stream", "cam2-stream"}  # per-result, not relabeled to one

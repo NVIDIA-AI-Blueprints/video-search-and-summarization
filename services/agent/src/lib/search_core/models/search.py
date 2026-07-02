@@ -48,7 +48,9 @@ class SearchInput(BaseModel):
     description: str | None = None
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
-    top_k: int | None = None
+    # Bounds match EmbedSearchInput/AttributeSearchInput so a request routed to any
+    # primitive is rejected identically; None means "use the primitive's default".
+    top_k: int | None = Field(default=None, ge=1, le=1000)
     attributes: list[str] = Field(default_factory=list)
     has_action: bool | None = None
     object_ids: list[int] | None = None
@@ -70,6 +72,9 @@ class SearchInput(BaseModel):
                 f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
                 f"timestamp_end ({self.timestamp_end.isoformat()})"
             )
+        # Defensive: the top_k field constraint (ge=1) already rejects < 1 at
+        # construction, so this branch is unreachable for a validated model. Kept
+        # so the semantic guarantee survives any future loosening of the field.
         if self.top_k is not None and self.top_k < 1:
             raise InvalidInputError(f"top_k must be >= 1 when provided (got {self.top_k})")
 

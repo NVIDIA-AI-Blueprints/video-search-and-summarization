@@ -5,25 +5,47 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 
 import pytest
 
+from lib.search_core import SearchOptions
+from lib.search_core import SearchRuntime
+from lib.search_core.cli import _apply_runtime_overrides
 from lib.search_core.cli import _build_archive_search_payload
 from lib.search_core.cli import _build_facade
 from lib.search_core.cli import _config_env_from_args
+from lib.search_core.cli import _exit_code_for_stream_error
 from lib.search_core.cli import _extract_rows
-from lib.search_core.cli import _parse_archive_search_args
+from lib.search_core.cli import _maybe_build_vlm_analyzer
+from lib.search_core.cli import _parse_args
 from lib.search_core.cli import _render_output
+from lib.search_core.cli import _required_runtime_args
+from lib.search_core.cli import _runtime_from_args
+from lib.search_core.cli import _search_options_from_args
+from lib.search_core.cli import _write_search_stream
+from lib.search_core.cli import main
+from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import InvalidInputError
+from lib.search_core.events import ErrorEvent
 from lib.search_core.models.embed_search import EmbedSearchOutput
 from lib.search_core.models.embed_search import EmbedSearchResultItem
 from lib.search_core.models.search import SearchOutput
 from lib.search_core.models.search import SearchResult
 
 
+def _parse_search_args(argv: list[str]) -> argparse.Namespace:
+    """Parse `vss-cli search` args; the `search` primitive positional is implied.
+
+    The agent-friendly search flags now live on the single `vss-cli` parser under
+    the `search` primitive (there is no separate `search-archive` script).
+    """
+    return _parse_args(["search", *argv])
+
+
 def test_search_archive_flags_build_structured_search_input() -> None:
-    args = _parse_archive_search_args(
+    args = _parse_search_args(
         [
             "--query",
             "person wearing a white jacket climbing a ladder",
@@ -63,7 +85,7 @@ def test_search_archive_flags_build_structured_search_input() -> None:
 
 
 def test_search_archive_supports_repeated_sources_and_object_ids() -> None:
-    args = _parse_archive_search_args(
+    args = _parse_search_args(
         [
             "--query",
             "find similar objects",
@@ -88,7 +110,7 @@ def test_search_archive_supports_repeated_sources_and_object_ids() -> None:
 
 
 def test_search_archive_decomposed_json_preserves_host_agent_fields() -> None:
-    args = _parse_archive_search_args(
+    args = _parse_search_args(
         [
             "--decomposed-json",
             (
@@ -117,7 +139,7 @@ def test_search_archive_decomposed_json_preserves_host_agent_fields() -> None:
 
 
 def test_search_archive_flags_override_decomposed_json() -> None:
-    args = _parse_archive_search_args(
+    args = _parse_search_args(
         [
             "--decomposed-json",
             '{"query":"old query","source_type":"video_file","use_critic":false}',
@@ -137,7 +159,7 @@ def test_search_archive_flags_override_decomposed_json() -> None:
 
 
 def test_search_archive_no_use_critic_sets_false() -> None:
-    args = _parse_archive_search_args(["--query", "forklift", "--no-use-critic"])
+    args = _parse_search_args(["--query", "forklift", "--no-use-critic"])
 
     payload = _build_archive_search_payload(args)
 
@@ -163,7 +185,7 @@ functions:
 """,
         encoding="utf-8",
     )
-    args = _parse_archive_search_args(
+    args = _parse_search_args(
         [
             "--config",
             str(config),
@@ -193,7 +215,7 @@ functions:
 
 
 def test_config_env_rejects_missing_equals() -> None:
-    args = _parse_archive_search_args(["--query", "forklift", "--config-env", "ELASTIC_SEARCH_ENDPOINT"])
+    args = _parse_search_args(["--query", "forklift", "--config-env", "ELASTIC_SEARCH_ENDPOINT"])
 
     with pytest.raises(InvalidInputError, match="--config-env must be KEY=VALUE"):
         _config_env_from_args(args)
@@ -201,7 +223,7 @@ def test_config_env_rejects_missing_equals() -> None:
 
 def test_search_archive_rejects_non_positive_top_k() -> None:
     try:
-        _parse_archive_search_args(["--query", "find forklifts", "--top-k", "0"])
+        _parse_search_args(["--query", "find forklifts", "--top-k", "0"])
     except SystemExit as e:
         assert e.code == 2
     else:
@@ -210,7 +232,7 @@ def test_search_archive_rejects_non_positive_top_k() -> None:
 
 def test_search_archive_rejects_out_of_range_similarity() -> None:
     try:
-        _parse_archive_search_args(["--query", "find forklifts", "--min-cosine-similarity", "2"])
+        _parse_search_args(["--query", "find forklifts", "--min-cosine-similarity", "2"])
     except SystemExit as e:
         assert e.code == 2
     else:
@@ -315,3 +337,350 @@ def test_extract_rows_uses_search_data_key() -> None:
     rows = _extract_rows(out)
     assert len(rows) == 1
     assert rows[0]["video_name"] == "v.mp4"
+
+
+# --------------------------------------------------------------- config-env newline (#9)
+
+
+def test_config_env_rejects_newline_in_value() -> None:
+    args = _parse_search_args(
+        ["--query", "forklift", "--config-env", "ELASTIC_SEARCH_ENDPOINT=http://es:9200\ninjected: true"]
+    )
+    with pytest.raises(InvalidInputError, match="must not contain newlines"):
+        _config_env_from_args(args)
+
+
+def test_config_env_rejects_carriage_return_in_value() -> None:
+    args = _parse_search_args(["--query", "forklift", "--config-env", "K=a\rb"])
+    with pytest.raises(InvalidInputError, match="must not contain newlines"):
+        _config_env_from_args(args)
+
+
+# --------------------------------------------------------------- per-primitive required args (#7)
+
+
+class TestRequiredRuntimeArgs:
+    def test_embed_search_does_not_require_rtvi_cv(self) -> None:
+        attrs = {attr for attr, _flag in _required_runtime_args("embed_search")}
+        assert "rtvi_cv_endpoint" not in attrs
+        assert "cosmos_embed_endpoint" in attrs
+
+    def test_attribute_search_does_not_require_cosmos_embed(self) -> None:
+        attrs = {attr for attr, _flag in _required_runtime_args("attribute_search")}
+        assert "cosmos_embed_endpoint" not in attrs
+        assert "rtvi_cv_endpoint" in attrs
+
+    def test_search_requires_all_five(self) -> None:
+        attrs = {attr for attr, _flag in _required_runtime_args("search")}
+        assert attrs == {
+            "es_endpoint",
+            "cosmos_embed_endpoint",
+            "rtvi_cv_endpoint",
+            "vst_internal_url",
+            "vst_external_url",
+        }
+
+    def test_embed_search_runtime_builds_without_rtvi_cv(self) -> None:
+        args = _parse_args(
+            [
+                "embed_search",
+                "--es-endpoint",
+                "http://es:9200",
+                "--cosmos-embed-endpoint",
+                "http://embed:8017",
+                "--vst-internal-url",
+                "http://vst:30888",
+                "--vst-external-url",
+                "http://vst:7777",
+            ]
+        )
+        runtime = _runtime_from_args(args)
+        assert runtime.es_endpoint == "http://es:9200"
+        # Unused endpoint filled with an empty-string sentinel.
+        assert runtime.rtvi_cv_endpoint == ""
+
+    def test_attribute_search_runtime_builds_without_cosmos_embed(self) -> None:
+        args = _parse_args(
+            [
+                "attribute_search",
+                "--es-endpoint",
+                "http://es:9200",
+                "--rtvi-cv-endpoint",
+                "http://cv:9000",
+                "--vst-internal-url",
+                "http://vst:30888",
+                "--vst-external-url",
+                "http://vst:7777",
+            ]
+        )
+        runtime = _runtime_from_args(args)
+        assert runtime.cosmos_embed_endpoint == ""
+        assert runtime.rtvi_cv_endpoint == "http://cv:9000"
+
+    def test_search_without_rtvi_cv_raises_configuration_error(self) -> None:
+        args = _parse_args(
+            [
+                "search",
+                "--es-endpoint",
+                "http://es:9200",
+                "--cosmos-embed-endpoint",
+                "http://embed:8017",
+                "--vst-internal-url",
+                "http://vst:30888",
+                "--vst-external-url",
+                "http://vst:7777",
+            ]
+        )
+        with pytest.raises(ConfigurationError, match="--rtvi-cv-endpoint"):
+            _runtime_from_args(args)
+
+
+# --------------------------------------------------------------- behavior_es override (#10)
+
+
+def test_behavior_es_override_not_clobbered_by_es_endpoint_override() -> None:
+    base = SearchRuntime.from_kwargs(
+        es_endpoint="http://es-primary:9200",
+        behavior_es_endpoint="http://es-behavior:9200",
+        cosmos_embed_endpoint="http://embed:8017",
+        rtvi_cv_endpoint="http://cv:9000",
+        vst_internal_url="http://vst:30888",
+        vst_external_url="http://vst:7777",
+    )
+    args = _parse_args(["search", "--es-endpoint", "http://es-new:9200"])
+    updated = _apply_runtime_overrides(base, args)
+    assert updated.es_endpoint == "http://es-new:9200"
+    # The distinct behavior cluster from the config must survive.
+    assert updated.behavior_es_endpoint == "http://es-behavior:9200"
+
+
+def test_behavior_es_defaults_from_es_when_base_not_distinct() -> None:
+    base = SearchRuntime.from_kwargs(
+        es_endpoint="http://es-old:9200",
+        behavior_es_endpoint="http://es-old:9200",
+        cosmos_embed_endpoint="http://embed:8017",
+        rtvi_cv_endpoint="http://cv:9000",
+        vst_internal_url="http://vst:30888",
+        vst_external_url="http://vst:7777",
+    )
+    args = _parse_args(["search", "--es-endpoint", "http://es-new:9200"])
+    updated = _apply_runtime_overrides(base, args)
+    assert updated.es_endpoint == "http://es-new:9200"
+    assert updated.behavior_es_endpoint == "http://es-new:9200"
+
+
+# --------------------------------------------------------------- use_attribute_search precedence (#11)
+
+
+def test_explicit_config_false_beats_payload_fusion_heuristic() -> None:
+    args = _parse_args(["search"])  # no --use-attribute-search flag
+    base = SearchOptions(use_attribute_search=False)
+    payload = {"attributes": ["white jacket"], "has_action": True}  # heuristic would say True
+    result = _search_options_from_args(args, base=base, search_payload=payload)
+    assert result.use_attribute_search is False
+
+
+def test_explicit_flag_beats_config() -> None:
+    args = _parse_args(["search", "--no-use-attribute-search"])
+    base = SearchOptions(use_attribute_search=True)
+    result = _search_options_from_args(args, base=base, search_payload=None)
+    assert result.use_attribute_search is False
+
+
+def test_heuristic_applies_without_config() -> None:
+    args = _parse_args(["search"])
+    payload = {"attributes": ["white jacket"], "has_action": True}
+    result = _search_options_from_args(args, base=None, search_payload=payload)
+    assert result.use_attribute_search is True
+
+
+# --------------------------------------------------------------- config error surfaces (#1)
+
+
+def _config_missing_es(tmp_path) -> str:
+    config = tmp_path / "config.yml"
+    config.write_text(
+        """
+functions:
+  embed_search:
+    cosmos_embed_endpoint: http://embed:8017
+    vst_internal_url: http://vst:30888
+    vst_external_url: http://vst:7777
+  attribute_search:
+    rtvi_cv_endpoint: http://cv:9000
+""",
+    )
+    return str(config)
+
+
+def test_config_error_not_swallowed_when_config_given(tmp_path) -> None:
+    # All required CLI runtime flags are present; the OLD code would silently
+    # drop the (broken) config and rebuild from args, losing every profile knob.
+    config_path = _config_missing_es(tmp_path)
+    args = _parse_args(
+        [
+            "search",
+            "--config",
+            config_path,
+            "--es-endpoint",
+            "http://es:9200",
+            "--cosmos-embed-endpoint",
+            "http://embed:8017",
+            "--rtvi-cv-endpoint",
+            "http://cv:9000",
+            "--vst-internal-url",
+            "http://vst:30888",
+            "--vst-external-url",
+            "http://vst:7777",
+        ]
+    )
+    with pytest.raises(ConfigurationError, match="es_endpoint"):
+        _build_facade(args, {})
+
+
+def test_main_malformed_config_exits_4(tmp_path) -> None:
+    config = tmp_path / "config.yml"
+    config.write_text("functions: {search: [unclosed\n")
+    exit_code = main(
+        [
+            "search",
+            "--config",
+            str(config),
+            "--es-endpoint",
+            "http://es:9200",
+            "--cosmos-embed-endpoint",
+            "http://embed:8017",
+            "--rtvi-cv-endpoint",
+            "http://cv:9000",
+            "--vst-internal-url",
+            "http://vst:30888",
+            "--vst-external-url",
+            "http://vst:7777",
+            "--json",
+            "{}",
+        ]
+    )
+    assert exit_code == 4
+
+
+# --------------------------------------------------------------- stream/non-stream exit-code parity (#4)
+
+
+class TestStreamExitCodes:
+    def test_index_not_found_maps_to_3(self) -> None:
+        # IndexNotFoundError is a BackendUnreachableError subclass → exit 3.
+        assert _exit_code_for_stream_error("IndexNotFoundError") == 3
+
+    def test_backend_unreachable_maps_to_3(self) -> None:
+        assert _exit_code_for_stream_error("BackendUnreachableError") == 3
+
+    def test_invalid_input_maps_to_2(self) -> None:
+        assert _exit_code_for_stream_error("InvalidInputError") == 2
+
+    def test_validation_error_maps_to_2(self) -> None:
+        assert _exit_code_for_stream_error("ValidationError") == 2
+
+    def test_configuration_error_maps_to_4(self) -> None:
+        assert _exit_code_for_stream_error("ConfigurationError") == 4
+
+    def test_unknown_maps_to_1(self) -> None:
+        assert _exit_code_for_stream_error("UnexpectedError") == 1
+        assert _exit_code_for_stream_error("NoFinalResult") == 1
+
+    def test_streamed_index_not_found_yields_exit_3(self) -> None:
+        async def fake_stream():
+            yield ErrorEvent(error_code="IndexNotFoundError", message="index missing")
+
+        exit_code = asyncio.run(_write_search_stream(fake_stream()))
+        assert exit_code == 3
+
+
+def test_main_index_not_found_non_stream_exits_3(monkeypatch) -> None:
+    from lib.search_core.errors import IndexNotFoundError
+
+    def boom(args, payload=None):
+        raise IndexNotFoundError("video_embeddings")
+
+    monkeypatch.setattr("lib.search_core.cli._build_facade", boom)
+    exit_code = main(["search", "--json", "{}"])
+    # Same exit code (3) as the streamed IndexNotFoundError path above.
+    assert exit_code == 3
+
+
+# --------------------------------------------------------------- --stream on non-search (#7 adjacent)
+
+
+def test_stream_rejected_on_non_search_primitive() -> None:
+    exit_code = main(["embed_search", "--stream", "--json", "{}"])
+    assert exit_code == 2
+
+
+# --------------------------------------------------- search-only flags on other primitives (#1)
+
+
+def test_search_only_flag_rejected_on_embed_search() -> None:
+    # --query is a `search`-only flag; embed_search reads --json/stdin. Passing it
+    # to embed_search must fail loudly (exit 2), not be silently ignored.
+    exit_code = main(["embed_search", "--query", "red car", "--json", "{}"])
+    assert exit_code == 2
+
+
+def test_search_only_list_flag_rejected_on_attribute_search() -> None:
+    exit_code = main(["attribute_search", "--attribute", "white jacket", "--json", "{}"])
+    assert exit_code == 2
+
+
+def test_reject_search_only_flags_names_the_offending_flags() -> None:
+    from lib.search_core.cli import _reject_search_only_flags_for_non_search
+
+    args = _parse_args(["embed_search", "--query", "x", "--top-k", "5"])
+    with pytest.raises(InvalidInputError) as exc:
+        _reject_search_only_flags_for_non_search(args)
+    message = str(exc.value)
+    assert "--query" in message
+    assert "--top-k" in message
+    assert "embed_search" in message
+
+
+def test_non_search_primitive_without_search_flags_is_allowed() -> None:
+    # No search-only flags provided -> the guard is a no-op even though the flags
+    # are registered on the shared parser with default sentinels.
+    from lib.search_core.cli import _reject_search_only_flags_for_non_search
+
+    args = _parse_args(["embed_search", "--es-endpoint", "http://es:9200"])
+    _reject_search_only_flags_for_non_search(args)  # must not raise
+
+
+def test_search_primitive_still_accepts_search_flags() -> None:
+    # The guard only fires for non-search primitives; `search` must be unaffected.
+    args = _parse_search_args(["--query", "forklift", "--top-k", "5"])
+    payload = _build_archive_search_payload(args)
+    assert payload["query"] == "forklift"
+    assert payload["top_k"] == 5
+
+
+# --------------------------------------------------------------- analyzer gating (#8)
+
+
+def _runtime_with_vlm() -> SearchRuntime:
+    return SearchRuntime.from_kwargs(
+        es_endpoint="http://es:9200",
+        cosmos_embed_endpoint="http://embed:8017",
+        rtvi_cv_endpoint="http://cv:9000",
+        vst_internal_url="http://vst:30888",
+        vst_external_url="http://vst:7777",
+        vlm_base_url="http://vlm:8000/v1",
+        vlm_model_name="gpt-4o",
+    )
+
+
+def test_plain_search_without_critic_builds_no_analyzer() -> None:
+    args = _parse_args(["search"])
+    analyzer = _maybe_build_vlm_analyzer(args, {"use_critic": False}, _runtime_with_vlm())
+    assert analyzer is None
+
+
+def test_critic_request_builds_analyzer() -> None:
+    args = _parse_args(["critic"])
+    analyzer = _maybe_build_vlm_analyzer(args, {}, _runtime_with_vlm())
+    assert analyzer is not None

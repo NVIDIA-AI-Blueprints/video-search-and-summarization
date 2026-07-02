@@ -50,21 +50,47 @@ def test_timestamp_filter_none():
     assert h.build_timestamp_filter(None, None) is None
 
 
-def test_timestamp_filter_start_only():
+def test_timestamp_filter_start_only_uses_overlap_end_gte():
+    # OVERLAP semantics (#11): start bound constrains the segment ``end``, not its
+    # ``timestamp``, so a segment straddling the start still matches.
     from datetime import UTC
     from datetime import datetime
 
     clause = h.build_timestamp_filter(datetime(2025, 1, 1, tzinfo=UTC), None)
-    assert clause == {"range": {"timestamp": {"gte": "2025-01-01T00:00:00+00:00"}}}
+    assert clause == {"range": {"end": {"gte": "2025-01-01T00:00:00+00:00"}}}
 
 
-def test_timestamp_filter_both():
+def test_timestamp_filter_end_only_uses_overlap_timestamp_lte():
+    from datetime import UTC
+    from datetime import datetime
+
+    clause = h.build_timestamp_filter(None, datetime(2025, 1, 2, tzinfo=UTC))
+    assert clause == {"range": {"timestamp": {"lte": "2025-01-02T00:00:00+00:00"}}}
+
+
+def test_timestamp_filter_both_is_overlap():
     from datetime import UTC
     from datetime import datetime
 
     clause = h.build_timestamp_filter(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC))
-    assert "must" in clause["bool"]
-    assert len(clause["bool"]["must"]) == 2
+    assert clause["bool"]["must"] == [
+        {"range": {"end": {"gte": "2025-01-01T00:00:00+00:00"}}},
+        {"range": {"timestamp": {"lte": "2025-01-02T00:00:00+00:00"}}},
+    ]
+
+
+def test_timestamp_filter_matches_attribute_overlap_shape():
+    # Embed and attribute paths must agree on overlap semantics.
+    from datetime import UTC
+    from datetime import datetime
+
+    from lib.search_core.primitives import _attribute_helpers as ah
+
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    end = datetime(2025, 1, 2, tzinfo=UTC)
+    embed_clause = h.build_timestamp_filter(start, end)
+    attr_clause = ah.build_behavior_overlap_filter(start, end)
+    assert embed_clause == attr_clause
 
 
 # ---------------------------------------------------------------- k value
@@ -214,6 +240,74 @@ def test_is_excluded_no_match():
         end_time="e",
         exclude_videos=[{"sensor_id": "other", "start_timestamp": "s", "end_timestamp": "e"}],
     )
+
+
+def test_is_excluded_tolerates_fractional_second_round_trip():
+    # Integration regression: the orchestrator builds an exclude entry from a
+    # critic-REJECTED result whose end_time was reformatted by
+    # merge_consecutive_results (".752Z" -> ".752000Z"). Exclusion must still
+    # match the raw re-fetched hit by INSTANT, not by exact string, or the
+    # rejected clip would slip back into the embed re-search unfiltered.
+    from lib.search_core._internal.time_convert import datetime_to_iso8601
+    from lib.search_core._internal.time_convert import iso8601_to_datetime
+
+    raw_start = "2025-08-25T03:05:55.100Z"
+    raw_end = "2025-08-25T03:05:58.752Z"
+    merged_end = datetime_to_iso8601(iso8601_to_datetime(raw_end))
+    assert merged_end != raw_end  # the round-trip really did change the spelling
+    assert h.is_excluded(
+        sensor_id_raw=_UUID,
+        stream_id=_UUID,
+        start_time=raw_start,
+        end_time=raw_end,
+        exclude_videos=[{"sensor_id": _UUID, "start_timestamp": raw_start, "end_timestamp": merged_end}],
+    )
+
+
+def test_is_excluded_matches_z_vs_offset_spelling():
+    # "Z" and "+00:00" are the same instant; exclusion must treat them as equal.
+    assert h.is_excluded(
+        sensor_id_raw=_UUID,
+        stream_id=_UUID,
+        start_time="2025-01-01T00:00:00Z",
+        end_time="2025-01-01T00:00:05Z",
+        exclude_videos=[
+            {
+                "sensor_id": _UUID,
+                "start_timestamp": "2025-01-01T00:00:00+00:00",
+                "end_timestamp": "2025-01-01T00:00:05+00:00",
+            }
+        ],
+    )
+
+
+def test_embed_and_attribute_exclusion_agree_on_round_tripped_window():
+    # #8 consistency: embed and attribute exclusion filters must agree on what
+    # "the same clip" means after a merge round-trip reformats the end_time.
+    from lib.search_core._internal.time_convert import datetime_to_iso8601
+    from lib.search_core._internal.time_convert import iso8601_to_datetime
+    from lib.search_core.primitives import _attribute_helpers as ah
+
+    raw_start = "2025-08-25T03:05:55.100Z"
+    raw_end = "2025-08-25T03:05:58.752Z"
+    merged_end = datetime_to_iso8601(iso8601_to_datetime(raw_end))
+    exclude = [{"sensor_id": "cam1", "start_timestamp": raw_start, "end_timestamp": merged_end}]
+
+    embed_excluded = h.is_excluded(
+        sensor_id_raw="cam1",
+        stream_id=None,
+        start_time=raw_start,
+        end_time=raw_end,
+        exclude_videos=exclude,
+    )
+    attr_excluded = ah._is_attribute_excluded(
+        sensor_id_raw="cam1",
+        stream_id=None,
+        start_time=raw_start,
+        end_time=raw_end,
+        exclude_videos=exclude,
+    )
+    assert embed_excluded is attr_excluded is True
 
 
 # ---------------------------------------------------------------- parse_hit

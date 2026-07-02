@@ -32,6 +32,8 @@ import logging
 from typing import TYPE_CHECKING
 from typing import Any
 
+from .._internal.coerce import _coerce_float
+from .._internal.coerce import _coerce_str
 from .._internal.time_convert import datetime_to_iso8601
 from .._internal.time_convert import iso8601_to_datetime
 from ..errors import InvalidInputError
@@ -47,33 +49,6 @@ logger = logging.getLogger(__name__)
 # scores are within this ratio of each other, so a strong hit and a weak hit
 # that merely overlap in time are not collapsed into one result.
 SIMILARITY_RATIO_THRESHOLD = 0.9
-
-
-# =============================================================================
-# Coercion helpers
-# =============================================================================
-
-
-def _coerce_str(value: Any, default: str = "") -> str:
-    """Coerce a possibly-missing / odd-typed value to a clean string.
-
-    Distinguishes a genuinely absent value (``None`` or ``""``) from falsy-but-
-    valid values like ``0`` so that, for example, object id ``0`` is preserved
-    rather than collapsed to the default.
-    """
-    if value is None or value == "":
-        return default
-    return str(value)
-
-
-def _coerce_float(value: Any, default: float = 0.0) -> float:
-    """Coerce a possibly-missing / odd-typed value to a float, or the default."""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 # =============================================================================

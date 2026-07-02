@@ -43,6 +43,10 @@ class BackendUnreachableError(SearchError):
 
     The .backend attribute names which one. The underlying exception (e.g.
     httpx.ConnectError, elasticsearch.ConnectionError) is preserved via __cause__.
+
+    Note: :class:`IndexNotFoundError` subclasses this, so callers that branch on
+    retryability (a missing index is not worth retrying) must catch
+    ``IndexNotFoundError`` before the generic ``BackendUnreachableError``.
     """
 
     def __init__(self, backend: str, message: str, cause: Exception | None = None) -> None:
@@ -83,7 +87,8 @@ class InvalidInputError(SearchError):
 class NoResultsError(SearchError):
     """Recoverable: search ran successfully but produced zero results.
 
-    Callers may choose to relax filters and retry. Primitives raise this only
-    when they cannot return a valid empty output (rare); normal "no matches"
-    cases return an empty list inside the output model.
+    Callers may choose to relax filters and retry. Note: the library does not
+    currently emit this — normal "no matches" cases return an empty list inside
+    the output model. It is retained as public API for callers/subclasses that
+    want to signal the condition explicitly.
     """

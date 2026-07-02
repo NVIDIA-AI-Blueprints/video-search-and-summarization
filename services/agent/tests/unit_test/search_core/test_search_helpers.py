@@ -11,6 +11,7 @@ import pytest
 from lib.search_core.errors import IndexNotFoundError
 from lib.search_core.models.attribute_search import AttributeSearchMetadata
 from lib.search_core.models.attribute_search import AttributeSearchResult
+from lib.search_core.models.search import SearchInput
 from lib.search_core.models.search import SearchResult
 from lib.search_core.primitives import _search_helpers as sh
 
@@ -164,6 +165,39 @@ async def test_fusion_rerank_propagates_systemic_search_error():
             attributes=["red hat"],
             attribute_search_fn=attr,
             vst_internal_url="",
+        )
+
+
+@pytest.mark.asyncio
+async def test_attribute_only_soft_degrade_appends_search_message():
+    # An unexpected (non-SearchError) failure degrades to [] but must leave a
+    # note so an empty result is distinguishable from a genuine no-matches case.
+    attr = _AlwaysRaisesAttr(ValueError("boom"))
+    messages: list[str] = []
+    out = await sh._run_attribute_only_search(
+        attribute_list=["red hat"],
+        search_input=SearchInput(query="q", source_type="video_file", attributes=["red hat"], agent_mode=False),
+        attribute_search_fn=attr,
+        top_k=5,
+        min_similarity=0.0,
+        search_messages=messages,
+    )
+    assert out == []
+    assert any("degraded" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_attribute_only_propagates_systemic_search_error():
+    # A SearchError on the primary attribute-only path is NOT soft-degraded.
+    attr = _AlwaysRaisesAttr(IndexNotFoundError("behavior_index"))
+    with pytest.raises(IndexNotFoundError):
+        await sh._run_attribute_only_search(
+            attribute_list=["red hat"],
+            search_input=SearchInput(query="q", source_type="video_file", attributes=["red hat"], agent_mode=False),
+            attribute_search_fn=attr,
+            top_k=5,
+            min_similarity=0.0,
+            search_messages=[],
         )
 
 
