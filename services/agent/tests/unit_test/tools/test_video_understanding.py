@@ -19,6 +19,7 @@ import pytest
 from vss_agents.tools.video_understanding import VideoUnderstandingConfig
 from vss_agents.tools.video_understanding import _build_vlm_messages
 from vss_agents.tools.video_understanding import _effective_system_prompt
+from vss_agents.tools.video_understanding import _is_cosmos_model
 from vss_agents.tools.video_understanding import _is_omni_audio_model
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
 from vss_agents.tools.video_understanding import _should_use_video_base64
@@ -112,6 +113,34 @@ class TestIsOmniAudioModel:
         assert not _is_omni_audio_model("nvidia/cosmos-reason2-8b")
 
 
+class TestIsCosmosModel:
+    """Test _is_cosmos_model detection."""
+
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "nvidia/cosmos3-nano-reasoner",
+            "nvidia/cosmos3-super-reasoner",
+            "nvidia/cosmos-reason2-8b",
+            "nvidia/cosmos-reason1-7b",
+        ],
+    )
+    def test_detects_cosmos_models(self, model_name: str):
+        assert _is_cosmos_model(model_name)
+
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "Qwen/Qwen3-VL-8B-Instruct",
+            "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
+            "gpt-4o",
+            "",
+        ],
+    )
+    def test_rejects_non_cosmos_models(self, model_name: str):
+        assert not _is_cosmos_model(model_name)
+
+
 class TestShouldUseVideoBase64:
     """Test video base64 selection for remote VLMs."""
 
@@ -133,9 +162,14 @@ class TestShouldUseVideoBase64:
             vlm_mode="local_shared",
         )
 
+    def test_remote_cosmos_skips_jpeg_for_video_url_path(self):
+        assert not _should_use_video_base64(
+            use_base64=False,
+            vlm_mode="remote",
+            model_name="nvidia/cosmos3-nano-reasoner",
+        )
+
     def test_enable_audio_omni_remote_skips_jpeg(self):
-        # Omni + remote uses the data-URI path (handled by _should_use_video_file_base64),
-        # so this fn returns False so the file-base64 path takes over.
         assert not _should_use_video_base64(
             use_base64=False,
             vlm_mode="remote",
@@ -153,14 +187,12 @@ class TestShouldUseVideoBase64:
         )
 
     def test_enable_audio_non_omni_remote_falls_back_to_jpeg(self, caplog):
-        # Non-Omni + remote can't honor audio AND can't reach the internal VST URL.
-        # Fall back to JPEG frame sampling (degraded but functional) and warn.
         with caplog.at_level("WARNING"):
             assert _should_use_video_base64(
                 use_base64=False,
                 vlm_mode="remote",
                 enable_audio=True,
-                model_name="nvidia/cosmos-reason2-8b",
+                model_name="Qwen/Qwen3-VL-8B-Instruct",
             )
         assert "non-Omni remote VLM" in caplog.text
         assert "Falling back to JPEG" in caplog.text
@@ -188,13 +220,41 @@ class TestShouldUseVideoBase64:
         assert not _should_use_video_file_base64(
             enable_audio=True,
             vlm_mode="remote",
-            model_name="nvidia/cosmos-reason2-8b",
+            model_name="Qwen/Qwen3-VL-8B-Instruct",
         )
 
     def test_enable_audio_local_does_not_use_video_file_base64(self):
         assert not _should_use_video_file_base64(
             enable_audio=True,
             vlm_mode="local",
+        )
+
+    def test_remote_cosmos_uses_video_file_base64(self):
+        assert _should_use_video_file_base64(
+            enable_audio=False,
+            vlm_mode="remote",
+            model_name="nvidia/cosmos3-nano-reasoner",
+        )
+
+    def test_remote_cosmos_reason2_uses_video_file_base64(self):
+        assert _should_use_video_file_base64(
+            enable_audio=False,
+            vlm_mode="remote",
+            model_name="nvidia/cosmos-reason2-8b",
+        )
+
+    def test_remote_non_cosmos_skips_video_file_base64(self):
+        assert not _should_use_video_file_base64(
+            enable_audio=False,
+            vlm_mode="remote",
+            model_name="Qwen/Qwen3-VL-8B-Instruct",
+        )
+
+    def test_local_cosmos_skips_video_file_base64(self):
+        assert not _should_use_video_file_base64(
+            enable_audio=False,
+            vlm_mode="local",
+            model_name="nvidia/cosmos3-nano-reasoner",
         )
 
     def test_enable_audio_defaults_false(self):
