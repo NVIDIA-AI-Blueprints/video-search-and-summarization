@@ -104,11 +104,11 @@ surface the command and let the user run it once, then resume.
 ```bash
 # Step 0 (teardown) runs BEFORE Step 1c initializes generated.env,
 # so on a fresh checkout / first deploy generated.env doesn't exist
-# yet — fall back to the source .env. Once a prior deploy via this
-# skill has run, generated.env carries the actually-deployed paths.
+# yet — fall back to overrides.env. Once a prior deploy via this skill has
+# run, generated.env carries the actually-deployed override paths.
 PROFILE_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>"
 ENV_FILE="$PROFILE_DIR/generated.env"
-[ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/overrides.env"
 
 # Sudo gate: passwordless sudo → run it; otherwise surface the exact command for
 # the user to run once (don't run privileged cleanup under non-interactive sudo).

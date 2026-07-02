@@ -36,7 +36,7 @@ services:
    
     environment:
       - VGGT_MODEL_PATH=${VGGT_MODEL_PATH:-/tmp/vggt_model/vggt_1B_commercial.pt}
-      - VIOS_BASE_URL=${VIOS_BASE_URL:-}
+      - VIOS_BASE_URL=${VIOS_BASE_URL:-${VST_INTERNAL_URL:-http://vst-ingress:${VST_PORT:-30888}}}
     
     # Volume mounts
     volumes:

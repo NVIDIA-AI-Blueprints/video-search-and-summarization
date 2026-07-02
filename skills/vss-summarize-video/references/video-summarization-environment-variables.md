@@ -6,8 +6,10 @@ video summarization debugging and request construction.
 
 ## Profile Env
 
-The checked-in `.env` is the defaults file. For an actual deployment, apply
-overrides to the generated profile env and resolve compose from that file:
+The checked-in `.env` is the stable-default layer and `overrides.env` is the
+runtime/profile default layer. For an actual deployment, initialize the generated
+profile env from `overrides.env`, apply overrides there, and resolve Compose with both
+`.env` and `generated.env`:
 
 ```text
 deploy/docker/developer-profiles/dev-profile-lvs/generated.env
