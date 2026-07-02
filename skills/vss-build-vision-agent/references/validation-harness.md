@@ -189,6 +189,7 @@ curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /
   ```
 
   Replace `<filename>` with the actual upload filename (e.g. `warehouse_safety_0001.mp4`). For a full clean slate, `sudo rm -rf ${VSS_DATA_DIR}/data_log/vst/clip_storage/` then `sudo mkdir -p ... && sudo chmod -R 777 ...` to recreate. Surfaced live 2026-06-18, IN-1 expanded eval.
+- **Clean stale OFFLINE sensors in VIOS before re-adding (Finding F-H, 2026-06-16).** On a re-deploy, NvStreamer auto-discovers the staged video under a fresh `sensorId` (the `_N` uniquifier increments), but VIOS still holds the **prior run's** sensor registration — now `state: offline` because the old NvStreamer RTSP port/pool is gone. Blindly `POST /sensor/add` then leaves a stale offline duplicate (and the smoke test may resolve the wrong sensorId). Before registering, list VIOS sensors and `DELETE` any whose `live_stream_url` points at an NvStreamer 315xx RTSP URL but reports `state: offline` (or whose name matches the sample stem from a prior run): `GET ${VIOS}/sensor/list` → for each stale/offline NvStreamer-backed entry `DELETE ${VIOS}/sensor/{sensorId}`, then add the freshly-resolved URL. Emit this de-dup step into the generated deploy skill's smoke sequence and into Patch 0 pre-flight so re-runs are idempotent (pairs with the `vss-vios-nvstreamer` orphan-container grep in § 5).
 
 ---
 
