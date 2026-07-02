@@ -75,6 +75,13 @@ RUN rm -f /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstuvch264.so* /usr/lib/aa
 
 RUN rm -f /usr/lib/aarch64-linux-gnu/mfx/libmfx_h264la_hw64.so*
 
+# FFmpeg scaling/resampling/postproc leftovers -- orphaned (libav* removed above, nothing
+# links these). Flagged by OSRB; remove to eliminate remaining FFmpeg royalty/GPL exposure.
+# (Intel MediaSDK/QSV is x86-only, so no libmfx stack exists on aarch64.)
+RUN rm -f /usr/lib/aarch64-linux-gnu/libswscale.* \
+        /usr/lib/aarch64-linux-gnu/libswresample.* \
+        /usr/lib/aarch64-linux-gnu/libpostproc.*
+
 RUN rm -f /usr/lib/aarch64-linux-gnu/liba52* /usr/lib/aarch64-linux-gnu/libcdio.so* /usr/lib/aarch64-linux-gnu/libsidplay.so* \
 		/usr/lib/aarch64-linux-gnu/liblrdf.so*  /usr/lib/aarch64-linux-gnu/libneon.so* \
         /usr/lib/aarch64-linux-gnu/libbs2b.so* /usr/lib/aarch64-linux-gnu/libdca.so* /usr/lib/aarch64-linux-gnu/libdvdnav.so* \
