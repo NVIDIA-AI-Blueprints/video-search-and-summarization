@@ -17,7 +17,7 @@ ARG PYTHON_VERSION=3.13
 # manylinux CPython tag for the OpenCV build; must track PYTHON_VERSION
 # (e.g. 3.13 -> cp313-cp313, 3.14 -> cp314-cp314).
 ARG PYBIN_TAG=cp313-cp313
-ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.6
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.8
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
 
 ###################################################
