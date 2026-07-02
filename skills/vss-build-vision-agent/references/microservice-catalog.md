@@ -61,7 +61,7 @@ Index of every VSS microservice that has reference files the `build-vision-agent
 |---|---|---|---|
 | Behavior Analytics | `skills/vss-setup-behavior-analytics/` | — ⇢ `integrate-behavior-analytics-service.md` *(pending — author under `-service.md` shape to match the deploy companion; upstream has `configuration.md`, `dynamic-config.md`, `dynamic-calibration.md` as additional refs)* | `deploy-behavior-analytics-service.md` ✓ *(canonical; `-service.md` retained)* |
 | Alert Microservice | `skills/vss-manage-alerts/` | `integrate-alerts.md` ✓ *(authored; neutral contract; `component_services` + `alert_source` variant + patch specifics in `references/patch-alerts.md`; formerly "Alert Verification" — image `vss-alert-verification` / container `vss-alert-bridge` unchanged)* | `deploy-alerts.md` ✓ *(authored)* |
-| Long Video Summarization (LVS) | `skills/vss-summarize-video/` | — ⇢ `integrate-lvs-service.md` *(pending — author under `-service.md` shape to match the deploy companion; upstream has `lvs-api.md`, `lvs-environment-variables.md`, `hitl-prompts.md`, `lvs-debugging.md`, `lvs.env.example` as additional refs)* | `deploy-lvs-service.md` ✓ *(canonical; `-service.md` retained)* |
+| Long Video Summarization (LVS) | `skills/vss-summarize-video/` | `integrate-lvs-service.md` ✓ *(neutral contract for VIOS-stored/uploaded video summarization through `POST /v1/summarize`; `component_services` + patch specifics in `references/patch-lvs.md`)* | `deploy-lvs-service.md` ✓ *(canonical; `-service.md` retained; additional API/env/debug detail remains in `video-summarization-*.md`)* |
 | VIOS MCP | `skills/vss-manage-video-io-storage/` | — ⇢ `integrate-vios-mcp-service.md` *(pending — author under `-service.md` shape to match the VIOS-skill convention)* | — ⇢ `deploy-vios-mcp-service.md` *(pending)* |
 | Video Analytics API | `skills/vss-setup-video-analytics-api/` | — ⇢ `integrate-video-analytics-api-service.md` *(pending — author under `-service.md` shape to match the deploy companion; upstream has `configuration.md` as additional ref)* | `deploy-video-analytics-api-service.md` ✓ *(canonical; `-service.md` retained)* |
 | Video Analytics MCP / Query | `skills/vss-query-analytics/` | — ⇢ `integrate-video-analytics-mcp.md` *(pending; **no `references/` folder upstream**, no pair-file scheme → author as plain `integrate-video-analytics-mcp.md`)* | — ⇢ `deploy-video-analytics-mcp.md` *(pending; no `references/` folder upstream)* |
@@ -119,7 +119,21 @@ Tags used to match user prompts to microservices. Keep tags consistent across ca
 | `text-embedding` | Text embeddings in the same vector space (text-to-video search) | RT-Embedding |
 | `clip-embedding` | Embeddings of VST-written clips for on-demand indexing | RT-Embedding |
 | `similarity-search` | Feeds a video-RAG / similarity retrieval pipeline | RT-Embedding |
+| `video-summarization` | Summarizes stored or uploaded video through the LVS API | Long Video Summarization (LVS) |
+| `long-video-summarization` | Long-form video summary generation through LVS | Long Video Summarization (LVS) |
+| `stored-video-summarization` | Summarizes VIOS-stored or VIOS-recorded video | Long Video Summarization (LVS), VIOS |
+| `uploaded-video-summarization` | Summarizes videos uploaded through VIOS | Long Video Summarization (LVS), VIOS |
+| `vios-recording-summarization` | Summarizes video clips stored by the VIOS recorder | Long Video Summarization (LVS), VIOS |
+| `summarization-api` | Requires summarization output through `POST /v1/summarize` | Long Video Summarization (LVS) |
 
 > **Alert Microservice capability tags.** The `alert-bridge` microservice (the **Alert Microservice**, formerly "Alert Verification" — deploy identifiers `vss-alert-verification` / `vss-alert-bridge` unchanged) carries `alert-verification`, `vlm-verification`, `clip-retrieval`, `incident-alerting`, `message-broker-alerts`, `false-positive-reduction`, and reuses `alert-detection`; with `alert_source=vlm-realtime` it also satisfies `real-time-alerts`. Use-case tags `ppe-compliance` / `restricted-area-monitoring` map to the `cv-verification` **Alert Verification** approach. Its `component_services` block and the two-approach `alert_source` variant (`cv-verification` = **Alert Verification** approach / lower GPU; `vlm-realtime` = **Real-Time Alerts** approach / higher GPU) live in `references/patch-alerts.md`. Prompts like "verify alerts", "given a stream, retrieve clips, post verified alerts to the message broker", "reduce false positives on CV detections", or "PPE compliance" map here. The full official "what's being deployed" set (RTVI CV + Behavior Analytics + Alert Microservice + RT-VLM + VIOS + NVStreamer + ELK + VSS Agent + Nemotron LLM NIM + Phoenix) is composed by unioning this microservice with RT-CV, Behavior Analytics, RT-VLM, VIOS, ELK, and the agent/LLM-NIM entries.
 
 When you add a new tag, list it here with the services that carry it.
+
+> **LVS capability tags.** Prompts like "add summarization to my existing
+> profile", "summarize uploaded videos", "summarize VIOS recordings", or
+> "return video summaries through the API" map to Long Video Summarization
+> (LVS). The current build-agent LVS add-on is stored-video only: it uses
+> `POST /v1/summarize` against the LVS REST API and does not generate live
+> stream summarization through `/v1/stream_summarize` or
+> `/v1/generate_captions`.

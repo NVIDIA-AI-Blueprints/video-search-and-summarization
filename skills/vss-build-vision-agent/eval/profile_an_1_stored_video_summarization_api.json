@@ -1,0 +1,33 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "an-1",
+  "runtime_deploy": false,
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, and the VSS repository checked out at `{{repo_root}}`. This is a generation-focused build-vision-agent eval for adding Long Video Summarization (LVS) to another generated profile. The requested capability is stored/uploaded video summarization only: source video comes from VIOS upload or VIOS recorder storage, and the required output path is the LVS REST API `POST /v1/summarize`. Live streaming video summarization is intentionally out of scope for this eval, so the generated profile must not add the NvStreamer validation harness or use `/v1/stream_summarize` / `/v1/generate_captions` as the summarization output path.",
+  "expects": [
+    {
+      "query": "Use the `/vss-build-vision-agent` skill to generate an AN-1 profile extension on `{{platform}}` from `{{repo_root}}`. Submit this exact prompt to the skill: \"Add video summarization to an existing VSS profile for videos uploaded to or stored through the VIOS recorder. Do not support live streaming video summarization. The generated deployment must expose video summarization through the REST API and return summaries from POST /v1/summarize.\" At Step 0 choose option (a) new build under `_builds/` so the skill resolves `<BUILD_DIR>` to `{{repo_root}}/_builds/an-1/` (or option (b) overwrite if a prior `_builds/an-1/` exists). Treat this as an add-on to an existing VIOS + RT-VLM + ELK generated profile: preserve/reuse VIOS, RT-VLM, Kafka, Logstash, and Elasticsearch rather than creating duplicate infra, add `lvs-server`, and choose a local or local-shared Nemotron LLM only if the generated deployment needs a local LLM peer. Stop after generation and dry-run validation; do not run `docker compose up -d` for this eval.",
+      "checks": [
+        "`{{repo_root}}/_builds/an-1/` contains `compose.yml`, `.env.template`, `MANIFEST.md`, and `allow-list.yml` in the same generated build folder.",
+        "`{{repo_root}}/_builds/an-1/allow-list.yml` includes the exact LVS service key `lvs-server` from `services/video-summarization/compose.yml`, includes/reuses the required peer component sets for VIOS, RT-VLM, Kafka, Logstash, and Elasticsearch, and does not define duplicate Kafka or Elasticsearch stacks.",
+        "The generated allow-list or MANIFEST describes LVS as an add-on to another profile, not as a replacement profile: existing VIOS playback/storage and existing RT-VLM/ELK paths are preserved, and `lvs-server` is the new summarization component.",
+        "The generated sidecar does NOT contain a `validation_harness:` key and the generated compose does NOT include `vss-vios-nvstreamer` or an `nvstreamer-validation` service, because stored/uploaded video summarization is not a live/streaming capability.",
+        "The generated `.env.template` or MANIFEST includes the LVS API settings needed for stored-video summarization: `LVS_BACKEND_URL=http://${HOST_IP}:38111`, `LVS_ENABLE_MCP=false`, `LVS_DATABASE_BACKEND=elasticsearch_db`, `KAFKA_STRUCTURED_SUMMARY_TOPIC=mdx-structured-events-summary`, `RTVI_VLM_URL=http://${HOST_IP}:${RTVI_VLM_PORT}`, and `VLM_NAME` matching the RT-VLM model id rule.",
+        "`{{repo_root}}/_builds/an-1/MANIFEST.md` states that source video is uploaded to VIOS or stored by the VIOS recorder, and explicitly states that live streaming video summarization is unsupported for this generated add-on.",
+        "The generated deploy skill under `_builds/an-1/skills/deploy-an-1/SKILL.md` documents an LVS API smoke test with `GET http://<host>:38111/v1/ready`, `GET http://<host>:38111/models`, and `POST http://<host>:38111/v1/summarize` using `model`, `scenario`, `events`, and a VIOS-provided `url` or `id`.",
+        "The generated MANIFEST or deploy skill states that the required API output is `choices[0].message.content` from the `POST /v1/summarize` response.",
+        "The generated MANIFEST and deploy skill do NOT instruct the operator to call `/v1/stream_summarize` or `/v1/generate_captions` as the summarization output path.",
+        "`{{repo_root}}/_builds/an-1/compose.yml` references patched copies under `_builds/an-1/patched/`, not upstream compose files directly, and no upstream compose or config file under `{{repo_root}}/deploy/docker/` is modified by generation (`git diff --quiet HEAD -- deploy/docker/` returns exit 0).",
+        "`docker compose --env-file .env -f compose.yml --profile bp_developer_an_1 config` from `{{repo_root}}/_builds/an-1/` returns exit 0 with zero real unexpanded `${...}` tokens other than intentional shell escapes or `${VAR:-default}` consumer-side defaults."
+      ]
+    }
+  ]
+}
