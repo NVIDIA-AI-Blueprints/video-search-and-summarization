@@ -25,7 +25,6 @@ on:
   # file (env passthrough + agent invocation all come from develop).
   workflow_dispatch:
     inputs:
-      # Agent under test inside each Harbor trial. The nightly `schedule`
       agent:
         description: "Agent to evaluate in Harbor trials"
         type: choice
