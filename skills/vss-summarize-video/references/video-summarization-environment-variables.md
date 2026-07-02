@@ -53,7 +53,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.2.1-26.06.2` for x86 / Jetson-Tegra; `3.2.1-26.06.2-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2` and `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2-sbsa`. |
+| `RTVI_VLM_IMAGE_TAG` | `3.2.1-26.07.1` for x86 / Jetson-Tegra; `3.2.1-26.07.1-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.07.1` and `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.07.1-sbsa`. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |

@@ -61,9 +61,9 @@ Create `.env` with your configuration:
 ```bash
 cat > .env << EOF
 BACKEND_PORT=8000
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2
+RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.07.1
 # For DGX Spark/SBSA platforms:
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2-sbsa
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.07.1-sbsa
 VLM_MODEL_TO_USE=cosmos-reason3
 MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 KAFKA_ENABLED=true
@@ -119,14 +119,14 @@ Build the custom image from the RT-VLM service directory:
 
 ```bash
 cd video-search-and-summarization/services/rtvi/rt-vlm
-docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.06.2-custom .
+docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom .
 ```
 
 To test the custom image with Docker Compose, set `RTVI_IMAGE` in `docker/.env`:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2
-RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.2.1-26.06.2-custom
+#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.07.1
+RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom
 ```
 
 Then restart the service:
@@ -144,16 +144,16 @@ export IS_SBSA=true
 docker buildx build --platform linux/arm64 \
   --build-arg IS_SBSA \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.06.2-custom-sbsa \
+  -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom-sbsa \
   --load .
 ```
 
-For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.06.2`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
+For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.1-26.07.1`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
 
 ```bash
 docker buildx build --platform linux/arm64 \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.06.2-custom-thor \
+  -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom-thor \
   --load .
 ```
 
@@ -918,7 +918,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 |-------|-------------|---------|
 | `enabled` | Enable the RT-VLM chart | `false` in `values.yaml`, `true` in `overrides_rtvi_vlm.yaml` |
 | `image.repository` | RT-VLM image repository | `nvcr.io/nvstaging/vss-core/vss-rt-vlm` |
-| `image.tag` | RT-VLM image tag | `3.2.1-26.06.2` |
+| `image.tag` | RT-VLM image tag | `3.2.1-26.07.1` |
 | `image.pullPolicy` | Kubernetes image pull policy | `IfNotPresent` |
 | `replicas` | Number of RT-VLM replicas | `1` |
 | `useSharedNim` | Use an in-cluster or remote OpenAI-compatible NIM instead of loading the model in the RT-VLM pod | `false` |
