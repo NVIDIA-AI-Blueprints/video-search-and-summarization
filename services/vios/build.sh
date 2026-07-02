@@ -52,6 +52,12 @@ AARCH64_CC_IMAGE="${AARCH64_CC_IMAGE:-vios-build:aarch64-cross-compiler}"
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-vios}"
 NVSTREAMER_IMAGE="${NVSTREAMER_IMAGE:-nvstreamer}"
 
+# Node image used to build the vios-ui in a container (see build_vios_ui). The
+# UI is built inside this pinned image rather than with a host toolchain, so the
+# host needs no node/npm — only Docker, which the container build already
+# requires. Pinned + reproducible; override to bump the Node version.
+NODE_BUILD_IMAGE="${NODE_BUILD_IMAGE:-node:22-bookworm}"
+
 # Define valid module names
 declare -A VALID_MODULES=(
     ["sensor"]=1
@@ -585,29 +591,59 @@ ensure_base_image() {
     build_base_image 0  # 0 = don't push during auto-build
 }
 
+# Build the vios-ui inside a pinned Node container and leave the compiled output
+# in ui/vios-ui/dist on the host. Callers: the nvstreamer container build
+# (build_vios_ui_webroot) and the ingress container build.
+#
+# The build runs in $NODE_BUILD_IMAGE rather than with a host toolchain: this is
+# fully automatic (the host needs no node/npm, only Docker — already required
+# for the container build), hermetic, and reproducible, with no curl|bash remote
+# installer and no mutation of the developer's machine. The repo's ui/ tree is
+# bind-mounted (vios-ui plus its sibling streaming-lib, which install:link
+# builds and links). npm runs as root inside the container so `npm link` can
+# write the global prefix; an EXIT trap then chowns the generated files back to
+# the invoking host user (even on build failure) so dist/node_modules are not
+# left root-owned on the host. --network=host mirrors this script's docker builds.
+#
+# No --platform is set intentionally: the UI output is architecture-independent
+# JS/HTML, so building in the host-arch node image is correct even when the
+# target module container is arm64. Do not add --platform here.
+build_vios_ui() {
+    local build_root
+    build_root=$(pwd)
+    local ui_parent="$build_root/ui"
+
+    if [[ ! -d "$ui_parent/vios-ui" ]]; then
+        echo "[ERROR] Cannot find vios-ui directory: $ui_parent/vios-ui"
+        exit 1
+    fi
+
+    echo "Building vios-ui in container ($NODE_BUILD_IMAGE) ..."
+    docker run --rm --network=host \
+        -v "$ui_parent":/work -w /work/vios-ui \
+        "$NODE_BUILD_IMAGE" \
+        bash -c "trap 'chown -R $(id -u):$(id -g) /work' EXIT; set -e; npm run install:link && npm run build" \
+        || { echo "[ERROR] Containerized vios-ui build failed"; exit 1; }
+
+    if [[ ! -d "$ui_parent/vios-ui/dist" ]]; then
+        echo "[ERROR] vios-ui dist directory not found after build"
+        exit 1
+    fi
+}
+
 # Function to build the vios-ui and stage its dist output into the webroot dir
 # (used when building the nvstreamer container; webroot is packaged into the image).
 build_vios_ui_webroot() {
     local build_root
     build_root=$(pwd)
-    local ui_dir="$build_root/ui/vios-ui"
     local webroot_dir="$build_root/webroot"
 
-    echo "Building vios-ui in $ui_dir ..."
-    cd "$ui_dir" || { echo "[ERROR] Cannot find vios-ui directory: $ui_dir"; exit 1; }
-    npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-    npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-    if [[ ! -d "dist" ]]; then
-        echo "[ERROR] vios-ui dist directory not found after build"
-        exit 1
-    fi
+    build_vios_ui
 
     echo "Staging vios-ui dist into $webroot_dir ..."
     # Remove only the VST UI static files; leave other webroot files intact.
     rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html"
-    cp -rf dist/. "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
-    cd "$build_root" || exit 1
+    cp -rf "$build_root/ui/vios-ui/dist/." "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
 }
 
 # Function to build a module
@@ -1198,25 +1234,16 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
                 imagename="$IMAGE_REGISTRY/vst-ingress:${TAG}"
             fi
 
-            # Build the vios-ui and stage its dist output into the ingress vst-ui dir
+            # Build the vios-ui (in a container) and stage its dist output into
+            # the ingress vst-ui dir.
             INGRESS_BUILD_ROOT=$(pwd)
-            UI_DIR="$INGRESS_BUILD_ROOT/ui/vios-ui"
             VST_UI_DIR="$INGRESS_BUILD_ROOT/deployment/scaling/ingress/vst-ui"
 
-            echo "Building vios-ui in $UI_DIR ..."
-            cd "$UI_DIR" || { echo "[ERROR] Cannot find vios-ui directory: $UI_DIR"; exit 1; }
-            npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-            npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-            if [[ ! -d "dist" ]]; then
-                echo "[ERROR] vios-ui dist directory not found after build"
-                exit 1
-            fi
+            build_vios_ui
 
             echo "Staging vios-ui dist into $VST_UI_DIR ..."
             find "$VST_UI_DIR" -mindepth 1 -not -name '.gitkeep' -delete
-            cp -rf dist/. "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
-            cd "$INGRESS_BUILD_ROOT" || exit 1
+            cp -rf "$INGRESS_BUILD_ROOT/ui/vios-ui/dist/." "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
 
             cd deployment/scaling/ingress/ || exit 1
             echo "Building Docker image: $imagename"
