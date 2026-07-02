@@ -265,6 +265,17 @@ for attempt in $(seq 1 $MAX_RETRIES); do
   fi
 done
 
+# OSRB: strip Intel MediaSDK / QuickSync (QSV) codec libs re-pulled as part of the
+# gstreamer1.0-plugins-bad reinstall above. VIOS uses NVIDIA NVENC/NVDEC exclusively;
+echo "Removing unused Intel MediaSDK / QSV (patent watchlist) libraries..."
+for libdir in /usr/lib/*-linux-gnu; do
+  rm -f "$libdir"/mfx/libmfx_*_hw64.so* \
+        "$libdir"/libmfx.so* "$libdir"/libmfxhw64.so* "$libdir"/libmfx-tracer.so* \
+        "$libdir"/gstreamer-1.0/libgstmsdk.so* \
+        "$libdir"/gstreamer-1.0/libgstqsv.so* 2>/dev/null || true
+  rm -rf "$libdir"/mfx 2>/dev/null || true
+done
+
 # Clean up GStreamer cache
 echo "Cleaning up GStreamer cache..."
 rm -rf ~/.cache/gstreamer-1.0/

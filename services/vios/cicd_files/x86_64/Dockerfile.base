@@ -75,7 +75,21 @@ RUN rm -f /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstuvch264.so* /usr/lib/x86
         /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmpeg2enc.so* \
         /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmpeg2dec.so*
 
-RUN rm -f /usr/lib/x86_64-linux-gnu/mfx/libmfx_h264la_hw64.so*
+# Intel MediaSDK / QuickSync (libmfx) HW codec stack -- unused (VST uses NVENC/NVDEC).
+# Carries H.264/H.265 codec royalty exposure. Remove dispatcher, HW runtime, tracer,
+# all AVC/HEVC/etc HW plugins, and the GStreamer msdk/qsv plugins.
+RUN rm -f /usr/lib/x86_64-linux-gnu/mfx/libmfx_*_hw64.so* \
+        /usr/lib/x86_64-linux-gnu/libmfx.so* /usr/lib/x86_64-linux-gnu/libmfxhw64.so* \
+        /usr/lib/x86_64-linux-gnu/libmfx-tracer.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmsdk.so* \
+        /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstqsv.so* && \
+    rm -rf /usr/lib/x86_64-linux-gnu/mfx
+
+# FFmpeg scaling/resampling/postproc leftovers -- orphaned (libav* removed above, nothing
+# links these). Flagged by OSRB; remove to eliminate remaining FFmpeg royalty/GPL exposure.
+RUN rm -f /usr/lib/x86_64-linux-gnu/libswscale.* \
+        /usr/lib/x86_64-linux-gnu/libswresample.* \
+        /usr/lib/x86_64-linux-gnu/libpostproc.*
 
 RUN rm -f /usr/lib/x86_64-linux-gnu/liba52* /usr/lib/x86_64-linux-gnu/libcdio.so* /usr/lib/x86_64-linux-gnu/libsidplay.so* \
         /usr/lib/x86_64-linux-gnu/liblrdf.so*  /usr/lib/x86_64-linux-gnu/libneon.so* \
