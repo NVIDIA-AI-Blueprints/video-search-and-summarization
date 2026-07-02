@@ -42,7 +42,14 @@ def _leg_name(leg: dict) -> str:
 
 
 def run_leg(leg: dict) -> tuple[dict, int, str]:
-    """Run one review_agent.py leg; return (leg, returncode, tail-of-stderr)."""
+    """Run one review_agent.py leg; return (leg, returncode, tail of combined output).
+
+    stdout and stderr are merged into one stream so a failing leg's diagnostics
+    are surfaced in full — an unhandled traceback that review_agent.py (or a C
+    extension it imports) writes to stdout would otherwise be dropped, leaving
+    the ``::warning::`` annotation empty. Legs transfer their results via JSON
+    files in REVIEW_OUT_DIR, not stdout, so nothing useful is lost by merging.
+    """
     env = {
         **os.environ,
         "EVAL_SKILL": leg["skill"],
@@ -54,12 +61,15 @@ def run_leg(leg: dict) -> tuple[dict, int, str]:
             [sys.executable, str(AGENT)],
             env=env,
             timeout=timeout,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
         )
-        return leg, proc.returncode, (proc.stderr or "")[-2000:]
-    except subprocess.TimeoutExpired:
-        return leg, 124, f"timed out after {timeout}s"
+        return leg, proc.returncode, (proc.stdout or "")[-2000:]
+    except subprocess.TimeoutExpired as e:
+        tail = (e.stdout or "").strip()[-2000:] if e.stdout else ""
+        msg = f"timed out after {timeout}s"
+        return leg, 124, f"{msg}\n{tail}" if tail else msg
 
 
 def main() -> int:
@@ -86,9 +96,11 @@ def main() -> int:
             else:
                 failures += 1
                 # Advisory: surface the failure, never fail the job.
+                # err is the tail of the leg's output; take the LAST 300 chars
+                # so the annotation shows the failure, not startup chatter.
                 print(
                     f"::warning title=skills-review::leg failed (rc={rc}): "
-                    f"{name} — {err.strip()[:300]}"
+                    f"{name} — {err.strip()[-300:]}"
                 )
                 print(f"[fail] {name} (rc={rc})", file=sys.stderr)
 
