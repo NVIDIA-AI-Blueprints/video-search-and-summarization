@@ -27,7 +27,7 @@ services:
     command: python3 apps/smart_city/main_smart_city_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
 
   nvstreamer-alerts:
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     profiles: ["bp_developer_alerts_2d_cv"]
     entrypoint: [ '/bin/bash', '-c', 'if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst' ]
