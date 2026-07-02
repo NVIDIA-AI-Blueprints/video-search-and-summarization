@@ -93,10 +93,12 @@ If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi
 If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
 If neither matches, the alerts profile is not deployed — direct the user to the `vss-deploy-profile` skill.
 
-Alternative signal (preferred when `docker ps` isn't accessible): check the profile's `generated.env`:
+Alternative signal (preferred when `docker ps` isn't accessible): check the deployed `generated.env`, falling back to `overrides.env` before a deployment has generated one:
 
 ```bash
-grep -E '^MODE=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env
+ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/generated.env
+[ -f "$ENV_FILE" ] || ENV_FILE=deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
+grep -E '^MODE=' "$ENV_FILE"
 # MODE=2d_cv   → CV mode (full superset)
 # MODE=2d_vlm  → VLM real-time mode (vss-rtvi-vlm only; no vss-rtvi-cv)
 ```

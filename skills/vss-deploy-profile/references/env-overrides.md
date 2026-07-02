@@ -2,9 +2,9 @@
 
 ### Step 2 — Build env_overrides
 
-Build a dictionary of env var overrides based on user intent. Only include vars that differ from the profile's `.env` defaults.
+Build a dictionary of env var overrides based on user intent. Only include vars that differ from the profile's `.env` / `overrides.env` defaults, and write those overrides to the generated runtime layer.
 
-**Always set (non-secret deployment values with placeholder defaults in the template):**
+**Always set (non-secret deployment values with placeholder defaults in `overrides.env`):**
 
 | Var | Value |
 |---|---|
@@ -82,8 +82,8 @@ all of the following before `docker compose up`:
    `deploy/docker/developer-profiles/dev-profile-<profile>/generated.env`
    (the skill's per-deploy working copy — see ``SKILL.md`` (see `../SKILL.md`)
    Step 1c). Do the same set for VLM if the user said remote VLM. Use
-   `sed -i "s|^KEY=.*|KEY=VALUE|"` — the source `.env` template ships
-   with placeholder rows for these keys, which `cp` to `generated.env`
+   `sed -i "s|^KEY=.*|KEY=VALUE|"` — the `overrides.env` template ships
+   with placeholder rows for these keys, which are copied to `generated.env`
    so the same `sed` patterns work.
 5. After writing, `grep -E '^(HARDWARE_PROFILE|LLM_MODE|VLM_MODE|LLM_NAME_SLUG|VLM_NAME_SLUG|LLM_BASE_URL|VLM_BASE_URL)=' <env-file>`
    and verify every line shows the value you intended. A silent miss on
@@ -91,7 +91,7 @@ all of the following before `docker compose up`:
    wrong compose profiles.
 
 Never leave `LLM_MODE` or `VLM_MODE` at the template default when the user
-said "remote". The base `.env` defaults are `LLM_MODE=local_shared` and
+said "remote". The base `overrides.env` defaults are `LLM_MODE=local_shared` and
 `VLM_MODE=local_shared` (same as `dev-profile.sh` derives for same-device
 local deployments). Failing to overwrite them keeps local shared NIM
 `COMPOSE_PROFILES` active while remote URLs dangle unused.
@@ -104,7 +104,7 @@ local deployments). Failing to overwrite them keeps local shared NIM
 > with connection / 404 errors.
 >
 > If a user or endpoint documentation gives you a URL ending in `/v1`, strip it
-> before writing to `.env`. Examples:
+> before writing to `generated.env`. Examples:
 > - User says: "LLM is at `http://10.0.0.5:31081/v1`" → write `LLM_BASE_URL=http://10.0.0.5:31081`
 > - User says: "Use `https://integrate.api.nvidia.com/v1`" → write `LLM_BASE_URL=https://integrate.api.nvidia.com`
 

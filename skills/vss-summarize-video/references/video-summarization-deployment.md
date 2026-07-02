@@ -8,6 +8,7 @@ service reference for the VSS 3.2.0 `lvs` profile.
 Source files:
 
 - `deploy/docker/developer-profiles/dev-profile-lvs/.env`
+- `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`
 - `deploy/docker/services/video-summarization/compose.yml`
 - `deploy/docker/services/video-summarization/configs/config.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
@@ -60,11 +61,13 @@ docker compose --profile bp_developer_lvs_2d logs -f lvs-server
 
 ## Required Inputs
 
-The checked-in profile env file,
-`deploy/docker/developer-profiles/dev-profile-lvs/.env`, is the defaults file.
-For a deployment, follow `vss-deploy-profile` and apply overrides to
+The checked-in profile env files split stable defaults and runtime/profile defaults:
+`deploy/docker/developer-profiles/dev-profile-lvs/.env` is the stable-default layer,
+and `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env` is copied to
+`generated.env` for deployment-specific overrides. For a deployment, follow
+`vss-deploy-profile` and apply overrides to
 `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`, then resolve
-`deploy/docker/resolved.yml`. Do not edit the service compose directly.
+`deploy/docker/resolved.yml` using `.env` plus `generated.env`. Do not edit the service compose directly.
 Password values should come from the profile env or deployment overrides; do
 not add password defaults to the service compose file.
 
@@ -211,7 +214,9 @@ same dry-run path used by `vss-deploy-profile`:
 
 ```bash
 cd "$REPO/deploy/docker"
-docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
+docker compose \
+  --env-file developer-profiles/dev-profile-lvs/.env \
+  --env-file developer-profiles/dev-profile-lvs/generated.env \
   -f compose.yml -f <db-override.yml> \
   config > resolved.yml
 ```

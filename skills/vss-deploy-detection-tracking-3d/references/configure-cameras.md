@@ -2,7 +2,7 @@
 
 Parent: [`../SKILL.md`](../SKILL.md). Run **after** calibration is on disk (either ship-with-repo for `sample`, or landed by [`calibration-workflow.md`](calibration-workflow.md), or user-supplied) and **before** [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
 
-The shipped warehouse `.env` defaults to `NUM_STREAMS=4` and a 4-camera sample. If you're using the sample as-is, this reference is a no-op — skim and continue. It's load-bearing only when the user's actual camera count differs from 4, or when redeploying after AMC trimmed cameras down.
+The shipped warehouse `overrides.env` defaults to `NUM_STREAMS=4` and a 4-camera sample. If you're using the sample as-is, this reference is a no-op — skim and continue. It's load-bearing only when the user's actual camera count differs from 4, or when redeploying after AMC trimmed cameras down.
 
 ## Why this matters
 
@@ -161,7 +161,9 @@ If `CAM_COUNT == 1`: MV3DT is a multi-view stack — single-camera deployment is
 Before propagating `NUM_STREAMS`, confirm the GPU can actually run that many MV3DT streams. For sample/videos, the configurator can trim the video set to the GPU's cap when `NUM_STREAMS` exceeds it. For RTSP, set `NUM_STREAMS` to the number of entries in `camera_info.json` and keep it within the supported count.
 
 ```bash
-HARDWARE_PROFILE_VAL=$(grep '^HARDWARE_PROFILE=' "${ENV_FILE:-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env}" | cut -d= -f2)
+ENV_FILE="${ENV_FILE:-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env}"
+[ -f "${ENV_FILE}" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
+HARDWARE_PROFILE_VAL=$(grep '^HARDWARE_PROFILE=' "${ENV_FILE}" | cut -d= -f2)
 echo "HARDWARE_PROFILE=${HARDWARE_PROFILE_VAL}"
 
 # Lookup public MV3DT supported stream count from the Warehouse Quickstart Guide.
@@ -185,10 +187,11 @@ If `CAP < CAM_COUNT`, the user has more cameras than the GPU can process at MV3D
 - **Move to a larger GPU.** Re-check `HARDWARE_PROFILE` against the actual hardware (see SKILL.md Prerequisites §3 for the supported MV3DT hardware slugs).
 - **Override the cap.** Add a hardware-profile override in `blueprint-configurator/blueprint_config.yml` (advanced, requires understanding the trade-off — FPS will drop).
 
-## Step 3 — Sync NUM_STREAMS in .env
+## Step 3 — Sync NUM_STREAMS in generated.env
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+[ -f "${ENV_FILE}" ] || cp "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env" "${ENV_FILE}"
 
 # Use the lesser of CAM_COUNT and CAP — match what the configurator will compute
 [ "${CAP}" = "?" ] && EFFECTIVE="${CAM_COUNT}" \
@@ -258,7 +261,7 @@ Then proceed straight to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down -v
 ```
 
@@ -267,12 +270,13 @@ After the reset, proceed to [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-sta
 ## Step 6 — Sanity check before deploy
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+[ -f "${ENV_FILE}" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
 
 # Triplet must agree:
 echo "calibration.json sensors: $(jq '.sensors | length' "${CAL_DIR}/calibration.json" 2>/dev/null || echo MISSING)"
 echo "camInfo files:            $(find "${CAL_DIR}/camInfo/" -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | wc -l)"
-echo "NUM_STREAMS (.env):       $(grep '^NUM_STREAMS=' "${ENV_FILE}" | cut -d= -f2)"
+echo "NUM_STREAMS (runtime env): $(grep '^NUM_STREAMS=' "${ENV_FILE}" | cut -d= -f2)"
 echo "GPU cap for mv3dt:        ${CAP}"
 
 # Sensor IDs must match VST runtime names exactly: Camera, Camera_01, ...

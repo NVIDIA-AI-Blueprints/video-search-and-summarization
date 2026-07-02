@@ -9,7 +9,7 @@ This teardown is scoped to whatever this skill brought up — the same compose f
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down -v
 ```
 
@@ -27,7 +27,7 @@ When you intend to bring the same dataset back up against the existing broker / 
 
 ```bash
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down
 ```
 
@@ -50,11 +50,11 @@ docker system prune -f
 
 The shipped cleanup script drops data dirs the warehouse stack writes to (Elasticsearch indexes, Kafka logs, VST sensor state, etc.).
 
-**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from `.env`, so reverting them isn't needed; leaving the flag off causes the script to source a placeholder `.env`, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
+**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from `.env`, so reverting them isn't needed; leaving the flag off can cause the script to revert generated/configured values, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
 
 ```bash
 bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
-  -e industry-profiles/warehouse-operations/.env \
+  -e industry-profiles/warehouse-operations/generated.env \
   --skip-revert-from-oldest-backup
 ```
 
@@ -79,7 +79,7 @@ If [`calibration-workflow.md`](calibration-workflow.md) deployed `auto_calib` se
 ```bash
 cd "${VSS_APPS_DIR}"
 COMPOSE_PROFILES=auto_calib docker compose \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down
 ```
 
@@ -107,7 +107,7 @@ cd "${VSS_APPS_DIR}"
 
 # Stop everything, drop named volumes, drop locally-built images
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env down -v --rmi local
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v --rmi local
 
 # Clear bind-mounted AMC state — DESTRUCTIVE.
 # Auto-proceed when sudo is passwordless; otherwise surface the commands for the user.
@@ -129,7 +129,7 @@ fi
 
 # Drop data_log and optionally revert .env (intentional this time)
 bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
-  -e industry-profiles/warehouse-operations/.env
+  -e industry-profiles/warehouse-operations/generated.env
 
 docker volume prune -f
 docker system prune -f
