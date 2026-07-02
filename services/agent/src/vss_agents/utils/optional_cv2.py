@@ -46,4 +46,7 @@ def ensure_codecs(cv2_module: object | None) -> None:
         RuntimeError: If ``cv2`` is not installed.
     """
     if cv2_module is None:
+        # cv2 is None when opencv-python-headless was stripped from the image
+        # (patent-encumbered codecs are opt-in). Fail fast with an actionable
+        # message instead of a cryptic AttributeError on cv2.<attr> downstream.
         raise RuntimeError(PROPRIETARY_CODECS_NOT_INSTALLED)
