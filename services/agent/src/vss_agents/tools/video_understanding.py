@@ -111,12 +111,13 @@ def _should_use_video_base64(
     enable_audio: bool = False,
     model_name: str = "",
 ) -> bool:
-    """Return whether the video payload should be downloaded locally and sent as base64 frames.
+    """Return whether the video payload should be downloaded locally and sent as base64 JPEG frames.
 
-    Audio-capable VLMs (e.g. Nemotron Omni) need the full MP4 via ``video_url``; JPEG frame
-    sampling drops the audio track. When ``enable_audio`` is True and the model supports
-    embedded audio, use ``video_url`` (or the data-URI path for remote Omni — see
-    ``_should_use_video_file_base64``).
+    Returns ``False`` when the full-MP4 ``video_url`` path should be used instead
+    (see ``_should_use_video_file_base64``).  That covers:
+
+    * Remote Omni + ``enable_audio`` — preserves the audio track.
+    * Remote Cosmos models — avoids the per-prompt image count limit.
 
     Edge case: ``enable_audio=True`` with a non-Omni remote VLM. The model can't process
     the audio track anyway, and the internal VST URL is unreachable from a remote NIM, so
@@ -137,6 +138,10 @@ def _should_use_video_base64(
         if use_base64:
             logger.warning("use_base64=True is ignored because enable_audio=True requires the full MP4 via video_url.")
         return False
+
+    if _is_remote_vlm(vlm_mode) and _is_cosmos_model(model_name):
+        return False
+
     return use_base64 or _is_remote_vlm(vlm_mode)
 
 
@@ -148,6 +153,11 @@ def _is_remote_vlm(vlm_mode: str | None) -> bool:
 def _is_omni_audio_model(model_name: str) -> bool:
     """Return whether the VLM is Nemotron Omni (supports embedded audio in MP4)."""
     return "omni" in (model_name or "").lower()
+
+
+def _is_cosmos_model(model_name: str) -> bool:
+    """Return whether the VLM is a Cosmos model (supports native ``video_url``)."""
+    return "cosmos" in (model_name or "").lower()
 
 
 _OMNI_AUDIO_SYSTEM_SUFFIX = """
@@ -166,12 +176,20 @@ def _should_use_video_file_base64(
 ) -> bool:
     """Return whether to inline the full MP4 as base64 for the VLM.
 
-    Remote VLMs cannot rely on VST ``video_url`` reachability the way a co-located
-    local VLM can. Inlining the file preserves the audio track while avoiding
-    JPEG frame sampling. Only Omni audio-capable models support the
-    ``data:video/mp4;base64,…`` URI format expected by this path.
+    Two cases require this:
+
+    1. **Remote Omni + enable_audio** — preserves the audio track that JPEG
+       frame sampling would drop.
+    2. **Remote Cosmos models** — avoids the per-prompt image count limit
+       that rejects >5 individual ``image_url`` entries.  The NIM handles
+       frame sampling server-side via ``media_io_kwargs``.
+
+    Non-cosmos remote VLMs (Qwen, GPT-4o, etc.) stay on the ``image_url``
+    frame-sampling path for OpenAI API compatibility.
     """
-    return enable_audio and _is_remote_vlm(vlm_mode) and _is_omni_audio_model(model_name)
+    return _is_remote_vlm(vlm_mode) and (
+        _is_cosmos_model(model_name) or (enable_audio and _is_omni_audio_model(model_name))
+    )
 
 
 class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
