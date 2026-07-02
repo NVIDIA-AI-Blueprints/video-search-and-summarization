@@ -339,7 +339,7 @@ declare -A DEFAULT_TAGS=(
     [mcp]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
-    [vst-base]="2.1.0-runtime-26.04.1"
+    [vst-base]="2.1.0-runtime-26.05.4"
 )
 
 # Function to build base image for faster container builds
