@@ -24,6 +24,14 @@ on:
   # `develop` in the ref dropdown, and GitHub runs develop's version of this
   # file (env passthrough + agent invocation all come from develop).
   workflow_dispatch:
+    inputs:
+      agent:
+        description: "Agent to evaluate in Harbor trials"
+        type: choice
+        default: claude-code
+        options:
+          - claude-code
+          - codex
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -133,6 +141,7 @@ jobs:
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -170,6 +179,7 @@ jobs:
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
           export DAILY_RUN="true"
+          export EVAL_AGENT="${{ inputs.agent || 'claude-code' }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —
