@@ -75,22 +75,22 @@ cd /path/to/services/rtvi/rt-cv
 **SBSA** (ARM64 server / Spark-style targets):
 
 ```bash
-docker build --platform linux/arm64 -f docker/sbsa.Dockerfile -t rtvi-cv:3.2.0-custom-sbsa .
+docker build --platform linux/arm64 -f docker/sbsa.Dockerfile -t rtvi-cv:3.2.1-custom-sbsa .
 ```
 
 **ARM** (aarch64 / Jetson-style; uses `docker/aarch64.Dockerfile`):
 
 ```bash
-docker build --platform linux/arm64 -f docker/aarch64.Dockerfile -t rtvi-cv:3.2.0-custom-aarch64 .
+docker build --platform linux/arm64 -f docker/aarch64.Dockerfile -t rtvi-cv:3.2.1-custom-aarch64 .
 ```
 
 **x86**:
 
 ```bash
-docker build -f docker/x86.Dockerfile -t rtvi-cv:3.2.0-custom-x86 .
+docker build -f docker/x86.Dockerfile -t rtvi-cv:3.2.1-custom-x86 .
 ```
 
-Adjust image tags (`rtvi-cv:3.2.0-custom-*`) if you need a different version label. For cross-architecture builds, ensure Docker Buildx and a suitable builder are available.
+Adjust image tags (`rtvi-cv:3.2.1-custom-*`) if you need a different version label. For cross-architecture builds, ensure Docker Buildx and a suitable builder are available.
 
 ---
 
@@ -170,7 +170,7 @@ On the **first** run, TensorRT may build the primary detector engine; allow seve
 - For the script and config on disk, use an image built from this repo (copies `tests/` into the app tree), for example:
 
   ```bash
-  docker build -f docker/x86.Dockerfile -t rtvi-cv:3.2.0-custom-x86 .
+  docker build -f docker/x86.Dockerfile -t rtvi-cv:3.2.1-custom-x86 .
   ```
 
   Stock NGC images may not include `tests/run-sanity.sh` unless they were built the same way.
@@ -184,7 +184,7 @@ On the **first** run, TensorRT may build the primary detector engine; allow seve
      --gpus "device=0" --shm-size=6g \
      -v $HOME/rtvicv-storage:/opt/storage \
      -it --user root --rm \
-     rtvi-cv:3.2.0-custom-x86
+     rtvi-cv:3.2.1-custom-x86
    ```
 
 2. Inside the container:
@@ -210,7 +210,7 @@ On the **first** run, TensorRT may build the primary detector engine; allow seve
 ```bash
 sudo docker run --rm --network=host \
   --gpus "device=0" --shm-size=6g \
-  rtvi-cv:3.2.0-custom-x86 \
+  rtvi-cv:3.2.1-custom-x86 \
   bash -lc 'cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app && ./tests/run-sanity.sh'
 ```
 
@@ -271,7 +271,7 @@ tests/
 - **Docker Compose** (v2) and **NVIDIA Container Toolkit** so the `rt-cv` service can use `deploy.resources.reservations.devices` (GPU).
 - **Images**: Compose uses `pull_policy: if_not_present` so existing local images are reused. Pull when your registry allows (HTTP **429** rate limits are common on Docker Hub / NGC):
   - `docker pull apache/kafka:3.9.0` (or set `KAFKA_IMAGE` in `.env` to a tag you already have, e.g. `apache/kafka:4.1.1`).
-  - `ngc registry login` then `docker pull --platform linux/amd64 <RTVI_CV_IMAGE>` for the perception image, or build from this repo: `docker build -f docker/x86.Dockerfile -t rtvi-cv:3.2.0-custom-x86 .` and set `RTVI_CV_IMAGE` accordingly.
+  - `ngc registry login` then `docker pull --platform linux/amd64 <RTVI_CV_IMAGE>` for the perception image, or build from this repo: `docker build -f docker/x86.Dockerfile -t rtvi-cv:3.2.1-custom-x86 .` and set `RTVI_CV_IMAGE` accordingly.
 - **x86 hosts**: Set `RTVI_CV_PLATFORM=linux/amd64` in `.env` so Docker does not select an `arm64` image manifest by mistake.
 
 ### Quick start
@@ -298,7 +298,7 @@ SKIP_DEPLOY=1 ../test-scripts/run-all-tests.sh
 | Variable | Typical value | Notes |
 | -------- | ------------- | ----- |
 | `KAFKA_IMAGE` | `apache/kafka:3.9.0` | Public image; Bitnami’s `bitnami/kafka` tags are often unavailable on Docker Hub |
-| `RTVI_CV_IMAGE` | NGC tag or `rtvi-cv:3.2.0-custom-x86` | Must match your platform |
+| `RTVI_CV_IMAGE` | NGC tag or `rtvi-cv:3.2.1-custom-x86` | Must match your platform |
 | `RTVI_CV_PLATFORM` | `linux/amd64` | Recommended on x86 |
 | `NVIDIA_VISIBLE_DEVICES` | `0` | GPU index inside the container |
 | `KAFKA_TOPIC` | `ds-perception` | Must match `topic=` / broker string in `source_nvmultiurisrcbin_kafka.compose.txt` |

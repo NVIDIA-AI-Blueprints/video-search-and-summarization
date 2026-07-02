@@ -181,7 +181,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 
 ### RT-CV sizing
 
-Image: `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.0` (SBSA: `3.2.0-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
+Image: `nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.1-26.07.1` (SBSA: `3.2.1-sbsa-26.07.1`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
 
 RT-CV is a **DeepStream perception pipeline**, not a vLLM container. It has no `--gpu-memory-utilization`-style knob. Memory scales with stream count and the active model family.
 
@@ -196,7 +196,7 @@ Knobs (in `dev-profile-search/.env`):
 | `DS_TRACKER_REID` | `false` | Enable re-identification (extra VRAM). |
 | `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by `perception-2d-init`. |
 | `RT_CV_DEVICE_ID` | `0` | Which GPU RT-CV pins to. |
-| `PERCEPTION_TAG` | `3.2.0` | Image tag (use `-sbsa-` variant on DGX Spark). |
+| `PERCEPTION_TAG` | `3.2.1-26.07.1` | Image tag (use `-sbsa-` variant on DGX Spark). |
 
 The upstream perf guide doesn't publish a single GB number — it publishes per-GPU max stream counts (consistent with the table above for RT-Embed). Treat **`NUM_STREAMS=16`** as a starting point on H100 / RTX PRO 6000 / L40S; lower it on smaller GPUs or when co-locating with a VLM.
 
