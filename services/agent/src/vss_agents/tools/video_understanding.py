@@ -703,20 +703,41 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             max_fps=config.max_fps,
         )
 
-        # Retry logic for VLM call — only retry transient errors (connection/timeout/5xx).
-        # Client errors like 400 (e.g. unsupported video format) are not retryable.
-        async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
-            with retry:
-                try:
-                    response = await vlm_chain.ainvoke(
-                        {"messages": messages},
-                        config={"callbacks": []},
-                    )
-                    logger.debug(f"Response: {response}")
-                    break
-                except Exception as e:
-                    logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
-                    raise e
+        # Suppress NAT's LangchainProfilerHandler for the VLM call.
+        #
+        # NAT registers LangchainProfilerHandler via LangChain's
+        # register_configure_hook(callback_handler_var, inheritable=True).
+        # This hook deep-copies the full input messages (including base64
+        # video/image payloads) on on_chat_model_start and streams them to
+        # the browser as intermediate-step SSE events.  With remote VLM,
+        # this leaks 10-60 MB per call into the chat API response, causing
+        # 200 MB+ responses and UI timeouts.
+        #
+        # Temporarily unsetting the ContextVar disables the hook for this
+        # call only.  The tool's text output is already surfaced in the
+        # ToolMessage; top-agent-level telemetry is unaffected.
+        try:
+            from nat.plugins.profiler.decorators.framework_wrapper import callback_handler_var
+
+            _saved_token = callback_handler_var.set(None)
+        except ImportError:
+            _saved_token = None
+
+        try:
+            # Retry logic for VLM call — only retry transient errors (connection/timeout/5xx).
+            # Client errors like 400 (e.g. unsupported video format) are not retryable.
+            async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
+                with retry:
+                    try:
+                        response = await vlm_chain.ainvoke({"messages": messages})
+                        logger.debug(f"Response: {response}")
+                        break
+                    except Exception as e:
+                        logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
+                        raise e
+        finally:
+            if _saved_token is not None:
+                callback_handler_var.reset(_saved_token)
 
         content = str(response.content) if response.content is not None else ""
         # Filter thinking traces
