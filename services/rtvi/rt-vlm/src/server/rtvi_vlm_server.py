@@ -22,6 +22,7 @@ import asyncio
 import base64
 import functools
 import gc
+import hashlib
 import json
 import os
 import re
@@ -106,6 +107,8 @@ gi.require_version("GstRtsp", "1.0")  # isort:skip
 from gi.repository import GstRtsp  # noqa: E402
 
 API_PREFIX = "/v1"
+CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC = 0.001
+GENERATE_CAPTIONS_STREAM_POLL_INTERVAL_SEC = 0.001
 
 # Cache environment variables for performance
 _SKIP_INPUT_MEDIA_VERIFICATION = not os.environ.get("VSS_SKIP_INPUT_MEDIA_VERIFICATION", "")
@@ -1003,6 +1006,192 @@ class RTVIServer:
                     headers={"X-Warning": context_warning},
                 )
             return response
+
+    @staticmethod
+    def _data_url_file_extension(header: str, media_type: MediaType) -> str:
+        if "image/png" in header:
+            return ".png"
+        if "image/jpeg" in header or "image/jpg" in header:
+            return ".jpg"
+        if "image/gif" in header:
+            return ".gif"
+        if "image/webp" in header:
+            return ".webp"
+        if "video/mp4" in header:
+            return ".mp4"
+        if "video/quicktime" in header or "video/mov" in header:
+            return ".mov"
+        if "video/x-msvideo" in header or "video/avi" in header:
+            return ".avi"
+        if "video/webm" in header:
+            return ".webm"
+        if "video/mkv" in header or "video/x-matroska" in header:
+            return ".mkv"
+        if media_type == MediaType.VIDEO:
+            return ".mp4"
+        return ".bin"
+
+    def _register_data_url_asset_sync(
+        self,
+        media_url: str,
+        media_type: MediaType,
+        file_id: str,
+    ) -> tuple[str, int, str]:
+        from urllib.parse import unquote
+
+        try:
+            header, encoded_data = media_url.split(",", 1)
+        except ValueError as e:
+            raise ServiceException(
+                "Failed to decode base64 data URL: missing comma separator",
+                "InvalidDataUrl",
+                400,
+            ) from e
+
+        file_ext = self._data_url_file_extension(header, media_type)
+        if ";base64" in header:
+            missing_padding = len(encoded_data) % 4
+            if missing_padding:
+                encoded_data += "=" * (4 - missing_padding)
+            media_data = base64.b64decode(encoded_data)
+        else:
+            media_data = unquote(encoded_data).encode()
+
+        digest = hashlib.sha256(media_data).hexdigest()
+        cache_dir = os.path.join(self._asset_manager._asset_dir, "_data_url_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        file_name = f"data_url_{digest[:16]}{file_ext}"
+        file_path = os.path.join(cache_dir, f"{digest}{file_ext}")
+
+        if not os.path.exists(file_path):
+            tmp_path = os.path.join(cache_dir, f".{digest}.{uuid4()}.tmp")
+            try:
+                with open(tmp_path, "wb") as f:
+                    f.write(media_data)
+                os.replace(tmp_path, file_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+
+        asset = Asset(
+            asset_id=file_id,
+            path=file_path,
+            fileName=file_name,
+            purpose=Purpose.VISION.value,
+            media_type=media_type.value,
+            asset_dir="",
+            username="",
+            password="",
+            description="",
+            video_fps=None,
+            creation_time=None,
+        )
+
+        self._asset_manager._asset_map[file_id] = asset
+        return file_id, len(media_data), file_path
+
+    async def _register_data_url_asset(
+        self,
+        media_url: str,
+        media_type: MediaType,
+        file_id: str,
+    ) -> tuple[str, int, str]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._async_executor,
+            functools.partial(
+                self._register_data_url_asset_sync,
+                media_url,
+                media_type,
+                file_id,
+            ),
+        )
+
+    def _register_file_url_asset(
+        self,
+        media_url: str,
+        media_type: MediaType,
+        file_id: str,
+    ) -> tuple[str, str]:
+        from urllib.parse import unquote, urlparse
+
+        parsed_url = urlparse(media_url)
+        if parsed_url.scheme != "file" or parsed_url.netloc not in ("", "localhost"):
+            raise ServiceException(
+                "Only local file URLs with an empty or localhost authority are supported",
+                "InvalidFileUrl",
+                400,
+            )
+
+        file_path = os.path.abspath(unquote(parsed_url.path))
+        allowed_paths = os.getenv(
+            "RTVI_ALLOWED_LOCAL_MEDIA_PATHS",
+            "/opt/nvidia/rtvi/streams/perf",
+        )
+        allowed_roots = [
+            os.path.abspath(os.path.expanduser(path.strip()))
+            for path in allowed_paths.split(os.pathsep)
+            if path.strip()
+        ]
+
+        if allowed_roots:
+            is_allowed = False
+            for allowed_root in allowed_roots:
+                try:
+                    if os.path.commonpath([allowed_root, file_path]) == allowed_root:
+                        is_allowed = True
+                        break
+                except ValueError:
+                    continue
+            if not is_allowed:
+                raise ServiceException(
+                    f"Local media path is not allowed: {file_path}",
+                    "InvalidFileUrl",
+                    400,
+                )
+
+        asset_id = self._asset_manager.add_file(
+            file_path=file_path,
+            purpose=Purpose.VISION.value,
+            media_type=media_type.value,
+            creation_time=None,
+            file_id=file_id,
+        )
+        return asset_id, file_path
+
+    async def _cleanup_temporary_chat_assets(self, temp_asset_ids: list[str]) -> None:
+        if not temp_asset_ids:
+            return
+
+        loop = asyncio.get_running_loop()
+        for temp_asset_id in temp_asset_ids:
+            try:
+                asset = self._asset_manager.get_asset(temp_asset_id)
+                await _await_file_release(asset, temp_asset_id)
+                await loop.run_in_executor(
+                    self._async_executor,
+                    functools.partial(
+                        self._asset_manager.cleanup_asset,
+                        temp_asset_id,
+                        executor=self._cleanup_executor,
+                    ),
+                )
+            except ServiceException as e:
+                logger.warning(
+                    "Failed to clean temporary chat asset %s: %s",
+                    temp_asset_id,
+                    e.message,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error cleaning temporary chat asset %s: %s",
+                    temp_asset_id,
+                    e,
+                    exc_info=True,
+                )
 
     def _build_vlm_query_from_cv_metadata(self, asset_id, metadata):
         """Build VlmQuery from CV StreamMetadata for auto-inference."""
@@ -2408,12 +2597,12 @@ class RTVIServer:
                 ) from ex
 
             videoId = videoIdList[0]
-            sse_client_key = request_id if asset.is_live else videoId
+            sse_client_key = request_id
             loop = asyncio.get_event_loop()
 
             if query.stream:
-                # Allow only one SSE reader for this request. Live streams can
-                # now have multiple independent requests for the same stream ID.
+                # Allow only one SSE reader for this request. Multiple requests
+                # may independently target the same file or live stream asset.
                 if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
@@ -2485,7 +2674,7 @@ class RTVIServer:
                                         }
                                         yield json.dumps(response)
                                     break
-                                await asyncio.sleep(0.01)
+                                await asyncio.sleep(GENERATE_CAPTIONS_STREAM_POLL_INTERVAL_SEC)
                                 continue
 
                             # Set the start/end time info for current response.
@@ -2814,87 +3003,22 @@ class RTVIServer:
 
                     # Check if this is a base64 data URL
                     if media_url.startswith("data:"):
-                        # Parse data URL format: data:[<mediatype>][;base64],<data>
-                        # Example: data:image/png;base64,iVBORw0KGgo...
                         try:
-                            # Split the data URL
-                            header, encoded_data = media_url.split(",", 1)
-
-                            # Determine file extension from media type
-                            if "image/png" in header:
-                                file_ext = ".png"
-                            elif "image/jpeg" in header or "image/jpg" in header:
-                                file_ext = ".jpg"
-                            elif "image/gif" in header:
-                                file_ext = ".gif"
-                            elif "image/webp" in header:
-                                file_ext = ".webp"
-                            elif "video/mp4" in header:
-                                file_ext = ".mp4"
-                            elif "video/quicktime" in header or "video/mov" in header:
-                                file_ext = ".mov"
-                            elif "video/x-msvideo" in header or "video/avi" in header:
-                                file_ext = ".avi"
-                            elif "video/webm" in header:
-                                file_ext = ".webm"
-                            elif "video/mkv" in header or "video/x-matroska" in header:
-                                file_ext = ".mkv"
-                            else:
-                                # Try to infer from media_type
-                                if media_type == MediaType.VIDEO:
-                                    file_ext = ".mp4"  # Default to mp4 for videos
-                                else:
-                                    file_ext = ".bin"
-
-                            file_name = f"base64_media{file_ext}"
-
-                            # Decode base64 data
-                            if ";base64" in header:
-                                # Add padding if needed (base64 strings must be multiple of 4)
-                                missing_padding = len(encoded_data) % 4
-                                if missing_padding:
-                                    encoded_data += "=" * (4 - missing_padding)
-                                media_data = base64.b64decode(encoded_data)
-                            else:
-                                # URL-encoded data (less common)
-                                from urllib.parse import unquote
-
-                                media_data = unquote(encoded_data).encode()
-
-                            # Create asset directory
-                            asset_dir = os.path.join(self._asset_manager._asset_dir, new_file_id)
-                            os.makedirs(asset_dir, exist_ok=True)
-
-                            # Save the decoded data to the asset directory
-                            file_path = os.path.join(asset_dir, file_name)
-                            with open(file_path, "wb") as f:
-                                f.write(media_data)
-
-                            from utils.asset_manager import Asset
-
-                            asset = Asset(
-                                asset_id=new_file_id,
-                                path=file_path,
-                                fileName=file_name,
-                                purpose=Purpose.VISION.value,
-                                media_type=media_type.value,
-                                asset_dir=asset_dir,
-                                username="",
-                                password="",
-                                description="",
-                                video_fps=None,
-                                creation_time=None,
+                            asset_id_from_url, media_size, file_path = (
+                                await self._register_data_url_asset(
+                                    media_url,
+                                    media_type,
+                                    new_file_id,
+                                )
                             )
 
-                            # Add to asset map
-                            self._asset_manager._asset_map[new_file_id] = asset
-                            asset_id_from_url = new_file_id
-
                             logger.info(
-                                "Created asset from base64 data URL: id=%s, type=%s, size=%d bytes",
+                                "Created temporary asset from data URL: id=%s, type=%s,"
+                                " size=%d bytes, path=%s",
                                 asset_id_from_url,
                                 media_type.value,
-                                len(media_data),
+                                media_size,
+                                file_path,
                             )
                         except ServiceException:
                             raise
@@ -2905,6 +3029,17 @@ class RTVIServer:
                                 "InvalidDataUrl",
                                 400,
                             ) from e
+                    elif media_url.startswith("file:"):
+                        asset_id_from_url, file_path = self._register_file_url_asset(
+                            media_url,
+                            media_type,
+                            new_file_id,
+                        )
+                        logger.info(
+                            "Created temporary asset from file URL: id=%s, path=%s",
+                            asset_id_from_url,
+                            file_path,
+                        )
                     else:
                         # Regular URL - download the file
                         from urllib.parse import urlparse
@@ -3050,9 +3185,11 @@ class RTVIServer:
                     vlm_query, videoIdList, log_prefix="NIM chat completion"
                 )
             except ServiceException:
+                await self._cleanup_temporary_chat_assets(temp_asset_ids)
                 # Re-raise ServiceException to be handled by FastAPI exception handler
                 raise
             except Exception as ex:
+                await self._cleanup_temporary_chat_assets(temp_asset_ids)
                 # Wrap unexpected exceptions
                 logger.error("Unexpected error in _process_vlm_request: %s", str(ex), exc_info=True)
                 raise ServiceException(
@@ -3060,7 +3197,7 @@ class RTVIServer:
                 ) from ex
 
             videoId = videoIdList[0]
-            sse_client_key = request_id if getattr(asset, "is_live", False) else videoId
+            sse_client_key = request_id
 
             # Get model info for response
             model_info = self._stream_handler.get_models_info()
@@ -3069,8 +3206,8 @@ class RTVIServer:
             loop = asyncio.get_event_loop()
 
             if vlm_query.stream:
-                # Allow only one SSE reader for this request. Live streams can
-                # now have multiple independent requests for the same stream ID.
+                # Allow only one SSE reader for this request. Multiple requests
+                # may independently target the same file or live stream asset.
                 if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
@@ -3150,7 +3287,7 @@ class RTVIServer:
                                         # EventSourceResponse adds "data: " prefix automatically
                                         yield json.dumps(response)
                                     break
-                                await asyncio.sleep(1)
+                                await asyncio.sleep(CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC)
                                 continue
 
                             # Process chunk responses and convert to OpenAI streaming format
@@ -3221,6 +3358,7 @@ class RTVIServer:
                                     break
                     finally:
                         self._sse_active_clients.pop(sse_client_key, None)
+                        await self._cleanup_temporary_chat_assets(temp_asset_ids)
 
                     # Send final chunk with finish_reason
                     response = {
@@ -3315,6 +3453,8 @@ class RTVIServer:
                         completion_tokens=total_output_tokens,
                         total_tokens=text_prompt_tokens + total_output_tokens,
                     )
+
+                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
 
                     return ChatCompletionResponse(
                         id=str(request_id),
