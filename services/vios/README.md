@@ -10,13 +10,13 @@ SPDX-License-Identifier: Apache-2.0
 Built images are named from two environment variables, so no registry is hardcoded in the source tree:
 
 - `IMAGE_REGISTRY` — registry/org prefix for all VST images (default `vios`, e.g. `vios/vst-sensor:latest`)
-- `NVSTREAMER_IMAGE` — full repository for the NVStreamer image (default `nvstreamer`, e.g. `nvstreamer:latest`)
+- `NVSTREAMER_IMAGE_REGISTRY` — full repository for the NVStreamer image (default `nvstreamer`, e.g. `nvstreamer:latest`)
 
 The defaults build images locally with no registry. To publish to your own registry, export these before building:
 
 ```bash
 export IMAGE_REGISTRY=my-registry.example.com/vios
-export NVSTREAMER_IMAGE=my-registry.example.com/nvstreamer
+export NVSTREAMER_IMAGE_REGISTRY=my-registry.example.com/nvstreamer
 ```
 
 ### A) Build the compile toolchain image (x86_64)
