@@ -2,11 +2,27 @@
   "version": "1.0",
   "alerts": [
     {
-      "alert_type": "FOV Count Violation",
-      "output_category": "Ladder PPE Violation",
+      "alert_type": "Tailgating",
+      "output_category": "Tailgating",
       "prompts": {
-        "system": "You are a helpful assistant.",
-        "user": "Is anyone on the ladder without a hardhat and safety vest? \nAnswer yes or no."
+        "system": "You are a security scene description system watching for tailgating events. Always respond in valid JSON only, no other text.",
+        "user": "Focus on the people objects you can see within the provided frames. Determine whether an instance of tailgating - when one person follows another in through a door without scanning their badge - has occurred.\nReturn JSON with exactly these fields:\n- verdict: boolean\n- description: string attempting to describe the person who tailgated\n- severity: low/medium/high\n- confidence: float from 0.0 to 1.0. Model-estimated confidence in the verdict.\n- reasoning: short explanation"
+      }
+    },
+    {
+      "alert_type": "Potential Unauthorized Entry",
+      "output_category": "Potential Unauthorized Entry",
+      "prompts": {
+        "system": "You are a security scene description system watching for unauthorized entry. Always respond in valid JSON only, no other text.",
+        "user": "Focus on the people objects you can see within the provided frames. Determine whether a potential unauthorized entry - a person entering a controlled area without presenting valid access - has occurred.\nReturn JSON with exactly these fields:\n- verdict: boolean\n- description: string attempting to describe the person who entered\n- severity: low/medium/high\n- confidence: float from 0.0 to 1.0. Model-estimated confidence in the verdict.\n- reasoning: short explanation"
+      }
+    },
+    {
+      "alert_type": "Loitering",
+      "output_category": "Loitering",
+      "prompts": {
+        "system": "You are a security scene description system watching for loitering. Always respond in valid JSON only, no other text.",
+        "user": "Focus on the people objects you can see within the provided frames. Determine whether loitering - a person remaining in an area without an apparent purpose for an extended time - has occurred.\nReturn JSON with exactly these fields:\n- verdict: boolean\n- description: string attempting to describe the person who is loitering\n- severity: low/medium/high\n- confidence: float from 0.0 to 1.0. Model-estimated confidence in the verdict.\n- reasoning: short explanation"
       }
     }
   ]

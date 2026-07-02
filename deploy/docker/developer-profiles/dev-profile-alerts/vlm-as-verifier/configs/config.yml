@@ -63,12 +63,16 @@ vlm:
   base_url: ${VLM_BASE_URL}/v1
   model: "${VLM_NAME}"
   max_tokens: 4096
-  request_timeout: 5
+  # Raised from 5s: the Ambient direct-media path downloads + base64-encodes the
+  # clip before the VLM call, which can exceed a 5s client timeout for larger clips.
+  request_timeout: 120
 
   # VLM Media Source: how to send video to VLM endpoint
   # false (default) - Pass video URL to VLM (VLM fetches from URL)
   # true - Download video locally, base64-encode, upload to VLM
-  vlm_media_source_using_base64: false
+  # Ambient direct-media path: alert-bridge fetches the adapter clip and embeds it
+  # (base64) in the VLM request, so the VLM never needs to fetch the adapter URL.
+  vlm_media_source_using_base64: true
 
   # Response format: auto | cosmos-reason | json | other | <custom>  (default: auto)
   #
@@ -98,6 +102,11 @@ vlm:
   #
   response_format: "auto"
   # custom_parser_module: "custom_parsers.my_parser"  # dotted Python module path
+
+  # Ambient tailgating integration: pluggable parser fully replaces the built-in
+  # verdict parsing; its dict lands in info["vlm_response"] (info["verdict"] = "").
+  # Loaded from /app/parsers (bind-mounted via VLM_AS_VERIFIER_PARSERS_DIR).
+  response_parser: "parsers.tailgating_enrichment.TailgatingVerifier"
 
   # Pluggable response parser: external parser class for custom use cases.
   # When set, it fully replaces the default CR1/CR2 verification parsing.
@@ -141,7 +150,9 @@ vlm:
   # Media Processing Parameters Toggle
   # When true: Alert Bridge omits these parameters, letting VLM use its server-side defaults
   #            (e.g., VLM defaults: 4 FPS, larger pixel limits for models like CR2)
-  use_vlm_media_defaults: false
+  # Set true: let the NIM size/sample frames server-side. AB-supplied pixel bounds
+  # can upscale high-res frames and trip the VLM with an HTTP 422 on the content field.
+  use_vlm_media_defaults: true
   # Custom media processing parameters (only used when use_vlm_media_defaults: false)
   # CR2 recommended: 0.6 (with reasoning/think tags), 0.7 (without reasoning)
   temperature: 0.6
@@ -221,7 +232,7 @@ alert_agent:
   num_workers: 10                                # Number of worker threads
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes
-  vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
+  vst_pass_through_mode: true                    # Ambient direct-media path: skip VST sensorId+time lookup, use info.media_urls
   chunk_size: 1
   metrics:
     # Requires PROMETHEUS_METRICS_ENABLED=true (env var) to have any effect.
@@ -243,7 +254,7 @@ alert_agent:
     enabled: true                                # Enable URL transformation (default: true)
 
   media_download:
-    enabled: false                                # Enable direct media URL processing
+    enabled: true                                 # Ambient direct-media path: fetch clip from info.media_urls
     max_media_count: 5                           # Maximum number of media URLs per request
     timeout_seconds: 30                          # Download timeout per file
     max_size_mb: 50                              # Maximum file size to download

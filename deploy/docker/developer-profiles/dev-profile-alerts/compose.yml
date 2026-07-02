@@ -15,11 +15,82 @@
 
 services:
 
+  # ---------------------------------------------------------------------------
+  # Ambient -> nvschema/mdx adapter (replaces perception + behavior-analytics as
+  # the incident source). Built from the ambient-alert-retrieval repo; publishes
+  # nv.Incident protobuf to the deployment's mdx-incidents Kafka topic and serves
+  # the referenced clip at :8091. Alert-bridge consumes it via the direct-media
+  # path (vst_pass_through_mode + media_download in vlm-as-verifier/config.yml)
+  # and fetches the clip over the bridge network at http://ambient-adapter:8091.
+  # ---------------------------------------------------------------------------
+  ambient-alert-receiver:
+    build:
+      context: ${AMBIENT_REPO_DIR}
+      dockerfile: docker/Dockerfile.mock
+    image: ambient-alert-adapter:dev
+    container_name: ambient-alert-receiver
+    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    restart: unless-stopped
+    command: ["python", "-m", "mock.alert_receiver_server"]
+    networks:
+      default:
+        aliases:
+          - ambient-alert-receiver
+    environment:
+      ALERT_RECEIVER_HOST: "0.0.0.0"
+      ALERT_RECEIVER_PORT: "8090"
+      MOCK_DATA_DIR: /app/mock/data
+
+  ambient-adapter:
+    build:
+      context: ${AMBIENT_REPO_DIR}
+      dockerfile: docker/Dockerfile.mock
+    image: ambient-alert-adapter:dev
+    container_name: ambient-adapter
+    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    restart: unless-stopped
+    command: ["python", "-m", "mock.webhook_mock_server"]
+    networks:
+      default:
+        aliases:
+          - ambient-adapter
+    environment:
+      MOCK_WEBHOOK_HOST: "0.0.0.0"
+      MOCK_WEBHOOK_PORT: "8091"
+      MOCK_WEBHOOK_PATH_KEY: mock-dev-key
+      MOCK_WEBHOOK_SECRET: mock-webhook-secret
+      ALERT_RECEIVER_URL: http://ambient-alert-receiver:8090
+      MOCK_USE_FIXTURES: "true"
+      MOCK_SKIP_VST: "true"
+      # Alert-bridge fetches this over the bridge network, so the service name is
+      # the reachable host for the clip download (base64 mode; VLM never fetches it).
+      MOCK_PUBLIC_BASE_URL: http://ambient-adapter:8091
+      MOCK_FIXTURES_DIR: /app/mock/fixtures
+      MOCK_AUTO_SEND_INTERVAL: "10"
+      MOCK_AUTO_SEND_JITTER: "3"
+      # Publish NvSchema nv.Incident protobuf to the deployment's Kafka bus.
+      KAFKA_ENABLED: "true"
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_TOPIC: mdx-incidents
+      KAFKA_MESSAGE_TYPE_HEADER: incident
+    volumes:
+      # Real fixtures from the ambient repo (Git LFS objects served as actual MP4s).
+      - ${AMBIENT_REPO_DIR}/mock/fixtures:/app/mock/fixtures:ro
+    depends_on:
+      ambient-alert-receiver:
+        condition: service_started
+      kafka-topic-init-container:
+        condition: service_completed_successfully
+
+  # Native incident generators are disabled: Ambient is now the sole producer to
+  # mdx-incidents (also frees GPU 0 used by perception for the VLM). Re-enable by
+  # restoring the bp_developer_alerts_2d_cv profile entries below.
   vss-behavior-analytics-alerts:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_developer_alerts_2d_cv"]
+    # Disabled: Ambient adapter is now the incident source. (was: ["bp_developer_alerts_2d_cv"])
+    profiles: ["disabled_ambient_replaced"]
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
@@ -85,7 +156,8 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_developer_alerts_2d_cv"]
+    # Disabled: Ambient adapter is now the incident source. (was: ["bp_developer_alerts_2d_cv"])
+    profiles: ["disabled_ambient_replaced"]
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
