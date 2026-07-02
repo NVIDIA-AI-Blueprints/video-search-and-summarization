@@ -1,0 +1,162 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# LVS Performance Benchmark Configuration
+# ==========================================
+# Populate test videos first with:  ./scripts/fetch-videos.sh   (downloads the NGC
+# warehouse sample set into <VSS_BENCHMARK_DATA_DIR>/videos), then edit the
+# video URLs below to match the filenames it reports.
+#
+# IMPORTANT — media host vs backend host (they differ):
+#   * vss_backend uses localhost: the benchmark CLIENT runs on the host and
+#     reaches LVS via its published port — localhost is correct.
+#   * video URLs must use the HOST IP, NOT localhost: LVS downloads each video
+#     from inside its own container (POST /files), so "localhost" there would
+#     resolve to the LVS container itself. The host IP works whether LVS runs
+#     on host networking or a bridge network. Find it with:
+#       hostname -I | awk '{print $1}'
+#     Replace HOST_IP below with that value (fetch-videos.sh prints the URLs).
+#
+# Override any global setting with environment variables:
+#   VIA_BACKEND        — LVS backend URL (default: http://localhost:38111)
+#   VIA_OUTPUT_DIR     — output directory for results
+#   VIA_VLM_GPUS       — comma-separated GPU indices for VLM (e.g. "0,1")
+#   VIA_LLM_GPUS       — comma-separated GPU indices for LLM (e.g. "2,3")
+
+# Global settings shared across all test scenarios
+global:
+  # -----------------------------------------------------------------------
+  # Backend URL — the LVS (Long Video Summarization) microservice endpoint.
+  # Must be running with VIA_DEV_API=true to support POST /files uploads.
+  # -----------------------------------------------------------------------
+  vss_backend: "http://localhost:38111"
+
+  # -----------------------------------------------------------------------
+  # Output directory for all benchmark results, XLSX reports, and JSON files.
+  # NOTE: the directory must NOT exist (or must be empty) before running.
+  # -----------------------------------------------------------------------
+  output_dir: "vss-perf-report"
+
+  # -----------------------------------------------------------------------
+  # GPU assignment — set these to match your LVS deployment topology.
+  # Check with (the LVS container name contains "lvs"):
+  #   docker inspect $(docker ps --filter "name=lvs" -q) \
+  #     --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E "VLM|LLM"
+  # -----------------------------------------------------------------------
+  vlm_gpus: [0]       # GPU indices used by the VLM (vision) pipeline
+  llm_gpus: [1]       # GPU indices used by the LLM (language) pipeline
+
+  # -----------------------------------------------------------------------
+  # GPU monitoring — samples GPU utilization and memory during each test.
+  # Requires benchmark to run on the same host as the GPU hardware.
+  # -----------------------------------------------------------------------
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+    export_csv: false
+    export_plots: false
+
+  # -----------------------------------------------------------------------
+  # CPU/RAM monitoring — samples system CPU and RAM during each test.
+  # -----------------------------------------------------------------------
+  cpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+    export_csv: false
+    export_plots: false
+
+  # -----------------------------------------------------------------------
+  # /summarize API parameters — applied globally; can be overridden per video.
+  # These defaults match the Cosmos-Reason2-8B model at 9k vision tokens.
+  # -----------------------------------------------------------------------
+  summarize_api_params:
+    max_tokens: 100
+    min_tokens: 100
+    ignore_eos: true
+    temperature: 0
+    seed: 42
+    # Vision input resolution (9k token defaults for Cosmos-Reason2-8B)
+    vlm_input_width: 1312
+    vlm_input_height: 736
+    num_frames_per_chunk: 20
+    events:
+      - "worker dropping boxes"
+      - "PPE violation"
+      - "forklift safety violation"
+      - "worker in restricted area"
+      - "equipment malfunction"
+      - "safety protocol violation"
+      - "boxes falling"
+      - "worker falling"
+      - "unauthorized personnel"
+      - "forklift stuck or blocked"
+      - "improper lifting technique"
+      - "spill or debris on floor"
+      - "emergency exit blocked"
+      - "workers congregating"
+      - "workers using phone"
+      - "unsecured load"
+      - "speed violation"
+      - "collision or near miss"
+      - "improper storage"
+      - "fire hazard"
+    scenario: "warehouse safety monitoring"
+
+
+# =========================================================================
+# Test Scenarios
+# =========================================================================
+# Each scenario tests specific aspects of LVS performance.
+# Run a specific scenario with: --scenario <scenario_name>
+# Run all scenarios by omitting --scenario.
+
+test_scenarios:
+
+  # -----------------------------------------------------------------------
+  # Scenario 1: Single File Test
+  # Measures end-to-end summarization latency for individual video files.
+  # Tests 1-minute and 5-minute videos with 10s and 30s chunk sizes.
+  #
+  # Video URLs use the HOST IP (see header note) and the filenames produced by
+  # fetch-videos.sh. Discover served videos at: http://HOST_IP:8888/videos/
+  # -----------------------------------------------------------------------
+  single_file_test:
+    description: "Single file latency benchmarking — measures E2E, VLM pipeline, and CA-RAG latency"
+    benchmark_mode: "single_file"
+    # Number of repeated iterations per video+chunk combination (for statistical
+    # stability). A discarded warmup run executes first (not counted); every
+    # counted iteration re-uploads the video for a fresh, cold full-pipeline run.
+    iterations: 3
+    videos:
+      # 5-minute warehouse clip — replace HOST_IP with your host's LAN IP
+      - url: "http://HOST_IP:8888/videos/warehouse_5min.mp4"
+        name: "5min"
+        chunk_sizes: [10, 30]
+
+      # 10-minute warehouse clip — replace HOST_IP with your host's LAN IP
+      - url: "http://HOST_IP:8888/videos/warehouse_10min.mp4"
+        name: "10min"
+        chunk_sizes: [30]
+
+  # -----------------------------------------------------------------------
+  # Scenario 2: File Burst Test
+  # Measures throughput at multiple concurrency levels.
+  # Finds the optimal concurrency for a target summarization latency via
+  # linear-then-binary search.
+  #
+  # Uses the 5-minute warehouse clip from fetch-videos.sh.
+  # -----------------------------------------------------------------------
+  file_burst_test:
+    description: "Concurrent file burst — measures throughput and finds optimal concurrency for target latency"
+    benchmark_mode: "file_burst"
+    videos:
+      # 5-minute warehouse clip — replace HOST_IP with your host's LAN IP
+      - url: "http://HOST_IP:8888/videos/warehouse_5min.mp4"
+        name: "5min"
+        chunk_sizes: [10]
+        # Concurrency levels to explicitly test (additional points found via binary search)
+        concurrency_levels: [1, 2, 4, 8]
+        # Target average latency for the optimal-concurrency search (seconds)
+        target_latency_seconds: 300
+        # Tolerance around target latency (binary search stops within ±tolerance)
+        target_latency_tolerance: 15.0
