@@ -41,6 +41,7 @@ GPU-specific tuning:
   H100:         helm upgrade nims ./nims -f override-values-H100.yaml
   L40S:         helm upgrade nims ./nims -f override-values-L40S.yaml
   RTXPRO6000BW: helm upgrade nims ./nims -f override-values-RTXPRO6000BW.yaml
+  DGX-SPARK:    helm upgrade nims ./nims -f override-values-DGX-SPARK.yaml
 
 Secrets:
 {{- if .Values.global.ngcApiKey }}
