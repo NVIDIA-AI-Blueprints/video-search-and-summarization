@@ -708,7 +708,10 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
             with retry:
                 try:
-                    response = await vlm_chain.ainvoke({"messages": messages})
+                    response = await vlm_chain.ainvoke(
+                        {"messages": messages},
+                        config={"callbacks": []},
+                    )
                     logger.debug(f"Response: {response}")
                     break
                 except Exception as e:
