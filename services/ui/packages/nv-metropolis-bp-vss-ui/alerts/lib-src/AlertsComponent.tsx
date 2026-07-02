@@ -210,6 +210,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   const defaultMaxResults = alertsData?.maxResults ?? 100;
   const defaultPageSize = alertsData?.pageSize ?? 20;
   const alertReportPromptTemplate = alertsData?.alertReportPromptTemplate;
+  const vlmVerifiedAlertReportPromptTemplate = alertsData?.vlmVerifiedAlertReportPromptTemplate;
   const mediaWithObjectsBbox = alertsData?.mediaWithObjectsBbox ?? false;
 
   const [pageSize, setPageSize] = useSessionState('alertsTabPageSize', defaultPageSize, parseIntRange(1, 500));
@@ -504,6 +505,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           loadingAlertId={loadingAlertId}
           onRefresh={refetch}
           alertReportPromptTemplate={alertReportPromptTemplate}
+          vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+          vlmVerified={vlmVerified}
           vstApiUrl={vstApiUrl}
           sensorMap={sensorMap}
           showObjectsBbox={mediaWithObjectsBbox}
