@@ -111,25 +111,6 @@ gpuProfiles:
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
-  # NVIDIA DGX Spark: unified-memory Grace-Blackwell dev system. Mirrors the
-  # Docker hw-DGX-SPARK-shared.env cosmos3 profile (the shared-mode values are
-  # the helm chart's contract, since one Spark hosts VLM + LLM simultaneously).
-  # nemotron / cosmos entries are empty for now — pre-existing DGX-SPARK docker
-  # envs for those NIMs land in helm when their own sync PRs open.
-  DGX-SPARK:
-    nemotron: {}
-    cosmos: {}
-    cosmos3:
-      NIM_KVCACHE_PERCENT: "0.4"
-      NIM_GPU_MEMORY_UTILIZATION: "0.4"
-      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.4"
-      NIM_MAX_MODEL_LEN: "16384"
-      NIM_MAX_NUM_SEQS: "4"
-      MAX_JOBS: "4"
-      NIM_DISABLE_CUDA_GRAPH: "1"
-      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
-      NIM_DELETE_LAST_FRAMES: "1"
-
   # Generic fallback for GPUs outside the validated list. Mirrors the Docker
   # hw-OTHER.env profiles exactly: no GPU tuning at all — the NIM applies its own
   # defaults, since we have no validated numbers for unknown GPUs. The rendered
@@ -300,6 +281,5 @@ cosmos3:
     - NIM_KVCACHE_PERCENT
     - NIM_GPU_MEMORY_UTILIZATION
     - NIM_PASSTHROUGH_ARGS
-    - NIM_DISABLE_CUDA_GRAPH
     - NIM_DISABLE_MM_PREPROCESSOR_CACHE
     - NIM_DELETE_LAST_FRAMES
