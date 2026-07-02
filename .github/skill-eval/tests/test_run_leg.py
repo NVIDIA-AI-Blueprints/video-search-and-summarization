@@ -126,6 +126,17 @@ class HarborCommand(unittest.TestCase):
         self.assertFalse(any("OPENAI_API_KEY" in part for part in cmd))
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
+    def test_build_command_rejects_unknown_agent(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/alerts_cv"),
+            include_task_name="rtxpro6000bw",
+            chain_key="alerts_cv_rtxpro6000bw",
+        )
+        with self.assertRaises(ValueError):
+            run_leg.build_harbor_command(
+                invocation, Path("/tmp/results"), "m", "https://x/v1", "Codex"
+            )
+
 
 class SkipMarkers(unittest.TestCase):
     def test_latest_reward_ignores_prior_chain_reward_when_since_is_set(self):
