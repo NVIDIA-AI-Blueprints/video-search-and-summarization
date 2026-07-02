@@ -17,7 +17,8 @@ Two common variants:
 **Diagnose:**
 ```bash
 ls "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"*.mp4 | wc -l
-grep '^HARDWARE_PROFILE=' "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+grep '^HARDWARE_PROFILE=' "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env" \
+  || grep '^HARDWARE_PROFILE=' "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
 docker logs vss-configurator-mv3dt 2>&1 | grep -iE 'keep_count|final_stream_count|max_streams'
 ```
 
@@ -45,14 +46,14 @@ If the sensor list shows names from a previous dataset (or more entries than `mi
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env down -v
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v
 
 bash scripts/cleanup_all_datalog.sh \
-  -e industry-profiles/warehouse-operations/.env \
+  -e industry-profiles/warehouse-operations/generated.env \
   --skip-revert-from-oldest-backup
 
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up --detach --pull always
 ```
 
@@ -147,7 +148,7 @@ docker logs vss-import-calibration-output-mv3dt 2>&1 | tail -10
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up --no-deps --force-recreate import-calibration-output-container-mv3dt
 ```
 
@@ -176,7 +177,7 @@ docker restart vss-video-analytics-api-mv3dt
 
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up --no-deps --force-recreate import-calibration-output-container-mv3dt
 ```
 
@@ -254,9 +255,9 @@ If `mdx-bev` grows much slower than `mdx-raw` × num cameras, fusion is dropping
 **Fix:** Override the env in `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml:52` (`SENSOR_TIMEOUT_MS`) and `:54` (`BUFFER_DURATION_S`) via env file:
 
 ```bash
-# Add to industry-profiles/warehouse-operations/.env
-echo 'SENSOR_TIMEOUT_MS=300' >> "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
-echo 'BUFFER_DURATION_S=3.0' >> "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+# Add to industry-profiles/warehouse-operations/generated.env
+echo 'SENSOR_TIMEOUT_MS=300' >> "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+echo 'BUFFER_DURATION_S=3.0' >> "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
 ```
 
 Then `docker compose ... up -d` to apply. Tune upward incrementally.
@@ -374,7 +375,7 @@ cd "${VSS_APPS_DIR}"
 # Discover services whose resolved image: lacks a registry/host prefix —
 # these are the ones compose tries (and may fail) to pull as Docker Hub refs.
 LOCAL_SVCS=$(docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env config 2>/dev/null \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config 2>/dev/null \
   | python3 -c "
 import sys, yaml
 d = yaml.safe_load(sys.stdin)
@@ -387,12 +388,12 @@ for n, s in (d.get('services') or {}).items():
 echo "Will pre-build: $LOCAL_SVCS"
 
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env build $LOCAL_SVCS
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env build $LOCAL_SVCS
 
 # Now bring up the rest. Drop --pull always (default --pull missing will
 # fetch registry images that aren't local; the pre-built ones are skipped).
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up --detach --force-recreate
 ```
 
@@ -426,10 +427,10 @@ ngc registry image list "nvidia/vss-core/*" 2>&1 | head -5
 **Fix (reliable recovery):** clean redeploy from a reset state — same as the "`Active sources : 0` after a redeploy" fix above:
 ```bash
 cd "${VSS_APPS_DIR}"
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
-bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v
+bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env --skip-revert-from-oldest-backup
 # re-apply data_log perms (SKILL.md Prerequisites §4), then:
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env up --detach --pull always
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env up --detach --pull always
 ```
 Videos and the landed calibration survive (separate paths). This recovers the stream but only buys another clip-length before the next EOS.
 

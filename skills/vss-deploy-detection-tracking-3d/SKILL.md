@@ -112,7 +112,7 @@ NGC_CLI_API_KEY=$(awk -F'= ' '/^apikey/{print $2}' ~/.ngc/config 2>/dev/null)
 test -n "${NGC_CLI_API_KEY}" && echo "key sourced from ~/.ngc/config"
 ```
 
-Make sure the key value also lands in `industry-profiles/warehouse-operations/.env:164` (`NGC_CLI_API_KEY=...`) — compose only reads it from there at `up` time, not from your shell env.
+Make sure the key value also lands in `industry-profiles/warehouse-operations/generated.env` (`NGC_CLI_API_KEY=...`) after it is initialized from `overrides.env` — compose reads the warehouse `.env` plus `generated.env` pair at `up` time, not only your shell env.
 
 ### 3. `HARDWARE_PROFILE` slug
 
@@ -128,7 +128,7 @@ Pick from `nvidia-smi --query-gpu=name --format=csv,noheader`:
 | IGX Thor | `IGX-THOR` | 4 |
 | DGX Spark | `DGX-SPARK` | 4 |
 
-If the user's GPU is not listed here, check `industry-profiles/warehouse-operations/.env` for available `HARDWARE_PROFILE` values, then confirm the matching profile exists in `blueprint-configurator/blueprint_config.yml` before using it. Do not infer a stream count from the slug alone.
+If the user's GPU is not listed here, check `industry-profiles/warehouse-operations/overrides.env` for available `HARDWARE_PROFILE` values, then confirm the matching profile exists in `blueprint-configurator/blueprint_config.yml` before using it. Do not infer a stream count from the slug alone.
 
 **The per-GPU MV3DT cap is enforced at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and applies a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` so only `final_stream_count` `.mp4` files remain (sorted lexicographically, last N kept). If your GPU's MV3DT supported stream count (above table) is below your camera count, perception / `mdx-raw` / `mdx-bev` run with the supported stream count. Either pick a GPU with a higher supported stream count or surface the cap explicitly to the user so they're aware which streams will be processed.
 

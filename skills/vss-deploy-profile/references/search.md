@@ -10,7 +10,7 @@ Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. The
 
 - **Three always-on GPU services:** `rtvi-cv` (DeepStream perception), `rtvi-embed` (Cosmos Embed1 embeddings), and the **LLM**. There is no Cosmos VLM NIM in the default LVS-style integrated path; the VLM is only deployed when the Critique agent needs it.
 - **Critique agent needs a VLM.** If the user enables Critique (default in the UI: `use_critic=true`), the deploy must provide a reachable VLM endpoint — either remote or co-located on the available GPUs.
-- **LLM shares its GPU with RT-Embed by default.** Reference `dev-profile-search/.env` defaults: `RT_CV_DEVICE_ID=0`, `RT_EMBED_DEVICE_ID=1`, `LLM_DEVICE_ID=1`, `VLM_DEVICE_ID=2`. The LLM must leave headroom for RT-Embed on GPU 1.
+- **LLM shares its GPU with RT-Embed by default.** Reference profile defaults: `RT_CV_DEVICE_ID=0` and `RT_EMBED_DEVICE_ID=1` in `dev-profile-search/.env`; `LLM_DEVICE_ID=1` and `VLM_DEVICE_ID=2` in `dev-profile-search/overrides.env`. The LLM must leave headroom for RT-Embed on GPU 1.
 
 ## What gets deployed
 
@@ -280,7 +280,7 @@ deploy/docker/developer-profiles/dev-profile-search/generated.env
 
 ## Stage perception models (RT-DETR warehouse)
 
-**MUST run before `docker compose --env-file <env> -f resolved.yml up -d`.** The compose's `perception-2d-init` container only fetches the SigLIP vision encoder. The RT-DETR detector model that RT-CV needs is staged separately by `dev-profile.sh` — and since this skill doesn't run that script, the agent must stage it directly.
+**MUST run before `docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`.** The compose's `perception-2d-init` container only fetches the SigLIP vision encoder. The RT-DETR detector model that RT-CV needs is staged separately by `dev-profile.sh` — and since this skill doesn't run that script, the agent must stage it directly.
 
 Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx` is missing. (User-confirmed on 2026-05-10.)
 
