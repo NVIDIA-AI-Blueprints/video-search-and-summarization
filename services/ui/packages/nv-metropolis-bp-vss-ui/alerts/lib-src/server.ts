@@ -21,6 +21,8 @@ import { env } from 'next-runtime-env';
 
 // Default values
 const DEFAULT_ALERT_REPORT_PROMPT_TEMPLATE = "Generate a report for incident {incidentId} with sensor id {sensorId}.";
+const DEFAULT_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE =
+  "Generate a verified incident report for incident {incidentId} with sensor id {sensorId}.";
 
 // Environment variables
 const MDX_WEB_API_URL = env('NEXT_PUBLIC_MDX_WEB_API_URL') || process?.env?.NEXT_PUBLIC_MDX_WEB_API_URL;
@@ -31,6 +33,9 @@ const ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS = env('NEXT_PUBLIC_ALERTS_
 const ALERTS_TAB_VERIFIED_FLAG_DEFAULT = env('NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT;
 const ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE = env('NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE;
 const ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE = env('NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE;
+const ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE =
+  env('NEXT_PUBLIC_ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE') ||
+  process?.env?.NEXT_PUBLIC_ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE;
 const ALERTS_TAB_MAX_SEARCH_TIME_LIMIT = env('NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT;
 const ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX = env('NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX;
 
@@ -57,6 +62,8 @@ export async function fetchAlertsData() {
     pageSize: 20,
     // Include alert report prompt template from environment variables
     alertReportPromptTemplate: ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE || DEFAULT_ALERT_REPORT_PROMPT_TEMPLATE,
+    vlmVerifiedAlertReportPromptTemplate:
+      ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE || DEFAULT_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE,
     // Include max search time limit from environment variables (0 = unlimited, default: 0)
     maxSearchTimeLimit: ALERTS_TAB_MAX_SEARCH_TIME_LIMIT || '0',
     // Include media with objects bbox flag from environment variables (default: false)

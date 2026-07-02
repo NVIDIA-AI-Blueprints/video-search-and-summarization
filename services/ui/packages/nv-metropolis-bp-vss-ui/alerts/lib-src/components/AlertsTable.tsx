@@ -130,6 +130,8 @@ interface AlertsTableProps {
   loadingAlertId?: string | null;
   onRefresh: () => void;
   alertReportPromptTemplate?: string;
+  vlmVerifiedAlertReportPromptTemplate?: string;
+  vlmVerified?: boolean;
   vstApiUrl?: string;
   sensorMap?: Map<string, string>;
   showObjectsBbox?: boolean;
@@ -370,6 +372,8 @@ type AlertTableBodyRowProps = Readonly<{
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
+  vlmVerifiedAlertReportPromptTemplate?: string;
+  vlmVerified?: boolean;
   submitChatMessage?: (message: string) => void;
   tdTextClass: string;
   toggleRow: (id: string) => void;
@@ -389,6 +393,8 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
+  vlmVerifiedAlertReportPromptTemplate,
+  vlmVerified = false,
   submitChatMessage,
   tdTextClass,
   toggleRow,
@@ -497,6 +503,8 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
                 data={alert.metadata}
                 isDark={isDark}
                 alertReportPromptTemplate={alertReportPromptTemplate}
+                vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+                vlmVerified={vlmVerified}
                 submitChatMessage={submitChatMessage}
               />
             </div>
@@ -536,6 +544,8 @@ type AlertsTableContentProps = Readonly<{
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
+  vlmVerifiedAlertReportPromptTemplate?: string;
+  vlmVerified?: boolean;
   submitChatMessage?: (message: string) => void;
   toggleRow: (id: string) => void;
   onAddFilter: (type: FilterType, value: string) => void;
@@ -577,6 +587,8 @@ function AlertsTableContent({
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
+  vlmVerifiedAlertReportPromptTemplate,
+  vlmVerified = false,
   submitChatMessage,
   toggleRow,
   onAddFilter,
@@ -805,6 +817,8 @@ function AlertsTableContent({
                 sensorMap={sensorMap}
                 showObjectsBbox={showObjectsBbox}
                 alertReportPromptTemplate={alertReportPromptTemplate}
+                vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+                vlmVerified={vlmVerified}
                 submitChatMessage={submitChatMessage}
                 tdTextClass={tdTextClass}
                 toggleRow={toggleRow}
@@ -843,6 +857,8 @@ export function AlertsTable({
   loadingAlertId,
   onRefresh,
   alertReportPromptTemplate,
+  vlmVerifiedAlertReportPromptTemplate,
+  vlmVerified = false,
   vstApiUrl,
   sensorMap,
   showObjectsBbox = false,
@@ -1018,6 +1034,8 @@ export function AlertsTable({
       sensorMap={sensorMap}
       showObjectsBbox={showObjectsBbox}
       alertReportPromptTemplate={alertReportPromptTemplate}
+      vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+      vlmVerified={vlmVerified}
       submitChatMessage={submitChatMessage}
       toggleRow={toggleRow}
       onAddFilter={onAddFilter}
