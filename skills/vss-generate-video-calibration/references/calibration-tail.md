@@ -21,7 +21,7 @@ s.post(f"{BASE_URL}/calibrate/{project_id}",
 
 # Surface where to watch progress before the long poll begins.
 _host = urlparse(BASE_URL).hostname or "<HOST_IP>"
-_ui_port = os.environ.get("VSS_AUTO_CALIBRATION_UI_PORT", "5000")
+_ui_port = os.environ.get("VSS_AUTO_CALIBRATION_UI_HOST_PORT") or os.environ.get("VSS_AUTO_CALIBRATION_UI_PORT", "5000")
 _root = BASE_URL.rsplit("/v1", 1)[0]
 print("[B] Calibration started")
 print(f"    Project:  {project_id}")

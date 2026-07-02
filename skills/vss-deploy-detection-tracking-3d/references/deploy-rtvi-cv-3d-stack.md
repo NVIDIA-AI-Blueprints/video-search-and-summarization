@@ -46,10 +46,12 @@ These services share a single `${MINIMAL_PROFILE:+_extended}` gate — they come
 Don't trust `docker compose config` to catch missing bind-mount sources — it doesn't validate host paths. Run these first:
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_STABLE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+[ -f "${ENV_FILE}" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
 
-# Re-source key vars from .env so we can check them
-set -a; . "${ENV_FILE}"; set +a
+# Re-source stable defaults first, then runtime/profile overrides, so we can check them
+set -a; . "${ENV_STABLE}"; . "${ENV_FILE}"; set +a
 
 # 1. App-data layout. RTSP still needs models and data_log, but not dataset MP4s.
 for sub in models data_log videos; do
@@ -149,8 +151,8 @@ if docker ps --format '{{.Names}}' | grep -q '^vss-vios-sensor$'; then
   elif [ "${EXISTING}" != "${EXPECTED}" ]; then
     echo "STALE / MISMATCHED VST state — the registered sensors do not match this dataset."
     echo "A scoped reset is recommended before deploying (resets VST Postgres + named volumes):"
-    echo "  docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v"
-    echo "  bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup"
+    echo "  docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v"
+    echo "  bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env --skip-revert-from-oldest-backup"
   else
     echo "VST sensor set matches the expected dataset — no reset needed."
   fi
@@ -202,7 +204,7 @@ If the stack is **already running** when you discover this (Step 5 in [`verify-a
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up -d --no-deps --force-recreate streamprocessing-ms-mv3dt
 
 # VST's per-tab session caches the sensorIds, which change on streamprocessing recreate
@@ -213,12 +215,17 @@ When the compose source already uses `${SAMPLE_VIDEO_DATASET}`, this step is a n
 
 ## Step 1 — Env recipe
 
-Edit `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env`. The shipped `.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
+Initialize `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env` from `overrides.env`, then edit `generated.env` for MV3DT runtime/profile overrides. The stable `.env` remains the service-default layer. The shipped `overrides.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
 
 > **Also set `LLM_MODE=none`.** Some shipped `.env` variants default `LLM_MODE=local`, which adds `llm_local_<slug>` to `COMPOSE_PROFILES` and pulls up the local LLM NIM stack — unwanted for MV3DT-only and a heavy GPU/model download. MV3DT needs no LLM/VLM, so set both `LLM_MODE=none` and `VLM_MODE=none`.
 
 ```bash
-# All keys below live in industry-profiles/warehouse-operations/.env — locate by name (line numbers drift across releases).
+cd "${VSS_APPS_DIR}"
+cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
+grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/generated.env \
+  || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "${VSS_APPS_DIR}" >> industry-profiles/warehouse-operations/generated.env
+
+# All keys below live in industry-profiles/warehouse-operations/generated.env — locate by name (line numbers drift across releases).
 # Deployment selectors
 MODE=mv3dt
 BP_PROFILE=bp_wh_kafka                      # or bp_wh_redis
@@ -358,21 +365,21 @@ The `blueprint-configurator` enforces this: on `HARDWARE_PROFILE=DGX-SPARK` it v
 
 **BEV Fusion needs no SBSA build.** `BEV_FUSION_MV3DT_TAG` is a single image that runs on all platforms including DGX-SPARK — leave it at its shipped tag. There is no `-sbsa` variant for it; don't hand-construct one (the pull would fail).
 
-Treat the shipped `.env` as the source of truth — swap only keys that carry a commented `-sbsa` line (currently `PERCEPTION_TAG`). The per-key list also lives in `vss-deploy-profile/references/warehouse.md` (search for "SBSA").
+Treat the generated runtime layer as the edit target — swap only keys that carry a commented `-sbsa` line (currently `PERCEPTION_TAG` / `RTVI_VLM_IMAGE_TAG` in `overrides.env`/`generated.env`). The per-key list also lives in `vss-deploy-profile/references/warehouse.md` (search for "SBSA").
 
 ## Step 2 — Dry-run
 
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   config | grep -E '(container_name|profiles:)' | head -80
 ```
 
 > **Filtering compose noise.** `docker compose config`/`up` prints a `level=warning msg="The \"VAR\" variable is not set. Defaulting to a blank string."` line for every variable that belongs to a profile you're **not** deploying (`EVAL_*`, `LVS_*`, `MILVUS_*`, `GF_*`, `VST_MCP_URL`, …). For MV3DT these are **expected and benign** — they are not a problem. To see only the lines that matter, drop them:
 >
 > ```bash
-> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env config 2>&1 >/dev/null \
+> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config 2>&1 >/dev/null \
 >   | grep -v 'variable is not set'
 > # Empty output = no real errors. Anything that still prints here is actionable —
 > # e.g. "couldn't find env file: ..." means a path in .env is wrong; fix before deploying.
@@ -408,13 +415,13 @@ If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` 
 > ```bash
 > cd "${VSS_APPS_DIR}"
 > # 1. Reset containers + named volumes
-> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v
 >
 > # 2. Clear host-side data_log — rotate it (non-destructive, keeps a backup):
 > ts=$(date +%Y%m%d_%H%M%S)
 > mv "${VSS_DATA_DIR}/data_log" "${VSS_DATA_DIR}/data_log.bak.${ts}"
 > #    ...or delete in place with the bundled script:
-> #    bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup
+> #    bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env --skip-revert-from-oldest-backup
 >
 > # 3. Recreate the data_log subdirs and re-apply the scoped ACLs — see SKILL.md Prerequisites §4
 > #    (mkdir the subdirs, then setfacl for UIDs 70/999/1000 — NOT chmod 777).
@@ -425,9 +432,9 @@ If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` 
 ```bash
 cd "${VSS_APPS_DIR}"
 
-# Re-source .env so VSS_DATA_DIR, MINIMAL_PROFILE, and NGC_CLI_API_KEY are
-# available to the shell checks below, not only to docker compose.
-set -a; . industry-profiles/warehouse-operations/.env; set +a
+# Re-source .env first, then generated.env, so VSS_DATA_DIR, MINIMAL_PROFILE,
+# and NGC_CLI_API_KEY are available to the shell checks below, not only to docker compose.
+set -a; . industry-profiles/warehouse-operations/.env; . industry-profiles/warehouse-operations/generated.env; set +a
 
 # NGC login (first time on this host)
 docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
@@ -438,7 +445,7 @@ docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
 # manifest inspect checks registry access only — no layer download — so it stays fast even though
 # the perception image is multi-GB (the real pull happens in the backgrounded `up --pull always`).
 VSS_CORE_IMAGES=$(docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env config --images \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config --images \
   | grep -E 'nvcr\.io/.*/vss-core/' | sort -u)
 if [ -z "$VSS_CORE_IMAGES" ]; then
   echo "No vss-core images in the resolved compose — confirm MODE=mv3dt and COMPOSE_PROFILES resolved to bp_wh_kafka_mv3dt before continuing."
@@ -474,7 +481,7 @@ fi
 # Bring up (~10–15 min first run — PERCEPTION image pull + BodyPose3DNet TRT engine build)
 LOG=${LOG:-/tmp/mv3dt-deploy.log}
 nohup docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"

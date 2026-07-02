@@ -1,6 +1,6 @@
 # Warehouse Blueprint Reference
 
-Blueprint: VSS Warehouse — RT-DETR (2D) / Sparse4D (3D) / MV3DT (multi-view 3D tracking with BEV Fusion) perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using `industry-profiles/warehouse-operations/.env`.
+Blueprint: VSS Warehouse — RT-DETR (2D) / Sparse4D (3D) / MV3DT (multi-view 3D tracking with BEV Fusion) perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using the warehouse `.env` plus `generated.env` env-file pair.
 
 The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data (videos and models) is the only artifact you may need to acquire; see [App Data](#app-data).
 
@@ -85,7 +85,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 | Container | Port |
 |---|---|
-| `vss-haproxy-ingress` | `HAPROXY_PORT` (default `7777`) |
+| `vss-haproxy-ingress` | `HAPROXY_HOST_PORT` (host, default `7777`) → `HAPROXY_PORT` (container, default `7777`) |
 | `vss-agent-ui` (Next.js) | 3000 |
 | `vss-agent` | `VSS_AGENT_PORT` (default `8000`) |
 | `vss-va-mcp` | `VSS_VA_MCP_PORT` (default `9901`) |
@@ -105,7 +105,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | Container | Port | When |
 |---|---|---|
 | LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` |
-| `vss-rtvi-vlm` (real-time VLM) | 8018 | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
+| `vss-rtvi-vlm` (real-time VLM) | `RTVI_VLM_PORT` (default `8018`) | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
 | `vss-alert-bridge` | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
 > **No VLM NIM container.** VSS has two VLM paths: a standalone **VLM NIM** (controlled by `VLM_MODE` / `VLM_NAME_SLUG`, used by base/alerts/lvs/search profiles) and an integrated **RTVI VLM** (`vss-rtvi-vlm`). The warehouse blueprint uses **RTVI VLM only** — `vss-rtvi-vlm` is always deployed via the hardcoded compose profile `bp_wh_2d`, and `vss-agent` connects to it directly. Because warehouse does not use the standalone VLM NIM path, `VLM_MODE=none` and `VLM_NAME_SLUG=none` in the warehouse `.env`. There is no `vlm_*` slice in `COMPOSE_PROFILES`, so VLM NIM containers (e.g. `cosmos-reason2-8b` on port 30082) are never deployed.
@@ -135,9 +135,9 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 
 ## Access Points
 
-**Prefer the HAProxy ingress (port `7777`)** — it gives a single browser-reachable origin and rewrites paths to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
+**Prefer the HAProxy ingress (host port `7777`)** — it gives a single browser-reachable origin and rewrites paths to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
 
-### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_PORT>` — default `<EXTERNAL_IP>:7777`)
+### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_HOST_PORT>` — default `<EXTERNAL_IP>:7777`)
 
 | Path | Backend | Profile |
 |---|---|---|
@@ -168,12 +168,15 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
 | VST UI | `http://<HOST_IP>:30888/vst/` | All — direct port, not proxied via HAProxy |
 
-`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. The HAProxy `h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`) — wrong Host headers get a 404 from haproxy.
+`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. The HAProxy `h_main` ACL routes browser traffic through `${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`; for local defaults this is `${EXTERNAL_IP}:${HAPROXY_HOST_PORT}`. Wrong Host headers get a 404 from haproxy.
 
 ## Compose File Structure
 
 Deployed from `<repo>/deploy/docker/` (the repo's compose root) using:
-- `industry-profiles/warehouse-operations/.env` — all configuration
+- `industry-profiles/warehouse-operations/.env` — profile-specific stable defaults
+- `services/<service>/*.env` — shared service defaults loaded through compose include `env_file` entries
+- `industry-profiles/warehouse-operations/overrides.env` — checked-in deployment/profile override defaults
+- `industry-profiles/warehouse-operations/generated.env` — per-deploy working copy created from `overrides.env`
 - `compose.yml` — root top-level include (foundational, monitoring, vst, industry-profiles, etc.)
   - `industry-profiles/compose.yml` — industry sub-include
     - `industry-profiles/warehouse-operations/compose.yml` — warehouse sub-include
@@ -220,7 +223,7 @@ Ask the user which source they want and whether they already have the assets on 
 | **Redeploy** (`.env` change, clean restart, broken stack) | [Redeploy](#redeploy). Skips Phases 1–4 — host is already set up and artifacts exist. |
 | **Tear down only** (stop and remove containers/volumes; keep files on disk) | [Lifecycle: Tear down](#lifecycle-tear-down). |
 
-**`<repo>`** — path to your `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env`. If you don't know the repo path, **ask explicitly** before running shell commands.
+**`<repo>`** — path to your `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. If `generated.env` does not exist yet, initialize it from `overrides.env` before editing. If you don't know the repo path, **ask explicitly** before running shell commands.
 
 ---
 
@@ -241,7 +244,10 @@ cd <repo>/deploy/docker
 
 # Hard teardown — `-v` ensures named volumes are also removed.
 # Containers + network + project's named volumes all go.
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  down -v
 
 # Sweep any leftover anonymous/dangling volumes from prior partial runs.
 docker volume prune -f
@@ -250,9 +256,8 @@ docker volume prune -f
 docker system prune -f
 
 # Wipe bind-mounted state under $VSS_DATA_DIR/data_log/* AND revert
-# blueprint-configurator backups. Resolves VSS_DATA_DIR from the env file,
-# so pass the SAME env you used with `docker compose --env-file ...`.
-bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
+# blueprint-configurator backups. Resolves VSS_DATA_DIR from generated.env.
+bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
 ```
 
 ### Lifecycle: Bring up
@@ -266,12 +271,13 @@ cd <repo>/deploy/docker
 # Brev only: export before docker compose so COMPOSE_PROFILES and BREV_ENV_ID
 # are available for variable substitution. Skip on non-Brev hosts.
 export BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment 2>/dev/null)
-export COMPOSE_PROFILES=<literal-value-from-env>   # e.g. bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
+export COMPOSE_PROFILES=<literal-value-from-generated-env>   # e.g. bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
 
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 
 nohup docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
   up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"
@@ -370,7 +376,7 @@ grep "BREV_ENV_ID" /etc/environment && echo "Brev instance — apply Brev-specif
   || echo "Not Brev — standard deployment"
 ```
 
-If `BREV_ENV_ID` is present, also complete [§2.7 Brev-specific host setup](#27-brev-specific-host-setup-brev-deployments-only) below, apply the [Brev Secure Link Overrides](#brev-secure-link-overrides) in Phase 5, and run the [post-deploy Brev steps](#after-deploy-brev). For Brev architecture and secure-link troubleshooting, see [`brev.md`](brev.md) — note that `brev.md` documents the dev-profile `generated.env` flow; for warehouse, the equivalent overrides go directly into `industry-profiles/warehouse-operations/.env` (Phase 5).
+If `BREV_ENV_ID` is present, also complete [§2.7 Brev-specific host setup](#27-brev-specific-host-setup-brev-deployments-only) below, apply the [Brev Secure Link Overrides](#brev-secure-link-overrides) in Phase 5, and run the [post-deploy Brev steps](#after-deploy-brev). For Brev architecture and secure-link troubleshooting, see [`brev.md`](brev.md) — warehouse uses the same generated-env pattern, with overrides written to `industry-profiles/warehouse-operations/generated.env`.
 
 Run each check in order. **If a check fails, automatically install and re-verify — do not wait for the user.** Only stop if a requirement cannot be met automatically (unsupported hardware, insufficient RAM/CPU).
 
@@ -780,15 +786,27 @@ See [App Data → NGC app-data download](#ngc-app-data-download-optional) for th
 
 ---
 
-### Phase 5: Configure the warehouse .env
+### Phase 5: Configure the warehouse env files
 
-Edit `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`. Keys below match the actual file — only the values listed need editing for a typical deploy; the rest have working defaults.
+Initialize `<repo>/deploy/docker/industry-profiles/warehouse-operations/generated.env` from `overrides.env`, then edit `generated.env` for deployment selectors, credentials, host paths, hardware choices, and host-published port conflicts. Stable service knobs such as `MINIMAL_PROFILE`, fixed default device IDs, and service container ports remain in `.env`.
 
 ```bash
-# --- Deployment selectors (Phase 3 answers go here) ---
+cd <repo>/deploy/docker
+cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
+# Ensure blueprint-configurator reads the same generated override layer.
+grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/generated.env \
+  || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "$(pwd)" >> industry-profiles/warehouse-operations/generated.env
+```
+
+Keys below match the actual files — only the values listed need editing for a typical deploy; the rest have working defaults.
+
+```bash
+# --- Deployment selectors: generated.env (Phase 3 answers go here) ---
 MODE=<2d|3d|mv3dt>
 BP_PROFILE=<bp_wh|bp_wh_kafka|bp_wh_redis|bp_wh_auto_calib>
 STREAM_TYPE=<kafka|redis>           # ignored by bp_wh and bp_wh_auto_calib; set for bp_wh_kafka / bp_wh_redis
+
+# --- Stable profile size: .env ---
 MINIMAL_PROFILE="true"              # or "" for extended (bp_wh_kafka / bp_wh_redis only)
 
 SAMPLE_VIDEO_DATASET="<dataset-name>"
@@ -828,7 +846,8 @@ VSS_DATA_DIR="<repo>/data"
 # --- Networking ---
 HOST_IP='<HOST_IP>'
 EXTERNAL_IP="${HOST_IP}"             # browser-reachable hostname/IP (Brev: secure-link domain)
-HAPROXY_PORT=7777                    # ingress for VSS UI
+HAPROXY_HOST_PORT=7777               # host-published ingress for VSS UI
+HAPROXY_PORT=7777                    # HAProxy container listen port
 
 # --- Credentials ---
 NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for local NIMs + image pulls
@@ -840,12 +859,13 @@ OPENAI_API_KEY=''                              # required for OpenAI remote endp
 
 Brev secure links use a hostname of the form `<port>-<env>.brevlab.com` (e.g. `7777-abc123.brevlab.com`) — the HAProxy port is prefixed directly to the Brev environment ID. The Brev reverse proxy terminates TLS and forwards to the container's HAProxy port, so browser-facing URLs must use `https`/`wss` on port `443` (the standard HTTPS port, which can be omitted from URLs).
 
-After editing the main `.env` variables above, apply these overrides in the **same** `.env` file when deploying on Brev:
+After editing the main `generated.env` values above, apply these overrides in the **same** `generated.env` file when deploying on Brev:
 
 ```ini
 # --- Brev secure link overrides ---
 # Replace <BREV_ENV_ID> with your Brev environment ID (e.g. vbi9qjb1x).
 # Find it via: echo "$BREV_ENV_ID" or from the Brev dashboard URL.
+HAPROXY_HOST_PORT=7777
 HAPROXY_PORT=7777
 VSS_PUBLIC_HTTP_PROTOCOL=https
 VSS_PUBLIC_WS_PROTOCOL=wss
@@ -877,15 +897,15 @@ These URLs stay on the internal host network — containers talk to each other v
 
 | Variable | Template | Compose file |
 |---|---|---|
-| `VIDEO_ANALYSIS_MCP_URL` | `http://${VSS_AGENT_HOST}:${VSS_VA_MCP_PORT}` (0.0.0.0:9901) | `services/agent/compose.yml` |
+| `VIDEO_ANALYSIS_MCP_URL` | `http://vss-va-mcp:${VSS_VA_MCP_PORT}` | `services/agent/agent.env` |
 | `LLM_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
 | `VLM_BASE_URL` | `http://${HOST_IP}:${VLM_PORT}` | `services/agent/compose.yml` |
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | `services/agent/compose.yml` |
-| `ALERT_BRIDGE_URL` | `http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}` | `services/agent/compose.yml` |
-| `PHOENIX_ENDPOINT` | `http://${HOST_IP}:6006` | `services/agent/compose.yml` |
-| `VST_INTERNAL_URL` | `http://${HOST_IP}:30888` | `services/agent/compose.yml` |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | `services/rtvi/rtvi.env` |
+| `ALERT_BRIDGE_URL` | `http://alert-bridge:${ALERT_BRIDGE_PORT}` | `services/alert/alert.env` |
+| `PHOENIX_ENDPOINT` | `http://phoenix:6006` | `services/agent/agent.env` |
+| `VST_INTERNAL_URL` | `http://vst-ingress:30888` | `services/vios/vst.env` |
 | `EVAL_LLM_JUDGE_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
-| `VST_INGRESS_ENDPOINT` | `${HOST_IP}:30888/vst` (no scheme) | `services/vios/vst.env` |
+| `VST_INGRESS_ENDPOINT` | `vst-ingress:30888/vst` (no scheme) | `services/vios/vst.env` |
 | `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
 | Healthcheck endpoints | `http://localhost:8000/...` | all compose files |
@@ -915,13 +935,13 @@ Uses `EXTERNAL_IP:3002` directly (not `VSS_PUBLIC_*`). The map tab is **disabled
 
 ##### `COMPOSE_PROFILES` — set as a literal string on Brev
 
-The `COMPOSE_PROFILES` variable in the warehouse `.env` is defined as a shell-style template:
+The `COMPOSE_PROFILES` variable in warehouse `generated.env` is normally copied from the `overrides.env` shell-style template:
 
 ```ini
 COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
 
-Some Docker Compose versions do not expand variable references within `--env-file` values, leaving the literal `${BP_PROFILE}` string unexpanded. Always override with the resolved value in the `.env` file for the chosen profile:
+Some Docker Compose versions do not expand variable references within `--env-file` values, leaving the literal `${BP_PROFILE}` string unexpanded. Always override it with the resolved value in `generated.env` for the chosen profile:
 
 ```bash
 # Example for bp_wh + 2d + remote LLM (nemotron-nano-9b-v2)
@@ -935,7 +955,7 @@ COMPOSE_PROFILES=bp_wh_2d,llm_local_nvidia-nemotron-nano-9b-v2
 
 `vss-rtvi-vlm` runs on the Docker bridge network and needs to resolve Brev secure-link domains to fetch video clips for VLM verification. These steps are applied **after the stack is up** — see [After deploy — Brev](#after-deploy-brev).
 
-> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse `.env`. The variable is defined as a template inside `.env` and is not expanded by `--env-file` in all Docker Compose versions. Set it as a literal value directly in `.env` (e.g. `COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2`) and also `export COMPOSE_PROFILES=bp_wh_2d,...` in the shell before running `docker compose up`.
+> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. The variable is defined as a template inside `overrides.env`/`generated.env` and is not expanded by `--env-file` in all Docker Compose versions. Set it as a literal value directly in `generated.env` (e.g. `COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2`) and also `export COMPOSE_PROFILES=bp_wh_2d,...` in the shell before running `docker compose up`.
 
 > **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.2.1"` and uncomment `PERCEPTION_TAG="3.2.1-sbsa"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
 
@@ -961,6 +981,7 @@ ngc config current 2>/dev/null | grep -q "apikey" && echo "NGC config: key prese
 cd <repo>/deploy/docker
 docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
   config | grep "container_name"
 ```
 
