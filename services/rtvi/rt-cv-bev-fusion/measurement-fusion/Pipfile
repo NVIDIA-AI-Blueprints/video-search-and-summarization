@@ -1,0 +1,12 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+confluent-kafka = "==2.6.1"
+protobuf = ">=5.29.6,<6"
+redis = ">=5.0.0"
+
+[requires]
+python_version = "3.13"
