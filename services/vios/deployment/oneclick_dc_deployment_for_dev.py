@@ -2309,7 +2309,7 @@ EXAMPLES:
     python3 oneclick_dc_deployment_for_dev.py --auto --force --with-minio --with-monitoring
     python3 oneclick_dc_deployment_for_dev.py --auto --force --pull-always
 
-    # Deploy locally built images (built with IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE=nvstreamer)
+    # Deploy locally built images (built with IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE_REGISTRY=nvstreamer)
     python3 oneclick_dc_deployment_for_dev.py deploy --target all --auto --force \
         --streamprocessor-image vios/vst-streamprocessing --streamprocessor-tag latest \
         --sensor-image vios/vst-sensor --sensor-tag latest \
