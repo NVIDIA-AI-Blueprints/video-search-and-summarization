@@ -216,8 +216,10 @@ rtvi:
     profileMode: search
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
-      tag: 3.2.0
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
+      # For multi-arch: 3.2.1-26.07.1
+      # For DGX-SPARK (SBSA): 3.2.1-sbsa-26.07.1
+      tag: 3.2.1-26.07.1
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
