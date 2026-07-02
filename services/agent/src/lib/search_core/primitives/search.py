@@ -28,8 +28,12 @@ import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Protocol
+
+from pydantic import ValidationError
 
 from .._internal.embed_translation import params_to_embed_input
+from ..errors import InvalidInputError
 from ..errors import SearchError
 from ..events import ErrorEvent
 from ..events import FinalResultEvent
@@ -56,6 +60,18 @@ if TYPE_CHECKING:
     from ..runtime import SearchRuntime
 
 
+class _SupportsRun(Protocol):
+    """The single-method surface :class:`_PrimitiveAdapter` drives.
+
+    Each wrapped primitive (``EmbedSearch`` / ``AttributeSearch`` /
+    ``CriticAgent``) exposes an ``async run(inp) -> out``; their concrete input
+    and output types differ, so the payload/return stay ``Any`` while the method
+    contract itself is typed.
+    """
+
+    async def run(self, inp: Any) -> Any: ...
+
+
 class _PrimitiveAdapter:
     """Wraps a library primitive so `execute_core_search`'s `.ainvoke(payload)`
     calls work. Caller-supplied `coerce_payload` converts whatever payload the
@@ -67,7 +83,7 @@ class _PrimitiveAdapter:
 
     def __init__(
         self,
-        primitive: Any,
+        primitive: _SupportsRun,
         coerce_payload: Callable[[Any], Any],
         unwrap_output: Callable[[Any], Any] | None = None,
     ) -> None:
@@ -110,26 +126,44 @@ def _coerce_embed_payload(payload: Any) -> EmbedSearchInput:
         if "params" in payload or "prompts" in payload:
             # Forward the extras (``embeddings`` -> precomputed vector,
             # ``exclude_videos``) that live alongside ``params`` in the envelope,
-            # otherwise they would be silently dropped.
+            # otherwise they would be silently dropped. ``params_to_embed_input``
+            # already maps a ValidationError to InvalidInputError.
             return params_to_embed_input(
                 payload.get("params") or {},
                 payload.get("source_type", "video_file"),
                 precomputed_embedding=_precomputed_from_embeddings(payload.get("embeddings")),
                 exclude_videos=payload.get("exclude_videos"),
             )
-        return EmbedSearchInput(**payload)
+        # Map a Pydantic ValidationError (e.g. top_k out of bounds) to a typed
+        # InvalidInputError so bad sizes land on exit code 2, not a masked
+        # backend/unexpected fault.
+        try:
+            return EmbedSearchInput(**payload)
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid embed-search input: {exc}") from exc
     if hasattr(payload, "model_dump"):
-        return EmbedSearchInput.model_validate(payload.model_dump())
+        try:
+            return EmbedSearchInput.model_validate(payload.model_dump())
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid embed-search input: {exc}") from exc
     raise TypeError(f"cannot coerce {type(payload).__name__} to EmbedSearchInput")
 
 
 def _coerce_attribute_payload(payload: Any) -> AttributeSearchInput:
     if isinstance(payload, AttributeSearchInput):
         return payload
+    # Map a Pydantic ValidationError (e.g. top_k out of bounds) to a typed
+    # InvalidInputError so bad sizes land on exit code 2.
     if isinstance(payload, dict):
-        return AttributeSearchInput(**payload)
+        try:
+            return AttributeSearchInput(**payload)
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid attribute-search input: {exc}") from exc
     if hasattr(payload, "model_dump"):
-        return AttributeSearchInput.model_validate(payload.model_dump())
+        try:
+            return AttributeSearchInput.model_validate(payload.model_dump())
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid attribute-search input: {exc}") from exc
     raise TypeError(f"cannot coerce {type(payload).__name__} to AttributeSearchInput")
 
 

@@ -1,10 +1,10 @@
-# Deployment Resolution for `search-archive`
+# Deployment Resolution for `vss-cli search`
 
-Use this before every `search-archive` run. The host agent owns deployment discovery and must resolve Docker/Helm state into explicit CLI args. The CLI must remain env-free: no process-env fallback and no implicit env-file reads.
+Use this before every `vss-cli search` run. The host agent owns deployment discovery and must resolve Docker/Helm state into explicit CLI args. The CLI must remain env-free: no process-env fallback and no implicit env-file reads.
 
 ## Source Priority
 
-1. **Live runtime in the execution target**: the `vss-agent` container or pod env plus its mounted `$VSS_AGENT_CONFIG_FILE`. This is the best source because `search-archive` runs there and reaches the same in-cluster/container services.
+1. **Live runtime in the execution target**: the `vss-agent` container or pod env plus its mounted `$VSS_AGENT_CONFIG_FILE`. This is the best source because `vss-cli search` runs there and reaches the same in-cluster/container services.
 2. **Docker generated env**: `deploy/docker/developer-profiles/dev-profile-search/generated.env`. This is the per-deploy working copy created from `.env` plus user overrides. Use it to resolve/verify values, especially VLM mode, critic, API keys, `HOST_IP`, VST, RTVI, and ES.
 3. **Helm rendered state**: the live pod env and mounted configmap. If pod exec is unavailable, use `helm get manifest`, `helm get values`, or `kubectl get configmap` as read-only fallback.
 4. **Checked-in defaults**: Docker `.env` or Helm `values.yaml` only before a deployment exists. Do not treat these as the deployed truth after `generated.env` or a running pod/container exists.

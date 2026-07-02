@@ -4,7 +4,7 @@ description: Use this skill to run top-level VSS fusion search on archived video
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.2.0"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -18,7 +18,7 @@ Run the top-level VSS fusion search across archived video, ingest new clips / RT
 - `vss-manage-video-io-storage` skill installed (used to list and manage video sources before search).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
 - `curl`, `jq`, and Docker or Kubernetes exec access available on the caller.
-- `search-archive` available inside the running `vss-agent` container / pod.
+- `vss-cli search` available inside the running `vss-agent` container / pod.
 
 ## Instructions
 
@@ -90,7 +90,7 @@ This skill requires the VSS **search** profile running on the host at `$HOST_IP`
 
 For a source to be searchable it must be ingested **through the VSS agent backend**, not through VIOS alone. The agent's ingest routes own the VIOS upload + RTVI-CV register + RTVI-embed pipeline as one transaction; a bare VIOS PUT only stores the bytes and never wires them into Elasticsearch.
 
-Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is missing, ingest it with one of the recipes below before running `search-archive`. After ingest succeeds, the source appears in `sensor/list` under the name you provided and can be passed to the CLI with `--video-source`.
+Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is missing, ingest it with one of the recipes below before running `vss-cli search`. After ingest succeeds, the source appears in `sensor/list` under the name you provided and can be passed to the CLI with `--video-source`.
 
 ### File upload — universal three-step flow
 
@@ -171,8 +171,8 @@ curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | j
 
 1. **Ingest** — Files come in through the agent's three-step universal flow; RTSP streams through `/api/v1/rtsp-streams/add`. Both routes hand the source to RTVI-CV (attribute detection) and RTVI-Embed (Cosmos Embed1) which generates vector embeddings for video segments.
 2. **Index** — Embeddings are stored in Elasticsearch via the Kafka pipeline.
-3. **Query** — The host agent decomposes the request, then `search-archive` invokes `lib.search_core` directly with explicit fields. It never calls the VSS agent `/generate` API for search.
-4. **Verify** — If requested and the deployed VLM is configured, the NAT-free critic calls the same OpenAI-compatible VLM service with VST clips or sampled frames.
+3. **Query** — The host agent decomposes the request, then `vss-cli search` invokes `lib.search_core` directly with explicit fields. It never calls the VSS agent `/generate` API for search.
+4. **Verify** — If requested and the deployed VLM is configured, the NAT-free critic calls the same OpenAI-compatible VLM service with VST clips or sampled frames. The critic now actively prunes results: a `rejected` verdict drops that hit from the output entirely, and when `--search-max-iterations > 1` the rejected hit is excluded and the search re-runs to backfill a replacement. (It is no longer annotation-only.)
 5. **Results** — Timestamped video segments ranked by relevance, with clip playback links and optional critic criteria.
 
 This search orchestrated by `lib.search_core` can lead to 3 behaviors:
@@ -192,17 +192,17 @@ When using this skill, ALWAYS follow this high-level workflow:
    when present; for Helm, use the rendered pod env/configmap. HARD STOP only
    if neither user instructions nor deployment artifacts provide a usable VSS
    agent endpoint/runtime.
-2. **Resolve the source — HARD STOP before any `search-archive` call.**
+2. **Resolve the source — HARD STOP before any `vss-cli search` call.**
    If the user query references a specific video / sensor name
    (e.g. "the airport video", "warehouse_cam_3", "sample warehouse"),
    verify it's actually registered in VIOS **before** running
-   `search-archive`. List sources via the `vss-manage-video-io-storage` skill.
+   `vss-cli search`. List sources via the `vss-manage-video-io-storage` skill.
 
    Then:
    - **If the named source (or a clearly substring-matching name) IS in the list** → proceed to step 3. Pass the resolved source name with `--video-source`; do not rely on NAT query decomposition.
-   - **If the named source is NOT in the list** → STOP. Do NOT run `search-archive` as a probe. Respond to the user with the registered source names and ask whether they meant one of those, want to ingest the missing source (point them at *Ingestion prerequisite* and run the matching file or RTSP recipe through the **agent backend**, not bare VIOS), or want to abandon the query. Wait for clarification.
+   - **If the named source is NOT in the list** → STOP. Do NOT run `vss-cli search` as a probe. Respond to the user with the registered source names and ask whether they meant one of those, want to ingest the missing source (point them at *Ingestion prerequisite* and run the matching file or RTSP recipe through the **agent backend**, not bare VIOS), or want to abandon the query. Wait for clarification.
    - **If the query names no specific source** ("find forklifts in the ingested videos", "search across all sources") → skip the substring check, but `sensor/list` must still return non-empty (otherwise no sources are ingested → HARD STOP).
-3. Read [deployment_resolution.md](references/deployment_resolution.md) and [query_decomposition.md](references/query_decomposition.md), decompose the user request, then run `search-archive` with the explicit CLI flags in *Search via CLI*. Prefer `--decomposed-json` when the request includes attributes, action binding, object IDs, source selection, time filters, or critic intent.
+3. Read [deployment_resolution.md](references/deployment_resolution.md) and [query_decomposition.md](references/query_decomposition.md), decompose the user request, then run `vss-cli search` with the explicit CLI flags in *Search via CLI*. Prefer `--decomposed-json` when the request includes attributes, action binding, object IDs, source selection, time filters, or critic intent.
 4. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
    — Use clear section headers
    - Organize findings individually with supporting detail, and close with a summary
@@ -226,7 +226,7 @@ Infer these inputs from the conversation, the live deployment, or deployment art
 
 - ALWAYS step into the troubleshooting step of the workflow immediately if anything unexpected happens, read [troubleshooting.md](references/troubleshooting.md)
 - Queries work best with **concrete visual descriptions** (objects, actions, locations). Augment user queries if needed to enhance the quality of the questions, expanding potential details
-- The skill assumes video sources are **already ingested through the agent backend** (see *Ingestion prerequisite*). It MAY run the agent-backed ingest recipes when the user explicitly asks ("ingest `<file>` for search", "add `<rtsp_url>` for search"); it does NOT search the local filesystem for files the user didn't name, and it does NOT use the bare-VIOS PUT path (no embeddings get generated). Workflow step 2 still makes confirming "this source exists in VIOS" a hard precondition before `search-archive`.
+- The skill assumes video sources are **already ingested through the agent backend** (see *Ingestion prerequisite*). It MAY run the agent-backed ingest recipes when the user explicitly asks ("ingest `<file>` for search", "add `<rtsp_url>` for search"); it does NOT search the local filesystem for files the user didn't name, and it does NOT use the bare-VIOS PUT path (no embeddings get generated). Workflow step 2 still makes confirming "this source exists in VIOS" a hard precondition before `vss-cli search`.
 - Use `vss-query-analytics` skill to cross-reference search results with incident/alert data
 
 ---
@@ -235,7 +235,7 @@ Infer these inputs from the conversation, the live deployment, or deployment art
 
 Default to this CLI approach. Do not call the VSS agent `/generate` API for search.
 
-Run `search-archive` inside the `vss-agent` container / pod, and pass every backend/runtime value as an explicit CLI flag. Prefer the deployed `$VSS_AGENT_CONFIG_FILE` when present, with each interpolation value passed through `--config-env KEY=VALUE`; the CLI itself never reads `$VSS_AGENT_CONFIG_FILE` or endpoint env vars. For Docker, use `generated.env` plus the live container env to resolve those values; for Helm, use the rendered pod env/configmap. This preserves the configured search profile, ES, RTVI, VST, VLM, critic, and media behavior without invoking NAT.
+Run `vss-cli search` inside the `vss-agent` container / pod, and pass every backend/runtime value as an explicit CLI flag. Prefer the deployed `$VSS_AGENT_CONFIG_FILE` when present, with each interpolation value passed through `--config-env KEY=VALUE`; the CLI itself never reads `$VSS_AGENT_CONFIG_FILE` or endpoint env vars. For Docker, use `generated.env` plus the live container env to resolve those values; for Helm, use the rendered pod env/configmap. This preserves the configured search profile, ES, RTVI, VST, VLM, critic, and media behavior without invoking NAT.
 
 ```bash
 docker exec -i vss-agent sh -lc '
@@ -342,8 +342,8 @@ else
     fi
   fi
 fi
-search-archive "$@"
-' search-archive \
+vss-cli search "$@"
+' vss-cli \
   --query "find all instances of forklifts" \
   --source-type video_file | jq .
 ```
@@ -457,8 +457,8 @@ else
     fi
   fi
 fi
-search-archive "$@"
-' search-archive \
+vss-cli search "$@"
+' vss-cli \
   --query "find all instances of forklifts" \
   --source-type video_file | jq .
 ```
@@ -466,7 +466,7 @@ search-archive "$@"
 Use explicit flags instead of prose-only control hints:
 
 #### Search by action
-Append these query/control flags after the final `search-archive` argument in the wrapper above:
+Append these query/control flags after the final `vss-cli search` argument in the wrapper above:
 
 ```bash
 --query "show me people running" \
@@ -475,7 +475,7 @@ Append these query/control flags after the final `search-archive` argument in th
 ```
 
 #### Search by time context
-Append these query/control flags after the final `search-archive` argument in the wrapper above:
+Append these query/control flags after the final `vss-cli search` argument in the wrapper above:
 
 ```bash
 --query "person at the entrance" \
@@ -485,7 +485,7 @@ Append these query/control flags after the final `search-archive` argument in th
 ```
 
 #### Consider only RTSP sources i.e. live camera streams
-Append these query/control flags after the final `search-archive` argument in the wrapper above:
+Append these query/control flags after the final `vss-cli search` argument in the wrapper above:
 
 ```bash
 --query "find all instances of forklifts" \
@@ -501,15 +501,16 @@ If the user query is ambiguous, user wants more guidance, or fine-grained contro
 | `--config` + `--config-env KEY=VALUE` | path + repeatable mapping | deployment-derived | Prefer inside deployed agent containers/pods to preserve the NAT search profile while keeping CLI env-free |
 | `--video-source`     | repeatable string | null | Filter to specific cameras or sensor names                |
 | `--source-type`      | `video_file` or `rtsp` | `video_file` | Select uploaded video files or RTSP stream embeddings |
-| `--top-k`            | int       | profile default | Max results |
+| `--top-k`            | int in [1, 1000] | profile default | Max results; values outside [1, 1000] are rejected |
 | `--min-cosine-similarity` | float | 0.0 | Min similarity threshold; raise (e.g. 0.3) to filter noise |
+| `--fusion-method`    | `weighted_linear`, `rrf`, `rrf_with_attribute_rank` | `rrf` | Rank-fusion strategy for fused (query + attribute) search; `rrf_with_attribute_rank` biases fusion toward the attribute rank |
 | `--attribute`        | repeatable string | [] | Appearance attributes for attribute/fusion search |
 | `--has-action`       | bool | null | Use `true` for action + attributes fusion; `false` for attribute-only search |
 | `--description`      | string    | null    | Filter by camera metadata (e.g. location, category) if metadata is available |
 | `--timestamp-start` / `--timestamp-end` | ISO-8601 datetime | null | Restrict time range |
 | `--decomposed-json`  | JSON object | null | Preferred handoff from host-agent query decomposition |
 | `--object-id`        | repeatable int | null | Search for objects visually similar to tracked object IDs |
-| `--use-critic` / `--no-use-critic` | bool | runtime default | Require VLM critic verification or explicitly skip it for latency |
+| `--use-critic` / `--no-use-critic` | bool | runtime default | Require VLM critic verification or explicitly skip it for latency. When enabled, a `rejected` verdict removes the hit from the output (and re-searches for a replacement when `--search-max-iterations > 1`) |
 | `--vlm-media-mode`   | `video-url`, `video-base64`, `frame-base64` | deployment-derived | Local VLMs usually use URLs; remote VLMs usually use frame base64 unless audio-capable |
 | `--vst-clip-enable-audio` | bool | deployment-derived | Preserve audio for VLMs that can use MP4 audio |
 
@@ -531,4 +532,4 @@ find someone wearing a red jacket
 
 Results include timestamped clips with similarity scores.
 
-bump:2
+bump:3

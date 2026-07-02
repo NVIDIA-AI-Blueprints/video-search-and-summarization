@@ -43,11 +43,11 @@ _TEXT_EMBEDDING_CACHE_MAXSIZE = 1024
 
 class CosmosEmbedClient(EmbedClient):
     def __init__(self, endpoint: str, *, model: str = "cosmos-embed1-448p") -> None:
-        self.endpoint = endpoint
+        self.endpoint = endpoint.rstrip("/")
         self.model = model
-        self.text_embeddings_url = f"{endpoint}/v1/generate_text_embeddings"
-        self.image_embeddings_url = f"{endpoint}/v1/generate_image_embeddings"
-        self.video_embeddings_url = f"{endpoint}/v1/generate_video_embeddings"
+        self.text_embeddings_url = f"{self.endpoint}/v1/generate_text_embeddings"
+        self.image_embeddings_url = f"{self.endpoint}/v1/generate_image_embeddings"
+        self.video_embeddings_url = f"{self.endpoint}/v1/generate_video_embeddings"
         # Connection pooling: lazily created, reused across requests.
         self._client: httpx.AsyncClient | None = None
         # Bounded LRU cache for text embeddings (with per-key async locks).
@@ -137,7 +137,10 @@ class CosmosEmbedClient(EmbedClient):
 
     @override
     async def get_video_embedding(self, video_url: str) -> list[float]:
-        return (await self.get_video_embeddings_from_urls([video_url]))[0]
+        embeddings = await self.get_video_embeddings_from_urls([video_url])
+        if not embeddings:
+            raise BackendUnreachableError("cosmos_embed", "empty embedding response")
+        return embeddings[0]
 
     async def get_video_embeddings_from_urls(self, urls: list[str]) -> list[list[float]]:
         logger.info(f"Generating embeddings for {len(urls)} video chunks via URLs")
@@ -148,7 +151,8 @@ class CosmosEmbedClient(EmbedClient):
             "encoding_format": "float",
             "request_type": "bulk_video",
         }
-        logger.info(f"Payload: {payload}")
+        # NOTE: never log ``payload`` — the formatted inputs embed presigned URLs
+        # (short-lived credentials). Log counts only.
         try:
             response = await self._get_client().post(self.video_embeddings_url, json=payload)
             response.raise_for_status()

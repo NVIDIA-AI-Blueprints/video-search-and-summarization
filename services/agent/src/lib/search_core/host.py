@@ -14,14 +14,14 @@
 # limitations under the License.
 """VSSSearch — facade for direct (non-HTTP) callers.
 
-PHASE 1 STATUS: Skeleton with lazy construction. Each primitive call raises
-NotImplementedError until its respective phase ports the logic
-(Phase 3: embed_search, Phase 4: attribute_search, Phase 5: search, Phase 6: critic).
-The builders and lifecycle are complete.
+All four primitives (embed_search, attribute_search, search, critic) are
+implemented and constructed lazily on first use. Query decomposition is
+NAT-owned and must run before `.search()` receives its input; VLM analysis
+remains an injected dependency for critic use.
 
-Primitives are constructed lazily. Query decomposition is NAT-owned and must
-run before `.search()` receives its input; VLM analysis remains an injected
-dependency for critic use.
+Lifecycle: build via one of the class methods and use as an async context
+manager (or call ``aclose()``) so lazily-built primitives — and any injected
+``vlm_analyzer`` the facade owns — release their backend clients cleanly.
 """
 
 from __future__ import annotations
@@ -146,8 +146,7 @@ class VSSSearch:
 
         WARNING (Helm): the /api/v1/runtime/config snapshot returns in-cluster
         DNS URLs that aren't reachable from a developer laptop. Use the exec
-        transport (vss-cli via kubectl exec) for laptop-to-Helm flows. See
-        DESIGN.md §10a.
+        transport (vss-cli via kubectl exec) for laptop-to-Helm flows.
         """
         snap = RuntimeSnapshot.from_remote(agent_url)
         return cls(
@@ -216,12 +215,30 @@ class VSSSearch:
     # ---------------------------------------------------------------- Lifecycle
 
     async def aclose(self) -> None:
-        coros: list = []
+        """Close every lazily-built primitive and the injected VLM analyzer.
+
+        The analyzer is closed here because the facade is the only owner that
+        knows when critic work is done: neither ``Search`` nor ``CriticAgent``
+        close the injected ``vlm_analyzer`` (they must not close a dependency
+        they didn't create), so without this its httpx client would leak. The
+        analyzer's ``aclose`` is optional in the ``VLMAnalyzer`` protocol, so we
+        resolve it defensively. Refs are cleared afterwards so a second
+        ``aclose`` (e.g. explicit call + ``__aexit__``) is a no-op.
+        """
+        coros: list[Any] = []
         for p in (self._embed, self._attribute, self._search, self._critic):
             if p is not None:
                 coros.append(p.aclose())
+        analyzer_close = getattr(self._vlm_analyzer, "aclose", None)
+        if analyzer_close is not None:
+            coros.append(analyzer_close())
         if coros:
             await asyncio.gather(*coros, return_exceptions=True)
+        self._embed = None
+        self._attribute = None
+        self._search = None
+        self._critic = None
+        self._vlm_analyzer = None
 
     async def __aenter__(self) -> VSSSearch:
         return self

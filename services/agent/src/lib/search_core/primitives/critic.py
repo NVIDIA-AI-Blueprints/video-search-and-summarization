@@ -14,21 +14,14 @@
 # limitations under the License.
 """CriticAgent — VLM-backed result verifier. EXPERIMENTAL in v1.
 
-Ported from services/agent/src/vss_agents/agents/critic_agent.py:208-307 with
-two adaptations:
+The VLM caller comes from an injected ``VLMAnalyzer`` protocol; callers must
+supply a ``vlm_analyzer`` (the library cannot construct a default). The
+``time_format="offset"`` path uses ``VSTSnapshot.resolve_stream_id`` and
+``get_timeline`` to convert ISO timestamps to seconds-since-stream-start.
 
-  - The VLM caller comes from an injected VLMAnalyzer protocol (DESIGN.md §16.1
-    option (b)) instead of NAT's `builder.get_function("video_understanding")`.
-    Callers must supply a vlm_analyzer; the library cannot construct a default.
-
-  - time_format="offset" path uses VSTSnapshot.resolve_stream_id and
-    get_timeline to convert ISO timestamps to seconds-since-stream-start
-    (matches agents/critic_agent.py:248-264). Both VST surfaces are wired up
-    (clients/vst.py delegates to the existing tools.vst.* helpers).
-
-Stable v1 contract requires resolving DESIGN.md §16.1. Until then, this
-module's constructor signature, the VLMAnalyzer protocol, and the wire format
-of CriticAgentOutput may all change.
+The critic ships EXPERIMENTAL: the constructor signature, the ``VLMAnalyzer``
+protocol, and the wire format of ``CriticAgentOutput`` may all change before v1
+stable.
 """
 
 from __future__ import annotations
@@ -55,9 +48,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Mirrors agents/critic_agent.py:CRITIC_AGENT_PROMPT. Keep this prompt
-# behavior-compatible with the NAT critic so CLI verification uses the same
-# subject-anchored decision rule.
+# Subject-anchored decision rule shared with the legacy critic so CLI
+# verification produces the same verdicts.
 DEFAULT_CRITIC_PROMPT = """
 You are a helpful assistant that will evaluate a video against the original prompt
 and determine whether the requested parameters are met, using subject-anchored evaluation.
@@ -151,10 +143,7 @@ def _to_offset(ts: datetime | str, clip_start: datetime) -> float:
 
 
 def _extract_json(text: str) -> str:
-    """Extract the JSON object from common VLM response wrappers.
-
-    Mirrors agents/critic_agent.py:get_json_from_string.
-    """
+    """Extract the JSON object from common VLM response wrappers."""
     if "<answer>" in text and "</answer>" in text:
         text = text.split("<answer>", 1)[1].split("</answer>", 1)[0].strip()
     if "```json" in text:
@@ -171,9 +160,10 @@ def _extract_json(text: str) -> str:
 def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
     """Parse the VLM's JSON response into (verdict, criteria_met).
 
-    Mirrors agents/critic_agent.py:281-291. On parse failure, returns
-    (UNVERIFIED, {}). On any criterion = False, verdict is REJECTED.
-    Otherwise CONFIRMED.
+    On parse failure, returns (UNVERIFIED, {}). An explicit ``"result"`` verdict
+    (``confirmed`` / ``rejected`` / ``unverified``) is honored when present;
+    otherwise the verdict is derived from ``criteria_met`` — any criterion False
+    yields REJECTED, else CONFIRMED.
     """
     try:
         payload = json.loads(_extract_json(vlm_text))
@@ -191,12 +181,17 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
             raw_criteria = {k: v for k, v in payload.items() if k != "result"}
         criteria = {str(k): bool(v) for k, v in raw_criteria.items()}
 
+        # Honor an explicit verdict for all three vocabulary values (not just the
+        # two negative ones) so a VLM that self-reports ``"confirmed"`` is trusted
+        # even when a stray criterion parses False.
         if isinstance(explicit_result, str):
             normalized = explicit_result.strip().lower()
             if normalized == CriticAgentResult.UNVERIFIED.value:
                 return CriticAgentResult.UNVERIFIED, criteria
             if normalized == CriticAgentResult.REJECTED.value:
                 return CriticAgentResult.REJECTED, criteria
+            if normalized == CriticAgentResult.CONFIRMED.value:
+                return CriticAgentResult.CONFIRMED, criteria
 
         verdict = CriticAgentResult.CONFIRMED
         for v in criteria.values():
@@ -231,16 +226,21 @@ class CriticAgent:
 
     async def run(self, inp: CriticAgentInput) -> CriticAgentOutput:
         """Verify each input video with the VLM; return per-video verdicts."""
-        # Cap the eval count: explicit input takes precedence over the
-        # constructor default; both are capped by the actual list length.
-        video_count = min(
-            inp.evaluation_count or self._default_eval_count or len(inp.videos),
-            len(inp.videos),
-        )
         semaphore = asyncio.Semaphore(self._max_concurrent)
 
-        # Skip entries without a sensor_id (matches original at line 296).
-        candidates = [v for v in inp.videos[:video_count] if v.sensor_id]
+        # Filter out entries without a sensor_id BEFORE applying the eval cap, so
+        # the cap counts only genuinely verifiable videos. Slicing first would let
+        # skipped (empty-sensor) entries consume cap slots and silently starve
+        # verifiable ones.
+        verifiable = [v for v in inp.videos if v.sensor_id]
+
+        # Cap the eval count: explicit input takes precedence over the
+        # constructor default; both are capped by the verifiable count.
+        video_count = min(
+            inp.evaluation_count or self._default_eval_count or len(verifiable),
+            len(verifiable),
+        )
+        candidates = verifiable[:video_count]
 
         tasks = [self._evaluate_video(semaphore, v, inp.query) for v in candidates]
         results = await asyncio.gather(*tasks)
@@ -276,7 +276,7 @@ class CriticAgent:
                     )
                 else:
                     # offset-time: convert ISO timestamps to seconds-since-stream-start
-                    # using VST's timeline endpoint. Mirrors agents/critic_agent.py:248-264.
+                    # using VST's timeline endpoint.
                     stream_id = await self._vst.resolve_stream_id(video.sensor_id)
                     if stream_id is None:
                         raise ValueError(f"VST stream_id resolution failed for sensor {video.sensor_id}")
@@ -322,9 +322,8 @@ class CriticAgent:
     ) -> CriticAgent:
         """Construct from a SearchRuntime.
 
-        `vlm_analyzer` is REQUIRED — there is no library-provided default. The
-        NAT adapter passes one wrapping the existing `video_understanding` tool;
-        host facades require explicit injection. See DESIGN.md §6.4 and §16.1.
+        `vlm_analyzer` is REQUIRED — there is no library-provided default; callers
+        (adapters and host facades) inject a concrete analyzer.
 
         ``prompt`` and ``num_videos_to_evaluate`` let callers override the
         constructor defaults without reaching into private attributes after

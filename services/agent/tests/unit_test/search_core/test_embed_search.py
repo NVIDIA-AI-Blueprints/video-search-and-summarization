@@ -401,6 +401,26 @@ class TestEmbedSearchQueryShape:
         assert "filter" in es.last_body["query"]["bool"]
 
     @pytest.mark.asyncio
+    async def test_timestamp_filter_uses_overlap_semantics(self, make_search):
+        # #11: the embed time filter must use OVERLAP (end >= start AND
+        # timestamp <= end), not containment, so a straddling segment matches.
+        e, es, _embed, _vst = make_search()
+        await e.run(
+            EmbedSearchInput(
+                query="q",
+                source_type="video_file",
+                timestamp_start="2025-01-01T00:00:00Z",
+                timestamp_end="2025-01-02T00:00:00Z",
+            )
+        )
+        filter_clauses = es.last_body["query"]["bool"]["filter"]
+        time_clause = next(c for c in filter_clauses if "bool" in c and "must" in c["bool"])
+        assert time_clause["bool"]["must"] == [
+            {"range": {"end": {"gte": "2025-01-01T00:00:00+00:00"}}},
+            {"range": {"timestamp": {"lte": "2025-01-02T00:00:00+00:00"}}},
+        ]
+
+    @pytest.mark.asyncio
     async def test_uuid_video_source_uses_terms_clause(self, make_search):
         e, es, _embed, _vst = make_search()
         uuid = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"

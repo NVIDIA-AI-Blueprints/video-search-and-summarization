@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.search_core._internal.embed_translation import params_to_embed_input
+from lib.search_core.errors import InvalidInputError
 
 
 def test_basic_query():
@@ -60,3 +63,25 @@ def test_forwarded_precomputed_and_exclude():
     )
     assert out.precomputed_embedding == [0.1, 0.2]
     assert out.exclude_videos == [{"sensor_id": "x", "start_timestamp": "s", "end_timestamp": "e"}]
+
+
+def test_video_sources_json_array_strips_and_skips_blanks():
+    # The JSON-array branch must behave like the CSV branch: strip and drop empties.
+    out = params_to_embed_input({"query": "q", "video_sources": '["", " cam1 ", "  "]'}, "rtsp")
+    assert out.video_sources == ["cam1"]
+
+
+def test_top_k_non_numeric_raises_invalid_input():
+    with pytest.raises(InvalidInputError):
+        params_to_embed_input({"query": "q", "top_k": "abc"}, "video_file")
+
+
+def test_top_k_zero_raises_invalid_input():
+    # "0" coerces to int cleanly but violates the ge=1 field bound -> InvalidInputError.
+    with pytest.raises(InvalidInputError):
+        params_to_embed_input({"query": "q", "top_k": "0"}, "video_file")
+
+
+def test_min_cosine_similarity_non_numeric_raises_invalid_input():
+    with pytest.raises(InvalidInputError):
+        params_to_embed_input({"query": "q", "min_cosine_similarity": "oops"}, "video_file")

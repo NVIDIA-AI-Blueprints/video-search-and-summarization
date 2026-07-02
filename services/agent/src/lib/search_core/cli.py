@@ -12,14 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""CLI entrypoints for the search_core exec transport.
+"""CLI entrypoint for the search_core exec transport.
 
-Two console scripts are exposed:
-
-  - ``search-archive``: agent-friendly wrapper for archived-video search.
-  - ``vss-cli``: lower-level primitive dispatcher for developers and tests.
-
-Invocation contract (DESIGN.md §10):
+A single console script, ``vss-cli``, dispatches every primitive:
 
     vss-cli <primitive> [--runtime-flags...] [--config <path>] [--json '<payload>'] [--stream]
        <primitive> ∈ embed_search | attribute_search | search | critic
@@ -31,11 +26,17 @@ Invocation contract (DESIGN.md §10):
                   Process-environment fallback is intentionally not supported.
        --json:    payload as a JSON object matching the input model.
        --stream:  only valid for `search`; emits SearchEvent JSON lines.
-       stdin:     alternative payload source; mutually exclusive with --json.
+       stdin:     alternative payload source. When both --json and piped stdin
+                  are present, --json takes precedence (stdin is not read).
 
-    Query decomposition is host-agent-owned. `vss-cli search` and
-    ``search-archive`` accept fields that have already been decomposed by the
-    calling agent.
+    The ``search`` primitive additionally accepts agent-friendly, already-
+    decomposed fields as flags (``--query``, ``--attribute``, ``--has-action``,
+    ``--object-id``, ``--video-source``, ``--timestamp-start/-end``, ``--top-k``,
+    ``--min-cosine-similarity``, ``--description``, ``--decomposed-json``,
+    ``--use-critic``) so a host agent can invoke it directly without hand-writing
+    a JSON payload. These set ``agent_mode=false``; an explicit ``--json``/stdin
+    payload takes precedence when present. Query decomposition is host-agent-owned:
+    the CLI consumes fields that have already been decomposed by the caller.
 
     Exit codes:
        0   success (one final output produced)
@@ -63,11 +64,16 @@ from pydantic import ValidationError
 
 from .errors import BackendUnreachableError
 from .errors import ConfigurationError
+from .errors import IndexNotFoundError
 from .errors import InvalidInputError
+from .errors import SearchError
 from .models.common import FusionMethod
 
 if TYPE_CHECKING:
+    from .clients.vlm_openai import OpenAIVLMAnalyzer
     from .host import VSSSearch
+    from .runtime import SearchOptions
+    from .runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -76,19 +82,57 @@ SOURCE_TYPES = ("video_file", "rtsp")
 # Derived from the shared FusionMethod literal so CLI choices can never drift
 # from the strategies the orchestrator actually implements.
 FUSION_METHODS = get_args(FusionMethod)
-_REQUIRED_RUNTIME_ARGS = (
+# Endpoints every primitive/runtime needs regardless of which primitive runs.
+_ALWAYS_REQUIRED_RUNTIME_ARGS: tuple[tuple[str, str], ...] = (
     ("es_endpoint", "--es-endpoint"),
-    ("cosmos_embed_endpoint", "--cosmos-embed-endpoint"),
-    ("rtvi_cv_endpoint", "--rtvi-cv-endpoint"),
     ("vst_internal_url", "--vst-internal-url"),
     ("vst_external_url", "--vst-external-url"),
 )
-_STREAM_ERROR_EXIT_CODES = {
-    "InvalidInputError": 2,
-    "ValidationError": 2,
-    "BackendUnreachableError": 3,
-    "ConfigurationError": 4,
+
+
+def _required_runtime_args(primitive: str) -> tuple[tuple[str, str], ...]:
+    """Return the (attr, flag) pairs a given primitive actually requires.
+
+    ``embed_search`` never touches the RTVI-CV text embedder and
+    ``attribute_search`` never touches the Cosmos embed service, so forcing
+    those endpoints for every primitive would reject valid invocations. The
+    unused endpoint is filled with an empty-string sentinel in
+    ``_runtime_from_args`` to preserve SearchRuntime's "all fields present"
+    invariant. ``search``/``critic`` fuse both surfaces and need all five.
+    """
+    required = list(_ALWAYS_REQUIRED_RUNTIME_ARGS)
+    if primitive != "attribute_search":
+        required.append(("cosmos_embed_endpoint", "--cosmos-embed-endpoint"))
+    if primitive != "embed_search":
+        required.append(("rtvi_cv_endpoint", "--rtvi-cv-endpoint"))
+    return tuple(required)
+
+
+# Resolve the CLI exit code for a streamed ErrorEvent by SearchError subtype so
+# streaming matches the non-streaming main() try/except (which relies on normal
+# subclass catching). Ordered most-specific-need-not-come-first because the
+# three SearchError branches below are disjoint; IndexNotFoundError resolves via
+# issubclass(BackendUnreachableError) → 3, exactly like the non-stream path.
+_ERROR_EXIT_CODES: tuple[tuple[type[SearchError], int], ...] = (
+    (InvalidInputError, 2),
+    (BackendUnreachableError, 3),
+    (ConfigurationError, 4),
+)
+_SEARCH_ERROR_CLASSES: dict[str, type[SearchError]] = {
+    cls.__name__: cls for cls in (InvalidInputError, BackendUnreachableError, IndexNotFoundError, ConfigurationError)
 }
+
+
+def _exit_code_for_stream_error(error_code: str) -> int:
+    """Map an ErrorEvent.error_code string to the same exit code main() would use."""
+    if error_code == "ValidationError":
+        return 2
+    error_cls = _SEARCH_ERROR_CLASSES.get(error_code)
+    if error_cls is not None:
+        for base, code in _ERROR_EXIT_CODES:
+            if issubclass(error_cls, base):
+                return code
+    return 1
 
 
 def _parse_bool(value: str) -> bool:
@@ -244,7 +288,12 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
     runtime.add_argument("--rrf-k", type=_parse_positive_int, default=None)
     runtime.add_argument("--rrf-w", type=float, default=None)
     runtime.add_argument("--top-percent-filter", type=_parse_unit_interval, default=None)
-    runtime.add_argument("--log-level", default="WARNING", help="Python logging level for the CLI process.")
+    runtime.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+        default="WARNING",
+        help="Python logging level for the CLI process.",
+    )
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -280,6 +329,136 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_search_query_args(p: argparse.ArgumentParser) -> None:
+    """Add the agent-friendly, already-decomposed query flags for `search`.
+
+    These are only meaningful for the ``search`` primitive; a host agent uses
+    them to invoke search directly without hand-writing a JSON payload. They set
+    ``agent_mode=false`` (the library never performs NAT query decomposition).
+    An explicit ``--json``/stdin payload takes precedence over these flags.
+    """
+    group = p.add_argument_group(
+        "search query options",
+        description="Agent-friendly, already-decomposed fields for the `search` primitive.",
+    )
+    group.add_argument("--query", default=None, help="Decomposed visual query to embed and search for.")
+    group.add_argument(
+        "--decomposed-json",
+        default=None,
+        help=(
+            "JSON object produced by the host agent's query decomposition. CLI flags override fields from this object."
+        ),
+    )
+    group.add_argument(
+        "--source-type",
+        choices=SOURCE_TYPES,
+        default=None,
+        help="Search ingested video files or RTSP stream embeddings. Default: video_file.",
+    )
+    group.add_argument(
+        "--video-source",
+        dest="video_sources",
+        action="append",
+        default=[],
+        help="Restrict search to a registered VIOS source name or sensor ID. May be repeated.",
+    )
+    group.add_argument(
+        "--description",
+        default=None,
+        help="Optional camera/source metadata filter, such as a location or tag.",
+    )
+    group.add_argument(
+        "--timestamp-start",
+        default=None,
+        help="Optional ISO-8601 lower bound for result timestamps.",
+    )
+    group.add_argument(
+        "--timestamp-end",
+        default=None,
+        help="Optional ISO-8601 upper bound for result timestamps.",
+    )
+    group.add_argument("--top-k", type=_parse_positive_int, default=None, help="Maximum number of results to return.")
+    group.add_argument(
+        "--min-cosine-similarity",
+        type=_parse_cosine_similarity,
+        default=None,
+        help="Minimum cosine similarity threshold. Default: 0.0.",
+    )
+    group.add_argument(
+        "--attribute",
+        dest="attributes",
+        action="append",
+        default=[],
+        help=("Appearance/metadata attribute for attribute or fusion search, e.g. 'white jacket'. May be repeated."),
+    )
+    group.add_argument(
+        "--has-action",
+        type=_parse_bool,
+        default=None,
+        help=("Set true when the query includes an action plus attributes (fusion); false for attribute-only search."),
+    )
+    group.add_argument(
+        "--object-id",
+        dest="object_ids",
+        action="append",
+        type=int,
+        default=[],
+        help="Search for visually similar tracked objects by object ID. May be repeated.",
+    )
+    group.add_argument(
+        "--use-critic",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Verify candidate results with the NAT-free VLM critic when VLM runtime args are supplied.",
+    )
+
+
+# Agent-friendly `search`-only flags. They live on the single shared parser (so
+# `search` can accept them without a subparser), but they are meaningless for the
+# other primitives — those consume a --json/stdin payload. Rather than silently
+# ignore an explicit `vss-cli embed_search --query ...`, we reject it. Each entry
+# is (flag, dest); ``_LIST_SEARCH_ONLY_DESTS`` marks the append-action dests
+# whose "unset" sentinel is an empty list rather than None.
+_SEARCH_ONLY_FLAGS: tuple[tuple[str, str], ...] = (
+    ("--query", "query"),
+    ("--decomposed-json", "decomposed_json"),
+    ("--source-type", "source_type"),
+    ("--video-source", "video_sources"),
+    ("--description", "description"),
+    ("--timestamp-start", "timestamp_start"),
+    ("--timestamp-end", "timestamp_end"),
+    ("--top-k", "top_k"),
+    ("--min-cosine-similarity", "min_cosine_similarity"),
+    ("--attribute", "attributes"),
+    ("--has-action", "has_action"),
+    ("--object-id", "object_ids"),
+    ("--use-critic", "use_critic"),
+)
+_LIST_SEARCH_ONLY_DESTS = frozenset({"video_sources", "attributes", "object_ids"})
+
+
+def _reject_search_only_flags_for_non_search(args: argparse.Namespace) -> None:
+    """Raise if a `search`-only flag was explicitly passed to another primitive.
+
+    These flags are only honored for the ``search`` primitive; ``embed_search`` /
+    ``attribute_search`` / ``critic`` read a ``--json``/stdin payload instead. A
+    flag left at its default is fine (the flags are always registered); only an
+    explicitly-provided value is rejected, so it fails loudly (exit 2) rather than
+    being silently dropped.
+    """
+    provided: list[str] = []
+    for flag, dest in _SEARCH_ONLY_FLAGS:
+        value = getattr(args, dest, None)
+        is_set = bool(value) if dest in _LIST_SEARCH_ONLY_DESTS else value is not None
+        if is_set:
+            provided.append(flag)
+    if provided:
+        raise InvalidInputError(
+            f"{', '.join(provided)} {'is' if len(provided) == 1 else 'are'} only valid for the `search` "
+            f"primitive; pass a payload to `{args.primitive}` via --json or stdin instead"
+        )
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="vss-cli",
@@ -297,95 +476,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Emit SearchEvent JSON lines instead of a single output JSON. Only valid for `search`.",
     )
+    _add_search_query_args(p)
     _add_runtime_args(p)
     _add_output_args(p)
     p.set_defaults(cli_name="vss-cli")
-    return p.parse_args(argv)
-
-
-def _parse_archive_search_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        prog="search-archive",
-        description="Search archived VSS video through lib.search_core without calling the VSS agent /generate API.",
-    )
-    p.add_argument("--query", default=None, help="Decomposed visual query to embed and search for.")
-    p.add_argument(
-        "--decomposed-json",
-        default=None,
-        help=(
-            "JSON object produced by the host agent's query decomposition. CLI flags override fields from this object."
-        ),
-    )
-    p.add_argument(
-        "--source-type",
-        choices=SOURCE_TYPES,
-        default=None,
-        help="Search ingested video files or RTSP stream embeddings. Default: video_file.",
-    )
-    p.add_argument(
-        "--video-source",
-        dest="video_sources",
-        action="append",
-        default=[],
-        help="Restrict search to a registered VIOS source name or sensor ID. May be repeated.",
-    )
-    p.add_argument(
-        "--description",
-        default=None,
-        help="Optional camera/source metadata filter, such as a location or tag.",
-    )
-    p.add_argument(
-        "--timestamp-start",
-        default=None,
-        help="Optional ISO-8601 lower bound for result timestamps.",
-    )
-    p.add_argument(
-        "--timestamp-end",
-        default=None,
-        help="Optional ISO-8601 upper bound for result timestamps.",
-    )
-    p.add_argument("--top-k", type=_parse_positive_int, default=None, help="Maximum number of results to return.")
-    p.add_argument(
-        "--min-cosine-similarity",
-        type=_parse_cosine_similarity,
-        default=None,
-        help="Minimum cosine similarity threshold. Default: 0.0.",
-    )
-    p.add_argument(
-        "--attribute",
-        dest="attributes",
-        action="append",
-        default=[],
-        help=("Appearance/metadata attribute for attribute or fusion search, e.g. 'white jacket'. May be repeated."),
-    )
-    p.add_argument(
-        "--has-action",
-        type=_parse_bool,
-        default=None,
-        help=("Set true when the query includes an action plus attributes (fusion); false for attribute-only search."),
-    )
-    p.add_argument(
-        "--object-id",
-        dest="object_ids",
-        action="append",
-        type=int,
-        default=[],
-        help="Search for visually similar tracked objects by object ID. May be repeated.",
-    )
-    p.add_argument(
-        "--use-critic",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Verify candidate results with the NAT-free VLM critic when VLM runtime args are supplied.",
-    )
-    p.add_argument(
-        "--stream",
-        action="store_true",
-        help="Emit SearchEvent JSON lines instead of a single output JSON.",
-    )
-    _add_runtime_args(p)
-    _add_output_args(p)
-    p.set_defaults(cli_name="search-archive", primitive="search")
     return p.parse_args(argv)
 
 
@@ -441,12 +535,13 @@ def _build_archive_search_payload(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _load_payload(args: argparse.Namespace) -> dict[str, Any]:
-    """Read payload from --json or stdin; mutually exclusive."""
+    """Read the payload from ``--json`` or stdin.
+
+    ``--json`` takes precedence: when it is provided, stdin is never read (we
+    cannot reliably detect redirected-but-empty stdin without blocking, so we
+    document the precedence rather than pretending to enforce exclusivity).
+    """
     if args.json_payload is not None:
-        if not sys.stdin.isatty() and sys.stdin.readable() and not sys.stdin.closed:
-            # Best-effort detection of "stdin was redirected" without blocking.
-            # We can't reliably tell at this point, so the test below favors --json.
-            pass
         try:
             parsed: dict[str, Any] = json.loads(args.json_payload)
             return parsed
@@ -481,33 +576,23 @@ def _build_facade(args: argparse.Namespace, search_payload: dict[str, Any] | Non
         if not Path(args.config).exists():
             raise ConfigurationError(f"--config path does not exist: {args.config!r}")
         config_env = _config_env_from_args(args)
-        try:
-            snap = RuntimeSnapshot.from_config_file(args.config, env=config_env)
-        except ConfigurationError:
-            if not _has_required_runtime_args(args):
-                raise
-            snap = RuntimeSnapshot(
-                runtime=_runtime_from_args(args),
-                search=_search_options_from_args(args, search_payload=search_payload),
-            )
-        else:
-            snap = RuntimeSnapshot(
-                runtime=_apply_runtime_overrides(snap.runtime, args),
-                search=_search_options_from_args(args, base=snap.search, search_payload=search_payload),
-            )
-        vlm_analyzer = _vlm_analyzer_from_runtime(snap.runtime, args)
-        _validate_critic_request(args, search_payload, snap.runtime, vlm_analyzer)
-        return VSSSearch.from_runtime(snap.runtime, search_options=snap.search, vlm_analyzer=vlm_analyzer)
+        # When --config is explicitly provided we must NOT silently fall back to
+        # args-only construction on a ConfigurationError: doing so would drop
+        # every profile knob the config carries (use_attribute_search, w_*,
+        # rrf_*, embed_confidence_threshold, search_max_iterations, ...). Let the
+        # error surface (exit 4) so the operator fixes the config they asked for.
+        snap = RuntimeSnapshot.from_config_file(args.config, env=config_env)
+        runtime = _apply_runtime_overrides(snap.runtime, args)
+        search_options = _search_options_from_args(args, base=snap.search, search_payload=search_payload)
+        vlm_analyzer = _maybe_build_vlm_analyzer(args, search_payload, runtime)
+        _validate_critic_request(args, search_payload, runtime, vlm_analyzer)
+        return VSSSearch.from_runtime(runtime, search_options=search_options, vlm_analyzer=vlm_analyzer)
 
     runtime = _runtime_from_args(args)
     search_options = _search_options_from_args(args, search_payload=search_payload)
-    vlm_analyzer = _vlm_analyzer_from_runtime(runtime, args)
+    vlm_analyzer = _maybe_build_vlm_analyzer(args, search_payload, runtime)
     _validate_critic_request(args, search_payload, runtime, vlm_analyzer)
     return VSSSearch.from_runtime(runtime, search_options=search_options, vlm_analyzer=vlm_analyzer)
-
-
-def _has_required_runtime_args(args: argparse.Namespace) -> bool:
-    return all(getattr(args, attr, None) for attr, _flag in _REQUIRED_RUNTIME_ARGS)
 
 
 def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
@@ -516,14 +601,20 @@ def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
         key, sep, value = item.partition("=")
         if not sep or not key or any(char.isspace() for char in key):
             raise InvalidInputError(f"--config-env must be KEY=VALUE, got {item!r}")
+        # A value with an embedded newline could inject arbitrary YAML keys once
+        # spliced into --config during interpolation; reject it at the boundary.
+        if "\n" in value or "\r" in value:
+            raise InvalidInputError(f"--config-env value for {key!r} must not contain newlines")
         env[key] = value
     return env
 
 
-def _runtime_from_args(args: argparse.Namespace):
+def _runtime_from_args(args: argparse.Namespace) -> SearchRuntime:
     from .runtime import SearchRuntime
 
-    missing = [flag for attr, flag in _REQUIRED_RUNTIME_ARGS if not getattr(args, attr, None)]
+    primitive = getattr(args, "primitive", "search")
+    required = _required_runtime_args(primitive)
+    missing = [flag for attr, flag in required if not getattr(args, attr, None)]
     if missing:
         raise ConfigurationError(
             "missing required backend/runtime CLI option(s): "
@@ -532,11 +623,13 @@ def _runtime_from_args(args: argparse.Namespace):
             + "or --config-env KEY=VALUE pairs for interpolated deployment config."
         )
 
+    # Fill an endpoint a given primitive doesn't use with an empty-string
+    # sentinel so the frozen SearchRuntime keeps all fields present.
     kwargs: dict[str, Any] = {
         "es_endpoint": args.es_endpoint,
         "behavior_es_endpoint": args.behavior_es_endpoint or args.es_endpoint,
-        "cosmos_embed_endpoint": args.cosmos_embed_endpoint,
-        "rtvi_cv_endpoint": args.rtvi_cv_endpoint,
+        "cosmos_embed_endpoint": args.cosmos_embed_endpoint or "",
+        "rtvi_cv_endpoint": args.rtvi_cv_endpoint or "",
         "vst_internal_url": args.vst_internal_url,
         "vst_external_url": args.vst_external_url,
     }
@@ -583,7 +676,7 @@ _RUNTIME_OVERRIDE_FIELDS = (
 )
 
 
-def _apply_runtime_overrides(runtime: Any, args: argparse.Namespace) -> Any:
+def _apply_runtime_overrides(runtime: SearchRuntime, args: argparse.Namespace) -> SearchRuntime:
     overrides: dict[str, Any] = {}
     for field in (
         "es_endpoint",
@@ -605,7 +698,18 @@ def _apply_runtime_overrides(runtime: Any, args: argparse.Namespace) -> Any:
         overrides["vst_clip_enable_audio"] = args.vst_clip_enable_audio
     if args.vlm_api_key is not None:
         overrides["vlm_api_key"] = SecretStr(args.vlm_api_key)
-    if overrides.get("behavior_es_endpoint") is None and overrides.get("es_endpoint") is not None:
+    # Only default behavior_es_endpoint from a --es-endpoint override when the
+    # config didn't already configure a *distinct* behavior cluster. Otherwise a
+    # user tweaking only --es-endpoint would silently clobber a separate
+    # behavior_es_endpoint that the config set on purpose.
+    base_behavior_is_distinct = (
+        runtime.behavior_es_endpoint is not None and runtime.behavior_es_endpoint != runtime.es_endpoint
+    )
+    if (
+        overrides.get("behavior_es_endpoint") is None
+        and overrides.get("es_endpoint") is not None
+        and not base_behavior_is_distinct
+    ):
         overrides["behavior_es_endpoint"] = overrides["es_endpoint"]
     return dataclass_replace(runtime, **overrides) if overrides else runtime
 
@@ -613,22 +717,24 @@ def _apply_runtime_overrides(runtime: Any, args: argparse.Namespace) -> Any:
 def _search_options_from_args(
     args: argparse.Namespace,
     *,
-    base: Any | None = None,
+    base: SearchOptions | None = None,
     search_payload: dict[str, Any] | None = None,
-) -> Any:
+) -> SearchOptions:
     from .runtime import SearchOptions
 
+    # Precedence: an explicit --use-attribute-search flag wins over everything.
     if args.use_attribute_search is not None:
         return SearchOptions(use_attribute_search=args.use_attribute_search)
 
-    if base and getattr(base, "use_attribute_search", False):
+    # Next, an explicit config value wins — INCLUDING a config that set
+    # use_attribute_search: false. The payload fusion heuristic must not override
+    # what the profile config decided, so when a config `base` is present we
+    # trust it and only fall back to the heuristic when there was no config.
+    if base is not None:
         return base
 
     if _payload_wants_fusion(search_payload):
         return SearchOptions(use_attribute_search=True)
-
-    if base is not None:
-        return base
 
     return SearchOptions()
 
@@ -647,7 +753,25 @@ def _payload_requests_critic(args: argparse.Namespace, payload: dict[str, Any] |
     return False
 
 
-def _vlm_analyzer_from_runtime(runtime: Any, args: argparse.Namespace) -> Any | None:
+def _maybe_build_vlm_analyzer(
+    args: argparse.Namespace,
+    search_payload: dict[str, Any] | None,
+    runtime: SearchRuntime,
+) -> OpenAIVLMAnalyzer | None:
+    """Build the VLM analyzer only when critic verification is actually requested.
+
+    Constructing it unconditionally (as the old code did) wrapped a fresh VST
+    client and an httpx client for every plain ``search`` that never runs the
+    critic — a resource that was then never closed. Gating construction on an
+    actual critic request eliminates that leak; the facade closes the analyzer
+    it is given in ``aclose()``.
+    """
+    if not _payload_requests_critic(args, search_payload):
+        return None
+    return _vlm_analyzer_from_runtime(runtime, args)
+
+
+def _vlm_analyzer_from_runtime(runtime: SearchRuntime, args: argparse.Namespace) -> OpenAIVLMAnalyzer | None:
     if not runtime.vlm_base_url or not runtime.vlm_model_name:
         return None
 
@@ -673,8 +797,8 @@ def _vlm_analyzer_from_runtime(runtime: Any, args: argparse.Namespace) -> Any | 
 def _validate_critic_request(
     args: argparse.Namespace,
     payload: dict[str, Any] | None,
-    runtime: Any,
-    vlm_analyzer: Any | None,
+    runtime: SearchRuntime,
+    vlm_analyzer: OpenAIVLMAnalyzer | None,
 ) -> None:
     if not _payload_requests_critic(args, payload):
         return
@@ -806,7 +930,7 @@ async def _write_search_stream(stream: Any) -> int:
         sys.stdout.write(event.model_dump_json() + "\n")
         sys.stdout.flush()
         if getattr(event, "type", None) == "error":
-            exit_code = _STREAM_ERROR_EXIT_CODES.get(getattr(event, "error_code", ""), 1)
+            exit_code = _exit_code_for_stream_error(getattr(event, "error_code", ""))
     return exit_code
 
 
@@ -816,31 +940,36 @@ async def _close_cli_clients() -> None:
     await ElasticClient.close_all()
 
 
-async def _run_archive_search(args: argparse.Namespace) -> int:
-    payload = _build_archive_search_payload(args)
-    try:
-        async with _build_facade(args, payload) as vss:
-            if args.stream:
-                return await _write_search_stream(vss.search_stream(**payload))
+def _resolve_search_payload(args: argparse.Namespace) -> dict[str, Any]:
+    """Build the `search` payload from an explicit --json/stdin payload or flags.
 
-            out = await vss.search(**payload)
-            sys.stdout.write(_render_output(out, args) + "\n")
-            sys.stdout.flush()
-            return 0
-    finally:
-        await _close_cli_clients()
+    An explicit ``--json``/stdin payload wins (power-user path); otherwise the
+    agent-friendly, already-decomposed flags are assembled into a SearchInput
+    payload with ``agent_mode=false``.
+    """
+    raw = _load_payload(args)
+    # An explicit --json payload (even an empty "{}") or a non-empty stdin body is
+    # a full SearchInput payload and takes precedence; only fall back to the
+    # agent-friendly flags when no explicit payload was supplied at all.
+    if args.json_payload is not None or raw:
+        if raw.get("agent_mode") is True:
+            raise InvalidInputError(
+                "vss-cli search does not perform NAT query decomposition; set agent_mode=false "
+                "or call the NAT search/search_agent function"
+            )
+        return raw
+    return _build_archive_search_payload(args)
 
 
 async def _run(args: argparse.Namespace) -> int:
     if args.stream and args.primitive != "search":
         raise InvalidInputError("--stream is only valid for the `search` primitive")
 
-    payload = _load_payload(args)
-    if args.primitive == "search" and payload.get("agent_mode") is True:
-        raise InvalidInputError(
-            "vss-cli search does not perform NAT query decomposition; set agent_mode=false "
-            "or call the NAT search/search_agent function"
-        )
+    if args.primitive == "search":
+        payload = _resolve_search_payload(args)
+    else:
+        _reject_search_only_flags_for_non_search(args)
+        payload = _load_payload(args)
 
     try:
         async with _build_facade(args, payload) as vss:
@@ -878,29 +1007,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except Exception as e:
         sys.stderr.write(f"[vss-cli] unexpected error: {e!r}\n")
-        return 1
-
-
-def archive_search_main(argv: list[str] | None = None) -> int:
-    """Agent-friendly ``search-archive`` console script."""
-    try:
-        args = _parse_archive_search_args(argv)
-        logging.basicConfig(level=args.log_level)
-        return asyncio.run(_run_archive_search(args))
-    except InvalidInputError as e:
-        sys.stderr.write(f"[search-archive] invalid input: {e}\n")
-        return 2
-    except ValidationError as e:
-        sys.stderr.write(f"[search-archive] invalid input: {e}\n")
-        return 2
-    except BackendUnreachableError as e:
-        sys.stderr.write(f"[search-archive] backend unreachable: {e}\n")
-        return 3
-    except ConfigurationError as e:
-        sys.stderr.write(f"[search-archive] configuration error: {e}\n")
-        return 4
-    except Exception as e:
-        sys.stderr.write(f"[search-archive] unexpected error: {e!r}\n")
         return 1
 
 

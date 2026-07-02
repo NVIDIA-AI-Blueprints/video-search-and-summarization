@@ -12,13 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Streaming event protocol for Search.stream() (DESIGN.md §8).
+"""Streaming event protocol for Search.stream().
 
-Proposed v1 contract — NOT a faithful port of today's streaming. Today the
-NAT path yields vss_agents.agents.data_models.AgentMessageChunk and a final
-SearchOutput. The library translates those chunks into typed SearchEvent
-instances at the boundary. The NAT adapter keeps its own AgentMessageChunk
-path so /chat/stream stays byte-identical for existing consumers.
+A typed v1 contract: callers consume ``SearchEvent`` instances instead of
+loosely-typed streaming chunks. Adapters that bridge to an older chunk-based
+streaming path translate those chunks into these events at the boundary.
 
 Guarantees for Search.stream():
   - Exactly one FinalResultEvent OR exactly one ErrorEvent terminates the stream.
@@ -68,9 +66,12 @@ class FinalResultEvent(BaseModel):
 class ErrorEvent(BaseModel):
     """Stream terminator on failure.
 
-    error_code mirrors the SearchError subclass name (BackendUnreachableError,
-    ConfigurationError, InvalidInputError, NoResultsError). message is the
-    human-readable text from str(exc).
+    ``error_code`` is ``type(exc).__name__`` for the raised ``SearchError``
+    subclass (e.g. ``BackendUnreachableError``, ``IndexNotFoundError``,
+    ``ConfigurationError``, ``InvalidInputError``), or one of the stream's own
+    sentinels — ``"UnexpectedError"`` for a non-``SearchError`` escape and
+    ``"NoFinalResult"`` when the stream ends without a terminator. ``message`` is
+    the human-readable text from ``str(exc)``.
     """
 
     model_config = ConfigDict(extra="forbid")

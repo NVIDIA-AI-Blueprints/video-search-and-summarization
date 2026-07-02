@@ -39,16 +39,24 @@ class LRUEmbeddingCache:
 
     def get(self, key: str) -> list[float] | None:
         value = self._cache.get(key)
-        if value is not None:
-            self._cache.move_to_end(key)  # LRU bump
-        return value
+        if value is None:
+            return None
+        self._cache.move_to_end(key)  # LRU bump
+        # Return a copy: the stored list must never be mutated by callers, or
+        # a later cache hit would hand back corrupted embeddings.
+        return list(value)
 
     def put(self, key: str, value: list[float]) -> None:
         self._cache[key] = value
         self._cache.move_to_end(key)
         while len(self._cache) > self._maxsize:
             evicted, _ = self._cache.popitem(last=False)
-            self._locks.pop(evicted, None)  # prune matching lock
+            # Prune the matching lock only if it is not currently held — a
+            # locked lock means a fetch is in flight for that key and evicting
+            # it would break single-flight dedup.
+            lock = self._locks.get(evicted)
+            if lock is not None and not lock.locked():
+                self._locks.pop(evicted, None)
 
     def get_lock(self, key: str) -> asyncio.Lock:
         lock = self._locks.get(key)
@@ -56,9 +64,24 @@ class LRUEmbeddingCache:
             lock = asyncio.Lock()
             self._locks[key] = lock
         self._locks.move_to_end(key)
-        while len(self._locks) > self._maxsize:
-            self._locks.popitem(last=False)
+        self._evict_unlocked_locks()
         return lock
+
+    def _evict_unlocked_locks(self) -> None:
+        """Drop oldest UNLOCKED locks until within ``maxsize``.
+
+        A held lock (``locked()``) guards an in-flight fetch; evicting it would
+        let a second coroutine create a fresh lock for the same key and issue a
+        duplicate request, defeating the single-flight guarantee. Such locks are
+        skipped and reaped later once released.
+        """
+        if len(self._locks) <= self._maxsize:
+            return
+        for candidate in list(self._locks):
+            if len(self._locks) <= self._maxsize:
+                break
+            if not self._locks[candidate].locked():
+                del self._locks[candidate]
 
     def clear(self) -> None:
         self._cache.clear()

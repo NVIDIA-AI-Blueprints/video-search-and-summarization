@@ -27,6 +27,9 @@ import json
 from typing import TYPE_CHECKING
 from typing import cast
 
+from pydantic import ValidationError
+
+from ..errors import InvalidInputError
 from ..models.embed_search import EmbedSearchInput
 
 if TYPE_CHECKING:
@@ -57,7 +60,9 @@ def params_to_embed_input(
             try:
                 parsed = json.loads(vs_raw)
                 if isinstance(parsed, list):
-                    vs = [str(v) for v in parsed]
+                    # Strip and drop blank entries, matching the CSV branch, so a
+                    # stray "" never reaches the ES filter as a match-all clause.
+                    vs = [str(v).strip() for v in parsed if str(v).strip()]
                 elif isinstance(parsed, str):
                     # A JSON scalar string (e.g. '"cam1"') decodes to a single
                     # name — use it directly. CSV-splitting vs_raw here would
@@ -72,8 +77,12 @@ def params_to_embed_input(
             vs = [v.strip() for v in vs_raw.split(",") if v.strip()]
 
     # Leave top_k as None when unspecified so the primitive's configured default applies.
+    # params values are freeform strings; surface a bad numeric string as a typed
+    # InvalidInputError rather than a raw ValueError, matching the lenient handling
+    # elsewhere in this translator.
     top_k_str = p.get("top_k", "")
-    top_k = int(top_k_str) if top_k_str else None
+    top_k = _coerce_int(top_k_str, "top_k") if top_k_str else None
+    min_cosine_similarity = _coerce_float(p.get("min_cosine_similarity", "0.0"), "min_cosine_similarity")
 
     # params values are freeform strings; treat malformed timestamps as "no
     # filter" instead of raising, so Pydantic's strict datetime coercion never
@@ -81,24 +90,44 @@ def params_to_embed_input(
     ts_start = _safe_iso(p.get("timestamp_start"))
     ts_end = _safe_iso(p.get("timestamp_end"))
 
-    return EmbedSearchInput(
-        query=p.get("query", "") or "",
-        image_url=p.get("image_url") or None,
-        video_url=p.get("video_url") or None,
-        description=p.get("description") or None,
-        # Pydantic narrows the runtime value to ``SourceType``; cast satisfies
-        # the static type checker without re-validating here.
-        source_type=cast("SourceType", source_type),
-        video_sources=vs or None,
-        # Pydantic v2 coerces ISO-8601 strings to ``datetime`` automatically.
-        # ``cast`` tells mypy we're aware of the runtime coercion.
-        timestamp_start=cast("datetime | None", ts_start),
-        timestamp_end=cast("datetime | None", ts_end),
-        top_k=top_k,
-        min_cosine_similarity=float(p.get("min_cosine_similarity", "0.0")),
-        exclude_videos=exclude_videos or [],
-        precomputed_embedding=precomputed_embedding,
-    )
+    try:
+        return EmbedSearchInput(
+            query=p.get("query", "") or "",
+            image_url=p.get("image_url") or None,
+            video_url=p.get("video_url") or None,
+            description=p.get("description") or None,
+            # Pydantic narrows the runtime value to ``SourceType``; cast satisfies
+            # the static type checker without re-validating here.
+            source_type=cast("SourceType", source_type),
+            video_sources=vs or None,
+            # Pydantic v2 coerces ISO-8601 strings to ``datetime`` automatically.
+            # ``cast`` tells mypy we're aware of the runtime coercion.
+            timestamp_start=cast("datetime | None", ts_start),
+            timestamp_end=cast("datetime | None", ts_end),
+            top_k=top_k,
+            min_cosine_similarity=min_cosine_similarity,
+            exclude_videos=exclude_videos or [],
+            precomputed_embedding=precomputed_embedding,
+        )
+    except ValidationError as exc:
+        # e.g. top_k="0" coerces to int cleanly but violates the ge=1 field bound.
+        raise InvalidInputError(f"Invalid embed-search params: {exc}") from exc
+
+
+def _coerce_int(value: str, field: str) -> int:
+    """Parse ``value`` as an int, re-raising failures as :class:`InvalidInputError`."""
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise InvalidInputError(f"{field} must be an integer (got {value!r})") from exc
+
+
+def _coerce_float(value: str, field: str) -> float:
+    """Parse ``value`` as a float, re-raising failures as :class:`InvalidInputError`."""
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise InvalidInputError(f"{field} must be a number (got {value!r})") from exc
 
 
 def _safe_iso(value: str | None) -> str | None:

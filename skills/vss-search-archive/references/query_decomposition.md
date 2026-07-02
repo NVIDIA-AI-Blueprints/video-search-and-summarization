@@ -1,6 +1,6 @@
-# Query Decomposition for `search-archive`
+# Query Decomposition for `vss-cli search`
 
-Use this reference before every `search-archive` call that is more complex than a plain object/action query. The CLI and `lib.search_core` do not call the VSS agent `/generate` API and do not run NAT query decomposition; the host agent must produce the same structured fields explicitly.
+Use this reference before every `vss-cli search` call that is more complex than a plain object/action query. The CLI and `lib.search_core` do not call the VSS agent `/generate` API and do not run NAT query decomposition; the host agent must produce the same structured fields explicitly.
 
 ## Output Contract
 
@@ -72,4 +72,4 @@ For a query like “find the person in a white jacket climbing a ladder and veri
 4. One behavior-index search for attribute/fusion reranking.
 5. One VST clip URL request for each critic candidate.
 6. One VLM chat-completions request per critic candidate.
-7. Output rows with `object_ids` from attribute/fusion search and `critic_result.result` set to `confirmed`, `rejected`, or `unverified`.
+7. Output rows with `object_ids` from attribute/fusion search. Surviving rows carry `critic_result.result` set to `confirmed` or `unverified`; a `rejected` verdict prunes that hit from the output (and, when `--search-max-iterations > 1`, excludes it and re-searches for a replacement) rather than leaving it annotated in place.

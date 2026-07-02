@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Async retry helper used by the VST helpers.
+"""Async retry helper.
 
-Ported byte-identical from vss_agents/utils/retry.py. Default exception set
-remains aiohttp-specific because VST helpers use aiohttp; callers that use
-httpx pass their own exception tuple.
+The default exception set is aiohttp-specific because the VST helpers use
+aiohttp; callers on other transports (e.g. httpx) pass their own exception
+tuple.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from tenacity import AsyncRetrying
 from tenacity import before_sleep_log
 from tenacity import retry_if_exception_type
 from tenacity import stop_after_attempt
-from tenacity import wait_random
+from tenacity import wait_random_exponential
 
 logger = logging.getLogger(__name__)
 
@@ -37,19 +37,22 @@ logger = logging.getLogger(__name__)
 def create_retry_strategy(
     retries: int,
     delay: int | float = 2,
-    exceptions: tuple = (ClientConnectorError, ConnectionTimeoutError),
+    exceptions: tuple[type[BaseException], ...] = (ClientConnectorError, ConnectionTimeoutError),
 ) -> AsyncRetrying:
-    """Build an AsyncRetrying strategy.
+    """Build an ``AsyncRetrying`` strategy with jittered exponential backoff.
 
     Args:
-        retries: number of attempts before giving up.
-        delay: base delay in seconds; actual wait is random in [delay, delay*3].
+        retries: total number of attempts (including the first) before giving up.
+        delay: base wait unit in seconds. Waits grow exponentially with jitter,
+            each capped at ``delay * 3`` — so with the default the wait is a
+            random value in ``[0, 2]`` after the first failure, then ``[0, 4]``,
+            then capped at ``6``.
         exceptions: tuple of exception types that trigger a retry.
     """
     return AsyncRetrying(
         retry=retry_if_exception_type(exceptions),
         stop=stop_after_attempt(retries),
-        wait=wait_random(min=delay, max=delay * 3),
+        wait=wait_random_exponential(multiplier=delay, max=delay * 3),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )

@@ -51,6 +51,38 @@ async def test_cosmos_embed_malformed_response_is_backend_unreachable(
         await getattr(client, method_name)(*args)
 
 
+class _EmptyDataResponse:
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, Any]:
+        return {"data": []}
+
+
+class _EmptyDataHttpClient:
+    async def post(self, *_args: Any, **_kwargs: Any) -> _EmptyDataResponse:
+        return _EmptyDataResponse()
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_cosmos_get_video_embedding_empty_data_is_backend_unreachable() -> None:
+    client = CosmosEmbedClient("http://embed")
+    client._client = _EmptyDataHttpClient()
+
+    with pytest.raises(BackendUnreachableError, match="empty embedding response"):
+        await client.get_video_embedding("http://vst/video.mp4")
+
+
+def test_cosmos_endpoint_trailing_slash_normalized() -> None:
+    client = CosmosEmbedClient("http://embed/")
+    assert client.endpoint == "http://embed"
+    assert client.text_embeddings_url == "http://embed/v1/generate_text_embeddings"
+    assert client.video_embeddings_url == "http://embed/v1/generate_video_embeddings"
+
+
 @pytest.mark.asyncio
 async def test_vst_client_external_clip_url_preserves_query_and_fragment(monkeypatch) -> None:
     async def fake_resolve_stream_id(self: VSTClient, sensor_id: str) -> str:

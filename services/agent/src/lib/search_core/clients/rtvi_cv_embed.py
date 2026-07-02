@@ -83,6 +83,8 @@ class RTVICVEmbedClient(EmbedClient):
 
             # Format 1: {"data": [{"embedding": [...]}]}
             # Format 2: {"data": [[...]]}
+            if not isinstance(result, dict):
+                raise ValueError(f"Unexpected RTVI CV response shape: {type(result).__name__}")
             if not result.get("data") or not isinstance(result["data"], list) or len(result["data"]) == 0:
                 raise ValueError("RTVI CV response missing or empty 'data' field")
 

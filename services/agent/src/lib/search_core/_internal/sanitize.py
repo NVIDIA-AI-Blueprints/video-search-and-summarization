@@ -14,8 +14,6 @@
 # limitations under the License.
 """Sanitizers for untrusted (user-controlled) data.
 
-Ported byte-identical from vss_agents/utils/sanitize.py.
-
 * :func:`scrub_log` — strip line breaks / control characters before logging
   (CWE-117, log injection / log forging).
 * :func:`quote_path_segment` — percent-encode a value used as a single URL
