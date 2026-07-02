@@ -143,13 +143,15 @@ def build_harbor_command(
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
         ]
-    else:
+    elif agent == "claude-code":
         agent_flags = [
             "-a", "claude-code",
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
         ]
+    else:
+        raise ValueError(f"unsupported agent {agent!r} (expected claude-code | codex)")
     return [
         "uvx",
         "harbor",
@@ -298,6 +300,13 @@ def run_invocations(
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
+    # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
+    # silently fall through to the claude-code path and be indistinguishable
+    # from a real claude-code run in the logs.
+    if agent not in ("claude-code", "codex"):
+        print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
+              file=sys.stderr)
+        return 1
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
     if not base_url:
