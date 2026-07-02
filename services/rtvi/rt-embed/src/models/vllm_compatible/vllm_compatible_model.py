@@ -20,6 +20,7 @@ import math
 import os
 import random
 import re
+import string
 import sys
 import threading
 import uuid
@@ -119,6 +120,18 @@ _VLLM017_ARCHS = _QWEN35_ARCHS
 
 _COSMOS3_DIFFUSERS_ARCHS = frozenset({"Cosmos3ForConditionalGeneration"})
 
+# Synthetic source_fps for absolute-timestamp video metadata: 1000 makes
+# round(t * fps) / fps reconstruct the real timestamp (ms resolution).
+_ABSOLUTE_TIMESTAMP_SOURCE_FPS = 1000.0
+
+# When true, frames_indices in video metadata use absolute timestamps derived
+# from video_frames_times instead of chunk-relative 0-based indices.
+# Required for models (e.g. Qwen3-VL) that use frame_index/fps for mRoPE
+# temporal position encoding.
+_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS = os.getenv(
+    "RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS", ""
+).lower() in ("1", "true")
+
 # Common parameters
 FACTOR = 28
 MAX_PIXELS = 16384 * 2 * FACTOR * FACTOR
@@ -128,12 +141,65 @@ ADD_TIMESTAMP_TO_PROMPT = (
     os.environ.get("RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT", "true").lower() == "true"
 )
 
-# Gates the absolute-timestamp prompt format (mirrors the openai-compat / NIM
-# format) for the integrated Cosmos-Reason2 backend only. When false (or when
-# the model is not cosmos-reason2), fall back to the legacy "These are images
-# sampled from the same video at times ..." prompt — i.e., main behavior.
-ENABLE_LVS_CR2_TIMESTAMP_PROMPT = (
-    os.environ.get("ENABLE_LVS_CR2_TIMESTAMP_PROMPT", "false").lower() == "true"
+# Optional prefix/suffix overrides for the timestamp prompt injected before the
+# user query. Supported placeholders: {timestamps}, {query}, {first_ts}, {last_ts}.
+# Separate vars for file and RTSP sources. When unset, the legacy
+# "These are images sampled from the same video at times ..." format is used.
+# Applied to any vllm-compatible model (no per-model guard).
+_TIMESTAMP_PROMPT_ALLOWED_PLACEHOLDERS = frozenset({"timestamps", "query", "first_ts", "last_ts"})
+
+
+def _validate_timestamp_prompt_template(env_var: str, template: str) -> str:
+    """Validate an operator-supplied timestamp prompt template at load time.
+
+    Rejects templates with malformed braces or unknown placeholder names so a
+    misconfigured env var fails once at startup instead of raising on every
+    caption request inside ``str.format``. A rejected template is dropped
+    (treated as unset) after logging a warning.
+    """
+    if not template:
+        return template
+    try:
+        fields = [
+            field_name
+            for _, field_name, _, _ in string.Formatter().parse(template)
+            if field_name is not None
+        ]
+    except ValueError as exc:
+        logger.warning("Ignoring %s: malformed prompt template %r (%s)", env_var, template, exc)
+        return ""
+    unknown = [
+        f
+        for f in fields
+        if (f.split(".")[0].split("[")[0] or "") not in _TIMESTAMP_PROMPT_ALLOWED_PLACEHOLDERS
+    ]
+    if unknown:
+        logger.warning(
+            "Ignoring %s: unknown placeholder(s) %s in template %r; allowed: %s",
+            env_var,
+            sorted(set(unknown)),
+            template,
+            sorted(_TIMESTAMP_PROMPT_ALLOWED_PLACEHOLDERS),
+        )
+        return ""
+    return template
+
+
+_TIMESTAMP_PROMPT_PREFIX_FILE = _validate_timestamp_prompt_template(
+    "RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE",
+    os.environ.get("RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE", "").strip("\"'"),
+)
+_TIMESTAMP_PROMPT_SUFFIX_FILE = _validate_timestamp_prompt_template(
+    "RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE",
+    os.environ.get("RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE", "").strip("\"'"),
+)
+_TIMESTAMP_PROMPT_PREFIX_RTSP = _validate_timestamp_prompt_template(
+    "RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE",
+    os.environ.get("RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE", "").strip("\"'"),
+)
+_TIMESTAMP_PROMPT_SUFFIX_RTSP = _validate_timestamp_prompt_template(
+    "RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE",
+    os.environ.get("RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE", "").strip("\"'"),
 )
 
 DEFAULT_SYSTEM_PROMPT_CR1 = (
@@ -236,12 +302,17 @@ def _is_cr3_quantized_qwen3vl(model_architecture: str, model_config: dict) -> bo
     return _is_nvfp4_quantized(model_config) or _is_fp8_quantized(model_config)
 
 
-def _requires_vllm017(model_architecture: str, model_config: dict) -> bool:
+def _requires_vllm017(
+    model_architecture: str, model_config: dict, vlm_model_type: str = ""
+) -> bool:
     if model_architecture in _VLLM017_ARCHS:
         return True
     if _is_cosmos3_diffusers_shim_arch(model_architecture):
         return True
-    return model_architecture in _QWEN3VL_ARCHS and _is_nvfp4_quantized(model_config)
+    return model_architecture in _QWEN3VL_ARCHS and (
+        _is_nvfp4_quantized(model_config)
+        or (vlm_model_type == "cosmos-reason3" and _is_fp8_quantized(model_config))
+    )
 
 
 # Canonical Qwen3-VL extra_special_tokens role mapping. Some Qwen3-VL-arch
@@ -367,7 +438,7 @@ class VllmCompatible(BaseVlmModel):
             if _is_cosmos3_diffusers_shim_arch(self._model_architecture):
                 _normalize_cosmos3_diffusers_config(self.model_path)
             if os.path.exists(_VLLM017_PATH) and _requires_vllm017(
-                self._model_architecture, model_config
+                self._model_architecture, model_config, self._vlm_model_type
             ):
                 # vLLM 0.17 spawns subprocesses (e.g. registry inspection) that
                 # must also load the side-installed vLLM, not the default 25.11
@@ -1004,6 +1075,22 @@ class VllmCompatible(BaseVlmModel):
 
         return images
 
+    def _build_absolute_timestamp_video_metadata(self, images, video_frames_times, duration):
+        """Build video metadata with absolute timestamps encoded in frames_indices.
+
+        Uses a synthetic fps=1000 so frame_index/fps recovers the real timestamp
+        (ms resolution) instead of a 0-based chunk-relative offset. Preserves
+        absolute start offset and non-uniform frame spacing.
+        """
+        return {
+            "total_num_frames": len(images),
+            "frames_indices": [
+                int(round(float(t) * _ABSOLUTE_TIMESTAMP_SOURCE_FPS)) for t in video_frames_times
+            ],
+            "fps": _ABSOLUTE_TIMESTAMP_SOURCE_FPS,
+            "duration": duration,
+        }
+
     def generate(
         self,
         query: str,
@@ -1135,53 +1222,27 @@ class VllmCompatible(BaseVlmModel):
                 has_audio = audio_frames[0].get("audio") is not None
 
         if add_timestamp_to_prompt and chunk and video_frames_times:
-            # Only the integrated Cosmos-Reason2 backend opts into the new
-            # absolute-timestamp prompt format, and only when the flag is on.
-            # All other models (cosmos-reason1, cosmos-reason3, qwen, etc.)
-            # keep the legacy prompt to preserve main-branch behavior.
-            use_cr2_timestamp_prompt = (
-                ENABLE_LVS_CR2_TIMESTAMP_PROMPT and self._vlm_model_type == "cosmos-reason2"
-            )
-            if use_cr2_timestamp_prompt:
-                # Mirror the openai-compat (NIM) prompt format so the model is
-                # explicitly told that the listed frame times are absolute and
-                # that its response must use them. Without these cues the model
-                # tends to emit chunk-relative offsets starting at 0.
-                if chunk.file.startswith("rtsp://"):
-                    time_format_str = " at timestamps in RFC3339 format"
-                else:
-                    time_format_str = " at timestamps in seconds"
+            is_rtsp = chunk.file.startswith("rtsp://")
+            prefix_tpl = _TIMESTAMP_PROMPT_PREFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_PREFIX_FILE
+            suffix_tpl = _TIMESTAMP_PROMPT_SUFFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_SUFFIX_FILE
 
-                string_of_times = ""
-                for frame_time in video_frames_times:
-                    string_of_times += "<" + chunk.get_timestamp(frame_time) + "> "
-
-                if len(video_frames_times) > 1:
-                    first_ts = chunk.get_timestamp(video_frames_times[0])
-                    last_ts = chunk.get_timestamp(video_frames_times[-1])
-                    frame_mapping = (
-                        f"Frame 1 corresponds to timestamp {first_ts} seconds, "
-                        f"and the last frame corresponds to timestamp {last_ts} seconds. "
-                    )
-                    timestamp_instruction = (
-                        f" IMPORTANT: {frame_mapping}"
-                        f"All timestamps in your response MUST be between {first_ts} and {last_ts}"
-                        f" seconds. Do NOT use timestamps starting from 0. The video segment"
-                        f" starts at {first_ts} seconds in the original video."
-                    )
-                else:
-                    timestamp_instruction = "Make sure the answer contains correct timestamps."
-
-                query_text = (
-                    "These are images sampled from a video"
-                    + time_format_str
-                    + " : "
-                    + string_of_times
-                    + ".\n"
-                    + query_text
-                    + "\n"
-                    + timestamp_instruction
+            if prefix_tpl or suffix_tpl:
+                string_of_times = " ".join(chunk.get_timestamp(t) for t in video_frames_times)
+                first_ts = chunk.get_timestamp(video_frames_times[0])
+                last_ts = chunk.get_timestamp(video_frames_times[-1])
+                fmt_kwargs = dict(
+                    timestamps=string_of_times,
+                    query=query_text,
+                    first_ts=first_ts,
+                    last_ts=last_ts,
                 )
+                parts = []
+                if prefix_tpl:
+                    parts.append(prefix_tpl.format(**fmt_kwargs))
+                parts.append(query_text)
+                if suffix_tpl:
+                    parts.append(suffix_tpl.format(**fmt_kwargs))
+                query_text = "\n".join(parts)
             else:
                 string_of_times = ""
                 for frame_time in video_frames_times:
@@ -1202,18 +1263,25 @@ class VllmCompatible(BaseVlmModel):
             input = (images if CPU_COPY_OTHER_THREAD else images.cpu().numpy(),)
         else:
             duration = video_frames_times[-1] - video_frames_times[0]
-            fps = 1
-            if len(video_frames_times) > 1 and duration > 0:
-                fps = (len(video_frames_times) - 1) / duration
 
-            input = (
-                images if CPU_COPY_OTHER_THREAD else images.cpu().numpy(),
-                {
+            if _VIDEO_METADATA_ABSOLUTE_TIMESTAMPS:
+                video_metadata = self._build_absolute_timestamp_video_metadata(
+                    images, video_frames_times, duration
+                )
+            else:
+                fps = 1
+                if len(video_frames_times) > 1 and duration > 0:
+                    fps = (len(video_frames_times) - 1) / duration
+                video_metadata = {
                     "total_num_frames": len(images),
                     "frames_indices": list(range(len(images))),
                     "fps": fps,
                     "duration": duration,
-                },
+                }
+
+            input = (
+                images if CPU_COPY_OTHER_THREAD else images.cpu().numpy(),
+                video_metadata,
             )
 
         # Single query mode
