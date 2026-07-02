@@ -176,17 +176,21 @@ When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage
 
 1. Confirm the named `<sensor-id>` exists (handled by the *Sensor check* above — required on
    this path).
-2. Fetch `/storage/<streamId>/timelines` for the recorded range when the user did not name a
-   specific segment.
-3. Request a clip URL (default to the full recorded range when the user did not ask about a
-   specific time window):
+2. **Always fetch `/storage/<streamId>/timelines` first** to obtain a valid recorded range —
+   you need concrete `startTime`/`endTime` values for the next call. Do this even when the user
+   did not name a specific segment (use the full returned range in that case).
+3. Request a clip URL. **`startTime` and `endTime` are required** — the `/url` endpoint returns
+   an **empty body** when they are omitted, so always pass the range from step 2 (default to the
+   full recorded range when the user did not ask about a specific window):
 
    ```bash
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
    Bind the result to `VIDEO_URL` (a direct `mp4` URL) and capture `CLIP_SECONDS`
-   (endTime − startTime; default `15` if you analyzed the whole short clip).
+   (endTime − startTime; default `15` if you analyzed the whole short clip). **If the `/url` call
+   returns empty, fix the request — re-fetch timelines and pass `startTime`/`endTime`; do not
+   silently fall back to the local file on this VST path.**
 
 Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
 target VLM — **Step 3 picks the right upload format**. A **local / in-cluster** VLM can usually
