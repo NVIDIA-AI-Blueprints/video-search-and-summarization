@@ -14,12 +14,12 @@
 # limitations under the License.
 
 class-attrs-all:
-  pre-cluster-threshold: 0.6
+  pre-cluster-threshold: 0.5
   topk: 20
 
 # Assign different thresholds for different classes for optimal performance
 class-attrs-0:
-  pre-cluster-threshold: 0.6
+  pre-cluster-threshold: 0.5
   topk: 20
 class-attrs-1:
   pre-cluster-threshold: 0.85
@@ -49,7 +49,7 @@ property:
   net-scale-factor: 0.00392156862745098
   network-mode: 2
   network-type: 0
-  model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b4_gpu0_fp16.engine
+  model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b3_gpu0_fp16.engine
   onnx-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx
   num-detected-classes: 7
   output-tensor-meta: 1
