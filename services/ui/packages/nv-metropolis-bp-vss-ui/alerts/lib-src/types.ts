@@ -128,6 +128,7 @@ export interface AlertsComponentProps {
     /** Rows per page for the alerts table (client-side pagination). Default 100 from server when unset. */
     pageSize?: number;
     alertReportPromptTemplate?: string;
+    vlmVerifiedAlertReportPromptTemplate?: string;
     maxSearchTimeLimit?: string; // Format: "0" (unlimited), "10m", "2h", "3d", "1w", "2M", "1y"
     mediaWithObjectsBbox?: boolean; // Enable overlay bounding boxes on thumbnails and videos
   } | null;
