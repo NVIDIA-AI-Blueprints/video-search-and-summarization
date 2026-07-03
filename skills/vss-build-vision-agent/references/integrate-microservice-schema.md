@@ -107,7 +107,8 @@ component_services:
       role: init gate ensuring Kafka/Redis is responsive before downstream services
     - key: phoenix
       compose: services/infra/compose.yml
-      role: OTel sink used by all dev-profile-base services
+      role: OTel/LLM trace sink — fed only by the vss-agent
+      required: false                     # include only when the vss-agent is in the profile
 ```
 
 Example (VIOS — its real block lives in `references/patch-vios.md`; this sketches the `sensor_topology` variant in the `always:` / `variants:` form. The **authoritative** form in `patch-vios.md` / `component-services-schema.md` uses a flat list-of-entries with embedded `variants:` blocks — see those files; the shape below is for schema illustration only):
