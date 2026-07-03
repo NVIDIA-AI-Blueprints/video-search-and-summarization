@@ -34,7 +34,7 @@ tests) without going through HTTP.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional
@@ -637,7 +637,7 @@ async def list_incidents(
                     "consolidate=true requires both start_time and end_time "
                     "(a bounded time window)"
                 ),
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
     response_data, status_code = await service.list_incidents(
