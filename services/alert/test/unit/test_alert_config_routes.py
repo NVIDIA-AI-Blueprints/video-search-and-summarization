@@ -16,9 +16,9 @@
 """FastAPI route tests for /api/v1/verification/config (the alert-config REST API).
 
 Mounts ``alert_config_router`` on a stand-alone FastAPI app and overrides
-the service dependency with a fake backed by ``fakeredis`` so behaviour
-is exercised end-to-end (router → schema → service → store) without any
-external infrastructure.
+the service dependency with a fake backed by an in-process store so
+behaviour is exercised end-to-end (router → schema → service → store)
+without any external infrastructure.
 """
 
 import importlib
@@ -27,7 +27,6 @@ import os
 import sys
 import types
 
-import fakeredis
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -43,8 +42,7 @@ _get_service = _routes_mod._get_service
 
 @pytest.fixture
 def client():
-    redis_client = fakeredis.FakeRedis(decode_responses=True)
-    fake_service = AlertConfigService(store=AlertConfigStore(redis_client))
+    fake_service = AlertConfigService(store=AlertConfigStore())
     app = FastAPI()
     app.include_router(router)
     # Routes call ``_get_service()`` directly inside their try/except

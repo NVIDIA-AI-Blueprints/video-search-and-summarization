@@ -19,7 +19,6 @@ import yaml
 from typing import Dict, Any, Optional, List
 
 from handlers.exception_handler.vss_exceptions import VSSException
-from clients.dynamic_prompt_handler import DynamicPromptHandler
 
 from .alert_type_config_loader import AlertTypeConfigLoader
 
@@ -30,7 +29,7 @@ class PromptManager:
     """Manages prompt templates and selection logic based on alert types."""
     
     def __init__(self, config_file: str = 'config.yaml'):
-        """Initialize prompt manager with Redis-backed template handling."""
+        """Initialize prompt manager backed by the alert-config store (ES/in-process)."""
         self.logger = logging.getLogger(self.__class__.__name__)
 
         try:
@@ -43,23 +42,13 @@ class PromptManager:
         self.prefer_payload_prompt = bool(prompt_cfg.get('prefer_payload_prompt', False))
         self.override_prompts_on_start = bool(prompt_cfg.get("override_prompts_on_start", False))
 
-        try:
-            self.dynamic_prompt_handler = DynamicPromptHandler(config_file)
-        except Exception as exc:
-            raise RuntimeError(f"Failed to initialize Redis prompt handler: {exc}") from exc
-
-        if not self.dynamic_prompt_handler.health_check():
-            raise RuntimeError("Redis prompt handler unavailable during PromptManager initialization")
-
-        # Share a single cached-composite store across the process. The
-        # factory returns the Redis-only variant when persistence is
-        # disabled in config, matching the pre-ES-hydration deployment
-        # shape without any conditional code here. Failures propagate so
+        # Share a single alert-config store across the process. The
+        # factory returns an in-process store when persistence is
+        # disabled, or the ES-primary cached composite when persistence
+        # is enabled. No Redis connection is made. Failures propagate so
         # startup fails fast when ES is enabled but unreachable.
         from handlers.alert_config import build_alert_config_store
-        self.alert_config_store = build_alert_config_store(
-            self.dynamic_prompt_handler._redis_client, config
-        )
+        self.alert_config_store = build_alert_config_store(config)
 
         try:
             alert_config_file = config.get('alert_type_config_file')
@@ -75,16 +64,16 @@ class PromptManager:
         self.alert_type_system_prompts = {}
 
         if self.override_prompts_on_start:
-            self._override_prompts_in_redis()
+            self._seed_prompts_to_store()
         
     def load_prompts(self) -> None:
-        self.logger.info("load_prompts() is deprecated; prompts are fetched directly from Redis")
+        self.logger.info("load_prompts() is deprecated; prompts are fetched directly from the alert-config store")
     
     def _set_default_prompts(self) -> None:
         self.logger.info("_set_default_prompts() is unused in the new prompt flow")
     
     def get_system_prompt_for_entity(self, entity: Dict[str, Any]) -> Optional[str]:
-        """Resolve system prompt with payload-first precedence, else fresh Redis (exact alert_type match), else None."""
+        """Resolve system prompt with payload-first precedence, else a fresh read from the alert-config store (exact alert_type match), else None."""
         def _get_alert_type():
             if 'alert' in entity and isinstance(entity['alert'], dict):
                 return entity['alert'].get('type')
@@ -114,10 +103,10 @@ class PromptManager:
         
         alert_type = _get_alert_type()
         if alert_type:
-            # Fetch fresh from Redis to reflect any dynamic updates (exact match only)
+            # Fetch fresh from the store to reflect any dynamic updates (exact match only)
             fresh_system_prompt = self.get_fresh_system_prompt_for_alert_type(alert_type)
             if fresh_system_prompt:
-                self.logger.debug(f"Using fresh Redis system_prompt for alert type: {alert_type}")
+                self.logger.debug(f"Using fresh system_prompt from store for alert type: {alert_type}")
                 return fresh_system_prompt
         
         return None
@@ -142,11 +131,11 @@ class PromptManager:
             sensor_id = entity.get('sensorId') or entity.get('sensor_id') or 'N/A'
             raise VSSException(f"Alert type missing for entity - eventId: {event_id}, sensorId: {sensor_id}")
 
-        redis_prompt = self.get_fresh_prompt_for_alert_type(alert_type)
-        if not redis_prompt:
-            raise VSSException(f"No prompt found in Redis for alert type: {alert_type}")
+        stored_prompt = self.get_fresh_prompt_for_alert_type(alert_type)
+        if not stored_prompt:
+            raise VSSException(f"No prompt found in the alert-config store for alert type: {alert_type}")
 
-        substituted_prompt = self._substitute_placeholders(redis_prompt, entity)
+        substituted_prompt = self._substitute_placeholders(stored_prompt, entity)
         return [{
             'question': substituted_prompt,
             'expectedAnswer': 'yes'
@@ -154,7 +143,7 @@ class PromptManager:
     
     def get_prompt_for_alert_type(self, alert_type: str) -> Optional[str]:
         """
-        Get prompt based on alert type from Redis-backed prompt store.
+        Get prompt based on alert type from the alert-config store.
         
         Uses a dynamic keyword matching algorithm that:
         1. First tries direct matches (exact, lowercase, normalized)
@@ -172,7 +161,7 @@ class PromptManager:
         """
         self.logger.debug(f"Selecting prompt for alert type: {alert_type}")
         
-        # First check Redis (which includes prompts loaded from alert type config)
+        # First check the in-memory map (seeded from the alert type config)
         if alert_type in self.alert_type_prompts:
             self.logger.debug(f"Found direct mapping for alert type: {alert_type}")
             return self.alert_type_prompts[alert_type]
@@ -275,8 +264,8 @@ class PromptManager:
     
     def get_prompts_for_message(self, message: Dict[str, Any]) -> tuple[str, str]:
         """
-        Get the system and user prompts for a message. If found in config but not in Redis,
-        perform substitution and save the real prompt to Redis.
+        Get the system and user prompts for a message from the alert-config store,
+        then perform placeholder substitution.
         
         Args:
             message: Message dictionary containing alert information
@@ -288,19 +277,18 @@ class PromptManager:
         if not alert_type:
             raise VSSException("Alert type missing in message for prompt lookup")
 
-        # First, try to get fresh prompt from Redis
-        redis_system_prompt, redis_user_prompt = self.get_fresh_prompts_for_alert_type(alert_type)
+        # Fetch the current prompts from the alert-config store
+        stored_system_prompt, stored_user_prompt = self.get_fresh_prompts_for_alert_type(alert_type)
 
-        if not redis_user_prompt:
+        if not stored_user_prompt:
             self.logger.warning(f"No user prompt found for alert type: {alert_type}")
             final_prompt = None
-            #raise VSSException(f"No user prompt found in Redis for alert type: {alert_type}")
         else:                    
-            self.logger.debug(f"User Prompt template before substitution: {redis_user_prompt}")
-            final_prompt = self._substitute_placeholders(redis_user_prompt, message)
+            self.logger.debug(f"User Prompt template before substitution: {stored_user_prompt}")
+            final_prompt = self._substitute_placeholders(stored_user_prompt, message)
             self.logger.debug(f"Final User Prompt after substitution: {final_prompt}")
 
-        return final_prompt, redis_system_prompt
+        return final_prompt, stored_system_prompt
 
     def get_enrichment_prompt_for_message(self, message: Dict[str, Any]) -> Optional[str]:
         """
@@ -316,7 +304,7 @@ class PromptManager:
         if not alert_type:
             return None
         
-        enrichment_template = self._get_enrichment_prompt_from_redis(alert_type)
+        enrichment_template = self._get_enrichment_prompt_from_store(alert_type)
         if not enrichment_template:
             return None
         
@@ -326,7 +314,7 @@ class PromptManager:
             self.logger.warning(f"Failed to substitute placeholders in enrichment prompt: {e}")
             return None
 
-    def _get_enrichment_prompt_from_redis(self, alert_type: str) -> Optional[str]:
+    def _get_enrichment_prompt_from_store(self, alert_type: str) -> Optional[str]:
         """Fetch enrichment prompt from ``alert_config:{alert_type}``.
 
         Returns ``None`` when the record is missing or has no enrichment
@@ -371,10 +359,10 @@ class PromptManager:
                 raise KeyError(path)
         return str(current)
 
-    def _override_prompts_in_redis(self) -> None:
+    def _seed_prompts_to_store(self) -> None:
         """Seed every alert type from ``alert_type_config.json`` into the
-        ``alert_config:*`` key space so runtime hot-path lookups have a
-        complete record without depending on the legacy ``prompts:*``."""
+        alert-config store (``alert_config:*`` records) so runtime hot-path
+        lookups have a complete record at startup."""
         if not self.alert_config_loader:
             raise RuntimeError("Alert type configuration loader not available; cannot override prompts")
 
@@ -385,4 +373,4 @@ class PromptManager:
             config = self.alert_config_loader.get_config_for_alert_type(alert_type)
             if not config:
                 continue
-            self.alert_config_loader.save_to_redis(alert_type, config, self.alert_config_store)
+            self.alert_config_loader.seed_to_store(alert_type, config, self.alert_config_store)

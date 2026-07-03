@@ -32,8 +32,6 @@ from .api.realtime_routes import (
     router as realtime_router,
     validate_always_on_config_at_startup,
 )
-from .websocket.websocket_routes import router as websocket_router
-from .websocket.websocket_service import websocket_service
 from .core.dependencies import load_config
 
 app = FastAPI(
@@ -111,9 +109,6 @@ app.include_router(alert_router)
 # Include incident submission router (new functionality)
 app.include_router(incident_router)
 
-# Include WebSocket router (new functionality)
-app.include_router(websocket_router, tags=["websocket"])
-
 
 # Application lifecycle events
 @app.on_event("startup")
@@ -131,8 +126,8 @@ async def startup_event():
 
     # Eagerly build + hydrate the alert-config store. ``_get_service``
     # is otherwise lazy — without this call the first REST request
-    # after boot pays the in-band hydration latency (Redis seed +
-    # ES list) and any backend misconfiguration only surfaces on the
+    # after boot pays the in-band hydration latency (ES list +
+    # in-process cache seed) and any backend misconfiguration only surfaces on the
     # first user-visible API call rather than at startup. Wrap in
     # try/except so a transient backend hiccup at boot does not
     # block the rest of the FastAPI startup; the store will be
@@ -147,25 +142,11 @@ async def startup_event():
             "lazy init on first REST request: %s", e,
         )
 
-    try:
-        # Start WebSocket service (Redis consumer)
-        await websocket_service.start()
-        logger.info("WebSocket service started successfully")
-    except Exception as e:
-        logger.error(f"Failed to start WebSocket service: {e}")
-        # Don't prevent app startup, just log the error
-
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Stop background services when FastAPI shuts down."""
     logger.info("Shutting down FastAPI application")
-    try:
-        # Stop WebSocket service
-        await websocket_service.stop()
-        logger.info("WebSocket service stopped successfully")
-    except Exception as e:
-        logger.error(f"Error stopping WebSocket service: {e}")
 
 # Basic health check endpoint
 @app.get("/health")

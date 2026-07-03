@@ -162,12 +162,13 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         # Get source type for logging
         self.source_type = self.config.get('event_bridge', {}).get('sourceType', 'unknown')
 
-        # Initialize RedisHandler early so it can be shared with the VLM sink
+        # Initialize the in-process dedup/verdict-protection state handler
+        # early so it can be shared with the VLM sink. (No Redis: dedup /
+        # filter state is in-process; verdict protection is ES-backed.)
         self.redis_handler = RedisHandler(config_file)
 
         # PromptManager has to come before the sink build so its
-        # AlertConfigStore (constructed from event_bridge.redis_source via
-        # DynamicPromptHandler — same backend the verification API
+        # AlertConfigStore (the same ES-backed store the verification API
         # writes to) can be threaded into the sink. Without this the
         # sink would have no live source for output_category and would
         # silently use the startup file mapping instead.
@@ -218,7 +219,12 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         )
         self.async_vst_enabled = bool(async_io_cfg.get('vst_enabled', False)) and self.async_io_enabled
         self.async_elastic_enabled = bool(async_io_cfg.get('elastic_enabled', False)) and self.async_io_enabled
-        self.async_redis_enabled = bool(async_io_cfg.get('redis_enabled', False)) and self.async_io_enabled
+        # ``dedup_enabled`` is the current key; ``redis_enabled`` is the
+        # deprecated legacy name (kept for back-compat). This flag controls
+        # async submission of the in-process dedup/state operations.
+        self.async_redis_enabled = bool(
+            async_io_cfg.get('dedup_enabled', async_io_cfg.get('redis_enabled', False))
+        ) and self.async_io_enabled
         external_timeout = async_io_cfg.get('external_timeout_seconds', 30)
         try:
             self.async_external_timeout_seconds = max(1.0, float(external_timeout))
@@ -238,7 +244,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             "enabled" if self.async_elastic_enabled else "disabled",
         )
         logger.info(
-            "Async Redis mode is %s",
+            "Async dedup-state mode is %s",
             "enabled" if self.async_redis_enabled else "disabled",
         )
         # Lazy-initialized VST handler for media path resolution

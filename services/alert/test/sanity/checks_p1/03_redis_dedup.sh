@@ -15,15 +15,17 @@
 # limitations under the License.
 
 # =============================================================================
-# Check 03: Redis Dedup Fingerprints
+# Check 03: Dedup Fingerprints
 # Mode: HTTP
-# Description: Verify dedup fingerprints are being written to alert documents
+# Description: Verify dedup fingerprints are being written to alert documents.
+#   Dedup is now in-process (Redis removed); fingerprints are still computed
+#   and persisted on every document, so this ES-only check is unchanged.
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
-CHECK_NAME="Redis Dedup Fingerprints"
+CHECK_NAME="Dedup Fingerprints"
 
 query="{
   \"size\": ${VERIFICATION_SAMPLE_SIZE},

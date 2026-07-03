@@ -20,14 +20,16 @@ Implements the behaviour described in the alert-config ES hydration:
 * **ES = source of truth** — all writes hit ES first; ES errors propagate
   as 5xx to the caller so we never acknowledge a write that was not
   durably stored.
-* **Redis = ephemeral cache** — writes update Redis on a best-effort basis
-  after ES succeeds; cache failures are logged and swallowed.
+* **In-process cache = ephemeral hot path** — writes update the cache on a
+  best-effort basis after ES succeeds; cache failures are logged and
+  swallowed. (This replaced the former shared Redis cache; the cache is
+  now per-process and, by default, read-through — see the factory.)
 * **In-memory snapshot = last-resort read fallback** — populated on every
   successful read/write so the service can still answer ``get`` even when
-  both ES and Redis are unreachable.
+  Elasticsearch is unreachable.
 
-Read path: Redis → ES → in-memory snapshot.
-Write path: ES → Redis (best-effort) → memory snapshot.
+Read path: cache → ES → in-memory snapshot.
+Write path: ES → cache (best-effort) → memory snapshot.
 """
 
 import logging
@@ -41,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class CachedAlertConfigStore(AlertConfigStoreABC):
-    """Composite: ES primary + Redis cache + in-memory fallback."""
+    """Composite: ES primary + in-process cache + in-memory fallback."""
 
     def __init__(
         self,
@@ -52,7 +54,7 @@ class CachedAlertConfigStore(AlertConfigStoreABC):
         """
         Args:
             primary: Durable source of truth (ES).
-            cache: Hot-path cache (Redis).
+            cache: Hot-path cache (in-process).
             memory: Mutable dict shared with the hydration step, keyed by
                 normalised alert type. Used only when both primary and
                 cache are unreachable.

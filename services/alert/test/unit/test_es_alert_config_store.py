@@ -212,7 +212,7 @@ def test_delete_propagates_other_errors(store, persistence):
 def test_set_round_trip_with_injected_id_does_not_raise(store, persistence):
     """Pin the integration-level contract that any caller doing
     read → modify → write through the alert_config layer (e.g.
-    ``AlertConfigService.update``, or the startup ``save_to_redis``
+    ``AlertConfigService.update``, or the startup ``seed_to_store``
     seed merge) is safe even when the input dict carries
     ``_id`` / ``_seq_no`` echoed back from a previous read.
 

@@ -21,15 +21,10 @@ Service layer for handling HTTP alert submissions.
 """
 
 import logging
-import json
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
-import redis
 
 from schemas import EntityValidator
-from schemas.request_entity.models.requests import AlertRequestEntity
-from schemas.request_entity.exceptions import ValidationError, InvalidPayloadError
-from mdx.stream_message import StreamMessage
 from mdx.kafka_message_broker import KafkaMessageBroker
 from utils.schema_util import convert_behavior_to_protobuf_behavior, convert_incident_to_protobuf_incident
 from mdx.protobuf import Behavior as nvSchemaBehavior
@@ -56,50 +51,17 @@ class AlertSubmissionService:
         
         # Initialize entity validator
         self.entity_validator = EntityValidator()
-        
-        # Initialize direct Redis client for writing to INPUT stream (not output stream)
-        # This allows HTTP alerts to be picked up by the anomaly processor
-        self._setup_input_stream_writer()
 
-        # Initialize Kafka producer when configured
+        # HTTP alert/incident submissions publish to Kafka. (Redis has been
+        # removed; there is no Redis input-stream path anymore.)
         try:
             if self.config.get('event_bridge', {}).get('sourceType') == 'kafka':
                 self._setup_kafka_producer()
         except Exception as e:
             # Do not prevent initialization; Kafka path will error at use time if misconfigured
             self.logger.error(f"Kafka producer setup failed: {e}")
-        
-        self.logger.info("Alert submission service initialized", extra={
-            "stream_name": self.input_stream_name,
-            "redis_host": f"{self.redis_host}:{self.redis_port}"
-        })
-    
-    def _setup_input_stream_writer(self):
-        """Setup Redis client for writing to the input stream where anomaly processor reads from."""
-        # Get Redis configuration
-        redis_config = self.config['event_bridge']['redis_source']  # Use source config for input stream
-        self.redis_host = redis_config['host']
-        self.redis_port = redis_config['port']
-        self.redis_db = redis_config.get('db', 0)
-        
-        # Get input stream name (where processor reads from)
-        self.input_stream_name = redis_config['streams']['anomaly_stream']
-        
-        # Create Redis client
-        self.redis_client = redis.Redis(
-            host=self.redis_host,
-            port=self.redis_port,
-            db=self.redis_db,
-            decode_responses=True
-        )
-        
-        # Test connection
-        try:
-            self.redis_client.ping()
-            self.logger.info(f"Redis connection established to input stream: {self.input_stream_name}")
-        except Exception as e:
-            self.logger.error(f"Failed to connect to Redis: {e}")
-            raise
+
+        self.logger.info("Alert submission service initialized")
 
     def _setup_kafka_producer(self) -> None:
         """Setup Kafka producer for writing Behavior messages to alert topic."""
@@ -109,87 +71,6 @@ class AlertSubmissionService:
         self.kafka_alert_topic = topics.get('alert') or 'mdx-alerts'
         self.kafka_incident_topic = topics.get('incident') or 'mdx-incidents'
         self.logger.info("Kafka producer initialized for alert topic", extra={"topic": self.kafka_alert_topic})
-    
-    async def submit_alert(self, request_data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
-        """
-        Submit an alert through the complete processing pipeline.
-        
-        Args:
-            request_data: HTTP alert submission request as dictionary
-            
-        Returns:
-            Tuple of (response_dict, status_code)
-        """
-        start_time = datetime.utcnow()
-        request_id = request_data.get('id', 'unknown')
-        
-        try:
-            self.logger.info("Processing alert submission", extra={
-                "event_id": request_id,
-                "sensor_id": request_data.get('sensorId'),
-                "alert_type": request_data.get('alert', {}).get('type')
-            })
-            
-            # Step 1: Validate and build entity using existing validator
-            # The request_data is already in the format expected by AlertRequestEntity
-            entities = self.entity_validator.validate_and_build([request_data])
-            
-            if not entities:
-                raise ValidationError("No valid entities created from request")
-            
-            entity = entities[0]
-            
-            # Step 2: Send through event bridge
-            queue_type = await self._send_to_event_bridge(entity)
-            
-            # Step 3: Build success response
-            processing_time = datetime.utcnow()
-            response = {
-                "status": "accepted",
-                "id": request_id,
-                "message": "Alert queued for processing",
-                "timestamp": processing_time.isoformat() + "Z"
-            }
-            
-            self.logger.info("Alert submission successful", extra={
-                "event_id": request_id,
-                "queue_type": queue_type
-            })
-            
-            return response, 202
-            
-        except ValidationError as e:
-            self.logger.warning("Alert validation failed", extra={
-                "event_id": request_id,
-                "error": str(e),
-                "field_errors": getattr(e, 'field_errors', {})
-            })
-            return self._build_error_response(
-                "validation_failed", 
-                f"Request validation failed: {str(e)}", 
-                {"field_errors": getattr(e, 'field_errors', {})}
-            ), 400
-            
-        except InvalidPayloadError as e:
-            self.logger.warning("Invalid payload format", extra={
-                "event_id": request_id,
-                "error": str(e)
-            })
-            return self._build_error_response(
-                "invalid_payload", 
-                f"Invalid payload format: {str(e)}"
-            ), 400
-            
-        except Exception as e:
-            self.logger.error("Alert submission failed", extra={
-                "event_id": request_id,
-                "error": str(e),
-                "error_type": type(e).__name__
-            }, exc_info=True)
-            return self._build_error_response(
-                "internal_error", 
-                "Internal server error occurred"
-            ), 500
     
     async def submit_nvschema_alert_protobuf(self, behavior_bytes: bytes) -> Tuple[Dict[str, Any], int]:
         """
@@ -300,62 +181,6 @@ class AlertSubmissionService:
                 "internal_error",
                 "Internal server error occurred"
             ), 500
-    async def _send_to_event_bridge(self, entity: AlertRequestEntity) -> str:
-        """
-        Send entity to Redis input stream where anomaly processor reads from.
-        
-        Args:
-            entity: Validated alert request entity
-            
-        Returns:
-            Queue type used (for response metadata)
-        """
-        try:
-            # Convert entity to message format
-            message_data = entity.model_dump(by_alias=True, exclude_none=False)
-            #print("[DEBUG] Serialized message_data:", json.dumps(message_data, indent=2))
-            # Send to Redis input stream directly
-            await self._write_to_input_stream(message_data)
-            
-            # Return stream type for response
-            return "redis_input_stream"
-            
-        except Exception as e:
-            self.logger.error("Failed to send to event bridge", extra={
-                "event_id": entity.id,
-                "error": str(e)
-            })
-            raise
-    
-    async def _write_to_input_stream(self, message_data: Dict[str, Any]) -> None:
-        """
-        Write message directly to Redis input stream.
-        
-        Args:
-            message_data: Message data to write to input stream
-        """
-        try:
-            # Create StreamMessage for proper formatting
-            json_str = json.dumps(message_data)
-            stream_message = StreamMessage.from_json(json_str, message_id=message_data.get('id', ''))
-            
-            # Get Redis stream fields format
-            fields = stream_message.to_redis_fields()
-            
-            # Write directly to input stream
-            message_id = self.redis_client.xadd(self.input_stream_name, fields)
-            
-            self.logger.info(f"Written alert to input stream", extra={
-                "stream": self.input_stream_name,
-                "redis_message_id": message_id,
-                "event_id": message_data.get('id'),
-                "sensor_id": message_data.get('sensorId')
-            })
-            
-        except Exception as e:
-            self.logger.error(f"Error writing to input stream: {e}")
-            raise
-    
     async def submit_nvschema_alert(self, behavior_json: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         """
         Accept NvSchema Behavior JSON, convert to protobuf, and publish to Kafka alert topic.
@@ -425,10 +250,6 @@ class AlertSubmissionService:
         return load_config(config_file)
     
     def close(self):
-        """Clean up resources."""
-        try:
-            if hasattr(self, 'redis_client'):
-                self.redis_client.close()
-                self.logger.info("Redis client connection closed")
-        except Exception as e:
-            self.logger.warning(f"Error closing Redis client: {e}") 
+        """Clean up resources. Kafka producer flushes per-produce, so there
+        is nothing to close explicitly."""
+        return None
