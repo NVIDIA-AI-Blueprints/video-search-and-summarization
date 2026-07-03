@@ -33,8 +33,8 @@ services:
     file: services/infra/compose.yml
   - key: broker-health-check
     file: services/infra/compose.yml
-  - key: phoenix
-    file: services/infra/compose.yml
+  # phoenix (services/infra/compose.yml) is intentionally OMITTED — IN-1 has no vss-agent, and phoenix
+  # is an agent-only OTel/LLM trace sink (required:false). See references/integrate-elk.md § phoenix note.
   - key: centralizedb
     file: services/vios/foundational/docker-compose.yaml
   - key: vst-ingress
@@ -82,7 +82,7 @@ When the harness is not included, omit the key entirely.
 
 ## Union rules
 
-- Every top-level (non-`variants:`) entry in every confirmed microservice's `component_services:` block is contributed, unless its `required: false` is excluded by the architecture proposal.
+- Every top-level (non-`variants:`) entry in every confirmed microservice's `component_services:` block is contributed, unless its `required: false` is excluded by the architecture proposal. Canonical exclusions: **`phoenix`** (ELK's `required: false` OTel/LLM trace sink) is contributed **only when the profile contains the vss-agent** — drop it from every agent-less profile (ingestion / RT-CV / RT-Embed / RT-VLM); and `mosquitto` when no MQTT alert-republish path is requested. See `references/integrate-elk.md`.
 - For each `variants:` block, exactly one `cases:` entry is contributed — the case-name matching the chosen `deployment_shape` for that variant's selector key. If no case matches, the synthesizer errors and reports the variant + the chosen shape.
 - If two microservices both contribute the same `(key, file)` pair, the entry is deduplicated to one row.
 - If two microservices contribute the same `key` with **different** `file:` paths, that is a catalog inconsistency — error and stop.

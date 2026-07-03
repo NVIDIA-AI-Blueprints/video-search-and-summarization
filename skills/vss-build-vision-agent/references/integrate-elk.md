@@ -49,12 +49,17 @@ component_services:
     role: "Smoke endpoint other services depend on via depends_on with required:false."
   - key: phoenix
     file: services/infra/compose.yml
-    role: OpenTelemetry trace sink for VSS internals.
+    role: OpenTelemetry/LLM trace sink — receives traces ONLY from the vss-agent (`PHOENIX_ENDPOINT` / `_type: phoenix` in `vss-agent/configs/config.yml`). No ingestion / detection / embedding / VLM component emits to it.
+    required: false                       # include ONLY when an agent/LLM component is in the deployment (see note below)
   - key: mosquitto
     file: services/infra/compose.yml
     role: MQTT broker for alert republishing.
     required: false
 ```
+
+> **Phoenix is agent-coupled — exclude it from agent-less profiles.** Although `phoenix` is defined in `services/infra/compose.yml` alongside the ELK stack, it is an **LLM/agent observability** service: only the `vss-agent` sends it OpenTelemetry traces (see `PHOENIX_ENDPOINT` and the `phoenix: {_type: phoenix}` telemetry block in every `vss-agent/configs/config.yml`). It is therefore marked `required: false` and must be **included only when the deployment contains the vss-agent** (or another component that exports OTel traces to `PHOENIX_ENDPOINT`). **Include `phoenix` when the generated profile contains the vss-agent** — this covers agent-bearing shapes such as search, alerts (with the agent), and LVS, which is exactly why those upstream profiles list it. **Drop `phoenix` when the profile has no agent/LLM** — ingestion-only, detection (RT-CV), embeddings (RT-Embed), dense-captioning (RT-VLM), or any combination thereof. A dropped phoenix otherwise starts and binds host port 6006 with nothing tracing to it. Because a dropped service is never allow-listed, Step 6.5 Patch 1 does not stamp the invented profile flag onto it, so it stays down under `--profile <new-flag>` (its upstream `bp_developer_*` flags remain but are not activated). This is the same opt-out mechanism as `mosquitto`.
+>
+> **Scope of this rule:** it only governs which services `vss-build-vision-agent` allow-lists into a *generated* profile. Upstream compose files are never modified, so directly deploying an upstream profile (`--profile bp_developer_search_2d`, `bp_developer_alerts_2d_cv`, etc.) is entirely unaffected — phoenix still comes up for those.
 
 ## Integration Interfaces
 
