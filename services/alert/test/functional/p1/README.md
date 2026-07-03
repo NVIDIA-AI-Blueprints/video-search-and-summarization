@@ -53,6 +53,7 @@ These run against simulators with known inputs — not a live deployment.
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
 | `test_realtime_alerts` (Test 8c) | Index 3 consecutive positives (same camera + alert type); `GET /api/v1/realtime/incidents?consolidate=true` (with a time window) returns one event and `total=1` (event count), `consolidate=false` returns 3 raw, and `consolidate=true` without a window is rejected `400` | Read-time consolidation groups duplicates into one event over a required window while raw chunk records remain available |
 | `test_realtime_alerts` (Test 8d) | Index sensor A/alert (2 chunks), A/intrusion (1), B/alert (1); per-sensor `consolidate=true` returns A=2 events, B=1 event | Consolidation groups are isolated by `(sensorId, category)` |
+| `test_realtime_alerts` (Test 8e) | Index one realtime chunk (has `info.chunkIdx`) + one verifier-path doc (`analyticsModule`, no `chunkIdx`) for the same sensor; `consolidate=true` returns 1 event from the realtime chunk only, raw returns both | REG-009: verifier-path incidents are filtered out of the consolidated view (realtime discriminator) |
 
 ## Structure
 
