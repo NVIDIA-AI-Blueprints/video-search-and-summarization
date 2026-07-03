@@ -1,40 +1,43 @@
 # test_alert_config_es_hydration
 
-Acceptance test that proves alert verification configs survive Redis data loss by being
-rehydrated from Elasticsearch — both on cache-miss reads and on service
-startup.
+Acceptance test that proves alert verification configs survive an Alert
+Bridge restart by being rehydrated from Elasticsearch.
+
+> Redis has been removed from Alert MS. The alert-config cache is now an
+> in-process store and **Elasticsearch is the durable source of truth**.
+> This test therefore no longer touches Redis — it validates ES durability
+> and restart hydration only.
 
 ## What it covers
 
 1. **Durable write path** — `POST /api/v1/verification/config` lands in
-   Elasticsearch (`ab-alert_configs` index), not just Redis.
-2. **Read-through cache** — after `DEL alert_config:<id>` the next GET
-   still returns the record (via the ES fallback) and silently refills
-   the Redis cache.
-3. **Startup hydration** — with the Redis key wiped, restarting Alert
-   Bridge repopulates the cache from ES before the service answers
-   requests.
+   Elasticsearch (`ab-alert_configs` index).
+2. **Read-through** — a GET returns the record served from ES (the default
+   in-process cache is read-through, so the pipeline always sees fresh data).
+3. **Startup hydration** — after restarting Alert Bridge (the in-process
+   cache is empty), the config re-appears from ES during hydration before
+   the service answers requests.
 
 ## Running against a shared deployment
 
-Your deployment already provides Kafka, Redis, and Elasticsearch and a
-*deployed* Alert Bridge that isn't built from this source. To test
-**this source's** changes without disturbing the deployed AB, the script
-starts its own AB process on a separate port (`9088` by default) and
-points it at the same Redis/Kafka/ES.
+Your deployment already provides Kafka and Elasticsearch and a *deployed*
+Alert Bridge that isn't built from this source. To test **this source's**
+changes without disturbing the deployed AB, the script starts its own AB
+process on a separate port (`9088` by default) and points it at the same
+Kafka/ES.
 
 Make the run stable by doing all of the following:
 
 ### 1. Use dedicated test infrastructure where possible
 
-If you can run this against a staging cluster (same Redis/ES/Kafka but
-no customer traffic), do that. If you must run against prod-like shared
+If you can run this against a staging cluster (same ES/Kafka but no
+customer traffic), do that. If you must run against prod-like shared
 infra, accept that:
 
 - The test writes to the `ab-alert_configs` ES index with a unique
   `hydration_<epoch>_<pid>` ID per run.
-- The test deletes only its own keys in cleanup — no `FLUSHDB`, no
-  blanket ES wipe. Safe to run alongside the deployed AB.
+- The test deletes only its own keys in cleanup — no blanket ES wipe.
+  Safe to run alongside the deployed AB.
 - A run that crashes mid-way still cleans up via `trap cleanup EXIT`.
 
 ### 2. Start the test-owned Alert Bridge on a free port
@@ -47,21 +50,11 @@ taken:
 AB_PORT=9189 bash test/functional/p1/test_alert_config_es_hydration/run.sh
 ```
 
-The test AB shares Redis/Kafka/ES with the deployed AB. If that worries
-you, run the test AB in a container with `--network host` but disable
-Kafka consumption so your test AB doesn't steal incidents from the
-deployed one. Quick way: override `event_bridge.kafka_source.group_id`
-in a custom config so both instances coexist on Kafka without
-duplicate delivery. (Preview: the base test config already uses
-`alert-bridge-vlm-group-p1`, not the deployed group id — check your
-deployment's config to confirm.)
-
 ### 3. Point the test at your deployment's infrastructure
 
 All addresses are env-overridable:
 
 ```bash
-REDIS_HOST=my-redis.internal REDIS_PORT=6379 \
 ES_HOST=http://es.internal:9200 \
 BASE_CONFIG=/path/to/my_test_config.yaml \
 bash test/functional/p1/test_alert_config_es_hydration/run.sh
@@ -80,13 +73,8 @@ via `trap`).
 
 ### 5. Pre-flight your cluster
 
-The test exits code 2 (fatal setup) and does not attempt writes if:
-
-- ES `/` returns non-200 at startup.
-- Redis at `$REDIS_HOST:$REDIS_PORT` isn't reachable.
-
-It still cleans up whatever it managed to create. If you see exit 2,
-fix infrastructure before rerunning.
+The test exits code 2 (fatal setup) and does not attempt writes if ES `/`
+returns non-200 at startup. No Redis is required.
 
 ### 6. Read the logs on failure
 
@@ -95,8 +83,7 @@ On non-zero exit the trap tails the last 40 lines of
 Common early failures:
 
 - `Persistence layer enabled but Elasticsearch is unreachable` — the
-  `fail-fast` branch of `_build_store()` in
-  `alert-agent-web/app/api/alert_config_routes.py`. Check that your
+  fail-fast branch of the alert-config factory. Check that your
   `BASE_CONFIG` points `elastic.hosts` at a reachable ES.
 - `AB never became healthy` — AB crashed during startup. Check the log
   for stack traces.
@@ -107,8 +94,6 @@ Common early failures:
 |---------------|-------------------------------------|-------------------------------------------|
 | `AB_PORT`     | `9088`                              | Port for the test-owned Alert Bridge      |
 | `AB_HOST`     | `http://localhost:$AB_PORT`         | Base URL for API calls                    |
-| `REDIS_HOST`  | `127.0.0.1`                         | Redis host                                |
-| `REDIS_PORT`  | `6379`                              | Redis port                                |
 | `ES_HOST`     | `http://127.0.0.1:9200`             | Elasticsearch URL                         |
 | `BASE_CONFIG` | `../shared/config_base.yaml`        | `config.yaml` handed to the test AB       |
 | `PID_DIR`     | `/tmp/alert_agent_p1_functional`    | Scratch dir for pid + logs                |
@@ -123,12 +108,9 @@ Common early failures:
 ⏳ POST http://localhost:9088/api/v1/verification/config with distinctive vlm_params
 ✓ Config created
 ✓ ES durable copy confirmed
-✓ Redis cache populated
-⏳ Scenario A — DEL Redis key then GET, expect data from ES
-✓ Cache miss fell through to ES and returned correct data
-✓ Redis cache refilled on miss
-⏳ Scenario B — wipe Redis key, restart AB, verify hydration refills cache
-✓ Alert Bridge running (PID 12456)
-✓ Hydration restored the cache from ES on startup
-✓ PASS: ES hydration + read-through cache honoured alert-config ES hydration semantics
+⏳ Scenario A — GET returns data served from ES
+✓ GET returned correct data from ES
+⏳ Scenario B — restart AB (in-process cache empty), verify hydration from ES
+✓ Config survived restart — hydrated from ES
+✓ PASS: ES durability + restart hydration honoured (no Redis)
 ```

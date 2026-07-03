@@ -18,7 +18,6 @@
 import os
 import sys
 
-import fakeredis
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -32,7 +31,7 @@ from handlers.alert_config import (
 
 @pytest.fixture
 def store():
-    return AlertConfigStore(fakeredis.FakeRedis(decode_responses=True))
+    return AlertConfigStore()
 
 
 @pytest.fixture

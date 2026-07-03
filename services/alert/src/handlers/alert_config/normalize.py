@@ -15,7 +15,7 @@
 
 """Single source of truth for alert_type normalization.
 
-All callers (Pydantic validators, Redis key generators, route handlers,
+All callers (Pydantic validators, store key generators, route handlers,
 prompt loaders) must use this helper so the rule lives in exactly one
 place. Changing it once propagates everywhere.
 """

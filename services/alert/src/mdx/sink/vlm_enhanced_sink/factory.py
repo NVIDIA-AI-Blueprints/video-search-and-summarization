@@ -76,11 +76,12 @@ def build_vlm_enhanced_sink(
 ) -> VLMEnhancedSink:
     """Instantiate a single VLMEnhancedSink for the configured transport.
 
-    ``alert_config_store`` must be the same store the verification API
-    writes through (built from ``event_bridge.redis_source``) so
-    output_category PUT edits hot-reload. We do NOT derive it from
-    ``redis_handler`` because that one reads top-level ``redis`` and
-    can target a different backend.
+    ``alert_config_store`` must be the same alert-config store the
+    verification API writes through (the ES-backed store from
+    ``handlers.alert_config.build_alert_config_store``) so output_category
+    PUT edits hot-reload. It is passed in explicitly rather than derived
+    from ``redis_handler`` — that handler only owns dedup/verdict-protection
+    state, not the alert-config store.
     """
 
     sink_root = config.get("vlm_enhanced_sink", {}) or {}

@@ -166,8 +166,9 @@ E2E_DURATION_BY_SENSOR = Histogram(
 # ``EVENTS_AFTER_DEDUP``.
 #
 # The second identity is **mostly** complete after C9: events that are
-# skipped because a confirmed verdict already exists in Redis are now
-# counted in ``EVENTS_SKIPPED_CONFIRMED``. The one remaining gap is C10:
+# skipped because a confirmed verdict already exists (verdict protection,
+# ES-backed) are now counted in ``EVENTS_SKIPPED_CONFIRMED``. The one
+# remaining gap is C10:
 #   - Events whose alert type has no prompt configured — will be counted
 #     via ``VERIFICATION_FAILURES{reason="no_prompt"}`` in a follow-up.
 
@@ -180,7 +181,7 @@ E2E_DURATION_BY_SENSOR = Histogram(
 # reason values:
 #   end_time_delta – event's ``end`` timestamp is outside the configured
 #                    record-time window (too old or clock-skew future)
-#   dedup          – duplicate of a recently-processed event (Redis TTL)
+#   dedup          – duplicate of a recently-processed event (in-process TTL)
 #   rate_limit     – dropped by the per-sensor rate limiter
 EVENTS_DROPPED = Counter(
     'alert_bridge_events_dropped_total',
@@ -239,7 +240,8 @@ VERIFICATION_FAILURES_BY_SENSOR = Counter(
     ['reason', 'sensorId'],
 )
 
-# Events skipped because a confirmed verdict already exists in Redis.
+# Events skipped because a confirmed verdict already exists (verdict
+# protection, backed by Elasticsearch).
 # ``_set_message_id_and_should_skip`` short-circuits processing for any
 # event whose fingerprint already has a confirmed verdict — re-verifying
 # would waste VLM cycles and potentially flip a confirmed alert to
@@ -249,7 +251,7 @@ VERIFICATION_FAILURES_BY_SENSOR = Counter(
 # them with events that actually completed the pipeline.
 EVENTS_SKIPPED_CONFIRMED = Counter(
     'alert_bridge_events_skipped_confirmed_total',
-    'Events short-circuited because a confirmed verdict already exists in Redis',
+    'Events short-circuited because a confirmed verdict already exists (verdict protection)',
 )
 
 # Events after deduplication (ready for processing)
@@ -276,7 +278,7 @@ EVENTS_TOTAL = Counter(
     ['verdict']
 )
 
-# Async external operation latency (VST/Elastic/Redis)
+# Async external operation latency (VST/Elastic/in-process dedup state)
 ASYNC_EXTERNAL_IO_DURATION = Histogram(
     'alert_bridge_async_external_io_duration_seconds',
     'Duration of async external operations and sync fallbacks',
@@ -506,8 +508,11 @@ DEDUP_DURATION = Histogram(
 #   vlm_invalid_payload  – VLM rejected the request as unprocessable (422)
 #   no_prompt            – alert type has no prompt configured (early-exit
 #                          before any VST/VLM work; see C10)
-#   redis_unavailable    – Redis failure during the confirmed-verdict skip
-#                          check (pre-pipeline early-exit; see C25)
+#   redis_unavailable    – legacy label name, retained for metric-contract
+#                          back-compat; emitted on a backend failure during
+#                          the confirmed-verdict skip check (pre-pipeline
+#                          early-exit; see C25). Verdict protection is now
+#                          Elasticsearch-backed.
 #   unknown              – unexpected exception not covered above
 VERIFICATION_FAILURES = Counter(
     'alert_bridge_verification_failures_total',
