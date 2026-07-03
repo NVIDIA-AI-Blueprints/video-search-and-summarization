@@ -621,6 +621,14 @@ class IncidentListResponse(BaseModel):
             "of consolidated events in the requested window when consolidate=true."
         )
     )
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "True only in the consolidated view when the window held more raw "
+            "chunks than the internal scan cap; the oldest chunks were dropped "
+            "and events may be incomplete. Narrow the time window."
+        ),
+    )
     timestamp: str = Field(description="ISO-8601 response timestamp")
 
 
