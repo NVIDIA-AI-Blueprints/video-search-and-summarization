@@ -487,7 +487,7 @@ def inc_async_dispatch_fallback(reason: str) -> None:
     (rather than defining a third) is deliberate: operators already
     query
     ``rate(alert_bridge_async_external_io_fallback_total[5m])``
-    for Redis / VST / Elastic fallbacks, and the ``operation`` label
+    for dedup-state / VST / Elastic fallbacks, and the ``operation`` label
     ``"dispatch_message"`` slots straight into the same PromQL
     without any dashboard changes. Reasons match the existing
     taxonomy (``submit_error`` already exists for the sink side).
@@ -502,7 +502,7 @@ def inc_async_dispatch_fallback(reason: str) -> None:
 
 def inc_events_skipped_confirmed(message=None) -> None:
     """Record one event that short-circuited because a confirmed verdict
-    already existed in Redis.
+    already existed (verdict protection, ES-backed).
 
     Called from ``_set_message_id_and_should_skip`` before returning
     ``True``. This keeps the dedup-skip visible on dashboards without
@@ -558,9 +558,10 @@ _WARMUP_DROP_REASONS = EVENTS_DROPPED_REASONS
 #   VLM taxonomy — the four ``raise e`` branches in
 #   ``_process_single_message`` plus the legacy url/parse/unknown values.
 #   ``no_prompt`` — alert type has no prompt configured (C10).
-#   ``redis_unavailable`` — Redis failure during the confirmed-verdict
-#     skip check (C25); covered by
-#     ``_classify_pre_processing_failure``.
+#   ``redis_unavailable`` — legacy label name (kept for metric-contract
+#     back-compat); a backend failure during the confirmed-verdict skip
+#     check (C25); covered by ``_classify_pre_processing_failure``.
+#     Verdict protection is now Elasticsearch-backed.
 _WARMUP_VERIFICATION_REASONS = (
     "vst_timeout", "vst_overloaded", "vst_not_found",
     "vst_unavailable", "vst_client_error", "vst_server_error",

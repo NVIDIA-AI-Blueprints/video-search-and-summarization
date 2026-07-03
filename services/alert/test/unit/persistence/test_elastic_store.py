@@ -386,7 +386,7 @@ class TestRoundTripMetadataStripping:
     any underscore-prefixed metadata field inside the document body
     with ``document_parsing_exception``. Anyone who reads, mutates,
     and writes back the same dict (e.g. ``AlertConfigService.update``,
-    or the startup ``save_to_redis`` seed path) would otherwise round-
+    or the startup ``seed_to_store`` seed path) would otherwise round-
     trip the injected ``_id`` straight into ES and fail loudly."""
 
     def test_create_strips_underscore_metadata_from_input(self, store, mock_es_client):

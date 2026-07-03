@@ -16,7 +16,6 @@
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $kafkaHost := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
-{{- $redisHost := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
 {{- $esHost := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
 {{- $cosmosHost := ternary (printf "%s-nvidia-cosmos-reason2-8b" .Release.Name) "nvidia-cosmos-reason2-8b" $pfx }}
 {{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
@@ -94,34 +93,6 @@ event_bridge:
     group_id: 'alert-bridge-vlm-group'
     topics:
       incident: 'mdx-incidents'
-  redis_source:
-    host: "{{ .Values.redisHost | default $redisHost }}"
-    port: {{ .Values.redisPort }}
-    db: 0
-    dedup_ttl_seconds: 5
-    protect_confirmed_verdicts:
-      enabled: true
-      ttl_seconds: 600
-    end_time_delta_filter:
-      enabled: true
-      threshold_seconds: 3
-      ttl_seconds: 3600
-    end_time_in_dedup_key_categories: []
-    streams:
-      anomaly_stream: "alert-bridge-input-stream"
-      heartbeat_stream: "alert-bridge-heartbeats-stream"
-    consumer_group: "vlm_agents_group"
-    consumer_config:
-      block_time: 10
-      count: 1
-      batch_size: 1
-  redis_sink:
-    host: "{{ .Values.redisHost | default $redisHost }}"
-    port: {{ .Values.redisPort }}
-    db: 0
-    streams:
-      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
-      incidents_stream: "alert-bridge-incidents-stream"
 
 prompt:
   prefer_payload_prompt: false
@@ -135,6 +106,17 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   include_latency_info: false
+  # In-process event filtering / dedup tuning (no external store).
+  event_filters:
+    dedup_ttl_seconds: 5
+    protect_confirmed_verdicts:
+      enabled: true
+      ttl_seconds: 600
+    end_time_delta_filter:
+      enabled: true
+      threshold_seconds: 3
+      ttl_seconds: 3600
+    end_time_in_dedup_key_categories: []
 
 elastic:
   enabled: true

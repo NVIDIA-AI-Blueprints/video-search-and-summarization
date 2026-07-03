@@ -36,7 +36,7 @@ from ..schemas.alert_config_schemas import (
     AlertConfigSuccessResponse,
 )
 from ..schemas.alert_schemas import ErrorResponse
-from ..core.dependencies import load_config, load_config_path
+from ..core.dependencies import load_config
 
 from handlers.alert_config import (  # noqa: E402
     AlertConfigAlreadyExists,
@@ -44,9 +44,8 @@ from handlers.alert_config import (  # noqa: E402
     AlertConfigService,
     build_alert_config_store,
 )
-from handlers.alert_config.store import AlertConfigStoreError  # noqa: E402
+from handlers.alert_config import AlertConfigStoreError  # noqa: E402
 from persistence.exceptions import PersistenceError  # noqa: E402
-from clients.dynamic_prompt_handler import DynamicPromptHandler  # noqa: E402
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -60,12 +59,8 @@ _service: AlertConfigService = None
 def _get_service() -> AlertConfigService:
     global _service
     if _service is None:
-        config_path = load_config_path()
-        prompt_handler = DynamicPromptHandler(config_path)
         app_config = load_config()
-        store = build_alert_config_store(
-            prompt_handler._redis_client, app_config
-        )
+        store = build_alert_config_store(app_config)
         _service = AlertConfigService(store=store)
     return _service
 
@@ -95,8 +90,8 @@ def _service_unavailable(exc: Exception) -> JSONResponse:
     behind the in-memory snapshot fallback.
 
     The composite store keeps a memory snapshot specifically so the
-    sink and prompt-handler hot paths stay up when ES + Redis both
-    fail — but for the REST API path that fallback is the wrong
+    sink and prompt-handler hot paths stay up when Elasticsearch is
+    unreachable — but for the REST API path that fallback is the wrong
     answer: an operator running ``GET /verification/config`` to
     debug an outage gets a 200 with stale data instead of a
     transport-level signal that the durable backend is unreachable.

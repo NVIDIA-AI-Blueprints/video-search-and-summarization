@@ -46,8 +46,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      redis:
-        condition: service_started
       elasticsearch:
         condition: service_healthy
       kafka-topic-init-container:

@@ -45,8 +45,9 @@ reset_mode_state() {
     local today
     today=$(date -u +%Y-%m-%d)
 
-    redis-cli -h 127.0.0.1 -p 6379 FLUSHALL >/dev/null 2>&1 || true
-    docker exec alert-agent-redis-test redis-cli FLUSHALL >/dev/null 2>&1 || true
+    # Dedup state is in-process and resets when the Alert Bridge process is
+    # restarted between modes; confirmed-verdict markers live in ES.
+    curl -sf -X DELETE "$ES_HOST/ab-confirmed-verdicts" >/dev/null 2>&1 || true
 
     curl -sf -X DELETE "$ES_HOST/mdx-vlm-incidents-$today" >/dev/null 2>&1 || true
     curl -sf -X DELETE "$ES_HOST/mdx-vlm-alerts-$today" >/dev/null 2>&1 || true

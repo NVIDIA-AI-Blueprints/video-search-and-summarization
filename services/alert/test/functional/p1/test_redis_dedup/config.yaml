@@ -65,32 +65,6 @@ event_bridge:
       enhanced_anomaly: "alert-bridge-enhanced-alerts"
       incidents: "alert-bridge-incidents"
 
-  redis_source:
-    host: "localhost"
-    port: 6379
-    db: 0
-    dedup_ttl_seconds: 3
-    end_time_in_dedup_key_categories: []
-    protect_confirmed_verdicts:
-      enabled: false
-      ttl_seconds: 600
-    streams:
-      anomaly_stream: "alert-bridge-input-stream"
-      heartbeat_stream: "alert-bridge-heartbeats-stream"
-    consumer_group: "vlm_agents_group"
-    consumer_config:
-      block_time: 10
-      count: 1
-      batch_size: 1
-
-  redis_sink:
-    host: "localhost"
-    port: 6379
-    db: 0
-    streams:
-      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
-      incidents_stream: "alert-bridge-incidents-stream"
-
 prompt:
   prefer_payload_prompt: true
   override_prompts_on_start: true
@@ -103,14 +77,12 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   chunk_size: 1
-
-websocket:
-  enabled: false
-  consumer_group_prefix: "websocket_instance"
-  redis_consumer:
-    block_time: 1000
-    count: 1
-    reconnect_delay: 5
+  event_filters:
+    dedup_ttl_seconds: 3
+    end_time_in_dedup_key_categories: []
+    protect_confirmed_verdicts:
+      enabled: false
+      ttl_seconds: 600
 
 elastic:
   enabled: true
