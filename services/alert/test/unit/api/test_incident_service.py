@@ -456,15 +456,41 @@ class TestConsolidationGrouping:
         assert len(events) == 1
         assert events[0]["info"]["chunkCount"] == "12"
 
-    def test_missing_timestamp_does_not_crash(self):
+    def test_malformed_chunks_are_dropped(self):
         good = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
-        bad = _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z")
-        bad.pop("timestamp")
-        bad.pop("end")
+        no_ts = _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z")
+        no_ts.pop("timestamp")
+        no_sensor = _chunk(sensor=None, idx=3, start="2025-01-01T00:00:40.000Z")
+        no_cat = _chunk(category=None, idx=4, start="2025-01-01T00:00:45.000Z")
+        events = _consolidator()._consolidate([good, no_ts, no_sensor, no_cat])
+        # malformed chunks (missing sensorId/category/timestamp) are dropped
+        assert len(events) == 1
+        assert events[0]["info"]["chunkCount"] == "1"
+
+    def test_unparseable_timestamp_dropped(self):
+        good = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
+        bad = _chunk(idx=2, start="not-a-timestamp", end="2025-01-01T00:00:55.000Z")
         events = _consolidator()._consolidate([good, bad])
-        # no exception; a chunk with no parseable time cannot chain -> separate
-        assert len(events) == 2
-        assert sum(int(e["info"]["chunkCount"]) for e in events) == 2
+        assert len(events) == 1
+        assert events[0]["info"]["chunkCount"] == "1"
+
+    def test_event_carries_chunk_ids_list(self):
+        docs = [
+            _chunk(idx=1, doc_id="c1", start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(idx=2, doc_id="c2", start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z"),
+        ]
+        event = _consolidator()._consolidate(docs)[0]
+        assert isinstance(event["chunk_ids"], list)
+        assert set(event["chunk_ids"]) == {"c1", "c2"}
+        assert len(event["chunk_ids"]) == int(event["info"]["chunkCount"])
+
+    def test_merged_llm_queries_are_capped(self):
+        # one chunk carrying more queries than the cap -> capped, true count kept
+        big = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
+        big["llm"] = {"queries": [{"id": f"q{i}"} for i in range(500)]}
+        event = _consolidator()._consolidate([big])[0]
+        assert len(event["llm"]["queries"]) == 200      # _MAX_MERGED_QUERIES
+        assert event["info"]["mergedQueryCount"] == "500"
 
     def test_missing_info_key_handled(self):
         c1 = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
@@ -477,8 +503,90 @@ class TestConsolidationGrouping:
         assert events[0]["info"]["chunkCount"] == "2"
 
 
+class TestConsolidationConfigValidation:
+    """IncidentService construction validates consolidation tuning (fail-fast)."""
+
+    @pytest.mark.parametrize("bad", [
+        {"max_inter_alert_gap_seconds": 0},
+        {"max_inter_alert_gap_seconds": 3601},
+        {"max_inter_alert_gap_seconds": -1},
+        {"max_inter_alert_gap_seconds": "60"},
+        {"max_inter_alert_gap_seconds": True},
+        {"max_event_duration_seconds": 0},
+        {"max_event_duration_seconds": 3601},
+        {"representative": "bogus"},
+    ])
+    def test_invalid_config_rejected(self, bad):
+        with pytest.raises(ValueError):
+            IncidentService(consolidation=dict(_CONSOL_DEFAULT, **bad))
+
+    def test_null_duration_allowed(self):
+        IncidentService(consolidation=dict(_CONSOL_DEFAULT, max_event_duration_seconds=None))
+
+    def test_empty_config_ok(self):
+        IncidentService(consolidation={})
+        IncidentService(consolidation=None)
+
+
 class TestConsolidationService:
     """IncidentService.list_incidents — consolidation behaviour."""
+
+    @pytest.mark.asyncio
+    async def test_consolidate_filters_to_realtime_docs(self, mock_es_client):
+        # REQ-007: consolidated query must exclude verifier-path docs via the
+        # realtime discriminator (read-time filter; ES is never modified).
+        mock_es_client.client.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
+        await svc.list_incidents(
+            sensor_id="cam1", category="intrusion",
+            start_time="2025-01-01T00:00:00Z", end_time="2025-01-01T01:00:00Z",
+            consolidate=True,
+        )
+        musts = mock_es_client.client.search.call_args.kwargs["query"]["bool"]["must"]
+        assert {"exists": {"field": "info.chunkIdx"}} in musts
+
+    @pytest.mark.asyncio
+    async def test_raw_view_does_not_filter_verifier_docs(self, mock_es_client):
+        mock_es_client.client.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
+        await svc.list_incidents(sensor_id="cam1", consolidate=False)
+        query = mock_es_client.client.search.call_args.kwargs["query"]
+        musts = query.get("bool", {}).get("must", [])
+        assert {"exists": {"field": "info.chunkIdx"}} not in musts
+
+    @pytest.mark.asyncio
+    async def test_truncated_true_when_total_exceeds_scanned(self, mock_es_client):
+        # ES caps hits.total; a window denser than the scan must flag truncated.
+        chunks = [
+            _chunk(idx=1),
+            _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z"),
+        ]
+        mock_es_client.client.search.return_value = {
+            "hits": {"total": {"value": 15000, "relation": "gte"},
+                     "hits": [_as_hit(c) for c in chunks]}
+        }
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
+        data, _ = await svc.list_incidents(
+            sensor_id="cam-1", category="alert",
+            start_time="2025-01-01T00:00:00Z", end_time="2025-01-01T01:00:00Z",
+            consolidate=True,
+        )
+        assert data["truncated"] is True
+        # track_total_hits must be requested so the count is exact
+        assert mock_es_client.client.search.call_args.kwargs.get("track_total_hits") is True
+
+    @pytest.mark.asyncio
+    async def test_truncated_false_when_complete(self, mock_es_client):
+        mock_es_client.client.search.return_value = {
+            "hits": {"total": {"value": 1}, "hits": [_as_hit(_chunk(idx=1))]}
+        }
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
+        data, _ = await svc.list_incidents(
+            sensor_id="cam-1", category="alert",
+            start_time="2025-01-01T00:00:00Z", end_time="2025-01-01T01:00:00Z",
+            consolidate=True,
+        )
+        assert data["truncated"] is False
 
     @pytest.mark.asyncio
     async def test_consolidate_false_passthrough(self, mock_es_client):
