@@ -656,6 +656,38 @@ fi
 curl -s -X DELETE "${ES_HOST}/${ISO_IDX}" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
+# Test 8e: REG-009 — verifier-path docs are excluded from the consolidated view
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8e: verifier-path docs excluded from consolidated view (REG-009)..."
+MIX_IDX="mdx-vlm-incidents-2099-03-03"
+MIX_SENSOR="p1-mixed"
+MIX_WINDOW="start_time=2099-03-03T00:00:00Z&end_time=2099-03-03T01:00:00Z"
+curl -s -X DELETE "${ES_HOST}/${MIX_IDX}" >/dev/null 2>&1 || true
+# realtime RT-VLM chunk (carries info.chunkIdx) — MUST appear
+curl -s -X PUT "${ES_HOST}/${MIX_IDX}/_doc/rt1" -H "Content-Type: application/json" \
+    -d "{\"sensorId\":\"${MIX_SENSOR}\",\"category\":\"alert\",\"timestamp\":\"2099-03-03T00:00:00.000Z\",\"end\":\"2099-03-03T00:00:30.000Z\",\"info\":{\"requestId\":\"r\",\"chunkIdx\":\"1\",\"verdict\":\"confirmed\"}}" >/dev/null 2>&1
+# verifier-path doc (detection module, NO info.chunkIdx) — MUST be excluded
+curl -s -X PUT "${ES_HOST}/${MIX_IDX}/_doc/vf1" -H "Content-Type: application/json" \
+    -d "{\"sensorId\":\"${MIX_SENSOR}\",\"category\":\"alert\",\"timestamp\":\"2099-03-03T00:00:10.000Z\",\"end\":\"2099-03-03T00:00:40.000Z\",\"analyticsModule\":{\"id\":\"Collision Detection Module\"},\"info\":{\"verdict\":\"confirmed\"}}" >/dev/null 2>&1
+curl -s -X POST "${ES_HOST}/${MIX_IDX}/_refresh" >/dev/null 2>&1
+
+MIX_CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${MIX_SENSOR}&consolidate=true&${MIX_WINDOW}")
+MIX_EVENTS=$(echo "$MIX_CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+MIX_CC=$(echo "$MIX_CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('chunkCount','') if inc else '')" 2>/dev/null || echo "")
+MIX_RAW=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${MIX_SENSOR}&consolidate=false" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+
+# consolidated: 1 event from the realtime chunk only (chunkCount=1); raw: both docs
+if [ "$MIX_EVENTS" = "1" ] && [ "$MIX_CC" = "1" ] && [ "$MIX_RAW" = "2" ]; then
+    print_status "ok" "PASS: verifier doc excluded from consolidated (events=1, chunkCount=1), raw shows both (2)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: mixed-source (events=$MIX_EVENTS chunkCount=$MIX_CC raw=$MIX_RAW)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${MIX_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
 # Test 9: Caption-start failure — RTVI rejects generate_captions_alerts
 #         Expects: stream rolled back on RTVI, rule absent in AB
 # ---------------------------------------------------------------------------
