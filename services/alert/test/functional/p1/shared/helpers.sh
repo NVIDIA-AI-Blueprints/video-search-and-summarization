@@ -154,7 +154,7 @@ async_io = alert_agent.setdefault("async_io", {})
 async_io["enabled"] = True
 async_io["vst_enabled"] = True
 async_io["elastic_enabled"] = True
-async_io["redis_enabled"] = True
+async_io["dedup_enabled"] = True
 async_io["external_timeout_seconds"] = 30
 async_io["sink_warn_in_flight"] = 20
 

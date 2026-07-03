@@ -127,7 +127,7 @@ class AsyncDispatchMixin:
             )
             # C26: make the silent fallback visible on dashboards. Mirrors
             # the existing ``ASYNC_EXTERNAL_IO_FALLBACK_TOTAL`` pattern
-            # used by the Redis / VST / Elastic mixins — operators who
+            # used by the dedup-state / VST / Elastic mixins — operators who
             # already query ``rate(...)[5m]`` on that counter pick up the
             # dispatch fallbacks automatically (same metric, new
             # ``operation="dispatch_message"`` label value).

@@ -17,10 +17,11 @@
 
 Concrete implementations live in sibling modules:
 
-- ``store.RedisAlertConfigStore`` — Redis JSON adapter (in-process cache).
-- ``es_store.ESAlertConfigStore`` — Elasticsearch durable store (to be added).
+- ``memory_store.InMemoryAlertConfigStore`` — in-process store; used as the
+  hot-path cache and as the standalone store when persistence is disabled.
+- ``es_store.ESAlertConfigStore`` — Elasticsearch durable store (source of truth).
 - ``cached_store.CachedAlertConfigStore`` — write-through / read-through
-  composite combining a durable primary with a hot-path cache.
+  composite combining the ES primary with the in-process cache.
 
 Keeping the interface separate lets ``AlertConfigService`` depend on the
 contract rather than any specific backend.
@@ -54,14 +55,14 @@ class AlertConfigStoreABC(ABC):
             alert_type: Normalized alert type to look up.
             fallback_to_memory: When ``True`` (default) and the store
                 has a last-resort in-memory snapshot, that snapshot is
-                used to keep service paths up during a dual outage of
-                ES + Redis. Caller paths that need a hard signal that
+                used to keep service paths up during an Elasticsearch
+                outage. Caller paths that need a hard signal that
                 the durable backend is down (e.g. the REST API, where
                 an operator GET should surface a 503 instead of stale
                 data) pass ``False``: the underlying ``PersistenceError``
                 is then re-raised. The flag is a no-op for stores that
                 do not maintain a memory snapshot in the first place
-                (Redis-only, ES-only).
+                (in-process-only, ES-only).
         """
 
     @abstractmethod
