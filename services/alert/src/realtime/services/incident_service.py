@@ -55,6 +55,10 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 # safety net for an unexpectedly dense window; Elasticsearch caps from_+size
 # at index.max_result_window (10000 by default).
 _SCAN_CAP = 10000
+# Cap on VLM queries merged onto one consolidated event. A dense window can
+# hold thousands of chunks each carrying full reasoning; the true total is kept
+# in info.mergedQueryCount.
+_MAX_MERGED_QUERIES = 200
 
 
 def _parse_ts(value) -> Optional[datetime]:
@@ -82,6 +86,45 @@ def _info_of(doc: dict) -> dict:
     return info if isinstance(info, dict) else {}
 
 
+_CONSOLIDATION_BOUND_MIN = 1
+_CONSOLIDATION_BOUND_MAX = 3600
+
+
+def _validate_consolidation(cfg: dict) -> None:
+    """Validate consolidation tuning, rejecting out-of-range values.
+
+    ``max_inter_alert_gap_seconds`` must be an integer in [1, 3600].
+    ``max_event_duration_seconds`` must be an integer in [1, 3600] or null
+    (unbounded). ``representative`` must be a known strategy. Raises
+    ``ValueError`` so a misconfiguration fails fast rather than misbehaving at
+    request time.
+    """
+    if not cfg:
+        return
+
+    def _bounded_int(name, value):
+        if isinstance(value, bool) or not isinstance(value, int) or not (
+            _CONSOLIDATION_BOUND_MIN <= value <= _CONSOLIDATION_BOUND_MAX
+        ):
+            raise ValueError(
+                f"rtvi_vlm.consolidation.{name} must be an integer in "
+                f"[{_CONSOLIDATION_BOUND_MIN}, {_CONSOLIDATION_BOUND_MAX}], got {value!r}"
+            )
+
+    _bounded_int("max_inter_alert_gap_seconds", cfg.get("max_inter_alert_gap_seconds", 60))
+
+    duration = cfg.get("max_event_duration_seconds", 300)
+    if duration is not None:
+        _bounded_int("max_event_duration_seconds", duration)
+
+    representative = cfg.get("representative", "latest")
+    if representative not in ("latest", "longest_reasoning"):
+        raise ValueError(
+            "rtvi_vlm.consolidation.representative must be 'latest' or "
+            f"'longest_reasoning', got {representative!r}"
+        )
+
+
 class IncidentService:
     """Service for querying incidents from Elasticsearch.
 
@@ -100,6 +143,7 @@ class IncidentService:
         self._es_client = es_client
         self._index_base = index_base
         self._consolidation = consolidation or {}
+        _validate_consolidation(self._consolidation)
 
         logger.info(
             "IncidentService initialized",
@@ -161,6 +205,17 @@ class IncidentService:
                     range_query["range"]["timestamp"]["lte"] = end_time
                 must_clauses.append(range_query)
 
+            if consolidate:
+                # Realtime-only discriminator (read-time filter — never mutates
+                # ES). mdx-vlm-incidents-* is shared: the realtime RT-VLM path
+                # sets info.chunkIdx per chunk (rtvi rt-vlm stream handler),
+                # whereas verifier-path incidents (detection modules, enriched by
+                # vlm_enhanced_sink) never set it. Requiring info.chunkIdx keeps
+                # the consolidated view to genuine RT-VLM chunks so verifier docs
+                # are never folded into an event. Raw view (consolidate=false) is
+                # unfiltered.
+                must_clauses.append({"exists": {"field": "info.chunkIdx"}})
+
             query = {"bool": {"must": must_clauses}} if must_clauses else {"match_all": {}}
             index_pattern = f"{self._index_base}-*"
 
@@ -178,22 +233,35 @@ class IncidentService:
                 return t.get("value", 0) if isinstance(t, dict) else t
 
             if consolidate:
+                # Scan newest-first: if the window exceeds the cap we keep the
+                # most recent chunks (the operationally relevant ones) and drop
+                # the oldest. The consolidator re-sorts each bucket ascending, so
+                # scan order does not affect grouping correctness.
                 response = await asyncio.to_thread(
                     self._es_client.client.search,
                     index=index_pattern,
                     query=query,
                     from_=0,
                     size=_SCAN_CAP,
-                    sort=[{"timestamp": {"order": "asc"}}],
+                    sort=[{"timestamp": {"order": "desc"}}],
+                    # Force an exact match count; without this Elasticsearch caps
+                    # hits.total at 10000 and the truncation check below (total >
+                    # scanned) could never fire when size == _SCAN_CAP.
+                    track_total_hits=True,
                 )
                 duration = time.monotonic() - t0
                 if INCIDENT_QUERY_DURATION is not None:
                     INCIDENT_QUERY_DURATION.observe(duration)
 
                 raw_docs = _hits_to_docs(response)
-                if _es_total(response) > len(raw_docs):
+                # track_total_hits above makes the total exact, so this alone is
+                # correct: N <= cap -> all fetched -> not truncated; N > cap ->
+                # only _SCAN_CAP fetched -> truncated.
+                truncated = _es_total(response) > len(raw_docs)
+                if truncated:
                     logger.warning(
-                        "Consolidation scan hit the cap; narrow the time window",
+                        "Consolidation scan hit the cap; oldest chunks dropped — "
+                        "narrow the time window",
                         extra={**ctx, "scanned": len(raw_docs), "cap": _SCAN_CAP},
                     )
 
@@ -208,6 +276,7 @@ class IncidentService:
                         "raw_scanned": len(raw_docs),
                         "events": len(events),
                         "consolidated": True,
+                        "truncated": truncated,
                         "duration_s": round(duration, 3),
                     },
                 )
@@ -216,6 +285,7 @@ class IncidentService:
                     "incidents": page,
                     "count": len(page),
                     "total": len(events),
+                    "truncated": truncated,
                     "timestamp": now,
                 }, 200
 
@@ -294,12 +364,27 @@ class IncidentService:
 
         groups: dict = {}
         for doc in docs:
+            # Drop malformed chunks — a chunk missing its grouping keys, or with
+            # a missing/unparseable ordering timestamp, cannot be placed in an
+            # event.
+            if not doc.get("sensorId") or not doc.get("category"):
+                continue
+            if _parse_ts(doc.get("timestamp")) is None:
+                continue
             key = (doc.get("sensorId"), doc.get("category"))
             groups.setdefault(key, []).append(doc)
 
         events: List[dict] = []
         for items in groups.values():
-            items_sorted = sorted(items, key=lambda d: _parse_ts(d.get("timestamp")) or _EPOCH)
+            # Sort by (timestamp, id) so equal-timestamp chunks order
+            # deterministically regardless of ES scan direction.
+            items_sorted = sorted(
+                items,
+                key=lambda d: (
+                    _parse_ts(d.get("timestamp")) or _EPOCH,
+                    str(d.get("Id") or d.get("_id") or ""),
+                ),
+            )
             current: List[dict] = []
             for doc in items_sorted:
                 if current and self._is_continuous(current, doc, gap_seconds, max_duration):
@@ -383,6 +468,10 @@ class IncidentService:
 
         idxs = [i for i in (_to_int(_info_of(c).get("chunkIdx")) for c in chunks) if i is not None]
 
+        # Raw chunk ids underlying the event, as a real list (traceability).
+        chunk_ids = [str(cid) for cid in (c.get("Id") or c.get("_id") for c in chunks) if cid]
+        event["chunk_ids"] = chunk_ids
+
         info = dict(event.get("info") or {})
         info["isConsolidated"] = "true"
         info["chunkCount"] = str(len(chunks))
@@ -390,12 +479,22 @@ class IncidentService:
             info["chunkIdxRange"] = f"{min(idxs)}-{max(idxs)}"
         event["info"] = info
 
+        # Merge chunk queries, but cap the stored payload — a dense window can
+        # hold thousands of chunks, each with full VLM reasoning. Count the true
+        # total for observability while bounding what we accumulate.
         merged_queries: list = []
+        total_queries = 0
         for chunk in chunks:
             llm = chunk.get("llm")
             if isinstance(llm, dict) and isinstance(llm.get("queries"), list):
-                merged_queries.extend(llm["queries"])
-        if merged_queries and isinstance(event.get("llm"), dict):
+                qs = llm["queries"]
+                total_queries += len(qs)
+                if len(merged_queries) < _MAX_MERGED_QUERIES:
+                    merged_queries.extend(qs[: _MAX_MERGED_QUERIES - len(merged_queries)])
+        if total_queries:
+            info["mergedQueryCount"] = str(total_queries)
+            if not isinstance(event.get("llm"), dict):
+                event["llm"] = {}
             event["llm"]["queries"] = merged_queries
 
         return event
