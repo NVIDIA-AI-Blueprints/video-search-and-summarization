@@ -88,7 +88,6 @@ function get_detected_hardware_profile() {
     *l40s*) echo "L40S" ;;
     *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
-    *b200*|*b300*) echo "Bx00" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
     *) echo "OTHER" ;;
@@ -101,7 +100,6 @@ function get_canonical_hardware_profile() {
   local _profile="${1}"
   case "${_profile}" in
     AGX-THOR|IGX-THOR) echo "THOR" ;;
-    B200|B300|Bx00) echo "Bx00" ;;
     *) echo "${_profile}" ;;
   esac
 }
@@ -310,7 +308,7 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      DGX-SPARK|H100|RTXPRO6000BW|Bx00) echo "0.4" ;;
+      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -406,9 +404,7 @@ function usage() {
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
   echo "                                     - AGX-THOR"
-  echo "                                     - Bx00"
   echo "                                     - OTHER"
-  echo "                                   • Bx00: B200/B300 Blackwell datacenter; loads hw-Bx00*.env NIM tuning"
   echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: --llm-device-id, --vlm-device-id not accepted"
   echo "  -i, --host-ip                    Host IP."
@@ -700,9 +696,9 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'Bx00' 'OTHER')
+      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, Bx00, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
