@@ -48,11 +48,8 @@ class EventBridgeFactory:
             if source_type == 'kafka':
                 from mdx.source.source_kafka import SourceKafka
                 return SourceKafka(config)
-            elif source_type == 'redisStream':
-                from mdx.source.source_redis_stream import SourceRedisStream
-                return SourceRedisStream(config)
             else:
-                raise ValueError(f"Unsupported source type: {source_type}")
+                raise ValueError(f"Unsupported source type: {source_type} (only 'kafka' is supported)")
                 
         except Exception as e:
             logger.error(f"Failed to create source: {e}")
@@ -81,11 +78,8 @@ class EventBridgeFactory:
             if sink_type == 'kafka':
                 from mdx.sink.sink_kafka import KafkaSink
                 return KafkaSink(config)
-            elif sink_type == 'redisStream':
-                from mdx.sink.sink_redis_stream import SinkRedisStream
-                return SinkRedisStream(config)
             else:
-                raise ValueError(f"Unsupported sink type: {sink_type}")
+                raise ValueError(f"Unsupported sink type: {sink_type} (only 'kafka' is supported)")
                 
         except Exception as e:
             logger.error(f"Failed to create sink: {e}")
@@ -96,7 +90,6 @@ class EventBridgeFactory:
         """Get available source types with descriptions"""
         return {
             'kafka': 'Apache Kafka message broker',
-            'redisStream': 'Redis Streams'
         }
     
     @staticmethod
@@ -104,7 +97,6 @@ class EventBridgeFactory:
         """Get available sink types with descriptions"""
         return {
             'kafka': 'Apache Kafka message broker',
-            'redisStream': 'Redis Streams'
         }
     
     @staticmethod
@@ -137,16 +129,8 @@ class EventBridgeFactory:
             if source_type == 'kafka' and 'kafka_source' not in event_bridge:
                 logger.warning("Kafka source selected but kafka_source configuration not found, falling back to legacy kafka config")
                 
-            if source_type == 'redisStream' and 'redis_source' not in event_bridge:
-                logger.error("Redis Stream source selected but redis_source configuration not found")
-                return False
-                
             if sink_type == 'kafka' and 'kafka_sink' not in event_bridge:
                 logger.warning("Kafka sink selected but kafka_sink configuration not found, falling back to legacy kafka config")
-                
-            if sink_type == 'redisStream' and 'redis_sink' not in event_bridge:
-                logger.error("Redis Stream sink selected but redis_sink configuration not found")
-                return False
                 
             logger.info("Event bridge configuration validation passed")
             return True

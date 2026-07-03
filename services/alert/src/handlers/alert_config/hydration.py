@@ -13,11 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Startup hydration: populate the Redis cache and in-memory snapshot
+"""Startup hydration: populate the in-process cache and in-memory snapshot
 from the durable ES store before the service begins handling requests.
 
-Required by the alert-config ES hydration:
-    "Startup: hydrate Redis cache from Elasticsearch before serving requests"
+    "Startup: hydrate the cache from Elasticsearch before serving requests"
 
 Called once at wire-up time, not on the hot path.
 """
@@ -37,14 +36,14 @@ def hydrate_cache(
 ) -> int:
     """Copy every record from ``primary`` into ``cache`` and ``memory``.
 
-    The in-memory snapshot doubles as the read-fallback when both ES and
-    Redis are unavailable, so we fill it in the same pass.
+    The in-memory snapshot doubles as the read-fallback when Elasticsearch
+    is unavailable, so we fill it in the same pass.
 
     Args:
         primary: Durable store (ES). Must be reachable — call ``health()``
             upstream to fail-fast before invoking hydration.
-        cache: Hot-path cache (Redis). Individual write failures here are
-            non-fatal; they are logged but do not abort hydration.
+        cache: Hot-path cache (in-process). Individual write failures here
+            are non-fatal; they are logged but do not abort hydration.
         memory: Mutable dict shared with the cached store. Cleared and
             repopulated.
 

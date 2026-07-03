@@ -16,15 +16,18 @@
 from .base import AlertConfigStoreABC
 from .cached_store import CachedAlertConfigStore
 from .es_store import ALERT_CONFIG_COLLECTION, ESAlertConfigStore
+from .exceptions import AlertConfigStoreError
 from .factory import build_alert_config_store
 from .hydration import hydrate_cache
+from .memory_store import InMemoryAlertConfigStore
 from .normalize import normalize_alert_type
 from .service import AlertConfigAlreadyExists, AlertConfigNotFound, AlertConfigService
-from .store import AlertConfigStoreError, RedisAlertConfigStore
 
-# Backward-compatibility alias so pre-rename callers keep working while the
-# wire-up in the route layer migrates to the cached composite.
-AlertConfigStore = RedisAlertConfigStore
+# Backward-compatibility alias for callers/tests that used the generic
+# ``AlertConfigStore`` name. The default store is now the in-process
+# composite built by the factory; ``InMemoryAlertConfigStore`` is the
+# concrete in-process implementation.
+AlertConfigStore = InMemoryAlertConfigStore
 
 __all__ = [
     "ALERT_CONFIG_COLLECTION",
@@ -36,7 +39,7 @@ __all__ = [
     "AlertConfigStoreError",
     "CachedAlertConfigStore",
     "ESAlertConfigStore",
-    "RedisAlertConfigStore",
+    "InMemoryAlertConfigStore",
     "build_alert_config_store",
     "hydrate_cache",
     "normalize_alert_type",

@@ -57,7 +57,9 @@ global:
 # External access: set global.externalScheme / externalHost / externalPort in your values file (no separate externalAccess.baseUrl).
 
 # Verification stack enabled by default. Image repository/tag/replicas: charts/<name>/values.yaml (override when needed).
-# Redis is the shared StatefulSet from helm/services/infra (vanilla redis:8.2.2-alpine). Extend with a Redis Stack image + values if modules are required.
+# Redis is the shared StatefulSet from helm/services/infra (vanilla redis:8.2.2-alpine),
+# used by the CV / streamprocessing (sdrc) pipeline. Alert MS no longer uses Redis
+# (dedup/filter state is in-process; verdict protection + alert configs are in Elasticsearch).
 infra:
   enabled: true
   phoenix:
@@ -69,7 +71,10 @@ infra:
         value: "/phoenix"
   redis:
     enabled: true
-    # Reference parity: alert-bridge uses JSON.SET for prompt bootstrap; load RedisJSON/Search/Bloom/TimeSeries modules.
+    # Shared Redis for the CV / streamprocessing (sdrc) pipeline. The
+    # RedisJSON/Search/Bloom/TimeSeries modules below were originally loaded
+    # for alert-bridge's JSON.SET prompt bootstrap; Alert MS no longer uses
+    # Redis, so they can be dropped once no other consumer needs them.
     command: ["redis-server"]
     args:
       - "--loadmodule"
@@ -352,8 +357,8 @@ vss-agent-ui:
 vss-alert-bridge:
   enabled: true
   kafkaBootstrapServers: ""
-  redisHost: ""
-  redisPort: "6379"
+  # Redis removed: Alert MS keeps dedup/filter state in-process and durable
+  # state (verdict protection, alert configs) in Elasticsearch.
   elasticHosts: ""
   vlmBaseUrl: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"

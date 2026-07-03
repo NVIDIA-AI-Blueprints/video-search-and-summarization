@@ -14,21 +14,20 @@
 # limitations under the License.
 
 """
-Unit tests for the End Time Delta Filter feature in RedisHandler.
+Unit tests for the End Time Delta Filter in the in-process DedupStateHandler.
+
+Redis was removed: this state now lives in an in-process TTL cache, so
+these tests exercise the real cache (no mock backend) and rely on the
+public / semi-public methods.
 
 This module tests:
 - _parse_iso_to_epoch(): ISO timestamp to epoch conversion
-- _check_end_delta(): Core delta checking logic with Redis
-- filter_by_end_time_delta(): Public filter method for message batches
-
-Run with: pytest test/test_end_time_delta_filter.py -v
+- _check_end_delta(): core delta checking logic
+- filter_by_end_time_delta(): public filter method for message batches
 """
 
-import hashlib
 import os
 import tempfile
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -38,9 +37,8 @@ import yaml
 # Test Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
 
-@pytest.fixture
-def temp_config_file():
-    """Create a temporary config file for testing."""
+
+def _write_config(enabled: bool, threshold=5, ttl=3600) -> str:
     config = {
         "event_bridge": {
             "redis_source": {
@@ -49,92 +47,51 @@ def temp_config_file():
                 "db": 0,
                 "dedup_ttl_seconds": 300,
                 "end_time_in_dedup_key_categories": [],
-                "protect_confirmed_verdicts": {
-                    "enabled": False,
-                    "ttl_seconds": 600
-                },
+                "protect_confirmed_verdicts": {"enabled": False, "ttl_seconds": 600},
                 "end_time_delta_filter": {
-                    "enabled": True,
-                    "threshold_seconds": 5,
-                    "ttl_seconds": 3600
-                }
+                    "enabled": enabled,
+                    "threshold_seconds": threshold,
+                    "ttl_seconds": ttl,
+                },
             }
         }
     }
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+    fd, path = tempfile.mkstemp(suffix=".yaml")
+    with os.fdopen(fd, "w") as f:
         yaml.dump(config, f)
-        config_path = f.name
-    
-    yield config_path
-    
-    # Cleanup
-    os.unlink(config_path)
+    return path
+
+
+@pytest.fixture
+def temp_config_file():
+    path = _write_config(enabled=True)
+    yield path
+    os.unlink(path)
 
 
 @pytest.fixture
 def temp_config_file_disabled():
-    """Create a temporary config file with end_time_delta_filter disabled."""
-    config = {
-        "event_bridge": {
-            "redis_source": {
-                "host": "localhost",
-                "port": 6379,
-                "db": 0,
-                "dedup_ttl_seconds": 300,
-                "end_time_in_dedup_key_categories": [],
-                "protect_confirmed_verdicts": {
-                    "enabled": False,
-                    "ttl_seconds": 600
-                },
-                "end_time_delta_filter": {
-                    "enabled": False,
-                    "threshold_seconds": 5,
-                    "ttl_seconds": 3600
-                }
-            }
-        }
-    }
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump(config, f)
-        config_path = f.name
-    
-    yield config_path
-    
-    # Cleanup
-    os.unlink(config_path)
+    path = _write_config(enabled=False)
+    yield path
+    os.unlink(path)
 
 
 @pytest.fixture
-def mock_redis_client():
-    """Create a mock Redis client."""
-    return MagicMock()
+def handler_enabled(temp_config_file):
+    from clients.redis_handler import RedisHandler
+
+    return RedisHandler(config_file=temp_config_file)
 
 
 @pytest.fixture
-def redis_handler_enabled(temp_config_file, mock_redis_client):
-    """Create a RedisHandler with end_time_delta_filter enabled."""
-    with patch('redis.Redis', return_value=mock_redis_client):
-        from clients.redis_handler import RedisHandler
-        handler = RedisHandler(config_file=temp_config_file)
-        handler._redis_client = mock_redis_client
-        return handler
+def handler_disabled(temp_config_file_disabled):
+    from clients.redis_handler import RedisHandler
 
-
-@pytest.fixture
-def redis_handler_disabled(temp_config_file_disabled, mock_redis_client):
-    """Create a RedisHandler with end_time_delta_filter disabled."""
-    with patch('redis.Redis', return_value=mock_redis_client):
-        from clients.redis_handler import RedisHandler
-        handler = RedisHandler(config_file=temp_config_file_disabled)
-        handler._redis_client = mock_redis_client
-        return handler
+    return RedisHandler(config_file=temp_config_file_disabled)
 
 
 @pytest.fixture
 def sample_incident():
-    """Sample incident message with objectIds."""
     return {
         "id": "incident-001",
         "sensorId": "Sensor-001",
@@ -142,19 +99,30 @@ def sample_incident():
         "end": "2024-01-15T10:30:10Z",
         "objectIds": [3, 1, 2],
         "category": "Tailgating",
-        "analyticsModule": {"id": "VST-Tailgating"}
+        "analyticsModule": {"id": "VST-Tailgating"},
     }
 
 
 @pytest.fixture
 def sample_alert():
-    """Sample alert message without objectIds."""
     return {
         "id": "alert-001",
         "sensorId": "Sensor-001",
         "timestamp": "2024-01-15T10:30:00Z",
         "notification_type": "alert",
-        "category": "traffic"
+        "category": "traffic",
+    }
+
+
+def _incident(sensor="sensor-001", ts="2024-01-15T10:30:00Z", end="2024-01-15T10:30:00Z",
+              ids=(1, 2, 3), category="tailgating", am="vst"):
+    return {
+        "sensorId": sensor,
+        "timestamp": ts,
+        "end": end,
+        "objectIds": list(ids),
+        "category": category,
+        "analyticsModule": {"id": am},
     }
 
 
@@ -162,403 +130,177 @@ def sample_alert():
 # Tests for _parse_iso_to_epoch()
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestParseIsoToEpoch:
-    """Tests for the _parse_iso_to_epoch method."""
-
-    def test_valid_iso_with_z_suffix(self, redis_handler_enabled):
-        """Test parsing ISO timestamp with Z (UTC) suffix."""
-        result = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
-        assert result is not None
-        # Verify it's a reasonable epoch (after year 2000)
-        assert result > 946684800  # 2000-01-01
-
-    def test_valid_iso_with_timezone(self, redis_handler_enabled):
-        """Test parsing ISO timestamp with explicit timezone."""
-        result = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00+00:00")
+    def test_valid_iso_with_z_suffix(self, handler_enabled):
+        result = handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
         assert result is not None
         assert result > 946684800
 
-    def test_valid_iso_with_milliseconds(self, redis_handler_enabled):
-        """Test parsing ISO timestamp with milliseconds."""
-        result = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00.123456Z")
+    def test_valid_iso_with_timezone(self, handler_enabled):
+        result = handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00+00:00")
         assert result is not None
-        # Should preserve fractional seconds
+        assert result > 946684800
+
+    def test_valid_iso_with_milliseconds(self, handler_enabled):
+        result = handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00.123456Z")
+        assert result is not None
         assert result != int(result)
 
-    def test_valid_iso_with_positive_offset(self, redis_handler_enabled):
-        """Test parsing ISO timestamp with positive timezone offset."""
-        result = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00+05:30")
-        assert result is not None
+    def test_valid_iso_with_positive_offset(self, handler_enabled):
+        assert handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00+05:30") is not None
 
-    def test_valid_iso_with_negative_offset(self, redis_handler_enabled):
-        """Test parsing ISO timestamp with negative timezone offset."""
-        result = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00-08:00")
-        assert result is not None
+    def test_valid_iso_with_negative_offset(self, handler_enabled):
+        assert handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00-08:00") is not None
 
-    def test_none_input(self, redis_handler_enabled):
-        """Test that None input returns None."""
-        result = redis_handler_enabled._parse_iso_to_epoch(None)
-        assert result is None
+    def test_none_input(self, handler_enabled):
+        assert handler_enabled._parse_iso_to_epoch(None) is None
 
-    def test_empty_string(self, redis_handler_enabled):
-        """Test that empty string returns None."""
-        result = redis_handler_enabled._parse_iso_to_epoch("")
-        assert result is None
+    def test_empty_string(self, handler_enabled):
+        assert handler_enabled._parse_iso_to_epoch("") is None
 
-    def test_invalid_format(self, redis_handler_enabled):
-        """Test that invalid format returns None."""
-        result = redis_handler_enabled._parse_iso_to_epoch("not-a-date")
-        assert result is None
+    def test_invalid_format(self, handler_enabled):
+        assert handler_enabled._parse_iso_to_epoch("not-a-date") is None
 
-    def test_invalid_date(self, redis_handler_enabled):
-        """Test that invalid date (month 13) returns None."""
-        result = redis_handler_enabled._parse_iso_to_epoch("2024-13-45T10:30:00Z")
-        assert result is None
+    def test_invalid_date(self, handler_enabled):
+        assert handler_enabled._parse_iso_to_epoch("2024-13-45T10:30:00Z") is None
 
-    def test_partial_timestamp(self, redis_handler_enabled):
-        """Test that partial timestamp (date only) returns None or valid epoch."""
-        # Python's fromisoformat can handle date-only strings in Python 3.11+
-        result = redis_handler_enabled._parse_iso_to_epoch("2024-01-15")
-        # Either None or a valid epoch is acceptable
+    def test_partial_timestamp(self, handler_enabled):
+        result = handler_enabled._parse_iso_to_epoch("2024-01-15")
         assert result is None or result > 0
 
-    def test_consistency_z_vs_offset(self, redis_handler_enabled):
-        """Test that Z and +00:00 produce the same epoch."""
-        result_z = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
-        result_offset = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00+00:00")
-        assert result_z == result_offset
+    def test_consistency_z_vs_offset(self, handler_enabled):
+        assert handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z") == \
+            handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00+00:00")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests for _check_end_delta()
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestCheckEndDelta:
-    """Tests for the _check_end_delta method."""
+    def test_first_occurrence_stores_and_processes(self, handler_enabled, sample_incident):
+        assert handler_enabled._check_end_delta(sample_incident) is True
+        # A repeat with the same end must now be treated as a duplicate
+        # (delta 0 < threshold) — proves the first call stored state.
+        assert handler_enabled._check_end_delta(sample_incident) is False
 
-    def test_first_occurrence_stores_and_processes(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """First time seeing an incident - should store epoch and return True."""
-        mock_redis_client.get.return_value = None  # Key doesn't exist
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is True
-        mock_redis_client.set.assert_called_once()
-        # Verify TTL is set correctly
-        call_args = mock_redis_client.set.call_args
-        assert call_args.kwargs.get('ex') == 3600  # TTL from config
+    def test_significant_change_updates_and_processes(self, handler_enabled, sample_incident):
+        sample_incident["end"] = "2024-01-15T10:30:00Z"
+        assert handler_enabled._check_end_delta(sample_incident) is True
+        moved = dict(sample_incident, end="2024-01-15T10:30:10Z")
+        assert handler_enabled._check_end_delta(moved) is True
 
-    def test_significant_change_updates_and_processes(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """End time changed by >= threshold - should update and return True."""
-        # Stored epoch is 10 seconds earlier than current end
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
-        mock_redis_client.get.return_value = str(stored_epoch)
-        
-        # Current end is 10 seconds later (delta = 10s >= 5s threshold)
-        sample_incident["end"] = "2024-01-15T10:30:10Z"
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is True
-        mock_redis_client.set.assert_called_once()
+    def test_insignificant_change_skips(self, handler_enabled, sample_incident):
+        sample_incident["end"] = "2024-01-15T10:30:00Z"
+        assert handler_enabled._check_end_delta(sample_incident) is True
+        moved = dict(sample_incident, end="2024-01-15T10:30:02Z")
+        assert handler_enabled._check_end_delta(moved) is False
 
-    def test_insignificant_change_skips(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """End time changed by < threshold - should return False without update."""
-        # Stored epoch
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
-        mock_redis_client.get.return_value = str(stored_epoch)
-        
-        # Current end is only 2 seconds later (delta = 2s < 5s threshold)
-        sample_incident["end"] = "2024-01-15T10:30:02Z"
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is False
-        mock_redis_client.set.assert_not_called()
+    def test_exact_threshold_processes(self, handler_enabled, sample_incident):
+        sample_incident["end"] = "2024-01-15T10:30:00Z"
+        assert handler_enabled._check_end_delta(sample_incident) is True
+        moved = dict(sample_incident, end="2024-01-15T10:30:05Z")
+        assert handler_enabled._check_end_delta(moved) is True
 
-    def test_exact_threshold_processes(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """End time changed by exactly threshold - should process (>= comparison)."""
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
-        mock_redis_client.get.return_value = str(stored_epoch)
-        
-        # Current end is exactly 5 seconds later (delta = 5s == 5s threshold)
-        sample_incident["end"] = "2024-01-15T10:30:05Z"
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is True
-        mock_redis_client.set.assert_called_once()
-
-    def test_missing_end_field_allows_through(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """Missing end field - should allow through (fail-open)."""
+    def test_missing_end_field_allows_through(self, handler_enabled, sample_incident):
         del sample_incident["end"]
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is True
-        mock_redis_client.get.assert_not_called()  # Should return early
+        assert handler_enabled._check_end_delta(sample_incident) is True
 
-    def test_invalid_end_field_allows_through(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """Invalid end field - should allow through (fail-open)."""
+    def test_invalid_end_field_allows_through(self, handler_enabled, sample_incident):
         sample_incident["end"] = "not-a-valid-date"
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is True
-        mock_redis_client.get.assert_not_called()
+        assert handler_enabled._check_end_delta(sample_incident) is True
 
-    def test_redis_get_error_allows_through(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """Redis GET error - should allow through (fail-open)."""
-        mock_redis_client.get.side_effect = Exception("Redis connection failed")
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is True  # Fail-open
+    def test_sorted_object_ids_share_cohort(self, handler_enabled):
+        # Different objectIds order must map to the same cohort key: seed
+        # with one order, a small-delta repeat in another order is skipped.
+        first = _incident(ids=(3, 1, 2), end="2024-01-15T10:30:00Z")
+        assert handler_enabled._check_end_delta(first) is True
+        reordered = _incident(ids=(1, 2, 3), end="2024-01-15T10:30:02Z")
+        assert handler_enabled._check_end_delta(reordered) is False
 
-    def test_redis_set_error_still_returns_true(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """Redis SET error on first occurrence - should still return True."""
-        mock_redis_client.get.return_value = None
-        mock_redis_client.set.side_effect = Exception("Redis write failed")
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        assert result is True  # Fail-open
+    def test_whitespace_and_case_normalized_into_same_cohort(self, handler_enabled):
+        first = _incident(sensor="sensor-001", category="tailgating", am="vst",
+                          end="2024-01-15T10:30:00Z")
+        assert handler_enabled._check_end_delta(first) is True
+        messy = _incident(sensor="  Sensor-001  ", category="  Tailgating  ", am="  VST  ",
+                          end="2024-01-15T10:30:02Z")
+        assert handler_enabled._check_end_delta(messy) is False
 
-    def test_key_format_is_correct(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """Verify the Redis key format is correct."""
-        mock_redis_client.get.return_value = None
-        
-        redis_handler_enabled._check_end_delta(sample_incident)
-        
-        # Get the key that was used
-        call_args = mock_redis_client.set.call_args
-        key = call_args.args[0]
-        
-        # Verify key starts with correct prefix
-        assert key.startswith("vlm:enddelta:")
-        
-        # Verify key contains expected components (lowercase)
-        assert "sensor-001" in key
-        assert "2024-01-15T10:30:00Z" in key
-        assert "tailgating" in key
-        assert "vst-tailgating" in key
-
-    def test_key_uses_sorted_object_ids(self, redis_handler_enabled, mock_redis_client):
-        """Verify object IDs are sorted in key generation."""
-        mock_redis_client.get.return_value = None
-        
-        # Test with unsorted IDs
-        msg1 = {
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [3, 1, 2],
-            "category": "test",
-            "analyticsModule": {"id": "test"}
-        }
-        
-        redis_handler_enabled._check_end_delta(msg1)
-        key1 = mock_redis_client.set.call_args.args[0]
-        
-        mock_redis_client.reset_mock()
-        
-        # Same IDs in different order
-        msg2 = {
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [1, 2, 3],  # Different order
-            "category": "test",
-            "analyticsModule": {"id": "test"}
-        }
-        
-        redis_handler_enabled._check_end_delta(msg2)
-        key2 = mock_redis_client.set.call_args.args[0]
-        
-        # Keys should be identical despite different objectIds order
-        assert key1 == key2
-
-    def test_negative_delta_is_handled(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """Verify that going backwards in time (negative delta) is handled with abs()."""
-        # Stored epoch is LATER than current end
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:20Z")
-        mock_redis_client.get.return_value = str(stored_epoch)
-        
-        # Current end is 10 seconds EARLIER
-        sample_incident["end"] = "2024-01-15T10:30:10Z"
-        
-        result = redis_handler_enabled._check_end_delta(sample_incident)
-        
-        # Delta is abs(10 - 20) = 10s >= 5s threshold, should process
-        assert result is True
+    def test_negative_delta_is_handled(self, handler_enabled, sample_incident):
+        sample_incident["end"] = "2024-01-15T10:30:20Z"
+        assert handler_enabled._check_end_delta(sample_incident) is True
+        earlier = dict(sample_incident, end="2024-01-15T10:30:10Z")
+        assert handler_enabled._check_end_delta(earlier) is True  # abs(10-20)=10 >= 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests for filter_by_end_time_delta()
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestFilterByEndTimeDelta:
-    """Tests for the filter_by_end_time_delta method."""
 
-    def test_disabled_filter_returns_all_messages(self, redis_handler_disabled, sample_incident, sample_alert):
-        """When filter is disabled, all messages pass through unchanged."""
+class TestFilterByEndTimeDelta:
+    def test_disabled_filter_returns_all_messages(self, handler_disabled, sample_incident, sample_alert):
         messages = [sample_incident, sample_alert]
-        
-        result = redis_handler_disabled.filter_by_end_time_delta(messages)
-        
+        result = handler_disabled.filter_by_end_time_delta(messages)
         assert len(result) == 2
         assert result == messages
 
-    def test_enabled_filter_processes_first_incident(self, redis_handler_enabled, sample_incident, mock_redis_client):
-        """First incident should be processed and stored."""
-        mock_redis_client.get.return_value = None  # First occurrence
-        
-        messages = [sample_incident]
-        result = redis_handler_enabled.filter_by_end_time_delta(messages)
-        
+    def test_enabled_filter_processes_first_incident(self, handler_enabled, sample_incident):
+        result = handler_enabled.filter_by_end_time_delta([sample_incident])
         assert len(result) == 1
         assert result[0] == sample_incident
 
-    def test_alerts_always_pass_through(self, redis_handler_enabled, sample_alert, mock_redis_client):
-        """Alerts (no objectIds) always pass through without Redis check."""
-        messages = [sample_alert]
-        
-        result = redis_handler_enabled.filter_by_end_time_delta(messages)
-        
+    def test_alerts_always_pass_through(self, handler_enabled, sample_alert):
+        result = handler_enabled.filter_by_end_time_delta([sample_alert])
         assert len(result) == 1
         assert result[0] == sample_alert
-        mock_redis_client.get.assert_not_called()  # No Redis interaction for alerts
 
-    def test_mixed_messages_filtered_correctly(self, redis_handler_enabled, mock_redis_client):
-        """Test batch with mixed message types."""
+    def test_mixed_messages_filtered_correctly(self, handler_enabled):
         alert = {
             "id": "alert-1",
             "sensorId": "sensor-001",
             "timestamp": "2024-01-15T10:30:00Z",
-            "notification_type": "alert"
+            "notification_type": "alert",
         }
-        
-        incident_new = {
-            "id": "incident-1",
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [1, 2],
-            "category": "tailgating",
-            "analyticsModule": {"id": "vst"}
-        }
-        
-        incident_skip = {
-            "id": "incident-2",
-            "sensorId": "sensor-002",
-            "timestamp": "2024-01-15T10:31:00Z",
-            "end": "2024-01-15T10:31:02Z",  # Only 2s change
-            "objectIds": [3, 4],
-            "category": "tailgating",
-            "analyticsModule": {"id": "vst"}
-        }
-        
-        # First incident: new key
-        # Second incident: stored epoch exists, small delta
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:31:00Z")
-        mock_redis_client.get.side_effect = [None, str(stored_epoch)]
-        
-        messages = [alert, incident_new, incident_skip]
-        result = redis_handler_enabled.filter_by_end_time_delta(messages)
-        
-        # Alert passes, first incident passes, second incident skipped
+        incident_new = _incident(sensor="sensor-001", ts="2024-01-15T10:30:00Z",
+                                 end="2024-01-15T10:30:10Z", ids=(1, 2))
+        incident_new["id"] = "incident-1"
+        # Seed a cohort for the "skip" incident then send a small-delta update.
+        seed = _incident(sensor="sensor-002", ts="2024-01-15T10:31:00Z",
+                         end="2024-01-15T10:31:00Z", ids=(3, 4))
+        handler_enabled.filter_by_end_time_delta([seed])
+        incident_skip = _incident(sensor="sensor-002", ts="2024-01-15T10:31:00Z",
+                                  end="2024-01-15T10:31:02Z", ids=(3, 4))
+        incident_skip["id"] = "incident-2"
+
+        result = handler_enabled.filter_by_end_time_delta([alert, incident_new, incident_skip])
         assert len(result) == 2
         assert result[0]["id"] == "alert-1"
         assert result[1]["id"] == "incident-1"
 
-    def test_empty_list_returns_empty(self, redis_handler_enabled):
-        """Empty message list returns empty list."""
-        result = redis_handler_enabled.filter_by_end_time_delta([])
-        
-        assert result == []
-
-    def test_all_messages_skipped_returns_empty(self, redis_handler_enabled, mock_redis_client):
-        """All incidents with small deltas returns empty list."""
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
-        mock_redis_client.get.return_value = str(stored_epoch)
-        
-        incident1 = {
-            "id": "incident-1",
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:01Z",  # 1s delta
-            "objectIds": [1],
-            "category": "test",
-            "analyticsModule": {"id": "test"}
-        }
-        
-        incident2 = {
-            "id": "incident-2",
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:02Z",  # 2s delta
-            "objectIds": [1],
-            "category": "test",
-            "analyticsModule": {"id": "test"}
-        }
-        
-        messages = [incident1, incident2]
-        result = redis_handler_enabled.filter_by_end_time_delta(messages)
-        
-        assert len(result) == 0
+    def test_empty_list_returns_empty(self, handler_enabled):
+        assert handler_enabled.filter_by_end_time_delta([]) == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests for Config Loading
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestConfigLoading:
-    """Tests for end_time_delta_filter configuration loading."""
+    def test_enabled_config_loaded(self, handler_enabled):
+        assert handler_enabled._end_delta_enabled is True
+        assert handler_enabled._end_delta_threshold == 5
+        assert handler_enabled._end_delta_ttl == 3600
 
-    def test_enabled_config_loaded(self, redis_handler_enabled):
-        """Verify enabled config values are loaded correctly."""
-        assert redis_handler_enabled._end_delta_enabled is True
-        assert redis_handler_enabled._end_delta_threshold == 5
-        assert redis_handler_enabled._end_delta_ttl == 3600
+    def test_disabled_config_loaded(self, handler_disabled):
+        assert handler_disabled._end_delta_enabled is False
+        assert handler_disabled._end_delta_threshold == 5
+        assert handler_disabled._end_delta_ttl == 3600
 
-    def test_disabled_config_loaded(self, redis_handler_disabled):
-        """Verify disabled config values are loaded correctly."""
-        assert redis_handler_disabled._end_delta_enabled is False
-        assert redis_handler_disabled._end_delta_threshold == 5
-        assert redis_handler_disabled._end_delta_ttl == 3600
-
-    def test_missing_config_uses_defaults(self, mock_redis_client):
-        """Verify default values when config section is missing."""
-        config = {
-            "event_bridge": {
-                "redis_source": {
-                    "host": "localhost",
-                    "port": 6379,
-                    "db": 0,
-                    "dedup_ttl_seconds": 300
-                    # No end_time_delta_filter section
-                }
-            }
-        }
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-            yaml.dump(config, f)
-            config_path = f.name
-        
-        try:
-            with patch('redis.Redis', return_value=mock_redis_client):
-                from clients.redis_handler import RedisHandler
-                handler = RedisHandler(config_file=config_path)
-                
-                # Should use defaults
-                assert handler._end_delta_enabled is False
-                assert handler._end_delta_threshold == 5
-                assert handler._end_delta_ttl == 3600
-        finally:
-            os.unlink(config_path)
-
-    def test_custom_threshold_and_ttl(self, mock_redis_client):
-        """Verify custom threshold and TTL values are loaded."""
+    def test_missing_config_uses_defaults(self):
         config = {
             "event_bridge": {
                 "redis_source": {
@@ -566,267 +308,117 @@ class TestConfigLoading:
                     "port": 6379,
                     "db": 0,
                     "dedup_ttl_seconds": 300,
-                    "end_time_delta_filter": {
-                        "enabled": True,
-                        "threshold_seconds": 10,  # Custom threshold
-                        "ttl_seconds": 7200       # Custom TTL
-                    }
                 }
             }
         }
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        fd, config_path = tempfile.mkstemp(suffix=".yaml")
+        with os.fdopen(fd, "w") as f:
             yaml.dump(config, f)
-            config_path = f.name
-        
         try:
-            with patch('redis.Redis', return_value=mock_redis_client):
-                from clients.redis_handler import RedisHandler
-                handler = RedisHandler(config_file=config_path)
-                
-                assert handler._end_delta_enabled is True
-                assert handler._end_delta_threshold == 10
-                assert handler._end_delta_ttl == 7200
+            from clients.redis_handler import RedisHandler
+
+            handler = RedisHandler(config_file=config_path)
+            assert handler._end_delta_enabled is False
+            assert handler._end_delta_threshold == 5
+            assert handler._end_delta_ttl == 3600
         finally:
             os.unlink(config_path)
+
+    def test_custom_threshold_and_ttl(self):
+        path = _write_config(enabled=True, threshold=10, ttl=7200)
+        try:
+            from clients.redis_handler import RedisHandler
+
+            handler = RedisHandler(config_file=path)
+            assert handler._end_delta_enabled is True
+            assert handler._end_delta_threshold == 10
+            assert handler._end_delta_ttl == 7200
+        finally:
+            os.unlink(path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Integration-style Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestEndDeltaFilterIntegration:
-    """Integration-style tests simulating real usage patterns."""
+    def test_incident_progression_scenario(self, handler_enabled):
+        base = dict(sensorId="sensor-001", timestamp="2024-01-15T10:30:00Z",
+                    objectIds=[1, 2, 3], category="tailgating",
+                    analyticsModule={"id": "vst"})
 
-    def test_incident_progression_scenario(self, redis_handler_enabled, mock_redis_client):
-        """Simulate an incident progressing over time."""
-        messages_processed = []
-        
-        # Simulate Redis state
-        stored_epochs = {}
-        
-        def mock_get(key):
-            return stored_epochs.get(key)
-        
-        def mock_set(key, value, ex=None):
-            stored_epochs[key] = value
-        
-        mock_redis_client.get.side_effect = mock_get
-        mock_redis_client.set.side_effect = mock_set
-        
-        base_incident = {
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "objectIds": [1, 2, 3],
-            "category": "tailgating",
-            "analyticsModule": {"id": "vst"}
-        }
-        
-        # T+0s: First occurrence
-        incident_t0 = {**base_incident, "id": "t0", "end": "2024-01-15T10:30:00Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_t0])
-        assert len(result) == 1  # Processed
-        
-        # T+2s: Small delta
-        incident_t2 = {**base_incident, "id": "t2", "end": "2024-01-15T10:30:02Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_t2])
-        assert len(result) == 0  # Skipped
-        
-        # T+4s: Still small delta from T+0
-        incident_t4 = {**base_incident, "id": "t4", "end": "2024-01-15T10:30:04Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_t4])
-        assert len(result) == 0  # Skipped
-        
-        # T+6s: Now significant delta (6s >= 5s threshold)
-        incident_t6 = {**base_incident, "id": "t6", "end": "2024-01-15T10:30:06Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_t6])
-        assert len(result) == 1  # Processed
-        
-        # T+8s: Small delta from T+6
-        incident_t8 = {**base_incident, "id": "t8", "end": "2024-01-15T10:30:08Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_t8])
-        assert len(result) == 0  # Skipped
-        
-        # T+12s: Significant delta from T+6 (6s)
-        incident_t12 = {**base_incident, "id": "t12", "end": "2024-01-15T10:30:12Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_t12])
-        assert len(result) == 1  # Processed
+        def send(end):
+            return handler_enabled.filter_by_end_time_delta([{**base, "end": end}])
 
-    def test_multiple_incidents_independent(self, redis_handler_enabled, mock_redis_client):
-        """Verify that different incidents are tracked independently."""
-        stored_epochs = {}
-        
-        def mock_get(key):
-            return stored_epochs.get(key)
-        
-        def mock_set(key, value, ex=None):
-            stored_epochs[key] = value
-        
-        mock_redis_client.get.side_effect = mock_get
-        mock_redis_client.set.side_effect = mock_set
-        
-        # Two different incidents (different objectIds)
-        incident_a = {
-            "id": "a",
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [1, 2],
-            "category": "tailgating",
-            "analyticsModule": {"id": "vst"}
-        }
-        
-        incident_b = {
-            "id": "b",
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [3, 4],  # Different objects = different incident
-            "category": "tailgating",
-            "analyticsModule": {"id": "vst"}
-        }
-        
-        # Both should be processed (first occurrence for each)
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_a, incident_b])
+        assert len(send("2024-01-15T10:30:00Z")) == 1   # T+0 first
+        assert len(send("2024-01-15T10:30:02Z")) == 0   # T+2 small
+        assert len(send("2024-01-15T10:30:04Z")) == 0   # T+4 still small
+        assert len(send("2024-01-15T10:30:06Z")) == 1   # T+6 significant
+        assert len(send("2024-01-15T10:30:08Z")) == 0   # small from T+6
+        assert len(send("2024-01-15T10:30:12Z")) == 1   # significant from T+6
+
+    def test_multiple_incidents_independent(self, handler_enabled):
+        incident_a = _incident(ids=(1, 2), end="2024-01-15T10:30:10Z")
+        incident_b = _incident(ids=(3, 4), end="2024-01-15T10:30:10Z")
+        result = handler_enabled.filter_by_end_time_delta([incident_a, incident_b])
         assert len(result) == 2
-        
-        # Small update to incident_a only
-        incident_a_small = {**incident_a, "id": "a-small", "end": "2024-01-15T10:30:12Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_a_small])
-        assert len(result) == 0  # Skipped (only 2s delta)
-        
-        # Large update to incident_b
-        incident_b_large = {**incident_b, "id": "b-large", "end": "2024-01-15T10:30:20Z"}
-        result = redis_handler_enabled.filter_by_end_time_delta([incident_b_large])
-        assert len(result) == 1  # Processed (10s delta)
+
+        a_small = _incident(ids=(1, 2), end="2024-01-15T10:30:12Z")
+        assert len(handler_enabled.filter_by_end_time_delta([a_small])) == 0
+
+        b_large = _incident(ids=(3, 4), end="2024-01-15T10:30:20Z")
+        assert len(handler_enabled.filter_by_end_time_delta([b_large])) == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Edge Case Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestEdgeCases:
-    """Edge case and boundary condition tests."""
+    def test_empty_sensor_id(self, handler_enabled):
+        incident = _incident(sensor="", ids=(1,), category="test", am="test",
+                             end="2024-01-15T10:30:10Z")
+        assert len(handler_enabled.filter_by_end_time_delta([incident])) == 1
 
-    def test_empty_sensor_id(self, redis_handler_enabled, mock_redis_client):
-        """Test handling of empty sensorId."""
-        mock_redis_client.get.return_value = None
-        
+    def test_empty_object_ids(self, handler_enabled):
+        incident = _incident(ids=(), category="test", am="test", end="2024-01-15T10:30:10Z")
+        assert len(handler_enabled.filter_by_end_time_delta([incident])) == 1
+
+    def test_missing_analytics_module(self, handler_enabled):
         incident = {
-            "sensorId": "",
+            "sensorId": "sensor-001",
             "timestamp": "2024-01-15T10:30:00Z",
             "end": "2024-01-15T10:30:10Z",
             "objectIds": [1],
             "category": "test",
-            "analyticsModule": {"id": "test"}
         }
-        
-        result = redis_handler_enabled.filter_by_end_time_delta([incident])
-        assert len(result) == 1  # Should still process
+        assert len(handler_enabled.filter_by_end_time_delta([incident])) == 1
 
-    def test_empty_object_ids(self, redis_handler_enabled, mock_redis_client):
-        """Test handling of empty objectIds list."""
-        mock_redis_client.get.return_value = None
-        
-        incident = {
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [],  # Empty but present
-            "category": "test",
-            "analyticsModule": {"id": "test"}
-        }
-        
-        result = redis_handler_enabled.filter_by_end_time_delta([incident])
-        assert len(result) == 1  # Should process (has objectIds key)
-
-    def test_missing_analytics_module(self, redis_handler_enabled, mock_redis_client):
-        """Test handling of missing analyticsModule."""
-        mock_redis_client.get.return_value = None
-        
+    def test_missing_category(self, handler_enabled):
         incident = {
             "sensorId": "sensor-001",
             "timestamp": "2024-01-15T10:30:00Z",
             "end": "2024-01-15T10:30:10Z",
             "objectIds": [1],
-            "category": "test"
-            # No analyticsModule
+            "analyticsModule": {"id": "test"},
         }
-        
-        result = redis_handler_enabled.filter_by_end_time_delta([incident])
-        assert len(result) == 1
+        assert len(handler_enabled.filter_by_end_time_delta([incident])) == 1
 
-    def test_missing_category(self, redis_handler_enabled, mock_redis_client):
-        """Test handling of missing category."""
-        mock_redis_client.get.return_value = None
-        
-        incident = {
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [1],
-            "analyticsModule": {"id": "test"}
-            # No category
-        }
-        
-        result = redis_handler_enabled.filter_by_end_time_delta([incident])
-        assert len(result) == 1
+    def test_very_large_delta(self, handler_enabled):
+        incident = _incident(ids=(1,), category="test", am="test", end="2024-01-15T10:30:00Z")
+        handler_enabled.filter_by_end_time_delta([incident])
+        far = _incident(ids=(1,), category="test", am="test", end="2024-01-20T10:30:00Z")
+        assert len(handler_enabled.filter_by_end_time_delta([far])) == 1
 
-    def test_whitespace_in_fields(self, redis_handler_enabled, mock_redis_client):
-        """Test that whitespace in fields is handled (stripped)."""
-        mock_redis_client.get.return_value = None
-        
-        incident = {
-            "sensorId": "  Sensor-001  ",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:10Z",
-            "objectIds": [1],
-            "category": "  Tailgating  ",
-            "analyticsModule": {"id": "  VST  "}
-        }
-        
-        redis_handler_enabled.filter_by_end_time_delta([incident])
-        
-        key = mock_redis_client.set.call_args.args[0]
-        # Verify whitespace is stripped and case is normalized
-        assert "  " not in key
-        assert "sensor-001" in key
-        assert "tailgating" in key
-
-    def test_very_large_delta(self, redis_handler_enabled, mock_redis_client):
-        """Test handling of very large delta (days apart)."""
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00Z")
-        mock_redis_client.get.return_value = str(stored_epoch)
-        
-        incident = {
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-20T10:30:00Z",  # 5 days later
-            "objectIds": [1],
-            "category": "test",
-            "analyticsModule": {"id": "test"}
-        }
-        
-        result = redis_handler_enabled.filter_by_end_time_delta([incident])
-        assert len(result) == 1  # Should process
-
-    def test_fractional_seconds_in_delta(self, redis_handler_enabled, mock_redis_client):
-        """Test that fractional seconds are considered in delta calculation."""
-        stored_epoch = redis_handler_enabled._parse_iso_to_epoch("2024-01-15T10:30:00.000000Z")
-        mock_redis_client.get.return_value = str(stored_epoch)
-        
-        # Delta of 4.9 seconds (just under threshold)
-        incident = {
-            "sensorId": "sensor-001",
-            "timestamp": "2024-01-15T10:30:00Z",
-            "end": "2024-01-15T10:30:04.900000Z",
-            "objectIds": [1],
-            "category": "test",
-            "analyticsModule": {"id": "test"}
-        }
-        
-        result = redis_handler_enabled.filter_by_end_time_delta([incident])
-        assert len(result) == 0  # Should skip (4.9s < 5s)
+    def test_fractional_seconds_in_delta(self, handler_enabled):
+        incident = _incident(ids=(1,), category="test", am="test",
+                             end="2024-01-15T10:30:00.000000Z")
+        handler_enabled.filter_by_end_time_delta([incident])
+        near = _incident(ids=(1,), category="test", am="test",
+                        end="2024-01-15T10:30:04.900000Z")
+        assert len(handler_enabled.filter_by_end_time_delta([near])) == 0
 
 
 if __name__ == "__main__":
