@@ -93,6 +93,8 @@ SRCS := \
 	src/framework/notification/kafka/kafka_consumer.cpp \
 	src/framework/notification/mqtt/mqtt_publisher.cpp \
 	src/framework/notification/mqtt/mqtt_subscriber.cpp \
+	src/framework/notification/webhook/webhook_notifier.cpp \
+	src/framework/notification/composite_notifier.cpp \
 	src/framework/notification/ds_proto_parser.cpp \
 	src/framework/protocols/prometheus_client/prometheus_client.cpp
 
