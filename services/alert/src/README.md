@@ -20,7 +20,7 @@ enrich** them.
 ```mermaid
 flowchart LR
     subgraph Ingest["Ingest (mdx)"]
-        SRC["mdx/source<br/>Kafka · Redis · ES"]
+        SRC["mdx/source<br/>Kafka"]
     end
 
     subgraph Core["Verification pipeline"]
@@ -33,7 +33,7 @@ flowchart LR
     subgraph Out["Output"]
         SNK["mdx/sink<br/>(+ vlm_enhanced_sink)"]
         PER["persistence/<br/>Elasticsearch"]
-        WEB["web/<br/>REST + WebSocket"]
+        WEB["web/<br/>REST API"]
     end
 
     SRC --> ORC
@@ -45,7 +45,7 @@ flowchart LR
     ORC --> PER
     ORC --> WEB
 
-    H -. "alert_type config" .-> CL["clients/<br/>Redis · ES"]
+    H -. "alert_type config" .-> CL["clients/<br/>ES + in-process dedup"]
     PER -. uses .-> CL
     ORC -. metrics .-> MET["metrics/<br/>Prometheus"]
     WEB -. realtime rules .-> RT["realtime/<br/>always-on + RTVI"]
@@ -53,36 +53,36 @@ flowchart LR
 ```
 
 Two secondary entry paths share the same packages:
-- **`web/`** — FastAPI app (REST `/api/v1/...` + WebSocket) for alert submission,
-  on-demand verification, config management, and realtime broadcasting.
+- **`web/`** — FastAPI app (REST `/api/v1/...`) for alert submission,
+  on-demand verification, and config management.
 - **`realtime/`** — always-on / realtime alert rules driven by the RTVI VLM client.
 
 ## Top-level packages
 
 | Package | Responsibility |
 |---|---|
-| `mdx/` | **Alert ingestion transport** (NvSchema). Sources/sinks over Kafka, Redis Streams, Elasticsearch; protobuf schemas; dedup fingerprints. |
+| `mdx/` | **Alert ingestion transport** (NvSchema). Kafka sources/sinks; protobuf schemas; dedup fingerprints. |
 | `handlers/` | **Core alert handlers** — alert-type config store, prompt rendering, enrichment, direct-media mode, exception handling, async mixins. |
 | `vlm/` | **VLM client** (OpenAI-compatible NIM): sync/async clients, async runtime, NIM warmup. |
 | `vst/` | **VST video-storage client** — resolves the video segment for an alert from `sensorId` + timestamps (timelines, clip extraction). |
 | `schemas/` | **Data models / NvSchema entities** — request/response entities, VLM response model + pluggable parser registry, shared enums, config defaults. |
 | `custom_parsers/` | **Sample/pluggable VLM-response parsers**, loaded dynamically via config. |
-| `clients/` | **Low-level external-service clients** — Elasticsearch (`ElasticClient`) and Redis (`RedisHandler` / `RedisClient`). |
+| `clients/` | **Low-level external-service clients + state** — Elasticsearch (`ElasticClient`) and the in-process dedup/verdict-protection handler (`DedupStateHandler`, exported as `RedisHandler` for back-compat). |
 | `persistence/` | **Durable storage abstraction** (`PersistenceStore` ABC + Elasticsearch implementation, factory, config). |
 | `utils/` | **Shared utilities** — config loader, logging, time/ISO helpers, event/schema helpers, URL transform. |
 | `metrics/` | **Prometheus metrics** — definitions, recorder helpers, multiprocess setup. |
-| `web/` | **FastAPI app** — REST routers, API schemas, services, WebSocket broadcasting. |
+| `web/` | **FastAPI app** — REST routers, API schemas, services. |
 | `realtime/` | **Realtime & always-on alert rules** — services, rule store, RTVI VLM client, schemas, config. |
 | `webhook/` | **Outbound webhook notifications** (e.g. OpenClaw notifier). |
-| `tools/` | **Operational CLI** (e.g. migrate alert-config Redis → Elasticsearch). |
+| `tools/` | **Operational CLI** placeholder (no scripts currently). |
 
 ## Key subpackages
 
 ### `mdx/` — ingestion transport
 | Path | Purpose |
 |---|---|
-| `mdx/source/` | Input sources: `source_kafka`, `source_redis_stream`, `source_elasticsearch`, `source_base`. |
-| `mdx/sink/` | Output sinks: `sink_kafka`, `sink_redis_stream`, `sink_base`. |
+| `mdx/source/` | Input sources: `source_kafka`, `source_elasticsearch`, `source_base`. |
+| `mdx/sink/` | Output sinks: `sink_kafka`, `sink_base`. |
 | `mdx/sink/vlm_enhanced_sink/` | Writes the **enriched** result to Kafka/Elasticsearch. |
 | `mdx/protobuf/` | Generated NvSchema protobuf (`Behavior`, `Incident`). *Auto-generated — do not edit.* |
 | `mdx/utils/elastic_ready.py` | Alert/incident fingerprints for dedup. |
@@ -91,7 +91,7 @@ Two secondary entry paths share the same packages:
 ### `handlers/` — core handlers
 | Path | Purpose |
 |---|---|
-| `handlers/alert_config/` | Per-alert-type config store (Redis + ES backends, cache, hydration, factory, service, `normalize`). |
+| `handlers/alert_config/` | Per-alert-type config store (ES primary + in-process cache/fallback, hydration, factory, service, `normalize`). |
 | `handlers/prompt_handler/` | Prompt rendering + `alert_type_config` loading. |
 | `handlers/enrichment/` | Enrichment processor. |
 | `handlers/direct_media/` | Direct-media mode: downloader, analyzer, handler. |
@@ -112,11 +112,10 @@ Two secondary entry paths share the same packages:
 | Path | Purpose |
 |---|---|
 | `web/main.py` | App assembly (routers, middleware, lifecycle). |
-| `web/api/` | Routers: alerts, incidents, realtime, verification, alert-config, heartbeat. |
+| `web/api/` | Routers: alerts, incidents, realtime, verification, alert-config. |
 | `web/schemas/` | Pydantic request/response models for the API. |
-| `web/core/` | `AlertSubmissionService` + dependencies (config / Redis). |
+| `web/core/` | `AlertSubmissionService` + dependencies (config). |
 | `web/service/` | On-demand verification service. |
-| `web/websocket/` | Connection manager, Redis consumer, WS routes/service. |
 
 ### `realtime/` — realtime rules
 | Path | Purpose |

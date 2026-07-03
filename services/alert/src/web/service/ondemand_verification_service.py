@@ -18,7 +18,7 @@
 On-demand verification service aligned with DirectMedia handler flow.
 
 Accepts the same Incident payload that DirectMedia receives from Kafka.
-Prompts are resolved via PromptManager.get_prompts_for_message() (Redis-backed).
+Prompts are resolved via PromptManager.get_prompts_for_message() (ES-backed).
 VLM processing and sink publishing are delegated to DirectMediaHandler so the
 full pipeline (VLM call, merge, publish to Kafka/ES) runs identically to the
 Kafka-driven path.
@@ -62,9 +62,9 @@ class OnDemandVerificationService:
         self.prompt_manager = PromptManager(self.config_file)
 
         # Pass the PromptManager's AlertConfigStore so the sink resolves
-        # ``output_category`` from Redis on each publish (hot-reload of
-        # PUT /verification/config edits) rather than the file-loaded
-        # mapping cached at startup.
+        # ``output_category`` from the config store (Elasticsearch) on each
+        # publish (hot-reload of PUT /verification/config edits) rather than
+        # the file-loaded mapping cached at startup.
         self.vlm_enhanced_event_sink = build_vlm_enhanced_sink(
             self.config,
             alert_config_store=getattr(self.prompt_manager, "alert_config_store", None),

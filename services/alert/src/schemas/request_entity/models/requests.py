@@ -80,7 +80,7 @@ class AlertInfo(BaseModel):
 
         Note: this intentionally differs from
         ``handlers.alert_config.normalize.normalize_alert_type`` (which also
-        lower-cases for Redis/ES key generation). Kept separate on purpose;
+        lower-cases for store key generation). Kept separate on purpose;
         do not unify without auditing alert-type key lookups.
         """
         if isinstance(v, str):

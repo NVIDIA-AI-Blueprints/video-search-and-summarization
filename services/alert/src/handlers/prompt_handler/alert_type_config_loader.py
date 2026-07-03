@@ -203,19 +203,19 @@ class AlertTypeConfigLoader:
         }
 
 
-    def save_to_redis(self, alert_type: str, config: AlertTypeConfig, store) -> None:
+    def seed_to_store(self, alert_type: str, config: AlertTypeConfig, store) -> None:
         """
         Seed an alert type config from the static JSON file into the
-        ``alert_config:{alert_type}`` Redis key. Existing API-managed values
-        win at the top level so user updates survive restart, but
-        ``vlm_params`` is deep-merged with file defaults so partial API
-        updates (e.g. only ``temperature``) do not drop file-supplied keys
-        such as ``num_frames`` after a container restart.
+        alert-config store (``alert_config:{alert_type}`` record). Existing
+        API-managed values win at the top level so user updates survive
+        restart, but ``vlm_params`` is deep-merged with file defaults so
+        partial API updates (e.g. only ``temperature``) do not drop
+        file-supplied keys such as ``num_frames`` after a container restart.
 
         Args:
             alert_type: Alert type identifier
             config: ``AlertTypeConfig`` parsed from ``alert_type_config.json``
-            store: ``handlers.alert_config.AlertConfigStore`` instance
+            store: ``handlers.alert_config`` store instance
         """
         try:
             from datetime import datetime, timezone
@@ -243,7 +243,7 @@ class AlertTypeConfigLoader:
             }
 
             # Top-level merge: API-managed values (existing) win for non-None
-            # keys; the file populates keys that are missing from Redis.
+            # keys; the file populates keys that are missing from the store.
             merged = {**file_data, **{k: v for k, v in existing.items() if v is not None}}
 
             # vlm_params needs a deep merge so partial API updates do not

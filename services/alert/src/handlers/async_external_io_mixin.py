@@ -72,7 +72,10 @@ class AsyncExternalIOMixin:
         **kwargs,
     ):
         """
-        Execute Redis operations via async runtime when enabled, with sync fallback.
+        Execute the in-process dedup/state operations via the async runtime
+        when enabled, with a synchronous fallback. (Method/flag names retain
+        the historical ``redis`` wording — the ``async_io.redis_enabled``
+        config key — but no Redis is involved; the operations are in-process.)
         """
         sync_started_at = time.time()
         if not self._is_async_redis_mode_enabled():
@@ -121,7 +124,7 @@ class AsyncExternalIOMixin:
             )
             self._count_async_external_fallback(operation_name, reason="timeout")
             logger.warning(
-                "Async Redis operation timed out; falling back to sync call",
+                "Async dedup-state operation timed out; falling back to sync call",
                 extra={
                     "operation": operation_name,
                     "timeout_seconds": self.async_external_timeout_seconds,
@@ -138,7 +141,7 @@ class AsyncExternalIOMixin:
             )
             self._count_async_external_fallback(operation_name, reason="error")
             logger.warning(
-                "Async Redis operation failed; falling back to sync call",
+                "Async dedup-state operation failed; falling back to sync call",
                 extra={
                     "operation": operation_name,
                     "error": str(exc),

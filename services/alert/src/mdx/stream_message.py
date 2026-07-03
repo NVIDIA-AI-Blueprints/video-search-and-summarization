@@ -112,36 +112,6 @@ class StreamMessage:
             logger.error(f"Error creating StreamMessage from Kafka: {e}")
             raise
     
-    @classmethod
-    def from_redis_stream(cls, stream_name: str, message_id: str, fields: Dict[str, str], schema_file: str = 'request_schema.yaml') -> 'StreamMessage':
-        """Create StreamMessage from Redis Stream message"""
-        try:
-            from utils.field_extractor import extract_core_fields
-            
-            # Parse JSON data from Redis stream fields (consistent with to_redis_fields format)
-            json_str = fields.get('data', '{}')
-            json_data = json.loads(json_str)
-            
-            # Extract core fields using schema file
-            core_fields = extract_core_fields(json_data, schema_file)
-            
-            return cls(
-                id=message_id,
-                timestamp=cls._parse_timestamp(core_fields.get('timestamp')),
-                data=json_data,
-                metadata={
-                    'source': 'redis_stream',
-                    'stream': stream_name,
-                    'redis_id': message_id,
-                    'schema_file': schema_file
-                },
-                raw_data=json_str.encode('utf-8'),
-                core_fields=core_fields
-            )
-        except Exception as e:
-            logger.error(f"Error creating StreamMessage from Redis Stream: {e}")
-            raise
-    
     @staticmethod
     def _parse_timestamp(timestamp_str: Optional[str]) -> datetime:
         """Parse timestamp with fallback to current time"""
@@ -176,14 +146,6 @@ class StreamMessage:
         if self.raw_data:
             return self.raw_data
         return self.to_json().encode('utf-8')
-    
-    def to_redis_fields(self) -> Dict[str, str]:
-        """Convert to Redis Stream fields format"""
-        return {
-            'data': self.to_json(),
-            'timestamp': self.timestamp.isoformat(),
-            'metadata': json.dumps(self.metadata) if self.metadata else '{}'
-        }
     
     def extract_core_fields_if_needed(self, schema_file: str = 'request_schema.yaml') -> None:
         """Extract core fields if not already extracted"""

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for AlertTypeConfigLoader.save_to_redis seeding semantics.
+"""Tests for AlertTypeConfigLoader.seed_to_store seeding semantics.
 
 Specifically guards the deep-merge path that protects API-managed
 ``vlm_params`` from clobbering file defaults across container restarts.
@@ -22,7 +22,6 @@ Specifically guards the deep-merge path that protects API-managed
 import os
 import sys
 
-import fakeredis
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -45,7 +44,7 @@ def _loader() -> AlertTypeConfigLoader:
 
 
 def _store() -> AlertConfigStore:
-    return AlertConfigStore(fakeredis.FakeRedis(decode_responses=True))
+    return AlertConfigStore()
 
 
 def _config(vlm_params: VlmParams = None) -> AlertTypeConfig:
@@ -60,7 +59,7 @@ class TestSeedingMerge:
 
     def test_seed_writes_file_data_when_redis_empty(self):
         loader, store = _loader(), _store()
-        loader.save_to_redis(
+        loader.seed_to_store(
             "collision",
             _config(VlmParams(max_tokens=256, num_frames=18)),
             store,
@@ -77,7 +76,7 @@ class TestSeedingMerge:
             "output_category": "API category",
             "alert_type": "collision",
         })
-        loader.save_to_redis(
+        loader.seed_to_store(
             "collision",
             _config(),
             store,
@@ -96,7 +95,7 @@ class TestSeedingMerge:
             "output_category": None,
             "alert_type": "collision",
         })
-        loader.save_to_redis(
+        loader.seed_to_store(
             "collision",
             _config(VlmParams(max_tokens=256, num_frames=18, temperature=0.6)),
             store,
@@ -118,7 +117,7 @@ class TestSeedingMerge:
             "output_category": None,
             "alert_type": "collision",
         })
-        loader.save_to_redis(
+        loader.seed_to_store(
             "collision",
             _config(VlmParams(max_tokens=256, num_frames=18, temperature=0.6)),
             store,
@@ -137,5 +136,5 @@ class TestSeedingMerge:
             "output_category": None,
             "alert_type": "collision",
         })
-        loader.save_to_redis("collision", _config(), store)
+        loader.seed_to_store("collision", _config(), store)
         assert store.get("collision")["vlm_params"] == {"max_tokens": 1024}

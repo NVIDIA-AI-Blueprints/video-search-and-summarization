@@ -29,7 +29,7 @@ Errors:
       ``False`` on ``delete``; the service layer interprets those as
       "not found".
     * ``DocumentAlreadyExistsError`` on ``set_if_absent`` → returned as
-      ``False`` (existing behaviour of the Redis store).
+      ``False`` (matches the ``AlertConfigStoreABC`` contract).
     * All other ``PersistenceError`` subclasses propagate; the cached
       store above decides whether to fall back or surface 5xx.
 """

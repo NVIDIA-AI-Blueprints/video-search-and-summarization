@@ -59,7 +59,7 @@ class AlertConfigNotFound(Exception):
 
 
 class AlertConfigService:
-    """Business-rule layer between REST routes and the Redis store."""
+    """Business-rule layer between REST routes and the alert-config store."""
 
     # Field whitelist for write/update so we never silently drop new fields
     # when callers rename / re-shape the schema.
@@ -145,15 +145,15 @@ class AlertConfigService:
             existing["output_category"] = output_category
         existing["updated_at"] = _utc_now_iso()
 
-        # store.set() raises AlertConfigStoreError on Redis failure, which
-        # bubbles up to the route handler and surfaces as 500.
+        # store.set() raises PersistenceError on a backend failure, which
+        # bubbles up to the route handler and surfaces as 5xx.
         self._store.set(normalized, existing)
         return self._store.get(normalized) or existing
 
     def get(self, alert_type: str) -> Dict[str, Any]:
         normalized = normalize_alert_type(alert_type)
         # The REST API path must NOT silently swap in a stale memory
-        # snapshot when both ES and Redis are down — operators GET-ing
+        # snapshot when Elasticsearch is down — operators GET-ing
         # to debug an outage need a hard 503, not a 200 with whatever
         # this process happened to cache last. Sink and prompt-handler
         # paths still call ``store.get`` directly with the default
@@ -178,6 +178,6 @@ class AlertConfigService:
         # store.delete() returns False only when the key disappears between
         # the existence check and the actual delete — treat that as success
         # since the caller's intent (the key is gone) is satisfied. Backend
-        # failures bubble up as AlertConfigStoreError so the route handler
-        # surfaces them as 500 instead of pretending the delete succeeded.
+        # failures bubble up as PersistenceError so the route handler
+        # surfaces them as 5xx instead of pretending the delete succeeded.
         self._store.delete(normalized)
