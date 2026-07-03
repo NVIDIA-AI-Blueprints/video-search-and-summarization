@@ -36,7 +36,7 @@ DEFAULT_UPDATE_RETRIES = 3
 # any underscore-prefixed metadata field inside the document body
 # with ``document_parsing_exception``. Without this, any caller doing
 # read-modify-write with the returned dict (e.g.
-# ``AlertTypeConfigLoader.save_to_redis`` at startup, or
+# ``AlertTypeConfigLoader.seed_to_store`` at startup, or
 # ``AlertConfigService.update`` on PUT) trips on the asymmetry between
 # read injection and write acceptance.
 _ES_META_FIELDS = frozenset({"_id", "_seq_no", "_primary_term", "_index", "_version"})

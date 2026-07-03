@@ -30,6 +30,18 @@ The VLM backend is pluggable — an OpenAI-compatible endpoint such as an NVIDIA
 VLM NIM (e.g. Cosmos Reason), the RTVI VLM microservice, or a remote model
 endpoint.
 
+> **No Redis required.** Earlier releases used Redis for dedup/filter
+> caching and alert-config storage. That dependency has been removed:
+> deduplication, the end-time delta filter and the (optional) rate limit
+> run as **in-process** state per consumer, while confirmed-verdict
+> protection and alert-type configs are stored in **Elasticsearch**.
+> Because `mdx-incidents` is partitioned by `sensorId`, every event for a
+> dedup cohort is routed to the same consumer, so no cross-pod
+> coordination — and therefore no shared cache — is needed. Multi-replica
+> deployments work unchanged: each pod owns its Kafka partitions and keeps
+> its own in-process state; on restart/rebalance the pod taking over
+> rebuilds state from new events (verdict protection survives via ES).
+
 ## Project Structure
 
 All importable packages live under `src/` (see [`src/README.md`](src/README.md)
@@ -38,15 +50,15 @@ for a detailed layout + data-flow diagram).
 | Path | Purpose |
 |------|---------|
 | `enhance_alert_with_vlm.py` | Alert-verification pipeline orchestrator (entrypoint, repo root) |
-| `src/handlers/` | Alert-type config (RedisJSON), direct-media, and prompt handling |
+| `src/handlers/` | Alert-type config (Elasticsearch-backed), direct-media, and prompt handling |
 | `src/vlm/` | VLM client (OpenAI-compatible) and warmup |
 | `src/schemas/` | NvSchema request/response entities, VLM response model, and pluggable response parsers |
 | `src/realtime/` | Realtime + always-on alert rules and the RTVI VLM client |
 | `src/web/` | REST + WebSocket API and on-demand verification service |
 | `src/vst/` | VST video-clip resolution (sensor ID + timestamps) |
-| `src/clients/` | Elasticsearch + Redis clients |
+| `src/clients/` | Elasticsearch client + in-process dedup/verdict-protection state handler |
 | `src/persistence/` | Elasticsearch persistence store |
-| `src/mdx/` | Alert ingestion sources/sinks (Kafka, Redis, Elasticsearch) |
+| `src/mdx/` | Alert ingestion sources/sinks (Kafka, Elasticsearch) |
 | `blueprint_config/` | Example configs for the warehouse / public-safety / smart-city blueprints |
 | `test/` | Unit, functional, and end-to-end tests (see `test/TEST_README.md`) |
 
@@ -55,8 +67,9 @@ for a detailed layout + data-flow diagram).
 - Python 3.12+
 - Docker and Docker Compose
 - A reachable OpenAI-compatible **VLM backend** (configured in `config.yaml`)
-- **Redis** (can be started via the provided compose file)
+- **Elasticsearch** (durable storage for alert configs + confirmed-verdict protection)
 - Depending on your source/sink choice: **Kafka** and/or **Elasticsearch**
+- No **Redis** instance is required.
 
 ## Installation
 
@@ -69,12 +82,12 @@ Or build/run with Docker (see Quick Start).
 ## Quick Start
 
 1. **Configure** — edit `config.yaml`: set the VLM `base_url`/`model`, the
-   source/sink type (`kafka`, `redisStream`, or `elasticsearch`), and the
-   Redis/Kafka/Elasticsearch endpoints. Optionally override request defaults in
-   `alert_request_defaults.yaml` (or point `ALERT_AGENT_DEFAULTS_FILE` at a
-   custom file).
+   Kafka/Elasticsearch endpoints, and the sink type. Optionally override
+   request defaults in `alert_request_defaults.yaml` (or point
+   `ALERT_AGENT_DEFAULTS_FILE` at a custom file). Dedup / end-time-delta /
+   verdict-protection tuning lives under `alert_agent.event_filters`.
 
-2. **Start the stack** (Redis source/sink is the default):
+2. **Start the stack** (Kafka source/sink is the default; no Redis):
 
    ```bash
    docker compose -f deploy_docker-compose.yml up -d
@@ -100,14 +113,17 @@ python enhance_alert_with_vlm.py --config config.yaml
 `config.yaml` controls the runtime. Key sections:
 
 - **`vlm`** — `base_url` (OpenAI-compatible VLM endpoint), `model`, generation params.
-- **source / sink** — `kafka`, `redisStream`, or `elasticsearch`.
+- **source / sink** — `kafka` (ingestion) and `elasticsearch`/`kafka` (output sink).
 - **persistence / elastic** — Elasticsearch host for durable storage.
 
 Per-alert-type verification prompts and VLM parameters are seeded from
-`alert_type_config.json` and stored in RedisJSON (`alert_config:{alert_type}`).
-They can be managed at runtime via the Verification Config API
-(`POST/PUT/GET /api/v1/verification/config[/{alert_type}]`); the pipeline reads
-through to the store on each VLM call, so updates apply without a restart.
+`alert_type_config.json` and stored in **Elasticsearch** (index
+`ab-alert_configs`). They can be managed at runtime via the Verification
+Config API (`POST/PUT/GET /api/v1/verification/config[/{alert_type}]`); the
+pipeline reads through to Elasticsearch on each VLM call (an in-process cache
+is read-through by default), so updates apply without a restart. Set
+`persistence.cache_ttl_seconds > 0` to cache config reads at the cost of
+bounded cross-process staleness.
 
 ## Usage
 
@@ -130,8 +146,8 @@ pip install -r requirements.txt
 pytest
 ```
 
-For functional and end-to-end testing against local simulators (Redis/Kafka
-profiles, sending sample payloads, verifying responses), see
+For functional and end-to-end testing against local simulators (Kafka +
+Elasticsearch, sending sample payloads, verifying responses), see
 [`test/TEST_README.md`](test/TEST_README.md).
 
 ## Contributing

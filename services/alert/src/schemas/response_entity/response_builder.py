@@ -100,9 +100,9 @@ class ResponseBuilder:
             self.logger.error(f"VSS response validation failed: {e}")
             return self._build_fallback_response(vss_response, str(e))
     
-    def build_redis_responses_from_vss_results(self, vss_handler_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Convert VSS Handler results to Redis-ready responses."""
-        redis_responses = []
+    def build_responses_from_vss_results(self, vss_handler_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert VSS Handler results to serialized response dicts."""
+        responses = []
         
         for vss_result in vss_handler_results:
             try:
@@ -114,15 +114,14 @@ class ResponseBuilder:
                     # Handle error cases
                     response_entity = self._build_error_response_from_vss(vss_result)
                 
-                # Convert to Redis dictionary
-                redis_response = response_entity.model_dump(by_alias=True)
-                redis_responses.append(redis_response)
+                # Serialize to a plain dict
+                responses.append(response_entity.model_dump(by_alias=True))
                 
             except Exception as e:
                 self.logger.error(f"Failed to process VSS result: {e}")
                 continue
         
-        return redis_responses
+        return responses
     
     def _build_error_response_from_vss(self, vss_result: Dict[str, Any]) -> AlertResponseEntity:
         """
