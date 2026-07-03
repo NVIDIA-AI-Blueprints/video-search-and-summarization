@@ -27,11 +27,10 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import fakeredis
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from handlers.alert_config import AlertConfigStore  # noqa: E402
+from handlers.alert_config import InMemoryAlertConfigStore  # noqa: E402
 
 # Import the AnomalyEnhancer class only to grab the unbound function — we
 # never instantiate it.
@@ -109,7 +108,7 @@ class TestFileOverridesGlobal:
 class TestRedisOverridesFile:
 
     def _store_with(self, alert_type, vlm_params):
-        store = AlertConfigStore(fakeredis.FakeRedis(decode_responses=True))
+        store = InMemoryAlertConfigStore()
         store.set(alert_type, {"vlm_params": vlm_params})
         return store
 
@@ -146,8 +145,8 @@ class TestRedisOverridesFile:
         assert result["num_frames"] == 5
 
     def test_redis_missing_alert_type_falls_through(self, merge_fn):
-        store = AlertConfigStore(fakeredis.FakeRedis(decode_responses=True))
-        # Redis empty
+        store = InMemoryAlertConfigStore()
+        # store empty
         self_obj = _make_self(
             global_cfg={"max_tokens": 256},
             redis_store=store,

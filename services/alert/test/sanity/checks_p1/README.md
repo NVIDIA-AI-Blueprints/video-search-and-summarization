@@ -21,7 +21,7 @@ ES_HOST=localhost ./run_p1.sh --json
 |---|-------|------|-------------|
 | 01 | Document Parity | HTTP | Latest 10 incident IDs all found in VLM index |
 | 02 | Verdict Validation | HTTP | Latest 10 docs all have valid non-null `info.verdict` |
-| 03 | Redis Dedup Fingerprints | HTTP | >=50% of sampled docs have `info.fingerprint` field (needs discussion) |
+| 03 | Dedup Fingerprints | HTTP | >=50% of sampled docs have `info.fingerprint` field (needs discussion) |
 | 04 | VST Video URL | HTTP | Latest 10 docs all have `info.videoUrl` or `info.videoSource` |
 | 05 | Document Schema | HTTP | Latest 10 docs have all required fields |
 | 06 | VLM Response Codes | HTTP | Latest 10 docs all have valid `verificationResponseCode` (200 or non-200) |
@@ -79,9 +79,9 @@ Configuration is loaded from `checks_p1/config_p1.env` at runtime.
 
 ---
 
-### 03 — Redis Dedup Fingerprints
+### 03 — Dedup Fingerprints
 
-**Purpose:** Confirm the Redis deduplication pipeline is writing fingerprints to alert documents. A fingerprint absence in the majority of docs indicates dedup is disabled or broken.
+**Purpose:** Confirm the deduplication pipeline (now in-process; Redis removed) is writing fingerprints to alert documents. A fingerprint absence in the majority of docs indicates dedup is disabled or broken.
 
 **ES Query:** Fetch `VERIFICATION_SAMPLE_SIZE` documents from alerts index, check `info.fingerprint`.
 

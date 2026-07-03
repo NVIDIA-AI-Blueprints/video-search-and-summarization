@@ -12,7 +12,7 @@ Tests are grouped by type so unit tests stay isolated from the rest:
 | `test/latency/` | Performance / latency tooling + its unit test | `pytest test/latency` |
 | `test/sanity/` | Deployment sanity checks (shell) | `ES_HOST=... test/sanity/run_sanity.sh` |
 | `test/protobuf/`, `test/sim_scripts/` | Shared tooling (producers, simulators) — used by functional/e2e, not pytest tests | — |
-| `test/test_lite/` | Manual local integration helpers (Kafka/Redis/MinIO) | see below |
+| `test/test_lite/` | Manual local integration helpers (Kafka/MinIO) | see below |
 
 ## Prerequisites
 
@@ -22,19 +22,19 @@ Tests are grouped by type so unit tests stay isolated from the rest:
 
 ## Quick Start
 
-### Using Docker Compose Profiles
+### Using Docker Compose
 
 ```bash
-# Default: Run with Redis (no profile needed)
+# Default: Kafka source/sink, no Redis required
 docker compose -f deploy_docker-compose.yml up -d
 
-# Alternative: Run with Kafka (requires --profile kafka)
-docker compose -f deploy_docker-compose.yml --profile kafka up -d
-
-# Note: Update config.yaml to match your choice:
-# - For Redis (default): sourceType: "redisStream", sinkType: "redisStream"
-# - For Kafka: sourceType: "kafka", sinkType: "kafka"
+# config.yaml defaults: sourceType: "kafka", sinkType: "kafka"
 ```
+
+> Redis has been removed entirely. Dedup / filter state is in-process and
+> durable state (verdict protection, alert configs) lives in Elasticsearch.
+> Ingestion is over Kafka (or the HTTP API); there is no Redis Streams
+> transport.
 
 ### Testing with Kafka
 
@@ -52,27 +52,6 @@ python3 enhance_alert_with_vlm.py --config config.yaml
 # 4. Send test messages (in another terminal)
 cd test/test_lite/kafka
 python3 send_payload.py
-
-# 5. Verify responses
-python3 verify_responses.py
-```
-
-### Testing with Redis
-
-```bash
-# 1. Start Redis server
-docker compose -f test_docker-compose.yml up -d redis
-
-# 2. Setup Redis streams (first time only)
-cd test/test_lite/redis
-python3 setup_streams.py
-
-# 3. Start the alert agent (in a new terminal)
-python3 enhance_alert_with_vlm.py --config config.yaml
-
-# 4. Send test messages (in another terminal)
-cd test/test_lite/redis
-python3 send_payload.py 1  # or 2, 3 for different payloads
 
 # 5. Verify responses
 python3 verify_responses.py

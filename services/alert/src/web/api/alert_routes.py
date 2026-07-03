@@ -252,9 +252,17 @@ async def alert_submission_health(
         # Check if we can access the entity validator
         validator_status = "ok" if service.entity_validator else "error"
         
-        # Check Redis event bridge connectivity
+        # Check event-bridge connectivity. Default deployment uses Kafka
+        # (no Redis): treat a configured Kafka producer as healthy. The
+        # legacy Redis input-stream writer is only present for the dormant
+        # ``redisStream`` transport.
         try:
-            event_bridge_status = "ok" if hasattr(service, "redis_client") and service.redis_client and service.redis_client.ping() else "error"
+            if getattr(service, "redis_client", None) is not None:
+                event_bridge_status = "ok" if service.redis_client.ping() else "error"
+            elif getattr(service, "kafka_producer", None) is not None:
+                event_bridge_status = "ok"
+            else:
+                event_bridge_status = "error"
         except Exception:
             event_bridge_status = "error"
         

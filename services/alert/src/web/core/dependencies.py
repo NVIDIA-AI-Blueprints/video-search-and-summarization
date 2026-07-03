@@ -13,18 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from clients.redis_handler import RedisHandler
-from functools import lru_cache
-
 from utils.config import load_config, resolve_config_path  # noqa: F401  (load_config re-exported for callers)
 
 
 def load_config_path():
     """Active config path (CONFIG_PATH env, default config.yaml)."""
     return resolve_config_path()
-
-@lru_cache()
-def get_redis_handler() -> RedisHandler:
-    """Get or create RedisHandler instance."""
-    config_path = load_config_path()  # Get the path to the configuration file
-    return RedisHandler(config_path)  # Pass the config file path to RedisHandler 
