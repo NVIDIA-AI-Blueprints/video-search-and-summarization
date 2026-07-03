@@ -77,7 +77,7 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
   ║  ───────────────────────────────────────────────────────  ║
   ║  kafka :9092 → logstash → elasticsearch :9200 →           ║
   ║                                              kibana :5601 ║
-  ║  redis :6379 · phoenix · broker-health-check              ║
+  ║  redis :6379 · broker-health-check                        ║
   ║  ES index: default_<collection_id>                        ║
   ╚═══════════════════════════════════════════════════════════╝
 ```
