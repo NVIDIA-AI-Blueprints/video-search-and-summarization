@@ -29,19 +29,31 @@ from typing import Any
 DEFAULT_SUMMARY_DIR = Path(__file__).resolve().parents[1] / "frozen_summarization_server" / "data"
 DEFAULT_QUESTION_DIR = Path("questions")
 DEFAULT_RESULTS_DIR = Path("results")
+MANIFEST_SCHEMA_VERSION = 1
+CANONICAL_CATEGORIES = ("within_event", "entity_relational", "temporal")
+CANONICAL_QUESTIONS_PER_CATEGORY = 5
 
 
 def log(message: str) -> None:
     print(message, flush=True)
 
 
-def read_json_rows(path: Path) -> list[dict[str, Any]]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, list):
-        raise ValueError(f"Question file must contain a JSON array: {path}")
-    if not all(isinstance(row, dict) for row in value):
-        raise ValueError(f"Every question must be a JSON object: {path}")
-    return value
+def read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def is_cross_question_document(value: Any) -> bool:
+    required_legacy_keys = {"scenario_id", "turn_id", "family", "question"}
+    if isinstance(value, list):
+        return bool(value) and all(
+            isinstance(row, dict) and required_legacy_keys <= set(row) for row in value
+        )
+    return (
+        isinstance(value, dict)
+        and value.get("schema_version") == MANIFEST_SCHEMA_VERSION
+        and isinstance(value.get("scenarios"), list)
+        and bool(value["scenarios"])
+    )
 
 
 def discover_question_files(
@@ -66,28 +78,212 @@ def discover_question_files(
         raise FileNotFoundError(f"Question directory not found: {resolved_dir}")
 
     files: list[Path] = []
-    required_keys = {"scenario_id", "turn_id", "family", "question"}
     for candidate in sorted(resolved_dir.glob("*.json")):
         try:
-            value = json.loads(candidate.read_text(encoding="utf-8"))
+            value = read_json(candidate)
         except json.JSONDecodeError:
             continue
-        if (
-            isinstance(value, list)
-            and value
-            and all(isinstance(row, dict) and required_keys <= set(row) for row in value)
-        ):
+        if is_cross_question_document(value):
             files.append(candidate)
     if not files:
         raise FileNotFoundError(f"No cross-video question files found in {resolved_dir}")
     return files
 
 
+def require_mapping(value: Any, location: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{location} must be a JSON object")
+    return value
+
+
+def require_string(value: Any, location: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{location} must be a non-empty string")
+    return value.strip()
+
+
+def load_canonical_questions(path: Path, focal_video_id: str) -> list[dict[str, Any]]:
+    try:
+        document = require_mapping(read_json(path), str(path))
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Canonical single-video question file not found: {path}") from exc
+
+    video_id = require_string(document.get("video_id"), f"{path}: video_id")
+    if video_id != focal_video_id:
+        raise ValueError(
+            f"{path}: video_id {video_id!r} does not match focal_video_id {focal_video_id!r}"
+        )
+    questions = document.get("questions")
+    if not isinstance(questions, list) or not all(isinstance(row, dict) for row in questions):
+        raise ValueError(f"{path}: questions must be a JSON array of objects")
+
+    expected_total = len(CANONICAL_CATEGORIES) * CANONICAL_QUESTIONS_PER_CATEGORY
+    if len(questions) != expected_total:
+        raise ValueError(f"{path}: expected {expected_total} canonical questions, got {len(questions)}")
+    category_counts = {
+        category: sum(row.get("category") == category for row in questions)
+        for category in CANONICAL_CATEGORIES
+    }
+    expected_counts = {
+        category: CANONICAL_QUESTIONS_PER_CATEGORY for category in CANONICAL_CATEGORIES
+    }
+    if category_counts != expected_counts:
+        raise ValueError(
+            f"{path}: expected canonical category counts {expected_counts}, got {category_counts}"
+        )
+
+    qids = [row.get("qid") for row in questions]
+    if qids != list(range(1, expected_total + 1)):
+        raise ValueError(f"{path}: qids must be consecutive integers 1..{expected_total}")
+    for row in questions:
+        location = f"{path}: qid {row['qid']}"
+        require_string(row.get("question"), f"{location} question")
+        require_string(row.get("expected_answer_target"), f"{location} expected_answer_target")
+        event_ids = row.get("expected_event_ids")
+        if not isinstance(event_ids, list) or not all(type(event_id) is int for event_id in event_ids):
+            raise ValueError(f"{location} expected_event_ids must be an integer array")
+    return questions
+
+
+def expand_cross_manifest(path: Path, document: dict[str, Any]) -> list[dict[str, Any]]:
+    if document.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+        raise ValueError(
+            f"{path}: schema_version must be {MANIFEST_SCHEMA_VERSION}"
+        )
+    scenarios = document.get("scenarios")
+    if not isinstance(scenarios, list) or not scenarios:
+        raise ValueError(f"{path}: scenarios must be a non-empty JSON array")
+
+    expanded: list[dict[str, Any]] = []
+    seen_scenario_ids: set[str] = set()
+    for scenario_index, raw_scenario in enumerate(scenarios, start=1):
+        scenario = require_mapping(raw_scenario, f"{path}: scenario {scenario_index}")
+        scenario_id = require_string(
+            scenario.get("scenario_id"), f"{path}: scenario {scenario_index} scenario_id"
+        )
+        if scenario_id in seen_scenario_ids:
+            raise ValueError(f"{path}: duplicate scenario_id {scenario_id!r}")
+        seen_scenario_ids.add(scenario_id)
+        location = f"{path}: scenario {scenario_id}"
+        incident_id = require_string(scenario.get("incident_id"), f"{location} incident_id")
+        focal_video_id = require_string(
+            scenario.get("focal_video_id"), f"{location} focal_video_id"
+        )
+        source_value = require_string(
+            scenario.get("single_question_source"), f"{location} single_question_source"
+        )
+        source_path = Path(source_value).expanduser()
+        if not source_path.is_absolute():
+            source_path = path.parent / source_path
+        source_path = source_path.resolve()
+        canonical_questions = load_canonical_questions(source_path, focal_video_id)
+
+        locator = require_mapping(scenario.get("locator"), f"{location} locator")
+        locator_videos = parse_expected_video_ids(locator.get("expected_video_ids"))
+        if locator_videos != [focal_video_id]:
+            raise ValueError(
+                f"{location} locator expected_video_ids must contain only focal_video_id"
+            )
+        require_complete_expected_evidence(
+            locator.get("expected_event_ids"), locator_videos, f"{location} locator"
+        )
+        expanded.append(
+            {
+                "scenario_id": scenario_id,
+                "incident_id": incident_id,
+                "focal_video_id": focal_video_id,
+                "turn_id": 1,
+                "turn_kind": "locator",
+                "family": locator.get("family", "cross_video_locator"),
+                "question": require_string(locator.get("question"), f"{location} locator question"),
+                "expected_answer_target": require_string(
+                    locator.get("expected_answer_target"),
+                    f"{location} locator expected_answer_target",
+                ),
+                "expected_video_ids": locator_videos,
+                "expected_event_ids": locator.get("expected_event_ids"),
+            }
+        )
+
+        scenario_turn_id = 1
+        for question in canonical_questions:
+            scenario_turn_id += 1
+            expanded.append(
+                {
+                    "scenario_id": scenario_id,
+                    "incident_id": incident_id,
+                    "focal_video_id": focal_video_id,
+                    "turn_id": scenario_turn_id,
+                    "turn_kind": "canonical_followup",
+                    "family": question["category"],
+                    "source_qid": question["qid"],
+                    "question": f"For that same video: {question['question']}",
+                    "expected_answer_target": question["expected_answer_target"],
+                    "expected_video_ids": [focal_video_id],
+                    "expected_event_ids": {
+                        focal_video_id: question["expected_event_ids"]
+                    },
+                }
+            )
+
+        cross_questions = scenario.get("cross_video_questions", [])
+        if not isinstance(cross_questions, list) or not all(
+            isinstance(row, dict) for row in cross_questions
+        ):
+            raise ValueError(f"{location} cross_video_questions must be a JSON array of objects")
+        cqids = [row.get("cqid") for row in cross_questions]
+        if cqids != list(range(1, len(cross_questions) + 1)):
+            raise ValueError(f"{location} cross-video cqids must be consecutive integers from 1")
+        for cross_question in cross_questions:
+            scenario_turn_id += 1
+            cross_location = f"{location} cqid {cross_question['cqid']}"
+            expected_videos = parse_expected_video_ids(
+                cross_question.get("expected_video_ids")
+            )
+            if len(expected_videos) < 2:
+                raise ValueError(f"{cross_location} must require at least two expected videos")
+            if focal_video_id not in expected_videos:
+                raise ValueError(f"{cross_location} must include focal_video_id in expected_video_ids")
+            require_complete_expected_evidence(
+                cross_question.get("expected_event_ids"), expected_videos, cross_location
+            )
+            expanded.append(
+                {
+                    "scenario_id": scenario_id,
+                    "incident_id": incident_id,
+                    "focal_video_id": focal_video_id,
+                    "turn_id": scenario_turn_id,
+                    "turn_kind": "cross_video_evidence_join",
+                    "family": cross_question.get("family", "cross_video_evidence_join"),
+                    "reasoning_axis": cross_question.get("reasoning_axis", ""),
+                    "source_qid": cross_question["cqid"],
+                    "question": require_string(
+                        cross_question.get("question"), f"{cross_location} question"
+                    ),
+                    "expected_answer_target": require_string(
+                        cross_question.get("expected_answer_target"),
+                        f"{cross_location} expected_answer_target",
+                    ),
+                    "expected_video_ids": expected_videos,
+                    "expected_event_ids": cross_question.get("expected_event_ids"),
+                }
+            )
+    return expanded
+
+
 def load_question_files(question_files: list[Path]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     scenario_sources: dict[str, Path] = {}
     for question_file in question_files:
-        file_rows = read_json_rows(question_file)
+        document = read_json(question_file)
+        if isinstance(document, list):
+            if not all(isinstance(row, dict) for row in document):
+                raise ValueError(f"Every question must be a JSON object: {question_file}")
+            file_rows = document
+        elif isinstance(document, dict):
+            file_rows = expand_cross_manifest(question_file, document)
+        else:
+            raise ValueError(f"Unsupported cross-question document: {question_file}")
         for scenario_id in {str(row.get("scenario_id", "")) for row in file_rows}:
             previous = scenario_sources.get(scenario_id)
             if previous is not None:
@@ -223,6 +419,27 @@ def parse_expected_evidence(value: Any, expected_video_ids: list[str]) -> set[tu
     return evidence
 
 
+def require_complete_expected_evidence(
+    value: Any,
+    expected_video_ids: list[str],
+    location: str,
+) -> set[tuple[str, int]]:
+    evidence = parse_expected_evidence(value, expected_video_ids)
+    if not isinstance(value, dict):
+        raise ValueError(f"{location}: expected_event_ids must be a JSON object")
+    missing_videos = set(expected_video_ids) - set(value)
+    if missing_videos:
+        raise ValueError(
+            f"{location}: expected_event_ids is missing expected videos: {missing_videos}"
+        )
+    empty_videos = [video_id for video_id in expected_video_ids if not value[video_id]]
+    if empty_videos:
+        raise ValueError(
+            f"{location}: expected_event_ids must cite representative evidence for: {empty_videos}"
+        )
+    return evidence
+
+
 def parse_predicted_video_ids(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
@@ -309,12 +526,21 @@ def group_scenarios(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for raw in rows:
         row = normalize_row(raw)
+        row.setdefault(
+            "turn_kind", "locator" if int(row["turn_id"]) == 1 else "legacy_followup"
+        )
         grouped[row["scenario_id"]].append(row)
     for scenario_id, scenario_rows in grouped.items():
         scenario_rows.sort(key=lambda item: int(item["turn_id"]))
         turn_ids = [int(row["turn_id"]) for row in scenario_rows]
-        if turn_ids != list(range(1, 8)):
-            raise ValueError(f"{scenario_id} must have turn IDs 1..7, got {turn_ids}")
+        expected_turn_ids = list(range(1, len(scenario_rows) + 1))
+        if turn_ids != expected_turn_ids:
+            raise ValueError(
+                f"{scenario_id} must have consecutive turn IDs 1..{len(scenario_rows)}, "
+                f"got {turn_ids}"
+            )
+        if scenario_rows[0]["turn_kind"] != "locator":
+            raise ValueError(f"{scenario_id} turn 1 must be a locator")
     return dict(sorted(grouped.items()))
 
 
@@ -496,14 +722,14 @@ def answer_cross_question(
             "video_ids": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Video IDs used to answer. Include all videos used for comparison turns.",
+                "description": "Video IDs used to answer. Include every video used for cross-video joins.",
                 "uniqueItems": True,
             },
             "event_ids": {
                 "description": (
                     "Focused supporting event IDs. For normal one-video turns, use an array of integers. "
-                    "For comparison turns, use an object mapping each video_id to an array of integer event IDs. "
-                    "Use the smallest directly supporting evidence set."
+                    "For cross-video joins, use an object mapping each video_id to an array of integer "
+                    "event IDs. Use the smallest directly supporting evidence set."
                 )
             },
             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
@@ -516,14 +742,17 @@ def answer_cross_question(
     message = (
         "Answer this cross-conversation BWC memory eval turn.\n"
         "Use only remembered BWC summary/event memories. Do not use outside knowledge.\n"
-        "Maintain scenario context across follow-up turns such as 'that incident' or 'same incident'.\n"
+        "Maintain scenario context across follow-up turns such as 'that video' or 'same incident'.\n"
+        "Retrieve additional video memories when a cross-video evidence join requires them.\n"
         "Every answer must be grounded with focused video_ids and event_ids.\n"
         "Do not cite every related event; cite only directly necessary support.\n"
         "Return only valid JSON matching this schema:\n"
         f"{json.dumps(schema, indent=2)}\n\n"
         f"Scenario ID: {row['scenario_id']}\n"
         f"Turn ID: {row['turn_id']}\n"
+        f"Turn kind: {row.get('turn_kind', '')}\n"
         f"Family: {row['family']}\n"
+        f"Reasoning axis: {row.get('reasoning_axis', '')}\n"
         f"Question: {row['question']}\n"
     )
     output, latency_ms, tool_calls = run_openclaw(message, session_key, model, timeout, log_path)
@@ -586,8 +815,12 @@ def fmt_float(value: float) -> str:
 
 
 def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    locator_rows = [row for row in rows if row["turn_id"] == 1]
-    answer_rows = [row for row in rows if row["turn_id"] != 1 and row["answer_accuracy"] is not None]
+    locator_rows = [row for row in rows if row["turn_kind"] == "locator"]
+    answer_rows = [
+        row
+        for row in rows
+        if row["turn_kind"] != "locator" and row["answer_accuracy"] is not None
+    ]
     return {
         "total_turns": len(rows),
         "locator_turns": len(locator_rows),
@@ -636,6 +869,11 @@ def build_report_json(run_id: str, rows: list[dict[str, Any]], scenario_count: i
         summary = summarize_group([row for row in rows if row["family"] == family])
         summary["family"] = family
         by_family.append(summary)
+    by_turn_kind = []
+    for turn_kind in sorted({row["turn_kind"] for row in rows}):
+        summary = summarize_group([row for row in rows if row["turn_kind"] == turn_kind])
+        summary["turn_kind"] = turn_kind
+        by_turn_kind.append(summary)
     return {
         "run_id": run_id,
         "eval_type": "cross_conversation_memory",
@@ -667,6 +905,7 @@ def build_report_json(run_id: str, rows: list[dict[str, Any]], scenario_count: i
         "breakdown": {
             "by_scenario": by_scenario,
             "by_family": by_family,
+            "by_turn_kind": by_turn_kind,
         },
         "artifacts": {
             "raw_json": "raw.json",
@@ -693,14 +932,14 @@ def write_report(path: Path, report_json: dict[str, Any], rows: list[dict[str, A
         f"| Mean Latency MS | `{summary['mean_latency_ms']}` |",
         f"| Mean Tool Calls | `{fmt_float(summary['mean_num_tool_calls'])}` |",
         "",
-        "| Scenario | Turn | Family | Expected Videos | Predicted Videos | Expected Evidence | Predicted Evidence | Locator Accuracy | Answer Accuracy | Precision | Recall | F1 |",
-        "|---|---:|---|---|---|---|---|---:|---:|---:|---:|---:|",
+        "| Scenario | Turn | Kind | Family | Expected Videos | Predicted Videos | Expected Evidence | Predicted Evidence | Locator Accuracy | Answer Accuracy | Precision | Recall | F1 |",
+        "|---|---:|---|---|---|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         expected_evidence = ";".join(f"{video}:{','.join(map(str, ids))}" for video, ids in row["expected_event_ids"].items())
         predicted_evidence = ";".join(f"{video}:{','.join(map(str, ids))}" for video, ids in row["predicted_event_ids"].items())
         lines.append(
-            f"| {row['scenario_id']} | {row['turn_id']} | {row['family']} | {','.join(row['expected_video_ids'])} | "
+            f"| {row['scenario_id']} | {row['turn_id']} | {row['turn_kind']} | {row['family']} | {','.join(row['expected_video_ids'])} | "
             f"{','.join(row['predicted_video_ids'])} | {expected_evidence} | {predicted_evidence} | "
             f"{'' if row['locator_accuracy'] is None else row['locator_accuracy']} | "
             f"{'' if row['answer_accuracy'] is None else row['answer_accuracy']} | "
@@ -812,13 +1051,14 @@ def main() -> int:
             precision, recall, f1 = prf(expected_evidence, predicted_evidence)
 
             turn_id = int(row["turn_id"])
+            turn_kind = str(row.get("turn_kind", ""))
             locator_accuracy: int | None = None
-            if turn_id == 1:
+            if turn_kind == "locator":
                 locator_accuracy = 1 if set(expected_videos).issubset(set(predicted_videos)) else 0
 
             answer_accuracy: int | None = None
             notes = ""
-            if turn_id != 1 and not args.skip_judge:
+            if turn_kind != "locator" and not args.skip_judge:
                 log(f"  {scenario_id} T{row['turn_id']}: judging")
                 answer_match, notes = judge_answer(
                     row.get("question", ""),
@@ -828,14 +1068,19 @@ def main() -> int:
                     args.judge_timeout,
                 )
                 answer_accuracy = 1 if answer_match else 0
-            elif turn_id != 1 and args.skip_judge:
+            elif turn_kind != "locator" and args.skip_judge:
                 notes = "judge skipped"
 
             raw_rows.append(
                 {
                     "scenario_id": scenario_id,
                     "turn_id": turn_id,
+                    "turn_kind": turn_kind,
                     "family": row.get("family", ""),
+                    "incident_id": row.get("incident_id", ""),
+                    "focal_video_id": row.get("focal_video_id", ""),
+                    "source_qid": row.get("source_qid"),
+                    "reasoning_axis": row.get("reasoning_axis", ""),
                     "question": row.get("question", ""),
                     "expected_answer_target": row.get("expected_answer_target", ""),
                     "answer": answer,

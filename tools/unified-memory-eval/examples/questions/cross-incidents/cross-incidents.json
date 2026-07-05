@@ -1,638 +1,90 @@
-[
-  {
-    "scenario_id": "s1",
-    "turn_id": 1,
-    "family": "cross_video_locator",
-    "question": "Which remembered BWC incident started as a nighttime vehicle stop at a gas station near fuel pumps and later involved arrests, body searches, vehicle searches, and item removal? Include supporting event IDs.",
-    "expected_answer_target": "The incident is the nighttime gas-station vehicle stop with later arrest, body search, vehicle search, and item removal activity.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_1": [
-        1,
-        12,
-        17,
-        30
-      ]
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "scenario_id": "s1",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_1",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_1_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video starts with a nighttime vehicle stop near fuel pumps and later shows arrests, body searches, vehicle searches, and item removal?",
+        "expected_answer_target": "The video is the nighttime gas-station vehicle stop with later arrest, body-search, vehicle-search, and item-removal activity.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_1"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_1": [1, 12, 17, 30]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s2",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_2",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_2_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video shows a nighttime gas-station arrest with arriving police vehicles, a person in a red jacket, and physical restraint or handcuffing?",
+        "expected_answer_target": "The video is the nighttime gas-station arrest in which police vehicles arrive and people are restrained or handcuffed near vehicles and fuel pumps.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_2"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_2": [3, 4, 6, 14]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s3",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_3",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_3_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video focuses on a nighttime vehicle-interior search involving gloved hands, a center console, papers, and small objects?",
+        "expected_answer_target": "The video is the vehicle-interior search in which officers inspect the driver's seat, dashboard, center console, papers, and small objects.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_3"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_3": [1]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s4",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_4",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_4_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video takes place in a lock-up or detention facility and shows a shirtless man restrained near a tiled wall or bench?",
+        "expected_answer_target": "The video is the lock-up scene in which a shirtless man in blue shorts is restrained in a detention-room setting.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_4"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_4": [1]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s5",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_5",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_5_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video shows a shirtless man in blue shorts seated on the floor during a police interview in a detention room?",
+        "expected_answer_target": "The video is the detention-room police interview in which a shirtless man sits on the floor near clothing items.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_5"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_5": [1]
+        }
+      },
+      "cross_video_questions": []
     }
-  },
-  {
-    "scenario_id": "s1",
-    "turn_id": 2,
-    "family": "cross_followup_context",
-    "question": "For that same incident, what happened next after the initial vehicle stop inside or beside the vehicle? Include supporting event IDs.",
-    "expected_answer_target": "After the initial stop, occupants were involved in arrest/restraint activity, a red-jacketed person was controlled or repositioned, and the vehicle area was searched.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_1": [
-        2,
-        3,
-        4,
-        5,
-        6
-      ]
-    }
-  },
-  {
-    "scenario_id": "s1",
-    "turn_id": 3,
-    "family": "cross_temporal_sequence",
-    "question": "What happened after the person was restrained on the ground in that incident? Include supporting event IDs.",
-    "expected_answer_target": "After the person was restrained on the ground, officers conducted body searches and later inspected vehicles nearby.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_1": [
-        12,
-        13,
-        14,
-        16,
-        17
-      ]
-    }
-  },
-  {
-    "scenario_id": "s1",
-    "turn_id": 4,
-    "family": "cross_timeline_reconstruction",
-    "question": "Reconstruct that incident from the first vehicle stop through the later vehicle searches. Include supporting event IDs.",
-    "expected_answer_target": "The timeline moves from gas-station vehicle stop, to arrest/restraint, to body search, to later vehicle searches and item removal.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_1": [
-        1,
-        2,
-        12,
-        13,
-        17,
-        20,
-        29,
-        30,
-        31,
-        42
-      ]
-    }
-  },
-  {
-    "scenario_id": "s1",
-    "turn_id": 5,
-    "family": "cross_multi_hop",
-    "question": "Did this incident include an arrest, body search, vehicle search, and item removal? Include supporting event IDs.",
-    "expected_answer_target": "Yes. The summary includes arrest/restraint, body search, vehicle search, and item removal.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_1": [
-        2,
-        12,
-        13,
-        17,
-        30,
-        36,
-        42
-      ]
-    }
-  },
-  {
-    "scenario_id": "s1",
-    "turn_id": 6,
-    "family": "cross_operator_actionability",
-    "question": "Which events should an investigator review to verify item removal or evidence-handling activity in this incident? Include supporting event IDs.",
-    "expected_answer_target": "Review the removal events, especially the event that explicitly mentions evidence bags or containers.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_1": [
-        11,
-        30,
-        36,
-        46
-      ]
-    }
-  },
-  {
-    "scenario_id": "s1",
-    "turn_id": 7,
-    "family": "cross_comparison",
-    "question": "Compare this gas-station stop with the remembered incident focused mainly on vehicle interior search. How are they different? Include supporting event IDs for both.",
-    "expected_answer_target": "The gas-station stop includes arrest/restraint, body searches, vehicle searches, and removals; the other incident is mainly vehicle interior inspection/search activity.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_1",
-      "log_1083757_body-cam_video_3"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_1": [
-        12,
-        13,
-        17,
-        30,
-        42
-      ],
-      "log_1083757_body-cam_video_3": [
-        1,
-        8
-      ]
-    }
-  },
-  {
-    "scenario_id": "s2",
-    "turn_id": 1,
-    "family": "cross_video_locator",
-    "question": "Which remembered BWC incident shows a nighttime gas-station arrest with police vehicles arriving, a person in a red jacket, and handcuffing or physical restraint? Include supporting event IDs.",
-    "expected_answer_target": "The incident is the nighttime gas-station arrest where officers arrive and restrain or handcuff people near vehicles and gas pumps.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_2"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_2": [
-        3,
-        4,
-        6,
-        14
-      ]
-    }
-  },
-  {
-    "scenario_id": "s2",
-    "turn_id": 2,
-    "family": "cross_followup_context",
-    "question": "For that same incident, what happened after officers arrived near the gas station? Include supporting event IDs.",
-    "expected_answer_target": "After police vehicle arrival, the scene progresses into a vehicle stop and arrest/restraint activity involving a red-jacketed person.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_2"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_2": [
-        3,
-        4,
-        5,
-        6
-      ]
-    }
-  },
-  {
-    "scenario_id": "s2",
-    "turn_id": 3,
-    "family": "cross_temporal_sequence",
-    "question": "What sequence occurs from the later patrol/building view into the arrest near the gas pump? Include supporting event IDs.",
-    "expected_answer_target": "The summary moves from a calm building/patrol view, to police vehicle arrival and stop, then to an officer restraining and handcuffing a person near the gas pump.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_2"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_2": [
-        11,
-        12,
-        13,
-        14
-      ]
-    }
-  },
-  {
-    "scenario_id": "s2",
-    "turn_id": 4,
-    "family": "cross_timeline_reconstruction",
-    "question": "Reconstruct this incident from patrol/arrival through the gas-station arrests. Include supporting event IDs.",
-    "expected_answer_target": "The timeline includes routine patrol, police vehicle arrival, vehicle stop, initial arrest at the gas station, later restraint on the ground, and another arrest near the gas pump.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_2"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_2": [
-        2,
-        3,
-        4,
-        5,
-        6,
-        11,
-        12,
-        13,
-        14
-      ]
-    }
-  },
-  {
-    "scenario_id": "s2",
-    "turn_id": 5,
-    "family": "cross_multi_hop",
-    "question": "Did this incident include police vehicle arrival, a vehicle stop, and an arrest with physical restraint? Include supporting event IDs.",
-    "expected_answer_target": "Yes. Police vehicles arrive, vehicles are stopped, and people are physically restrained or handcuffed.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_2"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_2": [
-        3,
-        5,
-        6,
-        12,
-        13,
-        14
-      ]
-    }
-  },
-  {
-    "scenario_id": "s2",
-    "turn_id": 6,
-    "family": "cross_operator_actionability",
-    "question": "Which events should an investigator review to verify handcuffing or physical restraint activity in this incident? Include supporting event IDs.",
-    "expected_answer_target": "Review the arrest events that describe restraint, handcuffing, and officers maintaining control of the person.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_2"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_2": [
-        4,
-        6,
-        14
-      ]
-    }
-  },
-  {
-    "scenario_id": "s2",
-    "turn_id": 7,
-    "family": "cross_comparison",
-    "question": "Compare this gas-station arrest incident with the remembered gas-station stop that had extensive vehicle searches and item removals. How are they different? Include supporting event IDs for both.",
-    "expected_answer_target": "This incident emphasizes police arrival, stop, and physical restraint/handcuffing; the other incident includes broader body searches, vehicle searches, and item removal/evidence handling.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_2",
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_2": [
-        4,
-        6,
-        14
-      ],
-      "log_1083757_body-cam_video_1": [
-        13,
-        17,
-        30,
-        36,
-        42
-      ]
-    }
-  },
-  {
-    "scenario_id": "s3",
-    "turn_id": 1,
-    "family": "cross_video_locator",
-    "question": "Which remembered BWC incident is focused mainly on officers conducting a nighttime vehicle interior search with gloved hands, a center console, papers, and small objects? Include supporting event IDs.",
-    "expected_answer_target": "The incident is the vehicle interior search where officers inspect the driver's seat, dashboard, center console, papers, and small objects.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_3"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_3": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s3",
-    "turn_id": 2,
-    "family": "cross_followup_context",
-    "question": "For that same incident, what vehicle areas or objects were searched? Include supporting event IDs.",
-    "expected_answer_target": "The search focused on the driver's seat, center console, dashboard area, blue cup or container, papers, and other small objects.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_3"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_3": [
-        1,
-        4,
-        5
-      ]
-    }
-  },
-  {
-    "scenario_id": "s3",
-    "turn_id": 3,
-    "family": "cross_temporal_sequence",
-    "question": "What happens after the initial police vehicle scene at the gas station in that incident? Include supporting event IDs.",
-    "expected_answer_target": "After the police vehicle is shown at the gas station, the vehicle-search activity continues and a person in a plaid shirt/cap exits the white car and moves toward the police vehicle.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_3"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_3": [
-        2,
-        3,
-        6
-      ]
-    }
-  },
-  {
-    "scenario_id": "s3",
-    "turn_id": 4,
-    "family": "cross_timeline_reconstruction",
-    "question": "Reconstruct this incident from the police vehicle scene through the later interior searches. Include supporting event IDs.",
-    "expected_answer_target": "The timeline shows police vehicle presence at the gas station, active interior search of a vehicle, continued police vehicle scene, then later inspection from inside another car with an officer approaching the driver's side.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_3"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_3": [
-        2,
-        3,
-        1,
-        6,
-        8,
-        9
-      ]
-    }
-  },
-  {
-    "scenario_id": "s3",
-    "turn_id": 5,
-    "family": "cross_multi_hop",
-    "question": "Did this incident include a police vehicle at a gas station, vehicle interior search, and inspection of the driver's-side/dashboard area? Include supporting event IDs.",
-    "expected_answer_target": "Yes. The summary shows police vehicle presence at the gas station and repeated vehicle interior/dashboard search activity.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_3"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_3": [
-        2,
-        1,
-        8,
-        9
-      ]
-    }
-  },
-  {
-    "scenario_id": "s3",
-    "turn_id": 6,
-    "family": "cross_operator_actionability",
-    "question": "Which events should an investigator review to verify vehicle interior search activity in this incident? Include supporting event IDs.",
-    "expected_answer_target": "Review the vehicle-search events that directly describe the officer inspecting the vehicle interior, dashboard, driver's seat, center console, and related objects.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_3"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_3": [
-        1,
-        6,
-        8
-      ]
-    }
-  },
-  {
-    "scenario_id": "s3",
-    "turn_id": 7,
-    "family": "cross_comparison",
-    "question": "Compare this vehicle-interior-search incident with the remembered gas-station stop involving arrests and item removal. How are they different? Include supporting event IDs for both.",
-    "expected_answer_target": "This incident is mostly a vehicle interior search; the other gas-station stop includes arrest/restraint, body searches, vehicle searches, and item removal.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_3",
-      "log_1083757_body-cam_video_1"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_3": [
-        1,
-        8
-      ],
-      "log_1083757_body-cam_video_1": [
-        12,
-        13,
-        17,
-        30,
-        36
-      ]
-    }
-  },
-  {
-    "scenario_id": "s4",
-    "turn_id": 1,
-    "family": "cross_video_locator",
-    "question": "Which remembered BWC incident takes place in a lock-up or detention facility with a shirtless man restrained near a tiled wall or bench? Include supporting event IDs.",
-    "expected_answer_target": "The incident is the lock-up scene where a shirtless man in blue shorts is restrained in a detention-room setting.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_4"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_4": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s4",
-    "turn_id": 2,
-    "family": "cross_followup_context",
-    "question": "For that same lock-up incident, what happens to the restrained man and what setting is visible? Include supporting event IDs.",
-    "expected_answer_target": "The man is restrained or handcuffed in a sparse detention room with tiled walls, metal furniture, barred windows, and fluorescent lighting.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_4"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_4": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s4",
-    "turn_id": 3,
-    "family": "cross_temporal_sequence",
-    "question": "What happens after the main restraint scene in that lock-up incident? Include supporting event IDs.",
-    "expected_answer_target": "After the main restraint scene, a person in a dark jacket and jeans opens a door and walks through while another person stands nearby.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_4"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_4": [
-        1,
-        2
-      ]
-    }
-  },
-  {
-    "scenario_id": "s4",
-    "turn_id": 4,
-    "family": "cross_timeline_reconstruction",
-    "question": "Reconstruct the lock-up incident from restraint through the later door movement. Include supporting event IDs.",
-    "expected_answer_target": "The timeline shows a shirtless man restrained in the detention room, handcuffs or ID-card activity, movement toward a door, and later someone opening and passing through a door.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_4"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_4": [
-        1,
-        2
-      ]
-    }
-  },
-  {
-    "scenario_id": "s4",
-    "turn_id": 5,
-    "family": "cross_multi_hop",
-    "question": "Did this incident include a lock-up setting, physical restraint, and later movement through a doorway? Include supporting event IDs.",
-    "expected_answer_target": "Yes. The summary includes a lock-up setting with restraint and a later door-opening/walk-through event.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_4"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_4": [
-        1,
-        2
-      ]
-    }
-  },
-  {
-    "scenario_id": "s4",
-    "turn_id": 6,
-    "family": "cross_operator_actionability",
-    "question": "Which events should an investigator review to verify restraint or handcuffing in the lock-up setting? Include supporting event IDs.",
-    "expected_answer_target": "Review the main lock-up event because it directly describes the shirtless man being restrained and handcuffs being secured or adjusted.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_4"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_4": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s4",
-    "turn_id": 7,
-    "family": "cross_comparison",
-    "question": "Compare this lock-up restraint incident with the remembered detention-room police interview involving a shirtless man. How are they different? Include supporting event IDs for both.",
-    "expected_answer_target": "This incident focuses on lock-up restraint and handcuffing; the other detention-room incident focuses on a seated shirtless man during a police interview.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_4",
-      "log_1083757_body-cam_video_5"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_4": [
-        1,
-        2
-      ],
-      "log_1083757_body-cam_video_5": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s5",
-    "turn_id": 1,
-    "family": "cross_video_locator",
-    "question": "Which remembered BWC incident shows a shirtless man in blue shorts seated on the floor during a police interview in a detention room? Include supporting event IDs.",
-    "expected_answer_target": "The incident is the detention-room police interview where a shirtless man sits on the floor near clothing items.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_5"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_5": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s5",
-    "turn_id": 2,
-    "family": "cross_followup_context",
-    "question": "For that same interview incident, what posture or behavior does the shirtless man show? Include supporting event IDs.",
-    "expected_answer_target": "The man remains mostly still, leans forward/downward, rests his head on clothing, and appears fatigued or resigned.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_5"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_5": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s5",
-    "turn_id": 3,
-    "family": "cross_temporal_sequence",
-    "question": "What happens after the detention-room interview view in that incident? Include supporting event IDs.",
-    "expected_answer_target": "After the interview-room scene, the camera view shifts to a hallway with tiled walls and doors while a hand partially obstructs the body-camera view.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_5"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_5": [
-        1,
-        2
-      ]
-    }
-  },
-  {
-    "scenario_id": "s5",
-    "turn_id": 4,
-    "family": "cross_timeline_reconstruction",
-    "question": "Reconstruct this incident from the detention-room interview through the hallway movement. Include supporting event IDs.",
-    "expected_answer_target": "The timeline shows a shirtless man seated in a detention room during a police interview, then a first-person hallway view with doors, signs, fluorescent lighting, and a hand near the camera.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_5"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_5": [
-        1,
-        2
-      ]
-    }
-  },
-  {
-    "scenario_id": "s5",
-    "turn_id": 5,
-    "family": "cross_multi_hop",
-    "question": "Did this incident include a detention-room interview, a seated shirtless man, and later movement through an institutional hallway? Include supporting event IDs.",
-    "expected_answer_target": "Yes. The summary includes the detention-room interview with the shirtless man and a later hallway/body-camera view.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_5"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_5": [
-        1,
-        2
-      ]
-    }
-  },
-  {
-    "scenario_id": "s5",
-    "turn_id": 6,
-    "family": "cross_operator_actionability",
-    "question": "Which events should an investigator review to verify the interview-room setting and the subject's visible condition or posture? Include supporting event IDs.",
-    "expected_answer_target": "Review the main police-interview event because it directly describes the room, the shirtless man, clothing items, posture, and apparent fatigue.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_5"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_5": [
-        1
-      ]
-    }
-  },
-  {
-    "scenario_id": "s5",
-    "turn_id": 7,
-    "family": "cross_comparison",
-    "question": "Compare this detention-room police interview with the remembered lock-up restraint incident. How are they different? Include supporting event IDs for both.",
-    "expected_answer_target": "This incident focuses on a seated police interview in a detention room; the other focuses on physical restraint and handcuffing in a lock-up setting.",
-    "expected_video_ids": [
-      "log_1083757_body-cam_video_5",
-      "log_1083757_body-cam_video_4"
-    ],
-    "expected_event_ids": {
-      "log_1083757_body-cam_video_5": [
-        1
-      ],
-      "log_1083757_body-cam_video_4": [
-        1,
-        2
-      ]
-    }
-  }
-]
+  ]
+}

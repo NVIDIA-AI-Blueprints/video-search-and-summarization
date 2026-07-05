@@ -4,10 +4,10 @@ Small eval harness for VSS/OpenClaw memory experiments.
 
 It contains:
 
-- `questions/`: JSON eval questions for single-video QA and cross-conversation memory scenarios.
+- `examples/questions/`: JSON eval questions for single-video QA and cross-conversation memory scenarios.
 - `frozen_summarization_server/`: LVS-compatible frozen summary replay server and BWC fixtures.
 - `scripts/run_single.py`: single-video summary + follow-up QA eval.
-- `scripts/run_cross.py`: cross-conversation memory eval with locator, follow-up, and comparison turns.
+- `scripts/run_cross.py`: cross-conversation memory eval with locator, canonical follow-up, and cross-video evidence-join turns.
 - `scripts/compare.py` and `scripts/compare_total.py`: result comparison helpers.
 
 Two types of evals run here:
@@ -62,7 +62,55 @@ examples/questions/
   cross-incidents/     # Cross-conversation scenario sets
 ```
 
-Legacy `*_eval.json` files contain a top-level question array and derive the video ID from the filename. Custom-named single-video files contain `video_id` plus a `questions` array. Single-video rows require a `category` of `within_event`, `entity_relational`, or `temporal`, and use JSON arrays for `expected_event_ids`. In cross-conversation files, use arrays for `expected_video_ids` and an object mapping each video ID to an event-ID array for `expected_event_ids`.
+Legacy `*_eval.json` files contain a top-level question array and derive the video ID from the filename. Custom-named single-video files contain `video_id` plus a `questions` array. Single-video rows require a `category` of `within_event`, `entity_relational`, or `temporal`, and use JSON arrays for `expected_event_ids`.
+
+Cross manifests use one scenario per focal video. Each scenario defines one locator, references the focal video's canonical 15-question file, and may define cross-video evidence joins. The runner resolves `single_question_source` relative to the manifest, validates the canonical 5/5/5 category balance, and expands each scenario into:
+
+```text
+1 locator + 15 canonical follow-ups + N cross-video evidence joins
+```
+
+`cross_video_questions` may be empty while a suite is being prepared. When populated, every join must include the focal video and at least one additional video. Cross rows use arrays for `expected_video_ids` and an object mapping every supporting video ID to its representative event-ID array:
+
+```json
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "scenario_id": "s1",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_1",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_1_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video ...?",
+        "expected_answer_target": "The video is ...",
+        "expected_video_ids": ["log_1083757_body-cam_video_1"],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_1": [1]
+        }
+      },
+      "cross_video_questions": [
+        {
+          "cqid": 1,
+          "reasoning_axis": "scene_correlation",
+          "question": "What detail requires evidence from both videos?",
+          "expected_answer_target": "A precise joined conclusion.",
+          "expected_video_ids": [
+            "log_1083757_body-cam_video_1",
+            "log_1083757_body-cam_video_2"
+          ],
+          "expected_event_ids": {
+            "log_1083757_body-cam_video_1": [12],
+            "log_1083757_body-cam_video_2": [9]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The old flat cross-question array remains supported for compatibility.
 
 ### Launch frozen summarization server
 
@@ -108,19 +156,20 @@ nohup uv run uvicorn frozen_summarization_server.app:app \
 
 ### Run evals
 
-From this folder, both runners read `questions/` and write `results/` by default. Use either
+From this folder, use `examples/questions/` for the bundled question sets. Both runners write
+`results/` by default. Use either
 `--question-file` for one input or `--question-dir` for every valid input of that runner's type.
 Those two selectors are mutually exclusive. Use `--results-dir` independently to change the output root.
 
 1. Run evals scoped to a single video. Also save summaries to openclaw memory as these run:
 ```bash
-uv run python scripts/run_single.py --question-dir questions/legacy-single --results-dir results --save-memory
+uv run python scripts/run_single.py --question-dir examples/questions/categorized-single --results-dir results --save-memory
 ```
 
 2. Run evals that are cross-conversations and use memory from earlier conversations:
 ```
 uv run python scripts/run_cross.py \
-  --question-file questions/cross-incidents/cross-incidents.json \
+  --question-file examples/questions/cross-incidents/cross-incidents.json \
   --results-dir results \
   --skip-ingest
 ```
@@ -132,11 +181,11 @@ For details, view the machine-readable data `total.json`, `report.json`.
 Other modes:
 
 ```bash
-uv run python scripts/run_single.py --question-dir questions/legacy-single --save-memory
+uv run python scripts/run_single.py --question-dir examples/questions/legacy-single --save-memory
 
 # Run only one single-video question JSON file for faster iteration.
 uv run python scripts/run_single.py \
-  --question-file questions/legacy-single/log_1083757_body-cam_video_2_eval.json \
+  --question-file examples/questions/legacy-single/log_1083757_body-cam_video_2_eval.json \
   --results-dir results \
   --save-memory
 
@@ -146,8 +195,8 @@ uv run python scripts/run_single.py \
   --results-dir results
 
 # Directory discovery is schema-aware: each runner ignores files belonging to the other eval type.
-uv run python scripts/run_cross.py --question-dir questions/cross-incidents --results-dir results --reset-memory
-uv run python scripts/run_cross.py --question-dir questions/cross-incidents --results-dir results --skip-ingest
+uv run python scripts/run_cross.py --question-dir examples/questions/cross-incidents --results-dir results --reset-memory
+uv run python scripts/run_cross.py --question-dir examples/questions/cross-incidents --results-dir results --skip-ingest
 ```
 
 ## References
