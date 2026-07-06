@@ -1063,15 +1063,18 @@ bool GstTranscode::transcode (TranscodeParam params)
         // - SW dec + SW enc: regular -> regular (videoconvert is fine)
         if (m_useHwDecoder || m_useHwEncoder)
         {
-#ifdef JETSON_PLATFORM
-            m_videoConverter = gst_element_factory_make("nvvidconv", "convert");
-#else
-            m_videoConverter = gst_element_factory_make("nvvideoconvert", "convert");
-            if (!m_videoConverter)
+            if (isJetsonPlatform())
             {
                 m_videoConverter = gst_element_factory_make("nvvidconv", "convert");
             }
-#endif
+            else
+            {
+                m_videoConverter = gst_element_factory_make("nvvideoconvert", "convert");
+                if (!m_videoConverter)
+                {
+                    m_videoConverter = gst_element_factory_make("nvvidconv", "convert");
+                }
+            }
             if (!m_videoConverter)
             {
                 LOG(warning) << "nvvideoconvert not available, using videoconvert" << endl;
@@ -1268,9 +1271,10 @@ bool GstTranscode::transcode (TranscodeParam params)
             }
         }
 
-#ifdef JETSON_PLATFORM
-        g_object_set(G_OBJECT(m_enc), "copy-timestamp", true, NULL);
-#endif
+        if (isJetsonPlatform())
+        {
+            g_object_set(G_OBJECT(m_enc), "copy-timestamp", true, NULL);
+        }
         LOG(info) << "nvv4l2enc configured (no B-frames by default), iframeinterval=" << keyFrameInterval << endl;
     }
     else

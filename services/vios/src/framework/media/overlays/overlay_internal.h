@@ -323,7 +323,7 @@ class NvLLOverlayInternal
         async::task<void>           m_elasticTask;
         std::mutex                  m_debugData;
         std::string                 m_bboxColor;
-        uint16_t                    m_bboxThickness = DEFAULT_BBOX_WIDTH;
+        uint16_t                    m_bboxThickness = getDefaultBboxWidth();
         uint8_t                     m_bboxOpacity = DEFAULT_BBOX_OPACITY;
         bool                        m_bboxDebug = false;
         bool                        m_enableBboxId = false;
@@ -366,7 +366,7 @@ class NvLLOverlayInternal
         std::map<string, CalibrationData, std::less<>> m_calibrationData;
         std::mutex                  m_calibrationLock;
         SyncObject                  m_metaWait = {};
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
         OsdCpuDataContext*          m_cpuCtx = nullptr;
 #endif
         std::unique_ptr<HaloSafetyManager> m_haloSafetyManager;

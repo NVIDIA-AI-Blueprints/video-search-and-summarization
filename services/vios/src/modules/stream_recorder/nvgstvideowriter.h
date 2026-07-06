@@ -42,7 +42,7 @@
 #include "native_stream_monitor.h"
 #endif
 #include "sqlite_helper.h"
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
 #include "postgresql_helper.h"
 #endif
 #include "user_apis.h"

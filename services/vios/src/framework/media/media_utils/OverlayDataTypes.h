@@ -25,11 +25,11 @@
 #include <queue>
 #include <jsoncpp/json/json.h>
 
-#ifdef JETSON_PLATFORM
-inline constexpr int DEFAULT_BBOX_WIDTH = 2;
-#else
-inline constexpr int DEFAULT_BBOX_WIDTH = 1;
-#endif
+// Default bbox line thickness differs by platform (Orin uses a thicker default).
+// Resolved at runtime via isJetsonPlatform() (declared in utils.h) instead of a
+// compile-time macro so a single aarch64 build serves both Orin and Thor/SBSA.
+bool isJetsonPlatform();
+inline int getDefaultBboxWidth() { return isJetsonPlatform() ? 2 : 1; }
 inline constexpr int DEFAULT_BBOX_OPACITY = 255;
 inline constexpr double DEFAULT_PROXIMITY_AREA_FACTOR = 1.5;
 
@@ -80,7 +80,7 @@ struct OverlayBBoxParams
     bool                    m_enableHalos;
     std::vector<string>     m_overlayClassTypeList;
 
-    OverlayBBoxParams() : m_bboxThickness(DEFAULT_BBOX_WIDTH)
+    OverlayBBoxParams() : m_bboxThickness(getDefaultBboxWidth())
                         , m_bboxOpacity(DEFAULT_BBOX_OPACITY)
                         , m_bboxColor("")
                         , m_bboxDebug(false)

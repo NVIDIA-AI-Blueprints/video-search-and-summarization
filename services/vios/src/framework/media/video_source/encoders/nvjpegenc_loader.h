@@ -27,7 +27,7 @@ typedef void (*jpeg_suppress_tables_t) (j_compress_ptr, boolean);
 typedef void (*jpeg_mem_dest_t) (j_compress_ptr, unsigned char**, unsigned long*);
 typedef void (*jpeg_set_defaults_t) (j_compress_ptr);
 typedef void (*jpeg_set_quality_t) (j_compress_ptr, int, boolean);
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
 typedef void (*jpeg_set_hardware_acceleration_parameters_enc_t) (j_compress_ptr, boolean,
                     unsigned int, unsigned int, unsigned int);
 #endif
@@ -48,7 +48,7 @@ public:
     jpeg_mem_dest_t jpeg_mem_dest;
     jpeg_set_defaults_t jpeg_set_defaults;
     jpeg_set_quality_t jpeg_set_quality;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_set_hardware_acceleration_parameters_enc_t jpeg_set_hardware_acceleration_parameters_enc;
 #endif
     jpeg_start_compress_t jpeg_start_compress;
