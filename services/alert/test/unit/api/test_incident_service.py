@@ -474,6 +474,11 @@ class TestConsolidationGrouping:
         assert len(events) == 1
         assert events[0]["info"]["chunkCount"] == "1"
 
+    def test_unparseable_end_falls_back_to_timestamp(self):
+        c = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="not-a-timestamp")
+        event = _consolidator()._consolidate([c])[0]
+        assert event["end"] == "2025-01-01T00:00:00.000Z"
+
     def test_event_carries_chunk_ids_list(self):
         docs = [
             _chunk(idx=1, doc_id="c1", start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
