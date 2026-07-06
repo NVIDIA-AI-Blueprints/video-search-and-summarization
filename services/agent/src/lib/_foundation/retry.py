@@ -12,19 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Async retry helper.
-
-The default exception set is aiohttp-specific because the VST helpers use
-aiohttp; callers on other transports (e.g. httpx) pass their own exception
-tuple.
-"""
+"""Transport-neutral async retry helper."""
 
 from __future__ import annotations
 
 import logging
 
-from aiohttp import ClientConnectorError
-from aiohttp import ConnectionTimeoutError
 from tenacity import AsyncRetrying
 from tenacity import before_sleep_log
 from tenacity import retry_if_exception_type
@@ -37,7 +30,8 @@ logger = logging.getLogger(__name__)
 def create_retry_strategy(
     retries: int,
     delay: int | float = 2,
-    exceptions: tuple[type[BaseException], ...] = (ClientConnectorError, ConnectionTimeoutError),
+    *,
+    exceptions: tuple[type[BaseException], ...],
 ) -> AsyncRetrying:
     """Build an ``AsyncRetrying`` strategy with jittered exponential backoff.
 

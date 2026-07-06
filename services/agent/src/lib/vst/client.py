@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""VSTClient — VST surface used by primitives.
+"""Reusable VST client and helpers.
 
 Includes the VST helpers (get_name_to_stream_id_map, get_stream_id, get_timeline)
 ported from services/agent/src/vss_agents/tools/vst/{utils,timeline}.py with
@@ -31,19 +31,15 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING
 from typing import Literal
 import urllib.parse
 
 import aiohttp
 
-from .._internal.retry import create_retry_strategy
-from .._internal.sanitize import quote_path_segment
-from .._internal.time_convert import iso8601_to_datetime
-from ..errors import BackendUnreachableError
-
-if TYPE_CHECKING:
-    from ..runtime import SearchRuntime
+from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.retry import create_retry_strategy
+from lib._foundation.sanitize import quote_path_segment
+from lib._foundation.time import iso8601_to_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +61,9 @@ _VST_RETRYABLE_ERRORS: tuple[type[BaseException], ...] = (
 class VSTError(BackendUnreachableError):
     """Error raised by the VST helpers.
 
-    Subclasses :class:`BackendUnreachableError` (backend ``"vst"``) so VST
-    failures are catchable as ``SearchError`` / ``BackendUnreachableError`` and
-    carry ``.backend`` — no raw framework exception leaks. Mirrors the intent of
-    tools/vst/utils.py:64.
+    Subclasses :class:`BackendUnreachableError` (backend ``"vst"``), so VST
+    failures carry ``.backend`` and no raw framework exception leaks. Mirrors
+    the intent of tools/vst/utils.py:64.
     """
 
     def __init__(self, message: str, cause: Exception | None = None) -> None:
@@ -102,10 +97,10 @@ async def get_video_clip_url(
 ) -> str:
     """Return a temporary VST clip URL for a stream and optional time range.
 
-    NAT's ``vst.video_clip`` tool owns this in the agent path. The search_core
-    copy keeps critic/VLM verification usable without importing NAT or invoking
-    the agent. ``start_time`` / ``end_time`` may be ISO strings or second offsets
-    from the stream timeline.
+    NAT's ``vst.video_clip`` tool owns this in the agent path. This reusable
+    helper keeps critic/VLM verification usable without importing NAT or
+    invoking the agent. ``start_time`` / ``end_time`` may be ISO strings or
+    second offsets from the stream timeline.
     """
     if isinstance(start_time, str) != isinstance(end_time, str):
         raise VSTError("start_time and end_time must both be ISO strings or both be second offsets")
@@ -382,9 +377,9 @@ async def get_timeline(
 class VSTClient:
     """Implements the VSTSnapshot protocol.
 
-    All methods accept the URL via constructor (typically from SearchRuntime);
-    no env reads. resolve_stream_id and get_timeline forward to the free
-    helpers above.
+    All methods accept URLs and timeouts explicitly; no runtime, environment,
+    or NAT state is read. resolve_stream_id and get_timeline forward to the
+    free helpers above.
     """
 
     def __init__(
@@ -397,14 +392,6 @@ class VSTClient:
         self._internal_url = internal_url
         self._external_url = external_url
         self._timeout_seconds = timeout_seconds
-
-    @classmethod
-    def from_runtime(cls, rt: SearchRuntime) -> VSTClient:
-        return cls(
-            internal_url=rt.vst_internal_url,
-            external_url=rt.vst_external_url,
-            timeout_seconds=rt.request_timeout_seconds,
-        )
 
     def build_screenshot_url(
         self,

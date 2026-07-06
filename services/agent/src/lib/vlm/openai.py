@@ -12,13 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""OpenAI-compatible VLM analyzer for critic verification.
-
-This is the NAT-free replacement for the agent's ``video_understanding`` tool
-inside the search CLI path. It asks VST for a temporary clip URL, then sends that
-clip to an OpenAI-compatible chat-completions endpoint using the standard
-``video_url`` message shape.
-"""
+"""OpenAI-compatible reusable VLM analyzer."""
 
 from __future__ import annotations
 
@@ -36,12 +30,12 @@ from typing import Literal
 import cv2
 import httpx
 
-from .._internal.retry import create_retry_strategy
-from .._internal.sanitize import scrub_log
-from ..errors import BackendUnreachableError
+from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.retry import create_retry_strategy
+from lib._foundation.sanitize import scrub_log
 
 if TYPE_CHECKING:
-    from .protocols import VSTSnapshot
+    from lib.vst.protocols import VSTSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +173,9 @@ class OpenAIVLMAnalyzer:
                     raise _RetryableVLMStatusError(f"HTTP {response.status_code}: {scrub_log(response.text[:200])}")
                 response.raise_for_status()
                 return response
-        raise _RetryableVLMStatusError("VLM request failed")
+        # ``create_retry_strategy(..., reraise=True)`` always re-raises the
+        # final retryable error, so execution cannot reach this line.
+        raise AssertionError("unreachable: retry strategy reraises exhausted request errors")
 
     def _add_model_runtime_options(self, payload: dict[str, Any], duration_seconds: float) -> None:
         model = self._model.lower()

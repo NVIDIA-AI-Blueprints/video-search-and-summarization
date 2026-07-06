@@ -1,6 +1,6 @@
 # Examples of discovery modes
 
-Run `vss-cli search` with the explicit runtime wrapper from the main `SKILL.md`. Do not invoke bare `vss-cli search`: the CLI does not read deployment env or `$VSS_AGENT_CONFIG_FILE`. The snippets below are query/control flags to append after the wrapper's final `vss-cli search` argument.
+Run `vss-cli search run` with the explicit runtime wrapper from the main `SKILL.md`. Do not invoke bare `vss-cli search run`: the CLI does not read deployment env or `$VSS_AGENT_CONFIG_FILE`. The snippets below are query/control flags to append after the wrapper's final `vss-cli search run` argument.
 
 ## Wide-net discovery — cast the widest net, fast
 
@@ -47,7 +47,7 @@ When false positives are costly, use a lower result count and higher similarity 
 
 ## Attribute and fusion search — make decomposition explicit
 
-`vss-cli search` does not call NAT query decomposition. If the user request has appearance attributes and actions, pass them explicitly.
+`vss-cli search run` does not call NAT query decomposition. If the user request has appearance attributes and actions, pass them explicitly.
 
 ```bash
 --query "person in a red jacket running" \

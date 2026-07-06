@@ -30,11 +30,12 @@ import re
 from typing import TYPE_CHECKING
 from typing import Any
 
+from lib._foundation.time import datetime_to_iso8601
+from lib._foundation.time import iso8601_instants_match
+from lib._foundation.time import safe_iso8601_to_datetime
+
 from .._internal.es_filters import build_video_sources_filter
 from .._internal.es_filters import escape_wildcard
-from .._internal.time_convert import datetime_to_iso8601
-from .._internal.time_convert import iso8601_instants_match
-from .._internal.time_convert import safe_iso8601_to_datetime
 from .._internal.uuid_string import is_standard_uuid_string
 
 if TYPE_CHECKING:

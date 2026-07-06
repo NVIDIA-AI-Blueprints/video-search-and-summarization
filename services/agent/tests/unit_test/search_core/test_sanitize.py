@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import pytest
 
-from lib.search_core._internal.sanitize import quote_path_segment
-from lib.search_core._internal.sanitize import safe_basename
-from lib.search_core._internal.sanitize import scrub_log
+from lib._foundation.sanitize import quote_path_segment
+from lib._foundation.sanitize import safe_basename
+from lib._foundation.sanitize import scrub_log
 
 
 def test_scrub_log_replaces_cr_lf():

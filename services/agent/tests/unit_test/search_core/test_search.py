@@ -32,6 +32,7 @@ from lib.search_core.models.search import SearchInput
 from lib.search_core.primitives._search_helpers import execute_core_search_wrapper
 from lib.search_core.primitives.search import Search
 from lib.search_core.primitives.search import _coerce_attribute_payload
+from lib.search_core.primitives.search import _coerce_critic_payload
 from lib.search_core.primitives.search import _coerce_embed_payload
 
 # --------------------------------------------------------------------- fakes
@@ -701,6 +702,10 @@ class TestTopKOverflow:
     def test_coerce_attribute_payload_maps_validation_error(self):
         with pytest.raises(InvalidInputError):
             _coerce_attribute_payload({"query": "x", "top_k": 5000})
+
+    def test_coerce_critic_payload_maps_validation_error(self):
+        with pytest.raises(InvalidInputError):
+            _coerce_critic_payload({"query": "verify"})
 
 
 class TestConfigurationErrors:

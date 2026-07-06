@@ -24,6 +24,7 @@ from elasticsearch import ConnectionError as ESConnectionError
 from elasticsearch import NotFoundError as ESNotFoundError
 import pytest
 
+import lib.search_core.clients.elastic as elastic_module
 from lib.search_core.clients.elastic import ElasticClient
 from lib.search_core.clients.elastic import _redact_endpoint
 from lib.search_core.errors import BackendUnreachableError
@@ -67,6 +68,34 @@ async def test_search_maps_connection_error_to_backend_unreachable() -> None:
     assert not isinstance(err, IndexNotFoundError)
     assert err.backend == "elasticsearch"
     assert err.__cause__ is raw
+
+
+@pytest.mark.asyncio
+async def test_registry_race_schedules_awaitable_loser_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A race loser is closed through the public async API, never abandoned."""
+
+    closed = asyncio.Event()
+
+    class _FakeAsyncElasticsearch:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def close(self) -> None:
+            closed.set()
+
+    class _LosingRegistry(dict[Any, Any]):
+        def setdefault(self, key: Any, value: Any) -> Any:
+            winner = _FakeAsyncElasticsearch()
+            super().__setitem__(key, winner)
+            return winner
+
+    monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
+    monkeypatch.setattr(ElasticClient, "_clients", _LosingRegistry())
+
+    client = ElasticClient.from_endpoint("http://es")
+
+    assert isinstance(client.raw, _FakeAsyncElasticsearch)
+    await asyncio.wait_for(closed.wait(), timeout=1)
 
 
 def test_registry_is_loop_affine() -> None:

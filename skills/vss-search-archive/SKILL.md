@@ -18,7 +18,7 @@ Run the top-level VSS fusion search across archived video, ingest new clips / RT
 - `vss-manage-video-io-storage` skill installed (used to list and manage video sources before search).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
 - `curl`, `jq`, and Docker or Kubernetes exec access available on the caller.
-- `vss-cli search` available inside the running `vss-agent` container / pod.
+- `vss-cli search run` available inside the running `vss-agent` container / pod.
 
 ## Instructions
 
@@ -90,7 +90,7 @@ This skill requires the VSS **search** profile running on the host at `$HOST_IP`
 
 For a source to be searchable it must be ingested **through the VSS agent backend**, not through VIOS alone. The agent's ingest routes own the VIOS upload + RTVI-CV register + RTVI-embed pipeline as one transaction; a bare VIOS PUT only stores the bytes and never wires them into Elasticsearch.
 
-Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is missing, ingest it with one of the recipes below before running `vss-cli search`. After ingest succeeds, the source appears in `sensor/list` under the name you provided and can be passed to the CLI with `--video-source`.
+Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is missing, ingest it with one of the recipes below before running `vss-cli search run`. After ingest succeeds, the source appears in `sensor/list` under the name you provided and can be passed to the CLI with `--video-source`.
 
 ### File upload — universal three-step flow
 
@@ -171,7 +171,7 @@ curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | j
 
 1. **Ingest** — Files come in through the agent's three-step universal flow; RTSP streams through `/api/v1/rtsp-streams/add`. Both routes hand the source to RTVI-CV (attribute detection) and RTVI-Embed (Cosmos Embed1) which generates vector embeddings for video segments.
 2. **Index** — Embeddings are stored in Elasticsearch via the Kafka pipeline.
-3. **Query** — The host agent decomposes the request, then `vss-cli search` invokes `lib.search_core` directly with explicit fields. It never calls the VSS agent `/generate` API for search.
+3. **Query** — The host agent decomposes the request, then `vss-cli search run` invokes `lib.search_core` directly with explicit fields. It never calls the VSS agent `/generate` API for search.
 4. **Verify** — If requested and the deployed VLM is configured, the NAT-free critic calls the same OpenAI-compatible VLM service with VST clips or sampled frames. The critic now actively prunes results: a `rejected` verdict drops that hit from the output entirely, and when `--search-max-iterations > 1` the rejected hit is excluded and the search re-runs to backfill a replacement. (It is no longer annotation-only.)
 5. **Results** — Timestamped video segments ranked by relevance, with clip playback links and optional critic criteria.
 
@@ -192,17 +192,18 @@ When using this skill, ALWAYS follow this high-level workflow:
    when present; for Helm, use the rendered pod env/configmap. HARD STOP only
    if neither user instructions nor deployment artifacts provide a usable VSS
    agent endpoint/runtime.
-2. **Resolve the source — HARD STOP before any `vss-cli search` call.**
+2. **Resolve the source — HARD STOP before any `vss-cli search run` call.**
    If the user query references a specific video / sensor name
    (e.g. "the airport video", "warehouse_cam_3", "sample warehouse"),
    verify it's actually registered in VIOS **before** running
-   `vss-cli search`. List sources via the `vss-manage-video-io-storage` skill.
+   `vss-cli search run`. List sources via the `vss-manage-video-io-storage` skill.
 
    Then:
-   - **If the named source (or a clearly substring-matching name) IS in the list** → proceed to step 3. Pass the resolved source name with `--video-source`; do not rely on NAT query decomposition.
-   - **If the named source is NOT in the list** → STOP. Do NOT run `vss-cli search` as a probe. Respond to the user with the registered source names and ask whether they meant one of those, want to ingest the missing source (point them at *Ingestion prerequisite* and run the matching file or RTSP recipe through the **agent backend**, not bare VIOS), or want to abandon the query. Wait for clarification.
+   - **Only accept an exact or normalized substring match.** A match must contain the user-named source (or be contained by it after normalization). Semantic similarity, location similarity, and a different sample video are not matches.
+   - **If one eligible source is in the list** → proceed to step 3. Pass that resolved source name with `--video-source`; do not rely on NAT query decomposition.
+   - **If no eligible source is in the list** → STOP. Do NOT run `vss-cli search run` as a probe, remove the source constraint, or substitute another source. Respond with the registered source names and ask whether the user meant one, wants to ingest the missing source (using the **agent backend**, not bare VIOS), or wants to abandon the query. Wait for clarification.
    - **If the query names no specific source** ("find forklifts in the ingested videos", "search across all sources") → skip the substring check, but `sensor/list` must still return non-empty (otherwise no sources are ingested → HARD STOP).
-3. Read [deployment_resolution.md](references/deployment_resolution.md) and [query_decomposition.md](references/query_decomposition.md), decompose the user request, then run `vss-cli search` with the explicit CLI flags in *Search via CLI*. Prefer `--decomposed-json` when the request includes attributes, action binding, object IDs, source selection, time filters, or critic intent.
+3. Read [deployment_resolution.md](references/deployment_resolution.md) and [query_decomposition.md](references/query_decomposition.md), decompose the user request, then run `vss-cli search run` with the explicit CLI flags in *Search via CLI*. Prefer `--decomposed-json` when the request includes attributes, action binding, object IDs, source selection, time filters, or critic intent.
 4. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
    — Use clear section headers
    - Organize findings individually with supporting detail, and close with a summary
@@ -219,6 +220,7 @@ When using this skill, ALWAYS follow this high-level workflow:
 Infer these inputs from the conversation, the live deployment, or deployment artifacts. If some cannot be inferred, ask the user immediately:
 - `$HOST_IP` / VSS agent endpoint: user-provided, live Docker/Helm env, or Docker `generated.env`
 - Search runtime args: derive from the deployed NAT config plus resolved Docker/Helm env; do not invent localhost defaults
+- Remote VLM credentials: never print, inspect, or pass secret values to `vss-cli`. If the deployed VLM requires authentication, stop and use the approved secret-managed operator workflow instead.
 
 ---
 
@@ -226,7 +228,7 @@ Infer these inputs from the conversation, the live deployment, or deployment art
 
 - ALWAYS step into the troubleshooting step of the workflow immediately if anything unexpected happens, read [troubleshooting.md](references/troubleshooting.md)
 - Queries work best with **concrete visual descriptions** (objects, actions, locations). Augment user queries if needed to enhance the quality of the questions, expanding potential details
-- The skill assumes video sources are **already ingested through the agent backend** (see *Ingestion prerequisite*). It MAY run the agent-backed ingest recipes when the user explicitly asks ("ingest `<file>` for search", "add `<rtsp_url>` for search"); it does NOT search the local filesystem for files the user didn't name, and it does NOT use the bare-VIOS PUT path (no embeddings get generated). Workflow step 2 still makes confirming "this source exists in VIOS" a hard precondition before `vss-cli search`.
+- The skill assumes video sources are **already ingested through the agent backend** (see *Ingestion prerequisite*). It MAY run the agent-backed ingest recipes when the user explicitly asks ("ingest `<file>` for search", "add `<rtsp_url>` for search"); it does NOT search the local filesystem for files the user didn't name, and it does NOT use the bare-VIOS PUT path (no embeddings get generated). Workflow step 2 still makes confirming "this source exists in VIOS" a hard precondition before `vss-cli search run`.
 - Use `vss-query-analytics` skill to cross-reference search results with incident/alert data
 
 ---
@@ -235,13 +237,16 @@ Infer these inputs from the conversation, the live deployment, or deployment art
 
 Default to this CLI approach. Do not call the VSS agent `/generate` API for search.
 
-Run `vss-cli search` inside the `vss-agent` container / pod, and pass every backend/runtime value as an explicit CLI flag. Prefer the deployed `$VSS_AGENT_CONFIG_FILE` when present, with each interpolation value passed through `--config-env KEY=VALUE`; the CLI itself never reads `$VSS_AGENT_CONFIG_FILE` or endpoint env vars. For Docker, use `generated.env` plus the live container env to resolve those values; for Helm, use the rendered pod env/configmap. This preserves the configured search profile, ES, RTVI, VST, VLM, critic, and media behavior without invoking NAT.
+Run `vss-cli search run` inside the `vss-agent` container / pod, and pass every non-secret backend/runtime value explicitly. Prefer the deployed `$VSS_AGENT_CONFIG_FILE` when present, with its non-secret interpolation values passed through `--config-env KEY=VALUE`; the CLI itself never reads `$VSS_AGENT_CONFIG_FILE` or endpoint env vars. For Docker, use `generated.env` plus the live container env to resolve those values; for Helm, use the rendered pod env/configmap.
+
+The canonical Docker wrapper is below. Kubernetes invocation guidance and the full flag reference are in [cli_usage.md](references/cli_usage.md). Do not add API keys to either command form. If an authenticated remote VLM is required, stop and use an approved secret-managed operator workflow.
 
 ```bash
 docker exec -i vss-agent sh -lc '
 set -eu
-EMBED_ENDPOINT="${COSMOS_EMBED_ENDPOINT:-${RTVI_EMBED_BASE_URL:-http://${HOST_IP:-localhost}:${RTVI_EMBED_PORT:-8017}}}"
-CV_ENDPOINT="${RTVI_CV_BASE_URL:-http://${HOST_IP:-localhost}:${RTVI_CV_PORT:-9000}}"
+: "${HOST_IP:?resolve HOST_IP from the live deployment before running search}"
+EMBED_ENDPOINT="${COSMOS_EMBED_ENDPOINT:-${RTVI_EMBED_BASE_URL:-http://${HOST_IP}:${RTVI_EMBED_PORT:-8017}}}"
+CV_ENDPOINT="${RTVI_CV_BASE_URL:-http://${HOST_IP}:${RTVI_CV_PORT:-9000}}"
 VLM_BASE="${VLM_BASE_URL:-}"
 if [ -n "$VLM_BASE" ]; then
   case "$VLM_BASE" in */v1|*/v1/) VLM_BASE="${VLM_BASE%/}" ;; *) VLM_BASE="${VLM_BASE%/}/v1" ;; esac
@@ -260,7 +265,7 @@ CONFIG_FILE="${VSS_AGENT_CONFIG_FILE:-}"
 if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
   set -- \
     --config "$CONFIG_FILE" \
-    --config-env "HOST_IP=${HOST_IP:-localhost}" \
+    --config-env "HOST_IP=${HOST_IP}" \
     --config-env "ELASTIC_SEARCH_ENDPOINT=${ELASTIC_SEARCH_ENDPOINT:-}" \
     --config-env "BEHAVIOR_ES_ENDPOINT=${BEHAVIOR_ES_ENDPOINT:-}" \
     --config-env "COSMOS_EMBED_ENDPOINT=${COSMOS_EMBED_ENDPOINT:-}" \
@@ -279,12 +284,11 @@ if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
     --config-env "FRAMES_INDEX_WILDCARD=${FRAMES_INDEX_WILDCARD:-mdx-raw-*}" \
     --config-env "ENABLE_CRITIC=${ENABLE_CRITIC:-true}" \
     --config-env "ENABLE_AUDIO=${ENABLE_AUDIO:-false}" \
+    --config-env "EMBED_CONFIDENCE_THRESHOLD=${EMBED_CONFIDENCE_THRESHOLD:-0.1}" \
     --config-env "VLM_BASE_URL=${VLM_BASE_URL:-}" \
     --config-env "VLM_NAME=${VLM_NAME:-}" \
     --config-env "VLM_MODE=${VLM_MODE:-}" \
     --config-env "VLM_MODEL_TYPE=${VLM_MODEL_TYPE:-nim}" \
-    --config-env "OPENAI_API_KEY=${OPENAI_API_KEY:-}" \
-    --config-env "NVIDIA_API_KEY=${NVIDIA_API_KEY:-}" \
     --config-env "CRITIC_TIME_FORMAT=${CRITIC_TIME_FORMAT:-offset}" \
     --config-env "CRITIC_EVALUATION_COUNT=${CRITIC_EVALUATION_COUNT:-5}" \
     --config-env "VLM_MAX_FRAMES=${VLM_MAX_FRAMES:-60}" \
@@ -335,14 +339,9 @@ else
       --vlm-media-mode "$MEDIA_MODE" \
       --vlm-video-url-scope internal \
       "$@"
-    if [ "${VLM_MODEL_TYPE:-nim}" = "openai" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
-      set -- --vlm-api-key "$OPENAI_API_KEY" "$@"
-    elif [ -n "${NVIDIA_API_KEY:-}" ]; then
-      set -- --vlm-api-key "$NVIDIA_API_KEY" "$@"
-    fi
   fi
 fi
-vss-cli search "$@"
+vss-cli search run "$@"
 ' vss-cli \
   --query "find all instances of forklifts" \
   --source-type video_file | jq .
@@ -355,8 +354,9 @@ If the deployment is Kubernetes/Helm rather than Docker, use the equivalent pod 
 ```bash
 kubectl exec -i deploy/vss-agent -- sh -lc '
 set -eu
-EMBED_ENDPOINT="${COSMOS_EMBED_ENDPOINT:-${RTVI_EMBED_BASE_URL:-http://${HOST_IP:-localhost}:${RTVI_EMBED_PORT:-8017}}}"
-CV_ENDPOINT="${RTVI_CV_BASE_URL:-http://${HOST_IP:-localhost}:${RTVI_CV_PORT:-9000}}"
+: "${HOST_IP:?resolve HOST_IP from the live deployment before running search}"
+EMBED_ENDPOINT="${COSMOS_EMBED_ENDPOINT:-${RTVI_EMBED_BASE_URL:-http://${HOST_IP}:${RTVI_EMBED_PORT:-8017}}}"
+CV_ENDPOINT="${RTVI_CV_BASE_URL:-http://${HOST_IP}:${RTVI_CV_PORT:-9000}}"
 VLM_BASE="${VLM_BASE_URL:-}"
 if [ -n "$VLM_BASE" ]; then
   case "$VLM_BASE" in */v1|*/v1/) VLM_BASE="${VLM_BASE%/}" ;; *) VLM_BASE="${VLM_BASE%/}/v1" ;; esac
@@ -375,7 +375,7 @@ CONFIG_FILE="${VSS_AGENT_CONFIG_FILE:-}"
 if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
   set -- \
     --config "$CONFIG_FILE" \
-    --config-env "HOST_IP=${HOST_IP:-localhost}" \
+    --config-env "HOST_IP=${HOST_IP}" \
     --config-env "ELASTIC_SEARCH_ENDPOINT=${ELASTIC_SEARCH_ENDPOINT:-}" \
     --config-env "BEHAVIOR_ES_ENDPOINT=${BEHAVIOR_ES_ENDPOINT:-}" \
     --config-env "COSMOS_EMBED_ENDPOINT=${COSMOS_EMBED_ENDPOINT:-}" \
@@ -394,12 +394,11 @@ if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
     --config-env "FRAMES_INDEX_WILDCARD=${FRAMES_INDEX_WILDCARD:-mdx-raw-*}" \
     --config-env "ENABLE_CRITIC=${ENABLE_CRITIC:-true}" \
     --config-env "ENABLE_AUDIO=${ENABLE_AUDIO:-false}" \
+    --config-env "EMBED_CONFIDENCE_THRESHOLD=${EMBED_CONFIDENCE_THRESHOLD:-0.1}" \
     --config-env "VLM_BASE_URL=${VLM_BASE_URL:-}" \
     --config-env "VLM_NAME=${VLM_NAME:-}" \
     --config-env "VLM_MODE=${VLM_MODE:-}" \
     --config-env "VLM_MODEL_TYPE=${VLM_MODEL_TYPE:-nim}" \
-    --config-env "OPENAI_API_KEY=${OPENAI_API_KEY:-}" \
-    --config-env "NVIDIA_API_KEY=${NVIDIA_API_KEY:-}" \
     --config-env "CRITIC_TIME_FORMAT=${CRITIC_TIME_FORMAT:-offset}" \
     --config-env "CRITIC_EVALUATION_COUNT=${CRITIC_EVALUATION_COUNT:-5}" \
     --config-env "VLM_MAX_FRAMES=${VLM_MAX_FRAMES:-60}" \
@@ -450,46 +449,12 @@ else
       --vlm-media-mode "$MEDIA_MODE" \
       --vlm-video-url-scope internal \
       "$@"
-    if [ "${VLM_MODEL_TYPE:-nim}" = "openai" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
-      set -- --vlm-api-key "$OPENAI_API_KEY" "$@"
-    elif [ -n "${NVIDIA_API_KEY:-}" ]; then
-      set -- --vlm-api-key "$NVIDIA_API_KEY" "$@"
-    fi
   fi
 fi
-vss-cli search "$@"
+vss-cli search run "$@"
 ' vss-cli \
   --query "find all instances of forklifts" \
   --source-type video_file | jq .
-```
-
-Use explicit flags instead of prose-only control hints:
-
-#### Search by action
-Append these query/control flags after the final `vss-cli search` argument in the wrapper above:
-
-```bash
---query "show me people running" \
-  --source-type video_file \
-  --top-k 10
-```
-
-#### Search by time context
-Append these query/control flags after the final `vss-cli search` argument in the wrapper above:
-
-```bash
---query "person at the entrance" \
-  --source-type video_file \
-  --timestamp-start "2025-01-01T14:00:00" \
-  --timestamp-end "2025-01-01T15:00:00"
-```
-
-#### Consider only RTSP sources i.e. live camera streams
-Append these query/control flags after the final `vss-cli search` argument in the wrapper above:
-
-```bash
---query "find all instances of forklifts" \
-  --source-type rtsp
 ```
 
 ### Advanced control knobs
@@ -518,18 +483,3 @@ Pick and choose these flags as needed for the user’s situation and query. If t
 For examples of discovery modes leveraging these, see [discovery_modes.md](references/discovery_modes.md).
 
 ---
-
-## Search via Agent UI
-
-Open `http://${HOST_IP}:3000/` and type natural-language queries:
-
-```
-find all instances of forklifts
-show me people near the loading dock
-when did a truck arrive at the gate?
-find someone wearing a red jacket
-```
-
-Results include timestamped clips with similarity scores.
-
-bump:3

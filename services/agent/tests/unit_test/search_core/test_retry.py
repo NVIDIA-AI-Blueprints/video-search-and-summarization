@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from lib.search_core._internal.retry import create_retry_strategy
+from lib._foundation.retry import create_retry_strategy
 
 
 class _RetryableError(Exception):

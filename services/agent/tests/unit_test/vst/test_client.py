@@ -22,15 +22,15 @@ from typing import Any
 import aiohttp
 import pytest
 
-from lib.search_core.clients.vst import _VST_RETRYABLE_ERRORS
-from lib.search_core.clients.vst import VSTClient
-from lib.search_core.clients.vst import VSTError
-from lib.search_core.clients.vst import build_screenshot_url
-from lib.search_core.clients.vst import get_name_to_stream_id_map
-from lib.search_core.clients.vst import get_streams_info
-from lib.search_core.clients.vst import get_video_clip_url
 from lib.search_core.errors import BackendUnreachableError
 from lib.search_core.errors import SearchError
+from lib.vst import VSTClient
+from lib.vst import VSTError
+from lib.vst import build_screenshot_url
+from lib.vst import get_name_to_stream_id_map
+from lib.vst import get_streams_info
+from lib.vst import get_video_clip_url
+from lib.vst.client import _VST_RETRYABLE_ERRORS
 
 # --------------------------------------------------------------------- fakes
 
