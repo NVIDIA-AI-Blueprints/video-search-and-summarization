@@ -27,10 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && rm -rf /var/lib/apt/lists/*
 
 RUN uv pip install \
-        "vss-ctx-rag==3.0.1rc1" \
-        "vss-ctx-rag-arango==3.0.1rc1" \
-        --index-url https://urm.nvidia.com/artifactory/api/pypi/nv-shared-pypi/simple \
-        --python-version 3.13 --target /tmp/packages
+    "vss-ctx-rag @ git+https://github.com/NVIDIA/context-aware-rag.git@release/3.0.1" \
+    "vss-ctx-rag-arango @ git+https://github.com/NVIDIA/context-aware-rag.git@release/3.0.1#subdirectory=packages/vss_ctx_rag_arango" \
+    --extra-index-url https://pypi.nvidia.com/ \
+    --python-version 3.13 --target /tmp/packages \
 
 # Ubuntu builder: shell-based operations only — user creation, config/source copy scripts
 FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS app-builder
