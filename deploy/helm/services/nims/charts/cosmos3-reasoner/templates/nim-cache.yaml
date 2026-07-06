@@ -31,7 +31,7 @@ spec:
       authSecret: {{ .Values.global.authSecretName | quote }}
       model:
         profiles:
-          - {{ required "cosmos3.nimModelProfile must be set; refusing to default to 'all' profiles." .Values.nimModelProfile | quote }}
+          - {{ required "Param cosmos3.nimModelProfile must be set." .Values.nimModelProfile | quote }}
   storage:
     pvc:
       storageClass: {{ include "cosmos3.storageClass" . | quote }}
