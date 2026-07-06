@@ -69,7 +69,7 @@ services:
       COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
     volumes:
       - ./render-config.sh:/render-config.sh:ro
-      - ${SDR_CONTROLLER_CONFIG_PATH:-"./configs"}/configs:/tmpl
+      - ${SDR_CONTROLLER_CONFIG_PATH:-./configs}/configs:/tmpl
     restart: "no"
     container_name: sdrc-render-config
 
@@ -86,7 +86,7 @@ services:
       NUM_STREAMS: ${NUM_STREAMS:-1}
       NUM_SENSORS: ${NUM_SENSORS:-1}
     volumes:
-      - ${SDR_CONTROLLER_CONFIG_PATH:-"./configs"}/configs/config.yml:/config.yml:ro
+      - ${SDR_CONTROLLER_CONFIG_PATH:-./configs}/configs/config.yml:/config.yml:ro
       - ./wdm-env-from-config.sh:/run.sh:ro
       - ./.wdm-env:/env
     depends_on:
@@ -157,7 +157,7 @@ services:
       - ./log:/logs
       - /var/run/docker.sock:/var/run/docker.sock
       # Host dir with docker-config.yml (see WDM_WORKLOADS_CONFIG). Same tree as wdm-env-from-config config.yml.
-      - "${SDR_CONTROLLER_CONFIG_PATH:-'./configs'}/configs:/configs/:ro"
+      - ${SDR_CONTROLLER_CONFIG_PATH:-./configs}/configs:/configs/:ro
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
