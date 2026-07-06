@@ -415,9 +415,10 @@ void NvEncoderVideoConsumer::encoderProcessThread()
                 software_mode = true;
             }
         }
-#ifndef JETSON_PLATFORM
-        frame_data->m_isTransformed = true;
-#endif
+        if (!isJetsonPlatform())
+        {
+            frame_data->m_isTransformed = true;
+        }
         m_encoderTransformed = frame_data->m_isTransformed;
         fd_index_pair = resetEncIfRequiredAndGetFreeBuffer (encoder_width, encoder_height, false);
         fd  = fd_index_pair.first;

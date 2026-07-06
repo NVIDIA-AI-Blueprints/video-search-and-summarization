@@ -480,11 +480,14 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.enable_silent_audio_in_udp_input = data.get("enable_silent_audio_in_udp_input", false).asBool();
         m_vmsConfig.enable_udp_input_dump = data.get("enable_udp_input_dump", false).asBool();
         m_vmsConfig.webrtc_out_default_resolution = data.get("webrtc_out_default_resolution", "").asString();
-#ifdef JETSON_PLATFORM
-        m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
-#else
-        m_vmsConfig.enable_ipc_path = false;
-#endif
+        if (isJetsonPlatform())
+        {
+            m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
+        }
+        else
+        {
+            m_vmsConfig.enable_ipc_path = false;
+        }
         m_vmsConfig.ipc_src_buffer_timestamp_copy  = data.get("ipc_src_buffer_timestamp_copy", true).asBool();
         m_vmsConfig.ipc_src_connection_attempts    = data.get("ipc_src_connection_attempts", 5).asInt();
         m_vmsConfig.ipc_src_connection_interval_us = data.get("ipc_src_connection_interval_us", 1000000).asInt();

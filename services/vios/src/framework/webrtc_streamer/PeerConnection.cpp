@@ -172,48 +172,51 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
         }
     }
 
-#ifdef JETSON_PLATFORM
-    if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
-        && NvHwDetection::getInstance()->m_useNvV4l2Enc)
+    if (isJetsonPlatform())
     {
-        LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
+        if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
+            && NvHwDetection::getInstance()->m_useNvV4l2Enc)
+        {
+            LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
+            mediaDependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
+        }
+        else
+        {
+            LOG(info) << "using vp8 and h264 decoder" << endl;
+            mediaDependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
+                                                    webrtc::OpenH264DecoderTemplateAdapter>>();
+        }
     }
     else
     {
-        LOG(info) << "using vp8 and h264 decoder" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
-                                                webrtc::OpenH264DecoderTemplateAdapter>>();
+        bool dec_passthrough = false;
+        if(opts.find("decoder_factory") != opts.end())
+        {
+            dec_passthrough = opts.at("decoder_factory") == DECODER_FACTORY_PASS_THROUGH ? true : false;
+        }
+        if (dec_passthrough)
+        {
+            LOG(info) << "using LibNvPassthroughVideoDecoderTemplateAdapter" << endl;
+            mediaDependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvPassthroughVideoDecoderTemplateAdapter>>();
+        }
+        else if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
+            && NvHwDetection::getInstance()->m_useNvV4l2Enc)
+        {
+            LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
+            mediaDependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
+        }
+        else
+        {
+            LOG(info) << "using vp8 and h264 decoder" << endl;
+            mediaDependencies.video_decoder_factory = std::make_unique<
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
+                                                    webrtc::OpenH264DecoderTemplateAdapter>>();
+        }
     }
-#else
-    bool dec_passthrough = false;
-    if(opts.find("decoder_factory") != opts.end())
-    {
-        dec_passthrough = opts.at("decoder_factory") == DECODER_FACTORY_PASS_THROUGH ? true : false;
-    }
-    if (dec_passthrough)
-    {
-        LOG(info) << "using LibNvPassthroughVideoDecoderTemplateAdapter" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvPassthroughVideoDecoderTemplateAdapter>>();
-    }
-    else if (GET_CONFIG().use_webrtc_hw_dec && NvHwDetection::getInstance()->m_useNvV4l2Dec
-        && NvHwDetection::getInstance()->m_useNvV4l2Enc)
-    {
-        LOG(info) << "using LibNvVideoDecoderTemplateAdapter" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibNvVideoDecoderTemplateAdapter>>();
-    }
-    else
-    {
-        LOG(info) << "using vp8 and h264 decoder" << endl;
-        mediaDependencies.video_decoder_factory = std::make_unique<
-            webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
-                                                webrtc::OpenH264DecoderTemplateAdapter>>();
-    }
-#endif
 
     dependencies.media_engine = cricket::CreateMediaEngine(std::move(mediaDependencies));
 

@@ -40,16 +40,17 @@ void NvLLTransform::setOriginalFrameSize(int w, int h)
     m_height = h;
     m_sourceWidth = w;
     m_sourceHeight = h;
-#ifdef JETSON_PLATFORM
-    /* Update the overlay resolution when out-resolution is not specified and enc is present */
-    Resolution resolution;
-    resolution = GET_CONFIG().webrtc_out_default_resolution;
-    if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+    if (isJetsonPlatform())
     {
-        m_width = w;
-        m_height = h;
+        /* Update the overlay resolution when out-resolution is not specified and enc is present */
+        Resolution resolution;
+        resolution = GET_CONFIG().webrtc_out_default_resolution;
+        if (resolution.empty() && NvHwDetection::getInstance()->m_useNvV4l2Enc == true)
+        {
+            m_width = w;
+            m_height = h;
+        }
     }
-#endif
 }
 
 void NvLLTransform::setIPCMeta ()
@@ -279,14 +280,20 @@ void NvLLTransform::doTransformTask()
                 }
                 if (sink_frame->m_gstBuffer)
                 {
-#ifdef JETSON_PLATFORM
+                    if (isJetsonPlatform())
+                    {
                     if (GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
                         ipc_meta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
                     }
                     else
-#endif
+                    {
+                        meta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
+                        pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
+                    }
+                    }
+                    else
                     {
                         meta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);

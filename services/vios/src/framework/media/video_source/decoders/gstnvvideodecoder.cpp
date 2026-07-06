@@ -1715,7 +1715,6 @@ void GstNvVideoDecoder::sendStateChangeWebSocketMessage(const string& peerid, bo
     LOG(info) << "Sent WebSocket state change message: " << state_str << " for peer: " << peerid << endl;
 }
 
-#ifdef JETSON_PLATFORM
 void GstNvVideoDecoder::registerDecoderPlayingStatusListener(IStreamStatusEvent *listener)
 {
     std::lock_guard<std::mutex> listerner_lock(m_listenerMutex);
@@ -1727,7 +1726,6 @@ void GstNvVideoDecoder::deregisterDecoderPlayingStatusListener(IStreamStatusEven
     std::lock_guard<std::mutex> listerner_lock(m_listenerMutex);
     m_listeners.erase(listener);
 }
-#endif
 
 void GstNvVideoDecoder::getstate_async()
 {
@@ -2224,17 +2222,20 @@ void GstNvVideoDecoder::removeConsumer(const std::string& peerid)
     {
         m_videoSinkList.erase(it);
     }
-#ifdef JETSON_PLATFORM
-    if (m_videoSinkList.size() == 0 && (m_recordedPlayback || GET_CONFIG().enable_ipc_path == false))
+    if (isJetsonPlatform())
     {
-        m_stop = true;
+        if (m_videoSinkList.size() == 0 && (m_recordedPlayback || GET_CONFIG().enable_ipc_path == false))
+        {
+            m_stop = true;
+        }
     }
-#else
-    if (m_videoSinkList.size() == 0)
+    else
     {
-        m_stop = true;
+        if (m_videoSinkList.size() == 0)
+        {
+            m_stop = true;
+        }
     }
-#endif
 
     // When the last consumer is removed, send EOS to the appsrc to unblock any
     // ClipReaderProducer streaming thread stuck in gst_app_src_push_buffer
@@ -3054,19 +3055,22 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
 
     /* Check if all sinks are null */
     bool are_all_sinks_null = checkSinksStatus ();
-#ifdef JETSON_PLATFORM
-    if (are_all_sinks_null == true && (m_recordedPlayback || GET_CONFIG().enable_ipc_path == false))
+    if (isJetsonPlatform())
     {
-        gst_flow_ret = GST_FLOW_ERROR;
-        return gst_flow_ret;
+        if (are_all_sinks_null == true && (m_recordedPlayback || GET_CONFIG().enable_ipc_path == false))
+        {
+            gst_flow_ret = GST_FLOW_ERROR;
+            return gst_flow_ret;
+        }
     }
-#else
-    if (are_all_sinks_null == true)
+    else
     {
-        gst_flow_ret = GST_FLOW_ERROR;
-        return gst_flow_ret;
+        if (are_all_sinks_null == true)
+        {
+            gst_flow_ret = GST_FLOW_ERROR;
+            return gst_flow_ret;
+        }
     }
-#endif
     /* Get the sample from appsink */
     sample = gst_app_sink_pull_sample (GST_APP_SINK (appsink));
     if (sample == nullptr)
@@ -3325,8 +3329,7 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
             m_decOutFrames ++;
             if (m_decOutFrames == CONFIRM_DEC_OUT_FRAMES)
             {
-#ifdef JETSON_PLATFORM
-                if (GET_CONFIG().enable_ipc_path)
+                if (isJetsonPlatform() && GET_CONFIG().enable_ipc_path)
                 {
                     std::lock_guard<std::mutex> listerner_lock(m_listenerMutex);
                     for (auto listener: m_listeners)
@@ -3337,7 +3340,6 @@ GstFlowReturn GstNvVideoDecoder::processNewSampleFromSink(GstElement * appsink)
                         }
                     }
                 }
-#endif
                 if (m_state != GST_STATE_PLAYING )
                 {
                     getstate_async();
@@ -3588,7 +3590,8 @@ FrameSize GstNvVideoDecoder::handleDRC(const string& peerid, int targetPixels, i
     {
         shared_ptr<VideoSinkInfo> sink = it->second;
         FrameSize source_frame_size;
-#ifdef JETSON_PLATFORM
+        if (isJetsonPlatform())
+        {
         // For any quality respect the webrtc out default resolution specified in config
         Resolution resolution;
         resolution = GET_CONFIG().webrtc_out_default_resolution;
@@ -3615,7 +3618,7 @@ FrameSize GstNvVideoDecoder::handleDRC(const string& peerid, int targetPixels, i
             }
             return sink->m_frameSize;
         }
-#endif
+        }
         if(sink->m_quality == "auto")
         {
             size_t res_index = 0;
@@ -3902,13 +3905,10 @@ int GstNvVideoDecoder::createJpegDecoderPipeline(const std::string& filepath) {
     }
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     const bool svg_floor_map = (ext == "svg");
-#if defined(JETSON_PLATFORM)
-    const bool floor_map_sw_jpegdec = false;
-#else
-    // x86 / SBSA: avoid decodebin autoplugging to nvjpegdec for floor map JPEG
+    // x86 / SBSA: avoid decodebin autoplugging to nvjpegdec for floor map JPEG.
+    // Jetson/Orin keeps the hardware jpeg path.
     const bool floor_map_sw_jpegdec =
-        (ext == "jpg" || ext == "jpeg" || ext == "jpe");
-#endif
+        isJetsonPlatform() ? false : (ext == "jpg" || ext == "jpeg" || ext == "jpe");
 
     LOG(info) << "Creating floor map decode pipeline for: " << floor_map_path
               << (filepath != floor_map_path ? (" (request context: " + filepath + ")") : std::string())

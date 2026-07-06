@@ -31,7 +31,7 @@ static void* openLibrary(const char* libName)
     std::string lib_path;
     void* handle = nullptr;
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     lib_path = std::string(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64) + libName;
     handle = dlopen(lib_path.c_str(), RTLD_LAZY);
     if (!handle)
