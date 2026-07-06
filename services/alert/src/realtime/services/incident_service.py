@@ -462,7 +462,9 @@ class IncidentService:
 
         if first_chunk.get("timestamp"):
             event["timestamp"] = first_chunk["timestamp"]
-        end_value = last_chunk.get("end") or last_chunk.get("timestamp")
+        # Use the chunk's end only if it parses; a present-but-unparseable end
+        # falls back to its timestamp so the event never carries a garbage end.
+        end_value = last_chunk.get("end") if _parse_ts(last_chunk.get("end")) else last_chunk.get("timestamp")
         if end_value:
             event["end"] = end_value
 
