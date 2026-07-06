@@ -103,7 +103,7 @@ KafkaConsumer::~KafkaConsumer()
 
 bool KafkaConsumer::kafkaInit()
 {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     m_libHandle = dlopen(ABSOLUTE_LIBRARY_PATH_AARCH64, RTLD_LAZY);
 #else
     m_libHandle = dlopen(ABSOLUTE_LIBRARY_PATH_X86_64, RTLD_LAZY);

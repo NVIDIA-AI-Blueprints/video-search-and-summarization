@@ -48,9 +48,16 @@ extern bool g_isGpuPresent;
 extern int g_gpuIndex;
 extern string g_gpuNodePath;
 extern string g_hostIp;
-#ifdef JETSON_PLATFORM
+// Set once at startup (detectGPU) on integrated-GPU (Orin) platforms to indicate
+// that a discrete NVIDIA GPU node is also present. Always declared so consumers in
+// other libraries (nvsurfacepool, nvbufwrapper) compile on every platform.
 extern bool g_isJetsonGpuMode;
-#endif
+
+// Runtime platform detection. Returns true only on Jetson/Orin (integrated GPU
+// behind the nvgpu driver). Replaces the former compile-time JETSON_PLATFORM macro
+// so a single aarch64 build runs on both Orin and Thor/SBSA. Always false on x86.
+// The result is probed once (via NvBufSurfaceGetDeviceInfo) and cached.
+bool isJetsonPlatform();
 
 // Security utility functions for masking sensitive data in logs
 enum class MaskType {
@@ -172,9 +179,7 @@ Json::Value vectorToJson(const std::vector<string>& vec);
 std::vector<string> jsonToVector(const Json::Value& jsonArray);
 std::vector<int> jsonArrayToVector(const Json::Value& jsonArray);
 string getRandomCommonName();
-#ifdef JETSON_PLATFORM
 bool isJetsonGpuPresent();
-#endif
 
 std::string base64_decode(std::string const& encoded_string);
 std::string base64_encode(char const* bytes_to_encode, unsigned int in_len);

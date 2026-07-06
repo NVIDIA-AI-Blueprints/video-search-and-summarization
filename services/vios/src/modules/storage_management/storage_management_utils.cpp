@@ -160,7 +160,7 @@ public:
         // Try to load the VideoSegmentExtractor library following vstmodule.cpp pattern
         const char* lib_path;
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libvideosegmentextractor.so");
         m_handle = tryLoadLibrary(lib_path);
         if (!m_handle) {

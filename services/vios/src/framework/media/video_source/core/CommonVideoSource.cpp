@@ -240,8 +240,8 @@ VmsErrorCode CommonVideoSource::controlStreamFileVideoSource(const std::string& 
             }
         }
     }
-#ifdef JETSON_PLATFORM
-    else if(m_nvIPCProducer)
+#ifdef AARCH64_PLATFORM
+    else if(isJetsonPlatform() && m_nvIPCProducer)
     {
         if (action == "pause")
         {
@@ -347,11 +347,11 @@ void CommonVideoSource::startStream()
     }
     else
     {
-#ifdef JETSON_PLATFORM
         auto overlay = getOverlay();
         bool is_bbox = overlay && !GET_OSD_INSTANCE()->isError() && overlay->isBboxEnabled();
-        if (is_bbox == false || GET_CONFIG().enable_ipc_path == false)
-#endif
+        // On Jetson/Orin with bbox overlay + IPC path, drive the IPC producer instead
+        // of the decoder. Every other case (all non-Jetson) uses the decoder path.
+        if (!isJetsonPlatform() || is_bbox == false || GET_CONFIG().enable_ipc_path == false)
         {
             if(m_gstdecoder)
             {
@@ -367,7 +367,7 @@ void CommonVideoSource::startStream()
                 LOG(warning) << "Decoder Instance is NULL" << endl;
             }
         }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
         else
         {
             if (m_nvIPCProducer)
@@ -580,12 +580,14 @@ void CommonVideoSource::createConsumerPipeline()
         }
     }
 
-#ifdef JETSON_PLATFORM
+    // IPC producer path (aarch64-only): getIPCProducer() is non-null only on Jetson/Orin
+    // (the IPC build path is Jetson-only), so this branch is inert on other platforms.
+#ifdef AARCH64_PLATFORM
     else if (auto ipcProducer = m_pipelineManager->getIPCProducer())
     {
         auto overlay = m_pipelineManager->getOverlay();
         auto transform = m_pipelineManager->getTransform();
-        
+
         if (overlay && !GET_OSD_INSTANCE()->isError() && overlay->isBboxEnabled())
         {
             if (transform) {
@@ -642,7 +644,7 @@ void CommonVideoSource::setConsumerReady()
         m_nativeStreamProducer->setConsumerReady(m_peerid);
     }
 
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     else if (auto ipcProducer = m_pipelineManager->getIPCProducer())
     {
         auto overlay = m_pipelineManager->getOverlay();
@@ -718,7 +720,7 @@ void CommonVideoSource::stopAndRemoveConsumers()
     {
         m_nativeStreamProducer->removeConsumer(m_peerid);
     }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     else if (auto ipcProducer = m_pipelineManager->getIPCProducer())
     {
         ipcProducer->removeConsumer(m_peerid);
@@ -822,8 +824,8 @@ string CommonVideoSource::getStreamState()
         return nativeProducer->getstate();
     }
     
-#ifdef JETSON_PLATFORM
-    // Check IPC producer
+#ifdef AARCH64_PLATFORM
+    // Check IPC producer (non-null only on Jetson/Orin)
     auto ipcProducer = m_pipelineManager->getIPCProducer();
     if (ipcProducer)
     {
@@ -843,15 +845,15 @@ bool CommonVideoSource::isStreamError()
         return decoder->getError();
     }
     
-#ifdef JETSON_PLATFORM
-    // Check IPC producer on Jetson platform
+#ifdef AARCH64_PLATFORM
+    // Check IPC producer (non-null only on Jetson/Orin)
     auto ipcProducer = m_pipelineManager->getIPCProducer();
     if (ipcProducer)
     {
         return ipcProducer->getError();
     }
 #endif
-    
+
     return false;
 }
 
@@ -939,7 +941,7 @@ std::shared_ptr<NativeStreamProducer> CommonVideoSource::getNativeStreamProducer
     return m_pipelineManager->getNativeStreamProducer();
 }
 
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 std::shared_ptr<NvIPCProducer> CommonVideoSource::getIPCProducer() const
 {
     return m_pipelineManager->getIPCProducer();

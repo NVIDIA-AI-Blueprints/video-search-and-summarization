@@ -32,7 +32,7 @@
 using namespace std;
 
 inline constexpr double DEFAULT_FRAME_RATE = 30.0;
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
 inline constexpr int OUTPUT_PLANE_NUM_BUFFERS = 19;
 #else
 inline constexpr int OUTPUT_PLANE_NUM_BUFFERS = 20;
