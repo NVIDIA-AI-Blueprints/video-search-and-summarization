@@ -13,7 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM nvcr.io/ea-linux4tegra/l4t-cuda:12.2.11-runtime
+# Orin runtime base: same generic CUDA 13.0 / Ubuntu 24.04 image as the sbsa/thor
+# build (cicd_files/aarch64/Dockerfile.base). Provides libcudart.so.13 for the
+# DS 9.1 / CUDA 13.2 prebuilts + OSD libs (soname .13, CUDA 13.x compatible) and a
+# noble ABI matching the R39 cross-compile. Tegra multimedia libs (nvbufsurface,
+# nvv4l2, libcuda, NVENC/NVDEC) are provided on-device by nvidia-container-runtime
+# (CSV mounts) at runtime.
+FROM nvcr.io/nvidia/cuda:13.2.0-runtime-ubuntu24.04
+
+# Needed so nvidia-container-runtime exposes the video (encode/decode) driver libs.
+ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video
 
 RUN apt-get update && apt-get upgrade -y
 
@@ -39,22 +48,29 @@ RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
 	v4l-utils \
 	libpq-dev \
 	libpqxx-dev \
-	libhiredis1.1.0
+	libhiredis1.1.0 \
+	libopencv-dev \
+	libpaho-mqtt-dev \
+	libpaho-mqttpp-dev \
+	kmod
 
 ARG PKG_LOCATION
 
-# Add the package to /opt
-ADD ${PKG_LOCATION}/vst_release.tbz2 /opt
+# Install the package at /home/vst/vst_release — the VSS-standard path the DC compose
+# entrypoint expects (`/home/vst/vst_release/launch_vst`, tools/user_additional_install.sh).
+ADD ${PKG_LOCATION}/vst_release.tbz2 /home/vst
 
-# Ensure all users can read and execute files in /opt/vst_release
-RUN chmod -R 755 /opt/vst_release
+# Ensure all users can read and execute files in the release tree
+RUN chmod -R 755 /home/vst/vst_release
 
-RUN rm -rf /usr/lib/aarch64-linux-gnu/libgstapp-1.0.so.0.2001.0
-RUN mv /opt/vst_release/prebuilts/aarch64/gst-plugins/libgstapp-1.0.so.0.1603.0.so /usr/lib/aarch64-linux-gnu/libgstapp-1.0.so.0.2001.0
+# NOTE: the old jammy base needed the stale prebuilt libgstapp-1.0.so.0.1603 swapped
+# in at soname .0.2001.0. The noble/CUDA-13.2 base ships GStreamer 1.24
+# (libgstapp-1.0.so.0.2402.0), which is exactly what this build links against and what
+# DeepStream 9.1 expects — so no swap is needed; use the base's GStreamer.
 
-WORKDIR /opt/vst_release
+WORKDIR /home/vst/vst_release
 ENV LD_PRELOAD /usr/lib/aarch64-linux-gnu/libgomp.so.1:/lib/aarch64-linux-gnu/libGLdispatch.so.0
-ENV LD_LIBRARY_PATH /opt/vst_release/prebuilts/aarch64/gst-plugins/:/opt/vst_release/prebuilts/aarch64/
-ENV GST_PLUGIN_PATH /opt/vst_release/prebuilts/aarch64/gst-plugins/
+ENV LD_LIBRARY_PATH /home/vst/vst_release/prebuilts/aarch64/gst-plugins/:/home/vst/vst_release/prebuilts/aarch64/
+ENV GST_PLUGIN_PATH /home/vst/vst_release/prebuilts/aarch64/gst-plugins/
 
-ENTRYPOINT  ["/opt/vst_release/launch_vst"]
+ENTRYPOINT  ["/home/vst/vst_release/launch_vst"]

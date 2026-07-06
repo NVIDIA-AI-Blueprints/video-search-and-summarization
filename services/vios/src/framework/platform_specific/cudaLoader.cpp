@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-#ifndef JETSON_PLATFORM
 #include "cudaLoader.h"
 #include <dlfcn.h>
 #include "logger.h"
@@ -48,7 +47,8 @@ CudaLoader::CudaLoader()
         , m_handleCuda(nullptr)
         , m_handleCudart(nullptr)
 {
-#if defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#ifdef AARCH64_PLATFORM
+    // Discrete-GPU aarch64 (Thor/SBSA). Not constructed on Jetson/Orin at runtime.
     m_handleCuda = dlopen("/usr/lib/aarch64-linux-gnu/libcuda.so", RTLD_LAZY);
     m_handleCudart = dlopen("/usr/local/cuda-13.0/targets/sbsa-linux/lib/libcudart.so.13", RTLD_LAZY);
 #else
@@ -95,4 +95,3 @@ CudaLoader::~CudaLoader()
         dlclose(m_handleCudart);
     }
 }
-#endif

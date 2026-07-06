@@ -1220,7 +1220,7 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                 }
                 if (opts.count("overlayThickness"))
                 {
-                    olParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), DEFAULT_BBOX_WIDTH);
+                    olParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), getDefaultBboxWidth());
                 }
                 if (opts.count("overlayDebug"))
                 {

@@ -224,13 +224,13 @@ LDFLAGS += -lldap -llber
 else # Jetson or sbsa
 	CPPFLAGS +=	-I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp
 	CPPFLAGS += -I $(SYSROOT)/usr/include/opencv4/ \
-				-I /usr/include/
+				-I $(SYSROOT)/usr/include/
 	LDFLAGS += -L $(SYSROOT)/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/lapack/liblapack.so.3
-	LDFLAGS += $(SYSROOT)/usr/lib/aarch64-linux-gnu/blas/libblas.so.3 -lopencv_core -lopencv_imgproc -lopencv_imgcodecs
+	LDFLAGS += $(SYSROOT)/usr/lib/aarch64-linux-gnu/blas/libblas.so.3 -L $(SYSROOT)/usr/lib/ -lopencv_core -lopencv_imgproc -lopencv_imgcodecs
 	CPPFLAGS += -DTEGRA_ACCELERATE
-ifneq ($(JETSON_PLATFORM),) # Jetson only
+	# IPC producer path (gstnvipcproducer) is compiled for all aarch64 targets now;
+	# link the ipc meta lib unconditionally on aarch64 (exercised at runtime on Orin).
 	LDFLAGS += -lnvdsgst_ipcmeta
-endif
 endif
 
 ifeq ($(arch),aarch64)
@@ -447,15 +447,9 @@ endif
 
 ifeq ($(arch),aarch64)
 CPPFLAGS += -D USE_NV_ENC -D USE_NV_DEC
-ifneq ($(JETSON_PLATFORM),)
-CPPFLAGS += -D JETSON_PLATFORM
-else
+# Unified aarch64 build: always define AARCH64_PLATFORM. Orin vs Thor/SBSA is now
+# distinguished at runtime via isJetsonPlatform(), so a single aarch64 container runs on both.
 CPPFLAGS += -D AARCH64_PLATFORM
-endif
-
-ifeq ($(BUILD),R32)
-CPPFLAGS += -D JETSON_PLATFORM_R32
-endif
 endif
 
 all: $(APP)
