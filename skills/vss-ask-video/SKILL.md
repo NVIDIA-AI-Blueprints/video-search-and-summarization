@@ -89,7 +89,8 @@ endpoint is up, point the skill at it and use it; no deploy step is needed. At r
 
 1. **A reachable OpenAI-compatible VLM `chat/completions` endpoint** *(the only hard
    requirement)* — NIM Cosmos, RT-VLM, or any other. If one is already running, set
-   `VLM_ENDPOINT` / `VLM_MODEL` directly (Step 2).
+   `VLM_ENDPOINT` / `VLM_MODEL` directly (Step 2). If none is running, Step 2 discovers one and,
+   failing that, can prompt to **deploy a local RT-VLM** via `/vss-deploy-dense-captioning`.
 2. **A video to ask about.** Either of:
    - **Provided directly by the user** — a local file (inlined as a base64 video block) or a URL
      (sent as a `video_url` block the VLM fetches). **No VST/VIOS needed.** This is the default
@@ -286,8 +287,44 @@ is loaded:
 curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | jq -r '.data[].id'
 ```
 
-If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to the other backend
-(or surface the error — never silently pick a model that isn't on the server).
+If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to the other backend.
+If **no** endpoint resolves at all (nothing reachable), there is no default VLM selection in
+place — follow *No default VLM selection?* below instead of silently failing.
+
+### No default VLM selection? Discover first, then prompt (VIA-E-114-04)
+
+Discovery above always runs **first** — an explicit `VLM_ENDPOINT`, then the running `vss-agent`
+env, then the default ports (`:30082` NIM / `:8018` RT-VLM), each confirmed live with `/v1/models`.
+When that yields a reachable endpoint, use it and continue to Step 3 — **do not prompt**.
+
+Only when **no** endpoint resolves (no default selection is in place) prompt the user for how to
+supply a VLM (HITL-optional — see the non-interactive default below). Offer three choices:
+
+1. **Provide an endpoint** — take `VLM_ENDPOINT` (+ optional `VLM_MODEL`), then re-probe
+   `/v1/models` and continue.
+2. **Pick a discovered suggestion** — list any endpoints that responded (from the `vss-agent`
+   env, or the default `:30082` / `:8018` ports) and let the user choose one.
+3. **Deploy a local RT-VLM** — hand off to
+   [`/vss-deploy-dense-captioning`](../vss-deploy-dense-captioning/SKILL.md) (default model
+   **cosmos-reason2-8b**, profile `bp_developer_alerts_2d_vlm`; this tracks the RT-VLM deploy
+   default — cosmos-reason2 today, cosmos-reason3 once 3.2.1 ships), then resume against the
+   **live** service — never a hardcoded endpoint/model:
+
+   ```bash
+   VLM_ENDPOINT="http://${HOST_IP}:${RTVI_VLM_PORT:-8018}/v1"   # matches the RT-VLM deploy contract
+   curl -sf --max-time 5 "${VLM_ENDPOINT}/health/ready"          # first boot can take ~20 min
+   # Resolve the model id from the endpoint — the cosmos-reason2 name is a backend selector,
+   # NOT an API model id, so read the real id the server advertises:
+   VLM_MODEL="$(curl -sf --max-time 5 "${VLM_ENDPOINT}/models" | jq -r '.data[0].id // empty')"
+   VLM_BACKEND="rtvlm"
+   # If the deployed RT-VLM is token-gated, add the bearer on every request:
+   #   -H "Authorization: Bearer ${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
+   ```
+
+**Non-interactive / HITL-disabled (CI, headless agents):** do not block on a prompt. If a
+discovered endpoint already exists, use it; otherwise the default action is to **deploy a local
+RT-VLM** (option 3) and continue. Hard-fail only when a deploy is impossible (no GPU or no
+`NGC_CLI_API_KEY`), printing the three options above so the caller can set `VLM_ENDPOINT`.
 
 ---
 
@@ -472,6 +509,9 @@ Return only the VLM's answer text to the user.
 
 - **`/vss-manage-video-io-storage`** — *optional* (Step 1, Path B): sensor list, timelines, and
   the clip URL when sourcing the video from VST/VIOS. Not needed when the user supplies the video.
+- **`/vss-deploy-dense-captioning`** — *optional* (Step 2): stand up a standalone **RT-VLM**
+  endpoint on a local GPU when no VLM is reachable, then point this skill at it
+  (`http://${HOST_IP}:${RTVI_VLM_PORT:-8018}/v1`, model resolved from `/v1/models`).
 - **`/vss-generate-video-report`** — timestamped **reports** via Mode A (the same direct-VLM
   mechanism) or Mode B (video-analytics incidents); this skill returns an ad-hoc **answer**, not a report.
 - **`/vss-query-analytics`** — read already-computed incidents/metrics (no live VLM inference).
