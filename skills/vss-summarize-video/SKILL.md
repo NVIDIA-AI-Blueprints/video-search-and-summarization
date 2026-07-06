@@ -372,8 +372,8 @@ mixed into it.
   the `video_summary` or `choices[0].message.content`.
 - **One call, one render.** No parallel hedging, no double renderings.
 - **Match the image tag to the host platform.** Use `LVS_TAG=3.2.0` (and
-  `RTVI_VLM_IMAGE_TAG=3.2.0`) on x86 / Jetson-Tegra, and `LVS_TAG=3.2.0-sbsa`
-  (and `RTVI_VLM_IMAGE_TAG=3.2.0-sbsa`) on SBSA / DGX Spark / Grace
+  `RTVI_VLM_IMAGE_TAG=3.2.1`) on x86 / Jetson Thor, and `LVS_TAG=3.2.0-sbsa`
+  (and `RTVI_VLM_IMAGE_TAG=3.2.1-sbsa`) on SBSA / DGX Spark / Grace
   (server-class ARM64) hosts.
 
 ## Cross-reference

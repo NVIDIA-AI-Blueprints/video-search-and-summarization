@@ -87,7 +87,7 @@ Video summarization service values:
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
 | `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | video summarization image repository. |
-| `LVS_TAG` | `3.2.0` (x86 / Jetson-Tegra); `3.2.0-sbsa` (SBSA / DGX Spark / Grace) | video summarization image tag in current develop. The tag must match the host CPU platform. |
+| `LVS_TAG` | `3.2.0` (x86 / Jetson Thor); `3.2.0-sbsa` (SBSA / DGX Spark / Grace) | video summarization image tag in current develop. The tag must match the host CPU platform. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
