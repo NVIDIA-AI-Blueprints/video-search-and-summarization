@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM nvcr.io/nvidia/cuda:13.0.0-runtime-ubuntu24.04
+FROM nvcr.io/nvidia/cuda:13.2.0-runtime-ubuntu24.04
 
 RUN apt-get update && apt-get upgrade -y
 
@@ -44,6 +44,7 @@ RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
 	libprotobuf-dev \
 	libopencv-dev \
 	libgrpc++-dev libgrpc-dev \
+	kmod \
 	&& apt-get clean
 
 # To get video driver libraries at runtime (libnvidia-encode.so/libnvcuvid.so)
