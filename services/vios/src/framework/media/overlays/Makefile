@@ -45,10 +45,9 @@ ifeq ($(arch),x86_64)
 else
 	CPPFLAGS += -I $(SYSROOT)/usr/include/opencv4/
 	LDFLAGS += -L $(SYSROOT)/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/lapack/liblapack.so.3
-	LDFLAGS += $(SYSROOT)/usr/lib/aarch64-linux-gnu/blas/libblas.so.3 -lopencv_core -lopencv_imgproc -lopencv_imgcodecs
-ifneq ($(JETSON_PLATFORM),) # Jetson only
+	LDFLAGS += $(SYSROOT)/usr/lib/aarch64-linux-gnu/blas/libblas.so.3 -L $(SYSROOT)/usr/lib/ -lopencv_core -lopencv_imgproc -lopencv_imgcodecs
+	# IPC meta used at runtime on Orin; linked for all aarch64 in the unified build.
 	LDFLAGS += -lnvdsgst_ipcmeta
-endif
 endif
 
 all: $(TARGET)

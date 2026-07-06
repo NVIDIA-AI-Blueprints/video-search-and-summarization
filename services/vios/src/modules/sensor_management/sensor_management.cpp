@@ -596,7 +596,8 @@ std::string SensorManagement::addStream(shared_ptr<StreamInfo> stream)
             }
         }
 
-#ifdef JETSON_PLATFORM
+        if (isJetsonPlatform())
+        {
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
         if (GET_CONFIG().enable_ipc_path)
         {
@@ -635,7 +636,7 @@ std::string SensorManagement::addStream(shared_ptr<StreamInfo> stream)
             return socket_name;
         }
 #endif
-#endif
+        }
     }
     return "";
 }
@@ -731,7 +732,8 @@ int SensorManagement::deleteSensor(const string sensor_id, bool isReqFromCloudDe
                 {
                     vst_recorder::removeStream(stream->id);
                 }
-#ifdef JETSON_PLATFORM
+                if (isJetsonPlatform())
+                {
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
                 if (GET_CONFIG().enable_ipc_path)
                 {
@@ -745,7 +747,7 @@ int SensorManagement::deleteSensor(const string sensor_id, bool isReqFromCloudDe
                     }
                 }
 #endif
-#endif
+                }
             }
         }
         std::lock_guard<std::mutex> removedListMutex(m_userRemovedListMutex);

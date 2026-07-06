@@ -40,7 +40,7 @@ public:
     std::shared_ptr<NvCompositor> getCompositor() const override { return nullptr; }
     std::shared_ptr<VideoWebRTCSender> getVideoSender() const override { return m_videoSender; }
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const override { return m_nativeStreamProducer; }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> getIPCProducer() const override { return m_ipcProducer; }
 #endif
 
@@ -60,7 +60,7 @@ private:
     std::shared_ptr<GstNvVideoDecoder> m_decoder = nullptr;
     std::shared_ptr<VideoWebRTCSender> m_videoSender = nullptr;
     std::shared_ptr<NativeStreamProducer> m_nativeStreamProducer = nullptr;
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> m_ipcProducer = nullptr;
 #endif
     PipelineConfiguration m_config;

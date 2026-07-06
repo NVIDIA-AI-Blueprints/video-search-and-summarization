@@ -166,15 +166,18 @@ int NvImageEncode::create(int width, int height)
     m_filtersrc       = gst_element_factory_make ("capsfilter"    , nullptr);
     m_filter    = gst_element_factory_make ("capsfilter", nullptr);
     m_scale    = gst_element_factory_make ("videoscale", nullptr);
-#ifndef JETSON_PLATFORM
-    m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
-#else
-    /* Found crash with nvjpegenc on below Rosie version. So using jpegenc
-    * Rosie Version  : 64,  L4T BSP Version: R35.1.0,  JetPack Version: 5.0.2 */
+    if (!isJetsonPlatform())
+    {
+        m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
+    }
+    else
+    {
+        /* Found crash with nvjpegenc on below Rosie version. So using jpegenc
+        * Rosie Version  : 64,  L4T BSP Version: R35.1.0,  JetPack Version: 5.0.2 */
 
-    //m_image_encoder   = gst_element_factory_make ("nvjpegenc", nullptr);
-    m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
-#endif
+        //m_image_encoder   = gst_element_factory_make ("nvjpegenc", nullptr);
+        m_image_encoder   = gst_element_factory_make ("jpegenc", nullptr);
+    }
     m_sink      = gst_element_factory_make ("appsink", nullptr);
 
     if (!m_source || !m_filtersrc || !m_scale || !m_filter || !m_image_encoder || !m_sink)

@@ -56,7 +56,7 @@ NvJpegEncLoader::NvJpegEncLoader()
         , jpeg_mem_dest(nullptr)
         , jpeg_set_defaults(nullptr)
         , jpeg_set_quality(nullptr)
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         , jpeg_set_hardware_acceleration_parameters_enc(nullptr)
 #endif
         , jpeg_start_compress(nullptr)
@@ -66,7 +66,7 @@ NvJpegEncLoader::NvJpegEncLoader()
         , m_error(false)
         , m_handleNvJpeg(nullptr)
 {
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     m_handleNvJpeg = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvmm_jpeg.so", RTLD_LAZY);
 #else
 
@@ -88,7 +88,7 @@ NvJpegEncLoader::NvJpegEncLoader()
         jpeg_mem_dest = (jpeg_mem_dest_t) dlsym(m_handleNvJpeg, "jpeg_mem_dest");
         jpeg_set_defaults = (jpeg_set_defaults_t) dlsym(m_handleNvJpeg, "jpeg_set_defaults");
         jpeg_set_quality = (jpeg_set_quality_t) dlsym(m_handleNvJpeg, "jpeg_set_quality");
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
         jpeg_set_hardware_acceleration_parameters_enc = (jpeg_set_hardware_acceleration_parameters_enc_t) dlsym(m_handleNvJpeg, "jpeg_set_hardware_acceleration_parameters_enc");
 #endif
         jpeg_start_compress = (jpeg_start_compress_t) dlsym(m_handleNvJpeg, "jpeg_start_compress");
@@ -119,7 +119,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
 {
     struct jpeg_compress_struct cinfo;
     struct jpeg_error_mgr jerr;
-#if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+#if !defined(AARCH64_PLATFORM)
     NvBufSurface *buf_surf = nullptr;
 #endif
 
@@ -140,7 +140,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
     /* JPEG encode starts */
     jpeg_mem_dest(&cinfo, out_buf, &out_buf_size);
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     cinfo.fd = fd;
 #else
     if (!NvBufWrapper::getInstance()->NvBufSurfaceFromFd)
@@ -158,7 +158,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
     cinfo.in_color_space = JCS_YCbCr;
     jpeg_set_defaults(&cinfo);
     jpeg_set_quality(&cinfo, JPEG_DEFAULT_QUALITY, TRUE);
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_set_hardware_acceleration_parameters_enc(&cinfo, TRUE, out_buf_size, 0, 0);
 #else
     cinfo.dest->next_output_byte = *out_buf;
@@ -175,7 +175,7 @@ int NvJpegEncLoader::nvjpegEncodeFromFd(int fd, unsigned char **out_buf, unsigne
         return -1;
     }
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_write_raw_data (&cinfo, nullptr, 0);
 #endif
     jpeg_finish_compress(&cinfo);
@@ -251,7 +251,7 @@ int NvJpegEncLoader::nvjpegEncodeFromBuffer(unsigned char* buffer, uint32_t widt
 
     jpeg_set_defaults(&cinfo);
     jpeg_set_quality(&cinfo, JPEG_DEFAULT_QUALITY, TRUE);
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
     jpeg_set_hardware_acceleration_parameters_enc(&cinfo, TRUE, out_buf_size, 0, 0);
 #else
     cinfo.dest->next_output_byte = *out_buf;

@@ -383,15 +383,16 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
         LOG2(info) << "\tRemote VST address: " << remote_vst_address << endl;
         LOG2(info) << "\tEnable latency logging: "<< enable_latency_logging << endl;
         LOG2(info) << "\tWebRTC Out Encode Fallback Mechanism (software/pass_through): "<< webrtc_out_encode_fallback_option << endl;
-#ifdef JETSON_PLATFORM
-        LOG2(info) << "\tEnable IPC Path: "<< enable_ipc_path << endl;
-        LOG2(info) << "\tIPC Socket Path: "<< ipc_socket_path << endl;
-        LOG2(info) << "\tIPC Src Buffer Timestamp Copy: "<< ipc_src_buffer_timestamp_copy << endl;
-        LOG2(info) << "\tIPC Src Connection Attempts: "<< ipc_src_connection_attempts << endl;
-        LOG2(info) << "\tIPC Src Connection Interval: "<< ipc_src_connection_interval_us << endl;
-        LOG2(info) << "\tIPC Sink Buffer Timestamp Copy: "<< ipc_sink_buffer_timestamp_copy << endl;
-        LOG2(info) << "\tIPC Sink Buffer Copy: "<< ipc_sink_buffer_copy << endl;
-#endif
+        if (isJetsonPlatform())
+        {
+            LOG2(info) << "\tEnable IPC Path: "<< enable_ipc_path << endl;
+            LOG2(info) << "\tIPC Socket Path: "<< ipc_socket_path << endl;
+            LOG2(info) << "\tIPC Src Buffer Timestamp Copy: "<< ipc_src_buffer_timestamp_copy << endl;
+            LOG2(info) << "\tIPC Src Connection Attempts: "<< ipc_src_connection_attempts << endl;
+            LOG2(info) << "\tIPC Src Connection Interval: "<< ipc_src_connection_interval_us << endl;
+            LOG2(info) << "\tIPC Sink Buffer Timestamp Copy: "<< ipc_sink_buffer_timestamp_copy << endl;
+            LOG2(info) << "\tIPC Sink Buffer Copy: "<< ipc_sink_buffer_copy << endl;
+        }
         LOG2(info) << "\tEnable MEGA Simulation: "<< enable_mega_simulation << endl;
         LOG2(info) << "\tMEGA Simulation Min Delay: "<< mega_simulation_delay_min_ms << endl;
         LOG2(info) << "\tMEGA Simulation Max Delay: "<< mega_simulation_delay_max_ms << endl;
@@ -1749,12 +1750,13 @@ StreamInfo::StreamInfo (): live_url("")
         }
 
         // Add IPC URL if enabled
-#ifdef JETSON_PLATFORM
-        if (GET_CONFIG().enable_ipc_path)
+        if (isJetsonPlatform())
         {
-            stream_info["ipc_url"] = "ipc://" + GET_CONFIG().ipc_socket_path + id;
+            if (GET_CONFIG().enable_ipc_path)
+            {
+                stream_info["ipc_url"] = "ipc://" + GET_CONFIG().ipc_socket_path + id;
+            }
         }
-#endif
 
         // Stream metadata
         metadata["resolution"] = settings.encoderValues.resolution.getString();

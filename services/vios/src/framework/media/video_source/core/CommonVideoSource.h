@@ -51,7 +51,7 @@ class PipelineManager;
 #include "media_producer.h"
 #include "stream_monitor.h"
 
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 #include "../producers/gstnvipcproducer.h"
 #include "../producers/ipcproducerpool.h"
 #endif
@@ -142,7 +142,7 @@ public:
     std::shared_ptr<NvCompositor> getCompositor() const;
     std::shared_ptr<VideoWebRTCSender> getVideoSender() const;
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const;
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> getIPCProducer() const;
 #endif
 
@@ -186,8 +186,8 @@ private:
     // Legacy component references for methods that haven't been fully refactored
     std::shared_ptr<VideoWebRTCSender> m_videowebRTCSender = nullptr; // For pass-through mode
     std::shared_ptr<NativeStreamProducer> m_nativeStreamProducer = nullptr; // For native streams
-#ifdef JETSON_PLATFORM
-    std::shared_ptr<NvIPCProducer> m_nvIPCProducer = nullptr; // For IPC streams
+#ifdef AARCH64_PLATFORM
+    std::shared_ptr<NvIPCProducer> m_nvIPCProducer = nullptr; // For IPC streams (used at runtime only when isJetsonPlatform())
 #endif
 
     // Note: setupDecoder method removed - use PipelineManager directly
