@@ -41,6 +41,30 @@ Hardware tiers: `H100`, `RTXPRO6000BW`, `L40S`, `DGX-SPARK`, `AGX-THOR`, `IGX-TH
 
 When generating the output `.env` in Step 6, **fold in every variable referenced by any selected service's compose** — even if it lives outside the per-profile `.env`. Cross-reference each candidate's `integrate-<microservice>.md § Environment Variables` for the authoritative per-service list, and walk the actual compose YAML for `${VAR}` substitutions to catch any the reference file missed.
 
+### Drop variables for services NOT in the allow-list
+
+Fold only the variables consumed by **allow-listed** services. The per-profile `.env` files carry vars for the *whole* profile (UI, agent, every NIM tier), most of which a narrowed generation does not deploy. In particular:
+
+- **`NEXT_PUBLIC_*` are UI-only.** They are consumed exclusively by `vss-ui`. When `vss-ui` is not in the allow-list (e.g. a headless verification/captioning deployment), **drop the entire `NEXT_PUBLIC_*` set.** They are dead weight and one of them is actively harmful (see the parser footgun below).
+- Apply the same "drop if the owning service was dropped" rule to any other service-scoped block (e.g. LVS/search/embedding vars when those services aren't selected).
+
+### Do NOT absolutize container-relative path vars
+
+Some path vars are **relative paths that resolve inside the container** against a bind mount + the container's workdir — they are NOT host paths. Pass them through **verbatim**; never prefix `${VSS_APPS_DIR}` or otherwise rewrite them to host-absolute, or the service looks for a path that does not exist in the container and fails to boot.
+
+The canonical case (Finding F-I, 2026-06-16): `vss-agent` / `vss-va-mcp` mount `${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro` with workdir `/vss-agent`, so these stay container-relative (leading `./deploy/docker/...`): `VSS_AGENT_CONFIG_FILE`, `VSS_VA_MCP_CONFIG_FILE`, `VSS_AGENT_TEMPLATE_PATH`. Heuristic: a value that already starts with `./` and names a path *under* a directory that is a bind-mount **target** is container-scoped — leave it alone. (This is also why a flat/absolute-resolving env emitter is risky for the agent layer: it can wrongly expand these.)
+
+### Quote complex values — the `NEXT_PUBLIC_..._JSON` parser footgun
+
+> **Live finding (AT-1, 2026-06-15).** `dev-profile-alerts/.env` ships a single ~319-char unquoted JSON value, `NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON={"params":[...]}`. A line-based `--env-file` parser (and several naive env-folding parsers) **mis-handles it and silently drops every variable after it**, including the host-override block (`HOST_IP`, `VSS_APPS_DIR`, `VSS_DATA_DIR`, `BUILD_DIR`). The deploy then fails with unset-path / `empty section between colons` volume errors that look unrelated to the UI.
+
+Two defenses, apply both:
+
+1. **Exclude `NEXT_PUBLIC_*` entirely** when `vss-ui` is not deployed (above) — this removes the offending line at the source.
+2. **Single-quote any folded value that contains `{`, `[`, `"`, `#`, a space, or `=`** when emitting the output `.env`, so the value stays on one logical line and cannot truncate the file. Order the emitted `.env` so the **host-override / credentials block comes first**, never after an unquoted complex value, as belt-and-suspenders against any downstream parser.
+
+After folding, the Step 7 dry-run (`docker compose --env-file .env -f compose.yml config`) must show zero **real** unexpanded `${...}` tokens — a missing `HOST_IP` / `VSS_APPS_DIR` in the resolved output is the tell-tale signature of this truncation bug.
+
 ## Required additions for IN-1 (not in any upstream `.env`)
 
 The following variables have no upstream `.env` source — they must be added explicitly to the generated `.env.template` (and populated in `.env`) for every IN-1 deployment:
