@@ -30,7 +30,7 @@ RUN uv pip install \
     "vss-ctx-rag @ git+https://github.com/NVIDIA/context-aware-rag.git@release/3.0.1" \
     "vss-ctx-rag-arango @ git+https://github.com/NVIDIA/context-aware-rag.git@release/3.0.1#subdirectory=packages/vss_ctx_rag_arango" \
     --extra-index-url https://pypi.nvidia.com/ \
-    --python-version 3.13 --target /tmp/packages \
+    --python-version 3.13 --target /tmp/packages
 
 # Ubuntu builder: shell-based operations only — user creation, config/source copy scripts
 FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS app-builder
