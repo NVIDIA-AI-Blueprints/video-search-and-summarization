@@ -40,7 +40,7 @@ class ReplayStreamTest : public ::testing::Test
 {
 protected:
     static IVstModule* s_module;
-    static std::map<std::string, HttpServerRequestHandler::httpFunction> s_handlers;
+    static std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>> s_handlers;
     static bool s_initialized;
     static bool s_init_attempted;
 
@@ -111,7 +111,7 @@ protected:
 };
 
 IVstModule* ReplayStreamTest::s_module = nullptr;
-std::map<std::string, HttpServerRequestHandler::httpFunction> ReplayStreamTest::s_handlers;
+std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>> ReplayStreamTest::s_handlers;
 bool ReplayStreamTest::s_initialized = false;
 bool ReplayStreamTest::s_init_attempted = false;
 
