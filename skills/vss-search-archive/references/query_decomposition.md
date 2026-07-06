@@ -1,6 +1,6 @@
-# Query Decomposition for `vss-cli search`
+# Query Decomposition for `vss-cli search run`
 
-Use this reference before every `vss-cli search` call that is more complex than a plain object/action query. The CLI and `lib.search_core` do not call the VSS agent `/generate` API and do not run NAT query decomposition; the host agent must produce the same structured fields explicitly.
+Use this reference before every `vss-cli search run` call that is more complex than a plain object/action query. The CLI and `lib.search_core` do not call the VSS agent `/generate` API and do not run NAT query decomposition; the host agent must produce the same structured fields explicitly.
 
 ## Output Contract
 

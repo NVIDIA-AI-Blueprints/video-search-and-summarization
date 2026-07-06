@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Literal
 from typing import Protocol
 from typing import runtime_checkable
 
@@ -96,61 +95,3 @@ class ElasticIndex(Protocol):
         forward it to helpers that re-resolve clients (e.g. the object-id
         re-search path), so the protocol exposes it."""
         ...
-
-
-@runtime_checkable
-class VSTSnapshot(Protocol):
-    """VST surface used by primitives: snapshot URL + sensor/stream resolution.
-
-    The library uses an object-oriented shape; today's free function
-    `build_screenshot_url` (tools/vst/snapshot.py:49) is wrapped by the
-    concrete VSTClient that implements this protocol.
-    """
-
-    def build_screenshot_url(
-        self,
-        *,
-        sensor_id: str,
-        timestamp: str,
-        internal: bool = False,
-    ) -> str: ...
-
-    # Concrete implementations resolve or raise (VSTError) on a miss; they never
-    # return None, so the protocol is typed ``str`` to match.
-    async def resolve_stream_id(self, sensor_id: str) -> str: ...
-
-    async def get_timeline(self, sensor_id: str) -> tuple[str, str]: ...
-
-    async def get_video_clip_url(
-        self,
-        *,
-        sensor_id: str,
-        start_timestamp: str,
-        end_timestamp: str,
-        time_format: Literal["iso", "offset"],
-        internal: bool = True,
-        disable_audio: bool = True,
-    ) -> str: ...
-
-
-@runtime_checkable
-class VLMAnalyzer(Protocol):
-    """VLM caller protocol — CriticAgent's only VLM dependency.
-
-    Today's CriticAgent obtains this via NAT's builder.get_function("video_understanding")
-    (agents/critic_agent.py:211). The library makes it an injectable protocol so the
-    primitive is NAT-free. The NAT adapter wires the existing tool; the host facade
-    requires the caller to inject a concrete VLMAnalyzer.
-
-    The `time_format` parameter mirrors today's CriticAgentConfig.time_format.
-    """
-
-    async def analyze(
-        self,
-        *,
-        sensor_id: str,
-        start_timestamp: str,
-        end_timestamp: str,
-        prompt: str,
-        time_format: Literal["iso", "offset"] = "iso",
-    ) -> str: ...

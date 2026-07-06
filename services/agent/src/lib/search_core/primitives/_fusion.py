@@ -32,10 +32,11 @@ import logging
 from typing import TYPE_CHECKING
 from typing import Any
 
+from lib._foundation.time import datetime_to_iso8601
+from lib._foundation.time import iso8601_to_datetime
+
 from .._internal.coerce import _coerce_float
 from .._internal.coerce import _coerce_str
-from .._internal.time_convert import datetime_to_iso8601
-from .._internal.time_convert import iso8601_to_datetime
 from ..errors import InvalidInputError
 from ..models.attribute_search import AttributeSearchResult
 from ..models.search import SearchResult

@@ -37,7 +37,8 @@ from typing import Any
 
 from elasticsearch import NotFoundError as ESNotFoundError
 
-from .._internal.sanitize import scrub_log
+from lib._foundation.sanitize import scrub_log
+
 from .._internal.time_measure import TimeMeasure
 from ..errors import IndexNotFoundError
 from ..models.embed_search import EmbedSearchInput
@@ -46,9 +47,10 @@ from ..models.embed_search import EmbedSearchResultItem
 from . import _embed_helpers as helpers
 
 if TYPE_CHECKING:
+    from lib.vst.protocols import VSTSnapshot
+
     from ..clients.protocols import CosmosEmbedder
     from ..clients.protocols import ElasticIndex
-    from ..clients.protocols import VSTSnapshot
     from ..runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
@@ -204,14 +206,20 @@ class EmbedSearch:
         vst: VSTSnapshot | None = None,
     ) -> EmbedSearch:
         """Construct from a SearchRuntime, optionally with injected dependencies."""
+        from lib.vst import VSTClient
+
         from ..clients.cosmos_embed import CosmosEmbedClient  # local — avoid cycle
         from ..clients.elastic import ElasticClient
-        from ..clients.vst import VSTClient
 
         return cls(
             es=es or ElasticClient.from_runtime(rt),
             embed=embed or CosmosEmbedClient.from_runtime(rt),
-            vst=vst or VSTClient.from_runtime(rt),
+            vst=vst
+            or VSTClient(
+                internal_url=rt.vst_internal_url,
+                external_url=rt.vst_external_url,
+                timeout_seconds=rt.request_timeout_seconds,
+            ),
             video_embed_index=rt.video_embed_index,
             video_embed_index_wildcard=rt.video_embed_index_wildcard,
             default_max_results=rt.embed_default_max_results,

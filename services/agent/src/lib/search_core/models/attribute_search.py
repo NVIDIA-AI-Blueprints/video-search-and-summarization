@@ -83,7 +83,7 @@ class AttributeSearchMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     sensor_id: str
-    object_id: str
+    object_id: str | None = None
     object_type: str
     frame_timestamp: str | None = None
     start_time: str | None = None

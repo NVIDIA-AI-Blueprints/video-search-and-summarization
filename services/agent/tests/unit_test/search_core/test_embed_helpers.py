@@ -248,8 +248,8 @@ def test_is_excluded_tolerates_fractional_second_round_trip():
     # merge_consecutive_results (".752Z" -> ".752000Z"). Exclusion must still
     # match the raw re-fetched hit by INSTANT, not by exact string, or the
     # rejected clip would slip back into the embed re-search unfiltered.
-    from lib.search_core._internal.time_convert import datetime_to_iso8601
-    from lib.search_core._internal.time_convert import iso8601_to_datetime
+    from lib._foundation.time import datetime_to_iso8601
+    from lib._foundation.time import iso8601_to_datetime
 
     raw_start = "2025-08-25T03:05:55.100Z"
     raw_end = "2025-08-25T03:05:58.752Z"
@@ -284,8 +284,8 @@ def test_is_excluded_matches_z_vs_offset_spelling():
 def test_embed_and_attribute_exclusion_agree_on_round_tripped_window():
     # #8 consistency: embed and attribute exclusion filters must agree on what
     # "the same clip" means after a merge round-trip reformats the end_time.
-    from lib.search_core._internal.time_convert import datetime_to_iso8601
-    from lib.search_core._internal.time_convert import iso8601_to_datetime
+    from lib._foundation.time import datetime_to_iso8601
+    from lib._foundation.time import iso8601_to_datetime
     from lib.search_core.primitives import _attribute_helpers as ah
 
     raw_start = "2025-08-25T03:05:55.100Z"

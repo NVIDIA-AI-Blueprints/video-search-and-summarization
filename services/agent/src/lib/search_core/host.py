@@ -52,7 +52,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from .clients.protocols import VLMAnalyzer
+    from lib.vlm.protocols import VLMAnalyzer
+
     from .events import SearchEvent
 
 

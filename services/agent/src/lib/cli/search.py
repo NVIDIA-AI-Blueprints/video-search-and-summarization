@@ -12,12 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""CLI entrypoint for the search_core exec transport.
+"""Search domain implementation for the extensible VSS CLI.
 
-A single console script, ``vss-cli``, dispatches every primitive:
+A single search domain dispatches every primitive:
 
-    vss-cli <primitive> [--runtime-flags...] [--config <path>] [--json '<payload>'] [--stream]
-       <primitive> ∈ embed_search | attribute_search | search | critic
+    vss-cli search {run,embed,attribute,critic} [--runtime-flags...] [--config <path>] [--json '<payload>'] [--stream]
        runtime:   backend URLs and runtime knobs are passed explicitly as CLI
                   flags. The CLI intentionally does not read endpoint env vars
                   or $VSS_AGENT_CONFIG_FILE.
@@ -62,22 +61,23 @@ from typing import get_args
 from pydantic import SecretStr
 from pydantic import ValidationError
 
-from .errors import BackendUnreachableError
-from .errors import ConfigurationError
-from .errors import IndexNotFoundError
-from .errors import InvalidInputError
-from .errors import SearchError
-from .models.common import FusionMethod
+from lib.search_core.errors import BackendUnreachableError
+from lib.search_core.errors import ConfigurationError
+from lib.search_core.errors import IndexNotFoundError
+from lib.search_core.errors import InvalidInputError
+from lib.search_core.errors import SearchError
+from lib.search_core.models.common import FusionMethod
+
+from .search_operations import SEARCH_OPERATIONS
 
 if TYPE_CHECKING:
-    from .clients.vlm_openai import OpenAIVLMAnalyzer
-    from .host import VSSSearch
-    from .runtime import SearchOptions
-    from .runtime import SearchRuntime
+    from lib.search_core.host import VSSSearch
+    from lib.search_core.runtime import SearchOptions
+    from lib.search_core.runtime import SearchRuntime
+    from lib.vlm import OpenAIVLMAnalyzer
 
 logger = logging.getLogger(__name__)
 
-PRIMITIVES = ("embed_search", "attribute_search", "search", "critic")
 SOURCE_TYPES = ("video_file", "rtsp")
 # Derived from the shared FusionMethod literal so CLI choices can never drift
 # from the strategies the orchestrator actually implements.
@@ -121,12 +121,15 @@ _ERROR_EXIT_CODES: tuple[tuple[type[SearchError], int], ...] = (
 _SEARCH_ERROR_CLASSES: dict[str, type[SearchError]] = {
     cls.__name__: cls for cls in (InvalidInputError, BackendUnreachableError, IndexNotFoundError, ConfigurationError)
 }
+_STREAM_BACKEND_ERROR_CODES = frozenset({"VSTError"})
 
 
 def _exit_code_for_stream_error(error_code: str) -> int:
     """Map an ErrorEvent.error_code string to the same exit code main() would use."""
     if error_code == "ValidationError":
         return 2
+    if error_code in _STREAM_BACKEND_ERROR_CODES:
+        return 3
     error_cls = _SEARCH_ERROR_CLASSES.get(error_code)
     if error_cls is not None:
         for base, code in _ERROR_EXIT_CODES:
@@ -453,18 +456,29 @@ def _reject_search_only_flags_for_non_search(args: argparse.Namespace) -> None:
         if is_set:
             provided.append(flag)
     if provided:
+        operation = next(operation for operation, primitive in SEARCH_OPERATIONS.items() if primitive == args.primitive)
         raise InvalidInputError(
             f"{', '.join(provided)} {'is' if len(provided) == 1 else 'are'} only valid for the `search` "
-            f"primitive; pass a payload to `{args.primitive}` via --json or stdin instead"
+            f"primitive; pass a payload to `vss-cli search {operation}` via --json or stdin instead"
         )
 
 
-def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def _parse_args(argv: list[str] | None = None, *, operation: str) -> argparse.Namespace:
+    """Parse a search-domain invocation.
+
+    ``operation`` is supplied by the root domain dispatcher and is the only
+    selector this module accepts. This keeps the old primitive-root grammar out
+    of both the installed entry point and the domain parser.
+    """
+    primitive = SEARCH_OPERATIONS.get(operation)
+    if primitive is None:
+        raise ValueError(f"unknown search operation: {operation!r}")
+    prog = f"vss-cli search {operation}"
     p = argparse.ArgumentParser(
-        prog="vss-cli",
+        prog=prog,
         description="Invoke VSS search primitives directly (exec-transport entrypoint).",
     )
-    p.add_argument("primitive", choices=PRIMITIVES, help="Which primitive to invoke.")
+    p.set_defaults(primitive=primitive)
     p.add_argument(
         "--json",
         dest="json_payload",
@@ -479,7 +493,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     _add_search_query_args(p)
     _add_runtime_args(p)
     _add_output_args(p)
-    p.set_defaults(cli_name="vss-cli")
+    p.set_defaults(cli_name=prog)
     return p.parse_args(argv)
 
 
@@ -569,8 +583,8 @@ def _build_facade(args: argparse.Namespace, search_payload: dict[str, Any] | Non
     config, but there is intentionally no ``$VSS_AGENT_CONFIG_FILE`` or
     endpoint-env fallback in the CLI layer.
     """
-    from .host import VSSSearch
-    from .runtime import RuntimeSnapshot
+    from lib.search_core.host import VSSSearch
+    from lib.search_core.runtime import RuntimeSnapshot
 
     if args.config is not None:
         if not Path(args.config).exists():
@@ -610,7 +624,7 @@ def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
 
 
 def _runtime_from_args(args: argparse.Namespace) -> SearchRuntime:
-    from .runtime import SearchRuntime
+    from lib.search_core.runtime import SearchRuntime
 
     primitive = getattr(args, "primitive", "search")
     required = _required_runtime_args(primitive)
@@ -720,7 +734,7 @@ def _search_options_from_args(
     base: SearchOptions | None = None,
     search_payload: dict[str, Any] | None = None,
 ) -> SearchOptions:
-    from .runtime import SearchOptions
+    from lib.search_core.runtime import SearchOptions
 
     # Precedence: an explicit --use-attribute-search flag wins over everything.
     if args.use_attribute_search is not None:
@@ -775,8 +789,8 @@ def _vlm_analyzer_from_runtime(runtime: SearchRuntime, args: argparse.Namespace)
     if not runtime.vlm_base_url or not runtime.vlm_model_name:
         return None
 
-    from .clients.vlm_openai import OpenAIVLMAnalyzer
-    from .clients.vst import VSTClient
+    from lib.vlm import OpenAIVLMAnalyzer
+    from lib.vst import VSTClient
 
     api_key = runtime.vlm_api_key.get_secret_value() if runtime.vlm_api_key is not None else None
     media_mode = args.vlm_media_mode.replace("-", "_")
@@ -784,7 +798,11 @@ def _vlm_analyzer_from_runtime(runtime: SearchRuntime, args: argparse.Namespace)
         base_url=runtime.vlm_base_url,
         model=runtime.vlm_model_name,
         api_key=api_key,
-        vst=VSTClient.from_runtime(runtime),
+        vst=VSTClient(
+            internal_url=runtime.vst_internal_url,
+            external_url=runtime.vst_external_url,
+            timeout_seconds=runtime.request_timeout_seconds,
+        ),
         timeout_seconds=runtime.request_timeout_seconds,
         media_mode=media_mode,
         video_url_scope=args.vlm_video_url_scope,
@@ -935,7 +953,7 @@ async def _write_search_stream(stream: Any) -> int:
 
 
 async def _close_cli_clients() -> None:
-    from .clients.elastic import ElasticClient
+    from lib.search_core.clients.elastic import ElasticClient
 
     await ElasticClient.close_all()
 
@@ -954,7 +972,7 @@ def _resolve_search_payload(args: argparse.Namespace) -> dict[str, Any]:
     if args.json_payload is not None or raw:
         if raw.get("agent_mode") is True:
             raise InvalidInputError(
-                "vss-cli search does not perform NAT query decomposition; set agent_mode=false "
+                "vss-cli search run does not perform NAT query decomposition; set agent_mode=false "
                 "or call the NAT search/search_agent function"
             )
         return raw
@@ -984,10 +1002,9 @@ async def _run(args: argparse.Namespace) -> int:
         await _close_cli_clients()
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Entrypoint installed via pyproject.toml's [project.scripts]."""
+def _invoke(argv: list[str] | None = None, *, operation: str) -> int:
     try:
-        args = _parse_args(argv)
+        args = _parse_args(argv, operation=operation)
         logging.basicConfig(level=args.log_level)
         return asyncio.run(_run(args))
     except InvalidInputError as e:
@@ -1010,5 +1027,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run(operation: str, argv: list[str] | None = None) -> int:
+    """Run one root-dispatched search operation."""
+    return _invoke(argv, operation=operation)

@@ -117,7 +117,7 @@ authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 
 [project.scripts]
-vss-cli = "lib.search_core.cli:main"
+vss-cli = "lib.cli:main"
 
 [project.optional-dependencies]
 # Opt-in knowledge_retrieval backends; default image is `frag_api`-only.

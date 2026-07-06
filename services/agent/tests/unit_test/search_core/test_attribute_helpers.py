@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from lib.search_core._internal.time_convert import iso8601_instants_match
+from lib._foundation.time import iso8601_instants_match
 from lib.search_core.models.attribute_search import AttributeSearchMetadata
 from lib.search_core.models.attribute_search import AttributeSearchResult
 from lib.search_core.primitives import _attribute_helpers as ah

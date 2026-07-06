@@ -9,9 +9,9 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 
-from lib.search_core._internal.time_convert import datetime_to_iso8601
-from lib.search_core._internal.time_convert import iso8601_to_datetime
-from lib.search_core._internal.time_convert import safe_iso8601_to_datetime
+from lib._foundation.time import datetime_to_iso8601
+from lib._foundation.time import iso8601_to_datetime
+from lib._foundation.time import safe_iso8601_to_datetime
 
 
 def test_round_trip_utc():

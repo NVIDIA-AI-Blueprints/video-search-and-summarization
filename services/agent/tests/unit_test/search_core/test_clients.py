@@ -8,11 +8,11 @@ from typing import Any
 
 import pytest
 
-from lib.search_core.clients import vst as vst_module
 from lib.search_core.clients.cosmos_embed import CosmosEmbedClient
-from lib.search_core.clients.vst import VSTClient
-from lib.search_core.clients.vst import VSTError
 from lib.search_core.errors import BackendUnreachableError
+from lib.vst import VSTClient
+from lib.vst import VSTError
+import lib.vst.client as vst_module
 
 
 class _MalformedResponse:
