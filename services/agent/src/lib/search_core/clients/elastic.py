@@ -31,7 +31,6 @@ process the pools are otherwise reaped at process exit.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from typing import TYPE_CHECKING
 from typing import Any
@@ -44,7 +43,8 @@ from elasticsearch import ConnectionError as ESConnectionError
 from elasticsearch import NotFoundError as ESNotFoundError
 from elasticsearch import TransportError as ESTransportError
 
-from .._internal.sanitize import scrub_log
+from lib._foundation.sanitize import scrub_log
+
 from ..errors import BackendUnreachableError
 from ..errors import IndexNotFoundError
 
@@ -109,6 +109,14 @@ class ElasticClient:
         except RuntimeError:
             return None
 
+    @staticmethod
+    async def _close_discarded_client(client: AsyncElasticsearch) -> None:
+        """Close an unused client without leaking task exceptions."""
+        try:
+            await client.close()
+        except Exception:
+            logger.debug("Failed to close discarded Elasticsearch client", exc_info=True)
+
     @classmethod
     def from_endpoint(
         cls,
@@ -136,17 +144,17 @@ class ElasticClient:
         )
         # setdefault is atomic against task-level interleaving: only one of N
         # concurrent callers wins, the rest reuse the winner's client. The
-        # loser's `new` is GC'd; AsyncElasticsearch holds no resources until
-        # first IO, so this leaks nothing.
+        # loser's `new` is unused and must be closed asynchronously.
         client = cls._clients.setdefault(key, new)
         if client is not new:
-            # Lost the race — don't leave the unused AsyncElasticsearch around
-            # holding a closed httpx pool. close() is sync-safe to schedule.
-            with contextlib.suppress(Exception):
-                # Some elasticsearch versions return a coroutine here that we
-                # cannot await from a sync classmethod; best-effort cleanup —
-                # any leak is bounded to the unused loser client of the race.
-                new._transport.close()  # type: ignore[unused-coroutine]
+            # ``AsyncElasticsearch.close`` is awaitable. Scheduling the public
+            # close API on the active loop prevents an abandoned transport
+            # coroutine (and its RuntimeWarning). Without a running loop there
+            # is no task-level race in this synchronous method; the unopened
+            # loser is released without constructing a coroutine.
+            loop = cls._current_loop()
+            if loop is not None:
+                loop.create_task(cls._close_discarded_client(new))
         return cls(endpoint=endpoint, client=client)
 
     @classmethod

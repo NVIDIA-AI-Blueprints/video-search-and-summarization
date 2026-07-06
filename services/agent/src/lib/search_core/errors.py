@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Error hierarchy for lib.search_core.
+"""Search-specific errors layered on the neutral library foundation.
 
 Primitives never raise framework exceptions (httpx.HTTPError, elasticsearch.ApiError);
 the client classes catch and re-raise as BackendUnreachableError with the underlying
@@ -21,9 +21,10 @@ exception chained via __cause__. One error surface, one catch-block for callers.
 
 from __future__ import annotations
 
+from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.errors import LibraryError
 
-class SearchError(Exception):
-    """Base class for every error this library raises."""
+SearchError = LibraryError
 
 
 class ConfigurationError(SearchError):
@@ -36,24 +37,6 @@ class ConfigurationError(SearchError):
     Never raised by primitive .run() / .stream() bodies — those paths assume
     a fully-built runtime.
     """
-
-
-class BackendUnreachableError(SearchError):
-    """A required backend (ES, Cosmos embed, RTVI CV, VST, VLM) is unreachable.
-
-    The .backend attribute names which one. The underlying exception (e.g.
-    httpx.ConnectError, elasticsearch.ConnectionError) is preserved via __cause__.
-
-    Note: :class:`IndexNotFoundError` subclasses this, so callers that branch on
-    retryability (a missing index is not worth retrying) must catch
-    ``IndexNotFoundError`` before the generic ``BackendUnreachableError``.
-    """
-
-    def __init__(self, backend: str, message: str, cause: Exception | None = None) -> None:
-        super().__init__(f"{backend}: {message}")
-        self.backend = backend
-        if cause is not None:
-            self.__cause__ = cause
 
 
 class IndexNotFoundError(BackendUnreachableError):

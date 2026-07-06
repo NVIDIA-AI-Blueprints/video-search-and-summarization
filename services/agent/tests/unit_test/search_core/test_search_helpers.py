@@ -41,7 +41,7 @@ def test_resolve_sources_rtsp_keeps_names_and_maps_uuid_back():
 
 def _attr_result(
     *,
-    object_id: str = "7",
+    object_id: str | None = "7",
     frame_score: float | None = None,
     behavior_score: float = 0.0,
     start_time: str | None = None,
@@ -66,6 +66,16 @@ def _attr_result(
 def test_attribute_result_preserves_object_id_zero():
     result = sh.attribute_result_to_search_result(_attr_result(object_id="0", behavior_score=0.5))
     assert result.object_ids == ["0"]
+
+
+def test_attribute_result_omits_blank_object_id():
+    result = sh.attribute_result_to_search_result(_attr_result(object_id="", behavior_score=0.5))
+    assert result.object_ids == []
+
+
+def test_attribute_result_omits_missing_object_id():
+    result = sh.attribute_result_to_search_result(_attr_result(object_id=None, behavior_score=0.5))
+    assert result.object_ids == []
 
 
 def test_attribute_result_empty_timestamp_becomes_blank_bucket():

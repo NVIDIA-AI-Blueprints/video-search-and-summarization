@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from typing import TYPE_CHECKING
+from typing import Any
 
 __all__ = [
     "AttributeSearch",
@@ -101,7 +102,7 @@ if TYPE_CHECKING:
     from .runtime import SearchRuntime
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Load public exports on first use.
 
     This mirrors lib.knowledge's lazy backend discipline without forcing search

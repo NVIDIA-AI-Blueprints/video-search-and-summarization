@@ -53,9 +53,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from collections.abc import Callable
 
+    from lib.vlm.protocols import VLMAnalyzer
+    from lib.vst.protocols import VSTSnapshot
+
     from ..clients.protocols import ElasticIndex
-    from ..clients.protocols import VLMAnalyzer
-    from ..clients.protocols import VSTSnapshot
     from ..models.common import FusionMethod
     from ..runtime import SearchRuntime
 
@@ -171,9 +172,15 @@ def _coerce_critic_payload(payload: Any) -> CriticAgentInput:
     if isinstance(payload, CriticAgentInput):
         return payload
     if isinstance(payload, dict):
-        return CriticAgentInput(**payload)
+        try:
+            return CriticAgentInput(**payload)
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid critic input: {exc}") from exc
     if hasattr(payload, "model_dump"):
-        return CriticAgentInput.model_validate(payload.model_dump())
+        try:
+            return CriticAgentInput.model_validate(payload.model_dump())
+        except ValidationError as exc:
+            raise InvalidInputError(f"Invalid critic input: {exc}") from exc
     raise TypeError(f"cannot coerce {type(payload).__name__} to CriticAgentInput")
 
 
@@ -325,12 +332,17 @@ class Search:
         Critic policy: explicit `critic` wins; else if rt.enable_critic and
         vlm_analyzer is provided, build via CriticAgent.from_runtime; else None.
         """
+        from lib.vst import VSTClient
+
         from ..clients.elastic import ElasticClient
-        from ..clients.vst import VSTClient
 
         # vst is needed only for CriticAgent construction (the orchestrator
         # itself uses URL strings via the config). Build once for that.
-        vst_obj = vst or VSTClient.from_runtime(rt)
+        vst_obj = vst or VSTClient(
+            internal_url=rt.vst_internal_url,
+            external_url=rt.vst_external_url,
+            timeout_seconds=rt.request_timeout_seconds,
+        )
         if critic is not None:
             critic_obj = critic
         elif rt.enable_critic and vlm_analyzer is not None:

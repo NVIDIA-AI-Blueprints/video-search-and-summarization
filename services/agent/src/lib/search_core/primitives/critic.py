@@ -32,7 +32,8 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from .._internal.time_convert import datetime_to_iso8601
+from lib._foundation.time import datetime_to_iso8601
+
 from ..models.critic import CriticAgentInput
 from ..models.critic import CriticAgentOutput
 from ..models.critic import CriticAgentResult
@@ -40,8 +41,9 @@ from ..models.critic import TimeFormat
 from ..models.critic import VideoResult
 
 if TYPE_CHECKING:
-    from ..clients.protocols import VLMAnalyzer
-    from ..clients.protocols import VSTSnapshot
+    from lib.vlm.protocols import VLMAnalyzer
+    from lib.vst.protocols import VSTSnapshot
+
     from ..models.common import VideoInfo
     from ..runtime import SearchRuntime
 
@@ -329,11 +331,16 @@ class CriticAgent:
         constructor defaults without reaching into private attributes after
         construction.
         """
-        from ..clients.vst import VSTClient  # local — avoid cycle
+        from lib.vst import VSTClient
 
         return cls(
             vlm_analyzer=vlm_analyzer,
-            vst=vst or VSTClient.from_runtime(rt),
+            vst=vst
+            or VSTClient(
+                internal_url=rt.vst_internal_url,
+                external_url=rt.vst_external_url,
+                timeout_seconds=rt.request_timeout_seconds,
+            ),
             prompt=prompt if prompt is not None else DEFAULT_CRITIC_PROMPT,
             max_concurrent_verifications=rt.max_concurrent_verifications,
             time_format=time_format,

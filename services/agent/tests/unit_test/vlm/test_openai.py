@@ -20,10 +20,10 @@ from typing import Any
 
 import pytest
 
-import lib.search_core.clients.vlm_openai as vlm_module
-from lib.search_core.clients.vlm_openai import OpenAIVLMAnalyzer
-from lib.search_core.clients.vlm_openai import _FrameExtractionError
 from lib.search_core.errors import BackendUnreachableError
+from lib.vlm import OpenAIVLMAnalyzer
+import lib.vlm.openai as vlm_module
+from lib.vlm.openai import _FrameExtractionError
 
 
 class _RaisingVST:

@@ -38,17 +38,18 @@ from typing import Literal
 
 from elasticsearch import NotFoundError as ESNotFoundError
 
+from lib._foundation.sanitize import scrub_log
+from lib._foundation.time import datetime_to_iso8601
+from lib._foundation.time import iso8601_instants_match
+from lib._foundation.time import iso8601_to_datetime
+from lib._foundation.time import safe_iso8601_to_datetime
+from lib.vst import build_screenshot_url
+from lib.vst import get_stream_id
+from lib.vst import get_timeline
+
 from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter
-from .._internal.sanitize import scrub_log
-from .._internal.time_convert import datetime_to_iso8601
-from .._internal.time_convert import iso8601_instants_match
-from .._internal.time_convert import iso8601_to_datetime
-from .._internal.time_convert import safe_iso8601_to_datetime
 from .._internal.time_measure import TimeMeasure
-from ..clients.vst import build_screenshot_url
-from ..clients.vst import get_stream_id
-from ..clients.vst import get_timeline
 from ..errors import IndexNotFoundError
 from ..errors import SearchError
 from ..models.attribute_search import AttributeSearchInput
@@ -278,7 +279,7 @@ def deduplicate_by_object(
         if not result.metadata:
             continue
         sensor_id = result.metadata.sensor_id
-        object_id = result.metadata.object_id
+        object_id = result.metadata.object_id or _UNKNOWN_ID
         mergeable = sensor_id != _UNKNOWN_ID and object_id != _UNKNOWN_ID
         key = (sensor_id, object_id)
 
@@ -1025,7 +1026,7 @@ async def _append_multi_attribute(
 def _append_rank_key(result: AttributeSearchResult) -> tuple[float, str, str]:
     """Sort key for append-mode ranking: highest ``behavior_score`` first."""
     metadata = result.metadata
-    return (-metadata.behavior_score, metadata.sensor_id, metadata.object_id)
+    return (-metadata.behavior_score, metadata.sensor_id, metadata.object_id or "")
 
 
 async def _attach_screenshots(

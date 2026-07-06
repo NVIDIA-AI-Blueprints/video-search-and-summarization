@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Contract tests for lib.search_core.cli agent-facing wrappers."""
+"""Contract tests for lib.cli.search agent-facing wrappers."""
 
 from __future__ import annotations
 
@@ -10,22 +10,22 @@ import json
 
 import pytest
 
+from lib.cli.search import _apply_runtime_overrides
+from lib.cli.search import _build_archive_search_payload
+from lib.cli.search import _build_facade
+from lib.cli.search import _config_env_from_args
+from lib.cli.search import _exit_code_for_stream_error
+from lib.cli.search import _extract_rows
+from lib.cli.search import _maybe_build_vlm_analyzer
+from lib.cli.search import _parse_args
+from lib.cli.search import _render_output
+from lib.cli.search import _required_runtime_args
+from lib.cli.search import _runtime_from_args
+from lib.cli.search import _search_options_from_args
+from lib.cli.search import _write_search_stream
+from lib.cli.search import run
 from lib.search_core import SearchOptions
 from lib.search_core import SearchRuntime
-from lib.search_core.cli import _apply_runtime_overrides
-from lib.search_core.cli import _build_archive_search_payload
-from lib.search_core.cli import _build_facade
-from lib.search_core.cli import _config_env_from_args
-from lib.search_core.cli import _exit_code_for_stream_error
-from lib.search_core.cli import _extract_rows
-from lib.search_core.cli import _maybe_build_vlm_analyzer
-from lib.search_core.cli import _parse_args
-from lib.search_core.cli import _render_output
-from lib.search_core.cli import _required_runtime_args
-from lib.search_core.cli import _runtime_from_args
-from lib.search_core.cli import _search_options_from_args
-from lib.search_core.cli import _write_search_stream
-from lib.search_core.cli import main
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import InvalidInputError
 from lib.search_core.events import ErrorEvent
@@ -36,12 +36,12 @@ from lib.search_core.models.search import SearchResult
 
 
 def _parse_search_args(argv: list[str]) -> argparse.Namespace:
-    """Parse `vss-cli search` args; the `search` primitive positional is implied.
+    """Parse `vss-cli search run` args.
 
-    The agent-friendly search flags now live on the single `vss-cli` parser under
-    the `search` primitive (there is no separate `search-archive` script).
+    The agent-friendly search flags live under the `search run` domain command
+    (there is no separate `search-archive` script).
     """
-    return _parse_args(["search", *argv])
+    return _parse_args(argv, operation="run")
 
 
 def test_search_archive_flags_build_structured_search_input() -> None:
@@ -383,7 +383,6 @@ class TestRequiredRuntimeArgs:
     def test_embed_search_runtime_builds_without_rtvi_cv(self) -> None:
         args = _parse_args(
             [
-                "embed_search",
                 "--es-endpoint",
                 "http://es:9200",
                 "--cosmos-embed-endpoint",
@@ -392,7 +391,8 @@ class TestRequiredRuntimeArgs:
                 "http://vst:30888",
                 "--vst-external-url",
                 "http://vst:7777",
-            ]
+            ],
+            operation="embed",
         )
         runtime = _runtime_from_args(args)
         assert runtime.es_endpoint == "http://es:9200"
@@ -402,7 +402,6 @@ class TestRequiredRuntimeArgs:
     def test_attribute_search_runtime_builds_without_cosmos_embed(self) -> None:
         args = _parse_args(
             [
-                "attribute_search",
                 "--es-endpoint",
                 "http://es:9200",
                 "--rtvi-cv-endpoint",
@@ -411,7 +410,8 @@ class TestRequiredRuntimeArgs:
                 "http://vst:30888",
                 "--vst-external-url",
                 "http://vst:7777",
-            ]
+            ],
+            operation="attribute",
         )
         runtime = _runtime_from_args(args)
         assert runtime.cosmos_embed_endpoint == ""
@@ -420,7 +420,6 @@ class TestRequiredRuntimeArgs:
     def test_search_without_rtvi_cv_raises_configuration_error(self) -> None:
         args = _parse_args(
             [
-                "search",
                 "--es-endpoint",
                 "http://es:9200",
                 "--cosmos-embed-endpoint",
@@ -429,7 +428,8 @@ class TestRequiredRuntimeArgs:
                 "http://vst:30888",
                 "--vst-external-url",
                 "http://vst:7777",
-            ]
+            ],
+            operation="run",
         )
         with pytest.raises(ConfigurationError, match="--rtvi-cv-endpoint"):
             _runtime_from_args(args)
@@ -447,7 +447,7 @@ def test_behavior_es_override_not_clobbered_by_es_endpoint_override() -> None:
         vst_internal_url="http://vst:30888",
         vst_external_url="http://vst:7777",
     )
-    args = _parse_args(["search", "--es-endpoint", "http://es-new:9200"])
+    args = _parse_args(["--es-endpoint", "http://es-new:9200"], operation="run")
     updated = _apply_runtime_overrides(base, args)
     assert updated.es_endpoint == "http://es-new:9200"
     # The distinct behavior cluster from the config must survive.
@@ -463,7 +463,7 @@ def test_behavior_es_defaults_from_es_when_base_not_distinct() -> None:
         vst_internal_url="http://vst:30888",
         vst_external_url="http://vst:7777",
     )
-    args = _parse_args(["search", "--es-endpoint", "http://es-new:9200"])
+    args = _parse_args(["--es-endpoint", "http://es-new:9200"], operation="run")
     updated = _apply_runtime_overrides(base, args)
     assert updated.es_endpoint == "http://es-new:9200"
     assert updated.behavior_es_endpoint == "http://es-new:9200"
@@ -473,7 +473,7 @@ def test_behavior_es_defaults_from_es_when_base_not_distinct() -> None:
 
 
 def test_explicit_config_false_beats_payload_fusion_heuristic() -> None:
-    args = _parse_args(["search"])  # no --use-attribute-search flag
+    args = _parse_args([], operation="run")  # no --use-attribute-search flag
     base = SearchOptions(use_attribute_search=False)
     payload = {"attributes": ["white jacket"], "has_action": True}  # heuristic would say True
     result = _search_options_from_args(args, base=base, search_payload=payload)
@@ -481,14 +481,14 @@ def test_explicit_config_false_beats_payload_fusion_heuristic() -> None:
 
 
 def test_explicit_flag_beats_config() -> None:
-    args = _parse_args(["search", "--no-use-attribute-search"])
+    args = _parse_args(["--no-use-attribute-search"], operation="run")
     base = SearchOptions(use_attribute_search=True)
     result = _search_options_from_args(args, base=base, search_payload=None)
     assert result.use_attribute_search is False
 
 
 def test_heuristic_applies_without_config() -> None:
-    args = _parse_args(["search"])
+    args = _parse_args([], operation="run")
     payload = {"attributes": ["white jacket"], "has_action": True}
     result = _search_options_from_args(args, base=None, search_payload=payload)
     assert result.use_attribute_search is True
@@ -519,7 +519,6 @@ def test_config_error_not_swallowed_when_config_given(tmp_path) -> None:
     config_path = _config_missing_es(tmp_path)
     args = _parse_args(
         [
-            "search",
             "--config",
             config_path,
             "--es-endpoint",
@@ -532,7 +531,8 @@ def test_config_error_not_swallowed_when_config_given(tmp_path) -> None:
             "http://vst:30888",
             "--vst-external-url",
             "http://vst:7777",
-        ]
+        ],
+        operation="run",
     )
     with pytest.raises(ConfigurationError, match="es_endpoint"):
         _build_facade(args, {})
@@ -541,9 +541,9 @@ def test_config_error_not_swallowed_when_config_given(tmp_path) -> None:
 def test_main_malformed_config_exits_4(tmp_path) -> None:
     config = tmp_path / "config.yml"
     config.write_text("functions: {search: [unclosed\n")
-    exit_code = main(
+    exit_code = run(
+        "run",
         [
-            "search",
             "--config",
             str(config),
             "--es-endpoint",
@@ -558,7 +558,7 @@ def test_main_malformed_config_exits_4(tmp_path) -> None:
             "http://vst:7777",
             "--json",
             "{}",
-        ]
+        ],
     )
     assert exit_code == 4
 
@@ -573,6 +573,9 @@ class TestStreamExitCodes:
 
     def test_backend_unreachable_maps_to_3(self) -> None:
         assert _exit_code_for_stream_error("BackendUnreachableError") == 3
+
+    def test_vst_error_maps_to_3(self) -> None:
+        assert _exit_code_for_stream_error("VSTError") == 3
 
     def test_invalid_input_maps_to_2(self) -> None:
         assert _exit_code_for_stream_error("InvalidInputError") == 2
@@ -601,8 +604,8 @@ def test_main_index_not_found_non_stream_exits_3(monkeypatch) -> None:
     def boom(args, payload=None):
         raise IndexNotFoundError("video_embeddings")
 
-    monkeypatch.setattr("lib.search_core.cli._build_facade", boom)
-    exit_code = main(["search", "--json", "{}"])
+    monkeypatch.setattr("lib.cli.search._build_facade", boom)
+    exit_code = run("run", ["--json", "{}"])
     # Same exit code (3) as the streamed IndexNotFoundError path above.
     assert exit_code == 3
 
@@ -611,7 +614,7 @@ def test_main_index_not_found_non_stream_exits_3(monkeypatch) -> None:
 
 
 def test_stream_rejected_on_non_search_primitive() -> None:
-    exit_code = main(["embed_search", "--stream", "--json", "{}"])
+    exit_code = run("embed", ["--stream", "--json", "{}"])
     assert exit_code == 2
 
 
@@ -621,33 +624,33 @@ def test_stream_rejected_on_non_search_primitive() -> None:
 def test_search_only_flag_rejected_on_embed_search() -> None:
     # --query is a `search`-only flag; embed_search reads --json/stdin. Passing it
     # to embed_search must fail loudly (exit 2), not be silently ignored.
-    exit_code = main(["embed_search", "--query", "red car", "--json", "{}"])
+    exit_code = run("embed", ["--query", "red car", "--json", "{}"])
     assert exit_code == 2
 
 
 def test_search_only_list_flag_rejected_on_attribute_search() -> None:
-    exit_code = main(["attribute_search", "--attribute", "white jacket", "--json", "{}"])
+    exit_code = run("attribute", ["--attribute", "white jacket", "--json", "{}"])
     assert exit_code == 2
 
 
 def test_reject_search_only_flags_names_the_offending_flags() -> None:
-    from lib.search_core.cli import _reject_search_only_flags_for_non_search
+    from lib.cli.search import _reject_search_only_flags_for_non_search
 
-    args = _parse_args(["embed_search", "--query", "x", "--top-k", "5"])
+    args = _parse_args(["--query", "x", "--top-k", "5"], operation="embed")
     with pytest.raises(InvalidInputError) as exc:
         _reject_search_only_flags_for_non_search(args)
     message = str(exc.value)
     assert "--query" in message
     assert "--top-k" in message
-    assert "embed_search" in message
+    assert "vss-cli search embed" in message
 
 
 def test_non_search_primitive_without_search_flags_is_allowed() -> None:
     # No search-only flags provided -> the guard is a no-op even though the flags
     # are registered on the shared parser with default sentinels.
-    from lib.search_core.cli import _reject_search_only_flags_for_non_search
+    from lib.cli.search import _reject_search_only_flags_for_non_search
 
-    args = _parse_args(["embed_search", "--es-endpoint", "http://es:9200"])
+    args = _parse_args(["--es-endpoint", "http://es:9200"], operation="embed")
     _reject_search_only_flags_for_non_search(args)  # must not raise
 
 
@@ -675,12 +678,12 @@ def _runtime_with_vlm() -> SearchRuntime:
 
 
 def test_plain_search_without_critic_builds_no_analyzer() -> None:
-    args = _parse_args(["search"])
+    args = _parse_args([], operation="run")
     analyzer = _maybe_build_vlm_analyzer(args, {"use_critic": False}, _runtime_with_vlm())
     assert analyzer is None
 
 
 def test_critic_request_builds_analyzer() -> None:
-    args = _parse_args(["critic"])
+    args = _parse_args([], operation="critic")
     analyzer = _maybe_build_vlm_analyzer(args, {}, _runtime_with_vlm())
     assert analyzer is not None

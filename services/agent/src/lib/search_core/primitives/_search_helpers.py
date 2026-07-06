@@ -39,16 +39,17 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Protocol
 
+from lib._foundation.sanitize import scrub_log
+from lib._foundation.time import datetime_to_iso8601
+from lib._foundation.time import safe_iso8601_to_datetime
+from lib.vst import get_sensor_id_from_stream_id
+
 from .._internal.coerce import _coerce_float
 from .._internal.coerce import _coerce_str
-from .._internal.sanitize import scrub_log
-from .._internal.time_convert import datetime_to_iso8601
-from .._internal.time_convert import safe_iso8601_to_datetime
 from .._internal.time_measure import TimeMeasure
 from ..agent_chunks import AgentMessageChunk
 from ..agent_chunks import AgentMessageChunkType
 from ..clients.elastic import ElasticClient
-from ..clients.vst import get_sensor_id_from_stream_id
 from ..errors import BackendUnreachableError
 from ..errors import ConfigurationError
 from ..errors import SearchError
@@ -252,6 +253,7 @@ def attribute_result_to_search_result(
     result_video_name = _coerce_str(video_name) or _coerce_str(metadata.video_name) or _coerce_str(metadata.sensor_id)
     if not description:
         description = f"Attribute match at {metadata.frame_timestamp or 'unknown time'}"
+    object_id = _coerce_str(metadata.object_id)
 
     return SearchResult(
         video_name=result_video_name,
@@ -261,7 +263,11 @@ def attribute_result_to_search_result(
         sensor_id=_coerce_str(metadata.sensor_id),
         screenshot_url=_coerce_str(validated_result.screenshot_url),
         similarity=similarity,
-        object_ids=[_coerce_str(metadata.object_id)],
+        # A missing object id is meaningful: attribute-only hits need not be
+        # associated with a tracked object. Keep the list empty instead of
+        # serializing a misleading blank identifier. ``"0"`` remains truthy
+        # and is therefore preserved.
+        object_ids=[object_id] if object_id else [],
     )
 
 
