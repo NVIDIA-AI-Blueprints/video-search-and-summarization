@@ -72,6 +72,7 @@ services:
       - ENABLE_AGING_POLICY=true
     volumes:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -111,6 +112,7 @@ services:
   #     - ENABLE_AGING_POLICY=false
   #   volumes:
   #     - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+  #     - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
   #     - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
   #     - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
   #     - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos

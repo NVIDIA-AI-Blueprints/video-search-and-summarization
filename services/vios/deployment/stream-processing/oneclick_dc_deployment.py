@@ -2107,7 +2107,7 @@ EXAMPLES:
     # Deploy NVStreamer only (1 instance, the default)
     python3 oneclick_dc_deployment.py deploy nvstreamer --force
 
-    # Deploy locally built images (built with IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE=nvstreamer)
+    # Deploy locally built images (built with IMAGE_REGISTRY=vios, NVSTREAMER_IMAGE_REGISTRY=nvstreamer)
     python3 oneclick_dc_deployment.py --force --image-registry vios --nvstreamer-image nvstreamer
 
     # Deploy 5 NVStreamer instances
