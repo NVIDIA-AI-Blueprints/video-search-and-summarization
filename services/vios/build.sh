@@ -37,7 +37,6 @@ BASE_TAG=""
 TOOLCHAIN=0       # ./build.sh toolchain → build the compile-toolchain image
 BUILD_ALL=0       # ./build.sh all → toolchain → base → module containers → nvstreamer
 NO_AUTO_DEPS=0    # ./build.sh ... no-auto-deps → fail instead of auto-building missing toolchain/base
-JETSON_BUILD=0    # ./build.sh arch=jetson (or arch=orin) → Jetson/Orin variant (see below)
 MODULES=()  # Array to hold the modules
 
 # Toolchain image names. Must match the Makefile defaults (AARCH64_CC_IMAGE,
@@ -45,14 +44,10 @@ MODULES=()  # Array to hold the modules
 # Override via env var to use a pre-pulled image from a registry:
 #   export X86_BUILD_IMAGE=my-registry.example.com/vios-build:custom
 X86_BUILD_IMAGE="${X86_BUILD_IMAGE:-vios-build:x86-24.04-cuda13.0.0}"
-# Track whether the aarch64 toolchain image came from the environment (vs the
-# built-in default) so the arch=jetson variant can substitute its own R39
-# cross-compiler default below without clobbering an explicit user override.
-[[ -n "${AARCH64_CC_IMAGE:-}" ]] && AARCH64_CC_IMAGE_FROM_ENV=1
+# One aarch64 cross-compile toolchain for all aarch64 targets — Orin (Jetson
+# iGPU), Thor/SBSA, and DGX-Spark. Platform is detected at runtime; no separate
+# Jetson/L4T toolchain is needed.
 AARCH64_CC_IMAGE="${AARCH64_CC_IMAGE:-vios-build:aarch64-cross-compiler}"
-# Default R39/JetPack7 (Orin) cross-compiler used for arch=jetson/arch=orin.
-# Override with env AARCH64_CC_IMAGE_JETSON or toolchain-image=.
-AARCH64_CC_IMAGE_JETSON="${AARCH64_CC_IMAGE_JETSON:-vios-build:jetson-cross-compiler}"
 # Registry and org for built images. Defaults to a bare local namespace so
 # local builds work out of the box (e.g. vios/vst:latest, nvstreamer:latest);
 # no registry is hardcoded in the public tree. Override to push elsewhere:
@@ -83,9 +78,8 @@ show_help() {
     echo
     echo "Common Options:"
     echo "  arch=<arch>        Specify the architecture (amd64/x86_64 or arm64/aarch64). Default is x86_64/amd64."
-    echo "                     arch=jetson (alias arch=orin): aarch64 build for NVIDIA Jetson/Orin — uses the"
-    echo "                     R39/JetPack7 cross-compiler (vios-build:jetson-cross-compiler) and the"
-    echo "                     self-contained deployment Dockerfile (cicd_files/aarch64_orin/Dockerfile_vst.deployment)."
+    echo "                     arch=orin (alias arch=jetson) is accepted as an alias for aarch64: one unified"
+    echo "                     aarch64 build runs on Orin (Jetson iGPU), Thor/SBSA, and DGX-Spark (runtime detection)."
     echo "  module=<modules>   Comma-separated list of modules to build (e.g., sensor,rtspserver,streamprocessing)."
     echo "  package            Build and package the modules."
     echo "  container          Build, package, and create Docker containers. Auto-builds the toolchain"
@@ -125,8 +119,7 @@ show_help() {
     echo
     echo "Toolchain images (set via env, falling back to Makefile defaults):"
     echo "  X86_BUILD_IMAGE          (default: vios-build:x86-24.04-cuda13.0.0)"
-    echo "  AARCH64_CC_IMAGE         (default: vios-build:aarch64-cross-compiler)"
-    echo "  AARCH64_CC_IMAGE_JETSON  (default: vios-build:jetson-cross-compiler)  # used by arch=jetson/orin"
+    echo "  AARCH64_CC_IMAGE         (default: vios-build:aarch64-cross-compiler)  # all aarch64 incl. Orin"
     echo
     echo "Examples:"
     echo "  ./build.sh (Same as => ./build.sh arch=x86_64 OR ./build.sh arch=amd64)"
@@ -143,10 +136,8 @@ show_help() {
     echo "  ./build.sh container mcp push=1"
     echo "  ./build.sh container module=streamprocessing push=1"
     echo ""
-    echo "  # Jetson/Orin (aarch64, R39/JetPack7 toolchain + self-contained deployment image):"
-    echo "  ./build.sh arch=jetson toolchain            # build the Orin cross-compiler (from cicd_files/aarch64_orin/devel)"
-    echo "  ./build.sh arch=jetson container module=streamprocessing"
-    echo "  ./build.sh arch=jetson container module=sensor,streamprocessing push=1"
+    echo "  # Orin/Jetson build the same unified aarch64 image (alias for arch=aarch64):"
+    echo "  ./build.sh arch=orin container module=sensor,streamprocessing"
     echo ""
     echo "  ./build.sh vst-app"
     echo "  ./build.sh vst-app module=sensor,rtspserver,recorder"
@@ -261,14 +252,10 @@ while [[ "$#" -gt 0 ]]; do
             ARCH="${1#*=}"
             if [[ "$ARCH" = "arm64" ]]; then ARCH="aarch64"; fi
             if [[ "$ARCH" = "amd64" ]]; then ARCH="x86_64"; fi
-            # Jetson/Orin: same unified aarch64 source (runtime platform
-            # detection, no JETSON_PLATFORM define) but a distinct R39/JetPack7
-            # cross-compile toolchain and a self-contained deployment Dockerfile.
-            # Normalize ARCH to aarch64 so every arm64 compile path applies.
-            if [[ "$ARCH" = "jetson" ]] || [[ "$ARCH" = "orin" ]]; then
-                ARCH="aarch64"
-                JETSON_BUILD=1
-            fi
+            # Orin/Jetson build the unified aarch64 target (runtime platform
+            # detection, no JETSON_PLATFORM define, no L4T rootfs). Accept them
+            # as aliases for aarch64.
+            if [[ "$ARCH" = "jetson" ]] || [[ "$ARCH" = "orin" ]]; then ARCH="aarch64"; fi
             ;;
         module=*)
             IFS=',' read -r -a MODULES <<< "${1#*=}"
@@ -326,37 +313,15 @@ if [[ -n "${NVSTREAMER_IMAGE_OVERRIDE:-}" ]]; then
     NVSTREAMER_IMAGE="$NVSTREAMER_IMAGE_OVERRIDE"
 fi
 
-# ---------------------------------------------------------------------------
-# Jetson/Orin build variant (arch=jetson / arch=orin)
-# ---------------------------------------------------------------------------
-# The source tree is unified — a single aarch64 build runs on Orin and
-# Thor/SBSA via runtime platform detection. The Orin build differs only in
-# (a) the R39/JetPack7 cross-compile toolchain image and (b) a self-contained
-# deployment Dockerfile (its own FROM, no base-image + Dockerfile.app split).
-if [[ $JETSON_BUILD -eq 1 ]]; then
-    # Use the Orin R39 cross-compiler unless the user pinned one explicitly
-    # (CLI toolchain-image= or env AARCH64_CC_IMAGE). Precedence: CLI > env > jetson default.
-    if [[ -z "${TOOLCHAIN_IMAGE_OVERRIDE:-}" ]] && [[ -z "${AARCH64_CC_IMAGE_FROM_ENV:-}" ]]; then
-        AARCH64_CC_IMAGE="$AARCH64_CC_IMAGE_JETSON"
-    fi
-    DEPLOY_DOCKERFILE="cicd_files/aarch64_orin/Dockerfile_vst.deployment"
-    NEEDS_BASE_IMAGE=0
-else
-    DEPLOY_DOCKERFILE="cicd_files/$ARCH/Dockerfile.app"
-    NEEDS_BASE_IMAGE=1
-fi
-
 # Export the resolved toolchain images so the Makefile's `?=` picks them up
 # (build.sh sets them as shell vars but make runs in a child process). Without
-# this, a jetson toolchain / env / toolchain-image= override never reaches the
-# containerised `make cc=1` step.
+# this, an env / toolchain-image= override never reaches the containerised
+# `make cc=1` step.
 export AARCH64_CC_IMAGE X86_BUILD_IMAGE
 
 # Print all variables
 echo "ARCH=$ARCH"
-echo "JETSON_BUILD=$JETSON_BUILD"
 echo "AARCH64_CC_IMAGE=$AARCH64_CC_IMAGE"
-echo "DEPLOY_DOCKERFILE=$DEPLOY_DOCKERFILE"
 echo "PACKAGE=$PACKAGE"
 echo "CONTAINER=$CONTAINER"
 echo "TAG=$TAG"
@@ -523,12 +488,7 @@ build_toolchain_image() {
     echo ""
 
     local context dockerfile_arg=""
-    if [[ $JETSON_BUILD -eq 1 ]]; then
-        # Orin R39/JetPack7 cross-compiler: built from the L4T rootfs
-        # (full_linux_for_tegra.tbz2) staged in this devel context.
-        context="cicd_files/aarch64_orin/devel"
-        # Orin devel/Dockerfile uses the default filename, no -f needed.
-    elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
         context="cicd_files/aarch64/devel"
         # arm64 devel/Dockerfile uses the default filename, no -f needed.
     else
@@ -814,19 +774,16 @@ build_all() {
         fi
         BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:$BASE_IMAGE_TAG"
 
-        if [[ ! -f "../../$DEPLOY_DOCKERFILE" ]]; then
-            echo "[ERROR] Deployment Dockerfile not found: $DEPLOY_DOCKERFILE"
+        if [[ ! -f "../../cicd_files/$ARCH/Dockerfile.app" ]]; then
+            echo "[ERROR] Dockerfile.app not found in cicd_files/$ARCH/"
             cd - || exit 1
             return 1
         fi
 
-        if [[ $JETSON_BUILD -eq 1 ]]; then
-            # Self-contained Orin Dockerfile: no BASE_IMAGE arg (its own FROM).
-            docker build $CACHE_FLAG --platform linux/arm64 --network=host -t $IMAGE_NAME --build-arg PKG_LOCATION="." -f "../../$DEPLOY_DOCKERFILE" .
-        elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
-            docker build $CACHE_FLAG --platform linux/arm64 --network=host -t $IMAGE_NAME --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../$DEPLOY_DOCKERFILE" .
+        if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+            docker build $CACHE_FLAG --platform linux/arm64 --network=host -t $IMAGE_NAME --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../cicd_files/$ARCH/Dockerfile.app" .
         else
-            docker build $CACHE_FLAG --network=host -t $IMAGE_NAME --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../$DEPLOY_DOCKERFILE" .
+            docker build $CACHE_FLAG --network=host -t $IMAGE_NAME --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../cicd_files/$ARCH/Dockerfile.app" .
         fi
 
         # Check if Docker build was successful
@@ -1119,10 +1076,7 @@ if [[ $BUILD_ALL -eq 1 ]]; then
     fi
 
     ensure_toolchain_image
-    # Jetson/Orin uses a self-contained deployment Dockerfile — no base image.
-    if [[ $NEEDS_BASE_IMAGE -eq 1 ]]; then
-        ensure_base_image
-    fi
+    ensure_base_image
 
     # Compile + containerize the requested modules.
     CONTAINER=1
@@ -1150,12 +1104,8 @@ if [[ $BUILD_ALL -eq 1 ]]; then
     echo ""
     echo "Images built (locally tagged, not pushed):"
     echo "  toolchain : $(get_toolchain_image_name)"
-    if [[ $NEEDS_BASE_IMAGE -eq 1 ]]; then
-        _base_tag="${BASE_TAG:-${DEFAULT_TAGS["vst-base"]:-latest}}"
-        echo "  base      : $IMAGE_REGISTRY/vst-base:$_base_tag"
-    else
-        echo "  base      : (none — self-contained deployment Dockerfile: $DEPLOY_DOCKERFILE)"
-    fi
+    _base_tag="${BASE_TAG:-${DEFAULT_TAGS["vst-base"]:-latest}}"
+    echo "  base      : $IMAGE_REGISTRY/vst-base:$_base_tag"
     for _m in "${MODULES[@]}"; do
         _mt="${DEFAULT_TAGS[$_m]:-latest}"
         echo "  module    : $IMAGE_REGISTRY/vst-${_m}:${TAG:-$_mt}"
@@ -1190,11 +1140,9 @@ if [[ $CLEAN -eq 0 ]]; then
 fi
 # Base image is only needed when actually building module containers.
 # build_base_image / clean / package / default-compile do not need it.
-# The Jetson/Orin variant uses a self-contained deployment Dockerfile (its own
-# FROM), so it has no separate base image to build/pull.
 if [[ $CONTAINER -eq 1 ]] && [[ $BASE_IMAGE -eq 0 ]] \
    && [[ $INGRESS -eq 0 ]] && [[ $NVSTREAMER_INGRESS -eq 0 ]] \
-   && [[ $MCP -eq 0 ]] && [[ $NEEDS_BASE_IMAGE -eq 1 ]]; then
+   && [[ $MCP -eq 0 ]]; then
     ensure_base_image
 fi
 
@@ -1497,18 +1445,15 @@ else
             fi
             BASE_IMAGE_NAME="$IMAGE_REGISTRY/vst-base:$BASE_IMAGE_TAG"
 
-            if [[ ! -f "../../$DEPLOY_DOCKERFILE" ]]; then
-                echo "[ERROR] Deployment Dockerfile not found: $DEPLOY_DOCKERFILE"
+            if [[ ! -f "../../cicd_files/$ARCH/Dockerfile.app" ]]; then
+                echo "[ERROR] Dockerfile.app not found in cicd_files/$ARCH/"
                 exit 1
             fi
 
-            if [[ $JETSON_BUILD -eq 1 ]]; then
-                # Self-contained Orin Dockerfile: no BASE_IMAGE arg (its own FROM).
-                docker build $CACHE_FLAG --platform linux/arm64 --network=host -t "$imagename" --build-arg PKG_LOCATION="." -f "../../$DEPLOY_DOCKERFILE" .
-            elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
-                docker build $CACHE_FLAG --platform linux/arm64 --network=host -t "$imagename" --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../$DEPLOY_DOCKERFILE" .
+            if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+                docker build $CACHE_FLAG --platform linux/arm64 --network=host -t "$imagename" --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../cicd_files/$ARCH/Dockerfile.app" .
             else
-                docker build $CACHE_FLAG --network=host -t "$imagename" --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../$DEPLOY_DOCKERFILE" .
+                docker build $CACHE_FLAG --network=host -t "$imagename" --build-arg BASE_IMAGE="$BASE_IMAGE_NAME" --build-arg PKG_LOCATION="." -f "../../cicd_files/$ARCH/Dockerfile.app" .
             fi
 
             # Check if Docker build was successful
