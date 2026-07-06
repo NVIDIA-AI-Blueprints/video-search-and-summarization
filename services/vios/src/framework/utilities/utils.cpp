@@ -193,12 +193,19 @@ bool isJetsonPlatform()
     // dlopen/dlsym'd by NvBufWrapper), so resolve NvBufSurfaceGetDeviceInfo the
     // same way here rather than calling it directly.
     static const bool s_isJetson = []() -> bool {
+        // NOTE: this runs inside a function-local static initializer that can be
+        // reached from the VmsConfigManager constructor. Do NOT use the LOG()
+        // macro here: the logger calls VmsConfigManager::getInstance(), which
+        // would re-enter the singleton mid-construction and abort with
+        // __gnu_cxx::recursive_init_error. Use fprintf(stderr) instead — a
+        // low-level platform probe must not depend on the config/logger.
         const char* libPath = "/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so";
         void* handle = dlopen(libPath, RTLD_LAZY);
         if (!handle)
         {
-            LOG(warning) << "isJetsonPlatform: unable to dlopen " << libPath
-                         << " (" << dlerror() << "); assuming non-Jetson" << endl;
+            const char* err = dlerror();
+            fprintf(stderr, "isJetsonPlatform: unable to dlopen %s (%s); assuming non-Jetson\n",
+                    libPath, err ? err : "unknown");
             return false;
         }
         using NvBufSurfaceGetDeviceInfo_t = int (*)(NvBufSurfaceDeviceInfo*);
@@ -211,18 +218,18 @@ bool isJetsonPlatform()
             if (getDeviceInfo(&info) == 0)
             {
                 jetson = (info.driverType == NVBUF_DRIVER_TYPE_NVGPU) && info.isIntegratedGpu;
-                LOG(info) << "isJetsonPlatform: driverType=" << info.driverType
-                          << " isIntegratedGpu=" << info.isIntegratedGpu
-                          << " -> " << (jetson ? "Jetson/Orin" : "Thor/SBSA") << endl;
+                fprintf(stderr, "isJetsonPlatform: driverType=%d isIntegratedGpu=%d -> %s\n",
+                        static_cast<int>(info.driverType), static_cast<int>(info.isIntegratedGpu),
+                        jetson ? "Jetson/Orin" : "Thor/SBSA");
             }
             else
             {
-                LOG(warning) << "isJetsonPlatform: NvBufSurfaceGetDeviceInfo failed; assuming non-Jetson" << endl;
+                fprintf(stderr, "isJetsonPlatform: NvBufSurfaceGetDeviceInfo failed; assuming non-Jetson\n");
             }
         }
         else
         {
-            LOG(warning) << "isJetsonPlatform: NvBufSurfaceGetDeviceInfo symbol not found; assuming non-Jetson" << endl;
+            fprintf(stderr, "isJetsonPlatform: NvBufSurfaceGetDeviceInfo symbol not found; assuming non-Jetson\n");
         }
         dlclose(handle);
         return jetson;
