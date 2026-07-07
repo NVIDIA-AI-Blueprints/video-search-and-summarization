@@ -447,6 +447,34 @@ INCIDENT_QUERY_FAILURES = Counter(
     'Failed Elasticsearch incident queries',
 )
 
+# --- Realtime RT-VLM alert consolidation (read-time dedup) -------------------
+# Emitted by IncidentService._consolidate when consolidate=true. Let operators
+# tune max_inter_alert_gap_seconds / max_event_duration_seconds empirically.
+DEDUP_CHUNKS_IN = Counter(
+    'alert_bridge_dedup_chunks_in_total',
+    'Raw RT-VLM chunk incidents fed into the consolidator',
+    ['sensorId', 'category'],
+)
+
+DEDUP_EVENTS_OUT = Counter(
+    'alert_bridge_dedup_events_out_total',
+    'Consolidated events emitted by the consolidator',
+    ['sensorId', 'category'],
+)
+
+# reason values: gap (continuity break) | outer (duration cap) | malformed
+DEDUP_SPLIT_REASON = Counter(
+    'alert_bridge_dedup_split_reason_total',
+    'Why an event ended and a new one began, by reason',
+    ['reason'],
+)
+
+DEDUP_DURATION = Histogram(
+    'alert_bridge_dedup_duration_seconds',
+    'Time spent folding chunks into events (excludes the Elasticsearch query)',
+    buckets=[0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+)
+
 # Verification failures broken down by failure stage/reason.
 # Incremented for every event that does NOT produce a successful VLM verdict,
 # including events that never reach the VLM (VST failures, URL validation) and
