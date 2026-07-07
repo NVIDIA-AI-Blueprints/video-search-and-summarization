@@ -3776,8 +3776,9 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
             }
 
             /* Now set the offsets where the string should appear */
-            text_params->pos_x = std::min(10, m_width);
-            text_params->pos_y = std::min(900, m_height-100);
+            const Point dbg_pos = interpolateCoordinate(10, 900, WIDTH_1080p, HEIGHT_1080p, m_width, m_height);
+            text_params->pos_x = dbg_pos.x;
+            text_params->pos_y = dbg_pos.y;
             text_params->font_size = font_size;
             text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
@@ -3813,8 +3814,9 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (void* buffer, GstMetaUni
                 }
 
                 /* Now set the offsets where the string should appear */
-                text_params_latency->pos_x = std::min(10, m_width);
-                text_params_latency->pos_y = std::min(900 + (3 * font_size), m_height - 100 + (3 * font_size));
+                const Point lat_pos = interpolateCoordinate(10, 900, WIDTH_1080p, HEIGHT_1080p, m_width, m_height);
+                text_params_latency->pos_x = lat_pos.x;
+                text_params_latency->pos_y = lat_pos.y + (3 * font_size);
                 text_params_latency->font_size = font_size;
                 text_params_latency->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
@@ -4045,9 +4047,10 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbeStreamer (void* buffer, Gs
                 text_params->text = cstr;
             }
 
-            /* Now set the offsets where the string should appe ar */
-            text_params->pos_x = std::min(10, m_width);
-            text_params->pos_y = std::min(900, m_height-100);
+            /* Now set the offsets where the string should appear */
+            const Point dbg_pos = interpolateCoordinate(10, 900, WIDTH_1080p, HEIGHT_1080p, m_width, m_height);
+            text_params->pos_x = dbg_pos.x;
+            text_params->pos_y = dbg_pos.y;
             text_params->font_size = interpolateFontSize(m_sourceWidth, m_width);
             text_params->font_type = strdup(GET_CONFIG().overlay_text_font_type.c_str());
 
