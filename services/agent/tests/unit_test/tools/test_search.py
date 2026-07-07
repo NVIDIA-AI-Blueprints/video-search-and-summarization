@@ -61,7 +61,7 @@ class TestResolveVideoSourcesForSearch:
 
         assert result == ["video1"]
 
-    def test_video_file_resolves_name_to_uuid(self):
+    def test_video_file_resolves_name_to_uuid_and_keeps_name_fallback(self):
         stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
 
         result = _resolve_video_sources_for_search(
@@ -70,7 +70,11 @@ class TestResolveVideoSourcesForSearch:
             source_type="video_file",
         )
 
-        assert result == [stream_id]
+        # The name is kept alongside the UUID: ES `sensor.id` may carry the
+        # per-upload storage-asset UUID rather than the VST sensor UUID, so a
+        # UUID-only terms filter can silently exclude every hit. The name lets
+        # embed_search's mixed path wildcard-match on sensor.info.url/path.
+        assert result == [stream_id, "video1.mp4"]
 
     def test_unresolved_video_source_keeps_original_name(self):
         result = _resolve_video_sources_for_search(
