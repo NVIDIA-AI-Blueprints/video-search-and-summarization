@@ -341,6 +341,7 @@ commons:
 
   variables:
     2d:
+      - trim_sample_videos: 'False if "${SENSOR_INFO_SOURCE}" == "file" else True'
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
       # pre_cluster_threshold: 0.6 for nv-warehouse-4cams, else 0.5 (used in ds-pgie-config.yml)
@@ -354,6 +355,7 @@ commons:
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
     3d:
+      - trim_sample_videos: 'False if "${SENSOR_INFO_SOURCE}" == "file" else True'
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
       - msg-broker-conn-str: '"localhost;6379;" if "${STREAM_TYPE}" == "redis" else "localhost;9092;mdx-bev"'
@@ -364,6 +366,7 @@ commons:
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
     mv3dt:
+      - trim_sample_videos: 'False if "${SENSOR_INFO_SOURCE}" == "file" else True'
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
       - msg-broker-conn-str: '"localhost;6379;" if "${STREAM_TYPE}" == "redis" else "localhost;9092;mdx-bev"'
@@ -435,6 +438,7 @@ commons:
           class-attrs-0.pre-cluster-threshold: "${person_detection_threshold}"
         
       - operation_type: "file_management"
+        enabled: "${trim_sample_videos}"
         target_directories:
           - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
@@ -512,6 +516,7 @@ commons:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
       - operation_type: "file_management"
+        enabled: "${trim_sample_videos}"
         target_directories:
           - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
@@ -577,6 +582,7 @@ commons:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
       - operation_type: "file_management"
+        enabled: "${trim_sample_videos}"
         target_directories:
           - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
