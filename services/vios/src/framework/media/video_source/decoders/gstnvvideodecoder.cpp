@@ -1295,6 +1295,7 @@ failure:
 
 void GstNvVideoDecoder::setResolution(int width, int height)
 {
+    const bool changed = (m_decoderWidth != width) || (m_decoderHeight != height);
     m_decoderWidth = width;
     m_decoderHeight = height;
 
@@ -1309,6 +1310,30 @@ void GstNvVideoDecoder::setResolution(int width, int height)
             // Update frame size with actual decoder resolution (or resize dimensions if set)
             sink->m_frameSize.m_width = m_resizeWidth ? m_resizeWidth : width;
             sink->m_frameSize.m_height = m_resizeHeight ? m_resizeHeight : height;
+        }
+        return;
+    }
+
+    if (!changed || width <= 0 || height <= 0)
+    {
+        return;
+    }
+
+    /* The real decoded resolution is only known here, once the decodebin caps
+    ** are negotiated (asynchronously, after the pipeline is PLAYING). At
+    ** setConsumer() time the consumers were seeded with the decoder's default
+    ** resolution, so the consumer's coordinate reference (m_sourceWidth/
+    ** m_sourceHeight) is stale. Re-propagate the true resolution down the
+    ** consumer chain */
+    std::lock_guard<std::mutex> lock(m_videoSinkLock);
+    LOG(info) << "Decoder resolution negotiated: " << width << "x" << height
+              << "; propagating source frame size to " << m_videoSinkList.size()
+              << " consumer(s) for " << m_uri << endl;
+    for (auto& entry : m_videoSinkList)
+    {
+        if (entry.second && entry.second->m_consumer)
+        {
+            entry.second->m_consumer->setOriginalFrameSize(width, height);
         }
     }
 }
