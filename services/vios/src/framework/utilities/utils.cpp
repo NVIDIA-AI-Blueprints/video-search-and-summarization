@@ -200,6 +200,8 @@ bool isJetsonPlatform()
         // __gnu_cxx::recursive_init_error. Use fprintf(stderr) instead — a
         // low-level platform probe must not depend on the config/logger.
         const char* libPath = "/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so";
+        // Loaded from /usr/lib/aarch64-linux-gnu/nvidia/: device-injected on Jetson
+        // (Orin/Thor), Dockerfile.app-symlinked from the sbsa prebuilts on discrete.
         void* handle = dlopen(libPath, RTLD_LAZY);
         if (!handle)
         {

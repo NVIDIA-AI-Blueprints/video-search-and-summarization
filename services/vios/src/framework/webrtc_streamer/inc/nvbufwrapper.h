@@ -117,6 +117,9 @@ class NvBufWrapper
             }
 
 #if defined(AARCH64_PLATFORM)
+            // Loaded from /usr/lib/aarch64-linux-gnu/nvidia/: on Jetson (Orin/Thor)
+            // the device/BSP injects the Tegra libs there; on discrete aarch64
+            // (DGX-Spark/SBSA) Dockerfile.app symlinks them from the sbsa prebuilts.
             handle_nvbufsurface_utils = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so", RTLD_LAZY);
             handle_nvbufsurfacetransform_utils = dlopen("/usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurftransform.so", RTLD_LAZY);
 #else
