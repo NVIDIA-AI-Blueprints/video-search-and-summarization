@@ -450,16 +450,20 @@ INCIDENT_QUERY_FAILURES = Counter(
 # --- Realtime RT-VLM alert consolidation (read-time dedup) -------------------
 # Emitted by IncidentService._consolidate when consolidate=true. Let operators
 # tune max_inter_alert_gap_seconds / max_event_duration_seconds empirically.
+# Aggregate-only (no sensorId/category labels): the consolidator labels straight
+# from Elasticsearch documents, so per-sensor labels would mint unbounded,
+# permanent Prometheus series on high-cardinality or malformed sensor IDs. The
+# aggregate chunks-in / events-out ratio is the dedup-effectiveness signal; a
+# per-sensor breakdown, if ever needed, must go through the gated + sanitized
+# per-sensor path (metrics.recorder: per_sensor_labels_enabled / _sanitize_sensor_id).
 DEDUP_CHUNKS_IN = Counter(
     'alert_bridge_dedup_chunks_in_total',
     'Raw RT-VLM chunk incidents fed into the consolidator',
-    ['sensorId', 'category'],
 )
 
 DEDUP_EVENTS_OUT = Counter(
     'alert_bridge_dedup_events_out_total',
     'Consolidated events emitted by the consolidator',
-    ['sensorId', 'category'],
 )
 
 # reason values: gap (continuity break) | outer (duration cap) | malformed
