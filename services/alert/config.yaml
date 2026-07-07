@@ -193,6 +193,12 @@ alert_agent:
     protect_confirmed_verdicts:
       enabled: false      # Master switch
       ttl_seconds: 600    # TTL for confirmed markers (10 minutes)
+      # Cooldown (s) before retrying the verdict-protection ES client after a
+      # construction failure. Fails open + retries; never a permanent disable.
+      es_retry_backoff_seconds: 30
+      # Retention reaper for expired ``ab-confirmed-verdicts`` markers.
+      retention_interval_seconds: 3600          # hourly delete-by-query pass
+      retention_requests_per_second: 50         # throttle to bound cluster impact
     # End time delta filter: blocks incidents unless end time changed significantly.
     end_time_delta_filter:
       enabled: false
@@ -302,6 +308,10 @@ persistence:
   enabled: true
   backend: "elasticsearch"               # Only "elasticsearch" supported for now
   index_prefix: "ab-"                    # Indices created as ab-{collection}
+  # DEV/LOCAL ONLY. When persistence.enabled is false, a non-dev deployment
+  # fails readiness. Set this true to explicitly opt a dev/local profile
+  # into the non-durable in-process alert-config store instead.
+  dev_allow_in_memory: false
   # elasticsearch:                       # Optional: override hosts (defaults to elastic.hosts above)
   #   hosts:
   #     - http://localhost:9200

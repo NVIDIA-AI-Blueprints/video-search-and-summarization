@@ -487,3 +487,113 @@ VERIFICATION_FAILURES = Counter(
     'Verification failures by stage/reason',
     ['reason']
 )
+
+# ---------------------------------------------------------------------------
+# In-process store + verdict-protection observability
+#
+# These four families give operators the visibility the Redis removal took
+# away: bounded-cardinality signals for the in-process caches (memory
+# growth), the ES-backed verdict protection (latency + fail-open), the
+# alert-config read-through composite (where reads are served from), and the
+# ES index readiness + producer partition-key alignment guardrail.
+#
+# Cardinality is deliberately bounded: ``store`` ∈ {dedup, enddelta,
+# alert_config}, ``reason``/``source`` are closed enums, and NO sensorId /
+# fingerprint / objectId is ever used as a label.
+# ---------------------------------------------------------------------------
+
+# (1) In-process cache occupancy + eviction accounting.
+DEDUP_CACHE_OCCUPANCY = Gauge(
+    'alert_bridge_dedup_cache_occupancy',
+    'Resident entry count of an in-process state cache (live entries plus any '
+    'expired-but-not-yet-swept; the 30s sweep reconciles it to the live count)',
+    ['store'],
+    multiprocess_mode='livemostrecent',
+)
+
+DEDUP_CACHE_EVICTIONS = Counter(
+    'alert_bridge_dedup_cache_evictions_total',
+    'In-process cache entries evicted because their TTL expired',
+    ['store', 'mode'],  # mode ∈ {lazy, sweep}
+)
+
+# (2) Confirmed-verdict protection (ES-backed).
+VERDICT_ES_GET_DURATION = Histogram(
+    'alert_bridge_verdict_es_get_duration_seconds',
+    'Latency of the confirmed-verdict marker ES get',
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5],
+)
+
+# Fail-open events: a verdict check that could NOT positively confirm and so
+# let the event proceed to VLM. reason ∈ closed enum below — never labelled
+# with sensorId/fingerprint.
+#   es_down    – ES client unavailable / disabled by backoff
+#   error      – ES get raised
+#   expired    – marker present but expired
+#   malformed  – marker present but expires_at missing / non-numeric / non-finite
+VERDICT_FAIL_OPEN = Counter(
+    'alert_bridge_verdict_fail_open_total',
+    'Confirmed-verdict checks that failed open (event allowed to proceed)',
+    ['reason'],
+)
+
+# (3) Alert-config read-through composite: where each read was served from.
+#   cache    – in-process hot cache hit
+#   es       – Elasticsearch (source of truth)
+#   snapshot – last-resort in-memory snapshot after an ES error
+ALERT_CONFIG_READ_SOURCE = Counter(
+    'alert_bridge_alert_config_read_source_total',
+    'Alert-config reads by the store tier that served them',
+    ['source'],
+)
+
+# Seconds since the alert-config in-memory snapshot was last refreshed from
+# ES. A rising value means the composite has been serving without a
+# successful ES read (staleness risk).
+ALERT_CONFIG_STALENESS_SECONDS = Gauge(
+    'alert_bridge_alert_config_staleness_seconds',
+    'Seconds since the alert-config snapshot was last refreshed from Elasticsearch',
+    multiprocess_mode='livemostrecent',
+)
+
+# (4a) ES index readiness. 1 = index confirmed present at startup, 0 = not
+# ready / creation failed. index ∈ {confirmed-verdicts, alert-configs, ...}.
+INDEX_READY = Gauge(
+    'alert_bridge_index_ready',
+    'Whether a required Elasticsearch index has been confirmed ready (1) or not (0)',
+    ['index'],
+    multiprocess_mode='livemostrecent',
+)
+
+# (4b) Producer partition-key alignment guardrail. Dedup determinism relies
+# on the Kafka record key beginning with sensorId; this counter surfaces
+# producer-side drift. aligned ∈ {yes, no, unknown}. No sensorId label.
+RECORD_KEY_ALIGNMENT = Counter(
+    'alert_bridge_record_key_alignment_total',
+    'Consumed records by whether their Kafka record key aligned with sensorId',
+    ['aligned'],
+)
+
+# ---------------------------------------------------------------------------
+# Confirmed-verdict marker retention (hourly throttled reaper)
+# ---------------------------------------------------------------------------
+
+# Markers deleted by the retention job (cumulative).
+VERDICT_RETENTION_DELETED = Counter(
+    'alert_bridge_verdict_retention_deleted_total',
+    'Expired confirmed-verdict markers deleted by the retention job',
+)
+
+# Retention-job runs by outcome ∈ {success, failure}.
+VERDICT_RETENTION_RUNS = Counter(
+    'alert_bridge_verdict_retention_runs_total',
+    'Confirmed-verdict retention job runs by outcome',
+    ['outcome'],
+)
+
+# Unix timestamp of the last successful retention run (staleness / liveness).
+VERDICT_RETENTION_LAST_RUN = Gauge(
+    'alert_bridge_verdict_retention_last_run_timestamp_seconds',
+    'Unix timestamp of the last successful confirmed-verdict retention run',
+    multiprocess_mode='livemostrecent',
+)
