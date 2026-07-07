@@ -36,6 +36,7 @@ BASE_IMAGE=0
 BASE_TAG=""
 TOOLCHAIN=0       # ./build.sh toolchain → build the compile-toolchain image
 BUILD_ALL=0       # ./build.sh all → toolchain → base → module containers → nvstreamer
+MULTIARCH=0       # ./build.sh multiarch tag=X → build+push amd64+arm64, then a multiarch manifest
 NO_AUTO_DEPS=0    # ./build.sh ... no-auto-deps → fail instead of auto-building missing toolchain/base
 MODULES=()  # Array to hold the modules
 
@@ -89,6 +90,11 @@ show_help() {
     echo "  base-container     Build only the runtime base image (auto-invoked by 'container' when missing)."
     echo "  all                One-shot: toolchain -> base -> module containers (sensor + streamprocessing"
     echo "                     by default, or whatever module=... lists) -> nvstreamer container."
+    echo "  multiarch          Build+push amd64 and arm64 images (per-arch tags) then assemble one"
+    echo "                     multi-arch manifest via 'docker buildx imagetools'. Needs tag=<manifest-tag>"
+    echo "                     (e.g. tag=2.1.0-26.05.4; per-arch tags are derived as -amd64-/-arm64-) and a"
+    echo "                     target (module=<list> and/or nvstreamer). Set IMAGE_REGISTRY to a pushable"
+    echo "                     registry first. amd64 push overlaps the arm64 build."
     echo "  no-auto-deps       Disable the auto-build of toolchain / base. Use when you want strict failure"
     echo "                     if those images are missing (CI; pulled-from-registry workflows)."
     echo "  tag=<name>         Docker image tag for application containers (used with container option)."
@@ -138,6 +144,11 @@ show_help() {
     echo ""
     echo "  # Orin/Jetson build the same unified aarch64 image (alias for arch=aarch64):"
     echo "  ./build.sh arch=orin container module=sensor,streamprocessing"
+    echo ""
+    echo "  # Multi-arch (amd64 + arm64) build, push, and manifest in one command:"
+    echo "  export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
+    echo "  ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing"
+    echo "  ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4"
     echo ""
     echo "  ./build.sh vst-app"
     echo "  ./build.sh vst-app module=sensor,rtspserver,recorder"
@@ -256,6 +267,10 @@ while [[ "$#" -gt 0 ]]; do
             # detection, no JETSON_PLATFORM define, no L4T rootfs). Accept them
             # as aliases for aarch64.
             if [[ "$ARCH" = "jetson" ]] || [[ "$ARCH" = "orin" ]]; then ARCH="aarch64"; fi
+            # arch=multiarch is an alias for the `multiarch` subcommand (builds
+            # both amd64 + arm64). ARCH itself is irrelevant then (each per-arch
+            # sub-build sets its own), so reset it to the default.
+            if [[ "$ARCH" = "multiarch" ]]; then MULTIARCH=1; ARCH="x86_64"; fi
             ;;
         module=*)
             IFS=',' read -r -a MODULES <<< "${1#*=}"
@@ -282,6 +297,7 @@ while [[ "$#" -gt 0 ]]; do
         base-container) BASE_IMAGE=1;;
         toolchain) TOOLCHAIN=1;;
         all) BUILD_ALL=1;;
+        multiarch) MULTIARCH=1;;
         no-auto-deps) NO_AUTO_DEPS=1;;
         # CLI-flag alternatives to the X86_BUILD_IMAGE / AARCH64_CC_IMAGE /
         # IMAGE_REGISTRY / NVSTREAMER_IMAGE env vars. Applied AFTER the
@@ -1046,15 +1062,156 @@ build_streamprocessing_app() {
 # ============================================================================
 
 # `./build.sh toolchain` — build the compile-toolchain image and exit.
-# This wraps the verbose `docker build -t vios-build:… -f cicd_files/…`
-# command the README used to ask users to copy-paste, and replaces the
-# separate `cicd_files/aarch64/devel/build_cross_compile_container.sh`
-# script so x86_64 and aarch64 share one entry point.
+# This wraps the verbose `docker build -t vios-build:… -f cicd_files/…/devel`
+# command directly, so x86_64 and aarch64 share one entry point (no per-arch
+# helper script).
 #
 # `push=1` is honored — together with X86_BUILD_IMAGE / AARCH64_CC_IMAGE
 # overrides, it lets users publish the toolchain to their own registry.
 if [[ $TOOLCHAIN -eq 1 ]]; then
     build_toolchain_image "$PUSH"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Multi-arch build + push + manifest
+# ---------------------------------------------------------------------------
+# Builds amd64 and arm64 container images with per-arch tags, pushes them, then
+# assembles a single multi-arch manifest tag via `docker buildx imagetools`.
+# The amd64 push runs in the background while the arm64 image is being built, so
+# network transfer overlaps CPU work instead of running back-to-back.
+#
+#   tag=2.1.0-26.05.4  ->  per-arch tags 2.1.0-amd64-26.05.4 / 2.1.0-arm64-26.05.4
+#                          manifest tag  2.1.0-26.05.4
+#
+#   ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing
+#   ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4
+#
+# Requires IMAGE_REGISTRY to point at a real registry you can push to (e.g.
+# export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev), and `docker login`.
+build_multiarch() {
+    # The multi-arch manifest tag is the standard tag= (as everywhere else).
+    if [[ -z "$TAG" ]]; then
+        echo "[ERROR] multiarch requires tag=<manifest-tag>, e.g. tag=2.1.0-26.05.4"
+        exit 1
+    fi
+    if [[ ${#MODULES[@]} -eq 0 ]] && [[ $NVSTREAMER -eq 0 ]]; then
+        echo "[ERROR] multiarch needs a target: module=<list> and/or nvstreamer"
+        exit 1
+    fi
+
+    # Preflight: assembling the manifest needs the Docker Buildx plugin
+    # (docker buildx imagetools). Fail early with install guidance.
+    if ! docker buildx version >/dev/null 2>&1; then
+        echo "[ERROR] 'docker buildx' is required for multiarch (docker buildx imagetools create) but is not available."
+        echo "        Install the Buildx plugin, then re-run:"
+        echo "          Ubuntu/Debian : sudo apt-get update && sudo apt-get install -y docker-buildx-plugin"
+        echo "          Manual        : https://github.com/docker/buildx#installing"
+        echo "          (Docker Desktop / recent Docker Engine already bundle it — updating Docker also fixes this.)"
+        echo "        Verify with:    docker buildx version"
+        exit 1
+    fi
+
+    # multiarch always pushes to a registry; the bare local default namespace
+    # (e.g. IMAGE_REGISTRY=vios) has no registry host and cannot be pushed.
+    local reg_host="${IMAGE_REGISTRY%%/*}"
+    if [[ "$reg_host" != *.* ]] && [[ "$reg_host" != *:* ]] && [[ "$reg_host" != "localhost" ]]; then
+        echo "[WARN] IMAGE_REGISTRY='$IMAGE_REGISTRY' has no registry host — the push/manifest will"
+        echo "       target Docker Hub or fail. Set a pushable registry and log in first, e.g.:"
+        echo "         export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
+        echo "         docker login nvcr.io"
+    fi
+
+    # 2.1.0-26.05.4 -> prefix=2.1.0 suffix=26.05.4 -> 2.1.0-<arch>-26.05.4.
+    local amd_tag arm_tag
+    if [[ "$TAG" == *-* ]]; then
+        amd_tag="${TAG%%-*}-amd64-${TAG#*-}"
+        arm_tag="${TAG%%-*}-arm64-${TAG#*-}"
+    else
+        amd_tag="${TAG}-amd64"
+        arm_tag="${TAG}-arm64"
+    fi
+
+    # Fully-qualified target repos to assemble manifests for.
+    local -a repos=()
+    local m
+    for m in "${MODULES[@]}"; do repos+=("$IMAGE_REGISTRY/vst-${m}"); done
+    [[ $NVSTREAMER -eq 1 ]] && repos+=("$NVSTREAMER_IMAGE")
+
+    # Flags forwarded to each per-arch sub-build.
+    local extra=""
+    [[ -n "$BASE_TAG" ]] && extra="$extra base-tag=$BASE_TAG"
+    [[ $NO_CACHE -eq 1 ]] && extra="$extra no-cache"
+    local mod_csv
+    mod_csv=$(IFS=, ; echo "${MODULES[*]}")
+
+    echo "=============================================="
+    echo "multiarch: $TAG"
+    echo "  amd64 tag : $amd_tag"
+    echo "  arm64 tag : $arm_tag"
+    echo "  manifest  : $TAG"
+    echo "  targets   : ${repos[*]}"
+    echo "=============================================="
+
+    # Build one architecture locally (no push). $1: arch flag ("" or "arch=arm64"), $2: tag.
+    # modules and nvstreamer are built in separate invocations (build.sh builds
+    # nvstreamer only when no module= is given).
+    _ma_build() {
+        local archflag="$1" tag="$2"
+        if [[ ${#MODULES[@]} -gt 0 ]]; then
+            # shellcheck disable=SC2086
+            "$0" $archflag container tag="$tag" module="$mod_csv" $extra || return 1
+        fi
+        if [[ $NVSTREAMER -eq 1 ]]; then
+            # shellcheck disable=SC2086
+            "$0" $archflag nvstreamer container tag="$tag" $extra || return 1
+        fi
+    }
+    _ma_push() {
+        local tag="$1" r
+        for r in "${repos[@]}"; do docker push "$r:$tag" || return 1; done
+    }
+
+    echo "[multiarch] building amd64 ..."
+    _ma_build "" "$amd_tag" || { echo "[ERROR] amd64 build failed"; exit 1; }
+
+    echo "[multiarch] pushing amd64 (background) while building arm64 ..."
+    _ma_push "$amd_tag" & local amd_push=$!
+
+    _ma_build "arch=arm64" "$arm_tag" || {
+        echo "[ERROR] arm64 build failed"; kill "$amd_push" 2>/dev/null; wait "$amd_push" 2>/dev/null; exit 1; }
+
+    wait "$amd_push" || { echo "[ERROR] amd64 push failed"; exit 1; }
+    echo "[multiarch] pushing arm64 ..."
+    _ma_push "$arm_tag" || { echo "[ERROR] arm64 push failed"; exit 1; }
+
+    echo "[multiarch] assembling manifests ..."
+    local r
+    for r in "${repos[@]}"; do
+        docker buildx imagetools create \
+            --tag "$r:$TAG" \
+            "$r:$arm_tag" \
+            "$r:$amd_tag" || { echo "[ERROR] imagetools create failed: $r"; exit 1; }
+    done
+
+    # Summary
+    echo ""
+    echo "================ multiarch complete ================"
+    echo "  registry : $IMAGE_REGISTRY"
+    echo "  pushed   : per-arch images (amd64 + arm64)"
+    for r in "${repos[@]}"; do
+        echo "     - $r:$amd_tag"
+        echo "     - $r:$arm_tag"
+    done
+    echo "  manifest : multi-arch tag (amd64 + arm64)"
+    for r in "${repos[@]}"; do
+        echo "     - $r:$TAG"
+    done
+    echo "===================================================="
+}
+
+if [[ $MULTIARCH -eq 1 ]]; then
+    build_multiarch
     exit 0
 fi
 
