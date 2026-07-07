@@ -406,7 +406,13 @@ def _resolve_video_sources_for_search(
         stream_id = name_to_uuid.get(video_source)
         if stream_id:
             resolved_sources.append(stream_id)
-            logger.debug("Resolved video source '%s' to UUID '%s'", video_source, stream_id)
+            # ES `sensor.id` may be the per-upload VST storage-asset UUID, not
+            # the VST sensor UUID resolved here — a terms filter on the wrong
+            # UUID space silently excludes every hit. Keep the NAME as a
+            # fallback so embed_search's mixed path also wildcard-matches on
+            # sensor.info.url/path.
+            resolved_sources.append(video_source)
+            logger.debug("Resolved video source '%s' to UUID '%s' (name kept as fallback)", video_source, stream_id)
         else:
             resolved_sources.append(video_source)
             logger.debug("Video source '%s' not resolved; will use wildcard filter", video_source)
