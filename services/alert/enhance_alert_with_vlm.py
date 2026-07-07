@@ -188,6 +188,47 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             ),
         )
 
+        # Create the confirmed-verdict marker index up front (before any
+        # traffic) so a mapping/creation problem surfaces at startup and the
+        # index-readiness gauge reflects the real state, rather than the
+        # index only appearing on the first confirmed write. Non-fatal: a
+        # transient ES outage here leaves verdict protection to fail open and
+        # retry via the handler's backoff path.
+        self._verdict_retention_job = None
+        try:
+            if self.redis_handler is not None:
+                self.redis_handler.ensure_verdict_index()
+        except Exception as e:
+            logger.warning("Verdict index startup ensure failed (non-fatal): %s", e)
+
+        # Start the hourly throttled reaper for expired
+        # confirmed-verdict markers so ``ab-confirmed-verdicts`` does not grow
+        # unbounded. Only runs when verdict protection is enabled.
+        try:
+            if getattr(self.redis_handler, "_protect_confirmed_enabled", False):
+                from clients.verdict_retention import (
+                    DEFAULT_INTERVAL_SECONDS,
+                    DEFAULT_REQUESTS_PER_SECOND,
+                    VerdictRetentionJob,
+                )
+                _protect_cfg = (
+                    self.config.get('alert_agent', {})
+                    .get('event_filters', {})
+                    .get('protect_confirmed_verdicts', {})
+                )
+                self._verdict_retention_job = VerdictRetentionJob(
+                    self.redis_handler,
+                    interval_seconds=_protect_cfg.get(
+                        'retention_interval_seconds', DEFAULT_INTERVAL_SECONDS
+                    ),
+                    requests_per_second=_protect_cfg.get(
+                        'retention_requests_per_second', DEFAULT_REQUESTS_PER_SECOND
+                    ),
+                )
+                self._verdict_retention_job.start()
+        except Exception as e:
+            logger.warning("Verdict retention job failed to start (non-fatal): %s", e)
+
         self.num_workers = self.config.get('alert_agent', {}).get(
             'num_workers', 1)  # Default to sequential
         self.worker_queue = Queue(maxsize=self.num_workers)

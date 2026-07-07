@@ -40,6 +40,21 @@ from typing import Any, Dict, Optional
 from .base import AlertConfigStoreABC
 from .normalize import normalize_alert_type
 
+# Alert-config cache occupancy metric (guarded; no-op when metrics disabled).
+try:  # pragma: no cover - exercised indirectly
+    from metrics import recorder as _metrics
+except Exception:  # pragma: no cover
+    _metrics = None
+
+
+def _publish_occupancy(count: int) -> None:
+    if _metrics is None:
+        return
+    try:
+        _metrics.set_cache_occupancy("alert_config", count)
+    except Exception:  # pragma: no cover - metrics must never break the store
+        pass
+
 
 class InMemoryAlertConfigStore(AlertConfigStoreABC):
     """Thread-safe dict-backed alert-config store with optional TTL."""
@@ -78,6 +93,8 @@ class InMemoryAlertConfigStore(AlertConfigStoreABC):
         now = self._clock()
         with self._lock:
             self._data[key] = (data, self._expire_at(now))
+            count = len(self._data)
+        _publish_occupancy(count)
         return True
 
     def set_if_absent(self, alert_type: str, data: Dict[str, Any]) -> bool:
@@ -88,6 +105,8 @@ class InMemoryAlertConfigStore(AlertConfigStoreABC):
             if item is not None and not self._is_expired(item[1], now):
                 return False
             self._data[key] = (data, self._expire_at(now))
+            count = len(self._data)
+        _publish_occupancy(count)
         return True
 
     def get(
@@ -130,4 +149,7 @@ class InMemoryAlertConfigStore(AlertConfigStoreABC):
     def delete(self, alert_type: str) -> bool:
         key = normalize_alert_type(alert_type)
         with self._lock:
-            return self._data.pop(key, None) is not None
+            removed = self._data.pop(key, None) is not None
+            count = len(self._data)
+        _publish_occupancy(count)
+        return removed
