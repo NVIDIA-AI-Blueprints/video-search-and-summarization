@@ -773,12 +773,17 @@ void NvLLOverlay::doDrawTask()
                 }
                 if (sink_frame->m_gstBuffer)
                 {
+                    // IPC-meta path is aarch64-only (GST_NV_IPC_META_GET ->
+                    // gst_nv_ipc_meta_api_get_type, defined only in the aarch64
+                    // libnvdsgst_ipcmeta); compile-gate it out on x86.
+#ifdef AARCH64_PLATFORM
                     if (isJetsonPlatform() && GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
                         meta_union.ipcMeta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
                     }
                     else
+#endif
                     {
                         meta_union.vstMeta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
