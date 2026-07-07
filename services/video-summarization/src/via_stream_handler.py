@@ -1391,6 +1391,8 @@ class ViaStreamHandler:
             logger.error("Failed to end e2e span: %s", e)
         finally:
             req_info._e2e_span = None
+            # Clear the context too so any later child span doesn't parent under the closed span.
+            req_info._e2e_span_context = None
 
     def _trigger_query(self, req_info: RequestInfo):
         """Trigger a file-based query via RTVI-VLM SSE streaming."""
@@ -1640,6 +1642,8 @@ class ViaStreamHandler:
             self._metrics.queries_processed.inc()
             self._metrics.queries_pending.dec()
             self._end_vlm_pipeline_span(req_info)
+            # This error exit returns before _process_output runs, so end the E2E span here too.
+            self._end_e2e_span(req_info)
             req_info.status_event.set()
             return
         except Exception as ex:
@@ -1656,6 +1660,8 @@ class ViaStreamHandler:
             self._metrics.queries_processed.inc()
             self._metrics.queries_pending.dec()
             self._end_vlm_pipeline_span(req_info)
+            # This error exit returns before _process_output runs, so end the E2E span here too.
+            self._end_e2e_span(req_info)
             req_info.status_event.set()
             return
 
