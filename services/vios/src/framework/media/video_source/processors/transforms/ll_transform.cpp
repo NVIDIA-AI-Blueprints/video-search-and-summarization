@@ -282,12 +282,18 @@ void NvLLTransform::doTransformTask()
                 {
                     if (isJetsonPlatform())
                     {
+                    // The IPC-meta path (GST_NV_IPC_META_GET -> gst_nv_ipc_meta_api_get_type)
+                    // is aarch64-only; the defining lib (libnvdsgst_ipcmeta) exists only for
+                    // aarch64, so compile-gate it out on x86 (isJetsonPlatform() is false there
+                    // anyway).
+#ifdef AARCH64_PLATFORM
                     if (GET_CONFIG().enable_ipc_path == true && m_isIPCMeta)
                     {
                         ipc_meta = GST_NV_IPC_META_GET(sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);
                     }
                     else
+#endif
                     {
                         meta = GST_NV_VST_META_GET (sink_frame->m_gstBuffer);
                         pts = GST_BUFFER_PTS (sink_frame->m_gstBuffer);

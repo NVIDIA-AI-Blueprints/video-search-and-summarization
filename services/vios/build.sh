@@ -95,6 +95,9 @@ show_help() {
     echo "                     (e.g. tag=2.1.0-26.05.4; per-arch tags are derived as -amd64-/-arm64-) and a"
     echo "                     target (module=<list> and/or nvstreamer). Set IMAGE_REGISTRY to a pushable"
     echo "                     registry first. amd64 push overlaps the arm64 build."
+    echo "  multiarch all      Multi-arch equivalent of 'all': builds sensor + streamprocessing + nvstreamer"
+    echo "                     for both arches (needs tag=<manifest-tag>). Ingress is separate (already"
+    echo "                     multi-arch): ./build.sh container ingress push=1 tag=<tag>."
     echo "  no-auto-deps       Disable the auto-build of toolchain / base. Use when you want strict failure"
     echo "                     if those images are missing (CI; pulled-from-registry workflows)."
     echo "  tag=<name>         Docker image tag for application containers (used with container option)."
@@ -149,6 +152,8 @@ show_help() {
     echo "  export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
     echo "  ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing"
     echo "  ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4"
+    echo "  ./build.sh arch=multiarch all tag=2.1.0-26.05.4   # sensor + streamprocessing + nvstreamer, both arches"
+    echo "  ./build.sh container ingress push=1 tag=2.1.0-26.05.4   # ingress (already multi-arch), built separately"
     echo ""
     echo "  ./build.sh vst-app"
     echo "  ./build.sh vst-app module=sensor,rtspserver,recorder"
@@ -1095,8 +1100,24 @@ build_multiarch() {
         echo "[ERROR] multiarch requires tag=<manifest-tag>, e.g. tag=2.1.0-26.05.4"
         exit 1
     fi
+
+    # `multiarch all` (or `arch=multiarch all`) → the multi-arch equivalent of
+    # `./build.sh all`: build the sensor + streamprocessing modules and the
+    # NVStreamer container for both architectures (release/optimized container
+    # builds, the default). Ingress is intentionally NOT included — like plain
+    # `all` — because vst-ingress is nginx + static UI and already builds as a
+    # single multi-arch manifest on its own:
+    #   ./build.sh container ingress push=1 tag=<tag>
+    if [[ $BUILD_ALL -eq 1 ]]; then
+        if [[ ${#MODULES[@]} -eq 0 ]]; then
+            MODULES=("sensor" "streamprocessing")
+            echo "[multiarch all] defaulting modules to: ${MODULES[*]}"
+        fi
+        NVSTREAMER=1
+    fi
+
     if [[ ${#MODULES[@]} -eq 0 ]] && [[ $NVSTREAMER -eq 0 ]]; then
-        echo "[ERROR] multiarch needs a target: module=<list> and/or nvstreamer"
+        echo "[ERROR] multiarch needs a target: module=<list>, nvstreamer, and/or 'all'"
         exit 1
     fi
 
@@ -1158,6 +1179,11 @@ build_multiarch() {
     # nvstreamer only when no module= is given).
     _ma_build() {
         local archflag="$1" tag="$2"
+        # Compile objects live in the source tree, so switching architecture
+        # (amd64 <-> arm64) without cleaning would relink stale wrong-arch objects
+        # ("Relocations in generic ELF (EM: 183)" / "file in wrong format"). Clean
+        # per-arch before building.
+        "$0" $archflag clean >/dev/null 2>&1 || true
         if [[ ${#MODULES[@]} -gt 0 ]]; then
             # shellcheck disable=SC2086
             "$0" $archflag container tag="$tag" module="$mod_csv" $extra || return 1
