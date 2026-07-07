@@ -130,7 +130,28 @@ def build_harbor_command(
     results_root: Path,
     model: str,
     anthropic_base_url: str,
+    agent: str = "claude-code",
 ) -> list[str]:
+    if agent == "codex":
+        # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
+        # provider-prefixed model id — harbor's stock codex strips it to the
+        # last path segment, which the NVIDIA gateway 401s on. Endpoint via
+        # `--ak api_base`; OPENAI_API_KEY is read from the environment (same as
+        # claude-code reads ANTHROPIC_API_KEY), so it never lands on the CLI.
+        agent_flags = [
+            "-a", "agents.nv_codex:NvCodex",
+            "--model", model,
+            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+        ]
+    elif agent == "claude-code":
+        agent_flags = [
+            "-a", "claude-code",
+            "--model", model,
+            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+            "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
+        ]
+    else:
+        raise ValueError(f"unsupported agent {agent!r} (expected claude-code | codex)")
     return [
         "uvx",
         "harbor",
@@ -141,14 +162,7 @@ def build_harbor_command(
         str(invocation.harbor_root),
         "--include-task-name",
         invocation.include_task_name,
-        "-a",
-        "claude-code",
-        "--model",
-        model,
-        "--ak",
-        f"api_base={_api_base_v1(anthropic_base_url)}",
-        "--ae",
-        "CLAUDE_CODE_DISABLE_THINKING=1",
+        *agent_flags,
         "--environment-build-timeout-multiplier",
         "3.0",
         "--agent-timeout-multiplier",
@@ -285,13 +299,34 @@ def run_invocations(
     harbor_timeout_sec: int,
 ) -> int:
     env = harbor_env(instance)
+    agent = os.environ.get("EVAL_AGENT", "claude-code")
+    # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
+    # silently fall through to the claude-code path and be indistinguishable
+    # from a real claude-code run in the logs.
+    if agent not in ("claude-code", "codex"):
+        print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
+              file=sys.stderr)
+        return 1
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if not model:
-        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
-        return 1
     if not base_url:
         print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
+        return 1
+    if agent == "codex":
+        model = os.environ.get("CODEX_MODEL", "")
+        if not model:
+            print("FATAL: CODEX_MODEL not set (required for EVAL_AGENT=codex)",
+                  file=sys.stderr)
+            return 1
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not anthropic_key:
+            print("FATAL: ANTHROPIC_API_KEY not set (required for EVAL_AGENT=codex)",
+                  file=sys.stderr)
+            return 1
+        env["OPENAI_API_KEY"] = anthropic_key
+        env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
+    if not model:
+        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
@@ -306,7 +341,7 @@ def run_invocations(
         ):
             continue
 
-        cmd = build_harbor_command(invocation, results_root, model, base_url)
+        cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
         rc = run_command(cmd, env, harbor_timeout_sec)
         if rc != 0 and overall_rc == 0:
