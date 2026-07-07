@@ -257,7 +257,7 @@ class NvBufWrapper
                 input_params.params.height      = sourceHeight;
                 input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                 input_params.params.colorFormat = NVBUF_COLOR_FORMAT_YUV420;
-                if (isJetsonPlatform() && g_isJetsonGpuMode)
+                if (isJetsonPlatform() && g_useCudaDeviceMemory)
                 {
                     LOG(info) << "Using CUDA Device memory" << endl;
                     input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -300,7 +300,7 @@ class NvBufWrapper
                     input_params.params.height      = height;
                     input_params.params.layout      = NVBUF_LAYOUT_PITCH;
                     input_params.params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-                    if (isJetsonPlatform() && g_isJetsonGpuMode)
+                    if (isJetsonPlatform() && g_useCudaDeviceMemory)
                     {
                         LOG(info) << "Using CUDA Device memory" << endl;
                         input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
@@ -456,7 +456,7 @@ class NvBufWrapper
                     {
                         buf_params.width       = targetWidth;
                         buf_params.height      = targetHeight;
-                        if (isJetsonPlatform() && g_isJetsonGpuMode)
+                        if (isJetsonPlatform() && g_useCudaDeviceMemory)
                         {
                             LOG(info) << "Using CUDA Device memory" << endl;
                             buf_params.memType     = NVBUF_MEM_CUDA_DEVICE;

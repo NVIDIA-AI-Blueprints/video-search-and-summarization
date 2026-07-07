@@ -37,7 +37,7 @@ bool NvSurfacePool::allocateSurfaces (int num_surfaces, unsigned int target_widt
         if (isJetsonPlatform())
         {
             /* If Jetson GPU mode is enabled, use CUDA device memory */
-            if (memType == NVBUF_MEM_DEFAULT && g_isJetsonGpuMode)
+            if (memType == NVBUF_MEM_DEFAULT && g_useCudaDeviceMemory)
             {
                 memType = NVBUF_MEM_CUDA_DEVICE;
                 buf_params.memType = memType;

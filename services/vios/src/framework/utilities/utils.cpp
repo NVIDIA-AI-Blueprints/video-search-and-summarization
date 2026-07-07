@@ -85,7 +85,7 @@ bool g_isGpuPresent = false;
 int g_gpuIndex = 0;
 string g_gpuNodePath;
 string g_hostIp;
-bool g_isJetsonGpuMode = false;
+bool g_useCudaDeviceMemory = false;
 
 static const std::string base64_chars =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -2667,7 +2667,7 @@ void detectGPU()
 {
     g_isGpuPresent = false;
 #ifdef AARCH64_PLATFORM
-    // g_isJetsonGpuMode selects CUDA-device buffer memory (NVBUF_MEM_CUDA_DEVICE) and is
+    // g_useCudaDeviceMemory selects CUDA-device buffer memory (NVBUF_MEM_CUDA_DEVICE) and is
     // meant only for the rare Jetson-with-discrete-GPU configuration. On Orin the
     // INTEGRATED GPU exposes /dev/nvidia0, so the legacy isJetsonGpuPresent() probe
     // (access("/dev/nvidia0")) misfires and would force CUDA-device memory — which is
@@ -2677,11 +2677,11 @@ void detectGPU()
     // discrete GPU alongside the iGPU (i.e. NOT the integrated one detected as Jetson).
     if (isJetsonPlatform())
     {
-        g_isJetsonGpuMode = false;
+        g_useCudaDeviceMemory = false;
     }
     else
     {
-        g_isJetsonGpuMode = isJetsonGpuPresent();
+        g_useCudaDeviceMemory = isJetsonGpuPresent();
     }
 #endif
     for (int gpuIndex = 0 ; gpuIndex < MAX_GPU_COUNT; gpuIndex++)
