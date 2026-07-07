@@ -51,6 +51,14 @@ if cors_cfg.pop("enabled", True):
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Readiness state. The alert-config store MUST be built successfully at
+# startup for the service to be ready: if persistence is enabled but ES is
+# unreachable, or a non-dev profile has persistence disabled without the
+# explicit dev opt-in, the store build raises and the service must
+# report NOT ready rather than admitting traffic to a broken subsystem.
+_startup_ready: bool = False
+_startup_error: str = "startup has not completed"
+
 # Custom exception handler for validation errors
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -124,22 +132,25 @@ async def startup_event():
     # no-op and the endpoint returns 503 ALWAYS_ON_DISABLED.
     validate_always_on_config_at_startup()
 
-    # Eagerly build + hydrate the alert-config store. ``_get_service``
-    # is otherwise lazy — without this call the first REST request
-    # after boot pays the in-band hydration latency (ES list +
-    # in-process cache seed) and any backend misconfiguration only surfaces on the
-    # first user-visible API call rather than at startup. Wrap in
-    # try/except so a transient backend hiccup at boot does not
-    # block the rest of the FastAPI startup; the store will be
-    # rebuilt on first request via the existing lazy path.
+    # Eagerly build + hydrate the alert-config store and gate readiness on
+    # it. A failure here is NOT swallowed: the store build enforces the
+    # persistence gate and confirms ES is reachable, so if it raises
+    # the service marks itself NOT ready and ``/health`` returns 503. This
+    # prevents a pod from admitting traffic while a mandatory subsystem
+    # (durable, ES-backed config storage) is unusable.
+    global _startup_ready, _startup_error
     try:
         from .api.alert_config_routes import _get_service
         _get_service()
-        logger.info("Alert config service eagerly initialised")
+        _startup_ready = True
+        _startup_error = ""
+        logger.info("Alert config service eagerly initialised; service is ready")
     except Exception as e:
-        logger.warning(
-            "Eager alert config service init failed; falling back to "
-            "lazy init on first REST request: %s", e,
+        _startup_ready = False
+        _startup_error = f"alert-config store initialisation failed: {e}"
+        logger.error(
+            "Alert config store initialisation failed at startup; service will "
+            "report NOT ready until this is resolved: %s", e,
         )
 
 
@@ -148,10 +159,25 @@ async def shutdown_event():
     """Stop background services when FastAPI shuts down."""
     logger.info("Shutting down FastAPI application")
 
-# Basic health check endpoint
+# Health / readiness endpoint.
+#
+# Reports readiness: once startup has run, ``/health`` returns 503 while
+# the alert-config store could not be initialised (persistence enabled but ES
+# unreachable, or a non-dev profile with persistence disabled). A readiness
+# probe pointed at this endpoint therefore keeps traffic away from a pod
+# whose mandatory durable-config subsystem is unusable, instead of the pod
+# looking healthy while silently serving a degraded/non-durable store.
 @app.get("/health")
 async def health_check():
-    """Basic health check for Alert Bridge."""
+    """Health + readiness check for Alert Bridge."""
+    if not _startup_ready:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "message": _startup_error or "service is not ready",
+            },
+        )
     return {"status": "ok", "message": "Alert Bridge is running"}
 
 

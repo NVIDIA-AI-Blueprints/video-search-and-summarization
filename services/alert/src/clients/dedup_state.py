@@ -49,6 +49,7 @@ re-exports it as ``RedisHandler`` for backward-compatible imports.
 
 import hashlib
 import logging
+import math
 import os
 import threading
 import time
@@ -56,6 +57,27 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import yaml
+
+# Observability metrics. The recorder no-ops when PROMETHEUS_METRICS_ENABLED
+# is off, so importing it here is cheap; guard the import itself so a minimal
+# environment without the metrics package cannot break the dedup hot path.
+try:  # pragma: no cover - exercised indirectly
+    from metrics import recorder as _metrics
+except Exception:  # pragma: no cover
+    _metrics = None
+
+
+def _metric(name: str, *args, **kwargs) -> None:
+    """Call recorder helper ``name`` if the metrics module is available."""
+    if _metrics is None:
+        return
+    fn = getattr(_metrics, name, None)
+    if fn is None:
+        return
+    try:
+        fn(*args, **kwargs)
+    except Exception:  # pragma: no cover - metrics must never break the pipeline
+        pass
 
 
 class _TTLCache:
@@ -69,15 +91,28 @@ class _TTLCache:
     ``clock`` is injectable so tests can advance time deterministically.
     """
 
-    def __init__(self, clock=time.monotonic, purge_interval: float = 30.0):
+    def __init__(self, clock=time.monotonic, purge_interval: float = 30.0, name: Optional[str] = None):
         self._data: Dict[str, tuple[Any, Optional[float]]] = {}
         self._lock = threading.Lock()
         self._clock = clock
         self._purge_interval = purge_interval
         self._last_purge = 0.0
+        # Label for the occupancy gauge / eviction counter. One of
+        # the closed enum in ``metrics.recorder.DEDUP_CACHE_STORES``.
+        self._name = name
 
     def _expired(self, expire_at: Optional[float], now: float) -> bool:
         return expire_at is not None and expire_at <= now
+
+    def _publish_occupancy_locked(self) -> None:
+        # Report the resident entry count in O(1). This must stay O(1): it is
+        # called on every cache write (the per-event hot path), so an O(n)
+        # live-count scan here would make dedup O(n^2) under load. The 30s
+        # sweep drops expired entries and republishes, so the gauge tracks
+        # the live count closely between sweeps (it may transiently include
+        # expired-but-unswept entries — i.e. resident, not strictly live).
+        if self._name:
+            _metric("set_cache_occupancy", self._name, len(self._data))
 
     def _maybe_purge_locked(self, now: float) -> None:
         if now - self._last_purge < self._purge_interval:
@@ -90,6 +125,9 @@ class _TTLCache:
         ]
         for key in stale:
             del self._data[key]
+        if stale and self._name:
+            _metric("inc_cache_evictions", self._name, "sweep", len(stale))
+        self._publish_occupancy_locked()
 
     def get(self, key: str) -> Any:
         now = self._clock()
@@ -100,15 +138,19 @@ class _TTLCache:
             value, expire_at = item
             if self._expired(expire_at, now):
                 del self._data[key]
+                if self._name:
+                    _metric("inc_cache_evictions", self._name, "lazy", 1)
+                    self._publish_occupancy_locked()
                 return None
             return value
 
     def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
         now = self._clock()
-        expire_at = now + ttl if ttl else None
+        expire_at = self._expire_at(now, ttl)
         with self._lock:
             self._maybe_purge_locked(now)
             self._data[key] = (value, expire_at)
+            self._publish_occupancy_locked()
 
     def set_if_absent(self, key: str, value: Any, ttl: Optional[float] = None) -> bool:
         """Atomic create. Returns ``True`` when the key was (re)created,
@@ -121,8 +163,25 @@ class _TTLCache:
             item = self._data.get(key)
             if item is not None and not self._expired(item[1], now):
                 return False
-            self._data[key] = (value, now + ttl if ttl else None)
+            self._data[key] = (value, self._expire_at(now, ttl))
+            self._publish_occupancy_locked()
             return True
+
+    @staticmethod
+    def _expire_at(now: float, ttl: Optional[float]) -> Optional[float]:
+        """Resolve an absolute expiry from ``now`` + ``ttl``.
+
+        A positive ``ttl`` expires ``ttl`` seconds from now. ``None`` means
+        "never expire". A non-positive ``ttl`` (0 / negative) is treated as
+        "already expired" rather than "never expire" — the DedupStateHandler
+        rejects such TTLs at construction, but this keeps the cache itself
+        from silently turning a mistaken ``0`` into a permanent entry.
+        """
+        if ttl is None:
+            return None
+        if ttl <= 0:
+            return now  # expired immediately
+        return now + ttl
 
     def __len__(self) -> int:
         now = self._clock()
@@ -146,7 +205,7 @@ class DedupStateHandler:
     # indices and can be governed by the same ILM policy.
     _VERDICT_INDEX_SUFFIX = "confirmed-verdicts"
 
-    def __init__(self, config_file="config.yaml", rate_limit=300, clock=time.monotonic):
+    def __init__(self, config_file="config.yaml", rate_limit=300, clock=time.monotonic, es_client=None):
         self.logger = logging.getLogger(self.__class__.__name__)
         # Optional: verbose per-key dedup logs only when explicitly enabled
         self._dedup_verbose = os.getenv("LOG_VERBOSE_DEDUP", "false").lower() in ("1", "true", "yes")
@@ -179,31 +238,55 @@ class DedupStateHandler:
             else:
                 state_config = {}
 
-        self._rate_limit_ttl = rate_limit
+        # TTLs must be finite positive seconds. A mistaken ``0``/negative
+        # would otherwise translate to a non-expiring cache entry that
+        # permanently suppresses a cohort and grows memory unbounded, so
+        # reject it loudly at construction instead.
+        self._rate_limit_ttl = self._validate_ttl(rate_limit, "rate_limit")
         self._incident_end_categories = self._load_incident_end_categories(state_config)
-        self._dedup_ttl_seconds = state_config.get('dedup_ttl_seconds', 300)
+        self._dedup_ttl_seconds = self._validate_ttl(
+            state_config.get('dedup_ttl_seconds', 300), "dedup_ttl_seconds"
+        )
 
         # Confirmed verdict protection config (ES-backed).
         _protect_cfg = state_config.get('protect_confirmed_verdicts', {})
         self._protect_confirmed_enabled = _protect_cfg.get('enabled', False)
-        self._protect_confirmed_ttl = _protect_cfg.get('ttl_seconds', 600)
+        self._protect_confirmed_ttl = self._validate_ttl(
+            _protect_cfg.get('ttl_seconds', 600), "protect_confirmed_verdicts.ttl_seconds"
+        )
+        # Cooldown before a failed verdict-ES client construction is retried
+        # (seconds). Replaces the old permanent-disable behaviour. Validated
+        # as a finite positive number so a quoted/zero YAML value cannot make
+        # the fail-open path raise (``time.time() + backoff``) or disable the
+        # bounded cooldown.
+        self._es_backoff_seconds = self._validate_ttl(
+            _protect_cfg.get('es_retry_backoff_seconds', 30), "es_retry_backoff_seconds"
+        )
 
         # End time delta filter config.
         _delta_cfg = state_config.get('end_time_delta_filter', {})
         self._end_delta_enabled = _delta_cfg.get('enabled', False)
         self._end_delta_threshold = _delta_cfg.get('threshold_seconds', 5)
-        self._end_delta_ttl = _delta_cfg.get('ttl_seconds', 3600)
+        self._end_delta_ttl = self._validate_ttl(
+            _delta_cfg.get('ttl_seconds', 3600), "end_time_delta_filter.ttl_seconds"
+        )
 
         # In-process state (per consumer). Dedup + rate-limit share one
         # keyspace to preserve the exact single-keyspace semantics of the
         # previous Redis ``SET NX`` path.
-        self._dedup_cache = _TTLCache(clock)
-        self._enddelta_cache = _TTLCache(clock)
+        self._dedup_cache = _TTLCache(clock, name="dedup")
+        self._enddelta_cache = _TTLCache(clock, name="enddelta")
 
-        # Lazily-built ES client for verdict protection.
-        self._es_client = None
+        # ES client for verdict protection. An externally-managed client
+        # (the app's configured persistence client, carrying auth/TLS) may be
+        # injected via the constructor or ``set_es_client``; otherwise one is
+        # built lazily from config. ``_es_retry_after`` implements bounded
+        # backoff so a transient ES failure no longer disables verdict
+        # protection for the whole process lifetime.
+        self._injected_es_client = es_client
+        self._es_client = es_client
         self._es_lock = threading.Lock()
-        self._es_disabled = False
+        self._es_retry_after = 0.0
         self._verdict_index = self._resolve_verdict_index(config)
 
         self.logger.info(
@@ -218,6 +301,21 @@ class DedupStateHandler:
         if self._end_delta_enabled:
             self.logger.info("End time delta filter enabled (threshold=%ss, TTL=%ss)",
                              self._end_delta_threshold, self._end_delta_ttl)
+
+    @staticmethod
+    def _validate_ttl(value, name: str) -> float:
+        """Return ``value`` as a finite positive TTL in seconds, else raise.
+
+        Guards against a mistaken ``0``/negative/NaN TTL becoming a
+        non-expiring cache entry.
+        """
+        try:
+            ttl = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} must be a positive number of seconds, got {value!r}")
+        if not math.isfinite(ttl) or ttl <= 0:
+            raise ValueError(f"{name} must be a finite positive number of seconds, got {value!r}")
+        return ttl
 
     # ─────────────────────────────────────────────────────────────────────
     # Key building (unchanged from the Redis implementation)
@@ -305,13 +403,23 @@ class DedupStateHandler:
             self.logger.error("In-process dedup failed (%s); allowing event: %s", e, key)
             return True
 
+    @staticmethod
+    def _is_last_chunk(msg: dict) -> bool:
+        """Read the canonical completeness flag ``info.isComplete``.
+
+        Shared by dedup and the end-delta filter so both derive the same
+        ``isComplete`` component of the canonical cohort key.
+        """
+        info = msg.get('info')
+        if not isinstance(info, dict):
+            return False
+        return info.get('isComplete') in (True, 'true', 'True', 'TRUE')
+
     def filter_new_events(self, messages: list[dict], rate_limit: bool = False, verify_only_finished_events: bool = False) -> list[dict]:
         """Filter a list of VLM events, keeping only not-seen items within TTL."""
         kept: list[dict] = []
         for msg in messages:
-            is_last_chunk = False
-            if 'info' in msg and 'isComplete' in msg['info'] and msg['info']['isComplete'] in [True, 'true', 'True', 'TRUE']:
-                is_last_chunk = True
+            is_last_chunk = self._is_last_chunk(msg)
             if not is_last_chunk and verify_only_finished_events:
                 continue
             if self.process_event(msg, rate_limit, is_last_chunk):
@@ -337,14 +445,17 @@ class DedupStateHandler:
 
     def _check_end_delta(self, msg: dict) -> bool:
         """Check if end time changed significantly. Returns True to process, False to skip."""
-        sensor_id = (msg.get('sensorId') or '').strip().lower()
-        timestamp = msg.get('timestamp') or ''
-        category = (msg.get('category') or '').strip().lower()
-        am_id = ((msg.get('analyticsModule') or {}).get('id') or '').strip().lower()
-        object_ids = msg.get('objectIds') or []
-        sorted_ids = sorted(str(x) for x in object_ids)
-        obj_digest = hashlib.sha1((','.join(sorted_ids)).encode('utf-8')).hexdigest()[:16]
-        key = f"vlm:enddelta:{sensor_id}:{timestamp}:{obj_digest}:{category}:{am_id}"
+        # Derive the end-delta key from the single canonical cohort-key
+        # builder — the one definition used by every dedup-family filter.
+        # ``rate_limit=True`` deliberately excludes the ``end``
+        # component: end-delta compares successive ``end`` values *within* a
+        # cohort, so ``end`` must not be part of the key that identifies the
+        # cohort. ``isComplete`` is included so in-progress and final chunks
+        # remain distinct cohorts, matching dedup.
+        cohort_key = self._build_key(
+            msg, rate_limit=True, is_last_chunk=self._is_last_chunk(msg)
+        )
+        key = f"enddelta:{cohort_key}"
 
         current_end = msg.get('end')
         current_epoch = self._parse_iso_to_epoch(current_end)
@@ -393,46 +504,123 @@ class DedupStateHandler:
         prefix = persistence_cfg.get('index_prefix', 'ab-')
         return f"{prefix}{self._VERDICT_INDEX_SUFFIX}"
 
-    def _get_es_client(self):
-        """Lazily build the ES client used for verdict protection.
+    def set_es_client(self, es_client) -> None:
+        """Inject an externally-managed ES client for verdict protection.
 
-        Returns ``None`` (and disables further attempts) when ES cannot
-        be reached / configured, so verdict protection fails open exactly
-        like the previous Redis implementation did on a backend outage.
+        Lets the wiring layer share the app's configured persistence client
+        (which carries auth / TLS / timeouts) instead of this handler
+        constructing a partially-configured one of its own.
         """
-        if self._es_disabled:
-            return None
+        with self._es_lock:
+            self._injected_es_client = es_client
+            self._es_client = es_client
+            self._es_retry_after = 0.0
+
+    def _build_elastic_config(self):
+        """Build an :class:`ElasticConfig` that propagates auth / TLS / timeout.
+
+        Prefers ``persistence.elasticsearch`` overrides, falling back to the
+        top-level ``elastic`` block — the same precedence the persistence
+        layer uses — so a secured cluster is reached with the same
+        credentials rather than an unauthenticated hosts-only client.
+        """
+        from clients.elastic import ElasticConfig
+
+        elastic_cfg = self._app_config.get('elastic', {}) or {}
+        persistence_cfg = self._app_config.get('persistence', {}) or {}
+        es_override = (persistence_cfg.get('elasticsearch') or {})
+
+        def _pick(key, default=None):
+            if key in es_override:
+                return es_override.get(key)
+            return elastic_cfg.get(key, default)
+
+        cloud_id = _pick('cloud_id')
+        hosts_config = es_override.get('hosts') or elastic_cfg.get('hosts')
+        if isinstance(hosts_config, str):
+            hosts = (hosts_config,)
+        elif isinstance(hosts_config, (list, tuple)):
+            hosts = tuple(str(h).strip() for h in hosts_config if h)
+        else:
+            hosts = tuple()
+        if not hosts and not cloud_id:
+            raise ValueError("No Elasticsearch hosts configured for verdict protection")
+        # cloud_id and hosts are mutually exclusive in elasticsearch-py; when a
+        # cloud_id is configured, do not also pass hosts.
+        if cloud_id:
+            hosts = tuple()
+
+        return ElasticConfig(
+            hosts=hosts,
+            username=_pick('username'),
+            password=_pick('password'),
+            api_key=_pick('api_key'),
+            cloud_id=_pick('cloud_id'),
+            verify_certs=bool(_pick('verify_certs', False)),
+            ca_certs=_pick('ca_certs'),
+            request_timeout=int(_pick('request_timeout', 10)),
+        )
+
+    def _get_es_client(self):
+        """Return the ES client used for verdict protection, or ``None``.
+
+        Uses an injected client when one was provided; otherwise builds one
+        lazily from config. On a construction failure it does NOT disable
+        protection permanently — it schedules a retry after
+        ``_es_backoff_seconds`` so protection recovers once ES does.
+        Returns ``None`` while unavailable / in backoff, which callers treat
+        as fail-open.
+        """
         if self._es_client is not None:
+            return self._es_client
+        if self._injected_es_client is not None:
+            self._es_client = self._injected_es_client
             return self._es_client
         with self._es_lock:
             if self._es_client is not None:
                 return self._es_client
-            if self._es_disabled:
+            if time.time() < self._es_retry_after:
                 return None
             try:
-                from clients.elastic import ElasticClient, ElasticConfig
+                from clients.elastic import ElasticClient
 
-                elastic_cfg = self._app_config.get('elastic', {}) or {}
-                persistence_cfg = self._app_config.get('persistence', {}) or {}
-                es_override = (persistence_cfg.get('elasticsearch') or {})
-                hosts_config = es_override.get('hosts') or elastic_cfg.get('hosts')
-                if isinstance(hosts_config, str):
-                    hosts = (hosts_config,)
-                elif isinstance(hosts_config, (list, tuple)):
-                    hosts = tuple(str(h).strip() for h in hosts_config if h)
-                else:
-                    hosts = tuple()
-                if not hosts:
-                    raise ValueError("No Elasticsearch hosts configured for verdict protection")
-                self._es_client = ElasticClient(config=ElasticConfig(hosts=hosts))
+                self._es_client = ElasticClient(config=self._build_elastic_config())
+                self._es_retry_after = 0.0
                 return self._es_client
             except Exception as exc:
+                self._es_retry_after = time.time() + self._es_backoff_seconds
                 self.logger.warning(
-                    "Verdict protection ES client unavailable (%s); "
-                    "confirmed-verdict protection will fail open.", exc,
+                    "Verdict protection ES client unavailable (%s); failing open "
+                    "and retrying after %ss.", exc, self._es_backoff_seconds,
                 )
-                self._es_disabled = True
                 return None
+
+    @property
+    def verdict_index(self) -> str:
+        """Name of the ES index holding confirmed-verdict markers."""
+        return self._verdict_index
+
+    def ensure_verdict_index(self) -> bool:
+        """Idempotently create the confirmed-verdict index up front.
+
+        Returns ``True`` when the index is confirmed ready, ``False`` when it
+        could not be created (ES unavailable / disabled). Safe to call at
+        startup regardless of whether verdict protection is enabled.
+        """
+        if not self._protect_confirmed_enabled:
+            return True
+        client = self._get_es_client()
+        if client is None:
+            _metric("set_index_ready", self._VERDICT_INDEX_SUFFIX, False)
+            return False
+        try:
+            client.ensure_json_index(self._verdict_index)
+            _metric("set_index_ready", self._VERDICT_INDEX_SUFFIX, True)
+            return True
+        except Exception as exc:
+            self.logger.warning("Failed to ensure verdict index %s: %s", self._verdict_index, exc)
+            _metric("set_index_ready", self._VERDICT_INDEX_SUFFIX, False)
+            return False
 
     def mark_verdict_confirmed(self, fingerprint: str) -> bool:
         """Mark fingerprint as confirmed in ES. Returns True if marked, False if disabled/error."""
@@ -440,6 +628,9 @@ class DedupStateHandler:
             return False
         client = self._get_es_client()
         if client is None:
+            # Marker could not be written → a later check will not find it and
+            # will re-verify (fail-open). Surface it on the fail-open counter.
+            _metric("inc_verdict_fail_open", "es_down")
             return False
         try:
             client.ensure_json_index(self._verdict_index)
@@ -457,27 +648,96 @@ class DedupStateHandler:
                 self.logger.debug("Marked confirmed (ES): %s", fingerprint)
             return True
         except Exception as e:
-            self.logger.warning("Failed to mark confirmed (%s): %s", e, fingerprint)
+            self.logger.warning("Failed to mark confirmed verdict: %s", e)
+            _metric("inc_verdict_fail_open", "write_error")
             return False
 
+    def purge_expired_verdicts(self, requests_per_second: float = 50.0) -> int:
+        """Delete expired confirmed-verdict markers in one throttled pass.
+
+        Runs a sliced, throttled ``delete_by_query`` for markers whose
+        ``expires_at < now``. Returns the number of markers deleted (0 when
+        protection is disabled or ES is unavailable). Records run/deleted/
+        last-run metrics. Never raises — the caller (scheduler) logs failures.
+        """
+        if not self._protect_confirmed_enabled:
+            return 0
+        client = self._get_es_client()
+        if client is None:
+            _metric("record_verdict_retention_run", 0, False)
+            return 0
+        query = {"range": {"expires_at": {"lt": time.time()}}}
+        try:
+            result = client.delete_by_query(
+                self._verdict_index,
+                query,
+                requests_per_second=requests_per_second,
+                slices="auto",
+                conflicts="proceed",
+            )
+            deleted = int(result.get("deleted", 0) or 0)
+            _metric("record_verdict_retention_run", deleted, True)
+            if deleted:
+                self.logger.info(
+                    "Verdict retention: deleted %d expired marker(s) from %s",
+                    deleted, self._verdict_index,
+                )
+            return deleted
+        except Exception as e:
+            self.logger.warning("Verdict retention pass failed: %s", e)
+            _metric("record_verdict_retention_run", 0, False)
+            return 0
+
     def is_verdict_confirmed(self, fingerprint: str) -> bool:
-        """Check if fingerprint is already confirmed. Returns False if disabled/expired/error (fail-open)."""
+        """Check if a fingerprint has a live confirmed-verdict marker.
+
+        Returns ``True`` only for a marker that is present AND carries a
+        valid, finite, future ``expires_at``. Every other outcome — ES
+        unavailable, marker absent, expired, or a malformed/missing/
+        non-numeric ``expires_at`` — fails open (returns ``False``) so a
+        damaged or legacy marker can never suppress VLM indefinitely.
+        Each fail-open path increments a reason-labelled counter.
+        """
         if not self._protect_confirmed_enabled or not fingerprint:
             return False
         client = self._get_es_client()
         if client is None:
+            _metric("inc_verdict_fail_open", "es_down")
             return False
+        start = time.time()
         try:
             doc = client.get_document(self._verdict_index, fingerprint)
-            if not doc:
-                return False
-            expires_at = doc.get("expires_at")
-            # No expiry recorded → treat as still-valid marker.
-            if expires_at is not None and float(expires_at) <= time.time():
-                return False
-            if self._dedup_verbose:
-                self.logger.debug("Checked confirmed verdict (ES): %s => True", fingerprint)
-            return True
         except Exception as e:
             self.logger.warning("Failed to check confirmed (%s); allowing write: %s", e, fingerprint)
+            _metric("inc_verdict_fail_open", "error")
             return False  # Fail-open
+        finally:
+            _metric("observe_verdict_es_get", time.time() - start)
+
+        if not doc:
+            return False  # No marker → not confirmed (normal, not a fail-open)
+
+        expires_at = doc.get("expires_at")
+        # A marker must carry a valid, finite, future expiry. Missing /
+        # non-numeric / NaN / inf all count as malformed and fail open —
+        # NOT as a permanent confirmation.
+        try:
+            expires_at_f = float(expires_at)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                "Confirmed-verdict marker has missing/non-numeric expires_at; failing open."
+            )
+            _metric("inc_verdict_fail_open", "malformed")
+            return False
+        if not math.isfinite(expires_at_f):
+            self.logger.warning(
+                "Confirmed-verdict marker has non-finite expires_at; failing open."
+            )
+            _metric("inc_verdict_fail_open", "malformed")
+            return False
+        if expires_at_f <= time.time():
+            _metric("inc_verdict_fail_open", "expired")
+            return False
+        if self._dedup_verbose:
+            self.logger.debug("Checked confirmed verdict (ES): %s => True", fingerprint)
+        return True
