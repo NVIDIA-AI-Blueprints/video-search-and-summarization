@@ -271,6 +271,12 @@ class BrevEnvironment(BaseEnvironment):
         # during deploy (NGC_CLI_API_KEY, NVIDIA_API_KEY) must land on
         # the instance out-of-band.
         forwarded: list[tuple[str, str]] = [
+            # The verifier's LLM judge (claude-agent-sdk) runs on the instance
+            # as whatever user the SSH grant lands as. On root-runner fleets
+            # claude refuses --dangerously-skip-permissions for root unless
+            # IS_SANDBOX=1 — without it every judge check dies with
+            # ProcessError(exit 1) and the trial scores 0.0.
+            ("IS_SANDBOX", "1"),
             # claude-code 2.1.x emits a `context_management` field in every
             # /v1/messages body to drive server-side thinking-block cleanup
             # (`clear_thinking_20251015`). NVIDIA's Anthropic-compatible
@@ -524,6 +530,11 @@ fi
 # Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract — slow to re-pull from NGC) and any .env tweaks
 # the active trial may have placed.
+# A prior STEP's deploy may have chattr +i'd generated files (e.g.
+# deploy/docker/resolved.yml, developer-profiles/*/generated.env) — strip
+# the immutable bit or git clean dies with "Operation not permitted" and
+# kills the whole step chain.
+chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
 # Use sudo git clean as a fallback: prior docker containers may have created
 # root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
 # a non-root git clean cannot remove ("Permission denied").
@@ -674,23 +685,78 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         # base64 from brev CLI spinner/connection noise.
         import base64 as _b64, re as _re, subprocess as _sp
         marker = "__HARBOR_B64_" + uuid.uuid4().hex[:8] + "__"
+        # Stage the archive as a base64 FILE on the node, then fetch it in
+        # small slices with independent per-slice retries. A single-stream
+        # fetch dies on the flaky gateway (MAC / bad-packet corruption is
+        # near-certain above ~8MB), and a fresh session JSONL alone can be
+        # >10MB, so streaming in one exec is structurally unreliable.
+        remote_b64 = f"/tmp/.harbor_dl_{uuid.uuid4().hex[:8]}.b64"
         result = await _run_brev_exec(
             self._instance_name,
-            f"echo '{marker}START'; "
-            f"tar -czf - -C {shlex.quote(source_dir)} . 2>/dev/null | base64 -w 0; "
-            f"echo; echo '{marker}END'",
+            # Exclude bulky non-essential payloads (archived prior sessions,
+            # the tee'd raw stream) — harbor only needs the fresh session
+            # JSONLs + trajectory.
+            f"tar -czf - -C {shlex.quote(source_dir)} "
+            f"--exclude='./sessions-archive*' --exclude='./claude-code.txt' "
+            f"--exclude='*.tar.gz' --exclude='./sessions/debug' "
+            f". 2>/dev/null | base64 -w 0 > {remote_b64}; "
+            f"stat -c %s {remote_b64}",
             timeout=120,
         )
         if result.return_code != 0:
-            raise RuntimeError(f"Download dir failed: {result.stderr}")
-        stdout = result.stdout or ""
-        # Extract only the bytes between START and END markers
-        m = _re.search(rf"{marker}START\s*\n(.*?)\n{marker}END", stdout, _re.DOTALL)
-        if not m:
+            raise RuntimeError(f"Download dir failed (stage): {result.stderr}")
+        try:
+            total = int((result.stdout or "0").strip().splitlines()[-1])
+        except ValueError:
             raise RuntimeError(
-                f"Download dir failed: markers not found in output "
-                f"(len={len(stdout)})"
+                f"Download dir failed: could not stat staged archive "
+                f"({(result.stdout or '')[-120:]})"
             )
+        chunk = 2 * 1024 * 1024  # 2MB of base64 per slice — survives the gateway
+        parts: list[str] = []
+        offset = 0
+        while offset < total:
+            piece = None
+            for attempt in range(4):
+                res = await _run_brev_exec(
+                    self._instance_name,
+                    f"echo '{marker}START'; "
+                    f"dd if={remote_b64} bs=64K skip={offset // 65536} "
+                    f"count={chunk // 65536} 2>/dev/null; "
+                    f"echo; echo '{marker}END'",
+                    timeout=180,
+                )
+                mm = _re.search(rf"{marker}START\s*\n(.*?)\n?{marker}END",
+                                res.stdout or "", _re.DOTALL)
+                if res.return_code == 0 and mm:
+                    got = _re.sub(r"[^A-Za-z0-9+/=]", "", mm.group(1))
+                    expected = min(chunk, total - offset)
+                    if len(got) == expected:
+                        piece = got
+                        break
+                logger.warning(
+                    "download slice @%d attempt %d/4 failed (rc=%s, got=%s/%s)",
+                    offset, attempt + 1, res.return_code,
+                    len(mm.group(1)) if mm else "no-markers",
+                    min(chunk, total - offset),
+                )
+                await asyncio.sleep(5)
+            if piece is None:
+                await _run_brev_exec(self._instance_name,
+                                     f"rm -f {remote_b64}", timeout=30)
+                raise RuntimeError(
+                    f"Download dir failed: slice at offset {offset} "
+                    f"unrecoverable after retries"
+                )
+            parts.append(piece)
+            offset += chunk
+        await _run_brev_exec(self._instance_name, f"rm -f {remote_b64}",
+                             timeout=30)
+
+        class _M:  # adapt to the existing marker-extraction flow below
+            def group(self, _i):
+                return "".join(parts)
+        m = _M()
         # Strip any remaining non-base64 chars (e.g. CR, stray spinner bytes)
         raw_b64 = "".join(c for c in m.group(1) if c in
                           "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
@@ -822,19 +888,28 @@ async def _load_registered_nodes() -> dict[str, dict]:
     """Return {lower_name: node_dict} from `brev ls nodes --json`.
     Cached per-process.  Safe to call on any host that has the brev CLI."""
     global _registered_nodes_cache
-    if _registered_nodes_cache is not None:
+    if _registered_nodes_cache:
         return _registered_nodes_cache
-    _registered_nodes_cache = {}
-    try:
-        result = await _run_brev("ls", "nodes", "--json", timeout=15)
-        nodes = _parse_brev_json(result.stdout) if result.stdout else []
-        for n in nodes:
-            name = (n.get("name") or "").strip()
-            if name:
-                _registered_nodes_cache[name.lower()] = n
-    except Exception as e:
-        logger.warning("brev ls nodes failed (registered nodes unavailable): %s", e)
-    return _registered_nodes_cache
+    # Retry transient CLI failures and NEVER cache an empty result from a
+    # failed call — one hiccup here used to poison the whole trial with
+    # "instance not found" (empty dict cached per-process, no second chance).
+    for attempt in range(4):
+        cache: dict[str, dict] = {}
+        try:
+            result = await _run_brev("ls", "nodes", "--json", timeout=15)
+            nodes = _parse_brev_json(result.stdout) if result.stdout else []
+            for n in nodes:
+                name = (n.get("name") or "").strip()
+                if name:
+                    cache[name.lower()] = n
+        except Exception as e:
+            logger.warning("brev ls nodes failed (attempt %s): %s", attempt + 1, e)
+        if cache:
+            _registered_nodes_cache = cache
+            return cache
+        await asyncio.sleep(5)
+    logger.warning("brev ls nodes returned no nodes after retries")
+    return {}
 
 
 async def _is_registered_node(name: str) -> bool:
@@ -951,6 +1026,10 @@ async def _run_brev_exec(
     brev CLI doesn't enter interactive mode.
     """
     if await _is_registered_node(instance):
+        # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
+        # forwarded ~/.eval_env) is never sourced, silently dropping
+        # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
+        command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
     # brev exec <instance> <command> — brev handles SSH transparently
     cmd = ["brev", "exec", instance, command]
@@ -986,6 +1065,27 @@ async def _run_brev_exec(
 
 
 async def _run_brev_copy(
+    src: str,
+    dst: str,
+    timeout: int = BREV_COPY_TIMEOUT,
+) -> ExecResult:
+    """Run ``brev copy <src> <dst>`` with transient-failure retries.
+
+    The brev gateway occasionally corrupts a connection mid-transfer
+    ("Bad packet length ... Connection corrupted"), which used to fail the
+    whole trial (AddTestsDirError). Copies are idempotent — retry."""
+    result = None
+    for attempt in range(3):
+        result = await _run_brev_copy_once(src, dst, timeout)
+        if result.return_code == 0:
+            return result
+        logger.warning("brev copy failed (attempt %s): %s",
+                       attempt + 1, (result.stderr or "")[-200:])
+        await asyncio.sleep(10)
+    return result
+
+
+async def _run_brev_copy_once(
     src: str,
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
@@ -1110,13 +1210,20 @@ async def _find_brev_instance(name: str) -> dict | None:
         # A well-formed JSON array response (even if empty) is authoritative —
         # treat an empty-list response as "not a Brev-managed instance" and
         # fall through to the registered-node check.  Only truly empty stdout
-        # or missing closing `]` is transient.
-        if raw.strip() == "" or raw.rfind("]") < 0:
+        # or missing closing `]` is transient. An org with zero managed
+        # instances prints `null` (not `[]`) — also authoritative-empty, or
+        # every registered-external-node lookup would burn all retries here
+        # and report "instance not found" without ever checking nodes.
+        # (`null` may be followed by a "Please create a running instance…"
+        # banner on the same stream.)
+        if raw.strip().startswith("null"):
+            parsed = []
+        elif raw.strip() == "" or raw.rfind("]") < 0:
             logger.info("brev ls returned empty stdout (attempt %s) — retrying", attempt + 1)
             await asyncio.sleep(5)
             continue
-
-        parsed = _parse_brev_json(raw)
+        else:
+            parsed = _parse_brev_json(raw)
         for inst in parsed:
             if inst.get("name") == name:
                 return inst
