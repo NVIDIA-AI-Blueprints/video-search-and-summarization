@@ -117,6 +117,10 @@ alert_agent:
     protect_confirmed_verdicts:
       enabled: true
       ttl_seconds: 600
+      # Verdict-ES retry cooldown + hourly throttled expired-marker reaper.
+      es_retry_backoff_seconds: 30
+      retention_interval_seconds: 3600
+      retention_requests_per_second: 50
     # End time delta filter: blocks incidents unless end time changed significantly.
     end_time_delta_filter:
       enabled: true

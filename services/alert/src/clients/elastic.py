@@ -473,6 +473,59 @@ class ElasticClient:
             )
             raise
 
+    def delete_by_query(
+        self,
+        index: str,
+        query: Dict[str, Any],
+        *,
+        requests_per_second: Optional[float] = None,
+        slices: Any = "auto",
+        conflicts: str = "proceed",
+        refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """Delete documents matching ``query`` (throttled, sliced).
+
+        Args:
+            index: Target index name.
+            query: ES query DSL selecting the documents to delete.
+            requests_per_second: Throttle for the delete sub-requests. ``None``
+                means unthrottled; a positive value smooths cluster impact
+                (the retention job passes a low value).
+            slices: Parallelism for the scroll (``"auto"`` lets ES pick).
+            conflicts: ``"proceed"`` so version conflicts from concurrent
+                writes do not abort the whole batch.
+            refresh: Whether to refresh affected shards after deletion.
+
+        Returns:
+            The raw ES delete-by-query response (includes ``deleted`` count).
+        """
+        kwargs: Dict[str, Any] = {
+            "index": index,
+            "query": query,
+            "conflicts": conflicts,
+            "slices": slices,
+            "refresh": refresh,
+        }
+        if requests_per_second is not None:
+            kwargs["requests_per_second"] = requests_per_second
+        try:
+            result = self.client.delete_by_query(**kwargs)  # type: ignore[attr-defined]
+            deleted = result.get("deleted") if isinstance(result, dict) else None
+            logger.info(
+                "delete_by_query completed (index=%s deleted=%s)", index, deleted,
+            )
+            return result if isinstance(result, dict) else {"deleted": 0}
+        except ApiError as e:  # type: ignore[misc]
+            if getattr(e, "meta", None) and getattr(e.meta, "status", None) == 404:
+                logger.debug("Index not found for delete_by_query: %s", index)
+                return {"deleted": 0}
+            logger.error(
+                "Failed delete_by_query on Elasticsearch",
+                extra={"index": index, "error": str(e), "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise
+
     def ensure_json_index(self, index: str, shards: int = 1, replicas: int = 0) -> None:
         """Create index optimized for JSON documents (no predefined schema)."""
         # Check cache first to avoid repeated API calls
