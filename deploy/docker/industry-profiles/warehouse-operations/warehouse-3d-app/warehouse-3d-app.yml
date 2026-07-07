@@ -143,7 +143,7 @@ services:
         fi
 
   bp-configurator-3d:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2.1-2026.06.5-2
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2.1-2026.07.2
     container_name: vss-configurator
     network_mode: "host"
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
