@@ -313,12 +313,6 @@ class ViaStreamHandler:
                 "system_uptime_seconds", "Number of seconds the via-server system has been running"
             )
 
-            self.decode_latency = prom.Histogram(
-                "decode_latency_seconds",
-                "Video decode processing latency in seconds",
-                buckets=[0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0],
-            )
-
             self.vlm_latency = prom.Histogram(
                 "vlm_latency_seconds",
                 "VLM processing latency in seconds",
@@ -385,10 +379,6 @@ class ViaStreamHandler:
                 "ca_rag_latency_seconds_latest", "Latest CA-RAG processing latency in seconds"
             )
 
-            self.decode_latency_latest = prom.Gauge(
-                "decode_latency_seconds_latest", "Latest video decode processing latency in seconds"
-            )
-
             self.vlm_latency_latest = prom.Gauge(
                 "vlm_latency_seconds_latest", "Latest VLM processing latency in seconds"
             )
@@ -398,7 +388,6 @@ class ViaStreamHandler:
             prom.REGISTRY.unregister(self.queries_pending)
             prom.REGISTRY.unregister(self.active_live_streams)
             prom.REGISTRY.unregister(self.system_uptime)
-            prom.REGISTRY.unregister(self.decode_latency)
             prom.REGISTRY.unregister(self.vlm_latency)
             prom.REGISTRY.unregister(self.add_doc_latency)
             prom.REGISTRY.unregister(self.vlm_input_tokens)
@@ -406,7 +395,6 @@ class ViaStreamHandler:
             prom.REGISTRY.unregister(self.vlm_queue_time)
             prom.REGISTRY.unregister(self.vlm_chunk_total_latency)
             prom.REGISTRY.unregister(self.vlm_frames_per_chunk)
-            prom.REGISTRY.unregister(self.decode_latency_latest)
             prom.REGISTRY.unregister(self.vlm_latency_latest)
             prom.REGISTRY.unregister(self.ca_rag_latency_latest)
             prom.REGISTRY.unregister(self.e2e_latency_latest)
@@ -718,6 +706,7 @@ class ViaStreamHandler:
             self._metrics.queries_processed.inc()
             self._metrics.queries_pending.dec()
         req_info.status_event.set()
+        self._end_e2e_span(req_info)
 
     def _get_cv_metadata_for_chunk(self, json_file, frame_times):
         cv_meta = []
@@ -908,7 +897,6 @@ class ViaStreamHandler:
                 and response.decode_end_time > response.decode_start_time
             ):
                 decode_latency = response.decode_end_time - response.decode_start_time
-                self._metrics.decode_latency.observe(decode_latency)
 
                 # Create OTEL span for decode operation (child of chunk span)
                 create_historical_span(
@@ -1386,6 +1374,18 @@ class ViaStreamHandler:
             logger.error("Failed to end vlm_pipeline_latency span: %s", e)
         finally:
             req_info.vlm_pipeline_span = None
+
+    def _end_e2e_span(self, req_info: RequestInfo) -> None:
+        """End the 'Summarization E2E Latency' span if open. Idempotent."""
+        span = getattr(req_info, "_e2e_span", None)
+        if span is None:
+            return
+        try:
+            span.end()
+        except Exception as e:
+            logger.error("Failed to end e2e span: %s", e)
+        finally:
+            req_info._e2e_span = None
 
     def _trigger_query(self, req_info: RequestInfo):
         """Trigger a file-based query via RTVI-VLM SSE streaming."""
@@ -2847,11 +2847,6 @@ This is very important and you must follow this strictly.
         self._metrics.ca_rag_latency_latest.set(req_info._ca_rag_latency)
 
         if chunk_responses:
-            max_decode_end_time = find_extreme(chunk_responses, max, "decode_end_time")
-            min_decode_start_time = find_extreme(chunk_responses, min, "decode_start_time")
-            decode_latency = max_decode_end_time - min_decode_start_time
-            self._metrics.decode_latency_latest.set(decode_latency)
-
             max_vlm_end_time = find_extreme(chunk_responses, max, "vlm_end_time")
             min_vlm_start_time = find_extreme(chunk_responses, min, "vlm_start_time")
             vlm_latency = max_vlm_end_time - min_vlm_start_time
