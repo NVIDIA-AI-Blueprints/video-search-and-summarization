@@ -25,7 +25,6 @@ from vss_agents.video_analytics.tools import AverageSpeedsInput
 from vss_agents.video_analytics.tools import EmptyInput
 from vss_agents.video_analytics.tools import FovHistogramInput
 from vss_agents.video_analytics.tools import GetIncidentInput
-from vss_agents.video_analytics.tools import GetIncidentsInputBase
 from vss_agents.video_analytics.tools import GetIncidentsInputWithVLM
 from vss_agents.video_analytics.tools import GetSensorIdsInput
 from vss_agents.video_analytics.tools import VideoAnalyticsToolConfig
@@ -166,7 +165,7 @@ class TestVideoAnalyticsFunctions:
 
         with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
-                result = await invoke_function(group, "get_incidents", GetIncidentsInputBase())
+                result = await invoke_function(group, "get_incidents", GetIncidentsInputWithVLM())
                 assert "incidents" in result
                 assert len(result["incidents"]) == 2
                 break
@@ -184,7 +183,7 @@ class TestVideoAnalyticsFunctions:
                 result = await invoke_function(
                     group,
                     "get_incidents",
-                    GetIncidentsInputBase(
+                    GetIncidentsInputWithVLM(
                         source="sensor-001",
                         source_type="sensor",
                         start_time="2025-01-15T00:00:00.000Z",
@@ -208,7 +207,7 @@ class TestVideoAnalyticsFunctions:
 
         with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
-                result = await invoke_function(group, "get_incidents", GetIncidentsInputBase(max_count=10))
+                result = await invoke_function(group, "get_incidents", GetIncidentsInputWithVLM(max_count=10))
                 assert result["has_more"] is True
                 assert len(result["incidents"]) == 10
                 break
