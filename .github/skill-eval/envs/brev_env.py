@@ -706,7 +706,18 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         if result.return_code != 0:
             raise RuntimeError(f"Download dir failed (stage): {result.stderr}")
         try:
-            total = int((result.stdout or "0").strip().splitlines()[-1])
+            # brev exec may append the instance name as a trailing line to
+            # stdout, so find the first line that is a valid integer (the
+            # stat -c %s output) rather than blindly taking [-1].
+            _lines = (result.stdout or "0").strip().splitlines()
+            total = None
+            for _l in reversed(_lines):
+                _l = _l.strip()
+                if _l.isdigit():
+                    total = int(_l)
+                    break
+            if total is None:
+                raise ValueError(f"no numeric line in stat output: {_lines!r}")
         except ValueError:
             raise RuntimeError(
                 f"Download dir failed: could not stat staged archive "
