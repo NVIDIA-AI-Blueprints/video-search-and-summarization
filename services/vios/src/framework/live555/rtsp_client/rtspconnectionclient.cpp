@@ -392,6 +392,17 @@ void RTSPConnection::RTSPClientConnection::doPauseResume(uint64_t* resume_time_i
 		LOG(info) << "Seek 10 secs backward to time: " << m_resumeTime << endl;
 		this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator.get());
 	}
+	else if (action == "seek_absolute")
+	{
+		// Absolute-time seek: seek_value already carries the target in the compact
+		// RTSP time format (produced by convertEpocToISO8601). Re-PLAY the same
+		// session from that time via an RTSP Range. Existing pause/resume/relative
+		// seek/trick-play behaviour is unchanged.
+		envir().taskScheduler().unscheduleDelayedTask(m_DataArrivalTimeoutTask);
+		m_resumeTime = seek_value;
+		LOG(info) << "Seek (absolute) to time: " << m_resumeTime << endl;
+		this->sendPlayCommand(*m_session, continueAfterPLAY, m_resumeTime.c_str(), m_endTime.c_str(), m_playback_speed, m_authenticator);
+	}
 	else if (action == "rewind" || action == "fast_forward")
 	{
 		m_playback_speed = stringToInt(seek_value, 1);

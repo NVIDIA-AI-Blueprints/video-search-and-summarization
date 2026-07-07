@@ -2599,6 +2599,17 @@ VmsErrorCode GstNvVideoDecoder::update (std::string action, std::string seek_val
         LOG(info) << "Rewind not supported with overlay enabled" << endl;
         goto exit;
     }
+    /* Milestone (mms) VOD recorded playback is served live over RTSP with epoch
+    ** PTS, so a GStreamer pipeline seek does not apply (query_position returns a
+    ** wall-clock epoch, not an in-file offset). Seek by restarting the VOD RTSP
+    ** producer at the requested startTime instead. */
+    if (m_sensorType == SENSOR_TYPE_MMS_ONVIF &&
+        (action == "seek_forward" || action == "seek_backward" ||
+         action == "seek_forward_custom" || action == "seek_backward_custom"))
+    {
+        return_err = seekMmsVodPlayback(action, seek_value);
+        goto exit;
+    }
     if (!eos && !gst_element_query_position  (m_pipeline, GST_FORMAT_TIME, &position))
     {
         LOG(error) << "Failed to query position of pipeline" << endl;
@@ -3480,6 +3491,12 @@ GstFlowReturn GstNvVideoDecoder::processJpegImageFromSink(GstElement *appsink)
             {
                 goto exit_func;
             }
+            /* Track the epoch of the latest delivered frame so replay position
+            ** queries and relative seeks have a reference point for mms VOD. */
+            if (m_sensorType == SENSOR_TYPE_MMS_ONVIF)
+            {
+                m_lastFramePtsMs = buf_time;
+            }
         }
     }
 
@@ -3732,6 +3749,14 @@ bool GstNvVideoDecoder::getDuration (gint64& duration)
 
 gint64 GstNvVideoDecoder::getAbsPosition()
 {
+    if (m_sensorType == SENSOR_TYPE_MMS_ONVIF)
+    {
+        /* mms VOD frames carry an absolute epoch PTS; report the latest delivered
+        ** frame time (ms) rather than a pipeline/in-file offset. Falls back to the
+        ** requested startTime before the first frame arrives. */
+        int64_t pos = m_lastFramePtsMs.load();
+        return pos != 0 ? pos : m_epochStartTime;
+    }
     gint64 abs_position = 0;
     if (getPosition(abs_position) == false)
     {
@@ -3747,6 +3772,83 @@ gint64 GstNvVideoDecoder::getAbsPosition()
         abs_position /= GST_MSECOND;
     }
     return abs_position;
+}
+
+VmsErrorCode GstNvVideoDecoder::seekMmsVodPlayback(const std::string& action, const std::string& seek_value)
+{
+    /* Resolve the absolute seek target (epoch ms). The replay seekbar sends an
+    ** absolute ISO-8601 time in seek_value for *_custom actions; the fixed-step
+    ** actions and numeric *_custom values are relative to the current position. */
+    int64_t currentEpochMs = m_lastFramePtsMs.load();
+    if (currentEpochMs == 0)
+    {
+        currentEpochMs = m_epochStartTime;
+    }
+
+    int64_t targetEpochMs = 0;
+    if ((action == "seek_forward_custom" || action == "seek_backward_custom") && !isNumber(seek_value))
+    {
+        targetEpochMs = getEpocTimeInMS(seek_value);   // absolute ISO-8601
+    }
+    else
+    {
+        int64_t deltaMs = 0;
+        if (action == "seek_forward")
+        {
+            deltaMs = 10 * 1000;
+        }
+        else if (action == "seek_backward")
+        {
+            deltaMs = -10 * 1000;
+        }
+        else
+        {
+            int64_t secs = stringToInt(seek_value, 0);
+            deltaMs = secs * 1000 * (action == "seek_backward_custom" ? -1 : 1);
+        }
+        targetEpochMs = currentEpochMs + deltaMs;
+    }
+
+    if (targetEpochMs <= 0)
+    {
+        LOG(error) << "seekMmsVodPlayback: invalid seek target for action=" << action
+                   << ", seek_value=" << seek_value << endl;
+        return VmsErrorCode::InvalidParameterError;
+    }
+
+    if (!m_producer)
+    {
+        LOG(error) << "seekMmsVodPlayback: no producer to reseek, peer=" << m_peerid << endl;
+        return VmsErrorCode::VMSInternalError;
+    }
+
+    LOG(info) << "seekMmsVodPlayback: peer=" << m_peerid << " action=" << action
+              << " targetEpochMs=" << targetEpochMs << endl;
+
+    /* In-session seek: flush stale (pre-seek) frames out of the appsrc, then ask
+    ** the producer to re-PLAY the SAME RTSP session at the new absolute time via
+    ** an RTSP Range request. This reuses the existing RTSP client (no teardown/
+    ** recreate), so it does NOT churn the shared stream-monitor/QoS state or
+    ** disturb any concurrent live view, and completes in a single PLAY round-trip.
+    ** The stream URL is unchanged (the new position is conveyed by the Range). */
+    if (m_source)
+    {
+        gst_element_send_event(m_source, gst_event_new_flush_start());
+        gst_element_send_event(m_source, gst_event_new_flush_stop(TRUE));
+    }
+
+    // Re-anchor the frame gate before the re-PLAY so any residual pre-seek frames
+    // are dropped and only frames at/after the target are delivered downstream.
+    m_epochStartTime = targetEpochMs;
+    m_lastFramePtsMs = 0;
+
+    if (!m_producer->seekToTime(m_uri, targetEpochMs))
+    {
+        LOG(error) << "seekMmsVodPlayback: producer seek failed (no active RTSP session?) for peer="
+                   << m_peerid << endl;
+        return VmsErrorCode::VMSInternalError;
+    }
+    return VmsErrorCode::NoError;
 }
 
 gint64 GstNvVideoDecoder::seekToEpoch (time_t final_epoch)
