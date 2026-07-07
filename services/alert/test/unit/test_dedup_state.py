@@ -235,9 +235,212 @@ class TestVerdictProtection:
 
     def test_fail_open_when_es_unavailable(self):
         h = self._handler(enabled=True)
-        h._es_disabled = True  # simulate ES build failure
+        # Simulate an ES client that is unavailable and in backoff cooldown
+        # (no permanent disable latch; a far-future retry time keeps it
+        # unavailable for the duration of the test).
+        h._es_retry_after = 1e18
         assert h.mark_verdict_confirmed("fp") is False
         assert h.is_verdict_confirmed("fp") is False
+
+
+# ── TTL validation (non-positive TTL rejected, not "never expire") ──────
+
+
+class TestTTLValidation:
+    def test_zero_dedup_ttl_rejected(self):
+        path = _write_config(dedup_ttl_seconds=0)
+        try:
+            with pytest.raises(ValueError, match="dedup_ttl_seconds"):
+                DedupStateHandler(config_file=path)
+        finally:
+            os.unlink(path)
+
+    def test_negative_end_delta_ttl_rejected(self):
+        path = _write_config(
+            dedup_ttl_seconds=300,
+            end_time_delta_filter={"enabled": True, "ttl_seconds": -5},
+        )
+        try:
+            with pytest.raises(ValueError, match="end_time_delta_filter.ttl_seconds"):
+                DedupStateHandler(config_file=path)
+        finally:
+            os.unlink(path)
+
+    def test_ttlcache_non_positive_ttl_expires_immediately(self):
+        clock = FakeClock()
+        c = _TTLCache(clock=clock)
+        # A mistaken 0 must NOT become a permanent entry.
+        c.set("k", 1, ttl=0)
+        assert c.get("k") is None
+
+
+# ── end-delta uses the canonical cohort key ─────────────────────────────
+
+
+class TestEndDeltaCanonicalKey:
+    def _handler(self, threshold=5):
+        path = _write_config(
+            dedup_ttl_seconds=300,
+            end_time_delta_filter={
+                "enabled": True,
+                "threshold_seconds": threshold,
+                "ttl_seconds": 3600,
+            },
+        )
+        try:
+            return DedupStateHandler(config_file=path, clock=FakeClock())
+        finally:
+            os.unlink(path)
+
+    def test_end_delta_key_derives_from_build_key(self):
+        h = self._handler()
+        msg = _incident()
+        # end-delta key must be the canonical cohort key (rate_limit=True →
+        # excludes end) namespaced under "enddelta:".
+        expected = "enddelta:" + h._build_key(msg, rate_limit=True, is_last_chunk=False)
+        # Drive one message so the key is stored, then confirm the stored key
+        # matches the canonical derivation.
+        h.filter_by_end_time_delta([dict(msg)])
+        assert h._enddelta_cache.get(expected) is not None
+
+    def test_incomplete_and_complete_are_distinct_cohorts(self):
+        h = self._handler()
+        incomplete = _incident()
+        incomplete["info"] = {"isComplete": False}
+        complete = _incident()
+        complete["info"] = {"isComplete": True}
+        # Different isComplete → different canonical key → independent state.
+        k_incomplete = "enddelta:" + h._build_key(incomplete, rate_limit=True, is_last_chunk=False)
+        k_complete = "enddelta:" + h._build_key(complete, rate_limit=True, is_last_chunk=True)
+        assert k_incomplete != k_complete
+
+    def test_end_delta_key_excludes_end(self):
+        # Two messages of the same cohort differing only in `end` must map to
+        # the SAME end-delta key (so the delta can be compared).
+        h = self._handler(threshold=100)
+        a = _incident(end="2024-01-15T10:30:05Z")
+        b = _incident(end="2024-01-15T10:30:06Z")
+        ka = "enddelta:" + h._build_key(a, rate_limit=True, is_last_chunk=False)
+        kb = "enddelta:" + h._build_key(b, rate_limit=True, is_last_chunk=False)
+        assert ka == kb
+
+
+# ── verdict check fails open on malformed / missing expires_at ──────────
+
+
+class TestVerdictFailOpen:
+    def _handler(self):
+        path = _write_config(
+            dedup_ttl_seconds=300,
+            protect_confirmed_verdicts={"enabled": True, "ttl_seconds": 600},
+        )
+        try:
+            h = DedupStateHandler(config_file=path)
+        finally:
+            os.unlink(path)
+        h._es_client = FakeES()
+        return h
+
+    def test_missing_expires_at_fails_open(self):
+        h = self._handler()
+        h._es_client.docs["fp"] = {"fingerprint": "fp"}  # no expires_at
+        assert h.is_verdict_confirmed("fp") is False
+
+    def test_non_numeric_expires_at_fails_open(self):
+        h = self._handler()
+        h._es_client.docs["fp"] = {"fingerprint": "fp", "expires_at": "soon"}
+        assert h.is_verdict_confirmed("fp") is False
+
+    def test_nan_expires_at_fails_open(self):
+        h = self._handler()
+        h._es_client.docs["fp"] = {"fingerprint": "fp", "expires_at": float("nan")}
+        assert h.is_verdict_confirmed("fp") is False
+
+    def test_inf_expires_at_fails_open(self):
+        h = self._handler()
+        h._es_client.docs["fp"] = {"fingerprint": "fp", "expires_at": float("inf")}
+        assert h.is_verdict_confirmed("fp") is False
+
+    def test_valid_future_expires_at_confirms(self):
+        import clients.dedup_state as ds
+
+        h = self._handler()
+        h._es_client.docs["fp"] = {"fingerprint": "fp", "expires_at": ds.time.time() + 600}
+        assert h.is_verdict_confirmed("fp") is True
+
+
+# ── ES client backoff is not a permanent disable ────────────────────────
+
+
+class TestESClientBackoff:
+    def test_backoff_expires_and_retries(self, monkeypatch):
+        import clients.dedup_state as ds
+
+        path = _write_config(
+            dedup_ttl_seconds=300,
+            protect_confirmed_verdicts={"enabled": True, "ttl_seconds": 600},
+        )
+        try:
+            h = DedupStateHandler(config_file=path)
+        finally:
+            os.unlink(path)
+
+        # No hosts configured → construction fails → backoff scheduled, NOT a
+        # permanent latch.
+        fake = FakeClock(1000.0)
+        monkeypatch.setattr(ds.time, "time", fake)
+        assert h._get_es_client() is None
+        assert h._es_retry_after > 1000.0  # cooldown scheduled
+
+        # While in cooldown, no retry.
+        assert h._get_es_client() is None
+
+        # After the cooldown, a retry is attempted again (proves it is not a
+        # permanent disable). Inject a client so the retry succeeds.
+        fake.advance(h._es_backoff_seconds + 1)
+        h._injected_es_client = FakeES()
+        assert h._get_es_client() is not None
+
+    def test_injected_client_used_directly(self):
+        path = _write_config(
+            dedup_ttl_seconds=300,
+            protect_confirmed_verdicts={"enabled": True, "ttl_seconds": 600},
+        )
+        try:
+            h = DedupStateHandler(config_file=path, es_client=FakeES())
+        finally:
+            os.unlink(path)
+        assert isinstance(h._get_es_client(), FakeES)
+
+    def test_quoted_backoff_is_coerced_not_type_error(self):
+        # A quoted numeric backoff in YAML must not make the fail-open path
+        # raise TypeError (regression guard).
+        path = _write_config(
+            dedup_ttl_seconds=300,
+            protect_confirmed_verdicts={
+                "enabled": True, "ttl_seconds": 600, "es_retry_backoff_seconds": "30",
+            },
+        )
+        try:
+            h = DedupStateHandler(config_file=path)
+        finally:
+            os.unlink(path)
+        assert h._es_backoff_seconds == 30.0
+        # fail-open path must not raise even after a construction failure
+        assert h.is_verdict_confirmed("fp") is False
+
+    def test_non_positive_backoff_rejected(self):
+        path = _write_config(
+            dedup_ttl_seconds=300,
+            protect_confirmed_verdicts={
+                "enabled": True, "ttl_seconds": 600, "es_retry_backoff_seconds": 0,
+            },
+        )
+        try:
+            with pytest.raises(ValueError, match="es_retry_backoff_seconds"):
+                DedupStateHandler(config_file=path)
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

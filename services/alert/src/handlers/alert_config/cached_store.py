@@ -33,6 +33,7 @@ Write path: ES → cache (best-effort) → memory snapshot.
 """
 
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from persistence.exceptions import PersistenceError
@@ -40,6 +41,25 @@ from persistence.exceptions import PersistenceError
 from .base import AlertConfigStoreABC
 
 logger = logging.getLogger(__name__)
+
+# Read-source / staleness observability metrics. Guarded so a minimal env
+# without the metrics package cannot break the config store.
+try:  # pragma: no cover - exercised indirectly
+    from metrics import recorder as _metrics
+except Exception:  # pragma: no cover
+    _metrics = None
+
+
+def _metric(name: str, *args, **kwargs) -> None:
+    if _metrics is None:
+        return
+    fn = getattr(_metrics, name, None)
+    if fn is None:
+        return
+    try:
+        fn(*args, **kwargs)
+    except Exception:  # pragma: no cover - metrics must never break the store
+        pass
 
 
 class CachedAlertConfigStore(AlertConfigStoreABC):
@@ -62,6 +82,17 @@ class CachedAlertConfigStore(AlertConfigStoreABC):
         self._primary = primary
         self._cache = cache
         self._memory: Dict[str, Dict[str, Any]] = memory if memory is not None else {}
+        # Wall-clock of the last successful ES read, for the staleness gauge
+        # Seeded to "now" since the composite is built right after
+        # a fresh hydration.
+        self._last_es_refresh: float = time.time()
+
+    def _mark_es_refresh(self) -> None:
+        self._last_es_refresh = time.time()
+        _metric("set_alert_config_staleness", 0.0)
+
+    def _report_staleness(self) -> None:
+        _metric("set_alert_config_staleness", max(0.0, time.time() - self._last_es_refresh))
 
     # ── Writes ───────────────────────────────────────────────────────
 
@@ -100,6 +131,7 @@ class CachedAlertConfigStore(AlertConfigStoreABC):
         try:
             cached = self._cache.get(alert_type)
             if cached is not None:
+                _metric("inc_alert_config_read_source", "cache")
                 return cached
         except Exception:
             logger.warning(
@@ -112,7 +144,10 @@ class CachedAlertConfigStore(AlertConfigStoreABC):
         #    copy in that case, so memory is only consulted after ES errors.
         try:
             data = self._primary.get(alert_type)
+            self._mark_es_refresh()
         except PersistenceError:
+            _metric("inc_alert_config_read_source", "snapshot")
+            self._report_staleness()
             if not fallback_to_memory:
                 # The REST API path opts out of the memory fallback so
                 # that a 503 surfaces the dual-outage instead of
@@ -130,6 +165,7 @@ class CachedAlertConfigStore(AlertConfigStoreABC):
             )
             return self._memory.get(alert_type)
 
+        _metric("inc_alert_config_read_source", "es")
         if data is not None:
             self._update_cache_best_effort("set", alert_type, data)
             self._memory[alert_type] = data
@@ -147,7 +183,10 @@ class CachedAlertConfigStore(AlertConfigStoreABC):
         # must not drift when the cache is stale.
         try:
             data = self._primary.get_all()
+            self._mark_es_refresh()
         except PersistenceError:
+            _metric("inc_alert_config_read_source", "snapshot")
+            self._report_staleness()
             if not fallback_to_memory:
                 logger.warning(
                     "Primary list failed and memory fallback disabled — "
@@ -159,6 +198,7 @@ class CachedAlertConfigStore(AlertConfigStoreABC):
                 exc_info=True,
             )
             return dict(self._memory)
+        _metric("inc_alert_config_read_source", "es")
         # Refresh the snapshot so later single-record fallbacks stay in sync.
         self._memory.clear()
         self._memory.update(data)

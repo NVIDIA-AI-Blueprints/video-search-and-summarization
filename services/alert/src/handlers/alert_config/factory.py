@@ -71,11 +71,27 @@ def build_alert_config_store(
     """
     persistence = create_persistence_store(app_config)
     if persistence is None:
-        logger.info(
-            "Persistence layer disabled or unavailable — using in-process "
-            "alert config store (backward-compat mode, non-durable)."
+        # persistence.enabled=false. A non-durable, per-process in-memory
+        # store is only permitted for an explicitly-identified dev profile
+        # (``persistence.dev_allow_in_memory: true``). Any other (non-dev)
+        # deployment MUST fail here so readiness/startup fails instead of
+        # silently serving a store whose edits are invisible across
+        # processes/replicas and are lost on restart.
+        persistence_cfg = app_config.get("persistence") or {}
+        if persistence_cfg.get("dev_allow_in_memory", False):
+            logger.warning(
+                "persistence.enabled=false and dev_allow_in_memory=true — using "
+                "the non-durable in-process alert config store. DEV/LOCAL ONLY: "
+                "config edits are per-process and lost on restart."
+            )
+            return InMemoryAlertConfigStore(ttl_seconds=None)
+        raise RuntimeError(
+            "persistence.enabled=false but persistence.dev_allow_in_memory is not "
+            "set. A supported (non-dev) deployment must run with Elasticsearch-"
+            "backed alert-config storage. Set persistence.enabled=true, "
+            "or explicitly opt into the non-durable in-memory store with "
+            "persistence.dev_allow_in_memory=true for local/dev profiles only."
         )
-        return InMemoryAlertConfigStore(ttl_seconds=None)
 
     if not persistence.health():
         raise RuntimeError(
@@ -90,8 +106,18 @@ def build_alert_config_store(
     es_store = ESAlertConfigStore(persistence)
     memory_snapshot: Dict[str, Dict[str, Any]] = {}
     if hydrate:
+        # A successful hydration confirms the ES-backed config store is
+        # reachable and its index is usable before we start serving traffic.
+        # Any unrecoverable ES error propagates out of hydrate_cache so
+        # startup/readiness fails rather than admitting traffic to a store
+        # that cannot read.
         count = hydrate_cache(es_store, cache_store, memory_snapshot)
         logger.info("Alert config store hydrated with %d records from ES", count)
+        try:
+            from metrics import recorder as _metrics
+            _metrics.set_index_ready("alert-configs", True)
+        except Exception:  # pragma: no cover - metrics optional
+            pass
     return CachedAlertConfigStore(
         primary=es_store, cache=cache_store, memory=memory_snapshot,
     )
