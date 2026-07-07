@@ -146,6 +146,9 @@ for i in 1 2 3 4 5 6; do
   [ -n "$PROXY" ] && break
   sleep 5
 done
+# Fail fast if the loop timed out (service not up, wrong container name, or SID null from a
+# failed /sensor/add) — otherwise streams/add gets liveStreamUrl:"" and STREAM_ID silently empties.
+[ -z "$PROXY" ] && { echo "ERROR: timed out waiting for VIOS live-proxy URL for SID=$SID"; exit 1; }
 # PROXY == rtsp://<HOST_IP>:<dynamic-port>/live/$SID  (port from RtspLoadBalancer pool, e.g. 30556)
 STREAM_ID=$(curl -s -X POST "$RTVLM/v1/streams/add" \
   -H "Content-Type: application/json" \
@@ -157,6 +160,12 @@ STREAM_ID=$(curl -s -X POST "$RTVLM/v1/streams/add" \
 #    nim_nvidia_<model>_<tag> (e.g. nim_nvidia_cosmos-reason2-8b_hf-1208). Passing
 #    the human-readable name returns BadParameters: No such model 'cosmos-reason2-8b'.
 MODEL_ID=$(curl -sf "$RTVLM/v1/models" | jq -r '.data[0].id')
+# Guard: curl -sf yields empty stdout on a non-2xx/unready RT-VLM, and jq -r on empty/null input
+# prints the literal "null" — either would drive generate_captions with model:"" / "null" and
+# reproduce the exact BadParameters this step exists to prevent.
+if [ -z "$MODEL_ID" ] || [ "$MODEL_ID" = "null" ]; then
+  echo "ERROR: could not resolve RT-VLM model ID from $RTVLM/v1/models"; exit 1
+fi
 
 # 6. Drive captions on the live stream by the stream_id from step 4 (id field; stream:true and a
 #    non-empty prompt are both mandatory per RT-VLM /v1/generate_captions). chunk_duration > 0.

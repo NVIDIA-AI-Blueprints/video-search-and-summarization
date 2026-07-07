@@ -250,7 +250,7 @@ This is technically **non-blocking** for the overall deployment — `sdr-control
 # pseudocode — run after Patch 3 has materialized wait-for-redis.sh
 def patch_wait_for_redis_network(patched_sdrc_path):
     lines = open(patched_sdrc_path).read().splitlines()
-    out, in_service, indent = [], False, ""
+    out, in_service = [], False
     for i, line in enumerate(lines):
         out.append(line)
         if line.rstrip() == "  wait-for-redis:":   # top-level service key (2-space indent)
