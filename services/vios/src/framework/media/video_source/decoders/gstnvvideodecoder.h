@@ -182,6 +182,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         bool isSeeking() { return m_isSeeking; }
         gint64 getAbsPosition();
         void updateDecoderElement();
+        /* Milestone (mms) VOD recorded-playback seek: instead of a GStreamer
+        ** pipeline seek (which does not apply to a live RTSP/appsrc source), flush
+        ** the appsrc and re-PLAY the same RTSP session at the new absolute time
+        ** (RTSP Range) via the producer. */
+        VmsErrorCode seekMmsVodPlayback(const std::string& action, const std::string& seek_value);
         uint64_t getLastTS();
         int64_t getFileStartTime();
         uint32_t getDurationStream();
@@ -311,6 +316,9 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         std::string             m_sensorName;
         std::mutex              m_debugData;
         uint64_t                m_firstFrameTS = 0;
+        /* Epoch (ms) of the most recently delivered frame; used to report the
+        ** current position and to anchor relative seeks for mms VOD playback. */
+        std::atomic<int64_t>    m_lastFramePtsMs {0};
         std::queue<std::pair< int64_t, uint64_t >>    m_frameTsQueue;
         std::mutex              m_frameTsQueueLock;
         std::condition_variable m_frameTsQueueCond;
