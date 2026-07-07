@@ -706,7 +706,12 @@ class ViaStreamHandler:
             self._metrics.queries_processed.inc()
             self._metrics.queries_pending.dec()
         req_info.status_event.set()
-        self._end_e2e_span(req_info)
+        # For live streams _process_output runs per intermediate chunk
+        # (is_live_stream_ended=False) and once at end-of-stream (True). Only end
+        # the E2E span on the final call so the live span isn't truncated to the
+        # first chunk. File requests are never live, so the span always ends here.
+        if not req_info.is_live or is_live_stream_ended:
+            self._end_e2e_span(req_info)
 
     def _get_cv_metadata_for_chunk(self, json_file, frame_times):
         cv_meta = []
