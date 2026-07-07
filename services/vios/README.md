@@ -97,6 +97,24 @@ Image tags are baked in **at build time**, so configure the registry *before* yo
 
 **Push safety:** auto-built toolchain/base are **never** pushed implicitly — only the explicit `./build.sh toolchain push=1` / `base-container push=1` commands publish them.
 
+**Multi-arch (amd64 + arm64) in one command.** For a single tag that runs on both x86 and aarch64 hosts, `multiarch` builds each arch, pushes per-arch tags, and assembles one multi-arch manifest. Needs Docker Buildx, a pushable `IMAGE_REGISTRY`, and a prior `docker login`.
+
+```bash
+export IMAGE_REGISTRY=my-registry.example.com/vios
+
+# Full deployable set (sensor + streamprocessing + NVStreamer), both arches:
+./build.sh arch=multiarch all tag=2.1.0-26.05.4
+
+# Or a specific subset:
+./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing
+./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer
+
+# Ingress is nginx + static UI — already a single multi-arch manifest, built separately:
+./build.sh container ingress push=1 tag=2.1.0-26.05.4
+```
+
+Like `./build.sh all`, `arch=multiarch all` does **not** include ingress; build it with the one-liner above.
+
 </details>
 
 <details>
