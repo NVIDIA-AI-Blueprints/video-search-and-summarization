@@ -1203,13 +1203,14 @@ class CalibrationBase:
         """
         Update the ROI information for the sensor with restricted area violations.
 
-        This method checks each ROI against the sensor's restricted object types
-        and updates the ROI info with violation status. Configured restricted ROIs that
-        are currently empty (and therefore absent from ``rois``, since ``get_roi_metrics``
-        only emits an entry per occupied (ROI, object type)) get an explicit
-        ``restrictedAreaViolation="false"`` placeholder, so every restricted ROI reports its
-        state every frame. Without it an emptied ROI drops out silently and a consumer keyed
-        on entry presence latches on the last violation until the next object enters the ROI.
+        For each configured (restricted ROI, restricted object type) this stamps an explicit
+        ``restrictedAreaViolation`` on the matching per-type bucket: ``"true"`` when objects of
+        that type are present (``count > 0``), ``"false"`` when none are. ``get_roi_metrics``
+        only emits an entry per occupied (ROI, object type), so a restricted type with nothing
+        present this frame gets a synthetic ``count=0`` placeholder entry (typed with the
+        restricted type) so every restricted type reports its state every frame — without it an
+        emptied type drops out silently and a consumer keyed on entry presence latches on the
+        last violation. Buckets whose type is not a restricted type for their ROI get no flag.
 
         :param list[nvSchema.TypeMetrics] rois: List of ROI metrics to update
         :param str sensor_id: The sensor ID to update ROI info for
@@ -1223,24 +1224,22 @@ class CalibrationBase:
             >>> print(f"ROI violation status: {rois[0].info.get('restrictedAreaViolation')}")
         """
         roi_restricted_types = self.roi_restricted_types(sensor_id)
-        # Emit a clear for configured restricted ROIs that produced no entry this frame
-        # (i.e. are empty). A typeless, count=0 placeholder is stamped "false" by the loop
-        # below since "" is never in the restricted type list; this guarantees an explicit
-        # restrictedAreaViolation="false" so consumers do not latch on the last violation.
-        present_roi_ids = {roi.id for roi in rois}
+        # get_roi_metrics only emits an entry per occupied (ROI, object type), so a restricted
+        # type with nothing present this frame is absent from rois. Append a count=0 placeholder
+        # for each such (restricted ROI, restricted type) so every restricted type reports its
+        # state every frame; keyed on (id, type) to avoid duplicating a type already present.
+        present = {(roi.id, roi.type) for roi in rois}
         for roi_id, restricted_types in roi_restricted_types.items():
-            if restricted_types and roi_id not in present_roi_ids:
-                rois.append(nvSchema.TypeMetrics(id=roi_id, type="", count=0))
+            for restricted_type in restricted_types:
+                if (roi_id, restricted_type) not in present:
+                    rois.append(nvSchema.TypeMetrics(id=roi_id, type=restricted_type, count=0))
+                    present.add((roi_id, restricted_type))
         for roi in rois:
-            # Only ROIs that actually define restricted object types report the flag;
-            # a ROI with none defined (empty list / not present) is not a restricted area,
-            # so we emit neither "true" nor "false" for it.
-            restricted_types = roi_restricted_types.get(roi.id)
-            if restricted_types:
-                if roi.type in restricted_types:
-                    roi.info.update({"restrictedAreaViolation": "true"})
-                else:
-                    roi.info.update({"restrictedAreaViolation": "false"})
+            # Only buckets whose type is a restricted object type for their ROI report the flag.
+            # count > 0 means objects of that restricted type are present (a violation); count == 0
+            # is the placeholder clear. Non-restricted buckets are not restricted areas -> no flag.
+            if roi.type in roi_restricted_types.get(roi.id, []):
+                roi.info.update({"restrictedAreaViolation": "true" if roi.count > 0 else "false"})
 
     def get_confined_area_violation_info(
         self, fov: list[nvSchema.TypeMetrics], rois: list[nvSchema.TypeMetrics], sensor_id: str,

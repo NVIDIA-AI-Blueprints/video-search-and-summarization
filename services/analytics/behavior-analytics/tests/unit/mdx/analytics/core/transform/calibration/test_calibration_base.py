@@ -725,23 +725,31 @@ class TestCalibrationBase(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_update_roi_info(self):
-        """Test update_roi_info method."""
+        """A present restricted type is flagged true; a configured restricted type with nothing
+        present gets a count=0 placeholder flagged false."""
         sensor_id = "test_sensor"
-        
-        roi_metric1 = nvSchema.TypeMetrics(id="roi1", type="person")
-        roi_metric2 = nvSchema.TypeMetrics(id="roi2", type="car")
+
+        # roi1 has a person present (restricted -> violation). roi2 has a car present, but car is
+        # not restricted for roi2 (truck is) -> the car bucket gets no flag.
+        roi_metric1 = nvSchema.TypeMetrics(id="roi1", type="person", count=1)
+        roi_metric2 = nvSchema.TypeMetrics(id="roi2", type="car", count=1)
         rois = [roi_metric1, roi_metric2]
-        
+
         with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
             mock_restricted.return_value = {"roi1": ["person"], "roi2": ["truck"]}
-            
+
             self.calibration.update_roi_info(rois, sensor_id)
-            
-            self.assertEqual(roi_metric1.info["restrictedAreaViolation"], "true")
-            self.assertEqual(roi_metric2.info["restrictedAreaViolation"], "false")
+
+        # roi1/person present -> true; roi2/car is not a restricted type -> no flag.
+        self.assertEqual(roi_metric1.info["restrictedAreaViolation"], "true")
+        self.assertNotIn("restrictedAreaViolation", dict(roi_metric2.info))
+        # roi2's restricted type (truck) was absent -> a count=0 truck placeholder flagged false.
+        truck = next(r for r in rois if r.id == "roi2" and r.type == "truck")
+        self.assertEqual(truck.count, 0)
+        self.assertEqual(truck.info["restrictedAreaViolation"], "false")
 
     def test_update_roi_info_empty_restricted_roi_emits_clear(self):
-        """An empty configured restricted ROI gets an explicit restrictedAreaViolation=false clear."""
+        """An empty configured restricted ROI gets a per-type count=0 placeholder flagged false."""
         sensor_id = "test_sensor"
         rois = []  # no objects inside any ROI this frame
 
@@ -751,16 +759,18 @@ class TestCalibrationBase(unittest.TestCase):
 
             self.calibration.update_roi_info(rois, sensor_id)
 
+        # one placeholder, typed with the restricted type (not "")
         self.assertEqual(len(rois), 1)
         self.assertEqual(rois[0].id, "roi1")
-        self.assertEqual(rois[0].type, "")
+        self.assertEqual(rois[0].type, "person")
         self.assertEqual(rois[0].count, 0)
         self.assertEqual(rois[0].info["restrictedAreaViolation"], "false")
 
-    def test_update_roi_info_present_restricted_roi_no_placeholder(self):
-        """A restricted ROI already present in the frame gets no duplicate placeholder."""
+    def test_update_roi_info_present_restricted_roi_gets_placeholder_for_absent_type(self):
+        """A restricted ROI occupied only by a non-restricted type still gets a placeholder for
+        its (absent) restricted type; the non-restricted bucket itself gets no flag."""
         sensor_id = "test_sensor"
-        roi_metric = nvSchema.TypeMetrics(id="roi1", type="car")  # occupied by a non-restricted type
+        roi_metric = nvSchema.TypeMetrics(id="roi1", type="car", count=1)  # non-restricted type present
         rois = [roi_metric]
 
         with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
@@ -768,13 +778,87 @@ class TestCalibrationBase(unittest.TestCase):
 
             self.calibration.update_roi_info(rois, sensor_id)
 
-        self.assertEqual(len(rois), 1)  # no placeholder appended
-        self.assertEqual(rois[0].info["restrictedAreaViolation"], "false")
+        # car bucket is not a restricted type -> no flag
+        self.assertNotIn("restrictedAreaViolation", dict(roi_metric.info))
+        # person (restricted, absent) -> count=0 placeholder flagged false
+        person = next(r for r in rois if r.type == "person")
+        self.assertEqual(person.count, 0)
+        self.assertEqual(person.info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_present_restricted_type_no_duplicate_placeholder(self):
+        """A restricted type already present (count>0) is flagged true and gets no duplicate placeholder."""
+        sensor_id = "test_sensor"
+        roi_metric = nvSchema.TypeMetrics(id="roi1", type="person", count=2)
+        rois = [roi_metric]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(len(rois), 1)  # no duplicate person placeholder
+        self.assertEqual(rois[0].info["restrictedAreaViolation"], "true")
+
+    def test_update_roi_info_mixed_types(self):
+        """Person present (true) + absent restricted forklift (false placeholder) + present
+        non-restricted cat (no flag) in the same ROI."""
+        sensor_id = "test_sensor"
+        person = nvSchema.TypeMetrics(id="roi1", type="person", count=1)
+        cat = nvSchema.TypeMetrics(id="roi1", type="cat", count=2)
+        rois = [person, cat]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person", "forklift"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(person.info["restrictedAreaViolation"], "true")
+        self.assertNotIn("restrictedAreaViolation", dict(cat.info))
+        forklift = next(r for r in rois if r.type == "forklift")
+        self.assertEqual(forklift.count, 0)
+        self.assertEqual(forklift.info["restrictedAreaViolation"], "false")
+
+    def test_restricted_placeholder_inert_for_confined_area_detection(self):
+        """update_roi_info runs before confined-area detection in transform_frame and mutates the
+        shared rois list. Its count=0 placeholders have empty objectIds, so they must not affect
+        confined-area detection even when the placeholder's type is also a confined type."""
+        sensor_id = "test_sensor"
+        # roi1 both restricts and confines "person". A person p2 is in the FOV but inside no ROI.
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p2"])]
+        rois = []  # no person inside roi1 this frame -> get_roi_metrics emitted no entry
+
+        with patch.object(self.calibration, 'roi_restricted_types', return_value={"roi1": ["person"]}), \
+             patch.object(self.calibration, '_roi_confined_types', return_value={"roi1": ["person"]}):
+            # mirrors transform_frame order: update_roi_info first (adds placeholder), then confined
+            self.calibration.update_roi_info(rois, sensor_id)
+            types, groups = self.calibration.get_confined_area_violation_info(fov, rois, sensor_id)
+
+        # the (roi1, person) count=0 placeholder was added...
+        self.assertIn(("roi1", "person"), {(r.id, r.type) for r in rois})
+        placeholder = next(r for r in rois if r.id == "roi1" and r.type == "person")
+        self.assertEqual(list(placeholder.objectIds), [])
+        # ...but confined detection is unaffected: p2 is still flagged (identical to no-placeholder)
+        self.assertEqual(types, ["person"])
+        self.assertEqual([sorted(g) for g in groups], [["p2"]])
+
+    def test_update_roi_info_duplicate_restricted_type_single_placeholder(self):
+        """A restricted type listed more than once for a ROI yields at most one placeholder."""
+        sensor_id = "test_sensor"
+        rois = []
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person", "person"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        person_placeholders = [r for r in rois if r.id == "roi1" and r.type == "person"]
+        self.assertEqual(len(person_placeholders), 1)
+        self.assertEqual(person_placeholders[0].info["restrictedAreaViolation"], "false")
 
     def test_update_roi_info_no_restricted_types_omits_flag(self):
-        """A ROI with no restricted types defined gets no flag, and no empty-ROI placeholder."""
+        """A ROI with no restricted types defined gets no flag and no placeholder."""
         sensor_id = "test_sensor"
-        occupied = nvSchema.TypeMetrics(id="roi1", type="person")  # present, but roi1 defines no restricted types
+        occupied = nvSchema.TypeMetrics(id="roi1", type="person", count=1)  # roi1 defines no restricted types
         rois = [occupied]
 
         with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
@@ -984,18 +1068,26 @@ class TestCalibrationBase(unittest.TestCase):
         mock_load.assert_called_once_with("test_path.json")
 
     def test_update_roi_info_no_violation(self):
-        """Test update_roi_info method with no violations."""
+        """A non-restricted type present (Dog) gets no flag; the absent restricted types get
+        count=0 placeholders flagged false."""
         roi1 = nvSchema.TypeMetrics(id="roi1", type="Dog", count=1)
         rois = [roi1]
-        
+
         restricted_types = {
             "roi1": ["Person", "Vehicle"]  # Dog is not restricted
         }
-        
+
         with patch.object(self.calibration, 'roi_restricted_types', return_value=restricted_types):
             self.calibration.update_roi_info(rois, "sensor1")
-            
-            self.assertEqual(roi1.info["restrictedAreaViolation"], "false")
+
+        # Dog bucket is not a restricted type -> no flag
+        self.assertNotIn("restrictedAreaViolation", dict(roi1.info))
+        # Person and Vehicle absent -> count=0 placeholders flagged false
+        placeholders = {r.type: r for r in rois if r.type in ("Person", "Vehicle")}
+        self.assertEqual(set(placeholders), {"Person", "Vehicle"})
+        for r in placeholders.values():
+            self.assertEqual(r.count, 0)
+            self.assertEqual(r.info["restrictedAreaViolation"], "false")
 
     def test_filter_messages_by_roi_no_sensor(self):
         """Test filter_messages_by_roi with sensor not in calibration."""

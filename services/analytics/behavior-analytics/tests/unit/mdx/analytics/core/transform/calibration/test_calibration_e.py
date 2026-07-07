@@ -1499,13 +1499,17 @@ class TestCalibrationE(unittest.TestCase):
         # Mock the roi_restricted_types method
         with patch.object(self.calibration_e, 'roi_restricted_types') as mock_restricted:
             mock_restricted.return_value = {"roi1": ["Person"], "roi2": ["Car"]}
-            
+
             self.calibration_e.update_roi_info(rois, "Building_K_Cam1")
-            
-            # roi1 should have violation since Person is restricted
+
+            # roi1 should have violation since Person is present and restricted
             self.assertEqual(roi1.info["restrictedAreaViolation"], "true")
-            # roi2 should not have violation since Vehicle != Car
-            self.assertEqual(roi2.info["restrictedAreaViolation"], "false")
+            # roi2's Vehicle bucket is not a restricted type (Car is) -> no flag on it
+            self.assertNotIn("restrictedAreaViolation", dict(roi2.info))
+            # roi2's restricted type Car was absent -> count=0 placeholder flagged false
+            car = next(r for r in rois if r.id == "roi2" and r.type == "Car")
+            self.assertEqual(car.count, 0)
+            self.assertEqual(car.info["restrictedAreaViolation"], "false")
     
     def test_get_confined_area_violation_info(self):
         """Test get_confined_area_violation_info method."""

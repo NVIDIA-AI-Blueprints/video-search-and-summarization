@@ -100,7 +100,10 @@ class AmrStateMgmt:
         for roi in last_frame.rois:
             restricted_types = restricted_types_map.get(roi.id, [])
             if roi.type in restricted_types:
-                roi_to_restricted_state[roi.id] = not str_to_bool(roi.info.get("restrictedAreaViolation", "false"))
+                # A ROI can emit one entry per restricted type; OR the violations so a real
+                # violation on one type is not cleared by a count=0 placeholder of another.
+                violating = str_to_bool(roi.info.get("restrictedAreaViolation", "false"))
+                roi_to_restricted_state[roi.id] = roi_to_restricted_state.get(roi.id, True) and not violating
 
         for roi in last_frame.rois:
             if roi.type == "AMR":
@@ -170,7 +173,10 @@ class AmrStateMgmt:
         for roi in last_frame.rois:
             restricted_types = restricted_types_map.get(roi.id, [])
             if roi.type in restricted_types:
-                roi_to_restricted_state[roi.id] = not str_to_bool(roi.info.get("restrictedAreaViolation", "false"))
+                # A ROI can emit one entry per restricted type; OR the violations so a real
+                # violation on one type is not cleared by a count=0 placeholder of another.
+                violating = str_to_bool(roi.info.get("restrictedAreaViolation", "false"))
+                roi_to_restricted_state[roi.id] = roi_to_restricted_state.get(roi.id, True) and not violating
 
         for roi in self.calibration.sensor_map[sensor_id].rois:
             state = sensor_state.roi_states.get(roi.id, RoiState(
