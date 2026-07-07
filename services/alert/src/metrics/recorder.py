@@ -50,7 +50,11 @@ logger = logging.getLogger(__name__)
 # sat inside an unrelated ``if PROMETHEUS_ENABLED:`` block at module top.
 if PROMETHEUS_ENABLED:
     from metrics.prometheus_metrics import (
+        ALERT_CONFIG_READ_SOURCE,
+        ALERT_CONFIG_STALENESS_SECONDS,
         ASYNC_EXTERNAL_IO_FALLBACK_TOTAL,
+        DEDUP_CACHE_EVICTIONS,
+        DEDUP_CACHE_OCCUPANCY,
         E2E_DURATION,
         E2E_DURATION_BY_SENSOR,
         EVENTS_AFTER_DEDUP,
@@ -61,10 +65,17 @@ if PROMETHEUS_ENABLED:
         EVENTS_SKIPPED_CONFIRMED_BY_SENSOR,
         EVENTS_TOTAL,
         EVENTS_TOTAL_BY_SENSOR,
+        INDEX_READY,
         KAFKA_LAG_DURATION,
         KAFKA_LAG_DURATION_BY_SENSOR,
+        RECORD_KEY_ALIGNMENT,
+        VERDICT_RETENTION_DELETED,
+        VERDICT_RETENTION_LAST_RUN,
+        VERDICT_RETENTION_RUNS,
         UPSTREAM_DURATION,
         UPSTREAM_DURATION_BY_SENSOR,
+        VERDICT_ES_GET_DURATION,
+        VERDICT_FAIL_OPEN,
         VERIFICATION_FAILURES,
         VERIFICATION_FAILURES_BY_SENSOR,
         VIDEO_LENGTH,
@@ -601,3 +612,105 @@ def warm_startup_labels() -> None:
 
     for reason in _WARMUP_VERIFICATION_REASONS:
         VERIFICATION_FAILURES.labels(reason=reason).inc(0)
+
+    # Closed-enum label warmup so rate()/increase() behave in the
+    # first scrape window after a restart.
+    for reason in VERDICT_FAIL_OPEN_REASONS:
+        VERDICT_FAIL_OPEN.labels(reason=reason).inc(0)
+    for source in ALERT_CONFIG_READ_SOURCES:
+        ALERT_CONFIG_READ_SOURCE.labels(source=source).inc(0)
+    for aligned in RECORD_KEY_ALIGNMENT_VALUES:
+        RECORD_KEY_ALIGNMENT.labels(aligned=aligned).inc(0)
+    for store in DEDUP_CACHE_STORES:
+        for mode in DEDUP_CACHE_EVICTION_MODES:
+            DEDUP_CACHE_EVICTIONS.labels(store=store, mode=mode).inc(0)
+
+
+# ── In-process store + verdict-protection observability ────────────────────
+#
+# Closed label enums (kept here so warmup + call sites share one definition
+# and a typo cannot mint a stray Prometheus series).
+DEDUP_CACHE_STORES = ("dedup", "enddelta", "alert_config")
+DEDUP_CACHE_EVICTION_MODES = ("lazy", "sweep")
+VERDICT_FAIL_OPEN_REASONS = ("es_down", "error", "expired", "malformed", "write_error")
+ALERT_CONFIG_READ_SOURCES = ("cache", "es", "snapshot")
+RECORD_KEY_ALIGNMENT_VALUES = ("yes", "no", "unknown")
+# Closed set of ES index labels for the readiness gauge (bounded cardinality).
+INDEX_READY_NAMES = ("confirmed-verdicts", "alert-configs")
+
+
+def set_cache_occupancy(store: str, count: int) -> None:
+    """Publish the current live-entry count for an in-process state cache."""
+    if not PROMETHEUS_ENABLED or store not in DEDUP_CACHE_STORES:
+        return
+    DEDUP_CACHE_OCCUPANCY.labels(store=store).set(count)
+
+
+def inc_cache_evictions(store: str, mode: str, count: int = 1) -> None:
+    """Record TTL-expiry evictions from an in-process cache (lazy | sweep)."""
+    if not PROMETHEUS_ENABLED or count <= 0:
+        return
+    if store not in DEDUP_CACHE_STORES or mode not in DEDUP_CACHE_EVICTION_MODES:
+        return
+    DEDUP_CACHE_EVICTIONS.labels(store=store, mode=mode).inc(count)
+
+
+def observe_verdict_es_get(duration: float) -> None:
+    """Record the latency of one confirmed-verdict marker ES get."""
+    _observe(VERDICT_ES_GET_DURATION if PROMETHEUS_ENABLED else None, duration)
+
+
+def inc_verdict_fail_open(reason: str) -> None:
+    """Record one verdict check that failed open (event allowed to proceed).
+
+    ``reason`` must be in :data:`VERDICT_FAIL_OPEN_REASONS`; anything else is
+    dropped so a bad call site cannot mint a stray series. NEVER pass a
+    fingerprint / sensorId.
+    """
+    if not PROMETHEUS_ENABLED or reason not in VERDICT_FAIL_OPEN_REASONS:
+        return
+    VERDICT_FAIL_OPEN.labels(reason=reason).inc()
+
+
+def inc_alert_config_read_source(source: str) -> None:
+    """Record which store tier served one alert-config read."""
+    if not PROMETHEUS_ENABLED or source not in ALERT_CONFIG_READ_SOURCES:
+        return
+    ALERT_CONFIG_READ_SOURCE.labels(source=source).inc()
+
+
+def set_alert_config_staleness(seconds: float) -> None:
+    """Publish seconds since the alert-config snapshot last refreshed from ES."""
+    if not PROMETHEUS_ENABLED or seconds is None or seconds < 0:
+        return
+    ALERT_CONFIG_STALENESS_SECONDS.set(seconds)
+
+
+def set_index_ready(index: str, ready: bool) -> None:
+    """Publish whether a required ES index is confirmed ready (1) or not (0)."""
+    if not PROMETHEUS_ENABLED or index not in INDEX_READY_NAMES:
+        return
+    INDEX_READY.labels(index=index).set(1 if ready else 0)
+
+
+def inc_record_key_alignment(aligned: str) -> None:
+    """Record one consumed record's Kafka-key/sensorId alignment (yes|no|unknown)."""
+    if not PROMETHEUS_ENABLED or aligned not in RECORD_KEY_ALIGNMENT_VALUES:
+        return
+    RECORD_KEY_ALIGNMENT.labels(aligned=aligned).inc()
+
+
+def record_verdict_retention_run(deleted: int, ok: bool, run_ts: Optional[float] = None) -> None:
+    """Record one confirmed-verdict retention run.
+
+    ``deleted`` is the number of expired markers removed, ``ok`` whether the
+    run succeeded, and ``run_ts`` the wall-clock time of a successful run
+    (defaults to now on success). Never pass a fingerprint / marker id.
+    """
+    if not PROMETHEUS_ENABLED:
+        return
+    VERDICT_RETENTION_RUNS.labels(outcome="success" if ok else "failure").inc()
+    if deleted and deleted > 0:
+        VERDICT_RETENTION_DELETED.inc(deleted)
+    if ok:
+        VERDICT_RETENTION_LAST_RUN.set(run_ts if run_ts is not None else time.time())

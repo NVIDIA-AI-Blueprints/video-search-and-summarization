@@ -30,17 +30,31 @@ from handlers.alert_config import (
 )
 
 
+# Persistence disabled MUST fail readiness in a non-dev profile. The
+# non-durable in-memory store is only permitted when the profile explicitly
+# opts in via persistence.dev_allow_in_memory.
 @patch("handlers.alert_config.factory.create_persistence_store")
-def test_returns_in_memory_when_persistence_disabled(mock_factory):
+def test_raises_when_persistence_disabled_without_dev_optin(mock_factory):
     mock_factory.return_value = None
-    store = build_alert_config_store({"persistence": {"enabled": False}})
-    assert isinstance(store, InMemoryAlertConfigStore)
+    with pytest.raises(RuntimeError, match="dev_allow_in_memory"):
+        build_alert_config_store({"persistence": {"enabled": False}})
 
 
 @patch("handlers.alert_config.factory.create_persistence_store")
-def test_returns_in_memory_when_factory_has_no_hosts(mock_factory):
+def test_raises_when_persistence_section_absent(mock_factory):
+    # No persistence section at all is treated as non-dev → must fail rather
+    # than silently serving a non-durable store.
     mock_factory.return_value = None
-    store = build_alert_config_store({})
+    with pytest.raises(RuntimeError, match="dev_allow_in_memory"):
+        build_alert_config_store({})
+
+
+@patch("handlers.alert_config.factory.create_persistence_store")
+def test_returns_in_memory_when_dev_optin_set(mock_factory):
+    mock_factory.return_value = None
+    store = build_alert_config_store(
+        {"persistence": {"enabled": False, "dev_allow_in_memory": True}}
+    )
     assert isinstance(store, InMemoryAlertConfigStore)
 
 

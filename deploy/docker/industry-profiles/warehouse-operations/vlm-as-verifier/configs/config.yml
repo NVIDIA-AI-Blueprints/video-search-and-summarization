@@ -110,6 +110,10 @@ alert_agent:
     # Protect confirmed VLM verdicts from being re-verified (Elasticsearch-backed).
     protect_confirmed_verdicts:
       enabled: true
+      # Verdict-ES retry cooldown + hourly throttled expired-marker reaper.
+      es_retry_backoff_seconds: 30
+      retention_interval_seconds: 3600
+      retention_requests_per_second: 50
     # Categories listed here retain the incident end timestamp when building the
     # dedup key. Any category not listed omits the end timestamp.
     end_time_in_dedup_key_categories: []

@@ -60,6 +60,9 @@ rtvi_vlm:
 
 persistence:
   enabled: false
+  # Test/dev profile: allow the non-durable in-process alert-config store
+  # while persistence is disabled (otherwise startup fails readiness).
+  dev_allow_in_memory: true
 
 event_bridge:
   sourceType: "kafka"
