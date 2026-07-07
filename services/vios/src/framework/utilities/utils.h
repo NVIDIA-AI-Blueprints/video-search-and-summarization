@@ -48,10 +48,13 @@ extern bool g_isGpuPresent;
 extern int g_gpuIndex;
 extern string g_gpuNodePath;
 extern string g_hostIp;
-// Set once at startup (detectGPU) on integrated-GPU (Orin) platforms to indicate
-// that a discrete NVIDIA GPU node is also present. Always declared so consumers in
-// other libraries (nvsurfacepool, nvbufwrapper) compile on every platform.
-extern bool g_isJetsonGpuMode;
+// Set once at startup (detectGPU). When true, NvBufSurface allocations use
+// CUDA-device memory (NVBUF_MEM_CUDA_DEVICE) instead of the Tegra default
+// (NVBUF_MEM_DEFAULT): true on discrete-GPU aarch64 (Thor/SBSA/Spark), false on
+// the integrated Tegra iGPU (Orin), which requires the default NVMM surfaces.
+// Always declared so consumers in other libraries (nvsurfacepool, nvbufwrapper)
+// compile on every platform.
+extern bool g_useCudaDeviceMemory;
 
 // Runtime platform detection. Returns true only on Jetson/Orin (integrated GPU
 // behind the nvgpu driver). Replaces the former compile-time JETSON_PLATFORM macro
