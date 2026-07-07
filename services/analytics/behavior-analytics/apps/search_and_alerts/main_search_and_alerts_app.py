@@ -48,10 +48,16 @@ class SearchAndAlertsApp(BaseApp):
         state manager, write processed embeddings.
 
     Configuration (see AppConfig):
-        - numWorkersForIncidentGeneration: Worker count for incident pipeline (default: "1")
-        - numWorkersForBehaviorCreation: Worker count for behavior pipeline (default: "1")
-        - numWorkersForEmbedFiltering: Worker count for embedding pipeline (default: "1")
+        - numWorkersForIncidentGeneration: Worker count for incident pipeline (default: "0")
+        - numWorkersForBehaviorCreation: Worker count for behavior pipeline (default: "0")
+        - numWorkersForEmbedFiltering: Worker count for embedding pipeline (default: "0")
         - Plus standard incident toggles (proximityIncidentEnable, restrictedAreaIncidentEnable, etc.)
+
+    Each pipeline is opt-in: a worker count of "0" (the default when the key is omitted) leaves that
+    processor unregistered, so the pipeline does not run. This selects the app's mode per deployment
+    — e.g. set incident workers to "0" for search-only, or behavior + embed workers to "0" for
+    alerts-only. Enable a pipeline by setting its worker count to a positive integer, and ensure the
+    config maps the topics that pipeline writes to (incidents/frames, behavior, or embedFiltered).
 
     :ivar FrameStateMgmt frame_state_mgmt: Per-sensor frame state manager for incident detection
     :ivar StateMgmtE state_mgmt: Per-sensor behavior state manager
