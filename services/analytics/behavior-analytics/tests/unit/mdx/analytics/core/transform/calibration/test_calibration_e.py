@@ -1578,23 +1578,33 @@ class TestCalibrationE(unittest.TestCase):
     
     def test_transform_frame_with_confined_area_violations(self):
         """Test transform_frame with confined area violations."""
-        with patch.object(self.calibration_e, 'get_confined_area_violation_info') as mock_confined:
+        # A confined area must be configured for the flag to be emitted at all.
+        with patch.object(self.calibration_e, '_roi_confined_types', return_value={"roi1": ["Person"]}), \
+             patch.object(self.calibration_e, 'get_confined_area_violation_info') as mock_confined:
             mock_confined.return_value = (["Person"], [["1", "2"]])
-            
+
             transformed_frame = self.calibration_e.transform_frame(self.frame)
-            
+
             self.assertEqual(transformed_frame.info["confinedAreaViolation"], "true")
             self.assertEqual(transformed_frame.info["confinedAreaTypes"], "Person")
             self.assertEqual(transformed_frame.info["confinedAreaViolationObjects"], "1,2")
-    
+
     def test_transform_frame_no_confined_area_violations(self):
-        """Test transform_frame with no confined area violations."""
-        with patch.object(self.calibration_e, 'get_confined_area_violation_info') as mock_confined:
+        """Test transform_frame with a configured confined area but no current violations."""
+        with patch.object(self.calibration_e, '_roi_confined_types', return_value={"roi1": ["Person"]}), \
+             patch.object(self.calibration_e, 'get_confined_area_violation_info') as mock_confined:
             mock_confined.return_value = ([], [])
-            
+
             transformed_frame = self.calibration_e.transform_frame(self.frame)
-            
+
             self.assertEqual(transformed_frame.info["confinedAreaViolation"], "false")
+
+    def test_transform_frame_confined_area_not_configured_omits_flag(self):
+        """No confinedObjectTypes configured on any ROI -> no confinedAreaViolation key emitted."""
+        with patch.object(self.calibration_e, '_roi_confined_types', return_value={"roi1": []}):
+            transformed_frame = self.calibration_e.transform_frame(self.frame)
+
+            self.assertNotIn("confinedAreaViolation", dict(transformed_frame.info))
     
     def test_load_homography_map_global_roi(self):
         """Test _load_homography_map_global_roi method with buffer zones."""
@@ -1750,6 +1760,7 @@ class TestCalibrationE(unittest.TestCase):
             
             # Continue with the rest of the test
             with patch.object(self.calibration_e, 'get_roi_metrics', return_value=mock_rois), \
+                 patch.object(self.calibration_e, '_roi_confined_types', return_value={"roi1": ["Person"]}), \
                  patch.object(self.calibration_e, 'get_confined_area_violation_info') as mock_confined, \
                  patch('mdx.analytics.core.transform.detection.proximity_detection.ProximityDetection.cluster') as mock_cluster:
                 

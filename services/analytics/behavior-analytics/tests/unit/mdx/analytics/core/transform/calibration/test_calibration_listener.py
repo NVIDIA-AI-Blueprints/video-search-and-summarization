@@ -463,7 +463,7 @@ class TestDeserializeCalibrationMessage(unittest.TestCase):
 
     def test_extra_headers_tolerated(self) -> None:
         """Unknown extra headers must NOT cause the message to be dropped --
-        forward-compatibility with any new header web-api may add later."""
+        forward-compatibility with any new header video-analytics-api may add later."""
         n = deserialize_calibration_message(
             _calibration_msg(extra_headers={"priority": b"high"})
         )

@@ -874,20 +874,10 @@ class CalibrationBase:
                 ),
             )
 
-        # Safety confined area violation detection
-        confined_area_types, confined_area_object_groups = self.get_confined_area_violation_info(fov, rois, sensor_id)
-        if confined_area_types:
-            info = (
-                {
-                    "confinedAreaViolation": "true",
-                    "confinedAreaTypes": "|".join(confined_area_types),
-                    "confinedAreaViolationObjects": "|".join(
-                        ",".join(str(id) for id in group) for group in confined_area_object_groups
-                    ),
-                }
-            )
-        else:
-            info = {"confinedAreaViolation": "false"}
+        # Safety confined area violation detection. Emitted only when a confined area is
+        # configured (some ROI defines confinedObjectTypes); otherwise info stays empty so we
+        # emit neither "true" nor "false" (mirrors restrictedAreaViolation).
+        info, confined_area_object_groups = self._confined_area_info(fov, rois, sensor_id)
 
         # Update the info dictionary with place info
         if self.contains(sensor_id):
@@ -1214,7 +1204,12 @@ class CalibrationBase:
         Update the ROI information for the sensor with restricted area violations.
 
         This method checks each ROI against the sensor's restricted object types
-        and updates the ROI info with violation status.
+        and updates the ROI info with violation status. Configured restricted ROIs that
+        are currently empty (and therefore absent from ``rois``, since ``get_roi_metrics``
+        only emits an entry per occupied (ROI, object type)) get an explicit
+        ``restrictedAreaViolation="false"`` placeholder, so every restricted ROI reports its
+        state every frame. Without it an emptied ROI drops out silently and a consumer keyed
+        on entry presence latches on the last violation until the next object enters the ROI.
 
         :param list[nvSchema.TypeMetrics] rois: List of ROI metrics to update
         :param str sensor_id: The sensor ID to update ROI info for
@@ -1228,15 +1223,28 @@ class CalibrationBase:
             >>> print(f"ROI violation status: {rois[0].info.get('restrictedAreaViolation')}")
         """
         roi_restricted_types = self.roi_restricted_types(sensor_id)
+        # Emit a clear for configured restricted ROIs that produced no entry this frame
+        # (i.e. are empty). A typeless, count=0 placeholder is stamped "false" by the loop
+        # below since "" is never in the restricted type list; this guarantees an explicit
+        # restrictedAreaViolation="false" so consumers do not latch on the last violation.
+        present_roi_ids = {roi.id for roi in rois}
+        for roi_id, restricted_types in roi_restricted_types.items():
+            if restricted_types and roi_id not in present_roi_ids:
+                rois.append(nvSchema.TypeMetrics(id=roi_id, type="", count=0))
         for roi in rois:
-            if roi.id in roi_restricted_types:
-                if roi.type in roi_restricted_types[roi.id]:
+            # Only ROIs that actually define restricted object types report the flag;
+            # a ROI with none defined (empty list / not present) is not a restricted area,
+            # so we emit neither "true" nor "false" for it.
+            restricted_types = roi_restricted_types.get(roi.id)
+            if restricted_types:
+                if roi.type in restricted_types:
                     roi.info.update({"restrictedAreaViolation": "true"})
                 else:
                     roi.info.update({"restrictedAreaViolation": "false"})
 
     def get_confined_area_violation_info(
-        self, fov: list[nvSchema.TypeMetrics], rois: list[nvSchema.TypeMetrics], sensor_id: str
+        self, fov: list[nvSchema.TypeMetrics], rois: list[nvSchema.TypeMetrics], sensor_id: str,
+        roi_confined_types: dict[str, list[str]] | None = None
     ) -> tuple[list[str], list[list[str]]]:
         """
         Get information about confined area violations for objects in the field of view.
@@ -1249,6 +1257,9 @@ class CalibrationBase:
         :param list[nvSchema.TypeMetrics] fov: List of objects in the field of view
         :param list[nvSchema.TypeMetrics] rois: List of ROI metrics
         :param str sensor_id: The sensor ID to check violations for
+        :param dict[str, list[str]] | None roi_confined_types: Pre-fetched ROI-to-confined-types map
+            for ``sensor_id``; fetched via :meth:`_roi_confined_types` when ``None``. Callers that
+            already have the map (e.g. :meth:`_confined_area_info`) pass it to avoid a redundant lookup.
         :return tuple[list[str], list[list[str]]]: Tuple containing:
             - List of object types that are violating confined areas
             - List of object ID groups that are violating confined areas
@@ -1260,7 +1271,8 @@ class CalibrationBase:
             >>> types, groups = calibration.get_confined_area_violation_info(fov, rois, "sensor1")
             >>> print(f"Violating types: {types}, Object groups: {groups}")
         """
-        roi_confined_types = self._roi_confined_types(sensor_id)
+        if roi_confined_types is None:
+            roi_confined_types = self._roi_confined_types(sensor_id)
         roi_confined_types_set = {type for types in roi_confined_types.values() for type in types}
         confined_area_types = []
         confined_area_object_groups = []
@@ -1273,6 +1285,41 @@ class CalibrationBase:
                 confined_area_object_groups.append(list(objects_outside_roi))
 
         return confined_area_types, confined_area_object_groups
+
+    def _confined_area_info(
+        self, fov: list[nvSchema.TypeMetrics], rois: list[nvSchema.TypeMetrics], sensor_id: str
+    ) -> tuple[dict[str, str], list[list[str]]]:
+        """
+        Build the frame-level confined-area ``info`` and the violating object-id groups.
+
+        ``confinedAreaViolation`` is emitted only when the sensor configures ``confinedObjectTypes``
+        on at least one ROI. A sensor with no confined area returns an empty ``info`` (neither
+        ``"true"`` nor ``"false"``), mirroring ``restrictedAreaViolation``, which is emitted only
+        for ROIs that define restricted object types.
+
+        :param list[nvSchema.TypeMetrics] fov: Field-of-view metrics for the frame.
+        :param list[nvSchema.TypeMetrics] rois: ROI metrics for the frame.
+        :param str sensor_id: The sensor ID to evaluate.
+        :return tuple[dict[str, str], list[list[str]]]: The confined-area ``info`` (empty when no
+            confined area is configured) and the list of violating object-id groups.
+        """
+        roi_confined_types = self._roi_confined_types(sensor_id)
+        if not any(roi_confined_types.values()):
+            return {}, []
+        confined_area_types, confined_area_object_groups = self.get_confined_area_violation_info(
+            fov, rois, sensor_id, roi_confined_types
+        )
+        if confined_area_types:
+            info = {
+                "confinedAreaViolation": "true",
+                "confinedAreaTypes": "|".join(confined_area_types),
+                "confinedAreaViolationObjects": "|".join(
+                    ",".join(str(id) for id in group) for group in confined_area_object_groups
+                ),
+            }
+        else:
+            info = {"confinedAreaViolation": "false"}
+        return info, confined_area_object_groups
 
     @property
     def calibration_type(self) -> CalibrationType:

@@ -366,7 +366,7 @@ class TestCalibrationBase(unittest.TestCase):
         Uses a ``delete-calibration-`` filename so the action parses to
         ``delete`` (the schema validator gates per-action; the mocked payload
         below has only ``sensors[*].id``, which is what the delete schema
-        requires and what web-api actually emits for deletes).
+        requires and what video-analytics-api actually emits for deletes).
         """
         mock_load_json.return_value = {"sensors": [{"id": "new_sensor", "type": "camera"}]}
 
@@ -617,6 +617,87 @@ class TestCalibrationBase(unittest.TestCase):
         result = self.calibration._get_roi_objects_by_type(roi_metrics, "person", roi_confined_types)
         self.assertEqual(result, {"obj1", "obj2"})
 
+    def test_get_roi_objects_by_type_excludes_non_confining_roi(self):
+        """Objects of a type inside a ROI that does NOT confine that type are not counted as safe."""
+        roi_metrics = [
+            nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"]),  # roiA confines person
+            nvSchema.TypeMetrics(id="roiB", type="person", objectIds=["p2"]),  # roiB does not confine person
+        ]
+        roi_confined_types = {"roiA": ["person"], "roiB": []}
+
+        result = self.calibration._get_roi_objects_by_type(roi_metrics, "person", roi_confined_types)
+
+        self.assertEqual(result, {"p1"})  # p2 excluded -> it will be reported as outside its confined area
+
+    def test_get_confined_area_violation_info_object_in_non_confining_roi_flagged(self):
+        """A confined-type object sitting in a ROI that does not confine it is flagged as a violation."""
+        sensor_id = "test_sensor"
+        # person is confined to roiA. p1 is safely inside roiA; p2 sits in roiB, which does not confine person.
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1", "p2"])]
+        rois = [
+            nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"]),
+            nvSchema.TypeMetrics(id="roiB", type="person", objectIds=["p2"]),
+        ]
+
+        with patch.object(self.calibration, '_roi_confined_types') as mock_confined:
+            mock_confined.return_value = {"roiA": ["person"], "roiB": []}
+
+            types, groups = self.calibration.get_confined_area_violation_info(fov, rois, sensor_id)
+
+        self.assertEqual(types, ["person"])
+        self.assertEqual([sorted(g) for g in groups], [["p2"]])  # p1 safe in roiA, p2 escaped
+
+    def test_get_confined_area_violation_info_ignores_empty_roi_placeholder(self):
+        """The typeless empty-ROI placeholder added by update_roi_info is inert for confined-area detection."""
+        sensor_id = "test_sensor"
+        # p1 safely confined in roiA; p2 is in the FOV but inside no confining ROI (must stay flagged).
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1", "p2"])]
+        rois = [
+            nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"]),
+            nvSchema.TypeMetrics(id="roiR", type="", count=0),  # update_roi_info empty-restricted-ROI placeholder
+        ]
+
+        with patch.object(self.calibration, '_roi_confined_types') as mock_confined:
+            mock_confined.return_value = {"roiA": ["person"], "roiR": ["person"]}
+
+            types, groups = self.calibration.get_confined_area_violation_info(fov, rois, sensor_id)
+
+        # placeholder neither absorbs p2 nor makes anything safe: p1 safe, p2 still flagged
+        self.assertEqual(types, ["person"])
+        self.assertEqual([sorted(g) for g in groups], [["p2"]])
+
+    def test_confined_area_info_not_configured_emits_nothing(self):
+        """No ROI defines confinedObjectTypes -> emit neither confinedAreaViolation "true" nor "false"."""
+        with patch.object(self.calibration, '_roi_confined_types', return_value={"roi1": [], "roi2": []}):
+            info, groups = self.calibration._confined_area_info([], [], "test_sensor")
+
+        self.assertEqual(info, {})
+        self.assertEqual(groups, [])
+
+    def test_confined_area_info_configured_no_violation(self):
+        """A configured confined area with everyone inside emits confinedAreaViolation="false"."""
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1"])]
+        rois = [nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"])]
+
+        with patch.object(self.calibration, '_roi_confined_types', return_value={"roiA": ["person"]}):
+            info, groups = self.calibration._confined_area_info(fov, rois, "test_sensor")
+
+        self.assertEqual(info, {"confinedAreaViolation": "false"})
+        self.assertEqual(groups, [])
+
+    def test_confined_area_info_configured_with_violation(self):
+        """A configured confined area with an escaped object emits confinedAreaViolation="true" + details."""
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1", "p2"])]
+        rois = [nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"])]  # p2 is outside roiA
+
+        with patch.object(self.calibration, '_roi_confined_types', return_value={"roiA": ["person"]}):
+            info, groups = self.calibration._confined_area_info(fov, rois, "test_sensor")
+
+        self.assertEqual(info["confinedAreaViolation"], "true")
+        self.assertEqual(info["confinedAreaTypes"], "person")
+        self.assertEqual(info["confinedAreaViolationObjects"], "p2")
+        self.assertEqual(groups, [["p2"]])
+
     def test_get_group_place(self):
         """Test get_group_place method."""
         group_id = "test_group"
@@ -658,6 +739,51 @@ class TestCalibrationBase(unittest.TestCase):
             
             self.assertEqual(roi_metric1.info["restrictedAreaViolation"], "true")
             self.assertEqual(roi_metric2.info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_empty_restricted_roi_emits_clear(self):
+        """An empty configured restricted ROI gets an explicit restrictedAreaViolation=false clear."""
+        sensor_id = "test_sensor"
+        rois = []  # no objects inside any ROI this frame
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            # roi1 is restricted; roi2 has no restricted types (must NOT get a placeholder)
+            mock_restricted.return_value = {"roi1": ["person"], "roi2": []}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(len(rois), 1)
+        self.assertEqual(rois[0].id, "roi1")
+        self.assertEqual(rois[0].type, "")
+        self.assertEqual(rois[0].count, 0)
+        self.assertEqual(rois[0].info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_present_restricted_roi_no_placeholder(self):
+        """A restricted ROI already present in the frame gets no duplicate placeholder."""
+        sensor_id = "test_sensor"
+        roi_metric = nvSchema.TypeMetrics(id="roi1", type="car")  # occupied by a non-restricted type
+        rois = [roi_metric]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(len(rois), 1)  # no placeholder appended
+        self.assertEqual(rois[0].info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_no_restricted_types_omits_flag(self):
+        """A ROI with no restricted types defined gets no flag, and no empty-ROI placeholder."""
+        sensor_id = "test_sensor"
+        occupied = nvSchema.TypeMetrics(id="roi1", type="person")  # present, but roi1 defines no restricted types
+        rois = [occupied]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": [], "roi2": []}  # neither ROI restricts anything
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(len(rois), 1)  # no placeholder for roi2 (no restricted types defined)
+        self.assertNotIn("restrictedAreaViolation", dict(occupied.info))
 
     @patch('cv2.solvePnP')
     def test_get_cam_params_success(self, mock_solve_pnp):
