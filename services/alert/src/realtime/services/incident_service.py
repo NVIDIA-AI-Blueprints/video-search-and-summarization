@@ -39,14 +39,26 @@ try:
         from metrics.prometheus_metrics import (
             INCIDENT_QUERY_DURATION,
             INCIDENT_QUERY_FAILURES,
+            DEDUP_CHUNKS_IN,
+            DEDUP_EVENTS_OUT,
+            DEDUP_SPLIT_REASON,
+            DEDUP_DURATION,
         )
     else:
         INCIDENT_QUERY_DURATION = None
         INCIDENT_QUERY_FAILURES = None
+        DEDUP_CHUNKS_IN = None
+        DEDUP_EVENTS_OUT = None
+        DEDUP_SPLIT_REASON = None
+        DEDUP_DURATION = None
 except ImportError:
     PROMETHEUS_ENABLED = False
     INCIDENT_QUERY_DURATION = None
     INCIDENT_QUERY_FAILURES = None
+    DEDUP_CHUNKS_IN = None
+    DEDUP_EVENTS_OUT = None
+    DEDUP_SPLIT_REASON = None
+    DEDUP_DURATION = None
 
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -150,6 +162,17 @@ class IncidentService:
             extra={
                 "es_enabled": es_client is not None,
                 "index_base": self._index_base,
+                # Active consolidation bounds, logged so operators can correlate
+                # the dedup_* metrics with the configuration in effect.
+                "consolidation_max_inter_alert_gap_seconds": self._consolidation.get(
+                    "max_inter_alert_gap_seconds", 60
+                ),
+                "consolidation_max_event_duration_seconds": self._consolidation.get(
+                    "max_event_duration_seconds", 300
+                ),
+                "consolidation_representative": self._consolidation.get(
+                    "representative", "latest"
+                ),
             },
         )
 
@@ -362,6 +385,7 @@ class IncidentService:
         max_duration = cfg.get("max_event_duration_seconds", 300)
         representative = cfg.get("representative", "latest")
 
+        t_fold = time.monotonic()
         groups: dict = {}
         for doc in docs:
             # Drop malformed chunks — a chunk missing its grouping keys, or with
@@ -375,7 +399,7 @@ class IncidentService:
             groups.setdefault(key, []).append(doc)
 
         events: List[dict] = []
-        for items in groups.values():
+        for (sid, cat), items in groups.items():
             # Sort by (timestamp, id) so equal-timestamp chunks order
             # deterministically regardless of ES scan direction.
             items_sorted = sorted(
@@ -385,22 +409,34 @@ class IncidentService:
                     str(d.get("Id") or d.get("_id") or ""),
                 ),
             )
+            group_events: List[dict] = []
             current: List[dict] = []
             for doc in items_sorted:
                 if current and self._is_continuous(current, doc, gap_seconds, max_duration):
                     current.append(doc)
                 else:
                     if current:
-                        events.append(self._build_event(current, representative))
+                        group_events.append(self._build_event(current, representative))
+                        if DEDUP_SPLIT_REASON is not None:
+                            DEDUP_SPLIT_REASON.labels(
+                                reason=self._split_reason(current, doc, gap_seconds, max_duration)
+                            ).inc()
                     current = [doc]
             if current:
-                events.append(self._build_event(current, representative))
+                group_events.append(self._build_event(current, representative))
+            events.extend(group_events)
+            if DEDUP_CHUNKS_IN is not None:
+                DEDUP_CHUNKS_IN.labels(sensorId=str(sid), category=str(cat)).inc(len(items))
+            if DEDUP_EVENTS_OUT is not None:
+                DEDUP_EVENTS_OUT.labels(sensorId=str(sid), category=str(cat)).inc(len(group_events))
 
         # Order: event start descending
         events.sort(
             key=lambda e: _parse_ts(e.get("timestamp")) or _EPOCH,
             reverse=True,
         )
+        if DEDUP_DURATION is not None:
+            DEDUP_DURATION.observe(time.monotonic() - t_fold)
         return events
 
     @staticmethod
@@ -419,13 +455,33 @@ class IncidentService:
             start = _parse_ts(first.get("timestamp"))
             doc_end = _parse_ts(doc.get("end")) or _parse_ts(doc.get("timestamp"))
             if start and doc_end and (doc_end - start).total_seconds() > max_duration:
-                return False
+                return False  # outer duration cap breached
 
         prev_end = _parse_ts(prev.get("end")) or _parse_ts(prev.get("timestamp"))
         doc_start = _parse_ts(doc.get("timestamp"))
         if prev_end is None or doc_start is None:
             return False
         return (doc_start - prev_end).total_seconds() <= gap_seconds
+
+    @staticmethod
+    def _split_reason(current: List[dict], doc: dict, gap_seconds, max_duration) -> str:
+        """Classify why ``doc`` did not extend ``current`` — for the
+        ``dedup_split_reason_total`` metric. Mirrors ``_is_continuous`` (outer
+        cap checked first, then the gap): returns ``outer``, ``gap``, or
+        ``malformed``.
+        """
+        first = current[0]
+        prev = current[-1]
+        if max_duration is not None:
+            start = _parse_ts(first.get("timestamp"))
+            doc_end = _parse_ts(doc.get("end")) or _parse_ts(doc.get("timestamp"))
+            if start and doc_end and (doc_end - start).total_seconds() > max_duration:
+                return "outer"
+        prev_end = _parse_ts(prev.get("end")) or _parse_ts(prev.get("timestamp"))
+        doc_start = _parse_ts(doc.get("timestamp"))
+        if prev_end is None or doc_start is None:
+            return "malformed"
+        return "gap"
 
     @staticmethod
     def _build_event(chunks: List[dict], representative: str) -> dict:
