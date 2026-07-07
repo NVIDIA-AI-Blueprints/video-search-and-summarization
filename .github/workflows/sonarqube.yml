@@ -118,6 +118,39 @@ jobs:
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
             echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml" >> sonar-project.properties
+            # Keep in sync with [tool.coverage.run] omit in
+            # services/agent/pyproject.toml. Files omitted there produce no
+            # data in coverage.xml, so without a matching exclusion Sonar
+            # counts every changed line in them as uncovered and fails the
+            # new-code coverage gate. They are still analyzed for bugs,
+            # code smells, and duplication.
+            agent_coverage_exclusions=(
+              "**/agents/report_agent_old.py"
+              "**/api/custom_fastapi_worker.py"
+              "**/sitecustomize.py"
+              "**/agents/top_agent.py"
+              "**/agents/report_agent.py"
+              "**/agents/multi_report_agent.py"
+              "**/video_analytics/es_client.py"
+              "**/tools/vst_files.py"
+              "**/tools/vst_download.py"
+              "**/tools/video_understanding.py"
+              "**/tools/lvs_video_understanding.py"
+              "**/tools/geolocation.py"
+              "**/tools/s3_picture_url.py"
+              "**/tools/incidents.py"
+              "**/tools/template_report_gen.py"
+              "**/tools/video_report_gen.py"
+              "**/tools/report_gen.py"
+              "**/tools/multi_incident_formatter.py"
+              "**/tools/fov_counts_with_chart.py"
+              "**/evaluators/report_evaluator/evaluate.py"
+              "**/evaluators/customized_trajectory_evaluator/evaluate.py"
+              "**/tools/evaluation_compressor.py"
+              "**/tools/code_executor/docker_backend/docker_executor.py"
+              "**/tools/code_executor/docker_backend/image_builder.py"
+            )
+            echo "sonar.coverage.exclusions=$(IFS=,; echo "${agent_coverage_exclusions[*]}")" >> sonar-project.properties
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-skills" ]; then
