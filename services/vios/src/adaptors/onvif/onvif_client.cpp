@@ -30,6 +30,7 @@
 #include <ctime>
 #include <openssl/sha.h>
 #include <algorithm>
+#include <chrono>
 
 using namespace std;
 using namespace nv_vms;
@@ -1351,56 +1352,38 @@ int OnvifClient::getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Val
     soap.name_space = it->second.name_space;
     soap.device_url = sensor->url;
 
-    // Get Recording Summary
-    RecordingSummary summary;
+    // [timelines-timing] measure each SOAP step to locate where latency is spent
+    auto _tlStart = std::chrono::steady_clock::now();
+    auto _tlElapsedMs = [&_tlStart]() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - _tlStart).count();
+    };
 
-    ret = clientSession->getNvSoap()->GetRecordingSummary(soap, summary);
-    if (ret != 0)
-    {
-        LOG(error) << "GetRecordingSummary failed" << endl;
-        return ret;
-    }
-
-    string summaryStartTime = summary.dataFrom;
-    string summaryEndTime = summary.dataUntil;
-
-    // Calculate duration from summary times
-    long long durationMs = DEFAULT_RECORDING_DURATION_MS;
-
-    if (!summaryStartTime.empty() && !summaryEndTime.empty())
-    {
-        // Parse ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ
-        struct tm tmStart = {0}, tmEnd = {0};
-
-        // Parse start time
-        if (strptime(summaryStartTime.c_str(), "%Y-%m-%dT%H:%M:%SZ", &tmStart) != nullptr)
-        {
-            // Parse end time
-            if (strptime(summaryEndTime.c_str(), "%Y-%m-%dT%H:%M:%SZ", &tmEnd) != nullptr)
-            {
-                time_t startEpoch = timegm(&tmStart);
-                time_t endEpoch = timegm(&tmEnd);
-
-                // Calculate duration in milliseconds
-                long long durationSeconds = (long long)(endEpoch - startEpoch);
-                durationMs = durationSeconds * 1000LL; // Convert to milliseconds
-            }
-        }
-    }
-
-    // Find Recordings
+    // Find Recordings.
+    //
+    // We intentionally SKIP GetRecordingSummary (it costs a full SOAP round-trip).
+    // Its only use was to derive the search window; the RecordingInformationFilter
+    // XPath + includedSources are what actually scope the query. Anchor the search
+    // at "now" (>= the latest recording) with a wide lookback so FindRecordings
+    // returns the full recording history for this source; the VMS caps the result
+    // count via maxMatches.
     RecordingSearchScope scope;
-    // Use sensor ID as recording source
     scope.includedSources.push_back(sensor->id);
 
-    // Create filter: boolean(//tt:Track),starttime,maxduration,maxmatches,startindex,endindex
-    // Use summaryStartTime and calculated duration to get all recordings in the time range
-    string filter = "boolean(//tt:Track)," + summaryEndTime + "," +
-                    to_string(durationMs) + ",10000,0,0";
+    time_t nowSec = time(nullptr);
+    struct tm tmNow{};
+    gmtime_r(&nowSec, &tmNow);
+    char nowBuf[32] = {0};
+    strftime(nowBuf, sizeof(nowBuf), "%Y-%m-%dT%H:%M:%SZ", &tmNow);
+    const long long lookbackMs = 3650LL * 24 * 3600 * 1000; // ~10 years, wide enough for any retention
+
+    // filter: boolean(//tt:Track),anchortime,maxduration,maxmatches,startindex,endindex
+    string filter = "boolean(//tt:Track)," + string(nowBuf) + "," +
+                    to_string(lookbackMs) + ",10000,0,0";
     scope.recordingInformationFilter = filter;
 
     int maxMatches = 10000;
-    string keepAliveTime = "PT60S";
+    string keepAliveTime = "PT20S";  // search auto-expires on the VMS; we skip the blocking EndSearch below
     string searchToken;
 
     ret = clientSession->getNvSoap()->FindRecordings(soap, scope, maxMatches, keepAliveTime, searchToken);
@@ -1409,11 +1392,13 @@ int OnvifClient::getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Val
         LOG(error) << "FindRecordings failed for sensor: " << sensor->id << endl;
         return ret;
     }
+    LOG(verbose) << "[timelines-timing] sensor:" << sensor->id
+              << " FindRecordings=" << _tlElapsedMs() << "ms" << endl;
 
     // Get Recording Search Results - Loop until SearchState is "Completed"
     int minResults = 1;  // Minimum results to wait for
     int maxResults = 1000;  // Request up to 1000 results per iteration
-    string waitTime = "PT10S";  // Wait time for each request
+    string waitTime = "PT1S";  // Wait time per request (reduced from PT10S: a completed search otherwise blocks for the full window, dominating per-camera latency)
 
     vector<RecordingInformation> allRecordings;  // Accumulate all recordings across iterations
     string searchState;
@@ -1460,13 +1445,15 @@ int OnvifClient::getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Val
             usleep(100000); // 100ms delay
         }
     } while (searchState != "Completed");
+    LOG(verbose) << "[timelines-timing] sensor:" << sensor->id
+              << " GetRecordingSearchResults(" << iteration << " iters)=" << _tlElapsedMs() << "ms" << endl;
 
-    // End search session
-    int endSearchRet = clientSession->getNvSoap()->EndSearch(soap, searchToken);
-    if (endSearchRet != 0)
-    {
-        LOG(warning) << "EndSearch failed (code: " << endSearchRet << ")" << endl;
-    }
+    // Skip the blocking EndSearch round-trip: we already have all results, and the
+    // search session auto-expires on the VMS after keepAliveTime. This saves a full
+    // SOAP RTT (~1s) off every timelines call. (EndSearch is still issued on the
+    // error paths above to release the session promptly on failure.)
+    LOG(verbose) << "[timelines-timing] sensor:" << sensor->id
+              << " total=" << _tlElapsedMs() << "ms (GetRecordingSummary + EndSearch skipped)" << endl;
 
     // Helper lambda to ensure timestamp has milliseconds (.000Z format)
     // If ONVIF server provides milliseconds, use as-is; otherwise append .000 before Z
