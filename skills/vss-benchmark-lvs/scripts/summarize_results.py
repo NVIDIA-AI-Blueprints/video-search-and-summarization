@@ -132,7 +132,9 @@ def extract_single_file(data: dict) -> list[dict]:
             # per-chunk; chunks run concurrently so this sits well below the summed
             # per-chunk VLM time.
             "vlm_s": api("vlm_latency_seconds_latest"),
-            "decode_s": api("decode_latency_seconds_latest"),
+            # Decode latency is scraped from RT-VLM and injected under this key by
+            # single_file_benchmark._execute_single_iteration (LVS no longer emits it).
+            "decode_s": api("rtvi_decode_latency_seconds"),
             # GPU util aggregated across cold iterations: mean of per-iter means, peak
             # of p90s (so one noisy iteration can't blank the column).
             "vlm_gpu_mean": gpu("vlm_gpu_usage_mean", mean),

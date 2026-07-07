@@ -73,6 +73,13 @@ class BenchmarkBase(ABC):
         self.base_url = base_url.rstrip("/")
         self.output_base_dir = output_base_dir
 
+        # RT-VLM metrics endpoint. Decode latency is an RT-VLM-owned metric (the
+        # decode stage runs in RT-VLM; LVS no longer publishes
+        # decode_latency_seconds), scraped from {rtvi_vlm_url}/v1/metrics.
+        # Must be host-reachable (RT-VLM's published port), not the container
+        # -internal URL. Overridable via config/env in parse_global_config.
+        self.rtvi_vlm_url = os.environ.get("VIA_RTVI_VLM_URL", "http://localhost:8000").rstrip("/")
+
         # Setup HTTP session with connection pooling and retries
         self.session = requests.Session()
         self._configure_http_session()
@@ -237,6 +244,13 @@ class BenchmarkBase(ABC):
         self.vlm_gpus = global_config["vlm_gpus"]
         self.llm_gpus = global_config["llm_gpus"]
         self.gpu_monitoring_config = global_config.get("gpu_monitoring", {"enabled": False})
+
+        # RT-VLM metrics URL: env VIA_RTVI_VLM_URL wins, then config, then default.
+        self.rtvi_vlm_url = (
+            os.environ.get("VIA_RTVI_VLM_URL")
+            or global_config.get("rtvi_vlm_url")
+            or self.rtvi_vlm_url
+        ).rstrip("/")
 
         # Initialize GPU monitor if enabled
         if self.gpu_monitoring_config.get("enabled", False) and GPUMonitor is not None:
@@ -502,28 +516,79 @@ class BenchmarkBase(ABC):
         data = response.json()
         return data["data"][0]["id"]
 
+    @staticmethod
+    def _parse_prometheus_metrics(text: str) -> Dict[str, Any]:
+        """
+        Parse a Prometheus text exposition into a {name: float} dict.
+
+        Keeps only the aggregate series the benchmark needs (`_latest`, `_sum`,
+        `_count`) so histogram averages can be derived from `_sum` / `_count`.
+        """
+        metrics: Dict[str, Any] = {}
+        for line in text.split("\n"):
+            if line and not line.startswith("#"):
+                try:
+                    name, value = line.split(" ")
+                    if any(name.endswith(suffix) for suffix in ["_latest", "_sum", "_count"]):
+                        metrics[name] = float(value)
+                except ValueError:
+                    continue
+        return metrics
+
     def scrape_metrics(self) -> Dict[str, Any]:
         """
-        Scrape metrics from the /metrics endpoint and parse them into a dictionary.
+        Scrape metrics from the LVS summarization /metrics endpoint.
 
         Returns:
             Dictionary of metrics with numeric values
         """
         try:
             response = self.make_api_call("/metrics")
-            metrics = {}
-            for line in response.text.split("\n"):
-                if line and not line.startswith("#"):
-                    try:
-                        name, value = line.split(" ")
-                        if any(name.endswith(suffix) for suffix in ["_latest", "_sum", "_count"]):
-                            metrics[name] = float(value)
-                    except ValueError:
-                        continue
-            return metrics
+            return self._parse_prometheus_metrics(response.text)
         except Exception as e:
             self.logger.error(f"Failed to scrape metrics: {e}")
             return {}
+
+    def scrape_rtvi_metrics(self) -> Dict[str, Any]:
+        """
+        Scrape RT-VLM's Prometheus metrics from ``{RTVI_VLM_URL}/v1/metrics``.
+
+        Decode latency is an RT-VLM-owned metric (the decode stage runs in
+        RT-VLM; LVS no longer publishes ``decode_latency_seconds``). Returns an
+        empty dict on failure so decode simply reports 0 without breaking a run.
+        """
+        url = f"{self.rtvi_vlm_url}/v1/metrics"
+        try:
+            response = self.session.get(url, timeout=self.DEFAULT_THREAD_WAIT_TIMEOUT)
+            response.raise_for_status()
+            return self._parse_prometheus_metrics(response.text)
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to scrape RT-VLM metrics from {url} (decode latency will be 0): {e}"
+            )
+            return {}
+
+    @staticmethod
+    def compute_decode_latency(rtvi_before: Dict[str, Any], rtvi_after: Dict[str, Any]) -> float:
+        """
+        Derive per-chunk decode latency (seconds) from RT-VLM metrics snapshots.
+
+        Prefers the histogram average over the run window
+        (Δ ``decode_latency_seconds_sum`` / Δ ``decode_latency_seconds_count``);
+        falls back to the ``decode_latency_seconds_latest`` gauge (last-chunk
+        value) when the count delta is unavailable or zero.
+        """
+        after = rtvi_after or {}
+        before = rtvi_before or {}
+        sum_delta = after.get("decode_latency_seconds_sum", 0.0) - before.get(
+            "decode_latency_seconds_sum", 0.0
+        )
+        count_delta = after.get("decode_latency_seconds_count", 0.0) - before.get(
+            "decode_latency_seconds_count", 0.0
+        )
+        if count_delta > 0 and sum_delta >= 0:
+            return sum_delta / count_delta
+        return after.get("decode_latency_seconds_latest", 0.0)
 
     # ================================
     # GPU STATISTICS PROCESSING

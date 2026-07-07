@@ -19,6 +19,7 @@
 #
 # Override any global setting with environment variables:
 #   VIA_BACKEND        — LVS backend URL (default: http://localhost:38111)
+#   VIA_RTVI_VLM_URL   — RT-VLM metrics URL for decode latency (default: http://localhost:8000)
 #   VIA_OUTPUT_DIR     — output directory for results
 #   VIA_VLM_GPUS       — comma-separated GPU indices for VLM (e.g. "0,1")
 #   VIA_LLM_GPUS       — comma-separated GPU indices for LLM (e.g. "2,3")
@@ -30,6 +31,15 @@ global:
   # Must be running with VIA_DEV_API=true to support POST /files uploads.
   # -----------------------------------------------------------------------
   vss_backend: "http://localhost:38111"
+
+  # -----------------------------------------------------------------------
+  # RT-VLM metrics URL — decode latency is an RT-VLM-owned Prometheus metric
+  # (LVS no longer publishes decode_latency_seconds). The benchmark scrapes
+  # {rtvi_vlm_url}/v1/metrics for decode_latency_seconds. Like vss_backend this
+  # is a CLIENT-side URL (RT-VLM's host-published port), NOT the container
+  # -internal address. Env override: VIA_RTVI_VLM_URL.
+  # -----------------------------------------------------------------------
+  rtvi_vlm_url: "http://localhost:8000"
 
   # -----------------------------------------------------------------------
   # Output directory for all benchmark results, XLSX reports, and JSON files.

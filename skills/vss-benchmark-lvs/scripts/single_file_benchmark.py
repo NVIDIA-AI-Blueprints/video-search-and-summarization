@@ -363,6 +363,11 @@ class SingleFileBenchmark(BenchmarkBase):
         self.start_cpu_monitoring()
 
         try:
+            # Decode latency is an RT-VLM-owned metric (LVS no longer publishes
+            # decode_latency_seconds). Snapshot RT-VLM metrics around the run and
+            # derive the per-chunk decode average from the histogram delta.
+            rtvi_before = self.scrape_rtvi_metrics()
+
             start_time = time.perf_counter()
             # Run summarization with video_id (asset already downloaded)
             _, event_stats = self._run_summarization(
@@ -375,8 +380,12 @@ class SingleFileBenchmark(BenchmarkBase):
             )
             wall_clock_seconds = time.perf_counter() - start_time
 
-            # Scrape metrics
+            # Scrape metrics (LVS summarization + RT-VLM for decode latency)
             metrics = self.scrape_metrics()
+            rtvi_after = self.scrape_rtvi_metrics()
+            metrics["rtvi_decode_latency_seconds"] = self.compute_decode_latency(
+                rtvi_before, rtvi_after
+            )
             metrics_file = os.path.join(iteration_dir, "metrics.json")
             self.save_json_data(metrics, metrics_file)
 
@@ -664,7 +673,9 @@ class SingleFileBenchmark(BenchmarkBase):
                 ),
                 "vlm_pipeline_latency": api_metrics.get("vlm_pipeline_latency_seconds_latest", 0),
                 "vlm_latency": api_metrics.get("vlm_latency_seconds_latest", 0),
-                "decode_latency": api_metrics.get("decode_latency_seconds_latest", 0),
+                # Decode latency comes from RT-VLM (injected as rtvi_decode_latency_seconds
+                # in _execute_single_iteration); LVS no longer publishes decode metrics.
+                "decode_latency": api_metrics.get("rtvi_decode_latency_seconds", 0),
                 "ca_rag_latency": api_metrics.get("ca_rag_latency_seconds_latest", 0),
                 "e2e_latency": api_metrics.get("e2e_latency_seconds_latest", 0),
                 "vlm_gpu_usage_mean": gpu_metrics.get("vlm_gpu_usage_mean", 0),

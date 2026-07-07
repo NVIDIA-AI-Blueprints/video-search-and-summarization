@@ -30,7 +30,7 @@ The LVS performance benchmark supports two modes: `single_file` and `file_burst`
 | `e2e_latency` | Wall-clock time from request to response (seconds) |
 | `vlm_pipeline_latency` | Time spent in the VLM vision pipeline (from `/metrics`) |
 | `vlm_latency` | VLM model inference time only (subset of pipeline) |
-| `decode_latency` | Video decode time (from `/metrics`) |
+| `decode_latency` | Video decode time (from RT-VLM `/v1/metrics`) |
 | `ca_rag_latency` | Context-aware RAG inference and Elasticsearch time (from `/metrics`) |
 | `vlm_gpu_usage_mean` | Mean GPU compute utilization % on VLM GPU(s) during the test |
 | `llm_gpu_usage_mean` | Mean GPU compute utilization % on LLM GPU(s) during the test |

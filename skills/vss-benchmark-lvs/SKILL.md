@@ -232,6 +232,10 @@ fi
 export VIA_BACKEND="${LVS_BACKEND}"
 export VIA_VLM_GPUS="${VLM_GPUS:?ERROR: VLM_GPUS must be set (e.g. export VLM_GPUS=6)}"
 export VIA_LLM_GPUS="${LLM_GPUS:?ERROR: LLM_GPUS must be set (e.g. export LLM_GPUS=7)}"
+# Decode latency is an RT-VLM-owned metric (LVS no longer publishes it); the
+# benchmark scrapes it from RT-VLM's /v1/metrics. Point at RT-VLM's
+# host-reachable port (default http://localhost:8000).
+export VIA_RTVI_VLM_URL="${VIA_RTVI_VLM_URL:-http://localhost:8000}"
 
 # Run single_file scenario
 python vss_perf_benchmark.py --config config.yaml --scenario single_file_test

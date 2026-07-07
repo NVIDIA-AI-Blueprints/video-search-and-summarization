@@ -23,6 +23,7 @@
 #
 # Optional environment variables:
 #   VSS_BENCHMARK_DATA_DIR   — root directory containing test videos (default: ~/vss-benchmark-data)
+#   VIA_RTVI_VLM_URL         — RT-VLM metrics URL for decode latency (default: http://localhost:8000)
 #
 # WARNING: On shared GPU systems multiple LVS instances may be running on different ports.
 # Always set LVS_BACKEND to your own deployment's endpoint. Never assume port 38111.
@@ -61,6 +62,9 @@ CONFIG_FILE="${SCRIPTS_DIR}/config.yaml"
 export VIA_BACKEND="${LVS_BACKEND}"
 export VIA_VLM_GPUS="${VLM_GPUS}"
 export VIA_LLM_GPUS="${LLM_GPUS}"
+# Decode latency is an RT-VLM-owned metric; the benchmark scrapes it from
+# RT-VLM's /v1/metrics (host-reachable port). Override with VIA_RTVI_VLM_URL.
+export VIA_RTVI_VLM_URL="${VIA_RTVI_VLM_URL:-http://localhost:8000}"
 export VSS_BENCHMARK_DATA_DIR
 
 # ---------------------------------------------------------------------------
@@ -125,6 +129,7 @@ fi
 echo ""
 echo "Running LVS performance benchmark ..."
 echo "  Backend:    ${LVS_BACKEND}"
+echo "  RT-VLM:     ${VIA_RTVI_VLM_URL} (decode latency via /v1/metrics)"
 echo "  VLM GPUs:   ${VLM_GPUS}"
 echo "  LLM GPUs:   ${LLM_GPUS}"
 echo "  Config:     ${CONFIG_FILE}"

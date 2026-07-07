@@ -19,6 +19,7 @@
 #   VLM_GPUS / LLM_GPUS  GPU indices for the VLM / LLM (comma-separated; or VIA_VLM_GPUS/VIA_LLM_GPUS)
 # Optional:
 #   CONFIG               path to the benchmark config.yaml (default: config.yaml next to this script)
+#   VIA_RTVI_VLM_URL     RT-VLM metrics URL for decode latency (default: http://localhost:8000)
 #
 # Exit codes: 0 = all good (warnings allowed), 1 = hard failure (do not benchmark).
 
@@ -84,6 +85,22 @@ code=$(curl -s -o /dev/null -m 5 -w "%{http_code}" "${LVS_BACKEND}/v1/ready" 2>/
 fcode=$(curl -s -o /dev/null -m 5 -w "%{http_code}" -X POST "${LVS_BACKEND}/files" 2>/dev/null)
 if [[ "$fcode" == "404" ]]; then err "/files -> 404 (dev route off; enable VIA_DEV_API on your LVS)"
 else ok "/files reachable (${fcode}, not 404)"; fi
+
+echo "=== 4b. RT-VLM metrics reachable (decode latency source) ==="
+# Decode latency is an RT-VLM-owned Prometheus metric (LVS no longer publishes
+# it); the benchmark scrapes {VIA_RTVI_VLM_URL}/v1/metrics for it. Non-fatal:
+# if unreachable the benchmark still runs and reports decode latency as 0.
+RTVI_METRICS_URL="${VIA_RTVI_VLM_URL:-http://localhost:8000}"
+rtmp="$(mktemp)"
+rcode=$(curl -s -o "${rtmp}" -m 5 -w "%{http_code}" "${RTVI_METRICS_URL%/}/v1/metrics" 2>/dev/null)
+if [[ "$rcode" != "200" ]]; then
+    wrn "RT-VLM /v1/metrics @ ${RTVI_METRICS_URL} -> ${rcode}; decode latency will be 0 (set VIA_RTVI_VLM_URL to RT-VLM's host-reachable port)"
+elif grep -q "decode_latency_seconds" "${rtmp}"; then
+    ok "RT-VLM /v1/metrics exposes decode_latency_seconds"
+else
+    wrn "RT-VLM /v1/metrics reachable but decode_latency_seconds not found yet (no decode recorded on that instance)"
+fi
+rm -f "${rtmp}"
 
 echo "=== 5. YOUR LVS container owns the backend port ==="
 if ! docker inspect "${LVS_CONTAINER_NAME}" >/dev/null 2>&1; then

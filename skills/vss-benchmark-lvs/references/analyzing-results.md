@@ -83,7 +83,7 @@ E2E Latency = Decode Latency + VLM Pipeline Latency + CA-RAG Latency
 | `e2e_latency` | `api_metrics.e2e_latency_seconds_latest` | Varies by video length and hardware |
 | `vlm_pipeline_latency` | `api_metrics.vlm_pipeline_latency_seconds_latest` | 60–80% of E2E is typical |
 | `ca_rag_latency` | `api_metrics.ca_rag_latency_seconds_latest` | < 20% of E2E is healthy |
-| `decode_latency` | `api_metrics.decode_latency_seconds_latest` | Small — typically < 5% |
+| `decode_latency` | `api_metrics.rtvi_decode_latency_seconds` (scraped from RT-VLM `/v1/metrics`) | Small — typically < 5% |
 
 **GPU utilization (from NVML monitoring):**
 
@@ -238,7 +238,7 @@ The top-level structure for single_file:
             "e2e_latency_seconds_latest": 13.8,
             "vlm_pipeline_latency_seconds_latest": 9.1,
             "ca_rag_latency_seconds_latest": 2.1,
-            "decode_latency_seconds_latest": 0.4
+            "rtvi_decode_latency_seconds": 0.4
           },
           "gpu_metrics": {
             "vlm_gpu_usage_mean": 82.5,
