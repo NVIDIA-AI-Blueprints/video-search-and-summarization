@@ -508,6 +508,20 @@ class TestConsolidationGrouping:
         assert events[0]["info"]["chunkCount"] == "2"
 
 
+class TestConsolidationSplitReason:
+    """_split_reason classifies why an event ended (for the dedup metric)."""
+
+    def test_reason_gap(self):
+        current = [_chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")]
+        doc = _chunk(idx=2, start="2025-01-01T00:02:00.000Z", end="2025-01-01T00:02:30.000Z")
+        assert IncidentService._split_reason(current, doc, 60, 300) == "gap"
+
+    def test_reason_outer(self):
+        current = [_chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")]
+        doc = _chunk(idx=2, start="2025-01-01T00:05:30.000Z", end="2025-01-01T00:06:00.000Z")
+        assert IncidentService._split_reason(current, doc, 60, 300) == "outer"
+
+
 class TestConsolidationConfigValidation:
     """IncidentService construction validates consolidation tuning (fail-fast)."""
 
