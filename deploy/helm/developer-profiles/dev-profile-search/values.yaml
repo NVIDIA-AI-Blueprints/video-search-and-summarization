@@ -484,7 +484,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.1-26.07.1-dd945777eef9
+    vssAgentVersion: 3.2.1-26.07.1-974487d7f22a
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -592,7 +592,8 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.1-26.07.1-dd945777eef9" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.1-26.07.1-974487d7f22a" }}'
+
 vss-agent-ui:
   enabled: true
   # Set global.externalHost to vss-search.$NODE_IP.nip.io (e.g. --set) so public URLs and ws:// use that host. MDX/Map match Search ingress.
