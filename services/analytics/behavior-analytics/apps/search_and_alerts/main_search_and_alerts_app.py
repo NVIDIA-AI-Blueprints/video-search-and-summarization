@@ -35,29 +35,23 @@ class SearchAndAlertsApp(BaseApp):
     Runs three processing paths in parallel:
 
     **Incident path** (raw frames → incidents):
-        Read raw frames, filter by sensor, transform via calibration, write enhanced frames,
-        update per-sensor frame state, detect violations (proximity, restricted area, confined
-        area, FOV count), write incidents.
+        Read raw frames, transform via calibration, write enhanced frames, update per-sensor
+        frame state, detect violations (proximity, restricted area, confined area, FOV count),
+        write incidents.
 
     **Behavior path** (raw frames → behaviors):
-        Read raw frames, filter by sensor, convert to messages, transform via calibration,
-        update per-sensor behavior state, write behaviors to output.
+        Read raw frames, convert to messages, transform via calibration, update per-sensor
+        behavior state, write behaviors to output.
 
     **Embedding path** (video embeddings → output):
         Read video embeddings, group by sensor ID, process per-sensor via video embedding
         state manager, write processed embeddings.
 
     Configuration (see AppConfig):
-        - numWorkersForIncidentGeneration: Worker count for incident pipeline (default: "0")
-        - numWorkersForBehaviorCreation: Worker count for behavior pipeline (default: "0")
-        - numWorkersForEmbedFiltering: Worker count for embedding pipeline (default: "0")
+        - numWorkersForIncidentGeneration: Worker count for incident pipeline (default: "1")
+        - numWorkersForBehaviorCreation: Worker count for behavior pipeline (default: "1")
+        - numWorkersForEmbedFiltering: Worker count for embedding pipeline (default: "1")
         - Plus standard incident toggles (proximityIncidentEnable, restrictedAreaIncidentEnable, etc.)
-
-    Each pipeline is opt-in: a worker count of "0" (the default when the key is omitted) leaves that
-    processor unregistered, so the pipeline does not run. This selects the app's mode per deployment
-    — e.g. set incident workers to "0" for search-only, or behavior + embed workers to "0" for
-    alerts-only. Enable a pipeline by setting its worker count to a positive integer, and ensure the
-    config maps the topics that pipeline writes to (incidents/frames, behavior, or embedFiltered).
 
     :ivar FrameStateMgmt frame_state_mgmt: Per-sensor frame state manager for incident detection
     :ivar StateMgmtE state_mgmt: Per-sensor behavior state manager
@@ -114,9 +108,9 @@ class SearchAndAlertsApp(BaseApp):
         """
         Build behaviors from a batch of raw frames.
 
-        Filters frames by sensor ID, converts frames to messages (using state_mgmt_filter),
-        transforms messages via calibration, groups by sensor, and updates behavior state
-        per sensor. Non-None behaviors are written to the behavior output stream.
+        Converts frames to messages (using state_mgmt_filter), transforms messages via
+        calibration, groups by sensor, and updates behavior state per sensor. Non-None
+        behaviors are written to the behavior output stream.
 
         :param list[nvSchema.Frame] frames: Raw frame batch from read_raw
         :param BatchStats stats: Batch processing statistics (e.g. batch_id)

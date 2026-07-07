@@ -411,7 +411,7 @@ analytics:
             {"name": "fovCountViolationIncidentObjectThreshold", "value": "1"},
             {"name": "fovCountViolationIncidentThreshold", "value": "0.1"},
             {"name": "fovCountViolationIncidentExpirationWindow", "value": "0.5"},
-            {"name": "fovCountViolationIncidentObjectType", "value": "person"}
+            {"name": "fovCountViolationIncidentObjectType", "value": "Person"}
           ]
         }
   

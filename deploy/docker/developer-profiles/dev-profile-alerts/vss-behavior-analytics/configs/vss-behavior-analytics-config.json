@@ -85,7 +85,7 @@
 		},
 		{
 			"name": "fovCountViolationIncidentObjectType",
-			"value": "person"
+			"value": "Person"
 		}
 	]
 }
