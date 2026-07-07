@@ -1746,11 +1746,11 @@ class ConfigMessage(BaseModel):
         structured ``failure`` ack for non-dict shapes (``[]``,
         ``"foo"``, etc.). Tightening the type here would short-circuit
         construction with a :class:`pydantic.ValidationError` and drop
-        the message before the ack is emitted, so web-api would lose
+        the message before the ack is emitted, so video-analytics-api would lose
         its feedback signal for shape violations. The validator is the
         single source of truth for "is this payload applyable".
     :ivar str | None status: ``value.status`` from the body. Typed
-        strictly because web-api emits only ``"success"`` /
+        strictly because video-analytics-api emits only ``"success"`` /
         ``"failure"`` / ``"partial-success"`` strings or ``null``; a
         non-string here would be a producer bug worth catching at
         construction.

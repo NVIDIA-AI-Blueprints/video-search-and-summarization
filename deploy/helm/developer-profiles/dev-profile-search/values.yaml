@@ -367,7 +367,7 @@ rtvi:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
-# Analytics umbrella: Search uses fusion_search behavior analytics + video-analytics-api (REST API for raw/analytics data).
+# Analytics umbrella: Search uses search_and_alerts behavior analytics (incident generation disabled) + video-analytics-api (REST API for raw/analytics data).
 analytics:
   enabled: true
   vss-video-analytics-api:
@@ -387,7 +387,7 @@ analytics:
       type: ClusterIP
     command:
       - python3
-      - apps/fusion_search/main_fusion_search_analytics_app.py
+      - apps/search_and_alerts/main_search_and_alerts_app.py
       - --config
       - /resources/vss-behavior-analytics-config.json
     config:
@@ -434,6 +434,7 @@ analytics:
             {"name": "sinkType", "value": "kafka"},
             {"name": "numWorkersForBehaviorCreation", "value": "2"},
             {"name": "numWorkersForEmbedFiltering", "value": "1"},
+            {"name": "numWorkersForIncidentGeneration", "value": "0"},
             {"name": "inSimulationMode", "value": "true"},
             {"name": "stateManagementFilter", "value": "[\"Person\"]"}
           ]

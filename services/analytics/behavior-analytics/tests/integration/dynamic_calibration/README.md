@@ -43,7 +43,7 @@ out-of-order deliveries without writing anything.
   worker processes share the parent's reference via fork).
 - Disk-full / write-failure on the listener side (unit tests with
   mocked `os.rename` cover this).
-- Schema-drift between web-api's AJV file and the vendored copy
+- Schema-drift between video-analytics-api's AJV file and the vendored copy
   (covered by intent of the validator commit + a future schema-sync
   check).
 
