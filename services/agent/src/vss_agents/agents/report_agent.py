@@ -438,9 +438,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 try:
                     parsed_incident = json.loads(incident_result)
                 except json.JSONDecodeError:
-                    logger.exception(
-                        "Report Agent: Failed to parse get_incident response as JSON: %s", incident_result
-                    )
+                    logger.exception("Report Agent: Failed to parse get_incident response as JSON: %s", incident_result)
                     return None
                 return parsed_incident or None
             return incident_result or None
