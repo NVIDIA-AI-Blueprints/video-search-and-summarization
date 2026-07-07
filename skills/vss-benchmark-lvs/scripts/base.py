@@ -521,15 +521,19 @@ class BenchmarkBase(ABC):
         """
         Parse a Prometheus text exposition into a {name: float} dict.
 
-        Keeps only the aggregate series the benchmark needs (`_latest`, `_sum`,
-        `_count`) so histogram averages can be derived from `_sum` / `_count`.
+        Keeps the aggregate/point series the benchmark needs: `_latest`, `_sum`,
+        `_count`, and `_seconds` (RT-VLM exports OTEL gauges whose Prometheus
+        names carry the unit suffix, e.g. ``decode_latency_seconds_latest_seconds``).
         """
         metrics: Dict[str, Any] = {}
         for line in text.split("\n"):
             if line and not line.startswith("#"):
                 try:
                     name, value = line.split(" ")
-                    if any(name.endswith(suffix) for suffix in ["_latest", "_sum", "_count"]):
+                    if any(
+                        name.endswith(suffix)
+                        for suffix in ["_latest", "_sum", "_count", "_seconds"]
+                    ):
                         metrics[name] = float(value)
                 except ValueError:
                     continue
@@ -573,22 +577,34 @@ class BenchmarkBase(ABC):
         """
         Derive per-chunk decode latency (seconds) from RT-VLM metrics snapshots.
 
-        Prefers the histogram average over the run window
-        (Δ ``decode_latency_seconds_sum`` / Δ ``decode_latency_seconds_count``);
-        falls back to the ``decode_latency_seconds_latest`` gauge (last-chunk
-        value) when the count delta is unavailable or zero.
+        RT-VLM exports OpenTelemetry metrics, so the Prometheus names carry the
+        unit suffix (e.g. ``decode_latency_seconds_latest_seconds``) and the
+        deployed image exposes only the ``_latest`` gauge (no histogram). Both
+        the OTEL-suffixed and plain names are accepted: prefer a histogram
+        average over the run window (Δ sum / Δ count) when a histogram is
+        present, otherwise fall back to the ``_latest`` gauge (last-chunk value).
         """
         after = rtvi_after or {}
         before = rtvi_before or {}
-        sum_delta = after.get("decode_latency_seconds_sum", 0.0) - before.get(
-            "decode_latency_seconds_sum", 0.0
-        )
-        count_delta = after.get("decode_latency_seconds_count", 0.0) - before.get(
-            "decode_latency_seconds_count", 0.0
-        )
-        if count_delta > 0 and sum_delta >= 0:
-            return sum_delta / count_delta
-        return after.get("decode_latency_seconds_latest", 0.0)
+
+        def _first(d: Dict[str, Any], keys) -> Any:
+            for k in keys:
+                if k in d:
+                    return d[k]
+            return None
+
+        sum_keys = ("decode_latency_seconds_seconds_sum", "decode_latency_seconds_sum")
+        count_keys = ("decode_latency_seconds_seconds_count", "decode_latency_seconds_count")
+        latest_keys = ("decode_latency_seconds_latest_seconds", "decode_latency_seconds_latest")
+
+        a_sum, a_count = _first(after, sum_keys), _first(after, count_keys)
+        if a_sum is not None and a_count is not None:
+            sum_delta = a_sum - (_first(before, sum_keys) or 0.0)
+            count_delta = a_count - (_first(before, count_keys) or 0.0)
+            if count_delta > 0 and sum_delta >= 0:
+                return sum_delta / count_delta
+
+        return _first(after, latest_keys) or 0.0
 
     # ================================
     # GPU STATISTICS PROCESSING
