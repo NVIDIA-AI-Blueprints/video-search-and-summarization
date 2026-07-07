@@ -4518,8 +4518,9 @@ GstElement* NvLLOverlayInternal::create()
     overlay_bin = gst_bin_new ("nvoverlay");
     bool isLive = false;
     GstElement* latency_queue = nullptr;
+    GstElement *converter2 = nullptr, *filter2 = nullptr;
 #if !defined(AARCH64_PLATFORM)
-    GstElement *converter2 = nullptr, *filter2 = nullptr, *converter1 = nullptr, *filter1 = nullptr;
+    GstElement *converter1 = nullptr, *filter1 = nullptr;
 #endif
     SearchParams inData = m_bboxParams.m_searchParams;
     if (inData.m_start_time.empty())
@@ -4563,7 +4564,18 @@ GstElement* NvLLOverlayInternal::create()
      */
     else if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
     {
+#else
+    /* Jetson iGPU without NVENC (e.g. Orin Nano) uses HW Dec + SW Enc. The SW
+     * encoder needs system-memory raw video, but the Tegra overlay emits NVMM,
+     * so append nvvideoconvert/nvvidconv -> system I420 inside the overlay bin.
+     */
+    if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
+    {
+#endif
         converter2 = gst_element_factory_make ("nvvideoconvert", nullptr);
+#if defined(AARCH64_PLATFORM)
+        if (!converter2) converter2 = gst_element_factory_make ("nvvidconv", nullptr);
+#endif
         filter2 = gst_element_factory_make ("capsfilter", nullptr);
 
         if (!converter2 || !filter2)
@@ -4579,7 +4591,6 @@ GstElement* NvLLOverlayInternal::create()
         }
         gst_bin_add_many (GST_BIN (overlay_bin), converter2, filter2, nullptr);
     }
-#endif
 
     if (!overlay_bin || !m_nvosd || !m_filter )
     {
@@ -4609,7 +4620,18 @@ GstElement* NvLLOverlayInternal::create()
 #endif
 
 #if defined(AARCH64_PLATFORM)
-    source_pad = gst_element_get_static_pad (m_filter, "src");
+    if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
+    {
+        if (!gst_element_link_many (m_filter, converter2, filter2, nullptr))
+        {
+            LOG (error) << "After Converter Elements could not be linked" << endl;
+        }
+        source_pad = gst_element_get_static_pad (filter2, "src");
+    }
+    else
+    {
+        source_pad = gst_element_get_static_pad (m_filter, "src");
+    }
 #else
     if (GET_CONFIG().use_software_path || g_isGpuPresent == false)
     {
@@ -4738,6 +4760,13 @@ GstElement* NvLLOverlayInternal::create()
     {
         GstCaps *caps_filter2  = nullptr;
         caps_filter2 = gst_caps_from_string ("video/x-raw,format=I420");
+        g_object_set (G_OBJECT (filter2), "caps", caps_filter2, nullptr);
+        gst_caps_unref (caps_filter2);
+    }
+#else
+    if (false == NvHwDetection::getInstance()->m_useNvV4l2Enc)
+    {
+        GstCaps *caps_filter2 = gst_caps_from_string ("video/x-raw,format=I420");
         g_object_set (G_OBJECT (filter2), "caps", caps_filter2, nullptr);
         gst_caps_unref (caps_filter2);
     }
