@@ -399,7 +399,7 @@ class IncidentService:
             groups.setdefault(key, []).append(doc)
 
         events: List[dict] = []
-        for (sid, cat), items in groups.items():
+        for items in groups.values():
             # Sort by (timestamp, id) so equal-timestamp chunks order
             # deterministically regardless of ES scan direction.
             items_sorted = sorted(
@@ -425,10 +425,12 @@ class IncidentService:
             if current:
                 group_events.append(self._build_event(current, representative))
             events.extend(group_events)
+            # Aggregate-only counters (no per-sensor/category labels) to avoid
+            # unbounded Prometheus cardinality from ES-sourced label values.
             if DEDUP_CHUNKS_IN is not None:
-                DEDUP_CHUNKS_IN.labels(sensorId=str(sid), category=str(cat)).inc(len(items))
+                DEDUP_CHUNKS_IN.inc(len(items))
             if DEDUP_EVENTS_OUT is not None:
-                DEDUP_EVENTS_OUT.labels(sensorId=str(sid), category=str(cat)).inc(len(group_events))
+                DEDUP_EVENTS_OUT.inc(len(group_events))
 
         # Order: event start descending
         events.sort(
