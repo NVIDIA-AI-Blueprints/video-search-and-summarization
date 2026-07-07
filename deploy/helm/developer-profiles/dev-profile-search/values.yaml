@@ -579,7 +579,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.1-26.07.1-e33af13d2f59
+    vssAgentVersion: 3.2.1-26.07.1-dd945777eef9
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -689,7 +689,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.1-26.07.1-e33af13d2f59" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.1-26.07.1-dd945777eef9" }}'
 
 vss-agent-ui:
   enabled: true
@@ -699,8 +699,8 @@ vss-agent-ui:
     externalHost: ''
     imagePullPolicy: IfNotPresent
   image:
-    repository: nvcr.io/nvidia/vss-core/vss-agent-ui
-    tag: "3.2.0"
+    repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
+    tag: "3.2.1-26.07.1-dd945777eef9"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
