@@ -59,8 +59,13 @@ if ! command -v ngc &>/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq && apt-get install -y -qq wget unzip > /dev/null
   cd /tmp
-  wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
-  unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
+  _ngc_arch="$(uname -m)"
+  case "${_ngc_arch}" in
+    aarch64|arm64) _ngc_zip="ngccli_arm64.zip" ;;
+    *)             _ngc_zip="ngccli_linux.zip"  ;;
+  esac
+  wget -q "https://ngc.nvidia.com/downloads/${_ngc_zip}" -O ngccli.zip
+  rm -rf ngc-cli && unzip -qo ngccli.zip && chmod +x ngc-cli/ngc
   export PATH="/tmp/ngc-cli:$PATH"
   cd -
   ngc --version

@@ -112,6 +112,11 @@ services:
       # Search-profile wrapper script (patches configs, then calls ds-start.sh)
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/ds-search-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh:ro
 
+      # Override the relative ./ds-start.sh from the extends base with an absolute path.
+      # Docker Compose v2 resolves relative sources in extended services relative to the
+      # consuming file's directory rather than the base file's directory, so we fix it here.
+      - $VSS_APPS_DIR/services/rtvi/rtvi-cv/ds-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh:ro
+
       # Models directory — RT-DETR + vision encoder models (downloaded by init container)
       - $VSS_DATA_DIR/models/:/opt/storage/
     command:
