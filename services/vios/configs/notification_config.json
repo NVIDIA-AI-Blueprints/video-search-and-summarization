@@ -34,6 +34,14 @@
 					"query_params": {},
 					"timeout_ms": 5000,
 					"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
+				},
+				{
+					"url": "http://127.0.0.1:8088/api/v1/camera/add",
+					"method": "POST",
+					"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+					"query_params": {"change": "{{event.change}}"},
+					"timeout_ms": 5000,
+					"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 				}
 			],
 			"auth": {"type": "hmac-sha256", "secret": "{{secrets.signing_key}}", "header_name": "X-VIOS-Signature"}
@@ -49,9 +57,31 @@
 					"query_params": {},
 					"timeout_ms": 5000,
 					"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
+				},
+				{
+					"url": "http://127.0.0.1:8088/api/v1/camera/streaming",
+					"method": "PUT",
+					"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+					"query_params": {"change": "{{event.change}}"},
+					"timeout_ms": 5000,
+					"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 				}
 			],
 			"auth": {"type": "hmac-sha256", "secret": "{{secrets.signing_key}}", "header_name": "X-VIOS-Signature"}
+		},
+		{
+			"enabled": true,
+			"camera_status_change": "camera_remove",
+			"request": [
+				{
+					"url": "http://127.0.0.1:8088/api/v1/camera/remove",
+					"method": "DELETE",
+					"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+					"query_params": {"change": "{{event.change}}"},
+					"timeout_ms": 5000,
+					"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
+				}
+			]
 		}
 	]
 }

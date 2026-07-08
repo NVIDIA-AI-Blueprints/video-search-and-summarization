@@ -17,14 +17,41 @@
 
 #pragma once
 
+#include <mutex>
+#include <vector>
+
 #include "notification_manager.h"
 
+/*
+ * Fans one event stream out to several INotificationInterface backends, e.g.
+ * a message broker plus webhooks. Forwarding uses each child's sendMessage(),
+ * which only enqueues: every child keeps its own queue, connection state and
+ * retry policy.
+ */
 class CompositeNotifier : public nv_vms::INotificationInterface
 {
 public:
-    CompositeNotifier();
     virtual ~CompositeNotifier();
+
+    CompositeNotifier(const CompositeNotifier&) = delete;
+    CompositeNotifier& operator=(const CompositeNotifier&) = delete;
+
+    static CompositeNotifier* getInstance();
+    static void deleteInstance();
+
+    // Notifiers are not owned. Idempotent: duplicates and nullptr are ignored.
+    void addNotifier(nv_vms::INotificationInterface* notifier);
+    size_t notifierCount() const;
 
     bool deliverMessage(Json::Value& message) override;
     void retryConnection() override;
+
+private:
+    CompositeNotifier();
+
+    mutable std::mutex m_notifiersMutex;
+    std::vector<nv_vms::INotificationInterface*> m_notifiers;
+
+    static CompositeNotifier* _instance;
+    static std::mutex _instanceMutex;
 };
