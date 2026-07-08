@@ -10,9 +10,11 @@ Verified CV alerts carry an extended `info` block:
 |---|---|
 | `confirmed` | VLM determined the alert is real |
 | `rejected` | VLM determined it is a false positive |
-| `unverified` | Verification could not complete (error) |
+| `not-confirmed` | VLM response could not be parsed into a confirmed/rejected verdict (parse failure) |
+| `verification-failed` | Verification could not complete — API/VLM error |
+| `""` (empty) | A pluggable response parser was used instead of the verdict path |
 
-- Check `verification_response_code` (`200` = success) and `reasoning` for the VLM's explanation.
+- Check `verificationResponseCode` (`200` = success) and `reasoning` for the VLM's explanation. These live in the incident `info` block and appear camelCase (`verificationResponseCode`, `verificationResponseStatus`).
 - VLM real-time mode incidents are always "confirmed" at source (the trigger itself is a Yes/No VLM answer), so there is **no** separate verdict field in VLM mode.
 
 ## Customize CV verifier prompts
