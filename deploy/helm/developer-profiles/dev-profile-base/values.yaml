@@ -72,7 +72,7 @@ infra:
   redis:
     enabled: true
   # Base profile uses direct streamprocessing (sensor → vss-vios-streamprocessing:30001),
-  # mirroring docker dev-profile-base (.env: VST_NGINX_MODE=vst-direct, no SDR/Envoy/SDRC router).
+  # mirroring docker dev-profile-base (.env: VST_NGINX_MODE=vst, VST_USE_SDRC=false; no SDR/Envoy/SDRC router).
   sdrc:
     enabled: false
 
