@@ -32,11 +32,15 @@
 vios:
   enabled: true
 
-# Disable local NIM deployments
+# Disable local NIM and RT-VLM deployments (LLM/VLM use hosted endpoints)
 nims:
   nemotron:
     enabled: false
   cosmos3:
+    enabled: false
+
+rtvi:
+  vss-rtvi-vlm:
     enabled: false
 
 # Point agent LLM / VLM / eval to hosted endpoint

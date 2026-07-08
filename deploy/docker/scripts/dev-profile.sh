@@ -1329,15 +1329,54 @@ function state_up() {
     set_env_var "VLM_ENV_FILE" "${vlm_env_file}"
   fi
 
-  # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
-  # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
+  # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and skip local RT-VLM.
+  # Otherwise write ENABLE_CRITIC=true and wire RT-VLM for critic (local) or remote VLM endpoint (--use-remote-vlm).
   # Brev 2-GPU local-VLM critic deployments are rejected during argument validation.
   if [[ "${profile}" == "search" ]]; then
+    local _search_bp_profile
+    _search_bp_profile="$(get_env_value "${_source_env}" "BP_PROFILE")"
+    local _search_mode
+    _search_mode="$(get_env_value "${_source_env}" "MODE")"
+    local _search_llm_mode
+    _search_llm_mode="${llm_mode:-$(get_env_value "${_source_env}" "LLM_MODE")}"
+    local _search_llm_slug
+    _search_llm_slug="$(get_env_value "${_generated_env}" "LLM_NAME_SLUG")"
+    if [[ -z "${_search_llm_slug}" ]]; then
+      _search_llm_slug="$(get_env_value "${_source_env}" "LLM_NAME_SLUG")"
+    fi
+
     if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
       set_env_var "ENABLE_CRITIC" "false"
       set_env_var "VLM_NAME_SLUG" "none"
+      set_env_var "COMPOSE_PROFILES" "${_search_bp_profile}_${_search_mode},llm_${_search_llm_mode}_${_search_llm_slug}"
     else
       set_env_var "ENABLE_CRITIC" "true"
+      set_env_var "VLM_NAME_SLUG" "none"
+      if [[ "${vlm_mode}" == "remote" ]]; then
+        set_env_var "COMPOSE_PROFILES" "${_search_bp_profile}_${_search_mode},llm_${_search_llm_mode}_${_search_llm_slug}"
+      else
+        set_env_var "COMPOSE_PROFILES" "${_search_bp_profile}_${_search_mode},${_search_bp_profile}_${_search_mode}_vlm,llm_${_search_llm_mode}_${_search_llm_slug}"
+        set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
+        if [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
+          set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+          local _search_rtvi_vlm_max_model_len
+          _search_rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+          if [[ -n "${_search_rtvi_vlm_max_model_len}" ]]; then
+            set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_search_rtvi_vlm_max_model_len}"
+          fi
+          if [[ "${vlm_mode}" == "local_shared" ]]; then
+            local _search_shared_rt_dev_id
+            _search_shared_rt_dev_id="$(get_env_value "${_source_env}" "SHARED_LLM_VLM_DEVICE_ID")"
+            set_env_var "RT_VLM_DEVICE_ID" "${_search_shared_rt_dev_id:-${vlm_device_id}}"
+          else
+            set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id:-$(get_env_value "${_source_env}" "VLM_DEVICE_ID")}"
+          fi
+        fi
+        if [[ "${hardware_profile}" == "RTXPRO4500BW" ]]; then
+          set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+          set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+        fi
+      fi
     fi
   fi
 

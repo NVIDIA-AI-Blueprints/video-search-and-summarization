@@ -670,16 +670,16 @@ run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-ti
 # L40S forbids local_shared for LLM/VLM; search profile default is local_shared for LLM (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
 LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d
 
-# Search: critic enabled by default → generated.env ENABLE_CRITIC=true when unset or truthy; ENABLE_CRITIC=false + VLM_NAME_SLUG=none when explicitly false
+# Search: critic enabled by default → RT-VLM for local VLM; ENABLE_CRITIC=false skips rtvi-vlm compose profile.
 run_dry_run_up_and_check_generated_env "generated.env search default ENABLE_CRITIC=true" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "COMPOSE_PROFILES" "bp_developer_search_2d,bp_developer_search_2d_vlm,llm_local_shared_nvidia-nemotron-nano-9b-v2"
 ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=true sets ENABLE_CRITIC" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi"
 ENABLE_CRITIC=TRUE run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=TRUE normalizes to true" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi"
 _mock_brev_two_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_two_gpu_dir}")
 cat > "${_mock_brev_two_gpu_dir}/nvidia-smi" <<'EOF'
@@ -712,10 +712,10 @@ EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
 PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU preserves ENABLE_CRITIC" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2" "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi"
 ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=false sets ENABLE_CRITIC false" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "false"
+  "ENABLE_CRITIC" "false" "COMPOSE_PROFILES" "bp_developer_search_2d,llm_local_shared_nvidia-nemotron-nano-9b-v2"
 ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=false sets VLM_NAME_SLUG none" "search" \
   -i 127.0.0.1 -d -- \
   "VLM_NAME_SLUG" "none"

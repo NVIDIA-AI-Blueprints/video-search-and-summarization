@@ -31,7 +31,8 @@ global:
 # ── Agent config: search profile wired to in-cluster services ───────────────
 vss-agent:
   llmBaseUrl: "http://nvidia-nemotron-nano-9b-v2:8000"
-  vlmBaseUrl: "http://nvidia-cosmos3-reasoner:8000"
+  vlmBaseUrl: "http://vss-rtvi-vlm:8000"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
   evalLlmJudgeBaseUrl: "http://nvidia-nemotron-nano-9b-v2:8000"
   rtviEmbedBaseUrl: "http://vss-search-vss-rtvi-embed:8000"
   cosmosEmbedEndpoint: "http://vss-search-vss-rtvi-embed:8000"

@@ -169,6 +169,47 @@ NIM_MAX_NUM_SEQS=2
 
 Those numeric values are only an example shape for reducing cache pressure; validate the final values on your GPU and workload.
 
+### Search Compose notes
+
+The search profile's **critic agent** verifies search results with a VLM. When the critic is enabled (default), Compose starts **`rtvi-vlm`** for that VLM; there is no separate Cosmos VLM NIM.
+
+Default search critic model wiring:
+
+| Component | Local Compose behavior | Default model name |
+|-----------|------------------------|--------------------|
+| LLM | Starts the **`nvidia-nemotron-nano-9b-v2`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nvidia-nemotron-nano-9b-v2` |
+| VLM / RT-VLM (critic) | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`** via the **`bp_developer_search_2d_vlm`** compose profile. The profile sets **`VLM_MODEL_TYPE=rtvi`** and **`VLM_NAME_SLUG=none`**, so Compose does not start a Cosmos VLM NIM; RT-VLM loads the integrated checkpoint. Kafka publishing is disabled (**`RTVI_VLM_KAFKA_ENABLED=false`**) because the critic uses synchronous `/v1/chat/completions`. | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` |
+
+Disable the critic (and skip the RT-VLM container) by setting **`ENABLE_CRITIC=false`**; `dev-profile.sh` then strips the `bp_developer_search_2d_vlm` compose profile:
+
+```bash
+ENABLE_CRITIC=false ./deploy/docker/scripts/dev-profile.sh up \
+  --profile search \
+  --hardware-profile H100
+```
+
+For a remote critic VLM, pass the remote endpoint flags (RT-VLM is not started locally):
+
+```bash
+export LLM_ENDPOINT_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
+export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
+
+./deploy/docker/scripts/dev-profile.sh up \
+  --profile search \
+  --hardware-profile H100 \
+  --use-remote-llm \
+  --use-remote-vlm \
+  --llm nvidia/nvidia-nemotron-nano-9b-v2 \
+  --vlm nvidia/cosmos3-nano-reasoner
+```
+
+Post-deploy check for the local search critic RT-VLM:
+
+```bash
+curl -f http://127.0.0.1:8018/v1/health/ready
+curl -f http://127.0.0.1:8018/v1/models   # expect: nim_nvidia_cosmos3-nano-reasoner_bf16-final
+```
+
 ---
 
 ## Warehouse industry profile
