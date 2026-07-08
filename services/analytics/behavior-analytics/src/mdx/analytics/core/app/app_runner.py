@@ -140,7 +140,7 @@ class AppRunner:
         # each message). Same logic for the dynamic-config consumer group.
         self._calibration_replica_tag = uuid.uuid4().hex
         self._config_listener_replica_tag = uuid.uuid4().hex
-        # Stable bootstrap ref-id for this main process; web-api echoes it on
+        # Stable bootstrap ref-id for this main process; video-analytics-api echoes it on
         # the upsert-all reply so we filter out other deployments' replies.
         self._config_bootstrap_ref_id = f"behavior-analytics-{uuid.uuid4().hex}"
         self._calibration_listener = self._load_calibration_listener()
