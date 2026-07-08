@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM nvcr.io/nvidia/cuda:13.0.0-runtime-ubuntu24.04
+FROM nvcr.io/nvidia/cuda:13.2.0-runtime-ubuntu24.04
 
 # Install all the dependent packages
 RUN apt-get update && \

@@ -57,11 +57,11 @@ If the user asks to **build the toolchain itself** (e.g. "build the toolchain fo
 ./build.sh arch=arm64 toolchain      # aarch64 cross-compile
 
 # Build + push (push REQUIRES a registry-qualified image name)
-./build.sh toolchain push=1 toolchain-image=<registry>/vios-build:x86-24.04-cuda13.0.0
-./build.sh arch=arm64 toolchain push=1 toolchain-image=<registry>/vios-build:aarch64-cross-compiler
+./build.sh toolchain push=1 toolchain-image=<registry>/vios-build:x86-devel-ubuntu24.04-cuda13.2.0
+./build.sh arch=arm64 toolchain push=1 toolchain-image=<registry>/vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0
 ```
 
-**Ask before pushing if no registry was given.** Pushing the default tag (`vios-build:x86-24.04-cuda13.0.0`) targets Docker Hub, which is almost never intended. If the user says "push to registry" without naming one, ask which registry / image path to use, then pass it via `toolchain-image=` (or `X86_BUILD_IMAGE`/`AARCH64_CC_IMAGE`). This is the one build case where you SHOULD ask a clarifying question. The same applies to `base-container push=1` (use `image-registry=<ref>`).
+**Ask before pushing if no registry was given.** Pushing the default tag (`vios-build:x86-devel-ubuntu24.04-cuda13.2.0`) targets Docker Hub, which is almost never intended. If the user says "push to registry" without naming one, ask which registry / image path to use, then pass it via `toolchain-image=` (or `X86_BUILD_IMAGE`/`AARCH64_CC_IMAGE`). This is the one build case where you SHOULD ask a clarifying question. The same applies to `base-container push=1` (use `image-registry=<ref>`).
 
 ---
 
