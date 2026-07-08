@@ -20,8 +20,8 @@ TOP := $(abspath $(lastword $(MAKEFILE_LIST))/..)
 # (see cicd_files/x86_64/devel and cicd_files/aarch64/devel), then either tag
 # to the defaults below or override per build on the environment / command line:
 #   make cc=0 X86_BUILD_IMAGE=<image> <target>
-AARCH64_CC_IMAGE ?= vios-build:aarch64-cross-compiler
-X86_BUILD_IMAGE  ?= vios-build:x86-24.04-cuda13.0.0
+AARCH64_CC_IMAGE ?= vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0
+X86_BUILD_IMAGE  ?= vios-build:x86-devel-ubuntu24.04-cuda13.2.0
 
 ifeq ($(cc),1)
 all:
