@@ -54,9 +54,9 @@ RT-VLM:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `RTVI_VLM_IMAGE_TAG` | `3.2.1` for x86 / Jetson Thor; `3.2.1-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1` and `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa`. |
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | Compose-internal base URL (container-to-container). Host-shell probes use published port `${HOST_IP}:8018`. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
+| `RTVI_VLM_URL` | `http://rtvi-vlm:8000` | video summarization-facing URL (compose-internal). |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default checkpoint. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
@@ -68,7 +68,7 @@ Video summarization service:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
+| `LVS_BACKEND_URL` | `http://lvs-server:38111` | Compose-internal video summarization URL. Host-shell probes use published port `${HOST_IP}:38111`. |
 | `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | Image repository. |
 | `LVS_TAG` | `3.2.1-rc1-d16a216` for x86 / Jetson Thor; `3.2.1-rc1-d16a216-arm64-sbsa` for SBSA / DGX Spark / Grace | Image tag in current develop. Full images: `nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.1-rc1-d16a216` and `nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.1-rc1-d16a216-arm64-sbsa`. The LVS image tag must match the host CPU platform, same convention as `RTVI_VLM_IMAGE_TAG` above. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
@@ -97,16 +97,16 @@ It maps profile env into container env. Important container env names:
 | `BACKEND_PORT` | `${BACKEND_PORT:-38111}` |
 | `LVS_MCP_PORT` | `${LVS_MCP_PORT:-38112}` |
 | `LVS_LLM_MODEL_NAME` | `${LVS_LLM_MODEL_NAME}` |
-| `LVS_LLM_BASE_URL` | `${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1` |
+| `LVS_LLM_BASE_URL` | `${LLM_BASE_URL:-http://vss-llm-nim:8000}/v1` |
 | `LVS_LLM_API_KEY` | `${OPENAI_API_KEY:-${NVIDIA_API_KEY}}` |
-| `VIA_VLM_ENDPOINT` | `${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/` |
+| `VIA_VLM_ENDPOINT` | `${VLM_BASE_URL:-http://rtvi-vlm:8000}/v1/` |
 | `LVS_EMB_ENABLE` | `${LVS_EMB_ENABLE}` |
 | `LVS_DATABASE_BACKEND` | `${LVS_DATABASE_BACKEND:-elasticsearch_db}` |
 | `ES_HOST`, `ES_PORT` | Elasticsearch connection. |
 | `GRAPH_DB_HOST`, `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD`, `GRAPH_DB_HTTP_PORT`, `GRAPH_DB_BOLT_PORT` | Neo4j graph backend connection. |
 | `ARANGO_DB_HOST`, `ARANGO_DB_USERNAME`, `ARANGO_DB_PASSWORD`, `ARANGO_DB_PORT` | ArangoDB graph backend connection. |
 | `KAFKA_ENABLED` | `${KAFKA_ENABLED:-false}` |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}` |
 | `RTVI_VLM_URL` | `${RTVI_VLM_URL:-}` |
 | `ENABLE_AUDIO` | `${ENABLE_AUDIO:-false}` |
