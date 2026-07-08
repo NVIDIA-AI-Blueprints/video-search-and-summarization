@@ -98,23 +98,26 @@ RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/cv2 \
        \) -delete 2>/dev/null || true
 
 # Security patch stage - download patched OpenSSL libraries
-# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.20-1~deb12u2
-# (bumped from 3.0.19-1~deb12u2, which Debian rotated out of the security pool — the
-#  pinned URL started returning 404 and broke the image build).
+# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: libssl3 must be >= 3.0.20-1~deb12u2.
+# Fetch the current build from bookworm-security via apt instead of a version-pinned
+# pool URL: Debian removes superseded .debs from the security pool, so pinned URLs
+# rot and 404 on every OpenSSL point release (3.0.19 and 3.0.20 both broke this way).
+# apt-get download resolves the target architecture natively (this stage runs on
+# TARGETPLATFORM under buildx).
 FROM debian:bookworm AS security-patches
-ARG TARGETARCH
 
-# Download the patched libssl3 package for the target architecture
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget ca-certificates && \
     mkdir -p /patches && \
-    if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb; \
-    fi && \
     cd /patches && \
-    dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \
+    apt-get download libssl3 && \
+    ver="$(dpkg-deb -f libssl3_*.deb Version)" && \
+    if ! dpkg --compare-versions "$ver" ge "3.0.20-1~deb12u2"; then \
+        echo "libssl3 $ver from bookworm-security is older than the CVE floor 3.0.20-1~deb12u2" >&2; \
+        exit 1; \
+    fi && \
+    echo "Using libssl3 $ver from bookworm-security" && \
+    dpkg-deb -x libssl3_*.deb /patches/libssl3-extracted && \
+    rm -f /patches/libssl3_*.deb && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime stage - using NVIDIA distroless production image (supports AMD64 and ARM64)
@@ -145,7 +148,7 @@ RUN ["/usr/local/bin/python3", "-c", "import os; os.remove('/tmp/cleanup_vulnera
 RUN ["/usr/local/bin/python3", "-c", "import os; os.path.exists('/usr/bin/openssl') and os.remove('/usr/bin/openssl')"]
 
 # Copy patched OpenSSL libraries to fix CVE-2025-69419, CVE-2025-69420, CVE-2025-15467
-# These replace the base image libssl3 with 3.0.19-1~deb12u2
+# These replace the base image libssl3 with the current bookworm-security build
 # Copy directly to architecture-specific paths where the runtime image expects them
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/x86_64-linux-gnu/
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/aarch64-linux-gnu/
