@@ -141,6 +141,13 @@ SID=$(curl -s -X POST "$VIOS/sensor/add" \
 #    streamprocessing container log line "Live proxy url: rtsp://<HOST_IP>:<PORT>/live/<SID>"
 #    (Finding B, 2026-06-17). Grep the log for $SID after /sensor/add succeeds, then extract the port.
 #    Feed THAT proxy URL to RT-VLM (use ${HOST_IP}, never localhost).
+#    Record the caption-topic baseline first — it proves the live RT-VLM path advanced Kafka after
+#    this stream was driven.
+CAPTIONS_BEFORE=$(docker exec kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 \
+  --topic mdx-vlm-captions \
+  | awk -F: '{sum += $3} END {print sum+0}')
+echo "mdx-vlm-captions baseline offset: $CAPTIONS_BEFORE"
 #    /v1/streams/add takes the {"streams":[{...}]} ENVELOPE (a flat {"liveStreamUrl":...} body is
 #    rejected with InvalidParameters "('body', 'streams'): Field required" — Finding F-D, 2026-06-02;
 #    matches integrate-rt-vlm.md § Inputs). The stream_id comes back under .results[0].id.
@@ -179,7 +186,12 @@ curl -s -N -X POST "$RTVLM/v1/generate_captions" \
   -d "{\"id\": \"$STREAM_ID\", \"model\": \"$MODEL_ID\", \"stream\": true, \"prompt\": \"Describe the scene.\", \"chunk_duration\": 10}"
 
 # 7. Assert captions land on Kafka mdx-vlm-captions AND in ES default_<id> FROM THE LIVE PATH.
-docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-vlm-captions   # offsets > 0
+CAPTIONS_AFTER=$(docker exec kafka kafka-get-offsets \
+  --bootstrap-server localhost:9092 \
+  --topic mdx-vlm-captions \
+  | awk -F: '{sum += $3} END {print sum+0}')
+echo "mdx-vlm-captions post-RT-VLM offset: $CAPTIONS_AFTER"
+test "$CAPTIONS_AFTER" -gt "$CAPTIONS_BEFORE"
 curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /^default_/ && $2+0 > 0'
 ```
 
