@@ -6,7 +6,9 @@ Operational reference for Workflow D (Alert Bridge realtime subscriptions) on th
 
 This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workflow D). The parent routes here when the user's message either contains rule-management keywords (`rule`, `subscription`, rule ID) **or** pairs a specific sensor name with a specific detection condition.
 
-**Precondition: VLM real-time mode only.** Parent SKILL gates invocation of this playbook; assume the VLM (`-m real-time` / `MODE=2d_vlm`) profile is deployed and the alert-bridge backend is reachable. CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
+**Precondition: VLM real-time mode only.** Parent SKILL gates invocation of this playbook; assume the VLM (`-m real-time` / `MODE=2d_vlm`) profile is deployed and the alert-bridge backend is reachable at `http://${HOST_IP}:9080`. CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
+
+> **Incident queries do NOT belong here — that is Workflow C, not D.** A "what happened / has been triggered" question — "any alerts today?", "any alerts so far today?", "what's been triggered?", "recent alerts", "anything detected lately?" — is an **incident** lookup → **Workflow C** (`GET /api/v1/realtime/incidents`). Do **NOT** answer it by listing rules (the bare `GET /api/v1/realtime` below). This playbook is only for rule **CRUD** — create / list / stop *rules*, never a query of past incidents.
 
 **Create — sensor + detection condition (routed here by parent even without "rule"/"subscription" keywords):**
 - "Set up a realtime alert on warehouse-dock-1 — flag anyone without a safety vest"
@@ -32,8 +34,8 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 - "Turn off the fire detection alert on cam-floor-2"
 - "Stop rule 496aebd1-16d0-4123-81cf-10603e047d02"
 
-**Not this skill** (handled by parent Workflow B instead):
-- "Start real-time alert for sensor warehouse_sample" — no detection condition specified, generic start
+**Condition-less start is handled here too:**
+- "Start a real-time alert on sensor warehouse_sample" — no detection condition specified. This still creates a rule; use the **default prompt** (see Create Step 1) instead of asking the user for a condition.
 
 ---
 
@@ -86,7 +88,9 @@ Example: *"Set up a realtime alert on warehouse-dock-1 — flag anyone entering 
 - `sensor_name` -> `warehouse-dock-1`
 - `prompt` -> `flag anyone entering aisle 4, aisle 5, or the rack B3 area without a safety vest`
 
-**Both fields are required.** If the sensor name is missing or ambiguous in the message, do NOT guess or pick a default sensor. Stop and ask the user: "Which sensor/camera do you want to monitor?" If the monitoring condition is missing, ask: "What condition should I watch for?" Never proceed to Step 2 without an explicit sensor name from the user.
+**The sensor name is required; the condition is optional.** If the sensor name is missing or ambiguous, do NOT guess or pick a default sensor — stop and ask: "Which sensor/camera do you want to monitor?" Never proceed to Step 2 without an explicit sensor name.
+
+If the **detection condition is missing** (a bare "start a real-time alert on `<sensor>`"), do NOT block — use the **default prompt** `"Describe any notable events or anomalies in this video stream."` with `alert_type` `general_monitoring`. Only these defaults substitute for a missing condition; a condition the user *does* give is always passed through verbatim.
 
 ---
 
@@ -119,7 +123,7 @@ Find the entry whose `name` matches the user's sensor name (case-insensitive). F
 - **`sensorId`** — e.g. `"2812768c-f21b-450e-a7be-2bbf406aaaa0"` → this becomes `sensor_id` in the payload
 - **`name`** — e.g. `"warehouse-dock-1"` → this becomes `sensor_name` in the payload
 
-If **no match** — reply with available sensor names and ask the user to clarify.
+If **no match** — **STOP here.** The named sensor does not exist in VIOS. Reply that `<sensor_name>` was **not found**, list the available sensor names, and ask the user to pick one. Do **NOT** invent or guess a `sensor_id` or `live_stream_url`, do **NOT** POST a rule to Alert Bridge, and do **NOT** report the alert as created — there is no sensor to attach it to. Reporting success for an unresolved sensor is a failure.
 If **multiple matches** — list them and ask which one the user meant.
 
 **2c. Fetch RTSP URL using the `sensorId`:**
