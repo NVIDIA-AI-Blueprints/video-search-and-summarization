@@ -4,7 +4,6 @@ description: Use this skill to ask a fresh visual question about a recorded vide
 license: Apache-2.0
 metadata:
   version: "3.2.0"
-  author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -173,6 +172,16 @@ Then go straight to Step 2 — **skip the Sensor check**.
 
 ### Path B — resolve from VST/VIOS (optional)
 
+> **Hard rule — on Path B the clip URL MUST come from VST.** When the video source is a VST
+> sensor / `streamId` (not a user-supplied local `VIDEO_FILE` or external URL), you **must**
+> obtain the clip by executing the VST clip-URL request below
+> (`GET /vst/api/v1/storage/file/<streamId>/url?startTime=…&endTime=…`) and binding its
+> `videoUrl` to `VIDEO_URL`. Do **not** skip this call by inlining some other local copy of the
+> clip as a `data:` base64 URI — that bypasses VST entirely and is wrong for this path. Inlining
+> is allowed **only after** the VST `videoUrl` is fetched and solely because a *remote* VLM can't
+> reach it (Step 3 then downloads *that* `VIDEO_URL` and base64-encodes it). The VST `/url` GET is
+> non-negotiable on Path B, even when the answer is a temporal question ("at what timestamp…").
+
 When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage` to:
 
 1. Confirm the named `<sensor-id>` exists (handled by the *Sensor check* above — required on
@@ -191,7 +200,9 @@ When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage
    Bind the result to `VIDEO_URL` (a direct `mp4` URL) and capture `CLIP_SECONDS`
    (endTime − startTime; default `15` if you analyzed the whole short clip). **If the `/url` call
    returns empty, fix the request — re-fetch timelines and pass `startTime`/`endTime`; do not
-   silently fall back to the local file on this VST path.**
+   silently fall back to the local file or a base64 data URI on this VST path.** This GET is the
+   single source of the clip on Path B (see the hard rule above); Step 3 may later inline the bytes
+   for a remote VLM, but only by downloading *this* `videoUrl`.
 
 Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
 target VLM — **Step 3 picks the right upload format**. A **local / in-cluster** VLM can usually
@@ -210,6 +221,23 @@ reachable OpenAI-compatible `chat/completions` endpoint:
 # Caller-provided (preferred when the full agent stack is not deployed):
 #   VLM_ENDPOINT  e.g. http://${HOST_IP}:30082/v1   (must end in /v1)
 #   VLM_MODEL     e.g. nvidia/cosmos-reason1-7b
+```
+
+Or, when only a **deployed VSS** is reachable (you have its **public URL**, not the VLM's own
+port), route through the VSS **ingress proxy** instead of hitting the VLM/RT-VLM port directly.
+The proxy exposes the active VLM (RT-VLM or NIM) under one stable path, so this works cross-host,
+without Docker access, and regardless of which backend the profile deployed:
+
+```bash
+#   VSS_ENDPOINT  e.g. http://<vss-public-host>:<ingress-port>   (the deployed VSS public URL)
+if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
+  _proxy="${VSS_ENDPOINT%/}/vlm/v1"                 # ingress VLM route (haproxy /vlm backend)
+  if curl -sf --max-time 5 "${_proxy}/models" >/dev/null 2>&1; then
+    VLM_ENDPOINT="${_proxy}"
+    VLM_MODEL="${VLM_MODEL:-$(curl -sf --max-time 5 "${_proxy}/models" | jq -r '.data[0].id // empty')}"
+    # If the VLM is token-gated behind the proxy, add: -H "Authorization: Bearer <token>"
+  fi
+fi
 ```
 
 Otherwise auto-discover the live endpoint from the running `vss-agent` container. The deploy may
@@ -293,18 +321,22 @@ place — follow *No default VLM selection?* below instead of silently failing.
 
 ### No default VLM selection? Discover first, then prompt (VIA-E-114-04)
 
-Discovery above always runs **first** — an explicit `VLM_ENDPOINT`, then the running `vss-agent`
-env, then the default ports (`:30082` NIM / `:8018` RT-VLM), each confirmed live with `/v1/models`.
-When that yields a reachable endpoint, use it and continue to Step 3 — **do not prompt**.
+Discovery above always runs **first** — an explicit `VLM_ENDPOINT`, then a deployed VSS via its
+public URL (`VSS_ENDPOINT` → ingress proxy `/vlm/v1`), then the running `vss-agent` env, then the
+default ports (`:30082` NIM / `:8018` RT-VLM), each confirmed live with `/v1/models`. When that
+yields a reachable endpoint, use it and continue to Step 3 — **do not prompt**.
 
 Only when **no** endpoint resolves (no default selection is in place) prompt the user for how to
 supply a VLM (HITL-optional — see the non-interactive default below). Offer three choices:
 
-1. **Provide an endpoint** — take `VLM_ENDPOINT` (+ optional `VLM_MODEL`), then re-probe
+1. **Provide a VLM endpoint** — take `VLM_ENDPOINT` (+ optional `VLM_MODEL`), then re-probe
    `/v1/models` and continue.
-2. **Pick a discovered suggestion** — list any endpoints that responded (from the `vss-agent`
-   env, or the default `:30082` / `:8018` ports) and let the user choose one.
-3. **Deploy a local RT-VLM** — hand off to
+2. **Provide a deployed VSS public URL** — take `VSS_ENDPOINT`; resolve the VLM through the VSS
+   ingress proxy (`${VSS_ENDPOINT%/}/vlm/v1`), confirm with `/v1/models`, then continue. Use this
+   when the VLM/RT-VLM port isn't directly reachable but the VSS ingress is.
+3. **Pick a discovered suggestion** — list any endpoints that responded (the VSS proxy, the
+   `vss-agent` env, or the default `:30082` / `:8018` ports) and let the user choose one.
+4. **Deploy a local RT-VLM** — hand off to
    [`/vss-deploy-dense-captioning`](../vss-deploy-dense-captioning/SKILL.md) (default model
    **cosmos-reason2-8b**, profile `bp_developer_alerts_2d_vlm`; this tracks the RT-VLM deploy
    default — cosmos-reason2 today, cosmos-reason3 once 3.2.1 ships), then resume against the
@@ -323,8 +355,8 @@ supply a VLM (HITL-optional — see the non-interactive default below). Offer th
 
 **Non-interactive / HITL-disabled (CI, headless agents):** do not block on a prompt. If a
 discovered endpoint already exists, use it; otherwise the default action is to **deploy a local
-RT-VLM** (option 3) and continue. Hard-fail only when a deploy is impossible (no GPU or no
-`NGC_CLI_API_KEY`), printing the three options above so the caller can set `VLM_ENDPOINT`.
+RT-VLM** (option 4) and continue. Hard-fail only when a deploy is impossible (no GPU or no
+`NGC_CLI_API_KEY`), printing the options above so the caller can set `VLM_ENDPOINT` / `VSS_ENDPOINT`.
 
 ---
 
@@ -378,9 +410,12 @@ fi
 
 # Derive backend if Step 2 was skipped (caller supplied VLM_ENDPOINT/VLM_MODEL directly).
 [ -z "${VLM_BACKEND:-}" ] && {
+  # Prefix-agnostic (matches the *cosmos* family used by the MM_KWARGS block below), so a
+  # self-hosted NIM advertising a bare id (e.g. cosmos-reason2-8b, no nvidia/ prefix) still
+  # resolves to nim_cosmos and gets the required frame-sampling kwargs.
   case "${VLM_MODEL:-}" in
-    nvidia/cosmos*) VLM_BACKEND="nim_cosmos" ;;
-    *)              VLM_BACKEND="rtvlm" ;;
+    *cosmos*) VLM_BACKEND="nim_cosmos" ;;
+    *)        VLM_BACKEND="rtvlm" ;;
   esac
 }
 
