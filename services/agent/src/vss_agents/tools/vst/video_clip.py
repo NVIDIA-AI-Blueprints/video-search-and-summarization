@@ -39,6 +39,8 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import model_validator
 
+from vss_agents.tools.video_understanding import _audio_error_message
+from vss_agents.tools.video_understanding import _classify_audio_error
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
 from vss_agents.tools.vst.utils import build_overlay_config
@@ -74,6 +76,11 @@ class VSTVideoClipConfig(FunctionBaseConfig, name="vst.video_clip"):
         False,
         description="When False (default), VST clip requests pass disableAudio=true (audio stripped; CR2-compatible). "
         "Set True for VLMs that accept audio (e.g. Nemotron Omni NIM) so VST uses disableAudio=false.",
+    )
+    enable_audio_fallback: bool = Field(
+        True,
+        description="When True, deterministic audio failures trigger one retry with disableAudio=true. "
+        "When False, audio-related failures return immediately.",
     )
 
 
@@ -261,7 +268,8 @@ async def get_video_url(
             with retry:
                 async with session.get(url) as response:
                     if response.status != 200:
-                        raise VSTError(f"Failed to get video clip URL: HTTP {response.status}")
+                        error_text = await response.text()
+                        raise VSTError(f"Failed to get video clip URL: HTTP {response.status}: {error_text}")
                     text = await response.text()
                     try:
                         result = json.loads(text)
@@ -289,16 +297,38 @@ async def vst_video_clip(config: VSTVideoClipConfig, _: Builder) -> AsyncGenerat
         """
         stream_id = await get_stream_id(vst_video_clip_input.sensor_id, config.vst_internal_url)
 
-        video_clip_url = await get_video_url(
-            stream_id,
-            vst_video_clip_input.start_time,
-            vst_video_clip_input.end_time,
-            config.vst_internal_url,
-            overlay_enabled=config.overlay_config,
-            object_ids=vst_video_clip_input.object_ids,
-            disable_audio=not config.enable_audio,
-        )
-        await validate_video_url(video_clip_url)
+        async def _resolve_video_clip_url(*, disable_audio: bool) -> str:
+            video_clip_url = await get_video_url(
+                stream_id,
+                vst_video_clip_input.start_time,
+                vst_video_clip_input.end_time,
+                config.vst_internal_url,
+                overlay_enabled=config.overlay_config,
+                object_ids=vst_video_clip_input.object_ids,
+                disable_audio=disable_audio,
+            )
+            await validate_video_url(video_clip_url)
+            return video_clip_url
+
+        try:
+            video_clip_url = await _resolve_video_clip_url(disable_audio=not config.enable_audio)
+        except Exception as e:
+            audio_error = _classify_audio_error(e) if config.enable_audio else None
+            if not audio_error:
+                raise
+            if config.enable_audio_fallback:
+                logger.warning(
+                    "Detected deterministic audio error (%s) from VST video clip for %s; retrying once with disableAudio=true.",
+                    audio_error,
+                    vst_video_clip_input.sensor_id,
+                )
+                video_clip_url = await _resolve_video_clip_url(disable_audio=True)
+            else:
+                friendly = _audio_error_message(audio_error)
+                raise ValueError(
+                    f"{friendly} Set enable_audio_fallback=true to retry once with audio disabled."
+                ) from e
+
         ext_base = config.vst_external_url.rstrip("/")
         path_only = urllib.parse.urlparse(video_clip_url).path
         video_clip_url = f"{ext_base}{path_only}"

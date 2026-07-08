@@ -66,6 +66,89 @@ _VLM_RETRYABLE_ERRORS = (
 )
 
 
+_AUDIO_INVALID_PATTERNS = (
+    "invalid or unsupported audio file",
+    "invalid audio",
+    "unsupported audio",
+    "unsupported audio file",
+    "unsupported audio format",
+    "audio file is invalid",
+    "audio format is not supported",
+)
+_AUDIO_NO_STREAM_PATTERNS = (
+    "no audio stream",
+    "video has no audio",
+    "contains no audio",
+    "audio stream not found",
+    "audio stream is missing",
+    "does not contain an audio stream",
+    "without an audio stream",
+)
+_AUDIO_CODEC_PATTERNS = (
+    "audio decode",
+    "decode audio",
+    "failed to decode audio",
+    "cannot decode audio",
+    "unsupported audio codec",
+    "audio decoder",
+    "audio codec",
+)
+_AUDIO_CODEC_GENERIC_PATTERNS = (
+    "codec not supported",
+    "unsupported codec",
+)
+
+
+class AudioProcessingError(RuntimeError):
+    """Raised for deterministic audio processing failures."""
+
+    def __init__(self, category: str, raw_error: Exception):
+        self.category = category
+        self.raw_error = raw_error
+        super().__init__(f"{category}: {raw_error}")
+
+
+def _extract_error_text(error: Exception) -> str:
+    """Extract normalized error text across OpenAI/aiohttp error types."""
+    parts = [str(error)]
+    body = getattr(error, "body", None)
+    if body:
+        parts.append(str(body))
+    response = getattr(error, "response", None)
+    if response is not None:
+        status_code = getattr(response, "status_code", None)
+        if status_code is not None:
+            parts.append(f"status_code={status_code}")
+        response_text = getattr(response, "text", None)
+        if response_text:
+            parts.append(str(response_text))
+    return " | ".join(parts).lower()
+
+
+def _classify_audio_error(error: Exception) -> str | None:
+    """Return deterministic audio error class if one is detected."""
+    text = _extract_error_text(error)
+    if "audio" not in text and "codec" not in text:
+        return None
+    if any(p in text for p in _AUDIO_NO_STREAM_PATTERNS):
+        return "no_audio_stream"
+    if any(p in text for p in _AUDIO_CODEC_PATTERNS):
+        return "audio_decode_or_unsupported_codec"
+    if "audio" in text and any(p in text for p in _AUDIO_CODEC_GENERIC_PATTERNS):
+        return "audio_decode_or_unsupported_codec"
+    if any(p in text for p in _AUDIO_INVALID_PATTERNS):
+        return "invalid_or_unsupported_audio_file"
+    return None
+
+
+def _audio_error_message(category: str) -> str:
+    if category == "no_audio_stream":
+        return "The requested video has no usable audio stream."
+    if category == "audio_decode_or_unsupported_codec":
+        return "Audio decoding failed because the audio codec is unsupported."
+    return "The provided audio track is invalid or unsupported."
+
+
 def _parse_thinking_from_content(content: str) -> tuple[str | None, str]:
     """
     Parse thinking content from VLM responses that use <think></think> and <answer></answer> tags.
@@ -258,6 +341,11 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
         description="When True, send the full MP4 via video_url (preserves audio for Omni VLMs). "
         "When False with VLM_MODE=remote, JPEG frame sampling is used instead. "
         "Align with vst.video_clip.enable_audio and ENABLE_AUDIO.",
+    )
+    enable_audio_fallback: bool = Field(
+        True,
+        description="When True, deterministic audio failures trigger one retry with audio disabled. "
+        "When False, audio-related failures return immediately.",
     )
 
 
@@ -568,25 +656,27 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         )
 
         # Bind VLM with dynamic num_frames
-        if is_cosmos_model:
-            media_io_kwargs = {"video": {"num_frames": num_frames}}
-            if is_cosmos_reason2:
-                mm_processor_kwargs = {"size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}}
-            else:
-                mm_processor_kwargs = {
-                    "videos_kwargs": {"min_pixels": config.min_pixels, "max_pixels": config.max_pixels}
-                }
-            vlm = base_vlm.bind(
-                mm_processor_kwargs=mm_processor_kwargs,
-                media_io_kwargs=media_io_kwargs,
-            )
-        elif config.enable_audio and _is_omni_audio_model(model_name):
-            # Nemotron Omni: MP4 audio is ignored unless use_audio_in_video is set.
-            # See NVIDIA NIM Omni API docs (mm_processor_kwargs).
-            vlm = base_vlm.bind(mm_processor_kwargs={"use_audio_in_video": True})
-            logger.info("VLM audio-in-video enabled (mm_processor_kwargs.use_audio_in_video=true)")
-        else:
-            vlm = base_vlm
+        def _build_vlm(enable_audio: bool):
+            if is_cosmos_model:
+                media_io_kwargs = {"video": {"num_frames": num_frames}}
+                if is_cosmos_reason2:
+                    mm_processor_kwargs = {
+                        "size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}
+                    }
+                else:
+                    mm_processor_kwargs = {
+                        "videos_kwargs": {"min_pixels": config.min_pixels, "max_pixels": config.max_pixels}
+                    }
+                return base_vlm.bind(
+                    mm_processor_kwargs=mm_processor_kwargs,
+                    media_io_kwargs=media_io_kwargs,
+                )
+            if enable_audio and _is_omni_audio_model(model_name):
+                # Nemotron Omni: MP4 audio is ignored unless use_audio_in_video is set.
+                # See NVIDIA NIM Omni API docs (mm_processor_kwargs).
+                logger.info("VLM audio-in-video enabled (mm_processor_kwargs.use_audio_in_video=true)")
+                return base_vlm.bind(mm_processor_kwargs={"use_audio_in_video": True})
+            return base_vlm
 
         # Select reasoning mode: default to config.reasoning if not specified in the input
         use_reasoning = (
@@ -597,7 +687,6 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
 
         prompt_template = reasoning_prompt_template if use_reasoning else non_reasoning_prompt_template
 
-        vlm_chain = prompt_template | vlm
         logger.info(f"VLM reasoning mode: {use_reasoning}")
 
         # Step 1: Get the video URL (different paths for S3 vs VST)
@@ -675,27 +764,64 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                 "Write your final answer immediately after the </think> tag."
             )
 
-        messages = await _build_vlm_messages(
-            video_url,
-            user_prompt,
-            use_base64=use_video_base64,
-            use_video_file_base64=use_video_file_base64,
-            video_length_seconds=video_length_seconds,
-            num_frames=num_frames,
-            max_fps=config.max_fps,
-        )
+        async def _invoke_video_understanding_call(enable_audio: bool, transient_retries: int = 1):
+            use_base64 = _should_use_video_base64(
+                use_base64=config.use_base64,
+                vlm_mode=config.vlm_mode,
+                enable_audio=enable_audio,
+                model_name=model_name,
+            )
+            use_file_base64 = _should_use_video_file_base64(
+                enable_audio=enable_audio,
+                vlm_mode=config.vlm_mode,
+                model_name=model_name,
+            )
+            messages = await _build_vlm_messages(
+                video_url,
+                user_prompt,
+                use_base64=use_base64,
+                use_video_file_base64=use_file_base64,
+                video_length_seconds=video_length_seconds,
+                num_frames=num_frames,
+                max_fps=config.max_fps,
+            )
+            chain = prompt_template | _build_vlm(enable_audio=enable_audio)
 
-        # Retry logic for VLM call — only retry transient errors (connection/timeout/5xx).
-        # Client errors like 400 (e.g. unsupported video format) are not retryable.
-        async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
-            with retry:
-                try:
-                    response = await vlm_chain.ainvoke({"messages": messages})
-                    logger.debug(f"Response: {response}")
-                    break
-                except Exception as e:
-                    logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
-                    raise e
+            if transient_retries <= 1:
+                return await chain.ainvoke({"messages": messages})
+
+            async for retry in create_retry_strategy(retries=transient_retries, exceptions=_VLM_RETRYABLE_ERRORS):
+                with retry:
+                    try:
+                        return await chain.ainvoke({"messages": messages})
+                    except Exception as e:
+                        if enable_audio:
+                            audio_error = _classify_audio_error(e)
+                            if audio_error:
+                                logger.warning(
+                                    "Detected deterministic audio error (%s) for %s; skipping audio-mode retries.",
+                                    audio_error,
+                                    video_understanding_input.sensor_id,
+                                )
+                                raise AudioProcessingError(audio_error, e) from e
+                        logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
+                        raise
+
+        try:
+            response = await _invoke_video_understanding_call(enable_audio=config.enable_audio, transient_retries=3)
+        except AudioProcessingError as e:
+            if config.enable_audio and config.enable_audio_fallback:
+                logger.warning(
+                    "Audio fallback enabled. Retrying once with audio disabled for %s (category=%s).",
+                    video_understanding_input.sensor_id,
+                    e.category,
+                )
+                response = await _invoke_video_understanding_call(enable_audio=False, transient_retries=2)
+            else:
+                friendly = _audio_error_message(e.category)
+                raise ValueError(
+                    f"{friendly} Set enable_audio_fallback=true to retry once with audio disabled."
+                ) from e.raw_error
 
         content = str(response.content) if response.content is not None else ""
         # Filter thinking traces

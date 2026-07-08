@@ -211,6 +211,16 @@ class TestVSTVideoClipInner:
         )
 
     @pytest.fixture
+    def config_audio_enabled(self):
+        return VSTVideoClipConfig(
+            vst_internal_url="http://10.0.0.1:30888",
+            vst_external_url="http://1.2.3.4:30888",
+            time_format="iso",
+            enable_audio=True,
+            enable_audio_fallback=True,
+        )
+
+    @pytest.fixture
     def mock_builder(self):
         return AsyncMock()
 
@@ -303,3 +313,56 @@ class TestVSTVideoClipInner:
                         object_ids=["obj-1", "obj-2"],
                         disable_audio=True,
                     )
+
+    @pytest.mark.asyncio
+    async def test_video_clip_falls_back_when_audio_error_detected(self, config_audio_enabled, mock_builder):
+        with patch("vss_agents.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+            mock_get_id.return_value = "stream-uuid"
+            with patch("vss_agents.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
+                mock_get_url.side_effect = [
+                    RuntimeError("Invalid or unsupported audio file"),
+                    "http://10.0.0.1:30888/vst/video.mp4",
+                ]
+                with patch("vss_agents.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
+                    gen = vst_video_clip.__wrapped__(config_audio_enabled, mock_builder)
+                    fi = await gen.__anext__()
+                    inner_fn = fi.single_fn
+                    inp = VSTVideoClipISOInput(
+                        sensor_id="camera1",
+                        start_time="2025-08-25T03:05:55.752Z",
+                        end_time="2025-08-25T03:06:15.752Z",
+                    )
+                    result = await inner_fn(inp)
+
+                    assert isinstance(result, VSTVideoClipOutput)
+                    assert result.stream_id == "stream-uuid"
+                    assert mock_get_url.call_count == 2
+                    first_disable = mock_get_url.call_args_list[0].kwargs["disable_audio"]
+                    second_disable = mock_get_url.call_args_list[1].kwargs["disable_audio"]
+                    assert first_disable is False
+                    assert second_disable is True
+
+    @pytest.mark.asyncio
+    async def test_video_clip_returns_clean_error_when_audio_fallback_disabled(self, mock_builder):
+        config = VSTVideoClipConfig(
+            vst_internal_url="http://10.0.0.1:30888",
+            vst_external_url="http://1.2.3.4:30888",
+            time_format="iso",
+            enable_audio=True,
+            enable_audio_fallback=False,
+        )
+        with patch("vss_agents.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+            mock_get_id.return_value = "stream-uuid"
+            with patch("vss_agents.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
+                mock_get_url.side_effect = RuntimeError("audio stream not found")
+                with patch("vss_agents.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
+                    gen = vst_video_clip.__wrapped__(config, mock_builder)
+                    fi = await gen.__anext__()
+                    inner_fn = fi.single_fn
+                    inp = VSTVideoClipISOInput(
+                        sensor_id="camera1",
+                        start_time="2025-08-25T03:05:55.752Z",
+                        end_time="2025-08-25T03:06:15.752Z",
+                    )
+                    with pytest.raises(ValueError, match="Set enable_audio_fallback=true"):
+                        await inner_fn(inp)
