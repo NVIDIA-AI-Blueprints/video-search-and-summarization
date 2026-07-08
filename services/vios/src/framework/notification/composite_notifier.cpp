@@ -17,8 +17,32 @@
 
 #include "composite_notifier.h"
 
+#include <algorithm>
+
+CompositeNotifier* CompositeNotifier::_instance = nullptr;
+std::mutex CompositeNotifier::_instanceMutex;
+
+CompositeNotifier* CompositeNotifier::getInstance()
+{
+    std::lock_guard<std::mutex> lock(_instanceMutex);
+    if (_instance == nullptr)
+    {
+        _instance = new CompositeNotifier();
+    }
+    return _instance;
+}
+
+void CompositeNotifier::deleteInstance()
+{
+    std::lock_guard<std::mutex> lock(_instanceMutex);
+    delete _instance;
+    _instance = nullptr;
+}
+
 CompositeNotifier::CompositeNotifier()
 {
+    // Children track their own connections; the composite itself is always ready.
+    m_connected = true;
 }
 
 CompositeNotifier::~CompositeNotifier()
@@ -26,11 +50,41 @@ CompositeNotifier::~CompositeNotifier()
     stopMessageProcessing();
 }
 
-bool CompositeNotifier::deliverMessage(Json::Value& /*message*/)
+void CompositeNotifier::addNotifier(nv_vms::INotificationInterface* notifier)
 {
+    if (notifier == nullptr || notifier == this)
+    {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_notifiersMutex);
+    if (std::find(m_notifiers.begin(), m_notifiers.end(), notifier) == m_notifiers.end())
+    {
+        m_notifiers.push_back(notifier);
+    }
+}
+
+size_t CompositeNotifier::notifierCount() const
+{
+    std::lock_guard<std::mutex> lock(m_notifiersMutex);
+    return m_notifiers.size();
+}
+
+bool CompositeNotifier::deliverMessage(Json::Value& message)
+{
+    std::vector<nv_vms::INotificationInterface*> notifiers;
+    {
+        std::lock_guard<std::mutex> lock(m_notifiersMutex);
+        notifiers = m_notifiers;
+    }
+    for (nv_vms::INotificationInterface* notifier : notifiers)
+    {
+        // sendMessage only enqueues; each child delivers and retries on its own worker.
+        notifier->sendMessage(message);
+    }
     return true;
 }
 
 void CompositeNotifier::retryConnection()
 {
+    // Nothing to reconnect at this level; children manage their own connections.
 }
