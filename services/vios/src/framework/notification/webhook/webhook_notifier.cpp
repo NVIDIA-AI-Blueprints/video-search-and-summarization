@@ -17,20 +17,570 @@
 
 #include "webhook_notifier.h"
 
-WebhookNotifier::WebhookNotifier()
+#include <algorithm>
+#include <cctype>
+#include <iomanip>
+#include <optional>
+#include <sstream>
+
+#include "config.h"
+#include "logger.h"
+#include "utils.h"
+
+namespace
 {
+constexpr int64_t DEFAULT_RETRY_BACKOFF_MS = 1000;
+
+// Supported alert-type trigger keys and the event field their value narrows on.
+struct AlertTrigger
+{
+    const char* m_alertType;
+    const char* m_filterField;
+};
+constexpr AlertTrigger KNOWN_ALERT_TRIGGERS[] = {
+    {"camera_status_change", "change"},
+    {"service_status_change", "service_status"},
+    {"sensor_metadata", ""},
+};
+
+// A header or query parameter value from config is either literal text
+// ("application/json") or "{{event.X}}", which copies field X from the
+// event block, e.g. "{{event.camera_id}}" for the streamId header. Returns
+// std::nullopt for anything else (field missing from the event, or a form we
+// do not support yet such as "Bearer {{secrets.token}}") so the caller omits
+// the header or parameter entirely.
+std::optional<std::string> resolveConfigValue(const std::string& configValue, const Json::Value& message)
+{
+    if (configValue.find("{{") == std::string::npos)
+    {
+        return configValue;  // plain literal
+    }
+    const std::string prefix = "{{event.";
+    const std::string suffix = "}}";
+    if (configValue.compare(0, prefix.size(), prefix) != 0 ||
+        configValue.size() <= prefix.size() + suffix.size() ||
+        configValue.compare(configValue.size() - suffix.size(), suffix.size(), suffix) != 0)
+    {
+        return std::nullopt;
+    }
+    const std::string field =
+        configValue.substr(prefix.size(), configValue.size() - prefix.size() - suffix.size());
+
+    const Json::Value event = message.get("event", Json::nullValue);
+    if (!event.isObject() || !event.isMember(field) ||
+        !event[field].isConvertibleTo(Json::stringValue))
+    {
+        return std::nullopt;
+    }
+    return event[field].asString();
+}
+
+std::string urlEncode(const std::string& value)
+{
+    std::ostringstream encoded;
+    encoded << std::hex << std::uppercase << std::setfill('0');
+    for (const char c : value)
+    {
+        const auto uc = static_cast<unsigned char>(c);
+        if (std::isalnum(uc) != 0 || c == '-' || c == '_' || c == '.' || c == '~')
+        {
+            encoded << c;
+        }
+        else
+        {
+            encoded << '%' << std::setw(2) << static_cast<int>(uc);
+        }
+    }
+    return encoded.str();
+}
+
+std::string jsonFieldAsString(const Json::Value& node, const char* key)
+{
+    if (!node.isObject())
+    {
+        return {};
+    }
+    const Json::Value value = node.get(key, Json::nullValue);
+    return value.isConvertibleTo(Json::stringValue) ? value.asString() : std::string();
+}
+
+// Identifies the event in logs without reproducing the payload, headers or URLs.
+std::string makeEventLabel(const Json::Value& message)
+{
+    std::string label = "event[" + jsonFieldAsString(message, "alert_type");
+    const Json::Value event = message.get("event", Json::nullValue);
+    const std::string change = jsonFieldAsString(event, "change");
+    if (!change.empty())
+    {
+        label += "/" + change;
+    }
+    std::string sensorId = jsonFieldAsString(event, "camera_id");
+    if (sensorId.empty())
+    {
+        sensorId = jsonFieldAsString(message, "id");
+    }
+    if (!sensorId.empty())
+    {
+        label += " sensor=" + sensorId;
+    }
+    return label + "]";
+}
+
+bool anyEnabledWebhook(const Json::Value& config)
+{
+    const Json::Value webhooks = config.get("webhooks", Json::nullValue);
+    if (!webhooks.isArray())
+    {
+        return false;
+    }
+    for (const Json::Value& entry : webhooks)
+    {
+        if (entry.isObject() && entry.get("enabled", false).asBool())
+        {
+            return true;
+        }
+    }
+    return false;
+}
+}  // unnamed namespace
+
+WebhookNotifier* WebhookNotifier::_instance = nullptr;
+std::mutex WebhookNotifier::_instanceMutex;
+
+WebhookNotifier* WebhookNotifier::getInstance()
+{
+    std::lock_guard<std::mutex> lock(_instanceMutex);
+    if (_instance == nullptr)
+    {
+        const Json::Value config = loadNotificationConfig(NOTIFICATION_CONFIG_FILE);
+        if (anyEnabledWebhook(config))
+        {
+            _instance = new WebhookNotifier(config);
+        }
+    }
+    return _instance;
+}
+
+void WebhookNotifier::deleteInstance()
+{
+    std::lock_guard<std::mutex> lock(_instanceMutex);
+    delete _instance;
+    _instance = nullptr;
+}
+
+WebhookNotifier::WebhookNotifier(const Json::Value& config)
+{
+    try
+    {
+        loadConfig(config);
+    }
+    catch (const std::exception& e)
+    {
+        LOG(error) << "Failed to parse webhook config: " << e.what() << endl;
+        m_webhooks.clear();
+    }
+    if (!m_webhooks.empty())
+    {
+        m_httpClient = std::make_unique<AsyncHttpClient>();
+        if (!m_httpClient->start())
+        {
+            LOG(error) << "Failed to start webhook HTTP client, webhook notifications disabled" << endl;
+            m_httpClient.reset();
+        }
+    }
+    // Delivery is per-request HTTP; there is no long-lived connection to lose.
+    m_connected = true;
 }
 
 WebhookNotifier::~WebhookNotifier()
 {
+    // Stop the queue worker first so no new submission races the client stop.
     stopMessageProcessing();
+    if (m_httpClient != nullptr)
+    {
+        // Aborted transfers reach onDeliveryComplete with CURLE_ABORTED_BY_CALLBACK,
+        // which never resubmits, so the callbacks drain before members are destroyed.
+        m_httpClient->stop();
+    }
 }
 
-bool WebhookNotifier::deliverMessage(Json::Value& /*message*/)
+void WebhookNotifier::loadConfig(const Json::Value& config)
 {
+    const Json::Value webhooks = config.get("webhooks", Json::nullValue);
+    if (!webhooks.isArray())
+    {
+        LOG(warning) << "Notification config has no webhooks array, webhook notifications disabled" << endl;
+        return;
+    }
+    size_t entryIndex = 0;
+    for (const Json::Value& entry : webhooks)
+    {
+        entryIndex++;
+        if (!entry.isObject())
+        {
+            LOG(error) << "Skipping malformed webhook config entry " << entryIndex << endl;
+            continue;
+        }
+        if (!entry.get("enabled", false).asBool())
+        {
+            LOG(info) << "Webhook entry " << entryIndex << " is disabled, skipping" << endl;
+            continue;
+        }
+
+        // The trigger is a supported alert-type key: "<alert_type>": "<filter value>".
+        WebhookConfig webhook;
+        std::string filterValue;
+        std::string filterField;
+        for (const AlertTrigger& trigger : KNOWN_ALERT_TRIGGERS)
+        {
+            if (entry.isMember(trigger.m_alertType))
+            {
+                webhook.m_alertType = trigger.m_alertType;
+                filterValue = jsonFieldAsString(entry, trigger.m_alertType);
+                filterField = trigger.m_filterField;
+                break;
+            }
+        }
+        if (webhook.m_alertType.empty())
+        {
+            LOG(error) << "Webhook entry " << entryIndex << " has no supported alert type key, skipping" << endl;
+            continue;
+        }
+        webhook.m_id = webhook.m_alertType + (filterValue.empty() ? "" : "/" + filterValue);
+        if (!filterValue.empty())
+        {
+            if (filterField.empty())
+            {
+                LOG(warning) << "Webhook " << webhook.m_id << ": alert type '" << webhook.m_alertType
+                             << "' has no filter field, matching every event of that type" << endl;
+            }
+            else
+            {
+                webhook.m_filterField = filterField;
+                webhook.m_filterValue = filterValue;
+            }
+        }
+
+        const Json::Value requests = entry.get("request", Json::nullValue);
+        if (!requests.isArray())
+        {
+            LOG(error) << "Webhook " << webhook.m_id << ": request must be an array, skipping" << endl;
+            continue;
+        }
+        for (const Json::Value& requestJson : requests)
+        {
+            if (!requestJson.isObject())
+            {
+                LOG(error) << "Webhook " << webhook.m_id << ": skipping malformed receiver entry" << endl;
+                continue;
+            }
+            RequestConfig requestConfig;
+            requestConfig.m_url = jsonFieldAsString(requestJson, "url");
+            if (requestConfig.m_url.empty())
+            {
+                LOG(error) << "Webhook " << webhook.m_id << ": receiver "
+                           << (webhook.m_requests.size() + 1) << " has no url, skipped" << endl;
+                continue;
+            }
+            requestConfig.m_method = jsonFieldAsString(requestJson, "method");
+            if (requestConfig.m_method.empty())
+            {
+                LOG(error) << "Webhook " << webhook.m_id << ": receiver "
+                           << (webhook.m_requests.size() + 1) << " has no method, skipped" << endl;
+                continue;
+            }
+            const Json::Value headers = requestJson.get("headers", Json::nullValue);
+            if (headers.isObject())
+            {
+                for (const std::string& name : headers.getMemberNames())
+                {
+                    requestConfig.m_headers.emplace_back(name, jsonFieldAsString(headers, name.c_str()));
+                }
+            }
+            const Json::Value queryParams = requestJson.get("query_params", Json::nullValue);
+            if (queryParams.isObject())
+            {
+                for (const std::string& name : queryParams.getMemberNames())
+                {
+                    requestConfig.m_queryParams.emplace_back(name,
+                                                             jsonFieldAsString(queryParams, name.c_str()));
+                }
+            }
+            const Json::Value timeoutMs = requestJson.get("timeout_ms", Json::nullValue);
+            if (timeoutMs.isNumeric())
+            {
+                requestConfig.m_timeoutMs = timeoutMs.asInt();
+            }
+
+            const Json::Value retry = requestJson.get("retry", Json::nullValue);
+            if (retry.isObject())
+            {
+                const Json::Value maxAttempts = retry.get("max_attempts", Json::nullValue);
+                if (maxAttempts.isNumeric())
+                {
+                    requestConfig.m_maxAttempts = std::max(1, maxAttempts.asInt());
+                }
+                const Json::Value backoffList = retry.get("backoff_ms", Json::nullValue);
+                if (backoffList.isArray())
+                {
+                    for (const Json::Value& backoff : backoffList)
+                    {
+                        if (backoff.isNumeric())
+                        {
+                            requestConfig.m_backoffMs.push_back(backoff.asInt64());
+                        }
+                    }
+                }
+                const Json::Value retryOnStatus = retry.get("retry_on_status", Json::nullValue);
+                if (retryOnStatus.isArray())
+                {
+                    for (const Json::Value& status : retryOnStatus)
+                    {
+                        if (status.isNumeric())
+                        {
+                            requestConfig.m_retryOnStatus.push_back(status.asInt());
+                        }
+                    }
+                }
+            }
+            webhook.m_requests.push_back(std::move(requestConfig));
+        }
+        if (webhook.m_requests.empty())
+        {
+            LOG(error) << "Webhook " << webhook.m_id << ": no valid receivers, skipping" << endl;
+            continue;
+        }
+
+        const std::string authType = jsonFieldAsString(entry.get("auth", Json::nullValue), "type");
+        if (!authType.empty())
+        {
+            LOG(warning) << "Webhook " << webhook.m_id << ": auth type '" << authType
+                         << "' is not supported yet, requests are sent unsigned" << endl;
+        }
+
+        LOG(info) << "Webhook " << webhook.m_id << " enabled with " << webhook.m_requests.size()
+                  << " receiver(s)" << endl;
+        m_webhooks.push_back(std::move(webhook));
+    }
+    LOG(info) << "Loaded " << m_webhooks.size() << " enabled webhook(s)" << endl;
+}
+
+bool WebhookNotifier::matches(const WebhookConfig& webhook, const Json::Value& message) const
+{
+    if (jsonFieldAsString(message, "alert_type") != webhook.m_alertType)
+    {
+        return false;
+    }
+    if (webhook.m_filterField.empty())
+    {
+        return true;  // no filter: every event of this alert type matches
+    }
+    const Json::Value event = message.get("event", Json::nullValue);
+    return jsonFieldAsString(event, webhook.m_filterField.c_str()) == webhook.m_filterValue;
+}
+
+AsyncHttpRequest WebhookNotifier::buildRequest(const RequestConfig& requestConfig,
+                                               const Json::Value& message,
+                                               const std::string& body,
+                                               const std::string& webhookId) const
+{
+    AsyncHttpRequest request;
+    request.m_url = requestConfig.m_url;
+    request.m_method = requestConfig.m_method;
+    request.m_body = body;
+    request.m_timeoutMs = requestConfig.m_timeoutMs;
+
+    for (const auto& [name, configValue] : requestConfig.m_headers)
+    {
+        std::optional<std::string> value = resolveConfigValue(configValue, message);
+        if (!value)
+        {
+            // Typically {{secrets.*}}: a broken credential header would be
+            // worse than no header at all.
+            LOG(verbose) << "Webhook " << webhookId << ": header '" << name
+                         << "' has an unresolved placeholder, omitted" << endl;
+            continue;
+        }
+        // Event fields can carry user-supplied text (e.g. sensor names);
+        // strip CR and LF so a crafted value cannot inject extra headers.
+        value->erase(std::remove_if(value->begin(), value->end(),
+                                    [](char c) { return c == '\r' || c == '\n'; }),
+                     value->end());
+        request.m_headers.push_back(name + ": " + *value);
+    }
+
+    std::string query;
+    for (const auto& [name, configValue] : requestConfig.m_queryParams)
+    {
+        const std::optional<std::string> value = resolveConfigValue(configValue, message);
+        if (!value)
+        {
+            LOG(verbose) << "Webhook " << webhookId << ": query parameter '" << name
+                         << "' has an unresolved placeholder, omitted" << endl;
+            continue;
+        }
+        query += (query.empty() ? "" : "&") + urlEncode(name) + "=" + urlEncode(*value);
+    }
+    if (!query.empty())
+    {
+        request.m_url += (request.m_url.find('?') == std::string::npos ? "?" : "&") + query;
+    }
+    return request;
+}
+
+bool WebhookNotifier::shouldRetryResponse(const RequestConfig& requestConfig,
+                                          const AsyncHttpResponse& response)
+{
+    if (!response.transportOk())
+    {
+        return true;
+    }
+    if (requestConfig.m_retryOnStatus.empty())
+    {
+        return true;
+    }
+    return std::find(requestConfig.m_retryOnStatus.begin(), requestConfig.m_retryOnStatus.end(),
+                     static_cast<int>(response.m_httpStatus)) != requestConfig.m_retryOnStatus.end();
+}
+
+int64_t WebhookNotifier::backoffMsForAttempt(const RequestConfig& requestConfig, int failedAttempt)
+{
+    if (requestConfig.m_backoffMs.empty())
+    {
+        return DEFAULT_RETRY_BACKOFF_MS;
+    }
+    const auto index =
+        std::min(static_cast<size_t>(failedAttempt), requestConfig.m_backoffMs.size() - 1);
+    return requestConfig.m_backoffMs[index];
+}
+
+bool WebhookNotifier::deliverMessage(Json::Value& message)
+{
+    // Always returns true: delivery is asynchronous from here on and retries
+    // are handled per receiver in onDeliveryComplete, not by the base queue.
+    if (m_webhooks.empty())
+    {
+        return true;
+    }
+    const Json::Value& event = message;
+    const std::string loggingLabel = makeEventLabel(event);
+    if (m_httpClient == nullptr || !m_httpClient->isRunning())
+    {
+        LOG(error) << "Webhook HTTP client not running, dropping " << loggingLabel << endl;
+        return true;
+    }
+    const std::string body = jsonToString(event);
+
+    size_t matched = 0;
+    for (size_t i = 0; i < m_webhooks.size(); i++)
+    {
+        const WebhookConfig& webhook = m_webhooks[i];
+        if (!matches(webhook, event))
+        {
+            continue;
+        }
+        matched++;
+        for (size_t r = 0; r < webhook.m_requests.size(); r++)
+        {
+            const RequestConfig& requestConfig = webhook.m_requests[r];
+            LOG(info) << "Webhook " << webhook.m_id << ": delivering " << loggingLabel << " to receiver "
+                      << (r + 1) << "/" << webhook.m_requests.size() << " (attempt 1/"
+                      << requestConfig.m_maxAttempts << ")" << endl;
+            DeliveryState state;
+            state.m_webhookIndex = i;
+            state.m_requestIndex = r;
+            state.m_attempt = 0;
+            state.m_eventLabel = loggingLabel;
+            state.m_request = buildRequest(requestConfig, event, body, webhook.m_id);
+            submitDelivery(std::move(state), 0);
+        }
+    }
+    if (matched == 0)
+    {
+        LOG(info) << "No webhook matched " << loggingLabel << endl;
+    }
     return true;
 }
 
 void WebhookNotifier::retryConnection()
 {
+    // Nothing to reconnect: each delivery is an independent HTTP request and
+    // m_connected stays true from construction.
+}
+
+void WebhookNotifier::submitDelivery(DeliveryState state, int64_t delayMs)
+{
+    const std::string webhookId = m_webhooks[state.m_webhookIndex].m_id;
+    const std::string eventLabel = state.m_eventLabel;
+    AsyncHttpRequest request = state.m_request;
+    const bool submitted = m_httpClient->submit(
+        std::move(request),
+        [this](const AsyncHttpResponse& response, const std::any& userData) {
+            onDeliveryComplete(response, userData);
+        },
+        std::move(state), delayMs);
+    if (!submitted)
+    {
+        LOG(error) << "Webhook " << webhookId << ": failed to enqueue " << eventLabel << endl;
+    }
+}
+
+void WebhookNotifier::onDeliveryComplete(const AsyncHttpResponse& response, const std::any& userData)
+{
+    const DeliveryState* state = std::any_cast<DeliveryState>(&userData);
+    if (state == nullptr || state->m_webhookIndex >= m_webhooks.size() ||
+        state->m_requestIndex >= m_webhooks[state->m_webhookIndex].m_requests.size())
+    {
+        LOG(error) << "Webhook completion carries no valid delivery state" << endl;
+        return;
+    }
+    const WebhookConfig& webhook = m_webhooks[state->m_webhookIndex];
+    const RequestConfig& requestConfig = webhook.m_requests[state->m_requestIndex];
+    const std::string receiver = "receiver " + std::to_string(state->m_requestIndex + 1) + "/" +
+                                 std::to_string(webhook.m_requests.size());
+    const int attemptNumber = state->m_attempt + 1;
+
+    if (response.transportOk() && response.m_httpStatus >= 200 && response.m_httpStatus < 300)
+    {
+        LOG(info) << "Webhook " << webhook.m_id << ": delivered " << state->m_eventLabel << " to "
+                  << receiver << ", HTTP " << response.m_httpStatus << " (attempt " << attemptNumber
+                  << "/" << requestConfig.m_maxAttempts << ")" << endl;
+        return;
+    }
+
+    if (response.m_curlCode == CURLE_ABORTED_BY_CALLBACK)
+    {
+        // The client is shutting down; a resubmit would be rejected anyway.
+        LOG(warning) << "Webhook " << webhook.m_id << ": delivery of " << state->m_eventLabel
+                     << " to " << receiver << " aborted by shutdown" << endl;
+        return;
+    }
+
+    const std::string failure = response.transportOk()
+        ? "unexpected HTTP " + std::to_string(response.m_httpStatus)
+        : "transport error: " + response.m_error;
+
+    if (!shouldRetryResponse(requestConfig, response))
+    {
+        LOG(error) << "Webhook " << webhook.m_id << ": " << failure << " for " << state->m_eventLabel
+                   << " to " << receiver << " is not retryable, giving up" << endl;
+        return;
+    }
+
+    if (attemptNumber >= requestConfig.m_maxAttempts)
+    {
+        LOG(error) << "Webhook " << webhook.m_id << ": giving up on " << state->m_eventLabel
+                   << " to " << receiver << " after attempt " << attemptNumber << "/"
+                   << requestConfig.m_maxAttempts << ": " << failure << endl;
+        return;
+    }
+
+    const int64_t backoffMs = backoffMsForAttempt(requestConfig, state->m_attempt);
+    LOG(warning) << "Webhook " << webhook.m_id << ": " << failure << " for " << state->m_eventLabel
+                 << " to " << receiver << " (attempt " << attemptNumber << "/"
+                 << requestConfig.m_maxAttempts << "), retrying in " << backoffMs << " ms" << endl;
+
+    DeliveryState next = *state;
+    next.m_attempt++;
+    submitDelivery(std::move(next), backoffMs);
 }
