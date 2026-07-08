@@ -83,7 +83,7 @@ ls -lh "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
 
 ### Step 2b — If VIOS is already running, confirm `VIOS_BASE_URL`
 
-AMC's RTSP-stream calibration path calls VIOS over `${VIOS_BASE_URL}`. The warehouse-operations `.env` defaults to `VIOS_BASE_URL=${VST_INTERNAL_URL}` (which resolves to `http://${HOST_IP}:${VST_PORT}`). That default is correct when VIOS/VST comes up as part of the same compose stack — but if you're standing AMC up next to a **pre-existing** VIOS (separate image / different namespace / from another compose project), the default may point at nothing.
+AMC's RTSP-stream calibration path calls VIOS over `${VIOS_BASE_URL}`. The warehouse-operations `.env` defaults to `VIOS_BASE_URL=${VST_INTERNAL_URL}` (which resolves to `http://vst-ingress:${VST_PORT}` — compose-internal DNS). That default is correct when VIOS/VST comes up as part of the same compose stack — but if you're standing AMC up next to a **pre-existing** VIOS (separate image / different namespace / from another compose project), the default may point at nothing.
 
 Detect first:
 
@@ -98,7 +98,7 @@ If VIOS is running, **before** the dry-run in Step 3:
    grep -E "^VIOS_BASE_URL=" deploy/docker/industry-profiles/warehouse-operations/.env \
      || echo 'VIOS_BASE_URL=${VST_INTERNAL_URL}' >> deploy/docker/industry-profiles/warehouse-operations/.env
    ```
-2. Verify the URL actually points at the running VIOS. The default assumes `${HOST_IP}:${VST_PORT}` — check both:
+2. Verify the URL actually points at the running VIOS. The default resolves to `vst-ingress:${VST_PORT}` (compose DNS) — check both:
    ```bash
    grep -E "^(HOST_IP|VST_PORT)=" deploy/docker/industry-profiles/warehouse-operations/.env
    docker port vst-ingress 2>/dev/null   # or whichever VIOS ingress container is running

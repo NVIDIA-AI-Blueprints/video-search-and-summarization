@@ -85,7 +85,7 @@ Video summarization service values:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
+| `LVS_BACKEND_URL` | `http://lvs-server:38111` | Compose-internal video summarization URL. Host-shell probes use published port `${HOST_IP}:38111`. |
 | `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | video summarization image repository. |
 | `LVS_TAG` | `3.2.1-rc1-d16a216` (x86 / Jetson Thor); `3.2.1-rc1-d16a216-arm64-sbsa` (SBSA / DGX Spark / Grace) | video summarization image tag in current develop. The tag must match the host CPU platform. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
@@ -248,8 +248,8 @@ RT-VLM values:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing RT-VLM URL. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing RT-VLM URL. |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | Compose-internal RT-VLM URL. Host-shell probes use published port `${HOST_IP}:8018`. |
+| `RTVI_VLM_URL` | `http://rtvi-vlm:8000` | video summarization-facing RT-VLM URL (compose-internal). |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | RT-VLM backend selector for default integrated mode. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default integrated checkpoint. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw captions to Kafka. |
