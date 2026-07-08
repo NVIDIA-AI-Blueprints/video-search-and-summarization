@@ -619,7 +619,8 @@ TEST_SRCS := test/gtests/test_main.cpp \
              test/gtests/rtspserver.cpp \
              test/gtests/replaystream.cpp \
              test/gtests/livestream.cpp \
-             test/gtests/async_http_client.cpp
+             test/gtests/async_http_client.cpp \
+             test/gtests/webhook_notifier.cpp
 
 TEST_OBJS := $(TEST_SRCS:.cpp=.o)
 
