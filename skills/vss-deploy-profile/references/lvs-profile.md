@@ -6,7 +6,7 @@ Long-video summarization. The LLM stack is identical to `base` (`base.md`) — s
 
 ## What's different from `base`
 
-- **No SDR, Envoy, or SDRC router.** VST sensor and ingress talk to **vss-vios-streamprocessing** on **:30001** directly (`VST_USE_SDRC=false`, `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001`, `VST_NGINX_MODE=vst`). Alerts/search use **SDRC** on **:10000** instead.
+- **No SDR, Envoy, or SDRC router.** VST sensor and ingress talk to **vss-vios-streamprocessing** on **:30001** directly (`STREAM_PROCESSOR_MODULE_ENDPOINT`, `VST_NGINX_MODE=vst-direct`). Alerts/search use **SDRC** on **:10000** instead.
 - **No standalone VLM NIM service.** The `vlm_local_*_<slug>` compose profile is *not* enabled for LVS. The VLM lives inside the `rtvi-vlm` container.
 - **`rtvi-vlm` (port 8018) is the VLM serving layer.** It can load a VLM checkpoint directly (integrated mode) or proxy to a remote OpenAI-compatible endpoint.
 - **RT-VLM image tags:** x86 / Jetson Thor uses `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1`; SBSA / DGX Spark / Grace uses `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa`.
