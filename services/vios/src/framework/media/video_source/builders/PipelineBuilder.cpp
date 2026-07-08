@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +27,8 @@
 #include "utils.h"
 #include "media_producer.h"
 #include "stream_monitor.h"
+#include "../producers/basler_stream_monitor.h"
+#include "config.h"
 #include "s3stream_producer.h"
 #include "clip_reader_producer.h"
 #include <thread>
@@ -40,7 +42,27 @@ std::shared_ptr<IMediaDataProducer> PipelineBuilder::createSourceProducer(
     std::shared_ptr<IMediaDataProducer> producer = nullptr;
     
     // Determine the type of source producer based on URL
-    if (url.find("webrtc://") == 0 || url.find("webrtc/") != std::string::npos)
+
+    // Basler uses a synthetic rtsp:// URL; check before the generic rtsp:// branch.
+    if (url.find(NV_BASLER_SENSOR) != std::string::npos)
+    {
+        const std::string token = std::string(NV_BASLER_SENSOR) + "/";
+        std::string streamId = url.substr(url.find(token) + token.size());
+        const size_t qpos = streamId.find('?');
+        if (qpos != std::string::npos)
+        {
+            streamId = streamId.substr(0, qpos);
+        }
+        producer = BaslerStreamMonitor::getInstance()->getProducer(streamId);
+        if (!producer)
+        {
+            LOG(error) << "BaslerStreamProducer not found for streamId: " << streamId
+                       << " (url: " << url << ")" << endl;
+            return nullptr;
+        }
+        LOG(info) << "Using BaslerStreamProducer as source for streamId: " << streamId << endl;
+    }
+    else if (url.find("webrtc://") == 0 || url.find("webrtc/") != std::string::npos)
     {
         // WebRTC stream producer - use custom deleter to avoid deleting singleton
         producer = std::shared_ptr<IMediaDataProducer>(

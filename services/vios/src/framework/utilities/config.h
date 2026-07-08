@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,6 +81,7 @@ inline constexpr const char* REPLAY_STREAM_MODULE_DEFAULT_ENDPOINT = "http://loc
 inline constexpr const char* LIVE_STREAM_MODULE_DEFAULT_ENDPOINT = "http://localhost:30000";
 
 inline constexpr const char* NV_CSI_SENSOR = "csi_sensor";
+inline constexpr const char* NV_BASLER_SENSOR = "basler_sensor";
 
 namespace nv_vms {
 

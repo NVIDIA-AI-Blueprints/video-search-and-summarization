@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -85,6 +85,9 @@ add_common_files() {
 			mappings+=("prebuilts/${ARCH}/libremotedevice.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libremotedevice.so")
 			mappings+=("prebuilts/${ARCH}/libnativesensors_discovery.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnativesensors_discovery.so")
 			mappings+=("prebuilts/${ARCH}/libnativesensors_control.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnativesensors_control.so")
+			if [[ -f "${TOP}/prebuilts/${ARCH}/libbasler_discovery.so" ]]; then
+				mappings+=("prebuilts/${ARCH}/libbasler_discovery.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libbasler_discovery.so")
+			fi
 		fi
 	fi
 	# PROJECT = nvstreamer
@@ -135,9 +138,16 @@ add_common_files() {
 	mappings+=("prebuilts/${ARCH}/libnvutils.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvutils.so")
 	mappings+=("prebuilts/${ARCH}/libnvdatabase.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvdatabase.so")
 	mappings+=("packaging/user_additional_install.sh=${PACKAGE_DIR}/tools/user_additional_install.sh")
+	if [[ -f "${TOP}/packaging/install_pylon.sh" ]]; then
+		mappings+=("packaging/install_pylon.sh=${PACKAGE_DIR}/tools/install_pylon.sh")
+	fi
 	mappings+=("prebuilts/${ARCH}/libnvsystemmonitoring.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvsystemmonitoring.so")
 	mappings+=("prebuilts/${ARCH}/libnvvideo_source.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvvideo_source.so")
 	mappings+=("prebuilts/${ARCH}/libnvoverlays.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvoverlays.so")
+	# Basler producer: opt-in, package only if built (requires pylon SDK).
+	if [[ -f "${TOP}/prebuilts/${ARCH}/libbasler_producer.so" ]] && { [[ -z ${MODULE} ]] || [[ ${MODULE} = streamprocessing ]]; }; then
+		mappings+=("prebuilts/${ARCH}/libbasler_producer.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libbasler_producer.so")
+	fi
 	if [[ -z ${MODULE} ]] || [[ ${MODULE} = sensor ]] || [[ ${MODULE} = streambridge ]]; then
 		mappings+=("prebuilts/${ARCH}/libnvsensormanagement.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvsensormanagement.so")
 	fi

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,6 +35,14 @@
 #ifdef UNIT_TEST
 #include <cstdlib>
 #endif
+
+namespace {
+// Basler streams reuse SourceTypeLive; distinguish them from WebRTC by the "basler-" prefix.
+bool isBaslerLiveStream(const std::string& streamId)
+{
+    return streamId.rfind("basler-", 0) == 0;
+}
+}  // namespace
 
 DynamicRTSPServer*
 DynamicRTSPServer::createNew(UsageEnvironment& env, Port ourPort,
@@ -365,6 +373,38 @@ void DynamicRTSPServer
     }
   }
 #endif /* UNIT_TEST */
+  else if(stream_name.find(NV_BASLER_SENSOR) != std::string::npos)
+  {
+      LOG(info) << "RTSP lookup: Basler Stream Name: " << stream_name << std::endl;
+      string token(string(NV_BASLER_SENSOR) + string("/"));
+      string url = stream_name.substr(stream_name.find(token) + token.size());
+
+      string sensorId, url_params;
+      if (url.find("?") != string::npos)
+      {
+          sensorId = url.substr(0, url.find("?"));
+          url_params = url.substr(url.find("?") + 1);
+      }
+      else
+      {
+          sensorId = url;
+          url_params = "";
+      }
+
+      if (sensorId.empty())
+      {
+        if (completionFunc != nullptr)
+        {
+            (*completionFunc)(completionClientData, sms);
+        }
+        return;
+      }
+
+      LOG(info) << "Basler sensorId: " << sensorId << ", url_params:" << url_params << endl;
+      // In-process producer: reuse SourceTypeLive like WebRTC.
+      sms = createNewSMS(envir(), sensorId, SourceTypeLive, url_params);
+      addServerMediaSession(sms);
+  }
   else if(stream_name.find(NV_CSI_SENSOR) != std::string::npos)
   {
       LOG(info) << "RTSP lookup: CSI Stream Name: " << stream_name << std::endl;
@@ -443,8 +483,17 @@ static ServerMediaSession* createNewSMS(UsageEnvironment& env,
         video_session = true;
         if (sourceType == SourceTypeLive)
         {
-            video_session = WebrtcStreamProducer::getInstance()->isVideoTrackEnabled(streamName);
-            audio_session = WebrtcStreamProducer::getInstance()->isAudioTrackEnabled(streamName);
+            if (isBaslerLiveStream(streamName))
+            {
+                // Basler is video-only; skip WebRTC track query to avoid an empty SDP.
+                video_session = true;
+                audio_session = false;
+            }
+            else
+            {
+                video_session = WebrtcStreamProducer::getInstance()->isVideoTrackEnabled(streamName);
+                audio_session = WebrtcStreamProducer::getInstance()->isAudioTrackEnabled(streamName);
+            }
         }
     }
 

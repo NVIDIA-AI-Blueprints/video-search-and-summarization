@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,6 +23,7 @@
 #include "vst_common.h"
 #include "stream_event_manager.h"
 #include "stream_monitor.h"
+#include "basler_stream_monitor.h"
 #include "database.h"
 #include "health_probes.h"
 #include <string_view>
@@ -256,6 +257,47 @@ void RtspServerManager::handleRESTAPIs()
                     return VmsErrorCode::NoError;
                 }
             }
+        }
+
+        // Basler has no RTSP backend; register the stream directly without a live555 proxy.
+        if (url.find(NV_BASLER_SENSOR) != string::npos || sensor_type == SENSOR_TYPE_BASLER)
+        {
+            string prefixUrl;
+            m_lb.addStream(id, prefixUrl);  // assign a server (round-robin); no proxy/DESCRIBE
+            string live_proxy_url = prefixUrl + string(NV_BASLER_SENSOR) + string("/") + id;
+            string vodUrl = vst_rtsp::vodServerDomainPrefix(id) + string("vod/") + id;
+
+            RtspServer* server = m_lb.rtspServer(id);
+            if (server == nullptr)
+            {
+                string error_message = "No RTSP server available for basler stream";
+                LOG(error) << error_message << " id:" << id << endl;
+                SET_VMS_ERROR2(VmsErrorCode::VMSInternalError, out, error_message.c_str())
+                return VmsErrorCode::VMSInternalError;
+            }
+
+            Json::Value params;
+            params["vodUrl"]     = vodUrl;
+            params["codec"]      = codec.empty() ? string("h264") : codec;
+            params["resolution"] = resolution;
+            params["framerate"]  = framerate;
+            params["tags"]       = tags;
+            server->registerStreamAsync(id, name, live_proxy_url, params);
+
+            // Strip "basler-" prefix to recover the serial, then start the producer.
+            string serial = id;
+            const string baslerPrefix = string("basler-");
+            if (serial.rfind(baslerPrefix, 0) == 0)
+            {
+                serial = serial.substr(baslerPrefix.size());
+            }
+            BaslerStreamMonitor::getInstance()->addStream(id, serial);
+
+            out["url"]    = live_proxy_url;
+            out["vodUrl"] = vodUrl;
+            LOG(info) << "Accepted basler camera_proxy; stream brought to streaming: id=" << id
+                      << " url=" << secureUrlForLogging(live_proxy_url) << endl;
+            return VmsErrorCode::NoError;
         }
 
         LOG(info) << "Creating proxy stream for url:" << secureUrlForLogging(url) << " id:" << id << " name:" << name << endl;

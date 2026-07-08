@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,6 +41,7 @@
 #ifdef ENABLE_NATIVE_STREAM_MONITOR
 #include "native_stream_monitor.h"
 #endif
+#include "basler_stream_monitor.h"
 #include "sqlite_helper.h"
 #if !defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
 #include "postgresql_helper.h"
@@ -117,6 +118,21 @@ namespace nv_vms
                     m_mux->setConsumerMediaType(MediaTypeVideo);
                     NativeStreamMonitor::getInstance()->registerDataCallback(m_deviceId, m_mux, BITSTREAM_H265);
 #endif
+                }
+                else if (m_uri.find(NV_BASLER_SENSOR) != std::string::npos)
+                {
+                    // Basler frames come from BaslerStreamProducer, not an RTSP source.
+                    m_baslerStream = true;
+                    m_mux->setConsumerMediaType(MediaTypeVideo);
+                    auto producer = BaslerStreamMonitor::getInstance()->getProducer(m_streamId);
+                    if (producer)
+                    {
+                        producer->registerConsumer(m_mux, m_streamId);
+                    }
+                    else
+                    {
+                        LOG(error) << "Basler producer not found for streamId:" << m_streamId << endl;
+                    }
                 }
                 else
                 {
@@ -223,6 +239,14 @@ namespace nv_vms
                     NativeStreamMonitor::getInstance()->deregisterDataCallback(m_mux, m_deviceId, BITSTREAM_H265);
 #endif
                 }
+                else if (m_baslerStream)
+                {
+                    auto producer = BaslerStreamMonitor::getInstance()->getProducer(m_streamId);
+                    if (producer)
+                    {
+                        producer->unregisterConsumer(m_mux, m_streamId);
+                    }
+                }
                 else
                 {
                     StreamMonitor::getInstance()->deregisterDataCallback(m_mux, m_uri);
@@ -292,5 +316,6 @@ namespace nv_vms
         std::string m_streamId;
         bool m_webrtcDevice{false};
         bool m_nativeStream{false};
+        bool m_baslerStream{false};
     };
 }

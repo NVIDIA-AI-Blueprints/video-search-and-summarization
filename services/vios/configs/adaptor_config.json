@@ -102,6 +102,17 @@
 			"need_recording": true,
 			"need_storage_management": true,
 			"control_adaptor_lib_path":"prebuilts/arch/rtsp_streams.so"
+		},
+		{
+			"enabled":false,
+			"id":"e689738a-5cc2-4dbb-bacc-047a2e681423",
+			"name":"basler",
+			"type":"vst",
+			"need_rtsp_server": true,
+			"need_stream_monitoring": false,
+			"need_recording": true,
+			"need_storage_management": true,
+			"discovery_adaptor_lib_path":"prebuilts/arch/libbasler_discovery.so"
 		}
 	]
 }

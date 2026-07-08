@@ -22,10 +22,16 @@ services:
     image: ${VST_SENSOR_IMAGE}
     user: "0:0"
     runtime: nvidia
-    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
+    # LD_PRELOAD is gated on INSTALL_PYLON=1 to avoid preloading absent pylon
+    # libs on the default image.
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$INSTALL_PYLON\" = \"1\" ]; then /home/vst/vst_release/tools/install_pylon.sh; export LD_PRELOAD=/opt/pylon/lib/libpylonbase.so:/opt/pylon/lib/libpylonutility.so; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - CONTAINER_NAME=sensor-ms
       - ADAPTOR=${VST_ADAPTOR}
+      # LD_PRELOAD is required so the adaptor .so resolves pylon typeinfo at
+      # dlopen time (typeinfo cannot bind lazily).
+      - INSTALL_PYLON=${INSTALL_PYLON:-0}
+      - PYLON_ROOT=/opt/pylon
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false
@@ -42,6 +48,8 @@ services:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      # Basler pylon SDK bind-mounted read-only from the host.
+      - ${PYLON_HOST_PATH:-/opt/pylon}:/opt/pylon:ro
     network_mode: host
     container_name: sensor-ms
     restart: unless-stopped

@@ -92,6 +92,17 @@
 		},
 		{
 			"enabled":false,
+			"id":"e689738a-5cc2-4dbb-bacc-047a2e681423",
+			"name":"basler",
+			"type":"vst",
+			"need_rtsp_server": true,
+			"need_stream_monitoring": false,
+			"need_recording": true,
+			"need_storage_management": true,
+			"discovery_adaptor_lib_path":"prebuilts/arch/libbasler_discovery.so"
+		},
+		{
+			"enabled":false,
 			"id":"b42cf1ba-1ccf-4bac-979e-a4e28bd98044",
 			"name":"test_vms",
 			"type":"vst",

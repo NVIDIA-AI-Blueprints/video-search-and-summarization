@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,11 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Basler discovery is opt-in: only recurse when pylon-config is present.
+PYLON_ROOT ?= /opt/pylon
+BUILD_BASLER_DISCOVERY := $(wildcard $(PYLON_ROOT)/bin/pylon-config)
+
 all:
 	$(MAKE) -C ./milestone/
 	$(MAKE) -C ./onvif/
 	$(MAKE) -C ./sensors_discovery/onvif
 	$(MAKE) -C ./sensors_discovery/native_sensors
+ifneq ($(BUILD_BASLER_DISCOVERY),)
+	$(MAKE) -C ./sensors_discovery/basler
+endif
 	$(MAKE) -C ./streamer/
 	$(MAKE) -C ./rtsp_streams/
 	$(MAKE) -C ./remote_device/
@@ -30,6 +37,9 @@ all:
 	$(MAKE) -C ./onvif/ soclean
 	$(MAKE) -C ./sensors_discovery/onvif soclean
 	$(MAKE) -C ./sensors_discovery/native_sensors soclean
+ifneq ($(BUILD_BASLER_DISCOVERY),)
+	$(MAKE) -C ./sensors_discovery/basler soclean
+endif
 	$(MAKE) -C ./rtsp_streams/ clean
 	$(MAKE) -C ./remote_device/ clean
 	$(MAKE) -C ./native_sensors/ clean

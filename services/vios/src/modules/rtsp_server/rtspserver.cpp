@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -892,7 +892,9 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
                 string stream_url = stream_info->live_proxy_url.empty() ? proxyUrl : stream_info->live_proxy_url;
                 StreamEventManager::getInstance().sendEvent(stream_url, STREAM_STATUS_STREAMING, details);
 
-                if(deviceMngr && deviceMngr->needStreamMonitoring && deviceMngr->needRtspServer == true)
+                // Basler is a local producer: exclude from StreamMonitor to avoid a failed RTSP-connect.
+                if(deviceMngr && deviceMngr->needStreamMonitoring && deviceMngr->needRtspServer == true
+                   && stream_url.find(NV_BASLER_SENSOR) == string::npos)
                 {
                     if (stream_info->live_proxy_url.empty())
                     {

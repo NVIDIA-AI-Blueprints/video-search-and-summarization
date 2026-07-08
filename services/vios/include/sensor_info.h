@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,6 +43,7 @@ inline constexpr const char* SENSOR_TYPE_GENERIC = "sensor_generic";
 inline constexpr const char* SENSOR_TYPE_REMOTE = "sensor_edge";
 inline constexpr const char* SENSOR_TYPE_CSI = "sensor_csi";
 inline constexpr const char* SENSOR_TYPE_FILE = "sensor_file";
+inline constexpr const char* SENSOR_TYPE_BASLER = "sensor_basler";
 
 // Record config values
 inline constexpr const char* RECORD_CONFIG_CLOUD_SCANNED = "Cloud";  // For cloud-scanned/imported files

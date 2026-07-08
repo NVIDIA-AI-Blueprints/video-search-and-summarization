@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,7 +47,8 @@ SENDER_SRCS := senders/videowebRTCsender.cpp \
 
 # Producer files
 PRODUCER_SRCS := producers/nativestreamproducer.cpp \
-				 producers/native_stream_monitor.cpp
+				 producers/native_stream_monitor.cpp \
+				 producers/basler_stream_monitor.cpp
 
 # Platform-specific files (Jetson)
 ifeq ($(arch),aarch64)
@@ -85,7 +86,7 @@ CPPFLAGS += -I $(TOP)/src/framework/media/video_source/core \
 			-I $(TOP)/include
 
 # TODO: REMOVE WAR LATER
-LDFLAGS := -L$(PREBUILT) -ljsoncpp -lnvstoragereader -lnvstoragemanager -lnvoverlays -lclip_producer -ls3stream_producer -rdynamic -shared
+LDFLAGS := -L$(PREBUILT) -ljsoncpp -lnvstoragereader -lnvstoragemanager -lnvoverlays -lclip_producer -ls3stream_producer -ldl -rdynamic -shared
 
 ifeq ($(arch),x86_64)
 	LDFLAGS += `pkg-config --libs opencv4`
@@ -97,6 +98,11 @@ ifneq ($(JETSON_PLATFORM),) # Jetson only
 	LDFLAGS += -lnvdsgst_ipcmeta
 endif
 endif
+
+# Build libbasler_producer.so only when pylon is present.
+# Without pylon the producer is skipped; libnvvideo_source stays pylon-free.
+PYLON_ROOT ?= /opt/pylon
+BUILD_BASLER_PRODUCER := $(wildcard $(PYLON_ROOT)/bin/pylon-config)
 
 all: $(TARGET)
 
@@ -113,5 +119,15 @@ $(TARGET): $(OBJS)
 clean:
 	$(AT)rm -rf $(TARGET) $(OBJS)
 	$(AT)find . -name "*.d" -delete
+
+ifneq ($(BUILD_BASLER_PRODUCER),)
+all: basler_producer
+basler_producer:
+	$(MAKE) -C producers/basler
+clean: clean_basler_producer
+clean_basler_producer:
+	$(AT)$(MAKE) -C producers/basler clean
+.PHONY: basler_producer clean_basler_producer
+endif
 
 .PHONY: all clean

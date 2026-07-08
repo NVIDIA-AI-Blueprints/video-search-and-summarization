@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -468,6 +468,35 @@ int SensorManagement::getAndAddProxyUrl(shared_ptr<SensorInfo>& sensorInfo, cons
                         //     m_sensorMonitoring->notifyEvent(status, live_url);
                         // }
                     }
+                }
+            }
+            else if (sensorInfo->type == SENSOR_TYPE_BASLER)
+            {
+                // Basler has no RTSP backend; mint a synthetic URL and notify via camera_proxy.
+                if (stream->live_proxy_url.empty())
+                {
+                    stream->live_url = stream->replay_url = stream->live_proxy_url =
+                        string("rtsp://") + string(NV_BASLER_SENSOR) + string("/") + stream->id;
+                }
+
+                if (GET_DEVICE_MANAGER()->needRtspServer == false &&
+                    sensorInfo->getSensorStatus() == SensorStatusOnline &&
+                    stream->isMainStream && sensorInfo->m_notify == true)
+                {
+                    SensorStatus status;
+                    status.timeStamp  = getCurrentTime();
+                    status.sensorId   = stream->id;
+                    status.sensorName = sensorInfo->name;
+                    status.serverId   = m_deviceManager->getDeviceId();
+                    status.event      = SensorStatusProxy;
+                    status.tags       = sensorInfo->tags;
+                    status.type       = SENSOR_TYPE_BASLER;
+
+                    vst_common::updateSensorDetailsToDB(deviceManager->id, sensorInfo);
+                    vst_common::notifyEvent(status, stream->live_proxy_url, &stream->getvideoEncoderValues());
+                    sensorInfo->m_notify = false;
+                    stream->updateErrorStatus(std::make_pair(StreamStatus::STREAM_STATUS_PROXY,
+                        translateStreamStatusToString(StreamStatus::STREAM_STATUS_PROXY)), false);
                 }
             }
             else if (stream->live_proxy_url.empty() || sensorInfo->m_notify)
@@ -988,7 +1017,8 @@ vector<shared_ptr<SensorInfo>> SensorManagement:: getSensors()
     vector<shared_ptr<SensorInfo>> list = deviceManager->getSensorList();
     for (auto sensor: list)
     {
-        if (sensor && (sensor->type == SENSOR_TYPE_ONVIF || sensor->type == SENSOR_TYPE_CSI))
+        if (sensor && (sensor->type == SENSOR_TYPE_ONVIF || sensor->type == SENSOR_TYPE_CSI ||
+                       sensor->type == SENSOR_TYPE_BASLER))
         {
             sensor_list.push_back(sensor);
         }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -452,9 +452,11 @@ RecordScheduleStatus StreamRecorder::startRecord(const string streamId, RecordSt
     RecordScheduleStatus ret = RecordScheduleON;
     if (it != m_streams.end())
     {
-        /* Add stream into stream_monitor */
+        /* Add stream into stream_monitor. Basler streams must be excluded: the
+         * recorder consumes from BaslerStreamProducer directly, not via RTSP pull. */
         StreamMonitor* streamMonitor = StreamMonitor::getInstance();
-        if (streamMonitor)
+        if (streamMonitor && it->second &&
+            it->second->live_proxy_url.find(NV_BASLER_SENSOR) == std::string::npos)
         {
             streamMonitor->addStream(it->second);
         }
