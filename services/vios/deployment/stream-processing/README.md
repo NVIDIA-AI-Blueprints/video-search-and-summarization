@@ -37,7 +37,8 @@ Single-page guide for the `oneclick_dc_deployment.py` Docker Compose deployer. T
 ```bash
 cd services/vios/deployment/stream-processing
 
-# Bring up VIOS + NVStreamer in one command (default direct mode, 1 NVStreamer instance)
+# Bring up VIOS + NVStreamer in one command (default SDRC mode, 1 NVStreamer instance)
+# Add --no-sdrc for direct mode (no SDR/Envoy, single-pod)
 python3 oneclick_dc_deployment.py deploy --target all --force
 ```
 
@@ -241,14 +242,20 @@ Updates `compose.env` / `nvstreamer/compose.env` with smart defaults (or the val
 
 ## Deployment modes
 
-VIOS supports two topologies. Switch by editing the toggle block at the top of `docker-compose/compose.env` (comment one mode, uncomment the other), then redeploy:
+VIOS supports two topologies, selected by the toggle block at the top of `docker-compose/compose.env`. This mode is **independent of the adaptor** — `vst-sdrc` is not an adaptor.
 
 | Mode | What it does | Containers |
 |---|---|---|
-| **Direct** (default) | sensor-MS posts `/api/v1/proxy/stream/add` directly to the stream-processor pod on `:30001`. No SDR/Envoy in the data path. | 4: sensor-ms, streamprocessing-ms-1, vst-ingress, centralizedb |
-| **SDRC** | `sdr-controller` + Envoy on `:10000` route stream-bound APIs by header. Required for multi-pod scaling. | 8: above + redis, sdr-controller + init chain |
+| **SDRC** (default) | `sdr-controller` + Envoy on `:10000` route stream-bound APIs by header. Works single-pod and is required for multi-pod scaling. | 8: sensor-ms, streamprocessing-ms-1, vst-ingress, centralizedb + redis, sdr-controller + init chain |
+| **Direct** | sensor-MS posts `/api/v1/proxy/stream/add` directly to the stream-processor pod on `:30001`. No SDR/Envoy in the data path. Single-pod only. | 4: sensor-ms, streamprocessing-ms-1, vst-ingress, centralizedb |
 
-Direct mode is the default because it's simpler and sufficient for single-pod (≤ 100 streams). SDRC scales out to multiple stream-processor pods.
+SDRC is the default. To deploy in **direct mode**, either flip the toggle block in `compose.env`, or run:
+
+```bash
+python3 oneclick_dc_deployment.py deploy --no-sdrc --force
+```
+
+`--no-sdrc` rewrites `compose.env` to direct values (`VST_USE_SDRC=false`, `NGINX_MODE=vst`, cleared `COMPOSE_PROFILES`, stream-processor on `:30001`) and persists, so later deploys stay direct until the toggle is changed back.
 
 ---
 
@@ -267,7 +274,7 @@ Direct mode is the default because it's simpler and sufficient for single-pod (�
 
 Two files must agree:
 
-1. `compose.env` → `VST_ADAPTOR=<name>` AND `NGINX_MODE=mms` for mms-type adaptors, `NGINX_MODE=vst` otherwise.
+1. `compose.env` → `VST_ADAPTOR=<name>` AND a matching `NGINX_MODE` **family**: `mms` for mms-type adaptors, `vst` otherwise. The deployment-mode toggle independently adds the `-sdrc` suffix when SDRC is on (e.g. `vst-sdrc`) — that suffix is **not** part of adaptor selection (see [Deployment modes](#deployment-modes)).
 2. `configs/adaptor_config.json` → exactly one entry with matching `name` and `enabled: true`; all others `enabled: false`. For `mms`-type, fill in `ip` / `user` / `password` / `port`.
 
 For details and the consistency check, see [`services/vios/.claude/sqa/skills/deployment/adaptor-mode.md`](../../.claude/sqa/skills/deployment/adaptor-mode.md).
@@ -303,7 +310,7 @@ NVStreamer RTSP ports: `31554`, `31564`, `31574`, `31584`, `31594` (one per inst
 | `docker-compose/configs/vst_config.json` | Runtime VST settings (max devices, storage, notifications) |
 | `docker-compose/configs/adaptor_config.json` | Adaptor inventory (`enabled: true` on one entry) |
 | `docker-compose/configs/rtsp_streams.json` | Bootstrap RTSP sources (NVStreamer instances) |
-| `docker-compose/configs/nginx-vst.conf` / `nginx-mms.conf` | Ingress routing (selected by `NGINX_MODE`) |
+| `docker-compose/configs/nginx-vst.conf` / `nginx-vst-sdrc.conf` / `nginx-mms.conf` | Ingress routing (selected by `NGINX_MODE`; `vst-sdrc` is the SDRC default) |
 
 ### Key environment variables
 
@@ -312,9 +319,9 @@ NVStreamer RTSP ports: `31554`, `31564`, `31574`, `31584`, `31594` (one per inst
 | `HOST_IP` | Server IP address | Auto-detected |
 | `VST_CONFIG_PATH` | Absolute path to `configs/` | Auto-set to local `configs/` |
 | `VST_VOLUME` | Absolute path to host bind-mount root | Auto-set to local `vst_volume/` |
-| `VST_USE_SDRC` | Deployment mode (`false` = direct, `true` = SDRC) | `false` |
+| `VST_USE_SDRC` | Deployment mode (`false` = direct, `true` = SDRC); independent of the adaptor | `true` |
 | `VST_ADAPTOR` | Adaptor name (see [Adaptors](#adaptors-vst--mms--onvif)) | `vst_rtsp` |
-| `NGINX_MODE` | Ingress config (`vst` or `mms`) | `vst` |
+| `NGINX_MODE` | Ingress config: family (`vst`/`mms`, from adaptor) + optional `-sdrc` SDRC suffix → `vst`, `vst-sdrc`, or `mms` | `vst-sdrc` |
 | `STREAM_PROCESSOR_HTTP_PORT_1` | Stream-processor port | `30001` |
 | `NVSTREAMER_HTTP_PORT_1..N` | NVStreamer HTTP ports | `31000–31004` |
 
@@ -399,7 +406,7 @@ The repo ships agent skills under `services/vios/.claude/sqa/` that map natural-
 
 | Prompt | Action |
 |---|---|
-| *"deploy vios"* | Default deploy (probes NVStreamer state; asks if it should deploy NVStreamer alongside or skip) |
+| *"deploy vios"* | Default deploy — **VIOS only** (NVStreamer is opt-in; not deployed or probed) |
 | *"deploy vios + nvstreamer"* | Full-stack deploy (NVStreamer + VIOS) |
 | *"deploy vios in milestone adaptor mode"* | Configures `VST_ADAPTOR=milestone_onvif`, asks for ip/user/password if missing, writes them with a dry-run diff |
 | *"recreate sensor"* / *"recreate nvstreamer"* | Surgical per-container restart |

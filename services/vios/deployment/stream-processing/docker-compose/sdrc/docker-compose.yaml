@@ -1,0 +1,134 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SDRC stack for VIOS standalone stream-processing.
+#
+# sdr-controller (sdr-mw-l) is the single container that does routing + xDS-driven
+# Envoy in one process — it replaces the legacy two-container (sdr + envoy-proxy)
+# pipeline.
+#
+# All three services are gated behind the "sdrc" Compose profile. They start
+# only when `docker compose --profile sdrc up` (or `COMPOSE_PROFILES=sdrc`) is
+# invoked. The oneclick deployment script flips this based on VST_USE_SDRC.
+# When VST_USE_SDRC=false, the profile is omitted and the entire sdrc/
+# subgraph is skipped; sensor-MS then talks to the pod directly via
+# RTSP_SERVER_MODULE_ENDPOINT (see modules_apis.cpp::vst_rtsp::addStream).
+#
+# This is the standalone (single-workload, single-compose-graph) variant of the
+# pattern at deploy/docker/services/infra/sdrc/. The VSS variant has extra init
+# containers (wdm-env-from-config, wait-for-redis, wait-for-docker-workloads)
+# because its router lives in a different compose graph from its workloads and
+# its Redis endpoint can vary per profile. None of that applies here:
+#   - one workload (streamprocessing-ms-1), same compose graph -> native depends_on
+#   - one local Redis, same compose graph -> native depends_on with healthcheck
+#   - HOST_IP comes from compose.env and only needs to be templated into the
+#     workload YAML (sdr-mw-l does not env-expand YAML it loads) -> render-config
+#
+# Init chain:
+#   init-dirs -> render-config -> sdr-controller
+#                (waits for redis healthy + streamprocessing-ms-1 healthy)
+
+services:
+  # Pre-create ./log as world-writable so the host user can clean up after
+  # sdr-controller (which runs as root inside the container) without sudo.
+  sdrc-init-dirs:
+    profiles: ["sdrc"]
+    image: alpine:3.23.4
+    user: "0:0"
+    container_name: sdrc-init-dirs
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /mnt/log
+        chmod 0777 /mnt/log
+    volumes:
+      - ./log:/mnt/log
+    restart: "no"
+
+  # Render every *.tmpl in configs/ by substituting ${HOST_IP}/${NUM_STREAMS}/
+  # ${NUM_SENSORS}. Output is written next to the template with the .tmpl suffix
+  # stripped (e.g. config.yml.tmpl -> config.yml). sdr-controller mounts the
+  # resulting configs/ directory read-only.
+  # render-config.sh auto-runs `apk add --no-cache gettext` when envsubst is
+  # missing, so the alpine-based redis image works here as well.
+  sdrc-render-config:
+    profiles: ["sdrc"]
+    image: alpine:3.23.4
+    user: "0:0"
+    container_name: sdrc-render-config
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "render-config: HOST_IP=$${HOST_IP} NUM_STREAMS=$${NUM_STREAMS} NUM_SENSORS=$${NUM_SENSORS}"
+        rendered=0
+        for tmpl in /tmpl/*.tmpl; do
+          [ -e "$$tmpl" ] || { echo "render-config: no *.tmpl files found in /tmpl"; exit 1; }
+          base="$$(basename "$$tmpl" .tmpl)"
+          /render-config.sh "$$tmpl" "/tmpl/$$base"
+          rendered=$$((rendered + 1))
+        done
+        echo "render-config: rendered $$rendered template(s)"
+    environment:
+      HOST_IP: ${HOST_IP:?HOST_IP must be set in compose.env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:-100}
+      NUM_SENSORS: ${NUM_SENSORS:-100}
+    volumes:
+      - ./render-config.sh:/render-config.sh:ro
+      - ./configs:/tmpl
+    restart: "no"
+
+  # sdr-mw-l: host network, Docker socket, mixed sdr-controller + embedded envoy.
+  # Listens on:
+  #   :5003  WDM_CONTROLLER_PORT / PORT / ROUTER_PORT — SDR control REST API
+  #   :8011  WDM_SDRC_DIRECT_LISTENER_PORT             — direct sensor-ms listener
+  #   :9902  ENVOY_ADMIN_PORT                          — Envoy admin
+  #   :10000 WDM_MS_LISTENER_PORT (from config.yml)    — Envoy data-plane (stream API)
+  #
+  # Waits for redis and streamprocessing-ms-1 to be healthy via native depends_on
+  # — both live in the parent compose graph and are merged into the same project
+  # by the root docker-compose.yaml's `include:` directive.
+  sdr-controller:
+    profiles: ["sdrc"]
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0}
+    container_name: sdr-controller
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      WDM_WL_REDIS_SERVER: ${HOST_IP}
+      WDM_WL_REDIS_PORT: ${REDIS_PORT:-6379}
+      WDM_WORKLOADS_CONFIG: "/configs/config.yml"
+      OTEL_SDK_DISABLED: "true"
+      WDM_CONTROLLER_PORT: 5003
+      WDM_CONTROLLER_HOST: ${HOST_IP}
+      WDM_SDRC_DIRECT_LISTENER_PORT: 8011
+      ENVOY_ADMIN_PORT: 9902
+      PORT: 5003
+      ROUTER_PORT: 5003
+      WDM_CLUSTER_TYPE: "docker"
+    volumes:
+      - ./log:/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./configs:/configs/:ro
+    depends_on:
+      sdrc-init-dirs:
+        condition: service_completed_successfully
+      sdrc-render-config:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      streamprocessing-ms-1:
+        condition: service_healthy
