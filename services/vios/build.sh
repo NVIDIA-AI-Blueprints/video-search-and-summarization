@@ -44,11 +44,11 @@ MODULES=()  # Array to hold the modules
 # X86_BUILD_IMAGE) so the make wrapper picks up the same image we build here.
 # Override via env var to use a pre-pulled image from a registry:
 #   export X86_BUILD_IMAGE=my-registry.example.com/vios-build:custom
-X86_BUILD_IMAGE="${X86_BUILD_IMAGE:-vios-build:x86-24.04-cuda13.0.0}"
+X86_BUILD_IMAGE="${X86_BUILD_IMAGE:-vios-build:x86-devel-ubuntu24.04-cuda13.2.0}"
 # One aarch64 cross-compile toolchain for all aarch64 targets — Orin (Jetson
 # iGPU), Thor/SBSA, and DGX-Spark. Platform is detected at runtime; no separate
 # Jetson/L4T toolchain is needed.
-AARCH64_CC_IMAGE="${AARCH64_CC_IMAGE:-vios-build:aarch64-cross-compiler}"
+AARCH64_CC_IMAGE="${AARCH64_CC_IMAGE:-vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0}"
 # Registry and org for built images. Defaults to a bare local namespace so
 # local builds work out of the box (e.g. vios/vst:latest, nvstreamer:latest);
 # no registry is hardcoded in the public tree. Override to push elsewhere:
@@ -127,8 +127,8 @@ show_help() {
     echo "  help               Show this help message."
     echo
     echo "Toolchain images (set via env, falling back to Makefile defaults):"
-    echo "  X86_BUILD_IMAGE          (default: vios-build:x86-24.04-cuda13.0.0)"
-    echo "  AARCH64_CC_IMAGE         (default: vios-build:aarch64-cross-compiler)  # all aarch64 incl. Orin"
+    echo "  X86_BUILD_IMAGE          (default: vios-build:x86-devel-ubuntu24.04-cuda13.2.0)"
+    echo "  AARCH64_CC_IMAGE         (default: vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0)  # all aarch64 incl. Orin"
     echo
     echo "Examples:"
     echo "  ./build.sh (Same as => ./build.sh arch=x86_64 OR ./build.sh arch=amd64)"
@@ -551,14 +551,14 @@ build_toolchain_image() {
     # auto-built toolchain to a registry.
     if [[ $push -eq 1 ]]; then
         # Warn (but don't block) on default local-only tags: pushing
-        # `vios-build:x86-24.04-cuda13.0.0` would target Docker Hub, which
+        # `vios-build:x86-devel-ubuntu24.04-cuda13.2.0` would target Docker Hub, which
         # is rarely intended. The right pattern is to set X86_BUILD_IMAGE
         # / AARCH64_CC_IMAGE to a fully-qualified registry path first.
         if [[ "$image_name" != *"/"*"/"* ]]; then
             echo "[WARN] Pushing without an explicit registry prefix: '$image_name'"
             echo "       Docker will target Docker Hub. To push elsewhere, export"
             echo "       X86_BUILD_IMAGE / AARCH64_CC_IMAGE with a registry prefix:"
-            echo "         X86_BUILD_IMAGE=my-registry.example.com/vios-build:x86-24.04-cuda13.0.0 \\"
+            echo "         X86_BUILD_IMAGE=my-registry.example.com/vios-build:x86-devel-ubuntu24.04-cuda13.2.0 \\"
             echo "         ./build.sh toolchain push=1"
         fi
         echo "Pushing toolchain image: $image_name"
@@ -1189,6 +1189,13 @@ build_multiarch() {
             "$0" $archflag container tag="$tag" module="$mod_csv" $extra || return 1
         fi
         if [[ $NVSTREAMER -eq 1 ]]; then
+            # NVStreamer is a distinct app; if modules were just built in this
+            # arch pass, clean first so NVStreamer recompiles the shared framework
+            # objects with its own CPPFLAGS instead of relinking the module-flavored
+            # ones (that contamination broke the arm64 NVStreamer /sensor/list).
+            if [[ ${#MODULES[@]} -gt 0 ]]; then
+                "$0" $archflag clean >/dev/null 2>&1 || true
+            fi
             # shellcheck disable=SC2086
             "$0" $archflag nvstreamer container tag="$tag" $extra || return 1
         fi
