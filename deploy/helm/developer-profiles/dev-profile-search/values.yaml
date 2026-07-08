@@ -30,6 +30,10 @@ global:
     enabled: true
     mainHost: ''
     streamerHost: ''
+  # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
+  vios:
+    useSdrc: true
+
   # rtviInternalIngress lives under `global` so the agent sub-chart's env-var
   # templates (rendered via `tpl` in the agent context) can read it — only
   # `global.*` propagates across sub-charts. When enabled, this drives:

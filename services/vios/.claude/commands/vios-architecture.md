@@ -63,6 +63,15 @@ Everything uses `network_mode: host` — there is no docker bridge between these
 
 ---
 
+## Deployment modes: SDRC (default) vs direct
+
+The data path described below depends on a **deployment-mode toggle in `compose.env`** that is **independent of the adaptor** — `vst-sdrc` is *not* an adaptor and has nothing to do with `VST_ADAPTOR`:
+
+- **SDRC mode (the default)** — `VST_USE_SDRC=true`, `COMPOSE_PROFILES=sdrc`, `NGINX_MODE=vst-sdrc`. An SDR controller with an embedded Envoy on `:10000` sits in the data path and does header-based workload distribution across stream-processor pods. The "ingress → Envoy → pod" routing in this document describes this mode.
+- **Direct mode** — deploy with `oneclick_dc_deployment.py deploy --no-sdrc`. **No SDR/Envoy**: the ingress proxies sensor APIs to `:30000` and every other data-plane API straight to the single stream-processor on `:30001`. Single-pod only — no scaling.
+
+Switch via the toggle block at the top of `compose.env` (or `--no-sdrc` at deploy time). The remaining sections describe the SDRC data path.
+
 ## 2. Request routing: ingress → Envoy → pod
 
 Nginx routes incoming `/vst/...` traffic:
