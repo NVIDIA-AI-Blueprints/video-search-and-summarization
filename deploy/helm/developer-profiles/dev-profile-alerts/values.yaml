@@ -53,6 +53,9 @@ global:
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
   # When true (default), vss-vios-sensor uses the same PVC base name as vss-vios-streamprocessing for vst-data / vst-video. Keep aligned with vios.vstStorage.createSharedPvcs.
   createSharedVstPvcs: true
+  # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
+  vios:
+    useSdrc: true
 
 # External access: set global.externalScheme / externalHost / externalPort in your values file (no separate externalAccess.baseUrl).
 
