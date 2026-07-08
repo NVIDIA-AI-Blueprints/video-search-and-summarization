@@ -37,6 +37,25 @@ _media_info_executor = concurrent.futures.ThreadPoolExecutor(
 )
 
 
+def _to_float(value, default: float = 0.0) -> float:
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        try:
+            return float(str(value).split()[0])
+        except (IndexError, ValueError):
+            return default
+
+
+def _to_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(_to_float(value, float(default)))
+
+
 @dataclass
 class MediaFileInfo:
     is_image: bool = False
@@ -82,12 +101,16 @@ class MediaFileInfo:
                     GstPbutils.pb_utils_get_codec_description(stream_info.get_caps())
                 )
                 media_file_info.video_resolution = (
-                    int(stream_info.get_width()),
-                    int(stream_info.get_height()),
+                    _to_int(stream_info.get_width()),
+                    _to_int(stream_info.get_height()),
                 )
-                media_file_info.video_fps = float(
-                    stream_info.get_framerate_num() / stream_info.get_framerate_denom()
-                )
+                framerate_denom = stream_info.get_framerate_denom()
+                if framerate_denom:
+                    media_file_info.video_fps = float(
+                        stream_info.get_framerate_num() / framerate_denom
+                    )
+                else:
+                    media_file_info.video_fps = 0.0
                 media_file_info.is_image = bool(stream_info.is_image())
                 break
         return media_file_info
@@ -101,22 +124,38 @@ class MediaFileInfo:
 
         media_file_info = MediaFileInfo()
         media_info = MediaInfo.parse(file)
+        general_duration = 0.0
+        for track in media_info.tracks:
+            if track.track_type == "General":
+                general_duration = _to_float(getattr(track, "duration", None))
+                break
+
         have_image_or_video = False
         for track in media_info.tracks:
             if track.track_type == "Video":
                 media_file_info.is_image = False
-                media_file_info.video_codec = track.format
-                media_file_info.video_duration_nsec = float(track.duration) * 1000000
-                media_file_info.video_fps = track.frame_rate
-                media_file_info.video_resolution = (track.width, track.height)
+                media_file_info.video_codec = getattr(track, "format", "") or ""
+                duration = _to_float(getattr(track, "duration", None), general_duration)
+                media_file_info.video_duration_nsec = int(duration * 1000000)
+                media_file_info.video_fps = _to_float(
+                    getattr(track, "frame_rate", None)
+                    or getattr(track, "original_frame_rate", None)
+                )
+                media_file_info.video_resolution = (
+                    _to_int(getattr(track, "width", 0)),
+                    _to_int(getattr(track, "height", 0)),
+                )
                 have_image_or_video = True
                 return media_file_info
             if track.track_type == "Image":
                 media_file_info.is_image = True
-                media_file_info.video_codec = track.format
+                media_file_info.video_codec = getattr(track, "format", "") or ""
                 media_file_info.video_duration_nsec = 0
-                media_file_info.video_fps = 0
-                media_file_info.video_resolution = (track.width, track.height)
+                media_file_info.video_fps = 0.0
+                media_file_info.video_resolution = (
+                    _to_int(getattr(track, "width", 0)),
+                    _to_int(getattr(track, "height", 0)),
+                )
                 have_image_or_video = True
 
         if not have_image_or_video:

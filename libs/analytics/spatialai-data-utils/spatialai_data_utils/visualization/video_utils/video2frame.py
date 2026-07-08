@@ -43,8 +43,9 @@ import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, Iterable, List, Optional, Tuple
 
-import cv2
 import tqdm
+
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,7 @@ def video_to_frames(
     if os.path.getsize(video_path) == 0:
         return STATUS_EMPTY_FILE
 
+    cv2 = import_cv2("video_to_frames")
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         cap.release()
@@ -327,6 +329,7 @@ def diagnose_video_file(video_path: str) -> Dict:
         diagnosis["issues"].append("File is empty (0 bytes)")
         return diagnosis
 
+    cv2 = import_cv2("diagnose_video_file")
     cap = cv2.VideoCapture(video_path)
     diagnosis["can_open"] = cap.isOpened()
 

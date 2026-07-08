@@ -52,10 +52,10 @@ import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, Iterable, List, Optional, Tuple
 
-import cv2
 import tqdm
 
 from spatialai_data_utils.constants import FPS as DEFAULT_FPS
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 from spatialai_data_utils.visualization.video_utils.text_writer import plot_frame_label
 
 logger = logging.getLogger(__name__)
@@ -279,6 +279,7 @@ def frames_to_video(
     if not selected:
         return STATUS_NO_FRAMES_FOUND
 
+    cv2 = import_cv2("frames_to_video")
     first = cv2.imread(selected[0])
     if first is None:
         return STATUS_READ_ERROR

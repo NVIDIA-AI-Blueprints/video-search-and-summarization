@@ -51,7 +51,7 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
@@ -128,7 +128,7 @@ services:
         fi
 
   bp-configurator-mv3dt:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2.1-2026.06.5
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2.1-2026.07.2-2
     container_name: vss-configurator-mv3dt
     networks:
       default:
@@ -263,7 +263,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: perception
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.1-26.07.1}
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
 

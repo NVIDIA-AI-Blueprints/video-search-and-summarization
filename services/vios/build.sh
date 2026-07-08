@@ -50,7 +50,7 @@ AARCH64_CC_IMAGE="${AARCH64_CC_IMAGE:-vios-build:aarch64-cross-compiler}"
 # no registry is hardcoded in the public tree. Override to push elsewhere:
 #   export IMAGE_REGISTRY=my-registry.example.com/vios
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-vios}"
-NVSTREAMER_IMAGE="${NVSTREAMER_IMAGE:-nvstreamer}"
+NVSTREAMER_IMAGE_REGISTRY="${NVSTREAMER_IMAGE_REGISTRY:-nvstreamer}"
 
 # Define valid module names
 declare -A VALID_MODULES=(
@@ -717,7 +717,7 @@ build_all() {
                 TAG=${DEFAULT_TAGS["nvstreamer"]:-"latest"}
                 TAG="${TAG}"
             fi
-            IMAGE_NAME=$NVSTREAMER_IMAGE:$TAG
+            IMAGE_NAME=$NVSTREAMER_IMAGE_REGISTRY:$TAG
         elif [[ $VSTMONOLITH -eq 1 ]]; then
             if [[ -n "$TAG" ]]; then
                 TAG="${TAG}"

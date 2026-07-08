@@ -634,11 +634,11 @@ class TestBuildResolvedEnv:
                 "LLM_NAME=llm-a",
                 "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
-                "VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208",
+                "VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final",
                 "VLM_NAME_SLUG=none",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
-                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
+                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final",
                 "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
             ),
             profile=dcu.PROFILE_ALERTS,
@@ -658,11 +658,11 @@ class TestBuildResolvedEnv:
         assert resolved["RTVI_VLM_INPUT_WIDTH"] == dcu.EDGE_ALERTS_RTVI_INPUT_WIDTH
         assert resolved["RTVI_VLM_INPUT_HEIGHT"] == dcu.EDGE_ALERTS_RTVI_INPUT_HEIGHT
         assert resolved["RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK"] == dcu.EDGE_ALERTS_RTVI_FPS
-        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
         assert resolved["RTVI_VLM_ENDPOINT"] == "http://10.0.0.9:30099/v1"
         assert resolved["LLM_DEVICE_ID"] == "0"
         assert resolved["VLM_DEVICE_ID"] == "1"
-        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
         assert resolved["VLM_NAME_SLUG"] == "none"
 
     def test_build_resolved_env_alerts_local_applies_vlm_runtime_overrides(
@@ -679,11 +679,11 @@ class TestBuildResolvedEnv:
                 "LLM_NAME=llm-a",
                 "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local_shared",
-                "VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208",
+                "VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final",
                 "VLM_NAME_SLUG=none",
                 "HOST_IP=10.0.0.9",
-                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
-                "RTVI_VLM_MODEL_TO_USE=cosmos-reason2",
+                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final",
+                "RTVI_VLM_MODEL_TO_USE=cosmos-reason3",
                 "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
             ),
             profile=dcu.PROFILE_ALERTS,
@@ -696,10 +696,10 @@ class TestBuildResolvedEnv:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
         assert resolved["VLM_NAME_SLUG"] == "none"
-        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
-        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason2"
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason3"
 
     def test_build_resolved_env_alerts_thor_applies_shared_vlm_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -725,9 +725,9 @@ class TestBuildResolvedEnv:
             hardware_profile_env_overrides={
                 "thor": {
                     "VLM_NAME_SLUG": "none",
-                    "VLM_NAME": "nim_nvidia_cosmos-reason2-8b_hf-1208",
-                    "RTVI_VLM_MODEL_PATH": "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
-                    "RTVI_VLM_MODEL_TO_USE": "cosmos-reason2",
+                    "VLM_NAME": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
+                    "RTVI_VLM_MODEL_PATH": "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final",
+                    "RTVI_VLM_MODEL_TO_USE": "cosmos-reason3",
                     "RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.35",
                     "VLM_MODEL_TYPE": "rtvi",
                 },
@@ -741,11 +741,11 @@ class TestBuildResolvedEnv:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
         assert resolved["VLM_NAME_SLUG"] == "none"
         assert resolved["VLM_BASE_URL"] == f"http://10.0.0.8:{dcu.THOR_VLM_PORT}"
-        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
-        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason2"
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason3"
         assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.35"
 
 
@@ -1438,7 +1438,7 @@ class TestGenerateDryRunArtifacts:
                 "LLM_NAME=llm-a",
                 "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
-                "VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208",
+                "VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final",
                 "VLM_NAME_SLUG=none",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",

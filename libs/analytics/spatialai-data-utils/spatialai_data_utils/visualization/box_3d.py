@@ -74,7 +74,6 @@ Typical Usage:
 
 from typing import Dict, List, Optional, Tuple, Union
 
-import cv2
 import numpy as np
 
 from spatialai_data_utils.core.boxes import box_3d as _core_box3d_mod
@@ -85,6 +84,7 @@ from spatialai_data_utils.core.boxes.box_3d import (
     box3d_to_corners,
 )
 from spatialai_data_utils.core.geometry.projection import project_points_3d_to_image
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 
 __all__ = [
     "box3d_to_corners",
@@ -180,6 +180,7 @@ def draw_box3d_corners_on_img(
     :return: Image with the cuboid wireframes drawn.
     :rtype: numpy.ndarray
     """
+    cv2 = import_cv2("draw_box3d_corners_on_img")
     h, w = img.shape[:2]
 
     if shade_heading:
@@ -385,6 +386,7 @@ def draw_points3d_on_img(
         front_mask[..., None], pts_2d, 0,
     ).astype(np.int32)
 
+    cv2 = import_cv2("draw_points3d_on_img")
     N = pts_2d_int.shape[0]
     for i in range(N):
         pt_color = color if isinstance(color[0], int) else color[i]
@@ -433,6 +435,7 @@ def draw_bbox3d_on_bev(
     else:
         bev_h, bev_w = bev_size, bev_size
 
+    cv2 = import_cv2("draw_bbox3d_on_bev")
     bev = np.zeros([bev_h, bev_w, 3], dtype=np.uint8)
     marking_color = (127, 127, 127)
     bev_res_x = bev_range / bev_w

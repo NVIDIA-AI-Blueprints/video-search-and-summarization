@@ -96,7 +96,7 @@ vlm:
   #   The module is auto-imported at startup. The parser function must accept
   #   (text: str, json_config: Optional[Dict]) and return a VLMResponse.
   #
-  response_format: "auto"
+  response_format: "cosmos-reason"
   # custom_parser_module: "custom_parsers.my_parser"  # dotted Python module path
 
   # Pluggable response parser: external parser class for custom use cases.

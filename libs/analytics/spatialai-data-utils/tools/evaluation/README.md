@@ -6,6 +6,14 @@ implementations under `spatialai_data_utils.eval.*` — these tools do I/O,
 argument parsing, and a bit of orchestration so the same evaluation logic
 can be re-run from the command line without standing up a separate eval repo.
 
+> **Requires the `eval` extra.** The metric code under
+> `spatialai_data_utils.eval.*` builds on the nuScenes dev-kit and imports it
+> at module load, so these tools need it:
+> `pip install 'spatialai-data-utils[eval]'`. Note `nuscenes-devkit` pulls
+> OpenCV transitively (which ships with bundled `ffmpeg` libraries and
+> codecs) — review their licenses and terms of distribution and use before
+> installing.
+
 ## Tools Overview
 
 | Tool                                | Purpose                                                                                                                                                  |

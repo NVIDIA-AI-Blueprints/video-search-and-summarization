@@ -43,7 +43,7 @@ services:
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_VIDEO_1}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-1:/home/vst/vst_release/vst_data
-      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
 
   nvstreamer-2:
     <<: *nvstreamer-base
@@ -66,7 +66,7 @@ services:
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_VIDEO_2}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-2:/home/vst/vst_release/vst_data
-      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
 
   nvstreamer-3:
     <<: *nvstreamer-base
@@ -89,7 +89,7 @@ services:
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_VIDEO_3}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-3:/home/vst/vst_release/vst_data
-      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
 
   nvstreamer-4:
     <<: *nvstreamer-base
@@ -112,7 +112,7 @@ services:
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_VIDEO_4}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-4:/home/vst/vst_release/vst_data
-      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
 
   nvstreamer-5:
     <<: *nvstreamer-base
@@ -135,4 +135,4 @@ services:
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
       - ${NVSTREAMER_VIDEO_5}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-5:/home/vst/vst_release/vst_data
-      - ${NVSTREAMER_CONFIG}/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh

@@ -29,12 +29,17 @@ VIOS ships eight adaptor entries in `adaptor_config.json`. Pick the one matching
 | `test_vms` | vst | Test/mock harness | Unit testing only | No |
 
 Two important groups:
+<<<<<<< HEAD
 - **`type: vst`** uses VIOS's own storage/recorder pipeline → `NGINX_MODE` **family** is `vst` (`vst` for direct, `vst-sdrc` for SDRC).
 - **`type: mms`** delegates timeline/storage to the external VMS → `NGINX_MODE=mms`.
 
 > **`NGINX_MODE` has two independent dimensions — do not conflate them.**
 > - **Family** (`vst` vs `mms`) is set by the **adaptor type** above.
 > - The optional **`-sdrc` suffix** is the **SDRC toggle**, which is **NOT an adaptor and has nothing to do with the adaptor**. It must agree with `VST_USE_SDRC` (`true` → `vst-sdrc`, `false` → `vst`). SDRC is the **default**; choose direct mode with `oneclick_dc_deployment.py deploy --no-sdrc`. See `vios-build-system` for the toggle.
+=======
+- **`type: vst`** uses VIOS's own storage/recorder pipeline → set `NGINX_MODE=vst`.
+- **`type: mms`** delegates timeline/storage to the external VMS → set `NGINX_MODE=mms`.
+>>>>>>> 5007a4e229affe53f7848545ee04a695657e0f44
 
 ---
 
@@ -48,10 +53,15 @@ The adaptor choice is split across **two files** that **must agree**:
 # Pick one of: vst_rtsp, streamer, onvif, remote, native, milestone_onvif, milestone_soap, test_vms
 VST_ADAPTOR=<adaptor-name>
 
+<<<<<<< HEAD
 # Family from adaptor type: vst-type → vst ; mms-type → mms.
 # Append the -sdrc suffix when VST_USE_SDRC=true (SDRC is the default). The
 # -sdrc suffix is the SDRC toggle and is INDEPENDENT of the adaptor.
 NGINX_MODE=<vst|vst-sdrc|mms>
+=======
+# vst-type adaptors → vst ; mms-type adaptors → mms
+NGINX_MODE=<vst|mms>
+>>>>>>> 5007a4e229affe53f7848545ee04a695657e0f44
 ```
 
 ### File B — `services/vios/deployment/stream-processing/docker-compose/configs/adaptor_config.json`
@@ -177,8 +187,12 @@ cd <PROJECT_ROOT>/services/vios/deployment/stream-processing/docker-compose
 
 ENV_ADAPTOR=$(grep -E '^VST_ADAPTOR=' compose.env | cut -d= -f2)
 ENV_NGINX=$(grep -E '^NGINX_MODE=' compose.env | cut -d= -f2)
+<<<<<<< HEAD
 ENV_USE_SDRC=$(grep -E '^VST_USE_SDRC=' compose.env | cut -d= -f2)
 echo "compose.env: VST_ADAPTOR=$ENV_ADAPTOR  NGINX_MODE=$ENV_NGINX  VST_USE_SDRC=$ENV_USE_SDRC"
+=======
+echo "compose.env: VST_ADAPTOR=$ENV_ADAPTOR  NGINX_MODE=$ENV_NGINX"
+>>>>>>> 5007a4e229affe53f7848545ee04a695657e0f44
 
 python3 -c "
 import json, sys
@@ -193,6 +207,7 @@ if not match:
     print(f'ERROR: no enabled entry matches VST_ADAPTOR=$ENV_ADAPTOR'); sys.exit(1)
 if len(enabled) > 1:
     print('WARNING: multiple enabled entries — disable the others first'); sys.exit(1)
+<<<<<<< HEAD
 nginx = '$ENV_NGINX'
 # NGINX_MODE has two INDEPENDENT axes:
 #   1) family (vst|mms): determined by the adaptor type.
@@ -207,6 +222,12 @@ use_sdrc = '$ENV_USE_SDRC'.strip().lower() == 'true'
 if sdrc_nginx != use_sdrc:
     print(f'ERROR: SDRC mismatch — NGINX_MODE={nginx} (sdrc={sdrc_nginx}) vs VST_USE_SDRC={use_sdrc}. The -sdrc suffix must match VST_USE_SDRC (this is independent of the adaptor).'); sys.exit(1)
 print(f'OK: adaptor family + SDRC toggle are consistent (family={family}, sdrc={use_sdrc})')
+=======
+nginx_expected = 'mms' if match[0]['type'] == 'mms' else 'vst'
+if '$ENV_NGINX' != nginx_expected:
+    print(f'ERROR: NGINX_MODE=$ENV_NGINX but type={match[0][\"type\"]!r} expects NGINX_MODE={nginx_expected}'); sys.exit(1)
+print('OK: adaptor selection is consistent')
+>>>>>>> 5007a4e229affe53f7848545ee04a695657e0f44
 "
 ```
 
@@ -277,12 +298,19 @@ nc -zv "$ip" "$port" 2>&1 || echo "VMS unreachable — check firewall / VPN"
 
 ## Common patterns (quick reference)
 
+<<<<<<< HEAD
 `NGINX_MODE` below shows the family; append `-sdrc` when `VST_USE_SDRC=true` (the default — so the shipped `compose.env` uses `vst-sdrc`). The `-sdrc` suffix is independent of the adaptor; use `--no-sdrc` for the plain-family (direct) values.
 
 | Workflow | `VST_ADAPTOR` | `NGINX_MODE` (family) | NVStreamer | Notes |
 |---|---|---|---|---|
 | Default local dev with prerecorded clips | `vst_rtsp` | `vst` (`vst-sdrc` by default) | yes | Most common. Shipped `compose.env` defaults to SDRC (`vst-sdrc`); add `--no-sdrc` for direct (`vst`). |
 | Direct ONVIF cameras on LAN | `onvif` | `vst` (`vst-sdrc` by default) | no | Cameras auto-discovered via ONVIF probe. |
+=======
+| Workflow | `VST_ADAPTOR` | `NGINX_MODE` | NVStreamer | Notes |
+|---|---|---|---|---|
+| Default local dev with prerecorded clips | `vst_rtsp` | `vst` | yes | Most common; what the unmodified compose.env ships with. |
+| Direct ONVIF cameras on LAN | `onvif` | `vst` | no | Cameras auto-discovered via ONVIF probe. |
+>>>>>>> 5007a4e229affe53f7848545ee04a695657e0f44
 | Milestone XProtect via ONVIF Bridge | `milestone_onvif` | `mms` | no | Requires Milestone ONVIF Bridge add-on enabled in XProtect. |
 | Milestone XProtect via SOAP | `milestone_soap` | `mms` | no | Use if ONVIF bridge is unavailable. |
 | Unit/integration test harness | `test_vms` | `vst` | no | Mock cameras for CI. |

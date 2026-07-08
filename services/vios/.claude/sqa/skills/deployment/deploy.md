@@ -51,7 +51,11 @@ Infer the target from user context or the invoking agent's workflow. Do not prom
 
 | Mode | Target flag | Command |
 |---|---|---|
+<<<<<<< HEAD
 | VIOS / stream-processor (default) | — | `deploy --force` (VIOS only; NVStreamer is opt-in — see Step 2) |
+=======
+| Stream-processor (default) | — | nvstreamer step + `deploy --force` (two steps — see Step 2) |
+>>>>>>> 5007a4e229affe53f7848545ee04a695657e0f44
 | NVStreamer only | `nvstreamer` | `deploy --target nvstreamer --force` |
 | Full stack (stream-processor + NVStreamer) | `all` | `deploy --target all --force` |
 | With monitoring | — | add `--with-monitoring` |
@@ -92,6 +96,7 @@ cd <PROJECT_ROOT>/services/vios/deployment/stream-processing
 
 ### Step 2a — Classify the deploy intent
 
+<<<<<<< HEAD
 NVStreamer is **opt-in and independent of the adaptor** — a bare deploy never deploys, starts, or probes it. Decide what to deploy from the user's prompt:
 
 | Pattern in the user's prompt | Decision | Next step |
@@ -128,6 +133,69 @@ python3 oneclick_dc_deployment.py deploy --force
 python3 oneclick_dc_deployment.py deploy --no-sdrc --force
 ```
 
+=======
+NVStreamer and the VIOS adaptor are **independent**. Decide what to deploy by reading the user's prompt for explicit NVStreamer intent first; only fall back to the adaptor heuristic if the prompt is silent.
+
+| Pattern in the user's prompt | Decision | Next step |
+|---|---|---|
+| Mentions `nvstreamer` together with any of `+`, `&`, `and`, `with`, `alongside`, `plus` — e.g. *"deploy vios in milestone adaptor & deploy nvstreamer"*, *"deploy vios + nvstreamer"*, *"deploy vios and nvstreamer"* | **Always deploy NVStreamer too**, regardless of adaptor. | Skip the probe. Jump to Step 2d and run BOTH commands (or use `deploy --target all --force` if the user explicitly says "full stack" / "everything"). |
+| Contains any of: `without nvstreamer`, `skip nvstreamer`, `no nvstreamer`, `rtsp from elsewhere`, `external rtsp` | **Never deploy NVStreamer.** | Skip the probe. Jump to Step 2d and run ONLY the VIOS command. Log: *"User opted out of NVStreamer."* |
+| Bare `deploy vios` / `deploy vst` / `deploy` with no NVStreamer mention | **Silent — use the adaptor heuristic.** | Proceed to Step 2b. |
+| `deploy nvstreamer` / `deploy the streamer` (NVStreamer only, no VIOS) | NVStreamer-only target | Skip 2b/2c. Run: `deploy --target nvstreamer --force`. |
+| `full stack` / `everything` / `deploy both` (matches "full stack" wording AND user is OK with the one-command form) | `--target all` | Skip 2b/2c. Run: `deploy --target all --force`. |
+
+> **Important:** the adaptor heuristic in Steps 2b/2c is a fallback for the silent case. **It does NOT override** an explicit user request. If the user said *"deploy vios in milestone adaptor & deploy nvstreamer"*, you deploy NVStreamer too — even though the milestone adaptor wouldn't normally need it. NVStreamer can always run as an additional RTSP source.
+
+### Step 2b — Adaptor heuristic (default behavior, only when user is silent on NVStreamer)
+
+Read the adaptor from compose.env:
+
+```bash
+ENV_FILE=docker-compose/compose.env
+VST_ADAPTOR=$(grep -E '^VST_ADAPTOR=' "$ENV_FILE" | cut -d= -f2)
+NGINX_MODE=$(grep -E '^NGINX_MODE=' "$ENV_FILE" | cut -d= -f2)
+echo "Adaptor: ${VST_ADAPTOR:-vst_rtsp}  NGINX_MODE: ${NGINX_MODE:-vst}"
+```
+
+Branch:
+
+- `VST_ADAPTOR ∈ {vst_rtsp, streamer}` (or unset) → this adaptor typically pairs with NVStreamer for RTSP. **Proceed to Step 2c** (probe NVStreamer state).
+- `VST_ADAPTOR ∈ {onvif, remote, native, milestone_onvif, milestone_soap, test_vms}` → RTSP comes from a camera / VMS / mock by default. **Don't deploy NVStreamer**, but announce the decision clearly so the user can correct you:
+  > *"Detected `VST_ADAPTOR=<value>` (`NGINX_MODE=<value>`). RTSP source is external — deploying VIOS only. If you also want NVStreamer running as an additional RTSP source, say `+ nvstreamer` and I'll re-run."*
+
+  Then jump to Step 2d and run ONLY the VIOS command.
+
+**If `VST_ADAPTOR` is an mms-type adaptor (`milestone_onvif`, `milestone_soap`), run the credentials pre-flight in `skills/deployment/adaptor-mode.md` Step 2.5 BEFORE invoking the deploy command.** Missing `ip`/`user`/`password` in `adaptor_config.json` cause silent runtime failures. The skill covers prompt-parsing, the ask-the-user phrasing, the dry-run diff, the write, and the credentials-hygiene reminder.
+
+For other details on the adaptor↔NGINX_MODE↔JSON consistency and post-deploy verification, see `skills/deployment/adaptor-mode.md`.
+
+### Step 2c — NVStreamer state probe (only reached for vst_rtsp / streamer adaptors when user is silent)
+
+```bash
+NVS_HEALTHY=$(docker ps --filter "name=nvstreamer-1" --filter "health=healthy" --format "{{.Names}}")
+```
+
+Branch on the result:
+
+- **`NVS_HEALTHY` is `nvstreamer-1`** → NVStreamer is already up and healthy. **Skip the nvstreamer step.** Log: *"Reusing existing NVStreamer (nvstreamer-1, up <duration>). Deploying VIOS only."* Jump to Step 2d (VIOS-only command).
+- **`NVS_HEALTHY` is empty** (not running, or unhealthy) → **ask the user once** before deploying it:
+  > *"VIOS adaptor is `<VST_ADAPTOR>` which usually pairs with NVStreamer for RTSP. NVStreamer isn't running. Deploy it alongside (recommended for local dev), or skip if RTSP comes from elsewhere (external server / a pre-populated `NVS_VIDEO_DIR`)?"*
+  - User confirms → run BOTH commands in Step 2d (nvstreamer first, then VIOS).
+  - User declines → run ONLY the VIOS command from Step 2d, and warn in the response: *"VIOS deployed; sensors will register but will not receive frames until a working RTSP source is configured."*
+
+### Step 2d — Commands
+
+```bash
+# (only if Step 2c ask was confirmed OR explicit nvstreamer target)
+# Add --nvstreamer-tag <BUILD_TAG> if deploying a locally built NVStreamer (see Step 1b)
+python3 oneclick_dc_deployment.py deploy --target nvstreamer --force
+
+# Default VIOS deploy
+# Add --all-tag <BUILD_TAG> if deploying locally built VIOS images (see Step 1b)
+python3 oneclick_dc_deployment.py deploy --force
+```
+
+>>>>>>> 5007a4e229affe53f7848545ee04a695657e0f44
 **Full stack (`--target all`)** — single command, do NOT add an nvstreamer step before this; the script handles NVStreamer internally:
 ```bash
 # Add --all-tag <BUILD_TAG> --nvstreamer-tag <BUILD_TAG> if deploying locally built images (see Step 1b)

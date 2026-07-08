@@ -1,4 +1,4 @@
-# nv-schema
+# nvschema
 
 nv protobuf schema
 
@@ -11,35 +11,49 @@ $ protoc --version
 libprotoc 27.3
 ```
 
+Run the generation commands below from this directory (`libs/nvschema/`), which contains the `protobuf/` sources.
+
+> **Note on `struct.proto`:** only `schema.proto` and `ext.proto` are generated
+> directly. `struct.proto` is a vendored copy of the well-known
+> `google/protobuf/struct.proto` (package `google.protobuf`: `Struct`, `Value`,
+> `ListValue`). It is not imported by the other schemas today — the
+> `import "struct.proto"` in `ext.proto` is commented out — so there is no
+> separate command for it. If it is re-enabled, `protoc` pulls it in as a
+> dependency of `ext.proto`; it is never generated on its own.
+
 ## generate c++
 
-cd src/main
-
-protoc -I=./protobuf/ --cpp_out=./c++/ ./protobuf/schema.proto
-protoc -I=./protobuf/ --cpp_out=./c++/ ./protobuf/ext.proto
+```bash
+protoc -I=./protobuf/ --cpp_out=. ./protobuf/schema.proto
+protoc -I=./protobuf/ --cpp_out=. ./protobuf/ext.proto
+```
 
 ## generate javascript
-cd src/main
+
+```bash
 protoc -I=protobuf --js_out=import_style=commonjs,binary:. protobuf/schema.proto
-protoc -I=protobuf --js_out=import_style=commonjs,binary:. protobuf/ext.proto 
+protoc -I=protobuf --js_out=import_style=commonjs,binary:. protobuf/ext.proto
+```
 
 ## generate java
-cd src/main
 
+```bash
 protoc --java_out=. protobuf/schema.proto protobuf/ext.proto
+```
 
 ## generate descriptor
-cd src/main
 
+```bash
 protoc --descriptor_set_out=./schema.desc --include_imports protobuf/schema.proto
 protoc --descriptor_set_out=./ext.desc --include_imports protobuf/ext.proto
+```
 
 ## generate python
 
-cd src/main
-
+```bash
 protoc -I=./protobuf/ --python_out=. --mypy_out=. protobuf/schema.proto
 protoc -I=./protobuf/ --python_out=. --mypy_out=. protobuf/ext.proto
+```
 
 ## generate ruby
 
@@ -50,5 +64,6 @@ $ protoc --version
 libprotoc 3.20.3
 ```
 
-cd src/main/
+```bash
 protoc --proto_path=protobuf/ --ruby_out=. protobuf/schema.proto protobuf/ext.proto
+```

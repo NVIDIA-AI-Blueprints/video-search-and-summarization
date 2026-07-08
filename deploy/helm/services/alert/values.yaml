@@ -29,7 +29,7 @@ redisHost: ""
 redisPort: "6379"
 elasticHosts: ""
 vlmBaseUrl: ""
-vlmName: "nvidia/cosmos-reason2-8b"
+vlmName: "nvidia/cosmos3-nano-reasoner"
 # VST base for URLs passed to the VLM (video fetch). Default: in-cluster vst-ingress service. If global.vlmBaseUrl is set (remote VLM), default becomes global.externalScheme/Host/Port so the VLM can reach media via ingress (set vss-alert-bridge.vstBaseUrl explicitly if you use remote VLM without global.vlmBaseUrl).
 vstBaseUrl: ""
 

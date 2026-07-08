@@ -18,15 +18,15 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from spatialai_data_utils.loaders.calibration import fetch_fps_from_calibration
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.common import (
-    count_the_files_in_s3,
+from spatialai_data_utils.datasets.cloud_utils.common import (
+    count_the_files_in_storage,
     get_ldrcolor_directories,
 )
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils import (
-    check_if_all_ground_truth_files_are_present_in_s3,
-    check_if_all_bin_files_are_present_in_s3,
+from spatialai_data_utils.datasets.cloud_utils.validation_utils import (
+    check_if_all_ground_truth_files_are_present_in_storage,
+    check_if_all_bin_files_are_present_in_storage,
     extract_sensor_name_from_ldrcolor_path,
-    validate_bin_sensors_present_in_s3,
+    validate_bin_sensors_present_in_storage,
 )
 from spatialai_data_utils.validation.gt_utils import (
     get_unique_types_from_ground_truth,
@@ -146,8 +146,8 @@ def test_extract_sensor_name_from_ldrcolor_path():
     assert result == "Camera"  # The function removes 'Rp' but leaves the underscore
 
 
-# Test cases for validate_bin_sensors_present_in_s3
-def test_validate_bin_sensors_present_in_s3_success():
+# Test cases for validate_bin_sensors_present_in_storage
+def test_validate_bin_sensors_present_in_storage_success():
     ldrcolor_directories = [
         "/path/to/_Render_MetroCamera_01Rp/LdrColor/",
         "/path/to/_Render_MetroCamera_02Rp/LdrColor/"
@@ -158,13 +158,13 @@ def test_validate_bin_sensors_present_in_s3_success():
         "bev-sensor-1": ["Camera_01", "Camera_02"]
     }
     
-    result = validate_bin_sensors_present_in_s3(ldrcolor_directories, unique_bev_groups, bev_to_sensor_map)
+    result = validate_bin_sensors_present_in_storage(ldrcolor_directories, unique_bev_groups, bev_to_sensor_map)
     
     assert result["status"] is True
     assert "All sensors are present" in result["message"]
 
 
-def test_validate_bin_sensors_present_in_s3_missing_sensor():
+def test_validate_bin_sensors_present_in_storage_missing_sensor():
     ldrcolor_directories = [
         "/path/to/_Render_MetroCamera_01Rp/LdrColor/",
         "/path/to/_Render_MetroCamera_02Rp/LdrColor/"
@@ -176,16 +176,16 @@ def test_validate_bin_sensors_present_in_s3_missing_sensor():
         "bev-sensor-1": ["Camera_01", "Camera_02", "Camera_03"]
     }
     
-    result = validate_bin_sensors_present_in_s3(ldrcolor_directories, unique_bev_groups, bev_to_sensor_map)
+    result = validate_bin_sensors_present_in_storage(ldrcolor_directories, unique_bev_groups, bev_to_sensor_map)
     
     assert result["status"] is False
     assert "Sensors missing" in result["message"]
     assert "Camera_03" in result["message"]
 
 
-# Test cases for count_the_files_in_s3 (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.boto3.client')
-def test_count_the_files_in_s3(mock_boto3_client):
+# Test cases for count_the_files_in_storage (mocked)
+@patch('spatialai_data_utils.datasets.cloud_utils.common.boto3.client')
+def test_count_the_files_in_storage(mock_boto3_client):
     # Mock S3 client and paginator
     mock_s3_client = MagicMock()
     mock_paginator = MagicMock()
@@ -209,15 +209,15 @@ def test_count_the_files_in_s3(mock_boto3_client):
         "AWS_BUCKET": "test-bucket"
     }
     
-    result = count_the_files_in_s3(env_variables, "test/prefix/")
+    result = count_the_files_in_storage(env_variables, "test/prefix/")
     
     assert result == 10  # 5 + 3 + 2
     mock_s3_client.get_paginator.assert_called_once_with('list_objects_v2')
 
 
-# Test cases for check_if_all_ground_truth_files_are_present_in_s3 (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.count_the_files_in_s3')
-def test_check_if_all_ground_truth_files_are_present_in_s3(mock_count_files):
+# Test cases for check_if_all_ground_truth_files_are_present_in_storage (mocked)
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.count_the_files_in_storage')
+def test_check_if_all_ground_truth_files_are_present_in_storage(mock_count_files):
     mock_count_files.return_value = 100
     
     args = MagicMock()
@@ -226,11 +226,11 @@ def test_check_if_all_ground_truth_files_are_present_in_s3(mock_count_files):
     args.ground_truth_record_count_error_threshold_ratio = 0.8
     
     env_variables = {
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "test_sim"
     }
     
-    result = check_if_all_ground_truth_files_are_present_in_s3(args, env_variables, 30)
+    result = check_if_all_ground_truth_files_are_present_in_storage(args, env_variables, 30)
     
     assert result["actual_count"] == 100
     assert result["warning_threshold_record_count"] == 270  # 10 * 30 * 0.9
@@ -521,7 +521,7 @@ def test_ground_truth_data_validation_single_sensor(tmp_path):
 
 
 # Test cases for get_ldrcolor_directories
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.boto3.client')
+@patch('spatialai_data_utils.datasets.cloud_utils.common.boto3.client')
 def test_get_ldrcolor_directories_success(mock_boto3_client):
     """Test successful retrieval of LdrColor directories"""
     # Mock S3 client and paginator
@@ -556,7 +556,7 @@ def test_get_ldrcolor_directories_success(mock_boto3_client):
     mock_s3_client.get_paginator.assert_called_once_with('list_objects_v2')
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.boto3.client')
+@patch('spatialai_data_utils.datasets.cloud_utils.common.boto3.client')
 def test_get_ldrcolor_directories_skips_shallow_keys(mock_boto3_client):
     """Test shallow keys are skipped while finding LdrColor directories."""
     mock_s3_client = MagicMock()
@@ -584,57 +584,48 @@ def test_get_ldrcolor_directories_skips_shallow_keys(mock_boto3_client):
     ]
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.boto3.client')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.exit')
-def test_get_ldrcolor_directories_no_directories_found(mock_exit, mock_boto3_client):
-    """Test when no LdrColor directories are found - covers line 75-76"""
-    # Mock S3 client and paginator
+@patch('spatialai_data_utils.datasets.cloud_utils.common.boto3.client')
+def test_get_ldrcolor_directories_no_directories_found(mock_boto3_client):
+    """Test when no LdrColor directories are found."""
     mock_s3_client = MagicMock()
     mock_paginator = MagicMock()
     mock_page_iterator = MagicMock()
-    
+
     mock_boto3_client.return_value = mock_s3_client
     mock_s3_client.get_paginator.return_value = mock_paginator
     mock_paginator.paginate.return_value = mock_page_iterator
-    
-    # Mock paginated results with no LdrColor directories
+
     mock_page_iterator.__iter__.return_value = [
         {
             'Contents': [
                 {'Key': 'simulation1/ground-truth/MetroSensor_Bridge_0_50060/_Render_MetroCameraRp/SemanticBoundingBox3D/0.json'},
-                {'Key': 'simulation1/ground-truth/MetroSensor_Bridge_0_50060/_Render_MetroCamera_01Rp/SemanticIdMap/0.json'}
+                {'Key': 'simulation1/ground-truth/MetroSensor_Bridge_0_50060/_Render_MetroCamera_01Rp/SemanticIdMap/0.json'},
             ]
         }
     ]
-    
-    get_ldrcolor_directories(mock_s3_client, "test-bucket", "simulation1/ground-truth/")
-    
-    # Should call exit(1) when no LdrColor directories found
-    mock_exit.assert_called_once_with(1)
+
+    with pytest.raises(RuntimeError, match="No directories containing 'LdrColor/' found"):
+        get_ldrcolor_directories(mock_s3_client, "test-bucket", "simulation1/ground-truth/")
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.boto3.client')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.exit')
-def test_get_ldrcolor_directories_exception_handling(mock_exit, mock_boto3_client):
-    """Test exception handling in get_ldrcolor_directories - covers line 78-80"""
-    # Mock S3 client to raise an exception
+@patch('spatialai_data_utils.datasets.cloud_utils.common.boto3.client')
+def test_get_ldrcolor_directories_exception_handling(mock_boto3_client):
+    """Test storage client errors propagate from get_ldrcolor_directories."""
     mock_s3_client = MagicMock()
     mock_s3_client.get_paginator.side_effect = Exception("S3 connection failed")
-    
+
     mock_boto3_client.return_value = mock_s3_client
-    
-    get_ldrcolor_directories(mock_s3_client, "test-bucket", "simulation1/ground-truth/")
-    
-    # Should call exit(1) when exception occurs
-    mock_exit.assert_called_once_with(1)
+
+    with pytest.raises(Exception, match="S3 connection failed"):
+        get_ldrcolor_directories(mock_s3_client, "test-bucket", "simulation1/ground-truth/")
 
 
-# Test cases for check_if_all_bin_files_are_present_in_s3
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_ldrcolor_directories')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.validate_bin_sensors_present_in_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.count_the_files_in_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_s3_client')
-def test_check_if_all_bin_files_are_present_in_s3_success(mock_get_s3_client, mock_count_files, mock_validate_sensors, mock_get_directories):
+# Test cases for check_if_all_bin_files_are_present_in_storage
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_ldrcolor_directories')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.validate_bin_sensors_present_in_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.count_the_files_in_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_storage_client')
+def test_check_if_all_bin_files_are_present_in_storage_success(mock_get_storage_client, mock_count_files, mock_validate_sensors, mock_get_directories):
     """Test successful validation of bin files"""
     # Mock arguments
     args = MagicMock()
@@ -647,7 +638,7 @@ def test_check_if_all_bin_files_are_present_in_s3_success(mock_get_s3_client, mo
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "test_sim"
     }
     
@@ -668,17 +659,17 @@ def test_check_if_all_bin_files_are_present_in_s3_success(mock_get_s3_client, mo
     
     mock_count_files.side_effect = [300, 300]  # Above warning threshold
     
-    result = check_if_all_bin_files_are_present_in_s3(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
+    result = check_if_all_bin_files_are_present_in_storage(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
     
     assert result["status"] is True
-    assert "All bin files are present in s3." in result["message"]
+    assert "All bin files are present in object storage." in result["message"]
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_ldrcolor_directories')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.validate_bin_sensors_present_in_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.count_the_files_in_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_s3_client')
-def test_check_if_all_bin_files_are_present_in_s3_error_threshold(mock_get_s3_client, mock_count_files, mock_validate_sensors, mock_get_directories):
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_ldrcolor_directories')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.validate_bin_sensors_present_in_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.count_the_files_in_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_storage_client')
+def test_check_if_all_bin_files_are_present_in_storage_error_threshold(mock_get_storage_client, mock_count_files, mock_validate_sensors, mock_get_directories):
     """Test when bin file count is below error threshold"""
     # Mock arguments
     args = MagicMock()
@@ -691,7 +682,7 @@ def test_check_if_all_bin_files_are_present_in_s3_error_threshold(mock_get_s3_cl
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "test_sim"
     }
     
@@ -711,18 +702,18 @@ def test_check_if_all_bin_files_are_present_in_s3_error_threshold(mock_get_s3_cl
     
     mock_count_files.return_value = 100  # Below error threshold (150)
     
-    result = check_if_all_bin_files_are_present_in_s3(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
+    result = check_if_all_bin_files_are_present_in_storage(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
     
     assert result["status"] is False
-    assert "Number of bin files in s3 for" in result["message"]
+    assert "Number of bin files in object storage for" in result["message"]
     assert "which is less than expected error threshold count" in result["message"]
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_ldrcolor_directories')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.validate_bin_sensors_present_in_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.count_the_files_in_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_s3_client')
-def test_check_if_all_bin_files_are_present_in_s3_warning_threshold(mock_get_s3_client, mock_count_files, mock_validate_sensors, mock_get_directories):
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_ldrcolor_directories')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.validate_bin_sensors_present_in_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.count_the_files_in_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_storage_client')
+def test_check_if_all_bin_files_are_present_in_storage_warning_threshold(mock_get_storage_client, mock_count_files, mock_validate_sensors, mock_get_directories):
     """Test when bin file count is below warning threshold"""
     # Mock arguments
     args = MagicMock()
@@ -735,7 +726,7 @@ def test_check_if_all_bin_files_are_present_in_s3_warning_threshold(mock_get_s3_
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "test_sim"
     }
     
@@ -755,19 +746,19 @@ def test_check_if_all_bin_files_are_present_in_s3_warning_threshold(mock_get_s3_
     
     mock_count_files.return_value = 200  # Below warning threshold (240) but above error threshold (150)
     
-    result = check_if_all_bin_files_are_present_in_s3(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
+    result = check_if_all_bin_files_are_present_in_storage(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
     
     assert result["status"] is True
-    assert "Number of bin files in s3 for" in result["message"]
+    assert "Number of bin files in object storage for" in result["message"]
     assert "which is less than expected warning threshold count" in result["message"]
     assert "Total number of bin files expected for each sensor" in result["message"]
 
 
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_ldrcolor_directories')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.validate_bin_sensors_present_in_s3')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_s3_client')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.exit')
-def test_check_if_all_bin_files_are_present_in_s3_sensor_validation_fails(mock_exit, mock_get_s3_client, mock_validate_sensors, mock_get_directories):
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_ldrcolor_directories')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.validate_bin_sensors_present_in_storage')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_storage_client')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.sys.exit')
+def test_check_if_all_bin_files_are_present_in_storage_sensor_validation_fails(mock_exit, mock_get_storage_client, mock_validate_sensors, mock_get_directories):
     """Test when sensor validation fails"""
     # Mock arguments
     args = MagicMock()
@@ -780,7 +771,7 @@ def test_check_if_all_bin_files_are_present_in_s3_sensor_validation_fails(mock_e
         "AWS_SECRET_ACCESS_KEY": "test_secret",
         "AWS_REGION": "us-east-1",
         "AWS_BUCKET": "test-bucket",
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "test_sim"
     }
     
@@ -801,7 +792,7 @@ def test_check_if_all_bin_files_are_present_in_s3_sensor_validation_fails(mock_e
     mock_exit.side_effect = SystemExit
 
     with pytest.raises(SystemExit):
-        check_if_all_bin_files_are_present_in_s3(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
+        check_if_all_bin_files_are_present_in_storage(args, env_variables, fps, bev_to_sensor_map, unique_bev_groups)
     
     # Should call exit(1) when sensor validation fails
     mock_exit.assert_called_once_with(1)

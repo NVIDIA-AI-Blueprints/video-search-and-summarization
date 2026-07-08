@@ -11,6 +11,12 @@ Camera group/map visualization helpers are exposed from
 `spatialai_data_utils.core.cameras.visualization` import path is kept only as a
 compatibility shim.
 
+> **Requires the `viz` extra.** These tools draw with OpenCV (`cv2`), an
+> optional dependency: `pip install 'spatialai-data-utils[viz]'`. The
+> functions raise a clear `ImportError` if it is missing. OpenCV ships with
+> bundled `ffmpeg` libraries and codecs — review their licenses and terms of
+> distribution and use before installing.
+
 ## Tools Overview
 
 | Tool | Purpose |
