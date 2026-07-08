@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when deploying, operating, or integrating the VSS 3.2 GA RT-Embed Video Embedding microservice. <br>
+Use this skill when deploying, operating, or integrating the VSS 3.2 GA RT-Embed Video Embedding microservice, covering Docker Compose bring-up, GPU and storage prerequisites, the /v1 REST API, Redis/Kafka/OTel integration, common failure modes, and teardown. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying, operating, or integrating the NVIDIA VSS Video Embedding (RT-Embed) microservice for video and text embedding generation in AI-powered video analytics applications. <br>
+Developers and engineers deploying, configuring, and integrating the NVIDIA VSS Video Embedding (RT-Embed) microservice for real-time video and text embedding generation in video search and summarization pipelines. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -19,13 +19,13 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Deployment Reference](references/deploy-vss-deploy-video-embedding.md) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Deploy Reference](references/deploy-vss-deploy-video-embedding.md) <br>
 - [Integration Reference](references/integrate-vss-deploy-video-embedding.md) <br>
 - [REST API Catalog](references/rest-api.md) <br>
 - [Environment Variable Matrix](references/environment.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Troubleshooting Guide](references/troubleshooting.md) <br>
 
 
 ## Skill Output: <br>
@@ -41,7 +41,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-2 evaluation tasks (2 positive skill-activation tasks, 0 negative tasks) via NVSkills-Eval external profile in astra-sandbox environment. <br>
+Evaluated against 2 evaluation tasks (2 positive skill-activation cases) using NVSkills-Eval external profile in astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,10 +66,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 50% (+50%) | 50% (+50%) |
-| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 2 | 92% (+80%) | 84% (+66%) |
-| Efficiency | 2 | 27% (-0%) | 28% (-0%) |
+| Correctness | 2 | 75% (+75%) | 50% (+50%) |
+| Discoverability | 2 | 50% (+50%) | 0% (+0%) |
+| Effectiveness | 2 | 95% (+78%) | 84% (+66%) |
+| Efficiency | 2 | 61% (+34%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
