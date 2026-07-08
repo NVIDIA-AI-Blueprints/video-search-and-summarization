@@ -85,6 +85,19 @@ sparse4d), skip step 1. Bump `==2.0.0` to the version you want to
 install; available versions can be browsed at
 <https://edge.urm.nvidia.com/artifactory/sw-metropolis-pypi/spatialai-data-utils/>.
 
+### Option C: Docker
+
+A self-contained CPU image is provided in [`docker/Dockerfile`](docker/Dockerfile)
+(builds `pytorch3d` from source in a builder stage and ships only the
+runtime deps in the final image):
+
+```bash
+docker build -f docker/Dockerfile -t spatialai_data_utils .
+```
+
+Tool-specific Docker run examples live in the validation_and_evaluation README, such as
+[`tools/validation_and_evaluation/README.md`](tools/validation_and_evaluation/README.md).
+
 ### Removing the environment
 
 ```bash
