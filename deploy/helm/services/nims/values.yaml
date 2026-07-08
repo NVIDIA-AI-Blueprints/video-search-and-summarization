@@ -61,8 +61,11 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
+      # Match Docker's dedicated H100 profile: it intentionally leaves
+      # NIM_GPU_MEMORY_UTILIZATION unset. The NIM selects its validated
+      # dedicated-GPU default; setting this key to 0.7 restricts KV cache
+      # below the 262144-token model context requirement.
       NIM_KVCACHE_PERCENT: "0.7"
-      NIM_GPU_MEMORY_UTILIZATION: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
@@ -105,8 +108,10 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
+      # Match Docker's dedicated RTX PRO 6000 Blackwell profile: leave the
+      # direct NIM GPU-memory override unset. This keeps the NIM's validated
+      # dedicated-GPU memory selection rather than forcing 0.7.
       NIM_KVCACHE_PERCENT: "0.7"
-      NIM_GPU_MEMORY_UTILIZATION: "0.7"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
