@@ -246,8 +246,8 @@ VSS_DATA_DIR="<extracted-vss-warehouse-app-data>"  # NOT the repo path
 HOST_IP='<browser-reachable-IP>'            # not localhost
 EXTERNAL_IP="${HOST_IP}"
 
-# MQTT (mv3dt only)
-MQTT_HOST=localhost
+# MQTT (mv3dt only — compose DNS name)
+MQTT_HOST=mosquitto
 MQTT_PORT=1883
 
 # NGC credential for image pulls
