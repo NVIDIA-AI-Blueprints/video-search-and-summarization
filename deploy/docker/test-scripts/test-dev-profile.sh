@@ -997,6 +997,45 @@ run_dry_run_up_and_check_generated_env "generated.env alerts UI subtitle follows
   "MODE" "2d_vlm" \
   "NEXT_PUBLIC_APP_SUBTITLE" '"Vision (Alerts - VLM)"'
 
+# Alerts verification (2d_cv): rtvi-vlm Kafka consumer disabled (RTVI_VLM_KAFKA_ENABLED=false).
+run_dry_run_up_and_check_generated_env "generated.env alerts verification disables RTVI_VLM_KAFKA_ENABLED" "alerts" \
+ -i 127.0.0.1 -m verification -d -- \
+  "MODE" "2d_cv" \
+  "RTVI_VLM_KAFKA_ENABLED" "false"
+
+# Alerts real-time (2d_vlm): RTVI_VLM_KAFKA_ENABLED is NOT forced off (line absent → runtime default true).
+# Asserted directly (helper treats empty expected as "don't care", so it can't catch a wrongly-set value).
+_gen_env_rt_kafka="$(generated_env_path "alerts")"
+_backup_rt_kafka=""
+if [[ -f "${_gen_env_rt_kafka}" ]]; then
+  _backup_rt_kafka="$(mktemp)"
+  cp "${_gen_env_rt_kafka}" "${_backup_rt_kafka}"
+fi
+_out_rt_kafka="$(mktemp)"
+_err_rt_kafka="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m real-time -d > "${_out_rt_kafka}" 2> "${_err_rt_kafka}"
+_exit_rt_kafka=$?
+set -e
+if [[ ${_exit_rt_kafka} -ne 0 ]]; then
+  echo "FAIL: alerts real-time does not force RTVI_VLM_KAFKA_ENABLED off (dev-profile exit ${_exit_rt_kafka})"
+  sed 's/^/    /' "${_out_rt_kafka}" "${_err_rt_kafka}"
+  ((TESTS_FAILED++)) || true
+elif grep -Eq '^RTVI_VLM_KAFKA_ENABLED=' "${_gen_env_rt_kafka}"; then
+  echo "FAIL: alerts real-time must not set RTVI_VLM_KAFKA_ENABLED (found: $(grep -E '^RTVI_VLM_KAFKA_ENABLED=' "${_gen_env_rt_kafka}"))"
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: alerts real-time leaves RTVI_VLM_KAFKA_ENABLED unset"
+  ((TESTS_PASSED++)) || true
+fi
+if [[ -n "${_backup_rt_kafka}" && -f "${_backup_rt_kafka}" ]]; then
+  mv "${_backup_rt_kafka}" "${_gen_env_rt_kafka}"
+else
+  rm -f "${_gen_env_rt_kafka}"
+fi
+rm -f "${_out_rt_kafka}" "${_err_rt_kafka}"
+
 _alerts_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env"
 _alerts_env_backup="$(mktemp)"
 cp "${_alerts_env}" "${_alerts_env_backup}"

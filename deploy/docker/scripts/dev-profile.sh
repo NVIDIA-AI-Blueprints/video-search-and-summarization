@@ -1213,6 +1213,10 @@ function state_up() {
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
   fi
+  # Alerts verification profile (MODE=2d_cv): disable the rtvi-vlm Kafka consumer;
+  if [[ "${profile}" == "alerts" ]] && [[ "${mode_env}" == "2d_cv" ]]; then
+    set_env_var "RTVI_VLM_KAFKA_ENABLED" "false"
+  fi
 
   # ===== LLM Configuration =====
   # Derived LLM_MODE written to generated.env (remote when --use-remote-llm and LLM_ENDPOINT_URL; else local_shared or local from device IDs and FIXED_SHARED_DEVICE_IDS)
