@@ -18,8 +18,11 @@ Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode 
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
 In this compose, rtvi-vlm is wired by default to call a **sibling NIM**
 (`cosmos-reason1-7b`, `cosmos-reason2-8b`, or `qwen3-vl-8b-instruct`) over
-OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
-host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
+OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka defaults to the
+in-compose broker** at `kafka:29092` (compose DNS;
+`KAFKA_BOOTSTRAP_SERVERS=${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`). For
+standalone or external Kafka, override
+`RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` in `.env`.
 
 ## 2. Related Skill
 
@@ -39,7 +42,8 @@ live-authoritative schema — see §16.
   (`docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` must succeed)
 - **Git LFS** (HF-backed models)
 - **≥ 50 GB disk** for image + 20–80 GB for model weights on first run
-- **Kafka on host** reachable at `${HOST_IP}:9092` (compose does NOT bundle Kafka)
+- **Kafka** on the compose network at `kafka:29092` by default; for standalone or
+  external Kafka set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` in `.env`
 - **Sibling NIM compose** providing the VLM backend: rtvi-vlm `depends_on`
   `cosmos-reason1-7b` / `cosmos-reason2-8b` / `qwen3-vl-8b-instruct`, all
   `required: false`. Launch one of those first.
@@ -163,7 +167,7 @@ sudo -n chown 1001:1001 ./rtvi-logs || {
 | Host var | Required | Compose default | Notes |
 |---|---|---|---|
 | `RTVI_VLM_PORT` | **YES** (`${RTVI_VLM_PORT?}` strict) | — | Host REST API port |
-| `HOST_IP` | **YES (effectively)** | — | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback |
+| `HOST_IP` | conditional | — | Not interpolated into Kafka bootstrap (default `kafka:29092`). Set when overriding `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` for standalone/external Kafka |
 | `VSS_DATA_DIR` | **YES (effectively)** | — | Interpolated into VST clip-storage bind mount; no fallback |
 | `NGC_CLI_API_KEY` | **YES for documented pull / local NGC model path** | — | `docker login nvcr.io`, image pull, and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` | optional / backend-dependent | `${NGC_CLI_API_KEY}` fallback in compose | RT-VLM bearer auth or non-NGC backend auth; does not replace `NGC_CLI_API_KEY` for registry pulls |
@@ -641,7 +645,7 @@ once the service is up):
 |---|---|---|
 | `docker compose up` starts nothing | `--profile` not specified | Add `--profile bp_developer_alerts_2d_vlm` (§12) |
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `.env` |
-| Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
+| Container starts but Kafka errors connection refused or offsets stay at 0 | No broker reachable at the configured `KAFKA_BOOTSTRAP_SERVERS` (default `kafka:29092`; or `${HOST_IP}:9092` if `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` is overridden) when RT-VLM starts | Ensure the sibling Kafka service is up on the compose network, or set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to a reachable broker and restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo -n chown` reports that a password is required or fails in an agent session | Host path ownership requires user privileges and passwordless sudo is unavailable | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `sudo -n docker ...` reports that a password is required | Docker requires elevated privileges, but the agent cannot satisfy an interactive sudo prompt | Prefer adding the user to the docker group, enable passwordless sudo for Docker, or have the host owner run the printed Docker command manually. Do not retry with interactive sudo. |
@@ -727,14 +731,19 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
   `docker_cmd` wrapper and pipe secrets through
   stdin (`printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login ...`). Never let
   `sudo` prompt interactively in an agent session.
-- **External Kafka required**: `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` — if
-  `HOST_IP` isn't set, the container tries `:9092` and fails.
-  `host.docker.internal` is wired via `extra_hosts` as an alternative value.
+- **Kafka bootstrap default**: compose sets
+  `KAFKA_BOOTSTRAP_SERVERS=${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` — the
+  in-profile broker on the compose network. Override
+  `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` only for standalone or
+  external Kafka; then `HOST_IP` must name a broker address reachable from the
+  container (`host.docker.internal` is wired via `extra_hosts` as an alternative).
 - **`VSS_DATA_DIR` required**: no default on the bind mount. Without it the
   mount spec expands to garbage.
 - **Kafka startup order matters for validation**: when `RTVI_VLM_KAFKA_ENABLED=true`,
-  start Kafka with an advertised `${HOST_IP}:9092` listener before RT-VLM. If the
-  broker was missing or its listener changed after RT-VLM started, run
+  ensure the broker at `KAFKA_BOOTSTRAP_SERVERS` is up before RT-VLM (default
+  `kafka:29092` on the compose network; standalone overrides need an advertised
+  `${HOST_IP}:9092` listener). If the broker was missing or its listener changed
+  after RT-VLM started, run
   `docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm`.
 - **Host-var rewrite convention**: most host-side vars use `RTVI_VLM_*` or
   `RTVI_VLLM_*` and rewrite to canonical names inside the container.
