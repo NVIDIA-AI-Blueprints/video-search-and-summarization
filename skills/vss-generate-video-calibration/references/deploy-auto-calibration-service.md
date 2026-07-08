@@ -8,7 +8,7 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 - **Standalone microservice — not part of the VSS agent stack.** AMC ships its own MS + UI containers. The VSS agent, NIMs, VST, RTVI, etc. are **not** brought up by this skill — only the AMC backend and its web UI.
 - **AMC piggybacks on the `warehouse-operations` industry profile.** Warehouse calibration profiles load the env automatically; running `auto_calib` standalone requires the same env to be present.
-- **Default ports**: MS at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**); UI at `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`). MS uses `network_mode: host`, so 8010 is also the host port.
+- **Default ports**: MS at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**), published to the host via `${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}:8010`; UI at `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`). Both run on the default compose bridge network.
 - **VIOS auto-wired.** When deployed with a warehouse calibration profile, `VIOS_BASE_URL` is fetched from `${VST_INTERNAL_URL}`. No manual VIOS config needed if VST is running in the same compose.
 - **Optional VGGT model.** AMC works without VGGT, but model-based refinement needs `vggt_1B_commercial.pt` at `$VSS_DATA_DIR/auto-calib/vggt/` (the path the MS container mounts read-only). Skip this step unless the user explicitly wants VGGT.
 

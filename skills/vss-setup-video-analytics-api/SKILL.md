@@ -85,7 +85,7 @@ The full operational walkthrough — config-source options, data-log volume beha
    > rotate immediately.
 3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
 4. **Elasticsearch** — must be reachable at the URL configured in `elasticsearch.node`. The server pings ES on startup; if unreachable, it exits (and `restart: always` brings it back). If you need to bring up ES too, use the infra compose: `docker compose -f services/infra/compose.yml up -d elasticsearch`.
-5. **Optional Kafka broker**. The API can run without Kafka. If you want a quiet broker-less deployment, use the image-baked config or a custom config with `kafka.brokers: []`; the service-shipped compose config points at `localhost:9092`, so Kafka-dependent features (dynamic config, dynamic calibration, RTLS/AMR) will fail until a broker is reachable.
+5. **Optional Kafka broker**. The API can run without Kafka. If you want a quiet broker-less deployment, use the image-baked config or a custom config with `kafka.brokers: []`; the service-shipped compose config points at `kafka:29092`, so Kafka-dependent features (dynamic config, dynamic calibration, RTLS/AMR) will fail until a broker is reachable.
 6. **`$VSS_DATA_DIR` for the default compose.** The base compose bind-mounts `$VSS_DATA_DIR/data_log/vss_video_analytics_api` for multipart upload handling and file-backed assets such as calibration images. Set the directory to a writable host path and pre-create it, or remove that mount if image uploads are not needed.
 
 If any required prerequisite fails, surface the gap before going further.

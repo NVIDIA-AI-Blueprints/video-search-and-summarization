@@ -205,7 +205,7 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 | `VST_VIDEO_STORAGE_SIZE_MB` | Storage cap in MB | `100000` | optional |
 | `VST_ADAPTOR` | Camera adapter type: `vst_rtsp` or `milestone_onvif` | `vst_rtsp` | optional |
 | `VST_INSTALL_ADDITIONAL_PACKAGES` | Pull extra apt packages at first boot | `true` | optional |
-| `HOST_IP` | Used in `VST_INGRESS_ENDPOINT` and `KAFKA_BOOTSTRAP_URL` when not `localhost` | — | conditional |
+| `HOST_IP` | Injected into SDRC `render-config` templates; NOT used in `VST_INGRESS_ENDPOINT` (default `vst-ingress:30888`) or `KAFKA_BOOTSTRAP_URL` (default `kafka:29092`) | — | conditional |
 | `REDIS_HOSTADDR` | Redis address (compose DNS) | `redis` | optional |
 | `REDIS_PORT` | Redis port | `6379` | optional |
 | `REDIS_MSG_KEY` | Redis sensor-event key | `vst.event` | optional |

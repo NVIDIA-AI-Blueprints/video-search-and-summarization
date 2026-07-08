@@ -42,7 +42,7 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 ```json
 {
   "kafka": {
-    "brokers": "localhost:9092",
+    "brokers": "kafka:29092",
     "group": "my-app",
     "consumer": {"timeout": 0.1},
     "producer": {},

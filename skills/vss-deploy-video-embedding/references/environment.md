@@ -62,7 +62,7 @@ Several host-side variables map to differently named container variables. The Co
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Maximum seconds for a URL asset download. | `300` |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Connection timeout for asset downloads. | `10` |
 | `ENABLE_REQUEST_PROFILING` | Per-request profiling. | `false` |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list (constructed by Compose as `${HOST_IP}:9092`). | derived |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list (defaults to `kafka:29092` via `${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`). | derived |
 
 ## Secret-Sensitive Variables
 

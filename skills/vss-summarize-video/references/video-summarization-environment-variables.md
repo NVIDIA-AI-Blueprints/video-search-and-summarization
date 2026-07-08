@@ -62,7 +62,7 @@ RT-VLM:
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw caption events. |
 | `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw caption topic. |
-| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker URL from RT-VLM. |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from RT-VLM. |
 
 Video summarization service:
 
@@ -77,7 +77,7 @@ Video summarization service:
 | `LVS_EMB_MODEL_NAME` | unset | Text embedding model id for graph backends, copied from the embedding endpoint's `/models` response. Current LVS graph-RAG examples use `nvidia/llama-3.2-nv-embedqa-1b-v2`. |
 | `LVS_EMB_BASE_URL` | unset | OpenAI/NVIDIA-compatible text embedding endpoint for graph backends; include `/v1`, for example `https://integrate.api.nvidia.com/v1` or `http://127.0.0.1:9232/v1`. |
 | `KAFKA_ENABLED` | `true` | video summarization Kafka integration. |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker URL from the video summarization service. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from the video summarization service. Override with `${HOST_IP}:<port>` for an external broker. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` | Merge duplicate/overlapping events. |
 

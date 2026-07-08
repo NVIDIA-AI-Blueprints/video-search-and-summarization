@@ -19,7 +19,7 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
     "retries": 15
   },
   "kafka": {
-    "brokers": ["localhost:9092"],
+    "brokers": ["kafka:29092"],
     "retries": null
   }
 }
@@ -57,7 +57,7 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
 
 | Field | Type | Default | What it controls |
 |---|---|---|---|
-| `brokers` | array of strings | `["localhost:9092"]` (service-shipped) / `[]` (image-baked) | Kafka broker addresses. Empty array or `null` disables Kafka entirely — no error, no retry loop. |
+| `brokers` | array of strings | `["kafka:29092"]` (service-shipped) / `[]` (image-baked) | Kafka broker addresses. Empty array or `null` disables Kafka entirely — no error, no retry loop. |
 | `retries` | number or null | `null` | KafkaJS retry count. `null` uses KafkaJS defaults. |
 
 ## Config sources
@@ -74,7 +74,7 @@ Assumes Elasticsearch at `http://localhost:9200`, index prefix `mdx-`, Kafka **d
 
 Path on host: `services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`
 
-Identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when you have a local Kafka broker running.
+Identical to the image-baked default except Kafka is **enabled** (`brokers: ["kafka:29092"]`). This is the right choice when you have a local Kafka broker running.
 
 ### Custom config
 
@@ -98,7 +98,7 @@ Any absolute host path. Copy one of the above as a starting point and edit. Bind
     "retries": 15
   },
   "kafka": {
-    "brokers": ["localhost:9092"],
+    "brokers": ["kafka:29092"],
     "retries": null
   }
 }
@@ -107,6 +107,6 @@ Any absolute host path. Copy one of the above as a starting point and edit. Bind
 ## Tips
 
 - Keep `server.configs[].value` as strings — the server parses types internally.
-- When running with `network_mode: "host"`, Elasticsearch and Kafka must also be on the host network.
+- The compose deployment uses bridge networking. Elasticsearch and Kafka are expected to be reachable via compose DNS (`elasticsearch:9200`, `kafka:29092`).
 - Set `kafka.brokers` to an empty array `[]` to run without Kafka. The server starts normally; Kafka-dependent endpoints (dynamic config, dynamic calibration, RTLS/AMR) are simply unavailable.
 - The `amrRetentionInSec` default is `"3"` in both the service-shipped config and the image-baked default.

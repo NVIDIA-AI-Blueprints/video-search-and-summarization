@@ -817,7 +817,7 @@ RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 
 # --- MQTT (mv3dt only — cross-camera messaging for BEV Fusion) ---
-MQTT_HOST=localhost
+MQTT_HOST=mosquitto
 MQTT_PORT=1883
 
 # --- Paths ---
@@ -873,20 +873,20 @@ These compose template variables all use `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PU
 
 ##### Internal service-to-service URLs (no Brev override needed)
 
-These URLs stay on the internal host network — containers talk to each other via `HOST_IP` or `localhost`, never through the Brev reverse proxy:
+These URLs use compose-internal DNS service names — containers talk to each other via service-name resolution on the bridge network, never through the Brev reverse proxy:
 
 | Variable | Template | Compose file |
 |---|---|---|
-| `VIDEO_ANALYSIS_MCP_URL` | `http://${VSS_AGENT_HOST}:${VSS_VA_MCP_PORT}` (0.0.0.0:9901) | `services/agent/compose.yml` |
-| `LLM_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
-| `VLM_BASE_URL` | `http://${HOST_IP}:${VLM_PORT}` | `services/agent/compose.yml` |
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | `services/agent/compose.yml` |
-| `ALERT_BRIDGE_URL` | `http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}` | `services/agent/compose.yml` |
-| `PHOENIX_ENDPOINT` | `http://${HOST_IP}:6006` | `services/agent/compose.yml` |
-| `VST_INTERNAL_URL` | `http://${HOST_IP}:30888` | `services/agent/compose.yml` |
-| `EVAL_LLM_JUDGE_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
-| `VST_INGRESS_ENDPOINT` | `${HOST_IP}:30888/vst` (no scheme) | `services/vios/vst.env` |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
+| `VIDEO_ANALYSIS_MCP_URL` | `http://vss-va-mcp:${VSS_VA_MCP_PORT}` | `services/agent/compose.yml` |
+| `LLM_BASE_URL` | `http://vss-llm-nim:8000` | `services/agent/compose.yml` |
+| `VLM_BASE_URL` | `http://rtvi-vlm:8000` | `services/agent/compose.yml` |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | `services/agent/compose.yml` |
+| `ALERT_BRIDGE_URL` | `http://alert-bridge:${ALERT_BRIDGE_PORT:-9080}` | `services/agent/compose.yml` |
+| `PHOENIX_ENDPOINT` | `http://phoenix:6006` | `services/agent/compose.yml` |
+| `VST_INTERNAL_URL` | `http://vst-ingress:${VST_PORT}` | `services/agent/compose.yml` |
+| `EVAL_LLM_JUDGE_BASE_URL` | `http://vss-llm-nim:8000` | `services/agent/compose.yml` |
+| `VST_INGRESS_ENDPOINT` | `vst-ingress:${VST_PORT}/vst` (no scheme) | `services/vios/vst.env` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | `warehouse-operations/.env` / `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
 | Healthcheck endpoints | `http://localhost:8000/...` | all compose files |
 
