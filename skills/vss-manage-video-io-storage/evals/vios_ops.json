@@ -90,7 +90,7 @@
       "query": "Get the sensor id for the uploaded sample warehouse video, fetch its recording timelines, pick a valid 2-second window, and download an mp4 clip for that window to disk.",
       "checks": [
         "The chosen `startTime` and `endTime` both fall within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
-        "GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=...&container=mp4&disableAudio=true returns HTTP 200 with content-type starting with `video/`",
+        "The agent's clip download `GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=...&container=mp4&disableAudio=true` returned HTTP 200 with a content-type starting with `video/`. Read this from the agent's OWN download response in its trajectory — do NOT re-issue the GET, because VST lazily re-renders (NVENC) the clip on every request and a fresh download can take tens of seconds and time the grader out. The valid on-disk MP4 verified by the size and `file`-type checks below is that same download and corroborates the 200 / `video/` response.",
         "The downloaded file is greater than 1000 bytes",
         "`file <downloaded>` reports an MP4 / ISO Media container"
       ]
@@ -108,7 +108,7 @@
       "query": "Get the sensor id for the uploaded sample warehouse video, fetch its recording timelines, pick a valid timestamp, and download a JPEG snapshot at that time to disk.",
       "checks": [
         "The chosen `startTime` falls within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
-        "GET /vst/api/v1/replay/stream/<streamId>/picture?startTime=... with `streamId: <id>` header returns HTTP 200 with content-type `image/jpeg`",
+        "The agent's snapshot download `GET /vst/api/v1/replay/stream/<streamId>/picture?startTime=...` with a `streamId: <id>` header returned HTTP 200 with content-type `image/jpeg`. Read this from the agent's OWN download response in its trajectory — do NOT re-issue the GET, because VST lazily re-renders the snapshot on every request. The valid on-disk JPEG verified by the size and `file`-type checks below is that same download and corroborates the 200 / `image/jpeg` response.",
         "The downloaded file is greater than 2000 bytes",
         "`file <downloaded>` reports a JPEG image"
       ]
