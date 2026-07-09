@@ -419,13 +419,13 @@ class BrevEnvironment(BaseEnvironment):
         re-wipes the caches and re-pays the cold start. The per-trial harbor
         timeout already budgets for a cold deploy.
 
-        Also wipes the VIOS/NvStreamer **host bind-mount** state that a docker
+        Also wipes the **host bind-mount** media/data state that a docker
         volume purge cannot reach — recorded video, uploaded clips and
-        auto-discovered sensor DBs (container paths ``streamer_videos``,
-        ``vst_data``, ``vst_video``). Left behind on the warm pool box,
-        NvStreamer re-discovers stale videos on the next deploy and appends
-        ``_N`` collision suffixes to fresh uploads, breaking ``nvstreamer_ops``
-        step-1 identifier/filePath checks. The host source paths vary by deploy
+        on-disk sensor/stream data (container paths ``streamer_videos``,
+        ``vst_data``, ``vst_video``). Left behind on the warm pool box, a media
+        service re-discovers these stale files on the next deploy and surfaces
+        them as stale sensors/streams (or appends ``_N`` collision suffixes to
+        fresh uploads), corrupting a fresh trial's state. The host source paths vary by deploy
         layout (dev-profile ``$VSS_DATA_DIR/videos/<profile>`` +
         ``data_log/*`` vs standalone ``NVSTREAMER_VIDEO_*`` /
         ``CLIP_STORAGE_PATH``), so we resolve them **exactly** by inspecting the
@@ -473,22 +473,22 @@ if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
   echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
   exit 1
 fi
-# Wipe the VIOS/NvStreamer host bind-mount state the docker purge above cannot
-# reach: recorded video, uploaded clips and auto-discovered sensor DBs. Left on
-# the warm pool box these cause NvStreamer filename-collision _N suffixes on the
-# next deploy (breaks nvstreamer_ops step-1 id/filePath checks). Two passes:
+# Wipe the host bind-mount media/data state the docker purge above cannot
+# reach: recorded video, uploaded clips and on-disk sensor/stream data. Left on
+# the warm pool box these resurface as stale sensors/streams (or filename-collision
+# _N suffixes) on the next deploy, corrupting a fresh trial's state. Two passes:
 #  (1) the exact host sources captured from the just-removed containers' binds
 #      (layout-agnostic — works for dev-profile and standalone deploys alike);
 #  (2) a filesystem fallback that scans a bounded set of *existing* roots
 #      ($HOME plus off-$HOME mounts like /ephemeral, /data, and $VSS_DATA_DIR)
 #      for the VST marker dirs — `data_log` (+ its sibling `videos` tree) and the
 #      bind destinations `streamer_videos`/`vst_data`/`vst_video` matched by name
-#      — plus a direct wipe of $CLIP_STORAGE_PATH / $VST_DATA_PATH when the deploy
+#      — plus a direct wipe of $CLIP_STORAGE_PATH / $VST_DATA_PATH / $VST_VIDEO_STORAGE_PATH / $VST_VOLUME (the recorded-video store) when the deploy
 #      env exports them. This catches dirs orphaned when Pass 1 was empty (prior
 #      teardown / reboot / crash left no container to inspect) OR the data root is
 #      not under $HOME (these boxes mount the big volumes on /ephemeral). Without
-#      it, leftover streamer_videos/*.mp4 are re-scanned into `warehouse_*_<N>`
-#      sensors on the next deploy and fail nvstreamer_ops/vios_ops step-1/2.
+#      it, leftover media files are re-discovered as stale/duplicate sensors or
+#      streams on the next deploy, failing a fresh trial's checks.
 # Best-effort with sudo fallback (containers write as UID 1001/root, like the
 # repo-sync git clean); contents are cleared but the correctly-permissioned
 # parent dirs are kept so the next deploy's bind mounts stay writable. Never
@@ -501,7 +501,7 @@ printf '%s\n' "$vst_bind_srcs" | while IFS= read -r src; do
 done
 # Direct-wipe the known bind leaves first (the deploy env may export them even
 # when no container survives for Pass 1 to have inspected).
-for leaf in ${CLIP_STORAGE_PATH:-} ${VST_DATA_PATH:-}; do
+for leaf in ${CLIP_STORAGE_PATH:-} ${VST_DATA_PATH:-} ${VST_VIDEO_STORAGE_PATH:-} ${VST_VOLUME:-}; do
   case "$leaf" in ""|/|/home|/root|/opt|/tmp|/usr|/var|/etc|/bin|/sbin|/lib|/boot) continue;; esac
   [ -d "$leaf" ] || continue
   find "$leaf" -mindepth 1 -delete >/dev/null 2>&1 \
@@ -519,7 +519,7 @@ done
   find "$dl" -mindepth 1 -delete >/dev/null 2>&1 \
     || sudo find "$dl" -mindepth 1 -delete >/dev/null 2>&1 || true
   # A `data_log` marker has a sibling `videos/` tree in both the dev-profile and
-  # standalone NvStreamer layouts; clear it too.
+  # standalone deploy layouts; clear it too.
   if [ "$(basename "$dl")" = "data_log" ]; then
     vid="$(dirname "$dl")/videos"
     [ -d "$vid" ] && { find "$vid" -mindepth 1 -delete >/dev/null 2>&1 \
