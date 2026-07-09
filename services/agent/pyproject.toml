@@ -130,6 +130,8 @@ langchain = [
     "langchain-chroma>=0.1",
     "langchain-nvidia-ai-endpoints>=0.3",
 ]
+# Opt-in TwelveLabs Marengo embedding backend (vss_agents.embed.TwelveLabsEmbedClient).
+twelvelabs = ["twelvelabs>=1.2.8"]
 
 [dependency-groups]
 dev = [
