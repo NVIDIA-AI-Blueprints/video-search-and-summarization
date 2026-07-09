@@ -190,6 +190,21 @@ jobs:
           BASH_MAX_TIMEOUT_MS: "21600000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
+          # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
+          # processes (reparented to PID 1, never killed) on every
+          # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
+          # accumulated 23k agents on the coordinator host and OOM-killed
+          # every runner service (2026-07-08). With SSH_AUTH_SOCK pointing
+          # at a live agent brev reuses it and spawns none, so give the
+          # whole leg one agent and kill it when the step ends.
+          eval "$(ssh-agent -s)" > /dev/null
+          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+          # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
+          # Orphaned agents older than the job's timeout-minutes (360m;
+          # 25200s = 7h) cannot belong to any live leg on this host.
+          ps -eo pid=,ppid=,etimes=,args= \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>25200 {print $1}' \
+            | xargs -r kill 2>/dev/null || true
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
