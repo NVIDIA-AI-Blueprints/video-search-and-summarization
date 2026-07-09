@@ -161,6 +161,24 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
+          # processes (reparented to PID 1, never killed) on every
+          # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
+          # accumulated 23k agents on the coordinator host and OOM-killed
+          # every runner service (2026-07-08). With SSH_AUTH_SOCK pointing
+          # at a live agent brev reuses it and spawns none, so give the
+          # whole leg one agent and kill it when the step ends. Runs after
+          # the .env source so nothing can overwrite SSH_AUTH_SOCK /
+          # SSH_AGENT_PID behind the trap's back.
+          eval "$(ssh-agent -s)" > /dev/null
+          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+          # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
+          # Orphaned agents older than the longest leg wallclock on any
+          # host sharing this pool (skills-eval.yml timeout-minutes: 360;
+          # 25200s = 7h) cannot belong to any live leg.
+          ps -eo pid=,ppid=,etimes=,args= \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>25200 {print $1}' \
+            | xargs -r kill 2>/dev/null || true
           # Pin the box-side repo sync to the SHA the runner actually checked
           # out — NOT github.sha. On a scheduled run github.sha is the default
           # branch (main) tip, but the checkout above is develop; using it here

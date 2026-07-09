@@ -1,0 +1,22 @@
+# Paths under services/agent/ that are NOT built into the vss-agent image.
+#
+# The Dockerfile (services/agent/docker/Dockerfile) uses selective COPY of the
+# real build inputs (pyproject.toml, uv.lock, src/, docker/, 3rdparty/, license
+# files). Everything listed here — unit tests, docs, CI metadata — never enters
+# the container, so changing it must NOT flip the "Check vss-agent tag source"
+# container-source check.
+#
+# Format: gitignore-style, paths relative to services/agent/. Used by
+# .github/scripts/check_container_tag_source.py to decide whether a folder
+# tree-SHA difference is source-relevant. NOTE: src/**/*.md IS shipped (COPY of
+# src/), so only the service-root docs are ignored here — not src/ docs.
+tests/
+stubs/
+README.md
+AGENTS.md
+LICENSE.md
+.gitattributes
+.gitleaks.toml
+.secrets.baseline
+gitleaks-baseline.json
+.ignore_source_code_check
