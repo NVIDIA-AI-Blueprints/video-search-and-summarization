@@ -76,7 +76,11 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "setup action the trial requires. Autonomy does not relax the skill's "
+    "service contract: poll /v1/ready until the summarization service is "
+    "ready, then call POST /v1/summarize once (retry only on a verified "
+    "infrastructure failure); never call VLM/LLM endpoints directly; render "
+    "video_summary and every event description verbatim and in full."
 )
 
 
