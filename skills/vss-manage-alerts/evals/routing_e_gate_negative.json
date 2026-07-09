@@ -37,7 +37,7 @@
       "query": "Check if the alert Slack webhook is running.",
       "checks": [
         "The trajectory routes this Slack/webhook status request to Workflow E (the alert-notify relay): it probes the alert-notify service on port 9090 — e.g. `GET http://localhost:9090/webhook/alert-notify/status` or `GET http://localhost:9090/webhook/alert-notify/health` — to determine whether the webhook server is running.",
-        "The trajectory does NOT route this Slack status request to the Alert Bridge: there is no call to `http://localhost:9080/api/v1/realtime` or any other Alert Bridge `:9080` endpoint. Slack/webhook operations belong to alert-notify (:9090), never to vss-alert-bridge.",
+        "The trajectory does NOT route this Slack status request to the Alert Bridge's rule API: there is no call to `http://localhost:9080/api/v1/realtime` (or other realtime/rule/incident endpoints) to handle the Slack request. Slack/webhook operations belong to alert-notify (:9090), never to vss-alert-bridge's realtime API. A harmless read-only `:9080/health` diagnostic probe is acceptable — the guarded failure is using the Alert Bridge rule API for a Slack op.",
         "Because no alert-notify webhook server was started in this trial, the agent's final reply states that the alert Slack webhook is not running (the probe to :9090 is refused) and offers to start it — it does not fabricate a 'running' or 'healthy' status.",
         "The agent does NOT ask the user for Slack credentials (bot token or channel ID) merely to CHECK status — per references/alert-notify.md, credentials are required only to start or test the webhook, not to report that it is down."
       ]
