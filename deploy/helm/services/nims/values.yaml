@@ -61,7 +61,8 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.7"
+      NIM_KVCACHE_PERCENT: "0.9"
+      NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
@@ -104,7 +105,8 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
     cosmos3:
-      NIM_KVCACHE_PERCENT: "0.7"
+      NIM_KVCACHE_PERCENT: "0.9"
+      NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
