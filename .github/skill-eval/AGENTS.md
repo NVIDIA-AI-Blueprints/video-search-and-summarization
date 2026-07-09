@@ -373,10 +373,17 @@ The canonical harbor command is in § Harbor invocation.
       the synchronous harbor call already blocks on.
 
    b. **Run the structural leg wrapper**. Do not acquire or release
-      `flock` manually in a separate Bash call. `run_leg.py` opens
-      `/tmp/brev/$INSTANCE_NAME.lock`, holds that file descriptor for
-      the entire Harbor run (including all step-1..N invocations), and
-      releases it only when the wrapper exits or dies:
+      `flock` manually in a separate Bash call. `run_leg.py` takes **two**
+      coordinated locks and holds them for the entire Harbor run (all
+      step-1..N invocations), releasing on exit/death: (1) a host-local
+      `flock` on `/tmp/brev/$INSTANCE_NAME.lock` (cheap same-host
+      serialization), and (2) a **box-side claim marker** created *on the box
+      itself* via `brev exec` (`mkdir /tmp/skill-eval-boxlock.d`, owner-tagged,
+      atomic) so legs on *different runner hosts* also serialize on the same
+      box — the host-local flock alone can't coordinate across hosts (that gap
+      let two legs drive one box and corrupt each other). A crashed holder's
+      box marker is reaped after 8 h (well above the max trial), and
+      `SKILL_EVAL_DISABLE_BOX_LOCK=1` falls back to host-local-flock-only:
       ```bash
       python3 .github/skill-eval/run_leg.py \
         --instance "$INSTANCE_NAME" \

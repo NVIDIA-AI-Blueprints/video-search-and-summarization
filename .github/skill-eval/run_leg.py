@@ -17,6 +17,7 @@ import errno
 import fcntl
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -193,6 +194,78 @@ def harbor_env(instance: str) -> dict[str, str]:
     return env
 
 
+# ---------------------------------------------------------------------------
+# Box-side mutex.
+#
+# The host-local flock below only serializes legs *on the same runner host*.
+# When the vss-skill-eval-runner label spans multiple hosts (it now does),
+# two legs on different hosts each flock their own local file, both see it
+# free, and both drive the *same* brev box -> docker/port collision + mutual
+# start() wipes (the "flaky media pipeline" root cause). To coordinate across
+# hosts we ALSO take a claim marker *on the box itself* via `brev exec`, so
+# every runner competing for that box contends on one real lock.
+#
+# The marker is a directory (mkdir is atomic on the box fs -> race-free claim),
+# tagged with an owner id + unix timestamp. A crashed holder's marker is reaped
+# only after BOX_LOCK_STALE_SEC, which is set WELL above the max per-leg trial
+# time so a *live* long trial is never reclaimed out from under itself. No
+# connection is held open (unlike a `brev exec flock`), so an SSH blip can't
+# silently drop the lock mid-trial. Set SKILL_EVAL_DISABLE_BOX_LOCK=1 to fall
+# back to host-local-flock-only (escape hatch).
+BOX_LOCK_DIR = "/tmp/skill-eval-boxlock.d"
+BOX_LOCK_STALE_SEC = 28800  # 8h > max per-leg trial (~6h) so a live holder is never reaped
+BOX_EXEC_TIMEOUT = 45
+
+
+def _box_lock_enabled(instance: str) -> bool:
+    """Box-side lock applies to the vss-eval-* brev pool (L40S + RTX)."""
+    if os.environ.get("SKILL_EVAL_DISABLE_BOX_LOCK"):
+        return False
+    return instance.startswith("vss-eval-")
+
+
+def _brev_exec(instance: str, command: str, timeout: int = BOX_EXEC_TIMEOUT) -> tuple[int, str]:
+    """Run `brev exec <instance> <command>` synchronously -> (rc, stdout+stderr)."""
+    try:
+        proc = subprocess.run(
+            ["brev", "exec", instance, command],
+            input=b"\n", capture_output=True, timeout=timeout,
+        )
+        out = (proc.stdout or b"").decode(errors="replace")
+        err = (proc.stderr or b"").decode(errors="replace")
+        return proc.returncode, (out + err).strip()
+    except subprocess.TimeoutExpired:
+        return 124, "brev exec timed out"
+    except FileNotFoundError:
+        return 127, "brev CLI not found"
+
+
+def _box_claim_script(my_id: str, stale_sec: int) -> str:
+    d = shlex.quote(BOX_LOCK_DIR)
+    my = shlex.quote(my_id)
+    return (
+        f'set -e; D={d}; O="$D/owner"; MY={my}; NOW=$(date +%s); '
+        # reap a stale marker (crashed holder) before claiming
+        f'if [ -d "$D" ]; then TS=$(cut -d" " -f2 "$O" 2>/dev/null || echo 0); '
+        f'[ $(( NOW - ${{TS:-0}} )) -ge {stale_sec} ] && rm -rf "$D" || true; fi; '
+        # atomic claim: mkdir succeeds for exactly one racer
+        f'if mkdir "$D" 2>/dev/null; then printf "%s %s" "$MY" "$NOW" > "$O"; echo CLAIMED; '
+        f'else echo "BUSY $(cat "$O" 2>/dev/null)"; fi'
+    )
+
+
+def _box_release_script(my_id: str) -> str:
+    d = shlex.quote(BOX_LOCK_DIR)
+    my = shlex.quote(my_id)
+    # only release if we still own it (guards against releasing a marker that
+    # was reaped-as-stale and re-claimed by another leg)
+    return (
+        f'D={d}; O="$D/owner"; MY={my}; '
+        f'OWN=$(cut -d" " -f1 "$O" 2>/dev/null || echo ""); '
+        f'if [ "$OWN" = "$MY" ]; then rm -rf "$D"; echo RELEASED; else echo "SKIP owner=$OWN"; fi'
+    )
+
+
 @contextlib.contextmanager
 def hold_box_lock(lock_dir: Path, instance: str, timeout_sec: int):
     if "/" in instance or instance in {"", ".", ".."}:
@@ -200,7 +273,10 @@ def hold_box_lock(lock_dir: Path, instance: str, timeout_sec: int):
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / f"{instance}.lock"
     deadline = time.monotonic() + timeout_sec
+    box_lock = _box_lock_enabled(instance)
+    my_id = f"{os.environ.get('EVAL_SLUG', 'leg')}:{os.getpid()}"
     with lock_path.open("a+") as fp:
+        # 1) host-local flock — cheap same-host serialization
         while True:
             try:
                 fcntl.flock(fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -218,9 +294,32 @@ def hold_box_lock(lock_dir: Path, instance: str, timeout_sec: int):
                     flush=True,
                 )
                 time.sleep(min(60, remaining))
+        # 2) box-side marker — cross-host serialization on the box itself
+        box_held = False
+        if box_lock:
+            claim = _box_claim_script(my_id, BOX_LOCK_STALE_SEC)
+            while True:
+                rc, out = _brev_exec(instance, claim)
+                if rc == 0 and "CLAIMED" in out:
+                    box_held = True
+                    print(f"[run-leg] box lock acquired on {instance}", flush=True)
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+                    raise LockTimeoutError(f"box lock timeout on {instance}: {out[:120]}")
+                print(
+                    f"[run-leg] waiting for box lock on {instance} "
+                    f"({out[:80] or f'rc={rc}'}; {int(remaining)}s remaining)",
+                    flush=True,
+                )
+                time.sleep(min(60, remaining))
         try:
             yield lock_path
         finally:
+            if box_held:
+                rc, out = _brev_exec(instance, _box_release_script(my_id))
+                print(f"[run-leg] box lock released on {instance} ({out[:60]})", flush=True)
             fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
             print(f"[run-leg] lock released: {lock_path}", flush=True)
 
