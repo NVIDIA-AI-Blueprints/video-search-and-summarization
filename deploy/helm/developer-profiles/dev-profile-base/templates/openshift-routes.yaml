@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.global.openshift.enabled }}
+{{- $vi := .Values.vssIngress }}
+{{- $host := default .Values.global.externalHost ($vi.host | default "") }}
+# Route: / -> vss-agent-ui (port 3000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-ui
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "60s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssUiPort | default 3000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /api/chat -> vss-agent-ui (port 3000) — must precede /api so longest-path wins
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-api-chat
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /api/chat
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssUiPort | default 3000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /api -> vss-agent (port 8000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-api
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /api
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /chat -> vss-agent (port 8000) — inference/chat endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-chat
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /chat
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /websocket -> vss-agent (port 8000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-websocket
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /websocket
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /static -> vss-agent (port 8000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-static
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /static
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /vst -> vss-vios-ingress (port 30888)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-vst
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /vst
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vstIngressPort | default 30888 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
