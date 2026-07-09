@@ -1,67 +1,68 @@
-# `vss-cli search run` invocation reference
+# `vss-cli search run` reference
 
-Use this reference after completing the mandatory source-resolution step in
-`SKILL.md`. The CLI is environment-free: resolve the running deployment's
-non-secret configuration first, then pass it explicitly. Do not use
-`POST /generate` for search.
-
-## Kubernetes / Helm
-
-Use the same wrapper shown in `SKILL.md`, replacing its Docker prefix with the
-pod equivalent:
+Run the `vss-cli` console executable from the independently distributed
+`nvidia-vss-cli` project in the checkout:
 
 ```bash
-kubectl exec -i deploy/vss-agent -- sh -lc '<the validated wrapper from SKILL.md>'
+uv run --project libs/vss-cli vss-cli search run [options]
 ```
 
-If the deployment is release-prefixed, resolve its name first with:
+Do not invoke it through `docker exec`, `kubectl exec`, a pod shell, or an
+agent runtime endpoint.
+
+## Deployment selectors
 
 ```bash
-kubectl get deploy -l app.kubernetes.io/name=vss-agent -o name
+# Docker: generated.env plus checked-out profile config
+--deployment docker --profile search
+
+# Kubernetes: live Deployment + ConfigMaps, with managed port-forwards
+--deployment kubernetes --namespace <namespace> --release <release>
+--kube-context <context>  # optional
 ```
 
-The wrapper must run inside the pod so its mounted config and service DNS match
-the deployed runtime. `HOST_IP` remains required before deriving any endpoint;
-never replace an unresolved host with `localhost`.
+Kubernetes `VST_EXTERNAL_URL` must be a host-reachable ingress URL or an
+operator-managed localhost forward that stays alive while result media links
+are used. The CLI rejects an in-cluster Service URL for this field; its managed
+backend forwards close when the command exits.
 
-## Credential boundary
+Explicit backend flags override values discovered through either selector. If
+no selector is used, all required backend values must be supplied explicitly
+or through `--config` and explicit non-secret `--config-env KEY=VALUE` pairs.
+The CLI does not read host process endpoint variables.
 
-Pass only non-secret values through `--config-env`. Never print API-key
-environment variables, include them in command arguments, or add
-`--vlm-api-key` to a shared shell recipe. If the remote VLM requires an API
-key, stop this workflow and use the approved secret-managed operator procedure.
+Always append exactly one critic choice: `--no-use-critic` for ordinary host
+search, or `--use-critic` only when operator-supported VLM wiring is available.
+Do not rely on an omitted flag because omission inherits the deployment default.
 
-## Query examples
-
-Append explicit query controls to the final `vss-cli search run` call:
+## Query controls
 
 ```bash
-# Action search
---query "show me people running" --source-type video_file --top-k 10
+# Embed-only
+--query "red forklift" --source-type video_file --top-k 10
 
-# Time-bounded search
---query "person at the entrance" --source-type video_file \
-  --timestamp-start "2025-01-01T14:00:00" --timestamp-end "2025-01-01T15:00:00"
+# Time-bounded named-source search
+--query "person at entrance" --video-source entrance-camera \
+--timestamp-start "2025-01-01T14:00:00" --timestamp-end "2025-01-01T15:00:00"
 
-# Live stream search
---query "find all instances of forklifts" --source-type rtsp
+# Fusion search
+--query "person in white jacket running" --attribute "white jacket" --has-action true
 ```
 
-## Control reference
+`--video-source` is validated against the selected deployment's VST source
+listing. An unavailable or ambiguous source stops the command before search.
 
-| Flag | Use |
-|---|---|
-| `--config` + non-secret `--config-env KEY=VALUE` | Preserve the deployed NAT profile without CLI env fallback. |
-| `--video-source` | Restrict to the source resolved before the search. |
-| `--source-type` | Select `video_file` or `rtsp`. |
-| `--top-k`, `--min-cosine-similarity` | Control result count and precision. |
-| `--attribute`, `--has-action` | Run attribute-only or fused action-and-appearance search. |
-| `--description`, `--timestamp-start`, `--timestamp-end` | Filter by metadata and time. |
-| `--decomposed-json`, `--object-id` | Supply host decomposition or re-search tracked objects. |
-| `--use-critic` / `--no-use-critic` | Require or skip critic verification when the runtime is configured for it. |
-| `--vlm-media-mode`, `--vst-clip-enable-audio` | Match the deployed unauthenticated VLM transport. |
+## Capability controls
 
-When `critic_result` is null, report critic verification as skipped and offer
-the screenshot Verification Step. See [discovery_modes.md](discovery_modes.md)
-for search strategies and [deployment_resolution.md](deployment_resolution.md)
-for runtime discovery.
+`ELASTIC_SEARCH_INDEX` is preferred; the fallback is
+`mdx-embed-filtered-2025-01-01`. Model IDs are verified through `/v1/models`.
+RTVI-CV text embedding is preflighted for attribute/fusion search. Use
+`--allow-embed-only-fallback` only to explicitly accept a result with the
+attribute portion removed.
+
+Never provide secrets through CLI flags. Kubernetes Secret values are not read
+by this command.
+
+`vss-cli search run` is read-only. File upload, RTSP registration, and source
+deletion must use `scripts/manage_search_source.sh` as described in
+`source_lifecycle.md`; do not replace them with bare VIOS mutations.

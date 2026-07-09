@@ -1,6 +1,9 @@
 # Examples of discovery modes
 
-Run `vss-cli search run` with the explicit runtime wrapper from the main `SKILL.md`. Do not invoke bare `vss-cli search run`: the CLI does not read deployment env or `$VSS_AGENT_CONFIG_FILE`. The snippets below are query/control flags to append after the wrapper's final `vss-cli search run` argument.
+Run host-side `uv run --project libs/vss-cli vss-cli search run` with one of the deployment selectors from the main `SKILL.md`. Do not invoke it in a container or pod. The snippets below are query/control flags to append after the deployment options.
+
+Append `--no-use-critic` to ordinary searches. Use `--use-critic` only when
+operator-supported VLM wiring is available; never rely on the omitted default.
 
 ## Wide-net discovery — cast the widest net, fast
 

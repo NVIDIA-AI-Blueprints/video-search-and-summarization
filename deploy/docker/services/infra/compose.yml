@@ -138,7 +138,9 @@ services:
     container_name: elasticsearch
     restart: always
     ports:
-      - ${ELASTICSEARCH_HOST_PORT:-9200}:9200
+      # Host-side vss-cli uses this published endpoint; keep ES private to the
+      # workstation instead of exposing it on every network interface.
+      - 127.0.0.1:${ELASTICSEARCH_HOST_PORT:-9200}:9200
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?local=false&wait_for_status=yellow&wait_for_events=normal&timeout=5s' | grep -q '\"timed_out\"[[:space:]]*:[[:space:]]*false'"]
       interval: 10s
