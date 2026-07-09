@@ -24,7 +24,7 @@
       "query": "Verify the VA-MCP analytics endpoint is reachable and ready to answer queries.",
       "checks": [
         "The trajectory probed VA-MCP liveness with `curl -sf --max-time 5 http://localhost:9901/mcp` (or a `GET /` fallback) before issuing any `tools/call`.",
-        "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:9901/mcp` returns an HTTP code in the 2xx/3xx/405 range (the endpoint exists and speaks MCP) \u2014 not connection refused.",
+        "`curl -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:9901/mcp` returns an HTTP code in the 2xx/3xx/405/406 range (the endpoint exists and speaks MCP; a bare GET without `Accept: text/event-stream` legitimately gets 406 from a streamable-HTTP MCP server) \u2014 not connection refused.",
         "The final assistant reply states that VA-MCP is reachable and ready (or, if it is not, names the failure mode \u2014 `connection refused` vs `timeout` vs `404` \u2014 per the skill's MCP connection guidance) rather than silently moving on."
       ]
     },

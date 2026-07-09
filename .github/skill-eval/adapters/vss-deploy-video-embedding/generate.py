@@ -57,6 +57,7 @@ from pathlib import Path
 
 PLATFORMS: dict[str, dict] = {
     "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S"},
+    "RTXPRO6000BW": {"short_name": "rtxpro6000bw", "gpu_type": "RTX PRO 6000", "min_vram_per_gpu": 96, "brev_search": "RTX PRO"},
 }
 
 DEFAULT_PLATFORM = "L40S"
