@@ -34,7 +34,7 @@ services:
             device_ids:
             - "${RT_VLM_DEVICE_ID:-0}"
     ports:
-      - "${RTVI_VLM_PORT?}:8000"
+      - "127.0.0.1:${RTVI_VLM_PORT?}:8000"
 
     environment:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-NOAPIKEYSET}"

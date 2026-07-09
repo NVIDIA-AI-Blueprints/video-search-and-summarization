@@ -34,7 +34,7 @@ Optional:
 - `attributes`: person/appearance attributes such as `white jacket`, `red hard hat`, `dark pants`.
 - `has_action`: `true` when the request binds an action/event to the subject, `false` for appearance-only search.
 - `object_ids`: integer tracked-object IDs when the user asks for similar objects.
-- `use_critic`: omit to preserve the search runtime default. Set `true` when the user explicitly needs high-confidence verification, relational correctness, or asks to confirm candidates. Set `false` only for latency-sensitive searches where verification should be skipped.
+- `use_critic`: always set this explicitly for host CLI calls. Use `false` for ordinary search. Use `true` only when the user requests high-confidence verification and the selected deployment has operator-supported VLM wiring. Omitting it inherits the deployed runtime default and may therefore require a configured VLM.
 
 ## Routing
 
@@ -42,7 +42,7 @@ Optional:
 - **Attribute-only**: appearance query with no action. Use `attributes` and `has_action=false`. Example: `person wearing a white jacket`.
 - **Fusion**: action plus attributes. Use both a complete `query` and `attributes`, with `has_action=true`. Example: `person in a white jacket climbing a ladder`.
 - **Object re-search**: user names tracked IDs or asks for similar objects. Use `object_ids`; this searches behavior embeddings directly and skips query embedding.
-- **Critic verification**: omit `use_critic` to follow the deployed profile default; set `use_critic=true` to require VLM wiring and verify final candidates with subject-anchored criteria; set it `false` to skip verification for latency.
+- **Critic verification**: set `use_critic=true` to require VLM wiring and verify final candidates with subject-anchored criteria; use `false` for ordinary host search. Never rely on omission when authoring a skill command.
 
 ## Attribute Rules
 
@@ -55,9 +55,10 @@ Keep attributes specific and visually detectable.
 
 ## VLM Critic Media
 
-The skill wrapper passes the deployed VLM service into the CLI as explicit flags.
+Deployment-aware host calls default to frame-base64, which is safe for remote
+and containerized VLMs because it does not expose a host-loopback VST URL.
 
-- Local or local-shared VLM: use `--vlm-media-mode video-url` with internal VST URLs for lowest latency.
+- Local or local-shared VLM: override with `--vlm-media-mode video-url` only when the VLM can reach the selected VST URL.
 - Remote VLM, no audio requirement: use `--vlm-media-mode frame-base64`, mirroring NAT's remote-VLM frame sampling behavior.
 - Remote audio-capable Omni-style VLM with `ENABLE_AUDIO=true`: use `--vlm-media-mode video-base64` and `--vst-clip-enable-audio` to preserve MP4 audio.
 - Do not call `/generate` just to use the critic. The CLI critic path calls the configured OpenAI-compatible VLM endpoint directly.

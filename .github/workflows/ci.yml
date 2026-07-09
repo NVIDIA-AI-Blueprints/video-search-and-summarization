@@ -242,7 +242,96 @@ jobs:
           path: services/agent/coverage.xml
 
   # ---------------------------------------------------------------------------
-  # Job 4: Security scanning (detect-secrets)
+  # Job 4: Standalone vss-cli build and tests
+  # ---------------------------------------------------------------------------
+  vss-cli-test:
+    name: Test (vss-cli)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: libs/vss-cli
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.6.2"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Build and test standalone package
+        run: |
+          uv sync --group dev --frozen
+          uv run --no-sync ruff check src/lib tests
+          uv run --no-sync ruff format --check src/lib tests
+          uv run --no-sync mypy src/lib
+          uv run --no-sync pytest --cov=src/lib --cov-report=xml:coverage.xml -m "not slow and not integration"
+          rm -rf .license-venv
+          UV_PROJECT_ENVIRONMENT=.license-venv uv sync --python 3.13 --frozen --no-default-groups
+          .license-venv/bin/python ../../.github/scripts/generate_python_license_notice.py \
+            --output LICENSE-3rd-party.txt --exclude nvidia-vss-cli --check
+          rm -rf .license-venv
+          rm -rf dist
+          uv build
+
+      - name: Smoke-test built wheel in a clean environment
+        run: |
+          rm -rf .wheel-smoke
+          uv venv --python 3.13 .wheel-smoke
+          set -- dist/nvidia_vss_cli-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          uv pip install --python .wheel-smoke/bin/python --no-cache "$1"
+          uv pip check --python .wheel-smoke/bin/python
+          .wheel-smoke/bin/python - <<'PY'
+          import importlib.util
+          from importlib import metadata
+
+          import lib
+          import lib.search_core
+
+          installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
+          assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
+          assert importlib.util.find_spec("nat") is None
+          assert lib is not None and lib.search_core is not None
+          PY
+          .wheel-smoke/bin/vss-cli --help >/dev/null
+
+      - name: Test vss-search-archive runner
+        working-directory: ${{ github.workspace }}
+        run: python -m unittest discover -s skills/vss-search-archive/tests -p 'test_*.py'
+
+      - name: Upload vss-cli coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: vss-cli-coverage-report
+          path: libs/vss-cli/coverage.xml
+
+      - name: Upload vss-cli distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: nvidia-vss-cli-dist
+          path: libs/vss-cli/dist/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Job 5: Security scanning (detect-secrets)
   # ---------------------------------------------------------------------------
   security:
     name: Security Scan (detect-secrets)
