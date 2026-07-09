@@ -18,6 +18,75 @@ include:
   - path: ./sdrc/docker-compose.yaml
 
 services:
+  turnserver-init:
+    image: alpine:3.23.4
+    profiles:
+      - "bp_wh_2d"
+      - "bp_wh_kafka_2d"
+      - "bp_wh_kafka_3d"
+      - "bp_wh_redis_2d"
+      - "bp_wh_redis_3d"
+      - "bp_wh_kafka_mv3dt"
+      - "bp_wh_redis_mv3dt"
+      - "bp_wh_auto_calib_2d"
+      - "bp_wh_auto_calib_3d"
+      - "bp_wh_auto_calib_mv3dt"
+    container_name: vss-turnserver-init
+    user: "0:0"
+    environment:
+      TURN_PASSWORD_FILE: /run/secrets/vss-turn/turn-password
+      TURN_PASSWORD_BYTES: ${TURN_PASSWORD_BYTES:-32}
+      TURN_PASSWORD_UID: "0"
+      TURN_PASSWORD_GID: "65534"
+    volumes:
+      - vss-turn-password:/run/secrets/vss-turn:rw
+      - ${VSS_APPS_DIR}/services/infra/turnserver/scripts/init-password.sh:/usr/local/bin/vss-turnserver-init-password.sh:ro
+    entrypoint: ["/usr/local/bin/vss-turnserver-init-password.sh"]
+    restart: "no"
+
+  turnserver:
+    image: coturn/coturn:4.14.0
+    profiles:
+      - "bp_wh_2d"
+      - "bp_wh_kafka_2d"
+      - "bp_wh_kafka_3d"
+      - "bp_wh_redis_2d"
+      - "bp_wh_redis_3d"
+      - "bp_wh_kafka_mv3dt"
+      - "bp_wh_redis_mv3dt"
+      - "bp_wh_auto_calib_2d"
+      - "bp_wh_auto_calib_3d"
+      - "bp_wh_auto_calib_mv3dt"
+    container_name: vss-turnserver
+    user: "65534:65534"
+    restart: unless-stopped
+    ports:
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/udp
+      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/tcp
+      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/udp
+      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/tcp
+    networks:
+      default:
+        aliases:
+          - turnserver
+          - vss-turnserver
+    environment:
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_MIN_RELAY_PORT: ${TURN_MIN_RELAY_PORT:-49160}
+      TURN_MAX_RELAY_PORT: ${TURN_MAX_RELAY_PORT:-49200}
+      TURN_REALM: ${TURN_REALM:-vss.local}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_PASSWORD_FILE: /run/secrets/vss-turn/turn-password
+      TURN_PASSWORD_WAIT_SECONDS: ${TURN_PASSWORD_WAIT_SECONDS:-30}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-${EXTERNAL_IP:-${HOST_IP}}}
+    volumes:
+      - ${VSS_APPS_DIR}/services/infra/turnserver/scripts/entrypoint.sh:/usr/local/bin/vss-turnserver-entrypoint.sh:ro
+      - vss-turn-password:/run/secrets/vss-turn:ro
+    entrypoint: ["/usr/local/bin/vss-turnserver-entrypoint.sh"]
+    depends_on:
+      turnserver-init:
+        condition: service_completed_successfully
+
   mosquitto:
     image: eclipse-mosquitto:2
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
@@ -284,6 +353,7 @@ services:
     restart: "no"
 
 volumes:
+  vss-turn-password:
   phoenix-data:
   mdx-logstash-libs:
   mdx-elastic-data:

@@ -38,18 +38,26 @@ from typing import Tuple, List, Dict, Any
 
 import numpy as np
 
-from nuscenes.eval.common.loaders import load_prediction
-from nuscenes.eval.tracking.constants import (
-    AVG_METRIC_MAP,
-    MOT_METRIC_MAP,
-    LEGACY_METRICS,
-)
-from nuscenes.eval.tracking.render import (
-    recall_metric_curve,
-    summary_plot,
-)
-from nuscenes.eval.tracking.utils import print_final_metrics
-from nuscenes.eval.tracking.evaluate import TrackingEval
+try:
+    from nuscenes.eval.common.loaders import load_prediction
+    from nuscenes.eval.tracking.constants import (
+        AVG_METRIC_MAP,
+        MOT_METRIC_MAP,
+        LEGACY_METRICS,
+    )
+    from nuscenes.eval.tracking.render import (
+        recall_metric_curve,
+        summary_plot,
+    )
+    from nuscenes.eval.tracking.utils import print_final_metrics
+    from nuscenes.eval.tracking.evaluate import TrackingEval
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
 
 from spatialai_data_utils.eval.common.loaders import load_gt
 from spatialai_data_utils.eval.tracking.algo import TrackingEvaluation

@@ -84,6 +84,35 @@ The root compose maps Elasticsearch data/log volumes to
 `$VSS_DATA_DIR/data_log/redis`. Missing or non-writable host directories can cause
 startup failures such as Kafka being unable to write `/tmp/kafka-data/cluster_id` or
 Elasticsearch being unable to open `gc.log`.
+
+### TURN / WebRTC relay
+
+The warehouse VST UI uses WebRTC for live playback. When VST containers run on the Compose bridge network, browsers cannot reach Docker-only media candidates directly, so `services/infra/compose.yml` includes a coturn-based `turnserver` service for warehouse profiles. It exposes the TURN listener and relay range on the host. Developer profiles do not start this TURN service.
+
+Default ports:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TURN_HOST_PORT` / `TURN_PORT` | `3478` | TURN UDP/TCP listener |
+| `TURN_MIN_RELAY_HOST_PORT` / `TURN_MAX_RELAY_HOST_PORT` | `49160` / `49200` | Host relay port range |
+| `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `49160` / `49200` | Container relay port range |
+
+Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile uses a non-secret default `TURN_USERNAME` and starts a `turnserver-init` job that generates a random password once in the `vss-turn-password` Docker volume. Coturn and VST mount that same generated file; the VST startup helper derives the static TURN URL in the format `user:password@host:port` from `TURN_USERNAME`, the generated password file, `TURN_PUBLIC_HOST`, and `TURN_HOST_PORT`.
+
+For the bundled turnserver, leave `VST_STATIC_TURNURL_LIST` empty:
+
+```env
+TURN_HOST_PORT=3478
+TURN_PORT=3478
+TURN_USERNAME=vss
+TURN_PASSWORD_BYTES=32
+VST_STATIC_TURNURL_LIST=
+```
+
+Remove the Compose-created `vss-turn-password` Docker volume and restart the warehouse profile to rotate the generated password. Only set `VST_STATIC_TURNURL_LIST` for external or multiple TURN endpoints; treat it as sensitive because it embeds TURN credentials.
+
+The warehouse VST streamprocessing startup helper also forces `network.use_coturn_auth_secret=false` and `network.coturn_turnurl_list_with_secret=[]`, matching the static username/password mode. Developer VST streamprocessing and NvStreamer services do not apply this WebRTC/TURN patch.
+
 ### LVS Compose notes
 
 Docker Compose does not use Kubernetes secrets or the NIM Operator. For the LVS profile, local model bring-up uses the **`NGC_CLI_API_KEY`** environment variable directly for image pulls and NIM/RT-VLM model access.
@@ -93,7 +122,7 @@ Default LVS model wiring:
 | Component | Local Compose behavior | Default model name |
 |-----------|------------------------|--------------------|
 | LLM | Starts the **`nvidia-nemotron-nano-9b-v2`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nvidia-nemotron-nano-9b-v2` |
-| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
+| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` |
 
 For external endpoints, use the helper flags instead of editing Compose files directly:
 
@@ -107,7 +136,7 @@ export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
   --use-remote-llm \
   --use-remote-vlm \
   --llm nvidia/nvidia-nemotron-nano-9b-v2 \
-  --vlm nim_nvidia_cosmos-reason2-8b_hf-1208
+  --vlm nim_nvidia_cosmos3-nano-reasoner_bf16-final
 ```
 
 The helper probes **`${LLM_ENDPOINT_URL}/v1/models`** and **`${VLM_ENDPOINT_URL}/v1/models`**, and the agent config appends **`/v1`** to **`LLM_BASE_URL`** / **`VLM_BASE_URL`**. Do not include **`/v1`** in the endpoint environment variables.

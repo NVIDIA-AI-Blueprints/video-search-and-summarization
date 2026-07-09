@@ -29,10 +29,7 @@ The script:
 """
 
 import argparse
-import json
 import logging
-from pathlib import Path
-from typing import List, Tuple, Optional
 
 from spatialai_data_utils.core.cameras.group_utils import (
     reassign_camera_groups_from_calibration,
@@ -91,6 +88,12 @@ def main():
         type=str,
         default=None,
         help="Optional map image (Top.png). If omitted, will look for Top.png next to the calibration file.",
+    )
+
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Generate visualization of the reassigned camera groups on the map",
     )
 
     parser.add_argument(
@@ -161,7 +164,7 @@ def main():
             max_camera_distance=args.max_camera_distance,
             output_suffix=args.output_suffix,
             label_camera_ids=not args.vis_no_camera_id_labels,
-            visualize=True,
+            visualize=args.visualize,
         )
         if warnings:
             for w in warnings:

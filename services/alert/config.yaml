@@ -54,7 +54,7 @@ kafka:
 #VLM Configuration
 vlm:
   base_url: "http://localhost:30082/v1"
-  model: "nvidia/cosmos-reason2-8b"
+  model: "nvidia/cosmos3-nano-reasoner"
   max_tokens: 4096
   request_timeout: 5
 
@@ -66,12 +66,12 @@ vlm:
   # Response format: auto | cosmos-reason | json | other | <custom>  (default: auto)
   #
   # Case 1 — Auto-detect (default, no change needed):
-  #   "auto" detects from model name: cosmos-reason1/2 → cosmos-reason, else → other.
+  #   "auto" detects from model name: cosmos-reason1/2 or cosmos3 → cosmos-reason, else → other.
   #
   # Case 2 — Cosmos Reason (explicit):
   #   "cosmos-reason" handles both <answer>-tagged and bare verdict formats from any
-  #   Cosmos Reason model (CR1 or CR2). Use when model name doesn't match auto-detect.
-  #   "cr1" and "cr2" are accepted as aliases for backward compatibility.
+  #   Cosmos Reason model (CR1, CR2, or CR3). Use when model name doesn't match auto-detect.
+  #   "cr1", "cr2", and "cr3" are accepted as aliases.
   #
   # Case 3 — JSON output (field names configurable via json_parser):
   #   Set response_format: "json". Prompt must ask VLM to return JSON.
@@ -263,7 +263,7 @@ alert_agent:
 rtvi_vlm:
   base_url: "http://localhost:8018/v1"          # RTVI VLM microservice URL (env: RTVI_VLM_BASE_URL)
   timeout: 10                                # HTTP request timeout (seconds)
-  default_model: "nim_nvidia_cosmos-reason2-8b_hf-1208"  # Default VLM model id (must match what RTVI VLM has loaded — query GET /v1/models to confirm)
+  default_model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"  # Default VLM model id (must match what RTVI VLM has loaded — query GET /v1/models to confirm)
   captions_ack_timeout: 2.0                  # Seconds to wait for generate_captions initial HTTP ack
   # Stream readiness probe: after the captions ack window expires
   # (streaming mode) the create path polls GET /streams/get-stream-info

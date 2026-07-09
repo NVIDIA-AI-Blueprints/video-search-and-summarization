@@ -21,6 +21,10 @@ spec:
       {{- if (get $controller "nodePort") }}
       {{- include "sdrc.serviceNodePort" (dict "path" "service.controller" "type" $controllerType "nodePort" (get $controller "nodePort")) | nindent 6 }}
       {{- end }}
+    - name: envoy-proxy
+      port: {{ required "service.envoyProxy.port is required" .Values.service.envoyProxy.port | int }}
+      targetPort: envoy-proxy
+      protocol: TCP
   selector:
     {{- include "sdrc.selectorLabels" . | nindent 4 }}
 ---

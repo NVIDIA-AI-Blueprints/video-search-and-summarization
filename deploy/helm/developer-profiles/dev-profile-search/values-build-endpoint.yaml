@@ -36,7 +36,7 @@ vios:
 nims:
   nemotron:
     enabled: false
-  cosmos:
+  cosmos3:
     enabled: false
 
 # Point agent LLM / VLM / eval to hosted endpoint
@@ -44,7 +44,7 @@ agent:
   vss-agent:
     llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
     llmBaseUrl: "https://integrate.api.nvidia.com"
-    vlmName: "nvidia/cosmos-reason2-8b"
+    vlmName: "nvidia/cosmos3-nano-reasoner"
     vlmBaseUrl: "https://integrate.api.nvidia.com"
     evalLlmJudgeName: "nvidia/nvidia-nemotron-nano-9b-v2"
     evalLlmJudgeBaseUrl: "https://integrate.api.nvidia.com"

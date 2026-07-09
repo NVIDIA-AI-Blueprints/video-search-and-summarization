@@ -19,20 +19,20 @@ import pytest
 from unittest.mock import patch, MagicMock, mock_open
 from datetime import datetime, timezone
 
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.common import list_files
-from spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils import (
-    count_lines_in_s3_object,
-    count_the_bev_records_in_s3,
-    check_if_bev_files_are_present_in_s3,
+from spatialai_data_utils.datasets.cloud_utils.common import list_files
+from spatialai_data_utils.datasets.cloud_utils.validation_utils import (
+    count_lines_in_storage_object,
+    count_the_bev_records_in_storage,
+    check_if_bev_files_are_present_in_storage,
 )
 from spatialai_data_utils.validation.bev_utils import (
     bev_data_validation
 )
 
 
-# Test cases for count_lines_in_s3_object (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.boto3.client')
-def test_count_lines_in_s3_object(mock_boto3_client):
+# Test cases for count_lines_in_storage_object (mocked)
+@patch('spatialai_data_utils.datasets.cloud_utils.common.boto3.client')
+def test_count_lines_in_storage_object(mock_boto3_client):
     # Mock S3 client and response
     mock_s3_client = MagicMock()
     mock_response = MagicMock()
@@ -53,14 +53,14 @@ def test_count_lines_in_s3_object(mock_boto3_client):
         "AWS_BUCKET": "test-bucket"
     }
     
-    result = count_lines_in_s3_object(env_variables, "test/file.json")
+    result = count_lines_in_storage_object(env_variables, "test/file.json")
     
     assert result == 3
     mock_s3_client.get_object.assert_called_once_with(Bucket="test-bucket", Key="test/file.json")
 
 
 # Test cases for list_files (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.common.boto3.client')
+@patch('spatialai_data_utils.datasets.cloud_utils.common.boto3.client')
 def test_list_files(mock_boto3_client):
     # Mock S3 client and paginator
     mock_s3_client = MagicMock()
@@ -101,11 +101,11 @@ def test_list_files(mock_boto3_client):
     mock_s3_client.get_paginator.assert_called_once_with('list_objects_v2')
 
 
-# Test cases for count_the_bev_records_in_s3 (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.list_files')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.get_s3_client')
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils._count_lines_in_s3_object')
-def test_count_the_bev_records_in_s3(mock_count_lines, mock_get_s3_client, mock_list_files):
+# Test cases for count_the_bev_records_in_storage (mocked)
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.list_files')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.get_storage_client')
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils._count_lines_in_storage_object')
+def test_count_the_bev_records_in_storage(mock_count_lines, mock_get_storage_client, mock_list_files):
     mock_list_files.return_value = [
         'test/file1.json',
         'test/file2.json',
@@ -113,7 +113,7 @@ def test_count_the_bev_records_in_s3(mock_count_lines, mock_get_s3_client, mock_
         'test/file3.json'
     ]
     mock_s3_client = MagicMock()
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_storage_client.return_value = mock_s3_client
     mock_count_lines.side_effect = [5, 3, 2]  # Skip directory, so only 3 calls
     
     env_variables = {
@@ -123,22 +123,20 @@ def test_count_the_bev_records_in_s3(mock_count_lines, mock_get_s3_client, mock_
         "AWS_BUCKET": "test-bucket"
     }
     
-    result = count_the_bev_records_in_s3(env_variables, "test/")
+    result = count_the_bev_records_in_storage(env_variables, "test/")
     
     assert result == 10  # 5 + 3 + 2
-    mock_get_s3_client.assert_called_once_with(
-        "test_key",
-        "test_secret",
-        "us-east-1",
+    mock_get_storage_client.assert_called_once_with(
+        env_variables,
         max_pool_connections=8,
     )
     assert mock_count_lines.call_count == 3  # Directory skipped
     assert all(call.args[0] is mock_s3_client for call in mock_count_lines.call_args_list)
 
 
-# Test cases for check_if_bev_files_are_present_in_s3 (mocked)
-@patch('spatialai_data_utils.datasets.cloud_utils.s3_utils.validation_utils.count_the_bev_records_in_s3')
-def test_check_if_bev_files_are_present_in_s3(mock_count_records):
+# Test cases for check_if_bev_files_are_present_in_storage (mocked)
+@patch('spatialai_data_utils.datasets.cloud_utils.validation_utils.count_the_bev_records_in_storage')
+def test_check_if_bev_files_are_present_in_storage(mock_count_records):
     mock_count_records.return_value = 100
     
     args = MagicMock()
@@ -148,11 +146,11 @@ def test_check_if_bev_files_are_present_in_s3(mock_count_records):
     args.bev_record_count_error_threshold_ratio = 0.5
     
     env_variables = {
-        "AWS_S3_BASE_PREFIX_PATH": "test/",
+        "BASE_PREFIX_PATH": "test/",
         "SIMULATION_ID": "test_sim"
     }
     
-    result = check_if_bev_files_are_present_in_s3(args, env_variables, 30)
+    result = check_if_bev_files_are_present_in_storage(args, env_variables, 30)
     
     assert result["actual_count"] == 100
     assert result["warning_threshold_record_count"] == 240  # 10 * 30 * 0.8

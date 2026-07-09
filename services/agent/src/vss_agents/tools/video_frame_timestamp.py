@@ -18,7 +18,6 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 import logging
 
-import cv2
 from langchain_core.prompts import ChatPromptTemplate
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -28,7 +27,13 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 
+try:
+    import cv2
+except ImportError:  # pragma: no cover - proprietary codecs not installed in default image
+    cv2 = None  # type: ignore[assignment]
+
 from vss_agents.prompt import VIDEO_FRAME_TIMESTAMP_PROMPT
+from vss_agents.utils.optional_cv2 import ensure_codecs
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,7 @@ async def video_frame_timestamp(config: VideoFrameTimestampConfig, builder: Buil
             str: The timestamp of the video frame.
         """
         # extract the frame from the video given the offset
+        ensure_codecs(cv2)
         video_capture = cv2.VideoCapture(video_frame_timestamp_input.asset_file_path)
         video_capture.set(cv2.CAP_PROP_POS_MSEC, video_frame_timestamp_input.frame_offset_seconds * 1000)
         _, frame = video_capture.read()

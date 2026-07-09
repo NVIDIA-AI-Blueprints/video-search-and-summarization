@@ -14,7 +14,8 @@
 # limitations under the License.
 
 import numpy as np
-import cv2
+
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 
 
 def visualize_vertices_3d(image, gt_dicts):
@@ -35,6 +36,8 @@ def visualize_vertices_3d(image, gt_dicts):
     """
     if len(gt_dicts) == 0:
         return image
+
+    cv2 = import_cv2("visualize_vertices_3d")
 
     pts_2d = []
     for gt in gt_dicts:
@@ -77,6 +80,8 @@ def visualize_keypoints(image, gt_dicts, transform):
     """
     if len(gt_dicts) == 0:
         return image
+
+    cv2 = import_cv2("visualize_keypoints")
 
     pts_3d = []
     for gt in gt_dicts:

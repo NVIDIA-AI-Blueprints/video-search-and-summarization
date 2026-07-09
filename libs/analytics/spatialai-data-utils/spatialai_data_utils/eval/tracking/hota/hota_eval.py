@@ -31,7 +31,16 @@ from typing import Dict, List, Any, Optional
 import numpy as np
 from pyquaternion import Quaternion
 
-from nuscenes.eval.common.utils import quaternion_yaw
+try:
+    from nuscenes.eval.common.utils import quaternion_yaw
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
+
 from spatialai_data_utils.eval.tracking.hota.evaluate import Evaluator as HOTAEvaluator
 from spatialai_data_utils.eval.tracking.hota.datasets.mtmc_challenge_3d_bbox import MTMCChallenge3DBBox
 from spatialai_data_utils.eval.tracking.hota.datasets.mtmc_challenge_3d_location import MTMCChallenge3DLocation

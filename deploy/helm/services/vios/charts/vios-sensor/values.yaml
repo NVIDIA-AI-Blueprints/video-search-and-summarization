@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-vios-sensor
-  tag: "3.2.0"
+  repository: nvcr.io/nvstaging/vss-core/vss-vios-sensor
+  tag: "2.1.0-26.05.4"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -41,7 +41,12 @@ readinessProbe:
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 20
-streamProcessorEndpoint: ""   # override if needed; else derived from streamProcessorService
+# Explicit override for STREAM_PROCESSOR_MODULE_ENDPOINT. Empty = derived from
+# global.vios.useSdrc:
+# SDRC -> sdrc-controller:10000,
+# direct -> vss-vios-streamprocessing:30001.
+streamProcessorEndpoint: ""
+# Service fronting the stream processor in SDRC mode ("sdrc" -> sdrc-controller).
 streamProcessorService: "sdrc"
 vstIngressEndpoint: ""        # full URL with scheme. When global.vlmBaseUrl and global.externalHost are set, defaults to <externalScheme>://<externalHost>[:externalPort]/vst for remote VLM. Else in-cluster vst-ingress URL.
 # Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means <Release.Name>-redis:6379.
@@ -75,7 +80,7 @@ env:
     value: nvcentralizedb
   - name: CENTRALIZE_DB_USERNAME
     value: vst
-  # STREAM_PROCESSOR_MODULE_ENDPOINT is set by the template from streamProcessorEndpoint
+  # STREAM_PROCESSOR_MODULE_ENDPOINT is set by the template (toggles on global.vios.useSdrc)
 
 # Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH. Optional PVCs for vst-data, vst-video.
 # To share with vss-vios-streamprocessing, set existingClaim to the same claim name (defaults: <Helm release>-vst-data / -vst-video). Single-node: ReadWriteOnce is enough.

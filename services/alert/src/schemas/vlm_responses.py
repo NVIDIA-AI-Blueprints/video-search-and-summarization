@@ -38,11 +38,12 @@ class ModelType(str, Enum):
     OTHER = "other"                  # Other models: description only, no verdict
     CR1 = "cr1"   # legacy alias
     CR2 = "cr2"   # legacy alias
+    CR3 = "cr3"   # alias
 
 
 # Model name patterns for auto-detection
 MODEL_PATTERNS = {
-    ModelType.COSMOS_REASON: ("cosmos-reason1", "cosmos-reason2"),
+    ModelType.COSMOS_REASON: ("cosmos-reason1", "cosmos-reason2", "cosmos3"),
 }
 
 
@@ -50,7 +51,7 @@ def detect_model_type(model_name: str) -> ModelType:
     """Detect model type from model name.
 
     Args:
-        model_name: Model name from config (e.g., "nvidia/cosmos-reason2-8b")
+        model_name: Model name from config (e.g., "nvidia/cosmos3-nano-reasoner")
 
     Returns:
         ModelType enum value
@@ -71,7 +72,7 @@ def detect_model_type(model_name: str) -> ModelType:
 # Custom parser registry
 # ---------------------------------------------------------------------------
 
-_BUILTIN_FORMATS = frozenset({"auto", "cosmos-reason", "cr1", "cr2", "json", "other"})
+_BUILTIN_FORMATS = frozenset({"auto", "cosmos-reason", "cr1", "cr2", "cr3", "json", "other"})
 _custom_parsers: Dict[str, Callable] = {}
 
 
@@ -159,7 +160,7 @@ class VLMResponse(BaseModel):
         Supported formats:
         - ``"auto"``          -- detect from *model_name*.  Default.
         - ``"cosmos-reason"`` -- unified Cosmos Reason (``<answer>`` tags or bare verdict).
-          ``"cr1"`` and ``"cr2"`` are accepted as aliases.
+          ``"cr1"``, ``"cr2"``, and ``"cr3"`` are accepted as aliases.
         - ``"json"``          -- structured JSON output (configurable via *json_config*).
         - ``"other"``         -- free-form text, no verdict extraction.
         - Any other value is looked up in the custom parser registry
@@ -189,7 +190,7 @@ class VLMResponse(BaseModel):
             logger.debug("VLM response parsing: response_format='json'")
             return cls._parse_json_response(text, json_config)
 
-        if response_format in ("cosmos-reason", "cr1", "cr2"):
+        if response_format in ("cosmos-reason", "cr1", "cr2", "cr3"):
             logger.debug("VLM response parsing: response_format='%s' → cosmos-reason", response_format)
             return cls._parse_cosmos_reason_response(text)
 
@@ -205,7 +206,7 @@ class VLMResponse(BaseModel):
                 model_type.value,
             )
             try:
-                if model_type in (ModelType.COSMOS_REASON, ModelType.CR1, ModelType.CR2):
+                if model_type in (ModelType.COSMOS_REASON, ModelType.CR1, ModelType.CR2, ModelType.CR3):
                     return cls._parse_cosmos_reason_response(text)
                 return cls._parse_other_response(text)
             except ValueError:
@@ -223,7 +224,7 @@ class VLMResponse(BaseModel):
         )
 
     # ------------------------------------------------------------------
-    # Cosmos Reason parser (unified CR1 + CR2)
+    # Cosmos Reason parser (unified CR1 + CR2 + CR3)
     # ------------------------------------------------------------------
 
     @classmethod

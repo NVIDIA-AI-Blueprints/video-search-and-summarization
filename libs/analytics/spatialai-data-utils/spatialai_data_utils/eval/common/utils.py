@@ -26,7 +26,16 @@ from typing import TYPE_CHECKING, List
 import numpy as np
 from pyquaternion import Quaternion
 
-from nuscenes.eval.common.data_classes import EvalBox
+try:
+    from nuscenes.eval.common.data_classes import EvalBox
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
+
 from spatialai_data_utils.utils.optional_dependencies import (
     import_box3d_overlap,
     import_torch,

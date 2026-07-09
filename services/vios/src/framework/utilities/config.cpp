@@ -765,6 +765,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.use_camera_groups = overlay.get("use_camera_groups", false).asBool();
         m_vmsConfig.enable_recentering = overlay.get("enable_recentering", false).asBool();
         m_vmsConfig.overlay_text_font_type = overlay.get("overlay_text_font_type", DEFAULT_CUOSD_FONT_TYPE).asString();
+        m_vmsConfig.bbox_debug_font_size = overlay.get("bbox_debug_font_size", 0).asInt();
         m_vmsConfig.bbox_tolerance_ms = overlay.get("bbox_tolerance_ms", 0).asInt();
         m_vmsConfig.enable_overlay_skip_frame = overlay.get("enable_overlay_skip_frame", false).asBool();
         m_vmsConfig.halo_safety_udp_port = overlay.get("halo_safety_udp_port", -1).asInt();
@@ -894,6 +895,25 @@ VmsConfigManager::VmsConfigManager()
     else
     {
         m_vmsConfig.module_endpoints[ModuleLiveStream] = LIVE_STREAM_MODULE_DEFAULT_ENDPOINT;
+    }
+
+    /* VST_USE_SDRC toggles between the direct (sensor-MS posts to
+       stream-processor REST API; default, no SDR/Envoy in the data path) and
+       scaled (SDR + Envoy route stream-bound APIs) deployment topologies. */
+    char *use_sdrc_env = getenv("VST_USE_SDRC");
+    if (use_sdrc_env != nullptr)
+    {
+        string val(use_sdrc_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.use_sdrc = (val == "true" || val == "1" || val == "yes");
+    }
+
+    char *enable_notif_env = getenv("VST_ENABLE_NOTIFICATION");
+    if (enable_notif_env != nullptr)
+    {
+        string val(enable_notif_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.enable_notification = (val == "true" || val == "1" || val == "yes");
     }
 
     // Observability configuration

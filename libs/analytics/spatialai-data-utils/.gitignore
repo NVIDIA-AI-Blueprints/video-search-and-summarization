@@ -12,9 +12,8 @@ data/
 .DS_Store
 
 # Local environment files
-.env
-.env.*
-!.env.example
+**/.env
+**/.env.*
 
 .pytest_cache
 .coverage

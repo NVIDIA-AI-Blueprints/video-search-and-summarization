@@ -79,7 +79,7 @@ class TestModelOverrideShapesPayload:
         "no longer returns CR1, so the videos_kwargs branch is unreachable."
     )
     def test_extra_body_shape_uses_overridden_model(self):
-        client = _make_client("nvidia/cosmos-reason2-8b")  # default = CR2 family
+        client = _make_client("nvidia/cosmos-reason2-8b")  # fixture model = CR2 family
         body = client._build_extra_body(
             video=True,
             num_frames=8,
@@ -93,7 +93,7 @@ class TestModelOverrideShapesPayload:
     def test_extra_body_shape_default_model_unchanged(self):
         client = _make_client("nvidia/cosmos-reason2-8b")
         body = client._build_extra_body(video=True, num_frames=8)
-        # Default CR2 family uses the ``size`` envelope.
+        # The CR2 family fixture uses the ``size`` envelope.
         assert "size" in body["mm_processor_kwargs"]
 
     @pytest.mark.skip(
