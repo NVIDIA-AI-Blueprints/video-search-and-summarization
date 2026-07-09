@@ -112,6 +112,22 @@ find <repo>/deploy -type f -name '.env' -not -path '*/_builds/*' -not -path '*/b
 
 The canonical set is **10 core `.env` files** (4 developer profiles, 1 industry profile, 5 service-internal) plus a NIM hardware-tier set selected by `HW_PROFILE`. Read the full enumeration, per-file ownership table, NIM hardware-tier layout, and the variable-folding rule for Step 6 in `references/env-file-enumeration.md`.
 
+#### Choose validation scope
+
+After the build is generated, ask the user which level of post-generation validation they want. Ask explicitly, or infer from context if the request makes it unambiguous (e.g. "just generate the files" → scope a; "deploy and test everything" → scope d):
+
+```
+What validation should run after generation?
+  (a) Smoke tests only      — dry-run config check; no deploy
+  (b) Deploy + endpoint     — deploy the profile; run per-service API smoke tests
+                              (curl health + output-endpoint checks per integrate-<svc>.md § Outputs)
+  (c) Deploy + skill eval   — deploy; run the profile eval JSON
+                              (e.g. eval/profile_in_1_dense_captioning.json)
+  (d) Deploy + endpoint + skill eval — deploy; run smoke tests; then run the eval JSON
+```
+
+Record the choice as **`<VALIDATION_SCOPE>`** (`a` / `b` / `c` / `d`) in the in-session context. Defaults: **(b)** when the user says "deploy and test" without further detail; **(a)** in a non-interactive eval harness without explicit deploy intent; **(d)** when the user says "full validation" or "validate everything". The choice gates Steps 7 and 8 — see those steps for how each scope is handled.
+
 If any of the following is unclear and the answer materially changes the architecture, **stop and ask** before proceeding:
 
 - The capability description maps to multiple microservice candidates and the user has not narrowed it.
@@ -204,6 +220,17 @@ Then prompt the user for any of the following that are ambiguous (FR-4):
 - **Video-ingestion method (when VIOS `sensor_topology=rtsp-and-uploaded` and a video source is needed)** — offer the user BOTH, do not silently default to NvStreamer: **(1) live RTSP via the NvStreamer synthetic-RTSP harness** (a stored sample served over RTSP, auto-discovered), and **(3a) static-video upload via the VIOS storage API** (`PUT /storage/file` → `GET /storage/file/<streamId>/url` → the returned HTTP `videoUrl` fed directly to RT-CV/RT-Embed — no NvStreamer, no live proxy). Surface in the Step 4 proposal as "video ingestion → [NvStreamer live RTSP | VIOS file upload] ✓". For the **static/upload** path, the generated deploy skill MUST pass `creation_time:"2025-01-01T00:00:00.000Z"` on both RT-CV `/stream/add` and RT-Embed `generate_video_embeddings` (correct `…-2025-01-01` index suffix). See `references/validation-harness.md § 5b / § 6b`.
 - **Embedding output (when RT-Embedding is selected)** — RT-Embed publishes its raw embeddings to Kafka **`mdx-embed`** (keep upstream `RTVI_EMBED_KAFKA_TOPIC=mdx-embed`; do NOT override to `mdx-embed-filtered`). **`vss-search-analytics-2d-fusion` (BA)** consumes `mdx-embed` and produces **`mdx-embed-filtered`**, which ELK indexes as `mdx-embed-filtered-<date>`. For "embeddings stored in ES" this means the RT-CV/embed profile MUST include BA (it lives in RT-CV's upstream compose). Surface in the Step 4 proposal as "embeddings → `mdx-embed` → BA → `mdx-embed-filtered` → ES `mdx-embed-filtered-<date>` ✓". See `references/patch-rt-embed.md`.
 - **Remote vs. local inference** — for NIM-based services (RT-VLM in `openai-compat` mode, LLM NIMs).
+- **VS / summarization LLM source (when VS is in the build).** VS requires a summarization LLM
+  that the dense-captioning baseline does not provide. Check GPU availability:
+  `nvidia-smi --query-gpu=name --format=csv,noheader | wc -l` minus the GPU count the current
+  baseline profile occupies (e.g. IN-1 uses 1 GPU). If a spare GPU is available, propose a
+  **local NIM** (`nvidia-nemotron-nano-9b-v2`) as the default — this matches the upstream
+  `dev-profile-lvs` default and avoids cloud-inference entitlement requirements. Only propose the
+  remote NVIDIA-hosted endpoint (`integrate.api.nvidia.com`) when no spare GPU exists or the user
+  explicitly opts out. If remote is chosen, warn that `integrate.api.nvidia.com` requires a
+  cloud-inference-entitled `NVIDIA_API_KEY`, which is a **different entitlement scope** from the
+  NGC registry key (`nvapi-*`) used for image pulls — an NGC registry key returns HTTP 403 on
+  `/v1/chat/completions`.
 - **External RTSP source location** (when the prompt mentions live stream input) — is the source a real public RTSP server, a real IP camera, a sibling container, or a host process? **If the user supplies a real camera / RTSP URL**, use it: pre-flight reachability **from inside the rtvi-vlm container** (not just the host) before generating the compose; if the source is a non-VSS sidecar, recommend co-locating on the same compose network with `--network-alias` (see `integrate-rt-vlm.md` § Network Requirements > Reaching external RTSP sources); if the source is on the host, verify Docker's iptables FORWARD chain has the necessary rule by probing `docker exec rtvi-vlm bash -c "exec 3<>/dev/tcp/${HOST_IP}/${RTSP_PORT}"`. **If the user did NOT supply a real source but the capability has a live/streaming path**, include the **NvStreamer validation harness** as a synthetic RTSP source (a stored sample video served over RTSP by `vss-vios-nvstreamer`, replacing the legacy `mediamtx + ffmpeg` dummy-stream sidecar) — record the decision in the sidecar's `validation_harness:` key and emit the service in Step 6. The inclusion rule, the service block, config/sample-video staging, and the NvStreamer → VIOS → RT-VLM smoke sequence are all in `references/validation-harness.md`. NvStreamer is a validation-harness component ONLY — NOT a `sensor_topology` variant and NOT a `component_services:` entry.
 
 Wait for confirmation before continuing. The only exception is **autonomous mode** — when the user's request explicitly says "deploy autonomously" or "run without confirmation", or when running inside a non-interactive eval harness with that permission.
@@ -285,6 +312,7 @@ Generate a self-contained deploy skill at `build-output/skills/deploy-<profile-n
 
 The generated SKILL.md must include:
 
+- **YAML frontmatter (FIRST lines of the file, before any heading)** — a valid agentskills.io frontmatter block so the deploy skill is discoverable and invokable as `/deploy-<profile-name>`. Required keys: `name: deploy-<profile-name>` (matching the folder), `description:` (one line covering deploy/verify/health-check/smoke-test/tear-down and naming the capability, the build dir, and the profile flag), `version:` (e.g. `0.1.0`), `license: Apache-2.0`. Without this block the file is a plain runbook, not a loadable skill. (Regression fixed 2026-06-18: earlier generations emitted the runbook heading directly with no frontmatter.)
 - **Compose path** — absolute or `build-output/`-relative path to the generated `compose.yml`.
 - **Env file path** — path to `.env.template` and an instruction to copy it to `.env` and fill in every variable before deploy.
 - **GPU assignments** — the device-id map confirmed in Step 4 (`RT_VLM_DEVICE_ID=0`, etc.), so the operator can sanity-check against the host before bring-up.
@@ -333,7 +361,7 @@ Record the chosen flag at the top of `<BUILD_DIR>/MANIFEST.md`, note every strip
 
 ### Step 7 — Dry-Run Validation
 
-After writing, validate before declaring success. First verify the required build artifacts exist in one build folder: `compose.yml`, `.env.template`, `allow-list.yml`, and `MANIFEST.md`. If autonomous mode or direct deploy created a runtime `.env`, keep it alongside `.env.template`; never treat `.env` as a substitute for `.env.template`.
+**Dry-run always runs regardless of `<VALIDATION_SCOPE>`.** After writing all files, validate before declaring success. First verify the required build artifacts exist in one build folder: `compose.yml`, `.env.template`, `allow-list.yml`, and `MANIFEST.md`. If autonomous mode or direct deploy created a runtime `.env`, keep it alongside `.env.template`; never treat `.env` as a substitute for `.env.template`.
 
 The dry-run command depends on whether the source repo splits env vars across multiple files (Step 0). Use `.env` when a runtime file has been materialized, otherwise use `.env.template`:
 
@@ -378,23 +406,53 @@ Present a summary of the generated artifact:
 
 Show the diff if the operation modified an existing deployment. Wait for user confirmation, then write all files to the output directory. Always emit a `MANIFEST.md` listing every generated file and its purpose. The manifest must include an `## Architecture` section embedding the ASCII flowchart produced in Step 4 verbatim — operators reading the manifest should see the wiring at a glance, without re-running the skill.
 
-#### Prompt to deploy
+#### Prompt to deploy and validate
 
-After all files are written, ask the user explicitly:
+After all files are written, act according to **`<VALIDATION_SCOPE>`** chosen in Step 0:
 
-> "Deploy this profile now? [y/N]"
+**Scope (a) — smoke tests only (no deploy):**
+Print the bring-up command and the generated skill invocation so the user can run them later. Do not deploy.
+```
+# Direct compose:
+docker compose --env-file <BUILD_DIR>/.env -f <BUILD_DIR>/compose.yml --profile <profile-name> up -d
 
-- **If `y`**: invoke the `deploy-<profile-name>` skill generated in Step 6. The skill should run from `build-output/` as its working directory so it picks up the generated `compose.yml`, `.env`, and `MANIFEST.md`. Before invoking, confirm the user has copied `.env.template` to `.env` and filled in required values (NGC API key, HF token, host IP, GPU IDs) — if `.env` is missing or still contains template placeholders, stop and ask the user to fill them in.
-- **If `n` or no response**: print the bring-up command and the skill invocation command so the user can run either later:
-  ```
-  # Direct compose:
-  docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> up -d
+# Or via the generated skill:
+/deploy-<profile-name>
+```
 
-  # Or via the generated skill:
-  /deploy-<profile-name>
-  ```
+**Scope (b) — deploy + endpoint testing:**
+Ask the user: `"Deploy and run endpoint smoke tests? [y/N]"`
+On `y`:
+1. Confirm `.env` is filled in (not template placeholders) — stop and ask the user to fill it in if not.
+2. Invoke `deploy-<profile-name>` skill from `<BUILD_DIR>/`.
+3. Run per-service endpoint smoke tests: one `curl` health check + one output-endpoint check per microservice included in the build, sourced from each microservice's `integrate-<svc>.md § Outputs` section. Report pass/fail per check.
 
-The autonomous-mode exception from Step 4 applies here too: when the user's original request explicitly said "deploy autonomously", "and deploy", "generate and deploy", "runtime eval", or "smoke test", treat as `y` without prompting. In that mode, run the generated deploy skill and its post-deploy smoke tests; do not stop after `docker compose config` or only print commands. When running in a non-interactive eval harness without explicit deploy or runtime-smoke intent, treat as `n` and just print the commands.
+**Scope (c) — deploy + skill eval:**
+Ask the user: `"Deploy and run the profile eval? [y/N]"`
+On `y`:
+1. Confirm `.env` is filled in — stop if not.
+2. Invoke `deploy-<profile-name>` skill from `<BUILD_DIR>/`.
+3. Run the profile eval JSON from `skills/vss-build-vision-agent/eval/` (e.g. `eval/profile_in_1_dense_captioning.json`). If no eval JSON exists for this profile yet, report that and skip. Report pass/fail per check.
+
+**Scope (d) — deploy + endpoint + skill eval:**
+Ask the user: `"Deploy, run endpoint smoke tests, and run the profile eval? [y/N]"`
+On `y`:
+1. Confirm `.env` is filled in — stop if not.
+2. Invoke `deploy-<profile-name>` skill from `<BUILD_DIR>/`.
+3. Run endpoint smoke tests (same as scope b).
+4. Run the profile eval JSON (same as scope c).
+Report pass/fail for both sets of checks separately.
+
+**On `n` (any scope that prompts):** print the bring-up command and the skill invocation command so the user can run them later:
+```
+# Direct compose:
+docker compose --env-file <BUILD_DIR>/.env -f <BUILD_DIR>/compose.yml --profile <profile-name> up -d
+
+# Or via the generated skill:
+/deploy-<profile-name>
+```
+
+**Autonomous-mode exception:** when the user's original request explicitly said "deploy autonomously", "and deploy", "generate and deploy", "runtime eval", or "smoke test", treat all deploy prompts as `y` without asking. In that mode, run the generated deploy skill and its post-deploy smoke tests; do not stop after `docker compose config` or only print commands. When running in a non-interactive eval harness without explicit deploy or runtime-smoke intent, treat as `n` and print the commands.
 
 ## File Structure
 
