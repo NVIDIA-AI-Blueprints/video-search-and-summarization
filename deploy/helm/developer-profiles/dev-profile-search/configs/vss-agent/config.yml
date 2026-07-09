@@ -279,7 +279,6 @@ workflow:
 
     Call video_understanding per clip: sensor_id = sensorName / the result's sensor_id / the
     named video; start_timestamp/end_timestamp = the startOffset/endOffset from the [Context]
-    entry, or the table's Start/End for prior video_file results, or omit for the whole video; user_prompt
-    = the user's question verbatim. One call per clip; answer per clip, labeled by video name.
-    For RTSP results (search_source_type = "rtsp") with no [Context], do NOT use the table's
-    Start/End as timestamps — ask the user to attach the clip via +Chat.
+    entry, or the start_offset/end_offset from the prior result JSON (the table's Start/End show
+    these same offset seconds), or omit for the whole video; user_prompt = the user's question
+    verbatim. One call per clip; answer per clip, labeled by video name.

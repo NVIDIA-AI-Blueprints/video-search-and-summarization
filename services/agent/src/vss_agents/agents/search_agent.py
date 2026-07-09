@@ -55,6 +55,7 @@ from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
 from vss_agents.tools.search import execute_core_search
+from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.utils.time_convert import iso8601_to_datetime
 
@@ -341,6 +342,33 @@ def _to_pts(ts: str | float) -> str:
         return str(ts)
 
 
+async def _add_offsets(results: list[SearchResult]) -> None:
+    """Populate start_offset/end_offset (seconds since each stream's timeline start).
+
+    video_understanding runs in offset mode, so the agent must pass seconds-since-start, not
+    ISO or the 2025-epoch table PTS. Compute the real offset per result against the stream's
+    own VST timeline so it is correct for both uploaded files and RTSP/wall-clock streams.
+
+    Memoized per stream_id so N results cost 1 + (unique streams) VST timeline calls. Non-fatal:
+    leaves offsets as None (callers fall back to the ISO/PTS display) if a lookup fails.
+    """
+    stream_start_cache: dict[str, datetime] = {}
+    for r in results:
+        if not r.sensor_id or not r.start_time or not r.end_time:
+            continue
+        try:
+            if r.sensor_id not in stream_start_cache:
+                stream_start_iso, _ = await get_timeline(r.sensor_id)
+                stream_start_cache[r.sensor_id] = iso8601_to_datetime(stream_start_iso)
+            stream_start = stream_start_cache[r.sensor_id]
+            # Clamp at 0 to guard against minor clock skew (clip start slightly before timeline
+            # start); video_understanding's offset schema rejects negative values.
+            r.start_offset = max(0.0, (iso8601_to_datetime(r.start_time) - stream_start).total_seconds())
+            r.end_offset = max(0.0, (iso8601_to_datetime(r.end_time) - stream_start).total_seconds())
+        except Exception as exc:  # keep results intact on failure; never break the search turn
+            logger.warning("Could not compute offsets for %s: %s", r.sensor_id, exc)
+
+
 def _results_summary_table(results: list[SearchResult]) -> str:
     """Format search results as a Markdown summary table."""
     has_critic = any(r.critic_result is not None for r in results)
@@ -351,7 +379,9 @@ def _results_summary_table(results: list[SearchResult]) -> str:
 
     rows = []
     for i, r in enumerate(results, 1):
-        row = [str(i), r.video_name, _to_pts(r.start_time), _to_pts(r.end_time)]
+        start_cell = f"{r.start_offset:.1f}s" if r.start_offset is not None else _to_pts(r.start_time)
+        end_cell = f"{r.end_offset:.1f}s" if r.end_offset is not None else _to_pts(r.end_time)
+        row = [str(i), r.video_name, start_cell, end_cell]
         if has_critic:
             if r.critic_result is not None:
                 verdict = r.critic_result.result
@@ -476,6 +506,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             await stream_name_resolver.resolve(search_output.data),
             search_agent_input,
         )
+        await _add_offsets(final_results)
         return SearchOutput(data=final_results, search_messages=search_output.search_messages)
 
     async def _execute_search_stream(
@@ -554,6 +585,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                 await stream_name_resolver.resolve(search_output.data),
                 search_agent_input,
             )
+            await _add_offsets(final_results)
             result_count = len(final_results)
 
             # Build SearchOutput-compatible JSON
