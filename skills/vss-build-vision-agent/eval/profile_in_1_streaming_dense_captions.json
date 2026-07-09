@@ -19,7 +19,7 @@
         "The proposal states that VIOS handles uploaded/stored video playback and live stream registration, while RT-VLM consumes the VIOS live proxy for streaming dense captioning.",
         "The proposal states that dense captions are published to Kafka topic `mdx-vlm-captions` and indexed into Elasticsearch through the VSS 3.2 Logstash path.",
         "The proposal uses one shared Kafka and one shared Elasticsearch/Logstash stack; it does not propose duplicate broker or indexing infrastructure.",
-        "The proposal identifies the canonical build location `{{repo_root}}/_builds/in-1/`, the generated compose profile flag `bp_developer_in_1`, and the non-destructive patched-copy strategy under `_builds/in-1/patched/`.",
+        "The proposal identifies the canonical build location `{{repo_root}}/_builds/in-1/`, the generated compose profile flag `bp_developer_in_1`, and states that generation is self-contained using local patched copies without modifying upstream compose files.",
         "The proposal cites or names the relevant integration references for RT-VLM, VIOS, and ELK, and calls out the SDRC-routed VIOS topology rather than the legacy `sdr-streamprocessing` / `envoy-streamprocessing` pair."
       ]
     },
