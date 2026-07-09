@@ -75,7 +75,7 @@ from vss_agents.agents.postprocessing import POSTPROCESSING_FEEDBACK_MARKER
 from vss_agents.agents.postprocessing import PostprocessingConfig
 from vss_agents.agents.postprocessing import PostprocessingNode
 from vss_agents.tools.vst.timeline import get_timeline
-from vss_agents.tools.vst.utils import get_stream_id
+from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.utils.asyncmixin import AsyncMixin
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
@@ -202,6 +202,17 @@ async def _augment_context_clip_offsets(message_text: str) -> str:
     if not isinstance(clips, list):
         return message_text
 
+    # Resolve sensor names to stream IDs with a single VST lookup, and memoize each stream's
+    # start time so multiple clips (even from the same sensor) don't trigger redundant VST
+    # round-trips. This turns the previous 2*N calls into 1 + (unique streams).
+    try:
+        name_to_stream_id = await get_name_to_stream_id_map()
+    except Exception as exc:  # keep the message intact on failure; never break the turn
+        logger.warning("Could not fetch VST stream map for [Context] offsets: %s", exc)
+        return message_text
+
+    stream_start_cache: dict[str, datetime] = {}
+
     changed = False
     for clip in clips:
         if not isinstance(clip, dict):
@@ -213,10 +224,20 @@ async def _augment_context_clip_offsets(message_text: str) -> str:
         end_iso = clip.get("endTime")
         if not (sensor_name and start_iso and end_iso):
             continue
+
+        stream_id = name_to_stream_id.get(sensor_name)
+        if stream_id is None and sensor_name in name_to_stream_id.values():
+            # sensorName is already a stream ID.
+            stream_id = sensor_name
+        if stream_id is None:
+            logger.warning("Unknown sensor in [Context] clip, skipping: %s", sensor_name)
+            continue
+
         try:
-            stream_id = await get_stream_id(sensor_name)
-            stream_start_iso, _ = await get_timeline(stream_id)
-            stream_start = iso8601_to_datetime(stream_start_iso)
+            if stream_id not in stream_start_cache:
+                stream_start_iso, _ = await get_timeline(stream_id)
+                stream_start_cache[stream_id] = iso8601_to_datetime(stream_start_iso)
+            stream_start = stream_start_cache[stream_id]
             # Add offsets alongside the original ISO fields (non-destructive).
             clip["startOffset"] = (iso8601_to_datetime(start_iso) - stream_start).total_seconds()
             clip["endOffset"] = (iso8601_to_datetime(end_iso) - stream_start).total_seconds()
