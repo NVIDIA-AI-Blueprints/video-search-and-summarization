@@ -173,6 +173,8 @@ From the user's prompt, generate a short `snake_case` tag that summarizes the al
 
 ### Step 4 — Build and POST to Alert Bridge
 
+**Create the rule ONLY via Alert Bridge `POST :9080/api/v1/realtime`.** Never call the `rtvi-vlm` microservice (`:8018`, e.g. `POST /v1/streams/add`) directly — Alert Bridge wires the stream to rtvi-vlm itself; a direct `:8018` call bypasses rule persistence and is a failure even if the stream goes live.
+
 Construct the payload using values collected from the previous steps and POST to the Alert Bridge realtime endpoint:
 
 ```bash
@@ -348,12 +350,14 @@ Resolve the user's `sensor_name` to RTSP URL(s) via the VST API (same as Create 
 | Matches | Action |
 |---|---|
 | **0** | Reply: "No matching rule found for `<alert_type>` on **<sensor_name>**. Would you like to see what's currently running?" |
-| **>1** | Reply: "Multiple rules match that description. Please be more specific — for example, include the exact alert type tag." Do NOT show a numbered picker. |
+| **>1** | Reply: "Multiple rules match that description." — then list each matching rule as `` `<alert_type>` (rule ID: `<id>`) on **<sensor_name>** `` and ask the user to specify the exact alert type tag or rule ID. Do NOT show a numbered picker. |
 | **1** | Reply with the confirmation question below. |
 
 **Your reply for 1 match — only this, nothing else:**
 
 > "Stop alert `<alert_type>` on **<sensor_name>**? (rule ID: `<id>`) — yes/no"
+
+**Always use this exact template.** The confirmation (and any disambiguation) MUST name the matched rule ID(s) and sensor — never a generic "are you sure?" without identifiers.
 
 ---
 
