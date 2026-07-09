@@ -137,6 +137,51 @@ def _validate_consolidation(cfg: dict) -> None:
         )
 
 
+class ChunkCombiner:
+    """Strategy deciding whether a candidate chunk extends the open event.
+
+    The consolidator's grouping, fold loop, and event construction hold **no**
+    combination policy — it lives entirely in a combiner, so how chunks are
+    checked and combined can be extended or replaced independently.
+    ``should_extend`` returns ``(extend, reason)``: ``reason`` is ``""`` when
+    the chunk extends the event, otherwise the split cause reported to the
+    ``dedup_split_reason_total`` metric. Future strategies can combine on signals
+    other than time — e.g. a visual-change combiner that compares consecutive
+    chunks' vision embeddings / VLM reasoning to detect that the alert condition
+    changed — and combiners may be composed.
+    """
+
+    def should_extend(self, event: List[dict], candidate: dict) -> Tuple[bool, str]:
+        raise NotImplementedError
+
+
+class TimeBoundCombiner(ChunkCombiner):
+    """v1 strategy: extend while the next positive arrives within the inter-alert
+    gap and the event stays within the outer duration cap (both end-based and
+    inclusive). The time gap is authoritative — there is no per-session bypass.
+    """
+
+    def __init__(self, gap_seconds, max_duration):
+        self._gap_seconds = gap_seconds
+        self._max_duration = max_duration
+
+    def should_extend(self, event: List[dict], candidate: dict) -> Tuple[bool, str]:
+        first = event[0]
+        prev = event[-1]
+        if self._max_duration is not None:
+            start = _parse_ts(first.get("timestamp"))
+            cand_end = _parse_ts(candidate.get("end")) or _parse_ts(candidate.get("timestamp"))
+            if start and cand_end and (cand_end - start).total_seconds() > self._max_duration:
+                return (False, "outer")  # outer duration cap breached
+        prev_end = _parse_ts(prev.get("end")) or _parse_ts(prev.get("timestamp"))
+        cand_start = _parse_ts(candidate.get("timestamp"))
+        if prev_end is None or cand_start is None:
+            return (False, "malformed")
+        if (cand_start - prev_end).total_seconds() <= self._gap_seconds:
+            return (True, "")
+        return (False, "gap")
+
+
 class IncidentService:
     """Service for querying incidents from Elasticsearch.
 
@@ -372,6 +417,16 @@ class IncidentService:
     # ------------------------------------------------------------------
     # Consolidation
     # ------------------------------------------------------------------
+    def _combiner(self) -> ChunkCombiner:
+        """The chunk-combination strategy — the single seam for *how* chunks are
+        checked and combined. v1 uses the configured time bounds; replace or
+        compose to combine on other signals (e.g. visual change)."""
+        cfg = self._consolidation
+        return TimeBoundCombiner(
+            cfg.get("max_inter_alert_gap_seconds", 60),
+            cfg.get("max_event_duration_seconds", 300),
+        )
+
     def _consolidate(self, docs: List[dict]) -> List[dict]:
         """Group consecutive same-camera, same-alert-type positives on the
         current page into single events.
@@ -380,12 +435,14 @@ class IncidentService:
         underlying store is never modified and raw documents stay available
         via a ``consolidate=false`` query.
         """
-        cfg = self._consolidation
-        gap_seconds = cfg.get("max_inter_alert_gap_seconds", 60)
-        max_duration = cfg.get("max_event_duration_seconds", 300)
-        representative = cfg.get("representative", "latest")
+        representative = self._consolidation.get("representative", "latest")
+        combiner = self._combiner()
 
         t_fold = time.monotonic()
+        # Aggregate-only counter (no per-sensor/category labels): everything fed
+        # into the consolidator, including chunks dropped below as malformed.
+        if DEDUP_CHUNKS_IN is not None and docs:
+            DEDUP_CHUNKS_IN.inc(len(docs))
         groups: dict = {}
         for doc in docs:
             # Drop malformed chunks — a chunk missing its grouping keys, or with
@@ -412,23 +469,18 @@ class IncidentService:
             group_events: List[dict] = []
             current: List[dict] = []
             for doc in items_sorted:
-                if current and self._is_continuous(current, doc, gap_seconds, max_duration):
+                extend, reason = combiner.should_extend(current, doc) if current else (True, "")
+                if current and extend:
                     current.append(doc)
                 else:
                     if current:
                         group_events.append(self._build_event(current, representative))
-                        if DEDUP_SPLIT_REASON is not None:
-                            DEDUP_SPLIT_REASON.labels(
-                                reason=self._split_reason(current, doc, gap_seconds, max_duration)
-                            ).inc()
+                        if DEDUP_SPLIT_REASON is not None and reason:
+                            DEDUP_SPLIT_REASON.labels(reason=reason).inc()
                     current = [doc]
             if current:
                 group_events.append(self._build_event(current, representative))
             events.extend(group_events)
-            # Aggregate-only counters (no per-sensor/category labels) to avoid
-            # unbounded Prometheus cardinality from ES-sourced label values.
-            if DEDUP_CHUNKS_IN is not None:
-                DEDUP_CHUNKS_IN.inc(len(items))
             if DEDUP_EVENTS_OUT is not None:
                 DEDUP_EVENTS_OUT.inc(len(group_events))
 
@@ -442,48 +494,11 @@ class IncidentService:
         return events
 
     @staticmethod
-    def _is_continuous(current: List[dict], doc: dict, gap_seconds, max_duration) -> bool:
-        """Whether ``doc`` extends the open event ``current``.
-
-        Continuation requires the event to stay within the outer duration cap
-        and the next positive to arrive within ``max_inter_alert_gap_seconds``
-        of the previous chunk. The time gap is authoritative — there is no
-        per-session bypass. Unparseable timestamps end the current event.
-        """
-        first = current[0]
-        prev = current[-1]
-
-        if max_duration is not None:
-            start = _parse_ts(first.get("timestamp"))
-            doc_end = _parse_ts(doc.get("end")) or _parse_ts(doc.get("timestamp"))
-            if start and doc_end and (doc_end - start).total_seconds() > max_duration:
-                return False  # outer duration cap breached
-
-        prev_end = _parse_ts(prev.get("end")) or _parse_ts(prev.get("timestamp"))
-        doc_start = _parse_ts(doc.get("timestamp"))
-        if prev_end is None or doc_start is None:
-            return False
-        return (doc_start - prev_end).total_seconds() <= gap_seconds
-
-    @staticmethod
     def _split_reason(current: List[dict], doc: dict, gap_seconds, max_duration) -> str:
-        """Classify why ``doc`` did not extend ``current`` — for the
-        ``dedup_split_reason_total`` metric. Mirrors ``_is_continuous`` (outer
-        cap checked first, then the gap): returns ``outer``, ``gap``, or
-        ``malformed``.
-        """
-        first = current[0]
-        prev = current[-1]
-        if max_duration is not None:
-            start = _parse_ts(first.get("timestamp"))
-            doc_end = _parse_ts(doc.get("end")) or _parse_ts(doc.get("timestamp"))
-            if start and doc_end and (doc_end - start).total_seconds() > max_duration:
-                return "outer"
-        prev_end = _parse_ts(prev.get("end")) or _parse_ts(prev.get("timestamp"))
-        doc_start = _parse_ts(doc.get("timestamp"))
-        if prev_end is None or doc_start is None:
-            return "malformed"
-        return "gap"
+        """The split cause (``outer`` / ``gap`` / ``malformed``) when ``doc`` does
+        not extend ``current``; empty string when it extends. Thin wrapper over
+        ``TimeBoundCombiner`` kept for direct unit testing of the classification."""
+        return TimeBoundCombiner(gap_seconds, max_duration).should_extend(current, doc)[1]
 
     @staticmethod
     def _build_event(chunks: List[dict], representative: str) -> dict:
