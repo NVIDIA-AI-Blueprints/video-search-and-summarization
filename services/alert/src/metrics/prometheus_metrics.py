@@ -91,6 +91,28 @@ E2E_DURATION = Histogram(
     buckets=E2E_DURATION_BUCKETS,
 )
 
+# On-demand API metrics intentionally use a separate namespace from the Kafka
+# pipeline metrics above.  Mixing HTTP requests into EVENTS_AFTER_DEDUP /
+# EVENTS_TOTAL would invalidate the Kafka reconciliation invariants documented
+# below.
+ONDEMAND_VLM_DURATION = Histogram(
+    'alert_bridge_ondemand_vlm_duration_seconds',
+    'Duration of a VLM inference attempt initiated by the on-demand API',
+    buckets=VLM_DURATION_BUCKETS,
+)
+
+ONDEMAND_PROCESSING_DURATION = Histogram(
+    'alert_bridge_ondemand_processing_seconds',
+    'Time spent processing and publishing an accepted on-demand request',
+    buckets=WORKER_PROCESSING_BUCKETS,
+)
+
+ONDEMAND_E2E_DURATION = Histogram(
+    'alert_bridge_ondemand_e2e_duration_seconds',
+    'Time from on-demand HTTP request entry to background publish completion',
+    buckets=E2E_DURATION_BUCKETS,
+)
+
 # Opt-in per-sensor latency histograms. The recorder observes these only when
 # ``alert_agent.metrics.per_sensor_labels`` is true, so existing aggregate
 # dashboards remain unchanged and deployments that do not need per-camera
@@ -276,6 +298,26 @@ EVENTS_TOTAL = Counter(
     'alert_bridge_events_total',
     'Total events processed',
     ['verdict']
+)
+
+# On-demand request accounting is separate from Kafka event accounting.  The
+# outcome and reason labels are constrained by metrics.recorder allowlists.
+ONDEMAND_REQUESTS_TOTAL = Counter(
+    'alert_bridge_ondemand_requests_total',
+    'On-demand HTTP requests by synchronous acceptance outcome',
+    ['outcome'],
+)
+
+ONDEMAND_EVENTS_TOTAL = Counter(
+    'alert_bridge_ondemand_events_total',
+    'Accepted on-demand events that completed background processing',
+    ['verdict'],
+)
+
+ONDEMAND_VERIFICATION_FAILURES = Counter(
+    'alert_bridge_ondemand_verification_failures_total',
+    'On-demand background verification failures by stable reason',
+    ['reason'],
 )
 
 # Async external operation latency (VST/Elastic/in-process dedup state)

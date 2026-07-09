@@ -402,6 +402,74 @@ def run_prometheus(
             base_url, counter_metrics["failures"], window,
             _labels('reason="unknown"', sensor_filter),
         )
+
+        # On-demand metrics intentionally have no sensorId label: request
+        # payloads are arbitrary HTTP input, and adding them to the Kafka
+        # metric family would break its reconciliation invariants. Show this
+        # aggregate section only for the aggregate report.
+        ondemand = None
+        if not sensor_id:
+            ondemand = {
+                "vlm": prom_fetch_row(
+                    base_url,
+                    "alert_bridge_ondemand_vlm_duration_seconds",
+                    window,
+                ),
+                "processing": prom_fetch_row(
+                    base_url,
+                    "alert_bridge_ondemand_processing_seconds",
+                    window,
+                ),
+                "e2e": prom_fetch_row(
+                    base_url,
+                    "alert_bridge_ondemand_e2e_duration_seconds",
+                    window,
+                ),
+                "requests": {
+                    outcome: prom_counter(
+                        base_url,
+                        "alert_bridge_ondemand_requests_total",
+                        window,
+                        f'outcome="{outcome}"',
+                    )
+                    for outcome in (
+                        "accepted",
+                        "unknown_category",
+                        "invalid_request",
+                        "unknown",
+                    )
+                },
+                "events": {
+                    verdict: prom_counter(
+                        base_url,
+                        "alert_bridge_ondemand_events_total",
+                        window,
+                        f'verdict="{verdict}"',
+                    )
+                    for verdict in (
+                        "confirmed",
+                        "rejected",
+                        "verification-failed",
+                        "unknown",
+                    )
+                },
+                "failures": {
+                    reason: prom_counter(
+                        base_url,
+                        "alert_bridge_ondemand_verification_failures_total",
+                        window,
+                        f'reason="{reason}"',
+                    )
+                    for reason in (
+                        "media_download",
+                        "vlm_api",
+                        "vlm_schema",
+                        "pluggable_parser",
+                        "background_exception",
+                        "unknown",
+                    )
+                },
+            }
     except PromQueryError as exc:
         print(f"\nERROR: Prometheus query failed mid-report: {exc}", file=sys.stderr)
         print("       Partial Prometheus results suppressed; exit code will reflect the failure.", file=sys.stderr)
@@ -545,10 +613,50 @@ def run_prometheus(
             pct = "  N/A"
         print(f"    {reason:<24} {count:<6} ({pct:>6})  {desc}")
 
+    if ondemand is not None:
+        request_counts = ondemand["requests"]
+        events = ondemand["events"]
+        failures = ondemand["failures"]
+        request_total = sum(request_counts.values())
+        event_total = sum(events.values())
+        failure_total = sum(failures.values())
+
+        print()
+        print("=" * W)
+        print(f"  ON-DEMAND API  |  Last {window}")
+        print("=" * W)
+        print(f"  {'Metric':<28} {'Avg':>8} {'p50':>8} {'p90':>8} {'p99':>8}   Count")
+        print("-" * W)
+        print_prom_row("VLM Inference", *ondemand["vlm"])
+        print_prom_row("Background Processing", *ondemand["processing"])
+        print_prom_row("Request → Publish", *ondemand["e2e"])
+
+        print()
+        print(f"  Requests [total: {request_total}]")
+        for outcome in ("accepted", "unknown_category", "invalid_request", "unknown"):
+            print(f"    {outcome:<24} {request_counts[outcome]}")
+
+        print()
+        print(f"  Completed events [total: {event_total}]")
+        for verdict in ("confirmed", "rejected", "verification-failed", "unknown"):
+            print(f"    {verdict:<24} {events[verdict]}")
+
+        print()
+        print(f"  Verification failures [total: {failure_total}]")
+        for reason in (
+            "media_download",
+            "vlm_api",
+            "vlm_schema",
+            "pluggable_parser",
+            "background_exception",
+            "unknown",
+        ):
+            print(f"    {reason:<24} {failures[reason]}")
+
     no_data = [n for n, row in [("VLM", vlm), ("VST", vst), ("E2E", e2e)] if row[4] == 0]
     if no_data:
         print()
-        print(f"  NOTE: No data for: {', '.join(no_data)}")
+        print(f"  NOTE: No Kafka pipeline data for: {', '.join(no_data)}")
         if sensor_id:
             print(f"        Either this sensor had no events in the last {window},")
             print(f"        or alert_agent.metrics.per_sensor_labels is not enabled.")
@@ -1104,7 +1212,9 @@ def main() -> None:
                         help=("Restrict the Prometheus latency and counter report to "
                               "a single sensor. Requires "
                               "alert_agent.metrics.per_sensor_labels=true on the "
-                              "alert-agent. Examples:\n"
+                              "alert-agent. The aggregate On-Demand API section is "
+                              "omitted because its metrics have no sensorId label. "
+                              "Examples:\n"
                               "  --sensor-id cam-42\n"
                               "  --sensor-id 'camera/hall-west:stream0'"))
     parser.add_argument("--csv-file", default=None,

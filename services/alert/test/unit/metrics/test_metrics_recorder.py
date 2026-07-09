@@ -1316,3 +1316,80 @@ class TestEnabledMode:
         }
         for reason in enabled_recorder.EVENTS_DROPPED_REASONS:
             assert reason in exposed, f"warmup reason {reason!r} disappeared after repeated calls"
+
+
+class TestOnDemandMetrics:
+    def test_request_outcome_is_counted_and_bounded(self, enabled_recorder):
+        from metrics.prometheus_metrics import ONDEMAND_REQUESTS_TOTAL
+
+        accepted = ONDEMAND_REQUESTS_TOTAL.labels(outcome="accepted")
+        unknown = ONDEMAND_REQUESTS_TOTAL.labels(outcome="unknown")
+        accepted_before = accepted._value.get()
+        unknown_before = unknown._value.get()
+
+        enabled_recorder.inc_ondemand_request("accepted")
+        enabled_recorder.inc_ondemand_request("free-form-value")
+
+        assert accepted._value.get() == accepted_before + 1
+        assert unknown._value.get() == unknown_before + 1
+
+    def test_completion_records_event_failure_and_durations(
+        self, enabled_recorder, monkeypatch
+    ):
+        from metrics.prometheus_metrics import (
+            ONDEMAND_E2E_DURATION,
+            ONDEMAND_EVENTS_TOTAL,
+            ONDEMAND_PROCESSING_DURATION,
+            ONDEMAND_VERIFICATION_FAILURES,
+        )
+
+        event = ONDEMAND_EVENTS_TOTAL.labels(
+            verdict="verification-failed"
+        )
+        failure = ONDEMAND_VERIFICATION_FAILURES.labels(reason="vlm_api")
+        event_before = event._value.get()
+        failure_before = failure._value.get()
+        processing_before = ONDEMAND_PROCESSING_DURATION._sum.get()
+        e2e_before = ONDEMAND_E2E_DURATION._sum.get()
+        monkeypatch.setattr(
+            enabled_recorder.time, "monotonic", lambda: 20.0
+        )
+
+        enabled_recorder.record_ondemand_event_complete(
+            request_start_time=10.0,
+            processing_start_time=15.0,
+            message={
+                "info": {
+                    "verdict": "verification-failed",
+                    "verificationResponseCode": 503,
+                    "errorSource": "vlm_api",
+                }
+            },
+        )
+
+        assert event._value.get() == event_before + 1
+        assert failure._value.get() == failure_before + 1
+        assert ONDEMAND_PROCESSING_DURATION._sum.get() == pytest.approx(
+            processing_before + 5.0
+        )
+        assert ONDEMAND_E2E_DURATION._sum.get() == pytest.approx(
+            e2e_before + 10.0
+        )
+
+    def test_vlm_duration_is_recorded(self, enabled_recorder):
+        from metrics.prometheus_metrics import ONDEMAND_VLM_DURATION
+
+        before = ONDEMAND_VLM_DURATION._sum.get()
+        enabled_recorder.observe_ondemand_vlm_duration(1.5, "ignored")
+        assert ONDEMAND_VLM_DURATION._sum.get() == pytest.approx(
+            before + 1.5
+        )
+
+    def test_disabled_helpers_are_noops(self, disabled_recorder):
+        disabled_recorder.inc_ondemand_request("accepted")
+        disabled_recorder.observe_ondemand_vlm_duration(1.5)
+        disabled_recorder.record_ondemand_event_complete(
+            request_start_time=1.0,
+            processing_start_time=2.0,
+            message={"info": {}},
+        )
