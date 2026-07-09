@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from realtime.config import ErrorCode, ResponseStatus
-from realtime.services.incident_service import IncidentService
+from realtime.services.incident_service import IncidentService, TimeBoundCombiner
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +520,62 @@ class TestConsolidationSplitReason:
         current = [_chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")]
         doc = _chunk(idx=2, start="2025-01-01T00:05:30.000Z", end="2025-01-01T00:06:00.000Z")
         assert IncidentService._split_reason(current, doc, 60, 300) == "outer"
+
+
+class TestTimeBoundCombiner:
+    """The pluggable combination strategy — should_extend -> (extend, reason)."""
+
+    def test_extends_within_bounds(self):
+        event = [_chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")]
+        cand = _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z")
+        assert TimeBoundCombiner(60, 300).should_extend(event, cand) == (True, "")
+
+    def test_gap_break(self):
+        event = [_chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")]
+        cand = _chunk(idx=2, start="2025-01-01T00:02:00.000Z", end="2025-01-01T00:02:30.000Z")
+        assert TimeBoundCombiner(60, 300).should_extend(event, cand) == (False, "gap")
+
+    def test_outer_break(self):
+        event = [_chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")]
+        cand = _chunk(idx=2, start="2025-01-01T00:05:30.000Z", end="2025-01-01T00:06:00.000Z")
+        assert TimeBoundCombiner(60, 300).should_extend(event, cand) == (False, "outer")
+
+    def test_malformed_candidate(self):
+        event = [_chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")]
+        cand = _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z")
+        cand.pop("timestamp")
+        assert TimeBoundCombiner(60, 300).should_extend(event, cand) == (False, "malformed")
+
+    def test_consolidate_uses_the_combiner(self):
+        # the fold uses IncidentService._combiner(); default is TimeBoundCombiner
+        svc = IncidentService(consolidation=dict(_CONSOL_DEFAULT))
+        assert isinstance(svc._combiner(), TimeBoundCombiner)
+
+    def test_fold_emits_dedup_metrics(self, monkeypatch):
+        # the fold path must emit the aggregate counters + split reason
+        from realtime.services import incident_service as mod
+
+        chunks_in, events_out, duration = MagicMock(), MagicMock(), MagicMock()
+        split = MagicMock()
+        monkeypatch.setattr(mod, "DEDUP_CHUNKS_IN", chunks_in)
+        monkeypatch.setattr(mod, "DEDUP_EVENTS_OUT", events_out)
+        monkeypatch.setattr(mod, "DEDUP_SPLIT_REASON", split)
+        monkeypatch.setattr(mod, "DEDUP_DURATION", duration)
+
+        docs = [
+            _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z"),
+            _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z"),  # merges
+            _chunk(idx=9, start="2025-01-01T00:02:30.000Z", end="2025-01-01T00:03:00.000Z"),  # gap split (within outer cap)
+        ]
+        bad = _chunk(idx=3, start="not-a-timestamp")  # dropped, but still counted as fed-in
+        events = _consolidator()._consolidate(docs + [bad])
+
+        assert len(events) == 2
+        chunks_in.inc.assert_called_once_with(4)          # all fed docs incl. malformed
+        events_out.inc.assert_called_once_with(2)
+        split.labels.assert_called_once_with(reason="gap")
+        split.labels.return_value.inc.assert_called_once()
+        duration.observe.assert_called_once()
 
 
 class TestConsolidationConfigValidation:
