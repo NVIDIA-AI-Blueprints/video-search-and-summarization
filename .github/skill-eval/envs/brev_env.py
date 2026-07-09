@@ -479,9 +479,16 @@ fi
 # next deploy (breaks nvstreamer_ops step-1 id/filePath checks). Two passes:
 #  (1) the exact host sources captured from the just-removed containers' binds
 #      (layout-agnostic — works for dev-profile and standalone deploys alike);
-#  (2) a filesystem fallback keyed off each deploy's `data_log` marker dir (+ its
-#      sibling `videos` tree) to catch dirs orphaned when no container was present
-#      to inspect (historical contamination or a crashed prior run).
+#  (2) a filesystem fallback that scans a bounded set of *existing* roots
+#      ($HOME plus off-$HOME mounts like /ephemeral, /data, and $VSS_DATA_DIR)
+#      for the VST marker dirs — `data_log` (+ its sibling `videos` tree) and the
+#      bind destinations `streamer_videos`/`vst_data`/`vst_video` matched by name
+#      — plus a direct wipe of $CLIP_STORAGE_PATH / $VST_DATA_PATH when the deploy
+#      env exports them. This catches dirs orphaned when Pass 1 was empty (prior
+#      teardown / reboot / crash left no container to inspect) OR the data root is
+#      not under $HOME (these boxes mount the big volumes on /ephemeral). Without
+#      it, leftover streamer_videos/*.mp4 are re-scanned into `warehouse_*_<N>`
+#      sensors on the next deploy and fail nvstreamer_ops/vios_ops step-1/2.
 # Best-effort with sudo fallback (containers write as UID 1001/root, like the
 # repo-sync git clean); contents are cleared but the correctly-permissioned
 # parent dirs are kept so the next deploy's bind mounts stay writable. Never
@@ -492,14 +499,35 @@ printf '%s\n' "$vst_bind_srcs" | while IFS= read -r src; do
   find "$src" -mindepth 1 -delete >/dev/null 2>&1 \
     || sudo find "$src" -mindepth 1 -delete >/dev/null 2>&1 || true
 done
-while IFS= read -r dl; do
-  root=$(dirname "$dl")
-  for sub in "$dl" "$root/videos"; do
-    [ -d "$sub" ] || continue
-    find "$sub" -mindepth 1 -delete >/dev/null 2>&1 \
-      || sudo find "$sub" -mindepth 1 -delete >/dev/null 2>&1 || true
-  done
-done < <(find "$HOME" -maxdepth 6 -type d -name data_log -prune 2>/dev/null || true)
+# Direct-wipe the known bind leaves first (the deploy env may export them even
+# when no container survives for Pass 1 to have inspected).
+for leaf in ${CLIP_STORAGE_PATH:-} ${VST_DATA_PATH:-}; do
+  case "$leaf" in ""|/|/home|/root|/opt|/tmp|/usr|/var|/etc|/bin|/sbin|/lib|/boot) continue;; esac
+  [ -d "$leaf" ] || continue
+  find "$leaf" -mindepth 1 -delete >/dev/null 2>&1 \
+    || sudo find "$leaf" -mindepth 1 -delete >/dev/null 2>&1 || true
+done
+# Scan a bounded set of existing roots (NOT just $HOME) for VST marker dirs.
+search_roots=""
+for r in "$HOME" /ephemeral /data ${VSS_DATA_DIR:-}; do
+  case " $search_roots " in *" $r "*) continue;; esac
+  [ -d "$r" ] && search_roots="$search_roots $r"
+done
+[ -n "$search_roots" ] && while IFS= read -r dl; do
+  case "$dl" in ""|/|/home|/root|/opt|/tmp|/usr|/var|/etc|/bin|/sbin|/lib|/boot) continue;; esac
+  [ -d "$dl" ] || continue
+  find "$dl" -mindepth 1 -delete >/dev/null 2>&1 \
+    || sudo find "$dl" -mindepth 1 -delete >/dev/null 2>&1 || true
+  # A `data_log` marker has a sibling `videos/` tree in both the dev-profile and
+  # standalone NvStreamer layouts; clear it too.
+  if [ "$(basename "$dl")" = "data_log" ]; then
+    vid="$(dirname "$dl")/videos"
+    [ -d "$vid" ] && { find "$vid" -mindepth 1 -delete >/dev/null 2>&1 \
+      || sudo find "$vid" -mindepth 1 -delete >/dev/null 2>&1 || true; }
+  fi
+done < <(find $search_roots -maxdepth 6 -type d \
+    \( -name data_log -o -name streamer_videos -o -name vst_data -o -name vst_video \) \
+    -prune 2>/dev/null || true)
 echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
 """
         logger.info(

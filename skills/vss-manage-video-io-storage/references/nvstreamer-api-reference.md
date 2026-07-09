@@ -81,7 +81,7 @@ curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/<sensorId>/status" | jq 
 curl -s "http://<NVSTREAMER_ENDPOINT>/vst/api/v1/sensor/<sensorId>/streams" | jq .
 ```
 Each stream returns:
-- `url` — `rtsp://<host>:<rtsp-server-port>/nvstream/<absolute-container-path>`. Example: `rtsp://${HOST_IP}:31561/nvstream/${VST_CONTAINER_ROOT}/streamer_videos/warehouse_sample.mp4`.
+- `url` — `rtsp://<host>:<rtsp-server-port>/nvstream<absolute-container-path>`. The `/nvstream` prefix is joined directly to the absolute container path (which already begins with `/`), so there is a single slash between them. Example: `rtsp://${HOST_IP}:31561/nvstream${VST_CONTAINER_ROOT}/streamer_videos/warehouse_sample.mp4` → `rtsp://${HOST_IP}:31561/nvstream/home/vst/vst_release/streamer_videos/warehouse_sample.mp4`.
 - `type` — `"Rtsp"`
 - `storageLocation` — `"Local"`
 - `metadata.codec` — `"h264"` / `"h265"`; populates asynchronously (~15-30 seconds after upload)
