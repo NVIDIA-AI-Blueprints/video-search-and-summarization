@@ -27,18 +27,13 @@ from a named sensor, but it is never required.
 > mean you should switch to the summarization pipeline; ask the VLM directly and read the
 > timing out of its answer.
 
-This is the same direct-VLM mechanism `vss-generate-video-report` uses in Mode A — the
-difference is that this skill sends the **user's own question** as the prompt and returns
-the **plain VLM answer**, not a filled report template.
-
 ---
 
 ## Agent harness
 
-This skill is **harness-agnostic** — whatever runs it (Claude Code, Codex, Cursor, or the NAT
-VSS Agent) is the orchestrator. It calls the VLM `chat/completions` REST API directly and never
-uses the agent's `POST /generate`. A running `vss-agent` is optional: Step 2 can auto-discover the
-VLM from it, but you can always pass `VLM_ENDPOINT` / `VLM_MODEL` yourself instead.
+**Harness-agnostic** — whatever runs it (Claude Code, Codex, Cursor, or the NAT VSS Agent) calls
+the VLM REST API directly. A running `vss-agent` is optional: Step 2 auto-discovers the VLM from
+it, or you pass `VLM_ENDPOINT` / `VLM_MODEL` yourself.
 
 ---
 
@@ -82,20 +77,14 @@ Do **not** use this skill when the request is one of the following:
 
 ## Prerequisites
 
-This skill has prerequisites but **does not require any specific VSS profile**, and it **does
-not require VST/VIOS**. It runs at runtime against whatever is already serving — if a VLM/RT-VLM
-endpoint is up, point the skill at it and use it; no deploy step is needed. At runtime it needs:
+No specific VSS profile is required, and VST/VIOS is optional — the skill runs against whatever is
+already serving. At runtime it needs:
 
-1. **A reachable OpenAI-compatible VLM `chat/completions` endpoint** *(the only hard
-   requirement)* — NIM Cosmos, RT-VLM, or any other. If one is already running, set
-   `VLM_ENDPOINT` / `VLM_MODEL` directly (Step 2). If none is running, Step 2 discovers one and,
-   failing that, can prompt to **deploy a local RT-VLM** via `/vss-deploy-dense-captioning`.
-2. **A video to ask about.** Either of:
-   - **Provided directly by the user** — a local file (inlined as a base64 video block) or a URL
-     (sent as a `video_url` block the VLM fetches). **No VST/VIOS needed.** This is the default
-     path (Step 1, Path A).
-   - **Resolved from VST/VIOS** *(optional)* — when the clip lives on a named sensor, the skill
-     looks it up and requests a clip URL (Step 1, Path B).
+1. **A reachable OpenAI-compatible VLM `chat/completions` endpoint** *(the only hard requirement)*
+   — NIM Cosmos, RT-VLM, or any other. Set `VLM_ENDPOINT` / `VLM_MODEL` directly, or let Step 2
+   discover one (and, failing that, deploy a local RT-VLM via `/vss-deploy-dense-captioning`).
+2. **A video** — either provided directly (local file → base64, or URL → `video_url`; Step 1
+   Path A), or resolved from a VST/VIOS sensor *(optional)* (Step 1 Path B).
 
 Probe what's actually available — only the VLM endpoint is mandatory:
 
@@ -172,15 +161,11 @@ Then go straight to Step 2 — **skip the Sensor check**.
 
 ### Path B — resolve from VST/VIOS (optional)
 
-> **Hard rule — on Path B the clip URL MUST come from VST.** When the video source is a VST
-> sensor / `streamId` (not a user-supplied local `VIDEO_FILE` or external URL), you **must**
-> obtain the clip by executing the VST clip-URL request below
-> (`GET /vst/api/v1/storage/file/<streamId>/url?startTime=…&endTime=…`) and binding its
-> `videoUrl` to `VIDEO_URL`. Do **not** skip this call by inlining some other local copy of the
-> clip as a `data:` base64 URI — that bypasses VST entirely and is wrong for this path. Inlining
-> is allowed **only after** the VST `videoUrl` is fetched and solely because a *remote* VLM can't
-> reach it (Step 3 then downloads *that* `VIDEO_URL` and base64-encodes it). The VST `/url` GET is
-> non-negotiable on Path B, even when the answer is a temporal question ("at what timestamp…").
+> **Hard rule — on Path B the clip URL MUST come from VST.** When the source is a VST
+> sensor/`streamId`, obtain the clip via the `/url` GET below and bind its `videoUrl` to
+> `VIDEO_URL`. Do **not** skip this by inlining a local copy as base64 — that bypasses VST.
+> Inlining is allowed only for a genuinely remote VLM, and only by downloading *that* `videoUrl`.
+> Applies even to temporal questions ("at what timestamp…").
 
 When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage` to:
 
@@ -197,12 +182,10 @@ When the clip lives on a named sensor, hand off to `/vss-manage-video-io-storage
    curl -s "http://${HOST_IP}:30888/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
    ```
 
-   Bind the result to `VIDEO_URL` (a direct `mp4` URL) and capture `CLIP_SECONDS`
-   (endTime − startTime; default `15` if you analyzed the whole short clip). **If the `/url` call
-   returns empty, fix the request — re-fetch timelines and pass `startTime`/`endTime`; do not
-   silently fall back to the local file or a base64 data URI on this VST path.** This GET is the
-   single source of the clip on Path B (see the hard rule above); Step 3 may later inline the bytes
-   for a remote VLM, but only by downloading *this* `videoUrl`.
+   Bind the result to `VIDEO_URL` (a direct `mp4` URL), set `VST_SOURCED=1` (marks this run as
+   Path B), and capture `CLIP_SECONDS` (endTime − startTime; default `15`). **If the `/url` call
+   returns empty, re-fetch timelines and pass `startTime`/`endTime`; do not fall back to a local
+   file or base64 on this path.**
 
 Whether the VLM consumes `VIDEO_URL` as-is or needs the bytes uploaded inline depends on the
 target VLM — **Step 3 picks the right upload format**. A **local / in-cluster** VLM can usually
@@ -382,6 +365,11 @@ base64 **string** to 10M characters, which — since base64 adds ~33% — means 
 **~7.5 MB** (a 10 MB MP4 base64-encodes to ~13.3M chars and is rejected). Set
 `UPLOAD_FORMAT` to force either one.
 
+> **VST-sourced (Path B) ⇒ `video_url`.** Use the VST `videoUrl` (in `VIDEO_URL`) as a `video_url`
+> block — an in-cluster VLM (incl. base NIM Cosmos) can fetch the `localhost:30888` URL. Never
+> inline a stray local copy as `file_base64`; do that only for a genuinely remote VLM, and only by
+> downloading *that* `videoUrl`. Applies to temporal questions too. (Enforced by the guard below.)
+
 On a NIM Cosmos **video block** — *both* the `video_url` path and the `file_base64` data-URI
 path — also send `mm_processor_kwargs` / `media_io_kwargs` to match the agent's frame-sampling and
 visual-token budget. This is **required**, not optional: without `media_io_kwargs.num_frames` the
@@ -418,6 +406,15 @@ fi
     *)        VLM_BACKEND="rtvlm" ;;
   esac
 }
+
+# Path B guard: a VST-sourced clip is ALWAYS the VST videoUrl, never a stray local copy.
+# If this run came from VST (VST_SOURCED=1) but VIDEO_URL is empty, the VST /url GET was skipped —
+# stop and fetch it (Step 1 Path B) instead of inlining a local file as base64.
+if [ "${VST_SOURCED:-0}" = "1" ] && [ -z "${VIDEO_URL:-}" ]; then
+  echo "VST-sourced clip but VIDEO_URL is empty — you skipped the VST /url GET (Path B). Fetch the clip URL first, do not inline a local copy."; exit 1
+fi
+# On Path B, ignore any stray local file: the VST videoUrl is the source of truth.
+[ "${VST_SOURCED:-0}" = "1" ] && VIDEO_FILE=""
 
 # Pick the format from the input you have (override by setting UPLOAD_FORMAT):
 #   a URL        -> video_url   (the VLM fetches it)
