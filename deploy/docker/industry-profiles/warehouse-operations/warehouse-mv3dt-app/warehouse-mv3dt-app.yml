@@ -275,7 +275,7 @@ services:
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
-    command: ["bash", "-c", "./ds-start-mv3dt.sh"]
+    command: ["./ds-start-mv3dt.sh"]
     depends_on:
       sensor-ms-mv3dt:
         condition: service_started
