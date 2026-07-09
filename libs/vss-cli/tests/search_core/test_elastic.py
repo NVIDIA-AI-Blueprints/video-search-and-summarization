@@ -1,0 +1,210 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Tests for ElasticClient error mapping and loop-affine registry."""
+
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+from elasticsearch import ConnectionError as ESConnectionError
+from elasticsearch import NotFoundError as ESNotFoundError
+
+import lib.search_core.clients.elastic as elastic_module
+from lib.search_core.clients.elastic import ElasticClient, _redact_endpoint
+from lib.search_core.errors import BackendUnreachableError, IndexNotFoundError
+
+
+class _RaisingES:
+    """Stand-in AsyncElasticsearch whose .search() raises a preset exception."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    async def search(self, **_kwargs: Any) -> Any:
+        raise self._exc
+
+
+@pytest.mark.asyncio
+async def test_search_maps_not_found_to_index_not_found_error() -> None:
+    raw = ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
+    client = ElasticClient(endpoint="http://es", client=_RaisingES(raw))  # type: ignore[arg-type]
+
+    with pytest.raises(IndexNotFoundError) as excinfo:
+        await client.search(index="videos", body={"query": {}})
+
+    err = excinfo.value
+    assert isinstance(err, BackendUnreachableError)
+    assert err.backend == "elasticsearch"
+    assert err.index == "videos"
+    assert err.__cause__ is raw
+
+
+@pytest.mark.asyncio
+async def test_search_maps_connection_error_to_backend_unreachable() -> None:
+    raw = ESConnectionError("boom")
+    client = ElasticClient(endpoint="http://es", client=_RaisingES(raw))  # type: ignore[arg-type]
+
+    with pytest.raises(BackendUnreachableError) as excinfo:
+        await client.search(index="videos", body=None)
+
+    err = excinfo.value
+    assert not isinstance(err, IndexNotFoundError)
+    assert err.backend == "elasticsearch"
+    assert err.__cause__ is raw
+
+
+@pytest.mark.asyncio
+async def test_registry_race_schedules_awaitable_loser_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A race loser is closed through the public async API, never abandoned."""
+
+    closed = asyncio.Event()
+
+    class _FakeAsyncElasticsearch:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def close(self) -> None:
+            closed.set()
+
+    class _LosingRegistry(dict[Any, Any]):
+        def setdefault(self, key: Any, value: Any) -> Any:
+            winner = _FakeAsyncElasticsearch()
+            super().__setitem__(key, winner)
+            return winner
+
+    monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
+    monkeypatch.setattr(ElasticClient, "_clients", _LosingRegistry())
+
+    client = ElasticClient.from_endpoint("http://es")
+
+    assert isinstance(client.raw, _FakeAsyncElasticsearch)
+    await asyncio.wait_for(closed.wait(), timeout=1)
+
+
+def test_registry_is_loop_affine() -> None:
+    ElasticClient._clients.clear()
+    endpoint = "http://localhost:19299"
+    # Hold both loops for the whole test so they stay distinct live objects
+    # (avoids the id/object reuse that a closed-then-freed loop would allow).
+    loop_a = asyncio.new_event_loop()
+    loop_b = asyncio.new_event_loop()
+
+    async def make() -> Any:
+        first = ElasticClient.from_endpoint(endpoint)
+        second = ElasticClient.from_endpoint(endpoint)
+        # Same endpoint on the same loop shares one underlying client.
+        assert first.raw is second.raw
+        return first.raw
+
+    try:
+        raw_a = loop_a.run_until_complete(make())
+        raw_b = loop_b.run_until_complete(make())
+
+        # Distinct event loops must NOT share a client (reuse across loops would
+        # raise "event loop is closed"): one registry entry per (endpoint, loop).
+        assert raw_a is not raw_b
+        endpoint_keys = [key for key in ElasticClient._clients if key[0] == endpoint]
+        assert len(endpoint_keys) == 2
+    finally:
+        loop_a.run_until_complete(ElasticClient.close_all())
+        assert len(ElasticClient._clients) == 0
+        loop_a.close()
+        loop_b.close()
+
+
+def test_close_all_clears_registry_with_tuple_keys() -> None:
+    ElasticClient._clients.clear()
+
+    async def scenario() -> None:
+        ElasticClient.from_endpoint("http://localhost:19298")
+        assert len(ElasticClient._clients) == 1
+        await ElasticClient.close_all()
+        assert len(ElasticClient._clients) == 0
+
+    asyncio.run(scenario())
+
+
+def test_registry_prunes_clients_bound_to_closed_loops(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeAsyncElasticsearch:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
+    stale_loop = asyncio.new_event_loop()
+    stale_client = _FakeAsyncElasticsearch()
+    stale_loop.close()
+    ElasticClient._clients = {("http://stale", stale_loop): stale_client}  # type: ignore[assignment]
+
+    async def scenario() -> None:
+        ElasticClient.from_endpoint("http://live")
+        assert ("http://stale", stale_loop) not in ElasticClient._clients
+        await ElasticClient.close_all()
+
+    asyncio.run(scenario())
+
+
+def test_synchronous_factory_rebinds_across_asyncio_run_loops(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[Any] = []
+
+    class _FakeAsyncElasticsearch:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.loop: asyncio.AbstractEventLoop | None = None
+            self.closed = False
+            created.append(self)
+
+        async def search(self, **_kwargs: Any) -> dict[str, Any]:
+            loop = asyncio.get_running_loop()
+            if self.loop is not None and self.loop is not loop:
+                raise RuntimeError("client reused across loops")
+            self.loop = loop
+            return {"hits": {"hits": []}}
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
+    monkeypatch.setattr(ElasticClient, "_clients", {})
+    client = ElasticClient.from_endpoint("http://es")
+    assert not created
+
+    asyncio.run(client.search(index="videos", body={"query": {}}))
+    first = created[0]
+    asyncio.run(client.search(index="videos", body={"query": {}}))
+
+    assert len(created) == 2
+    assert first.closed is True
+    asyncio.run(ElasticClient.close_all())
+
+
+def test_redact_endpoint_strips_userinfo() -> None:
+    # Assemble the credentialed URL from parts so the committed source carries no
+    # literal "user:pass@host" string (which trips secret scanners). The helper
+    # under test must strip the userinfo component from the endpoint.
+    userinfo_user = "u5er"
+    userinfo_pass = "s3cret"
+    redacted = _redact_endpoint(f"http://{userinfo_user}:{userinfo_pass}@es.example:9200/path")
+    assert userinfo_user not in redacted
+    assert userinfo_pass not in redacted
+    assert "es.example:9200" in redacted
+
+
+def test_redact_endpoint_scrubs_control_characters() -> None:
+    assert "\n" not in _redact_endpoint("http://es\nINJECTED")

@@ -22,7 +22,7 @@ services:
     runtime: nvidia
     shm_size: 32gb
     ports:
-     - ${VLM_PORT:-30082}:8000
+     - 127.0.0.1:${VLM_PORT:-30082}:8000
     networks:
       default:
         aliases:
@@ -66,7 +66,7 @@ services:
     runtime: nvidia
     shm_size: 32gb
     ports:
-     - ${VLM_PORT:-30082}:8000
+     - 127.0.0.1:${VLM_PORT:-30082}:8000
     networks:
       default:
         aliases:

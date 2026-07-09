@@ -3,17 +3,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-search-archive skill.
 
-The vss-search-archive skill exercises the VSS agent's `POST /generate` endpoint
-for fused semantic + attribute search across pre-ingested video sources.
+The vss-search-archive skill exercises the host-side ``nvidia-vss-cli`` distribution
+for fused semantic + attribute search across pre-ingested video sources. Search
+commands run from the repository checkout as ``uv run --project libs/vss-cli
+vss-cli search run --deployment docker --profile search ...``; they never run
+through a container/pod shell or the VSS agent's ``POST /generate`` endpoint.
 It runs against a **full-remote-deployed VSS search profile** (deploy mode
 = `remote-all`; LLM and VLM both remote — Cosmos Embed1 and Elasticsearch
 still run locally on the GPU host). It does NOT deploy VSS itself; the
-coordinator chains a deploy task in front, then a VIOS upload step seeds
-the sample videos.
+coordinator chains a deploy task in front, then the agent-backed upload and
+completion handshake seeds the sample videos and their search indexes.
 
 Mirrors the vss-manage-video-io-storage adapter's shape — single-task-per-platform, step-chained
 under the spec's prerequisite profile name. Default platform is L40S
-because the agent path is GPU-independent (Cosmos Embed1 inference happens
+because the host CLI path is GPU-independent (Cosmos Embed1 inference happens
 once during ingest; the search itself is an Elasticsearch query) and the
 spec pins this in `resources.platforms`.
 
@@ -76,7 +79,9 @@ PREAMBLE = (
     "Pre-authorization does NOT cover ingesting a NEW source in response to a "
     "query that names an unregistered source — in that case follow the skill's "
     "missing-source rule (state it is missing, list registered sources, stop); "
-    "in this harness that IS the correct autonomous behavior."
+    "in this harness that IS the correct autonomous behavior. Search from the host checkout with "
+    "`uv run --project libs/vss-cli vss-cli search run --deployment docker "
+    "--profile search ...`; never use a container/pod shell or `/generate` for search."
 )
 
 
@@ -104,7 +109,7 @@ def generate_test_script(step: int, spec_name: str) -> str:
 def generate_solve_script(platform: str) -> str:
     """Gold solution — assumes the search profile is already deployed and
     the sample videos are ingested. The verifier drives the assertions
-    independently against the agent's `/generate` output."""
+    independently against the host-side ``vss-cli`` command and its output."""
     return (
         "#!/bin/bash\n"
         f"# Gold solution: vss-search-archive on {platform}\n"
@@ -116,7 +121,8 @@ def generate_solve_script(platform: str) -> str:
         "    echo 'VSS agent is not deployed — cannot solve vss-search-archive task'\n"
         "    exit 1\n"
         "}\n"
-        "echo 'VSS agent is live — verifier will drive the queries.'\n"
+        "echo 'VSS agent is live — run search from the host checkout with:'\n"
+        "echo 'uv run --project libs/vss-cli vss-cli search run --deployment docker --profile search ...'\n"
     )
 
 
@@ -261,7 +267,7 @@ def main() -> None:
     parser.add_argument("--spec", default=None,
                         help="Path to search.json (default: <skill-dir>/evals/search.json)")
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()),
-                        help=f"Generate for one platform only (overrides spec.resources.platforms)")
+                        help="Generate for one platform only (overrides spec.resources.platforms)")
     args = parser.parse_args()
 
     output_root = Path(args.output_dir)

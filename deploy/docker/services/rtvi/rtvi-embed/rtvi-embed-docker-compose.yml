@@ -32,7 +32,9 @@ services:
             device_ids:
             - "${RT_EMBED_DEVICE_ID:-0}"
     ports:
-      - "${RTVI_EMBED_PORT?}:8000"
+      # Publish only on loopback for the host vss-cli; containers continue to
+      # use the Compose-network service name.
+      - "127.0.0.1:${RTVI_EMBED_PORT?}:8000"
 
     environment:
       MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
