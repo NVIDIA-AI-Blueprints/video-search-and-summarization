@@ -109,6 +109,7 @@ def render_notice(excluded: set[str]) -> str:
                 content = installed_path.read_text(encoding="utf-8").rstrip()
             except UnicodeDecodeError:
                 content = installed_path.read_text(encoding="latin-1").rstrip()
+            content = re.sub(r"[ \t]+$", "", content, flags=re.MULTILINE)
             lines.extend(
                 (
                     "",
