@@ -126,6 +126,11 @@ Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/clo
 
 Please refer to [Prerequisites section here for installation details](https://docs.nvidia.com/vss/latest/prerequisites.html).
 
+### Deployment on Red Hat OpenShift AI (RHOAI)
+
+**Ideal for:** Deploying VSS on a Red Hat OpenShift cluster with Helm.
+
+For prerequisites, install commands for all developer profiles, verification, and troubleshooting, see [`deploy/helm/developer-profiles/openshift-deployment.md`](deploy/helm/developer-profiles/openshift-deployment.md).
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branch naming convention, and PR guidelines.

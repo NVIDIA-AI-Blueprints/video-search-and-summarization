@@ -1,0 +1,100 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# OpenShift / RHOAI values overlay for LVS profile.
+#
+# Before installing, export the required variables:
+#
+#   export NGC_CLI_API_KEY='<your NGC API key>'
+#   export APPS_DOMAIN=$(oc get ingress.config.openshift.io/cluster \
+#   -o jsonpath='{.spec.domain}')
+#
+# Install:
+#   helm install vss-lvs . \
+#   -f values-lvs.yaml \
+#   -f values-openshift.yaml \
+#   --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
+#   --set global.externalHost=vss-lvs.${APPS_DOMAIN} \
+#   -n vss-lvs --create-namespace
+#
+# Optional: --set global.storageClass="<name>" to override the
+# cluster's default StorageClass.
+
+global:
+  openshift:
+    enabled: true
+  externalScheme: "https"
+
+# Disable Kubernetes Ingress (replaced by OpenShift Routes in openshift-routes.yaml)
+vssIngress:
+  enabled: false
+
+# GPU settings for OpenShift cluster (set nims.gpuType via --set if needed)
+nims:
+  nemotron:
+    tolerations:
+      # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+      # - key: "nvidia.com/gpu"
+      #   operator: Exists
+      #   effect: NoSchedule
+  cosmos:
+    tolerations:
+      # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+      # - key: "nvidia.com/gpu"
+      #   operator: Exists
+      #   effect: NoSchedule
+
+# VIOS: security contexts + GPU tolerations for streamprocessing
+vios:
+  vss-vios-sensor:
+    tolerations:
+      # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+      # - key: "nvidia.com/gpu"
+      #   operator: Exists
+      #   effect: NoSchedule
+    affinity:
+      podAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - vss-vios-streamprocessing
+            topologyKey: kubernetes.io/hostname
+  vss-vios-streamprocessing:
+    tolerations:
+      # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+      # - key: "nvidia.com/gpu"
+      #   operator: Exists
+      #   effect: NoSchedule
+
+# RTVI: null security contexts + GPU tolerations
+rtvi:
+  vss-rtvi-vlm:
+    securityContext: null
+    tolerations:
+      # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+      # - key: "nvidia.com/gpu"
+      #   operator: Exists
+      #   effect: NoSchedule
+
+# LVS summarization requests 1 GPU — same toleration stub as other GPU workloads
+vss-summarization:
+  tolerations:
+    # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+    # - key: "nvidia.com/gpu"
+    #   operator: Exists
+    #   effect: NoSchedule

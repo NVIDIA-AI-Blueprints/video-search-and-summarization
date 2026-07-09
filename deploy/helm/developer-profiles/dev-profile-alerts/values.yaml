@@ -36,6 +36,8 @@ ngc:
 # (verification: RTVI tracks VLM; real-time: RTVI uses remote VLM URL when set, else vss-rtvi-vlm). Override per-agent with agent.vss-agent.llmBaseUrl / vlmBaseUrl.
 # global.llmName / vlmName: shared defaults for vss-agent (override with agent.vss-agent.llmName, etc. when needed).
 global:
+  openshift:
+    enabled: false
   useReleaseNamePrefix: false
   postgresServiceHost: ""
   imagePullSecrets:

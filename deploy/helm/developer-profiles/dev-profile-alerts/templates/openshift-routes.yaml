@@ -1,0 +1,347 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.global.openshift.enabled }}
+{{- $vi := .Values.vssIngress }}
+{{- $host := default .Values.global.externalHost ($vi.host | default "") }}
+{{- $infra := index .Values "infra" | default dict }}
+{{- $phoenixVals := index $infra "phoenix" | default dict }}
+{{- $phoenixEnabled := default false (index $phoenixVals "enabled") }}
+{{- $kibanaVals := index $infra "kibana" | default dict }}
+{{- $kibanaEnabled := default false (index $kibanaVals "enabled") }}
+{{- $analytics := index .Values "analytics" | default dict }}
+{{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
+{{- $analyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
+{{- $alertBridgeVals := index .Values "vss-alert-bridge" | default dict }}
+{{- $alertBridgeEnabled := default false (index $alertBridgeVals "enabled") }}
+{{- $vios := index .Values "vios" | default dict }}
+{{- $nvstreamerVals := index $vios "vss-vios-nvstreamer" | default dict }}
+{{- $streamerEnabled := default false (index $nvstreamerVals "enabled") }}
+# Route: / -> vss-agent-ui (port 3000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-ui
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "60s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssUiPort | default 3000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /api/chat -> vss-agent-ui (port 3000) -- must precede /api so longest-path wins
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-api-chat
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /api/chat
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssUiPort | default 3000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /api -> vss-agent (port 8000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-api
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /api
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /chat -> vss-agent (port 8000) -- inference/chat endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-chat
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /chat
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /websocket -> vss-agent (port 8000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-websocket
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /websocket
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /static -> vss-agent (port 8000)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-static
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /static
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vssAgentPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /vst -> vss-vios-ingress (port 30888)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-vst
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /vst
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vstIngressPort | default 30888 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- if $analyticsEnabled }}
+---
+# Route: /video-analytics-api -> vss-video-analytics-api (port 8081)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-video-analytics-api
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /video-analytics-api
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.videoAnalyticsApiPort | default 8081 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $alertBridgeEnabled }}
+---
+# Route: /alert-bridge -> vss-alert-bridge (port 9080)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-alert-bridge
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /alert-bridge
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.alertBridgePort | default 9080 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $phoenixEnabled }}
+---
+# Route: /phoenix -> phoenix (port 6006)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-phoenix
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /phoenix
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "phoenix") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.phoenixPort | default 6006 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $kibanaEnabled }}
+---
+# Route: kibana -> kibana (port 5601) on separate host
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-kibana
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if $host }}
+  host: {{ printf "kibana-%s" $host | quote }}
+  {{- end }}
+  path: /
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "kibana") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.kibanaPort | default 5601 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $streamerEnabled }}
+---
+# Route: streamer -> vss-vios-nvstreamer (port 31000) on separate host
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-streamer
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if $host }}
+  host: {{ printf "streamer-%s" $host | quote }}
+  {{- end }}
+  path: /
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.streamerPort | default 31000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- end }}
