@@ -99,11 +99,20 @@ Point interpolateCoordinate(int x, int y, int oldWidth, int oldHeight, int newWi
 
 static int interpolateFontSize(int oldWidth, int newWidth)
 {
-    if(oldWidth <= 0 || newWidth <=0)
+    // DEFAULT_FONT_SIZE is tuned for 1080p. Scale it to the actual drawing
+    // width so the text is proportional at every resolution (smaller on
+    // low-res streams, larger on 4K). Previously this scaled by
+    // newWidth/oldWidth (source->output ratio), which returned the full 1080p
+    // size whenever source width == output width - e.g. a 640-wide stream kept
+    // font size 12 and looked oversized. Prefer the drawing (output) width;
+    // fall back to the source width if the output width is unknown.
+    int drawWidth = (newWidth > 0) ? newWidth : oldWidth;
+    if (drawWidth <= 0)
     {
         return DEFAULT_FONT_SIZE;
     }
-    return (DEFAULT_FONT_SIZE * newWidth) / oldWidth;
+    int font_size = (DEFAULT_FONT_SIZE * drawWidth) / WIDTH_1080p;
+    return (font_size > 0) ? font_size : 1;
 }
 
 // Function to convert box3d to corners3d
@@ -4228,13 +4237,34 @@ void NvLLOverlayInternal::enableOverlay(OverlayParams& params, bool use_frameid,
     m_sensorName = params.m_sensorName;
     m_bboxParams.m_searchParams = inData;
     m_bboxParams.m_isLive = params.m_isLive;
+    // Sanity-clamp the fps used to derive the bbox match tolerance. Stream
+    // settings can carry implausible values (e.g. a legacy sensor with
+    // STREAM_FRAMERATE=1000), which would otherwise yield a ~1ms window and drop
+    // most boxes. A real sensor here is <= 120 fps; fall back to the default
+    // outside that range. This only affects the fps->tolerance math, not the
+    // stored m_frameRate used elsewhere.
+    double toleranceFps = params.m_frameRate;
+    if (!(toleranceFps > 0.1 && toleranceFps <= 120.0))
+    {
+        LOG(warning) << "Overlay: implausible frameRate " << params.m_frameRate
+                     << " fps for sensor " << params.m_sensorName
+                     << "; using " << DEFAULT_VIDEO_FRAME_RATE
+                     << " fps for bbox tolerance" << endl;
+        toleranceFps = DEFAULT_VIDEO_FRAME_RATE;
+    }
     m_bboxParams.m_timestampTolerance = GET_CONFIG().bbox_tolerance_ms * 1000;
     if (m_bboxParams.m_timestampTolerance == 0)
     {
-        m_bboxParams.m_timestampTolerance = uint((1.0 / params.m_frameRate) * 1000) * 1000;
+        m_bboxParams.m_timestampTolerance = uint((1.0 / toleranceFps) * 1000) * 1000;
     }
     m_bboxParams.m_frameSize = params.m_frameSize;
     m_bboxParams.m_frameRate = params.m_frameRate;
+    LOG(info) << "Overlay bbox match: sensor=" << params.m_sensorName
+              << " frameRate=" << params.m_frameRate << " fps (tolerance fps="
+              << toleranceFps << ")"
+              << ", bbox_tolerance_ms(config)=" << GET_CONFIG().bbox_tolerance_ms
+              << ", effective tolerance=" << (m_bboxParams.m_timestampTolerance / 1000)
+              << " ms" << endl;
     m_bboxParams.m_overlay = params.m_bboxParams;
     m_enableBbox = params.m_bboxParams.m_enableBbox;
     m_enablePose = params.m_bboxParams.m_enablePose;
@@ -4269,7 +4299,21 @@ void NvLLOverlayInternal::enableOverlay(OverlayParams& params, bool use_frameid,
         {
             if (m_enableBbox || m_enablePose || m_enableHalos)
             {
-                m_replayMetadataStore->fetchMetadata();
+                if (m_isWaitForESQuery)
+                {
+                    // Download (transcode) path: frames are produced far faster
+                    // than real time. Eagerly prefetch the whole range async so
+                    // the metadata queue never starves (bbox flicker). This
+                    // overlaps the ES fetch with pipeline construction instead of
+                    // blocking on a single 300-row batch.
+                    m_replayMetadataStore->startPrefetch();
+                }
+                else
+                {
+                    // Recorded playback / webrtc replay / vod: unchanged - real
+                    // time playback keeps the async refill ahead on its own.
+                    m_replayMetadataStore->fetchMetadata();
+                }
             }
         }
     }
