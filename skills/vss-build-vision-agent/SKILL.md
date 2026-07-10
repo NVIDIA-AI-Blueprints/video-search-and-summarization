@@ -290,6 +290,7 @@ After writing the compose artifact, copy the skill folders the operator will nee
 What to bundle:
 
 - **Microservice skills**: for each service selected in Step 4, look up the canonical skill folder name from `references/microservice-catalog.md` and copy `<vss-repo>/skills/<skill-name>/` → `build-output/skills/<skill-name>/`. Dense-captioning deployments bundle `vss-manage-video-io-storage/` and `vss-deploy-dense-captioning/`; RT-CV detection/tracking deployments bundle `vss-manage-video-io-storage/` and `vss-deploy-detection-tracking-2d/`. ELK references are carried inside `vss-build-vision-agent/references/`.
+- **Base vision profile operation skills**: when the prompt maps to the IN-1 / base vision profile shape (VIOS + RT-VLM + ELK/Kafka for VLM Q&A plus dense captioning over uploaded and streamed video), also bundle the harness-facing skills `vss-ask-video/` and `vss-generate-video-report/` if those folders exist. These skills are copied for Codex/OpenClaw operation of that generated profile; they do not add runtime microservices to this base-profile compose allow-list. Other profile prompts may still select additional microservices through the catalog when their requested capability requires them.
 - **Use-case skills**: scan `<vss-repo>/skills/` for top-level skill folders whose `description:` frontmatter matches the capability description from Step 0 (e.g., `streaming-dense-captioning`, `agentic-search`, `person-counting`). Copy each match. **If none match, skip — do not create one.**
 
 Copy the entire skill folder verbatim (including `SKILL.md`, `references/`, `scripts/`, `eval/`). Do not edit any bundled file. Record every bundled skill in `MANIFEST.md` with its source path and a one-line purpose.
@@ -297,6 +298,8 @@ Copy the entire skill folder verbatim (including `SKILL.md`, `references/`, `scr
 #### Create or update the per-deployment deploy skill
 
 Generate a self-contained deploy skill at `build-output/skills/deploy-<profile-name>/SKILL.md` that hardcodes the exact paths and values for this deployment. The `<profile-name>` is derived from the invented flag in Step 6 by stripping the `bp_developer_` prefix and replacing any remaining underscores with hyphens: `bp_developer_in_1` → `deploy-in-1`, `bp_developer_an_1` → `deploy-an-1`, `bp_developer_at_1` → `deploy-at-1`.
+
+Exception: for the IN-1 / base vision profile shape described above, the generated deploy skill MUST be named `deploy-base-vision-profile` and written to `build-output/skills/deploy-base-vision-profile/SKILL.md`. The compose profile flag remains `bp_developer_in_1`; only the harness skill name is specialized so operators can invoke a stable base-profile deploy command.
 
 The generated SKILL.md must include:
 
@@ -327,8 +330,10 @@ build-output/
 └── skills/
     ├── vss-manage-video-io-storage/    # bundled from <vss-repo>/skills/vss-manage-video-io-storage/
     ├── vss-deploy-dense-captioning/    # bundled from <vss-repo>/skills/vss-deploy-dense-captioning/
+    ├── vss-ask-video/                  # bundled for base vision profile harness operation, if present
+    ├── vss-generate-video-report/      # bundled for base vision profile harness operation, if present
     ├── <use-case-skill>/               # bundled IF one matched the capability description; skipped otherwise
-    └── deploy-<flag-slug>/
+    └── deploy-<flag-slug>/             # base vision profile uses deploy-base-vision-profile/
         └── SKILL.md                    # generated; overwritten on re-run
 ```
 
@@ -389,7 +394,7 @@ Present a summary of the generated artifact:
 - Shared infrastructure decisions
 - `.env.template` location and the variables the user must fill in
 - Bundled skills (microservice + use-case, from Step 6)
-- Generated per-deployment deploy skill (`deploy-<profile-name>`, from Step 6) with its bring-up command
+- Generated per-deployment deploy skill (`deploy-base-vision-profile` for the base vision profile, otherwise `deploy-<profile-name>`, from Step 6) with its bring-up command
 
 Show the diff if the operation modified an existing deployment. Wait for user confirmation, then write all files to the output directory. Always emit a `MANIFEST.md` that satisfies the Step 6 MANIFEST.md contract: build identity, the verbatim Step 4 architecture diagram, NFR-5 integration-reference citations, and patch audit. Operators reading the manifest should see both the generated wiring and the reference sections that justified it without re-running the skill.
 
