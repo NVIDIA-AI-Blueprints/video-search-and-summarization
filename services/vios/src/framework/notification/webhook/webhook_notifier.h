@@ -32,7 +32,8 @@
  * Config-driven webhook fan-out notifier.
  *
  * Loads webhook definitions from the webhooks block of
- * configs/notification_config.json. Each entry triggers on one alert type,
+ * configs/notification_config.json: a global enabled switch plus an items
+ * array. Each item triggers on one alert type,
  * expressed as a key whose value narrows the event, e.g.
  * "camera_status_change": "camera_add", and carries a request array: every
  * matching event is posted to all receivers in that array through
