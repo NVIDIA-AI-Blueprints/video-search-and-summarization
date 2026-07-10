@@ -322,6 +322,29 @@ void WebhookNotifier::loadConfig(const Json::Value& config)
                                                              jsonFieldAsString(queryParams, name.c_str()));
                 }
             }
+            const Json::Value cameraTypes = requestJson.get("camera_type", Json::nullValue);
+            if (cameraTypes.isArray())
+            {
+                for (const Json::Value& cameraType : cameraTypes)
+                {
+                    if (cameraType.isString() && !cameraType.asString().empty())
+                    {
+                        requestConfig.m_cameraTypes.push_back(cameraType.asString());
+                    }
+                    else
+                    {
+                        LOG(error) << "Webhook " << webhook.m_id << ": receiver "
+                                   << (webhook.m_requests.size() + 1)
+                                   << " has a non-string camera_type entry, ignored" << endl;
+                    }
+                }
+            }
+            else if (!cameraTypes.isNull())
+            {
+                LOG(error) << "Webhook " << webhook.m_id << ": receiver "
+                           << (webhook.m_requests.size() + 1)
+                           << " camera_type must be an array, filter ignored" << endl;
+            }
             const Json::Value timeoutMs = requestJson.get("timeout_ms", Json::nullValue);
             if (timeoutMs.isNumeric())
             {
@@ -486,6 +509,7 @@ bool WebhookNotifier::deliverMessage(Json::Value& message)
         return true;
     }
     const std::string body = jsonToString(event);
+    const std::string cameraType = jsonFieldAsString(event.get("event", Json::nullValue), "camera_type");
 
     size_t matched = 0;
     for (size_t i = 0; i < m_webhooks.size(); i++)
@@ -499,6 +523,14 @@ bool WebhookNotifier::deliverMessage(Json::Value& message)
         for (size_t r = 0; r < webhook.m_requests.size(); r++)
         {
             const RequestConfig& requestConfig = webhook.m_requests[r];
+            if (!requestConfig.m_cameraTypes.empty() &&
+                std::find(requestConfig.m_cameraTypes.begin(), requestConfig.m_cameraTypes.end(),
+                          cameraType) == requestConfig.m_cameraTypes.end())
+            {
+                LOG(info) << "Webhook " << webhook.m_id << ": receiver " << (r + 1)
+                          << " skipped, camera_type '" << cameraType << "' not in its filter" << endl;
+                continue;
+            }
             LOG(info) << "Webhook " << webhook.m_id << ": delivering " << loggingLabel << " to receiver "
                       << (r + 1) << "/" << webhook.m_requests.size() << " (attempt 1/"
                       << requestConfig.m_maxAttempts << ")" << endl;

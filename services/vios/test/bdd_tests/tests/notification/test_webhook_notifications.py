@@ -44,8 +44,10 @@ def _wait_for_event(
     webhook_receiver: WebhookReceiver,
     notification_test_params: Dict[str, Any],
     change: str,
+    path_key: str | None = None,
 ) -> CapturedWebhookRequest:
-    path = notification_test_params["webhook_paths"][change]
+    path_name = path_key or change
+    path = notification_test_params["webhook_paths"][path_name]
     timeout = notification_test_params["delivery_timeout_sec"]
     try:
         return webhook_receiver.wait_for(
@@ -62,7 +64,7 @@ def _wait_for_event(
         ]
         assert_with_detailed_failure(
             False,
-            test_name=f"{change} webhook delivery",
+            test_name=f"{path_name} webhook delivery",
             expected=(
                 f"Webhook path={path!r}, camera_id={context.sensor_id!r}, "
                 f"change={change!r} within {timeout}s"
@@ -79,8 +81,10 @@ def _validate_event(
     notification_test_params: Dict[str, Any],
     change: str,
     expected_method: str,
+    path_key: str | None = None,
 ) -> None:
-    expected_path = notification_test_params["webhook_paths"][change]
+    path_name = path_key or change
+    expected_path = notification_test_params["webhook_paths"][path_name]
     body = request.json_body if isinstance(request.json_body, dict) else {}
     event = body.get("event") if isinstance(body.get("event"), dict) else {}
 
@@ -139,6 +143,42 @@ def _validate_event(
     )
 
 
+def _assert_event_not_received(
+    context: WebhookTestContext,
+    webhook_receiver: WebhookReceiver,
+    notification_test_params: Dict[str, Any],
+    change: str,
+    path_key: str,
+) -> None:
+    path = notification_test_params["webhook_paths"][path_key]
+    timeout = notification_test_params["filter_absence_timeout_sec"]
+    try:
+        request = webhook_receiver.wait_for(
+            predicate=lambda captured: _event_matches(
+                captured, path, change, context.sensor_id
+            ),
+            start_sequence=context.receiver_cursor,
+            timeout=timeout,
+        )
+    except TimeoutError:
+        return
+
+    captured = [
+        item.summary()
+        for item in webhook_receiver.requests_since(context.receiver_cursor)
+    ]
+    assert_with_detailed_failure(
+        False,
+        test_name=f"{path_key} webhook camera_type filter",
+        expected=(
+            f"No webhook at path={path!r} for file camera_id="
+            f"{context.sensor_id!r} during {timeout}s"
+        ),
+        actual=request.summary(),
+        additional_info=f"Captured requests: {captured}",
+    )
+
+
 @given("the webhook receiver is running")
 def webhook_receiver_is_running(
     context: WebhookTestContext, webhook_receiver: WebhookReceiver
@@ -194,6 +234,45 @@ def camera_add_webhook_is_valid(
     )
     _validate_event(
         request, context, notification_test_params, "camera_add", "POST"
+    )
+
+
+@then("the unfiltered camera_add webhook is received and valid")
+def unfiltered_camera_add_webhook_is_valid(
+    context: WebhookTestContext,
+    webhook_receiver: WebhookReceiver,
+    notification_test_params: Dict[str, Any],
+) -> None:
+    path_key = "camera_add_unfiltered"
+    request = _wait_for_event(
+        context,
+        webhook_receiver,
+        notification_test_params,
+        "camera_add",
+        path_key=path_key,
+    )
+    _validate_event(
+        request,
+        context,
+        notification_test_params,
+        "camera_add",
+        "POST",
+        path_key=path_key,
+    )
+
+
+@then("the rtsp-only camera_add webhook is not received")
+def rtsp_only_camera_add_webhook_is_not_received(
+    context: WebhookTestContext,
+    webhook_receiver: WebhookReceiver,
+    notification_test_params: Dict[str, Any],
+) -> None:
+    _assert_event_not_received(
+        context,
+        webhook_receiver,
+        notification_test_params,
+        "camera_add",
+        "camera_add_rtsp_only",
     )
 
 
