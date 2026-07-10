@@ -113,6 +113,7 @@ grep -E '^MODE=' deploy/docker/developer-profiles/dev-profile-alerts/generated.e
 | **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?") | **Workflow C (Query)** — works on both; **always run the query, never answer from memory** |
 | **CV** | static CV alert onboarding / verdict-prompt customization | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; pipeline auto-picks it up |
 | **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then `vss-deploy-profile -m verification` |
+| **any** | video summarization, highlight reels, reports, non-alert analytics | **Out of scope** — hand off to `vss-generate-video-report` / `vss-query-analytics` (Cross-Skill Links); do **not** answer it via incidents or rules, even when incidents are empty |
 
 **Always confirm before triggering a redeploy.** A mode switch stops all currently-running monitoring and restarts services.
 
