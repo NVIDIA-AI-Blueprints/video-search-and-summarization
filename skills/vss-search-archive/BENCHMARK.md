@@ -7,7 +7,7 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-search-archive`
-- Evaluation date: 2026-06-15
+- Evaluation date: 2026-07-10
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
 - Dataset: 1 evaluation tasks
@@ -55,10 +55,10 @@ Task composition is derived from the evaluation dataset when possible. Entries w
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 100% (+75%) | 97% (+43%) |
-| Discoverability | 1 | 100% (+75%) | 89% (+39%) |
-| Effectiveness | 1 | 68% (+44%) | 62% (+26%) |
-| Efficiency | 1 | 94% (+72%) | 81% (+39%) |
+| Correctness | 1 | 100% (+75%) | 71% (+47%) |
+| Discoverability | 1 | 88% (+62%) | 84% (+48%) |
+| Effectiveness | 1 | 62% (+38%) | 50% (+26%) |
+| Efficiency | 1 | 71% (+48%) | 83% (+47%) |
 
 Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
