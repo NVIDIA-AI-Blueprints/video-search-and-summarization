@@ -1,6 +1,6 @@
 # Examples of discovery modes
 
-Run host-side `uv run --project libs/vss-cli vss-cli search run` with one of the deployment selectors from the main `SKILL.md`. Do not invoke it in a container or pod. The snippets below are query/control flags to append after the deployment options.
+Run host-side `uv run --project services/agent/vss-cli vss-cli search run` with one of the deployment selectors from the main `SKILL.md`. Do not invoke it in a container or pod. The snippets below are query/control flags to append after the deployment options.
 
 Append `--no-use-critic` to ordinary searches. Use `--use-critic` only when
 operator-supported VLM wiring is available; never rely on the omitted default.

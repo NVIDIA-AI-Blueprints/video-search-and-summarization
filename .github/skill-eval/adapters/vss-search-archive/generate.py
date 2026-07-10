@@ -5,7 +5,7 @@
 
 The vss-search-archive skill exercises the host-side ``nvidia-vss-cli`` distribution
 for fused semantic + attribute search across pre-ingested video sources. Search
-commands run from the repository checkout as ``uv run --project libs/vss-cli
+commands run from the repository checkout as ``uv run --project services/agent/vss-cli
 vss-cli search run --deployment docker --profile search ...``; they never run
 through a container/pod shell or the VSS agent's ``POST /generate`` endpoint.
 It runs against a **full-remote-deployed VSS search profile** (deploy mode
@@ -80,7 +80,7 @@ PREAMBLE = (
     "query that names an unregistered source — in that case follow the skill's "
     "missing-source rule (state it is missing, list registered sources, stop); "
     "in this harness that IS the correct autonomous behavior. Search from the host checkout with "
-    "`uv run --project libs/vss-cli vss-cli search run --deployment docker "
+    "`uv run --project services/agent/vss-cli vss-cli search run --deployment docker "
     "--profile search ...`; never use a container/pod shell or `/generate` for search."
 )
 
@@ -122,7 +122,7 @@ def generate_solve_script(platform: str) -> str:
         "    exit 1\n"
         "}\n"
         "echo 'VSS agent is live — run search from the host checkout with:'\n"
-        "echo 'uv run --project libs/vss-cli vss-cli search run --deployment docker --profile search ...'\n"
+        "echo 'uv run --project services/agent/vss-cli vss-cli search run --deployment docker --profile search ...'\n"
     )
 
 

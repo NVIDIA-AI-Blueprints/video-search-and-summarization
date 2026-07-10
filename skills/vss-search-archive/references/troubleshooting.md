@@ -14,10 +14,6 @@
 - **Zero search results:** report the empty result explicitly and keep the
   selected source constraint. Offer a concrete query simplification or
   similarity-threshold adjustment; do not broaden the search without consent.
-- **Search ingest/delete fails:** use the agent-backed
-  `scripts/manage_search_source.sh` recipe and report partial cleanup. Do not
-  fall back to a bare VIOS
-  upload/delete because that leaves the search services or indexes stale.
 - **Index missing:** wait for agent-backed ingestion and inspect the reported
   MDX indexes. The fallback index is `mdx-embed-filtered-2025-01-01`.
 - **Embed model missing:** review the `/v1/models` IDs printed by the command
