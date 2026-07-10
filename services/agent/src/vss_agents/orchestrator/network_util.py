@@ -56,21 +56,26 @@ def run_text_command(command: list[str], *, timeout_seconds: int = DEFAULT_COMMA
 
 
 def detect_brev_link_domain(explicit_domain: str = "") -> str:
-    """Select an explicit secure-link domain or detect the active Brev provider."""
+    """Select an explicit secure-link domain or detect Brev's NetBird network."""
     domain = explicit_domain.strip()
     if domain:
         return domain
 
     try:
         result = subprocess.run(
-            ["netbird", "status"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            ["netbird", "status", "-d"],
+            capture_output=True,
+            text=True,
             timeout=DEFAULT_COMMAND_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError):
         return CLOUDFLARE_LINK_DOMAIN
-    return SKYBRIDGE_LINK_DOMAIN if result.returncode == 0 else CLOUDFLARE_LINK_DOMAIN
+
+    status_output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+    skybridge_markers = ("skybridge", "brev.nvidia.com", "brev.dev")
+    if result.returncode == 0 and any(marker in status_output for marker in skybridge_markers):
+        return SKYBRIDGE_LINK_DOMAIN
+    return CLOUDFLARE_LINK_DOMAIN
 
 
 def detect_internal_ip() -> str:
@@ -110,7 +115,12 @@ def read_etc_environment() -> dict[str, str]:
     return env
 
 
-def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
+def apply_brev_proxy_env(
+    merged: dict[str, str],
+    brev_env_id: str,
+    *,
+    explicit_link_domain: str = "",
+) -> None:
     proxy_port = (
         merged.get(BrevEnvKey.PROXY_PORT.value, "").strip()
         or os.environ.get(BrevEnvKey.PROXY_PORT.value, "").strip()
@@ -121,9 +131,7 @@ def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
         or os.environ.get(BrevEnvKey.BREV_LINK_PREFIX.value, "").strip()
         or proxy_port
     )
-    link_domain = detect_brev_link_domain(
-        merged.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "") or os.environ.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "")
-    )
+    link_domain = detect_brev_link_domain(explicit_link_domain or os.environ.get(BrevEnvKey.BREV_LINK_DOMAIN.value, ""))
     kibana_prefix = (
         merged.get(BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value, "").strip()
         or os.environ.get(BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value, "").strip()

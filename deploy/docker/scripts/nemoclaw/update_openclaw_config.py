@@ -95,12 +95,14 @@ def detect_brev_link_domain() -> str:
 
     try:
         result = subprocess.run(
-            ["netbird", "status"],
+            ["netbird", "status", "-d"],
             capture_output=True,
             text=True,
             timeout=3,
         )
-        if result.returncode == 0:
+        status_output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        skybridge_markers = ("skybridge", "brev.nvidia.com", "brev.dev")
+        if result.returncode == 0 and any(marker in status_output for marker in skybridge_markers):
             return "apps.run.brev.nvidia.com"
     except (OSError, subprocess.SubprocessError):
         pass
@@ -309,9 +311,10 @@ def main() -> int:
 
     env_id = get_brev_env_id()
     port = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip() or "18789"
+    link_prefix = os.environ.get("BREV_LINK_PREFIX", "").strip() or port
     if env_id:
         link_domain = detect_brev_link_domain()
-        origin = f"https://{port}-{env_id}.{link_domain}"
+        origin = f"https://{link_prefix}-{env_id}.{link_domain}"
     else:
         origin = f"http://127.0.0.1:{port}"
 
