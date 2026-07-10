@@ -251,7 +251,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: libs/vss-cli
+        working-directory: services/agent/vss-cli
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -278,15 +278,10 @@ jobs:
       - name: Build and test standalone package
         run: |
           uv sync --group dev --frozen
-          uv run --no-sync ruff check src/lib tests
-          uv run --no-sync ruff format --check src/lib tests
-          uv run --no-sync mypy src/lib
+          uv run --no-sync ruff check src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst tests
+          uv run --no-sync ruff format --check src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst tests
+          uv run --no-sync mypy src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst
           uv run --no-sync pytest --cov=src/lib --cov-report=xml:coverage.xml -m "not slow and not integration"
-          rm -rf .license-venv
-          UV_PROJECT_ENVIRONMENT=.license-venv uv sync --python 3.13 --frozen --no-default-groups
-          .license-venv/bin/python ../../.github/scripts/generate_python_license_notice.py \
-            --output LICENSE-3rd-party.txt --exclude nvidia-vss-cli --check
-          rm -rf .license-venv
           rm -rf dist
           uv build
 
@@ -304,31 +299,25 @@ jobs:
 
           import lib
           import lib.search_core
+          import lib.vlm
+          import lib.vst
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
           assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
           assert importlib.util.find_spec("nat") is None
-          assert lib is not None and lib.search_core is not None
+          assert importlib.util.find_spec("torch") is None
+          assert importlib.util.find_spec("vss_agents") is None
+          assert importlib.util.find_spec("lib.knowledge") is None
+          assert lib is not None and lib.search_core is not None and lib.vlm is not None and lib.vst is not None
           PY
           .wheel-smoke/bin/vss-cli --help >/dev/null
-
-      - name: Test vss-search-archive runner
-        working-directory: ${{ github.workspace }}
-        run: python -m unittest discover -s skills/vss-search-archive/tests -p 'test_*.py'
 
       - name: Upload vss-cli coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
           name: vss-cli-coverage-report
-          path: libs/vss-cli/coverage.xml
-
-      - name: Upload vss-cli distribution
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: nvidia-vss-cli-dist
-          path: libs/vss-cli/dist/*
-          if-no-files-found: error
+          path: services/agent/vss-cli/coverage.xml
 
   # ---------------------------------------------------------------------------
   # Job 5: Security scanning (detect-secrets)

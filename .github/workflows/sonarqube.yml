@@ -44,12 +44,12 @@ jobs:
           - name: vss-cli
             project_key: TEGRASW_metropolis_video-search-and-summarization-vss-cli_video-search-and-summarization
             project_name: video-search-and-summarization-vss-cli
-            sources: libs/vss-cli/src
-            tests: libs/vss-cli/tests
+            sources: services/agent/src/lib/_foundation,services/agent/src/lib/cli,services/agent/src/lib/search_core,services/agent/src/lib/vlm,services/agent/src/lib/vst
+            tests: services/agent/vss-cli/tests
             python_version: "3.13"
-            workdir: libs/vss-cli
-            coverage_path: libs/vss-cli/coverage.xml
-            coverage_target: src/lib
+            workdir: services/agent/vss-cli
+            coverage_path: services/agent/vss-cli/coverage.xml
+            coverage_target: "src/lib/_foundation --cov=src/lib/cli --cov=src/lib/search_core --cov=src/lib/vlm --cov=src/lib/vst"
             sync_args: ""
           - name: ui
             project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization

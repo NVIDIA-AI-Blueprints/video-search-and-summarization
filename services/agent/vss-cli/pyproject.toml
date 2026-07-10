@@ -1,0 +1,93 @@
+[build-system]
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build]
+exclude = [
+    "/.venv",
+    "/.wheel-smoke",
+    "/coverage.xml",
+    "/dist",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lib"]
+exclude = ["src/lib/knowledge/**"]
+
+[project]
+name = "nvidia-vss-cli"
+version = "0.1.0"
+description = "NAT-free VSS search library and host CLI"
+requires-python = ">=3.13,<3.15"
+license = "Apache-2.0"
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+dependencies = [
+    "aiohttp>=3.10",
+    "elasticsearch~=8.17.0",
+    "httpx>=0.28",
+    "opencv-python-headless>=4.13.0.92",
+    "pydantic>=2.11,<3",
+    "PyYAML>=6.0",
+    "tenacity>=9.0",
+    "typing-extensions>=4.12",
+]
+
+[project.scripts]
+vss-cli = "lib.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.1",
+    "ruff>=0.12.0",
+    "types-pyyaml>=6.0.12.20260107",
+]
+
+[tool.uv]
+# The supported host command is ``uv run --project services/agent/vss-cli vss-cli``.
+# Keep that path runtime-only; CI and contributors opt into tooling explicitly
+# with ``--group dev``.
+default-groups = []
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+explicit = true
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "C4", "UP", "ARG", "SIM", "TCH", "Q", "RUF"]
+ignore = ["E501", "W505", "SIM108", "B024"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+default-section = "third-party"
+force-single-line = true
+force-sort-within-sections = true
+force-wrap-aliases = true
+known-first-party = ["lib"]
+order-by-type = true
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+split-on-trailing-comma = false
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["ARG001", "ARG002", "SIM117", "B017"]
+
+[tool.coverage.run]
+source = ["src/lib"]
+omit = ["src/lib/knowledge/**"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.mypy]
+exclude = ["src/lib/knowledge", "../src/lib/knowledge"]

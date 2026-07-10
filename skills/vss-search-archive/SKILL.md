@@ -1,6 +1,6 @@
 ---
 name: vss-search-archive
-description: Use this skill when a user wants to search archived VSS video, ingest a file or RTSP source for search, or remove a search source. Do not use it for visual Q&A, live captioning, or video summarization.
+description: Use this skill when a user wants to search archived VSS video. Do not use it for source ingestion, source deletion, visual Q&A, live captioning, or video summarization.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
@@ -18,11 +18,10 @@ performs NAT query decomposition.
 
 ## Prerequisites
 
-- A running VSS search deployment and a checkout containing `libs/vss-cli`.
+- A running VSS search deployment and a checkout containing `services/agent/vss-cli`.
 - Host `uv`, plus Docker access for Docker deployments or `kubectl` access to
   Deployments, ConfigMaps, Services, Endpoints, Ingresses, and port-forwards for Kubernetes.
 - The `vss-manage-video-io-storage` skill for source listing and inspection.
-  Search ingestion and deletion use the agent-backed recipes in this skill.
 
 Do not execute `vss-cli` inside a distroless VSS container or a pod. Do not
 wrap it with `docker exec`, `kubectl exec`, or `sh -lc`.
@@ -63,17 +62,16 @@ wrap it with `docker exec`, `kubectl exec`, or `sh -lc`.
    and offer a specific query or similarity-threshold refinement. Never broaden
    the search silently or fabricate a result.
 
-When the user explicitly asks to ingest or delete a search source, use the
-agent-backed procedures below. Do not delegate those mutations back to
-`vss-manage-video-io-storage`; its bare VIOS operations do not maintain the
-search indexes.
+This skill is read-only. If the user asks to ingest or delete a source, stop
+and use the repository's source-management workflow instead of improvising a
+VIOS or Elasticsearch mutation from this search skill.
 
 ## Host CLI
 
-Always invoke the checked-out `libs/vss-cli` project with `uv run`:
+Always invoke the checked-out `services/agent/vss-cli` project with `uv run`:
 
 ```bash
-uv run --project libs/vss-cli vss-cli search run [deployment options] [query options]
+uv run --project services/agent/vss-cli vss-cli search run [deployment options] [query options]
 ```
 
 Direct low-level invocation remains environment-free. Use explicit runtime
@@ -90,7 +88,7 @@ DNS to the loopback ports published for Elasticsearch, RTVI-Embed, RTVI-CV,
 and VST.
 
 ```bash
-uv run --project libs/vss-cli vss-cli search run \
+uv run --project services/agent/vss-cli vss-cli search run \
   --deployment docker --profile search \
   --query "find all instances of forklifts" \
   --source-type video_file --top-k 10 --no-use-critic
@@ -119,7 +117,7 @@ forward whose lifetime extends through result consumption. The CLI rejects an
 in-cluster Service URL in that external field instead of returning dead links.
 
 ```bash
-uv run --project libs/vss-cli vss-cli search run \
+uv run --project services/agent/vss-cli vss-cli search run \
   --deployment kubernetes --namespace <namespace> --release <release> \
   --kube-context <optional-context> \
   --query "person in a white jacket climbing a ladder" \
@@ -160,105 +158,24 @@ through the operator-managed workflow.
 
 ```bash
 # Embed-only search across all ingested files
-uv run --project libs/vss-cli vss-cli search run \
+uv run --project services/agent/vss-cli vss-cli search run \
   --deployment docker --profile search \
   --query "red forklift near a loading bay" --source-type video_file \
   --no-use-critic
 
 # Attribute-only search; source must have been resolved first
-uv run --project libs/vss-cli vss-cli search run \
+uv run --project services/agent/vss-cli vss-cli search run \
   --deployment kubernetes --namespace vss --release search \
   --query "person wearing a white jacket" \
   --attribute "white jacket" --has-action false \
   --video-source warehouse-camera-3 --no-use-critic
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
-uv run --project libs/vss-cli vss-cli search run \
+uv run --project services/agent/vss-cli vss-cli search run \
   --deployment docker --profile search \
   --query "forklift near a loading bay" --attribute "yellow forklift" \
   --has-action true --allow-embed-only-fallback --no-use-critic
 ```
-
-## Ingestion and deletion
-
-Only ingest through the VSS agent backend: that transaction creates the VIOS
-source and both RTVI-CV/RTVI-Embed records. A bare VIOS upload is not
-searchable. Use `vss-manage-video-io-storage` only to list and inspect sources;
-the recipes in this section are authoritative for search mutations.
-
-Use the guarded runner below for exactly one mutation. It deliberately has no
-default action. Set `ACTION` to one of `file-ingest`, `rtsp-ingest`,
-`file-delete`, or `rtsp-delete`, then set only that action's inputs:
-
-- `file-ingest`: `FILE_PATH` and a safe, whitespace-free `FILENAME`.
-- `rtsp-ingest`: `RTSP_URL`, a unique unregistered `SOURCE_NAME`, and optional `RTSP_USERNAME`.
-  Leave `RTSP_PASSWORD` unset to receive a hidden interactive prompt, or point
-  `RTSP_PASSWORD_FILE` at an operator-managed, mode-0600 file for automation.
-- `file-delete` or `rtsp-delete`: the exact `VIDEO_ID` and `SOURCE_NAME`
-  resolved before deletion. The two delete operations are mutually exclusive.
-
-Set `DEPLOYMENT=docker` for the loopback-published Docker services. For
-Kubernetes set `DEPLOYMENT=kubernetes`, `NAMESPACE`, `RELEASE`, and optionally
-`KUBE_CONTEXT`. The runner selects the live-release Services for the agent and
-VST, follows each live runtime ES/RTVI endpoint, creates loopback-only
-port-forwards for in-cluster endpoints, waits for readiness, and closes them on
-success, failure, or a signal. It preserves an RTVI-CV HAProxy path prefix; a
-direct RTVI-CV Service must have exactly one ready backend, while a prefixed
-route must have a live x-stream-id/consistent-hash Ingress contract. Explicit
-host-reachable `VSS_AGENT_URL`, `VST_URL`, `ES_URL`, or `RTVI_CV_URL` values take precedence.
-Management URLs must be HTTP(S) endpoints with a hostname and no embedded
-userinfo, query credentials, or fragments.
-The runner uses `VST_URL` as the upload authority while preserving the path
-returned by the agent; an explicit `VST_FORWARD_URL` overrides that authority.
-It also loads the exact video, behavior, raw, and wildcard index expressions
-from the selected Docker `generated.env` plus profile config, or from the live
-Kubernetes Deployment and ConfigMap. Explicit index variables may override
-those values; unrelated hard-coded defaults are never used to certify cleanup.
-
-```bash
-ACTION=file-ingest \
-FILE_PATH=/data/clip.mp4 \
-FILENAME=clip.mp4 \
-DEPLOYMENT=docker \
-PROFILE=search \
-bash skills/vss-search-archive/scripts/manage_search_source.sh
-```
-
-Supported actions are `file-ingest`, `rtsp-ingest`, `file-delete`, and
-`rtsp-delete`. Set the action-specific values shown in
-[Source lifecycle CLI](references/source_lifecycle.md). The script performs
-deployment discovery, loopback-only Kubernetes forwarding, source identity/type
-validation, transactional cleanup, and exact Elasticsearch verification.
-For split-cluster or operator-managed cleanup transports, explicit
-host-reachable `ES_URL`, `BEHAVIOR_ES_URL`, and `RAW_ES_URL` override the live
-embed, behavior, and raw-frame endpoints independently.
-
-The upload action asks the agent for the VST URL, preserves the returned path,
-and rewrites only its scheme/authority when a Kubernetes VST forward is active.
-It uses 10 MiB nvstreamer chunks with bounded retries. If VST has returned a
-sensor ID but `/complete` or a later check fails, the exit trap requests
-agent-backed cleanup before closing port-forwards. A successful completion
-response must echo the same sensor ID. A disconnected or timed-out completion
-request is never reported as durably cleaned because its server-side embedding
-work may still be active. If no sensor ID was returned,
-report the failed upload identifier and inspect VST rather than guessing an ID.
-
-`rtsp-ingest` does not treat the route's `success` response as search readiness:
-it resolves the exact VST sensor and waits a bounded time for an exact source
-record in the RTSP embedding index expression. Both delete actions reject
-`failure`; RTSP deletion also rejects `partial` so history is not purged while a
-producer may still run. File deletion can reconcile `partial` only after direct
-VST storage/sensor repair, an ID-routed RTVI-CV removal, tightly scoped history
-cleanup, and independent proof that the sensor, timeline, physical media list,
-and exact ES counts are all empty. RTSP rollback similarly waits for one exact,
-unambiguous post-mutation VST identity before sending its name-addressed delete,
-and does so only after this invocation received an agent-confirmed add. Failed
-or transport-unknown adds are never deleted by name because ownership is not provable.
-RTVI-CV 404 is idempotent only when the verified route returns a structured
-`NotFound` body naming that exact camera ID; a generic route 404 is a failure.
-Never use the
-deprecated `PUT /api/v1/videos-for-search/{filename}` route, a bare VIOS delete,
-or an unconstrained index query as a substitute.
 
 ## Troubleshooting
 
