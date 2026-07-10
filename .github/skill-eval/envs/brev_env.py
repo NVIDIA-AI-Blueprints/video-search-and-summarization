@@ -361,6 +361,11 @@ class BrevEnvironment(BaseEnvironment):
             )
         else:
             await self._reset_docker_runtime()
+            # Host bind-mount purge runs AFTER the docker reset so every
+            # container that writes into these dirs is already gone —
+            # purging first would race the writers and the dirs would be
+            # dirty again by the time the trial starts.
+            await self._purge_host_data_dirs()
 
         # Sync ~/video-search-and-summarization on the box to the PR's
         # actual head SHA before any deploy/agent step reads it.
@@ -463,6 +468,77 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             )
         logger.info(
             "Docker reset on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
+        )
+
+    async def _purge_host_data_dirs(self) -> None:
+        """Purge per-trial VSS state that lives in host bind-mounts.
+
+        `_reset_docker_runtime` removes containers/volumes/networks, but
+        several services persist state in **host directories bind-mounted
+        into the containers** — invisible to `docker volume rm`:
+
+        - `<root>/nvstreamer/videos{,-upload}/` — uploaded media. NvStreamer
+          auto-suffixes a new upload whose filename already exists, so a
+          leftover `warehouse_safety_0001.mp4` turns the next trial's upload
+          into `warehouse_safety_0001_5` and fails identifier-semantics
+          checks (observed: PR #1241 `nvstreamer_ops` step-1, six leftover
+          copies on the box).
+        - `<root>/nvstreamer/vst_data/` and `<root>/data_log/` — the
+          NvStreamer/VST sensor registry and runtime DB, so sensors from
+          prior trials survive the docker reset.
+        - `<root>/videos/nvstreamer/` — alternate layout used by some
+          profiles for the same uploaded-media state.
+
+        The GitLab `ci-vss-oss` eval jobs have always done the equivalent
+        ("Cleaning VSS_DATA_DIR data_log (kafka, elastic, redis, vst,
+        nvstreamer, ...)"); this brings the skill-eval harness to parity.
+
+        Roots are **globbed, not read from `$VSS_DATA_DIR`**: the env var is
+        chosen per-deploy inside the trial, and pool boxes accumulate more
+        than one root over time (observed: `/opt/vss-data` AND
+        `~/vss-data` on the same box). `$REPO/deploy/docker/data-dir` needs
+        no handling here — `_sync_repo_to_pr_head`'s `git clean` covers it.
+
+        Contents are deleted but the directories themselves are kept, so
+        operator-provisioned ownership/permissions on the mount points
+        survive. `sudo` is required — containers write these files as root.
+        Same first-trial-only gate as the docker reset: step-2+ of a
+        multi-step spec depends on the state step-1 uploaded.
+        """
+        cmd = r"""set -uo pipefail
+purged=""
+for root in /opt/vss-data "$HOME"/vss-data; do
+  [ -d "$root" ] || continue
+  for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
+    d="$root/$sub"
+    [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete 2>/dev/null || { echo "failed to purge $d" >&2; exit 1; }
+    purged="$purged $d"
+  done
+done
+# Fail loud if anything survived — a half-purged dir is the same silent
+# cross-trial contamination the docker-reset guard protects against.
+for d in $purged; do
+  n=$(sudo find "$d" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" = "0" ] || { echo "host data purge incomplete: $n entries remain in $d" >&2; exit 1; }
+done
+echo "host data purge OK:${purged:- nothing to purge}"
+"""
+        logger.info(
+            "Purging host bind-mount data dirs (data_log, nvstreamer state) on %s",
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=120)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"host data purge failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Host data purge on %s: %s",
             self._instance_name,
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
