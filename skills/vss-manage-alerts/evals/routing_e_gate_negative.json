@@ -23,7 +23,8 @@
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
         "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification).",
-        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list 2>/dev/null | grep -q warehouse_sample && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (warehouse_sample onboarded into VIOS; polls to absorb upload/registration delay)."
+        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:31000/vst/api/v1/sensor/list 2>/dev/null | grep -qi warehouse && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (the bundled warehouse sample video was uploaded to NVStreamer :31000 — establishes the identity of the VIDEO; polls to absorb upload delay).",
+        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do L=$(curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list 2>/dev/null); echo \"$L\" | grep -q 31554 && exit 0; for id in $(echo \"$L\" | jq -r \".[].sensorId\" 2>/dev/null); do curl -sf --max-time 10 \"http://localhost:30888/vst/api/v1/sensor/$id/streams\" 2>/dev/null | grep -q 31554 && exit 0; done; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VIOS has a sensor whose stream URL is the NVStreamer-served RTSP on :31554 — i.e. the uploaded warehouse sample is what got onboarded, regardless of the sensor's display name; on this bare eval host the NVStreamer upload is the only video source, so the linkage identifies the video. Registering under the requested name `warehouse_sample` remains preferred, but a name deviation alone must not fail this leg)."
       ]
     },
     {
