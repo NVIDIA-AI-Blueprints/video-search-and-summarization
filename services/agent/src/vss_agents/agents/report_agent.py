@@ -92,6 +92,11 @@ class ReportAgentInput(BaseModel):
         default=None, description="Type of the source. Must be 'sensor' or 'place'. Required if source is provided."
     )
 
+    vlm_verified: bool | None = Field(
+        default=None,
+        description="Optional runtime override for VLM-verified incident lookup. If None, uses video_analytics config default.",
+    )
+
     vlm_reasoning: bool | None = Field(
         default=None,
         description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default.",
@@ -253,6 +258,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             start_time: datetime | None = None,
             end_time: datetime | None = None,
             incident_id: str | None = None,
+            vlm_verified: bool | None = None,
             vlm_reasoning: bool | None = None,
             llm_reasoning: bool | None = None,
         ) -> AsyncGenerator[AgentMessageChunk]:
@@ -279,6 +285,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 start_time=start_time,
                 end_time=end_time,
                 incident_id=incident_id,
+                vlm_verified=vlm_verified,
                 vlm_reasoning=vlm_reasoning,
                 llm_reasoning=llm_reasoning,
             )
@@ -420,31 +427,50 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         logger.info("Mode 1: Single incident report")
         incident = None
 
+        async def _fetch_incident_by_id(incident_id: str, vlm_verified: bool | None) -> dict | None:
+            tool_call_args = {
+                "id": incident_id,
+                "includes": ["objectIds", "info"],
+                "vlm_verified": vlm_verified,
+            }
+            incident_result = await get_incident_tool.ainvoke(tool_call_args)
+            if isinstance(incident_result, str):
+                try:
+                    parsed_incident = json.loads(incident_result)
+                except json.JSONDecodeError:
+                    logger.exception("Report Agent: Failed to parse get_incident response as JSON: %s", incident_result)
+                    return None
+                return parsed_incident or None
+            return incident_result or None
+
         # If incident_id is provided, get specific incident
         if report_input.incident_id:
             logger.info(f"Getting incident by ID: {report_input.incident_id}")
 
-            tool_call_args = {"id": report_input.incident_id, "includes": ["objectIds", "info"]}
+            tool_call_args = {
+                "id": report_input.incident_id,
+                "includes": ["objectIds", "info"],
+                "vlm_verified": report_input.vlm_verified,
+            }
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: get_incident\nArgs: {tool_call_args}"
             )
-            incident_result = await get_incident_tool.ainvoke(tool_call_args)
-            if isinstance(incident_result, str):
-                try:
-                    incident = json.loads(incident_result)
-                except json.JSONDecodeError:
-                    logger.exception("Report Agent: Failed to parse get_incident response as JSON: %s", incident_result)
-                    error_output = AgentOutput(
-                        messages=[
-                            f"Report Agent: Unable to parse incident data for ID '{report_input.incident_id}'. The Video Analytics service returned an invalid response."
-                        ],
-                        status="error",
-                        error_message="Report Agent: Failed to parse Video Analytics MCP tool response",
-                    )
-                    yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=error_output.model_dump_json())
-                    return
-            else:
-                incident = incident_result
+            incident = await _fetch_incident_by_id(report_input.incident_id, report_input.vlm_verified)
+
+            if not incident and report_input.vlm_verified is not True:
+                logger.info(
+                    "Incident %s not found in default index; retrying get_incident with vlm_verified=true",
+                    report_input.incident_id,
+                )
+                retry_args = {
+                    "id": report_input.incident_id,
+                    "includes": ["objectIds", "info"],
+                    "vlm_verified": True,
+                }
+                yield AgentMessageChunk(
+                    type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: get_incident\nArgs: {retry_args}"
+                )
+                incident = await _fetch_incident_by_id(report_input.incident_id, True)
 
             if not incident:
                 no_incident_output = AgentOutput(
@@ -460,6 +486,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 "includes": ["objectIds", "info"],
                 "source": report_input.source,
                 "source_type": report_input.source_type,
+                "vlm_verified": report_input.vlm_verified,
                 "start_time": report_input.start_time.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 if report_input.start_time
                 else None,
