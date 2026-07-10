@@ -17,7 +17,6 @@ import errno
 import fcntl
 import os
 import re
-import shlex
 import signal
 import subprocess
 import sys
@@ -42,6 +41,14 @@ class HarborInvocation:
 
 
 class LockTimeoutError(RuntimeError):
+    pass
+
+
+class BoxUnreachableError(RuntimeError):
+    """The box-side lock couldn't be reached (`brev exec` kept failing), so the
+    box is unreachable/degraded. Fail fast and let the agent rescore to a
+    different box instead of burning the whole lock budget waiting on a dead box
+    (e.g. an instance that shows RUNNING in `brev ls` but is SSH-unreachable)."""
     pass
 
 
@@ -212,9 +219,21 @@ def harbor_env(instance: str) -> dict[str, str]:
 # connection is held open (unlike a `brev exec flock`), so an SSH blip can't
 # silently drop the lock mid-trial. Set SKILL_EVAL_DISABLE_BOX_LOCK=1 to fall
 # back to host-local-flock-only (escape hatch).
+#
+# Known limitation: the stale-reap (rm + mkdir) is not itself serialized, so two
+# legs that BOTH observe an already-stale marker and race to reclaim it could
+# both win. That needs a dead holder whose marker sat stale for the full
+# BOX_LOCK_STALE_SEC (~8h) AND two claimers reaping within the same few ms — very
+# rare, and the fresh-claim path (mkdir) is fully atomic. A `flock`-serialized
+# critical section would close it; deferred to avoid brittle nested quoting
+# through `brev exec` until it can be validated on a live box.
 BOX_LOCK_DIR = "/tmp/skill-eval-boxlock.d"
 BOX_LOCK_STALE_SEC = 28800  # 8h > max per-leg trial (~6h) so a live holder is never reaped
 BOX_EXEC_TIMEOUT = 45
+# Consecutive `brev exec` claim failures (box unreachable) before we give up on
+# this box and fail fast so the agent rescores elsewhere. Tolerates a transient
+# blip (~a couple minutes of retries) but not a persistently dead box.
+BOX_CLAIM_MAX_FAILS = 6
 
 
 def _box_lock_enabled(instance: str) -> bool:
@@ -241,28 +260,38 @@ def _brev_exec(instance: str, command: str, timeout: int = BOX_EXEC_TIMEOUT) -> 
 
 
 def _box_claim_script(my_id: str, stale_sec: int) -> str:
-    d = shlex.quote(BOX_LOCK_DIR)
-    my = shlex.quote(my_id)
+    # my_id and BOX_LOCK_DIR are sanitized/constant, so direct interpolation is
+    # injection-safe and matches brev_env.py's reset-script style (double quotes
+    # + $(), no single-quote nesting that could break through `brev exec`).
+    # No `set -e`: the exit code must reflect brev-exec reachability, NOT an
+    # intermediate command's rc (a corrupt/non-numeric owner ts must not make a
+    # healthy box look unreachable). The trailing echo drives the caller's logic.
+    d = BOX_LOCK_DIR
     return (
-        f'set -e; D={d}; O="$D/owner"; MY={my}; NOW=$(date +%s); '
-        # reap a stale marker (crashed holder) before claiming
-        f'if [ -d "$D" ]; then TS=$(cut -d" " -f2 "$O" 2>/dev/null || echo 0); '
-        f'[ $(( NOW - ${{TS:-0}} )) -ge {stale_sec} ] && rm -rf "$D" || true; fi; '
-        # atomic claim: mkdir succeeds for exactly one racer
-        f'if mkdir "$D" 2>/dev/null; then printf "%s %s" "$MY" "$NOW" > "$O"; echo CLAIMED; '
+        f'D="{d}"; O="$D/owner"; MY="{my_id}"; NOW=$(date +%s); '
+        # reap a stale marker (crashed/dead holder) before claiming; force TS numeric
+        f'if [ -d "$D" ]; then TS=$(cut -d" " -f2 "$O" 2>/dev/null); '
+        f'case "$TS" in ""|*[!0-9]*) TS=0;; esac; '
+        f'[ $(( NOW - TS )) -ge {stale_sec} ] && rm -rf "$D" 2>/dev/null; fi; '
+        # atomic claim: mkdir is the race gate. If the owner-write fails (e.g. disk
+        # full) undo the mkdir so we never leave an orphan marker, and report
+        # WRITEFAIL (the caller treats non-CLAIMED/non-BUSY as fail-fast).
+        f'if mkdir "$D" 2>/dev/null; then '
+        f'if printf "%s %s" "$MY" "$NOW" > "$O" 2>/dev/null; then echo CLAIMED; '
+        f'else rm -rf "$D" 2>/dev/null; echo WRITEFAIL; fi; '
         f'else echo "BUSY $(cat "$O" 2>/dev/null)"; fi'
     )
 
 
 def _box_release_script(my_id: str) -> str:
-    d = shlex.quote(BOX_LOCK_DIR)
-    my = shlex.quote(my_id)
-    # only release if we still own it (guards against releasing a marker that
-    # was reaped-as-stale and re-claimed by another leg)
+    d = BOX_LOCK_DIR
+    # only release if we still own it (guards against removing a marker that was
+    # reaped-as-stale and re-claimed by another leg)
     return (
-        f'D={d}; O="$D/owner"; MY={my}; '
-        f'OWN=$(cut -d" " -f1 "$O" 2>/dev/null || echo ""); '
-        f'if [ "$OWN" = "$MY" ]; then rm -rf "$D"; echo RELEASED; else echo "SKIP owner=$OWN"; fi'
+        f'D="{d}"; O="$D/owner"; MY="{my_id}"; '
+        f'OWN=$(cut -d" " -f1 "$O" 2>/dev/null); '
+        f'if [ "$OWN" = "$MY" ]; then rm -rf "$D" 2>/dev/null; echo RELEASED; '
+        f'else echo "SKIP owner=$OWN"; fi'
     )
 
 
@@ -274,7 +303,21 @@ def hold_box_lock(lock_dir: Path, instance: str, timeout_sec: int):
     lock_path = lock_dir / f"{instance}.lock"
     deadline = time.monotonic() + timeout_sec
     box_lock = _box_lock_enabled(instance)
-    my_id = f"{os.environ.get('EVAL_SLUG', 'leg')}:{os.getpid()}"
+    # Owner id must be unique per leg-run-host so the release-ownership guard
+    # can't misfire (same spec+platform on two hosts could share a pid). Sanitize
+    # to a shell/owner-file-safe charset (no spaces, quotes, or $).
+    my_id = re.sub(
+        r"[^A-Za-z0-9_.:-]",
+        "_",
+        ":".join(
+            [
+                os.environ.get("EVAL_SLUG", "leg"),
+                os.environ.get("GITHUB_RUN_ID", "0"),
+                os.environ.get("RUNNER_NAME", "h"),
+                str(os.getpid()),
+            ]
+        ),
+    )
     with lock_path.open("a+") as fp:
         # 1) host-local flock — cheap same-host serialization
         while True:
@@ -298,22 +341,46 @@ def hold_box_lock(lock_dir: Path, instance: str, timeout_sec: int):
         box_held = False
         if box_lock:
             claim = _box_claim_script(my_id, BOX_LOCK_STALE_SEC)
+            exec_fails = 0
             while True:
                 rc, out = _brev_exec(instance, claim)
                 if rc == 0 and "CLAIMED" in out:
                     box_held = True
                     print(f"[run-leg] box lock acquired on {instance}", flush=True)
                     break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
-                    raise LockTimeoutError(f"box lock timeout on {instance}: {out[:120]}")
+                if rc == 0 and "BUSY" in out:
+                    # Box is reachable but the marker is held by another leg ->
+                    # legitimate contention: wait up to the lock budget.
+                    exec_fails = 0
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+                        raise LockTimeoutError(f"box lock timeout on {instance}: {out[:120]}")
+                    print(
+                        f"[run-leg] waiting for box lock on {instance} "
+                        f"(held-by: {out[:80]}; {int(remaining)}s remaining)",
+                        flush=True,
+                    )
+                    time.sleep(min(60, remaining))
+                    continue
+                # `brev exec` itself failed (rc != 0 / unexpected output) -> the box
+                # is unreachable or degraded. Retry a few times for a transient blip,
+                # then FAIL FAST so the agent rescores to a different box instead of
+                # burning the whole lock budget on a dead box (the vss-eval-rtx-2g
+                # "RUNNING in brev ls but SSH-unreachable" case that stalled legs for
+                # ~5.8 h). Do NOT treat this like BUSY.
+                exec_fails += 1
                 print(
-                    f"[run-leg] waiting for box lock on {instance} "
-                    f"({out[:80] or f'rc={rc}'}; {int(remaining)}s remaining)",
+                    f"[run-leg] box lock claim failed on {instance} "
+                    f"(attempt {exec_fails}/{BOX_CLAIM_MAX_FAILS}; rc={rc}; {out[:80]})",
                     flush=True,
                 )
-                time.sleep(min(60, remaining))
+                if exec_fails >= BOX_CLAIM_MAX_FAILS or deadline - time.monotonic() <= 0:
+                    fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+                    raise BoxUnreachableError(
+                        f"box unreachable for box lock: {instance} (rc={rc}; {out[:120]})"
+                    )
+                time.sleep(min(20, max(1, deadline - time.monotonic())))
         try:
             yield lock_path
         finally:
@@ -531,6 +598,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.platform,
                 args.harbor_timeout_sec,
             )
+    except BoxUnreachableError as exc:
+        # Fail fast: this box is unreachable/degraded. Signal the agent to
+        # rescore to a different box rather than wait out the lock budget.
+        print(f"BLOCKED: box unreachable on {args.instance} ({exc})", flush=True)
+        return 75
     except LockTimeoutError:
         print(f"BLOCKED: lock timeout on {args.instance}", flush=True)
         return 75
