@@ -52,11 +52,16 @@ import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Platforms — single-platform skill; only L40S is declared by the spec.
+# Platforms — single-platform skill; the spec pins exactly one platform.
 # ---------------------------------------------------------------------------
 
 PLATFORMS: dict[str, dict] = {
     "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S"},
+    # RTX PRO 6000 (Blackwell) entry so this skill can dispatch onto RTX PRO
+    # fleets (e.g. the registered-node vss-eval-rtx-* boxes). Without it the
+    # adapter has no gpu_type mapping for specs pinned to RTXPRO6000BW and
+    # the skill silently never runs there. Values mirror the platform tables
+    # of the other adapters (vss-deploy-profile, vss-query-analytics).
     "RTXPRO6000BW": {"short_name": "rtxpro6000bw", "gpu_type": "RTX PRO 6000", "min_vram_per_gpu": 96, "brev_search": "RTX PRO"},
 }
 
