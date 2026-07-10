@@ -1,15 +1,15 @@
 {
 	"message_broker":
 	{
-		"enable_notification": false,
-		"enable_notification_consumer": true,
+		"enable_notification": true,
+		"enable_notification_consumer": false,
 		"use_message_broker" : "redis",
 		"use_message_broker_consumer" : "kafka",
 		"message_broker_topic": "vst_events",
 		"message_broker_topic_consumer": "",
 		"message_broker_payload_key": "sensor.id",
 		"message_broker_metadata_topic": "test",
-		"redis_server_env_var": "REDIS_SVC_SERVICE_HOST:6379",
+		"redis_server_env_var": "localhost:6379",
 		"kafka_server_address": "",
 		"mqtt_broker_address": "tcp://172.17.0.1:1883"
 	},
@@ -26,7 +26,7 @@
 						"url": "https://your-receiver2.example.com/api/v1/camera",
 						"method": "POST",
 						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
-						"query_params": {"change": "{{event.change}}"},
+						"query_params": {},
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					},
@@ -34,7 +34,7 @@
 						"url": "https://your-receiver2.example.com/api/v1/camera",
 						"method": "POST",
 						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
-						"query_params": {},
+						"query_params": {"change": "{{event.change}}"},
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					},

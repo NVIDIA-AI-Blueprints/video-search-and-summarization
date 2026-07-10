@@ -129,11 +129,16 @@ std::string makeEventLabel(const Json::Value& message)
 bool anyEnabledWebhook(const Json::Value& config)
 {
     const Json::Value webhooks = config.get("webhooks", Json::nullValue);
-    if (!webhooks.isArray())
+    if (!webhooks.isObject() || !webhooks.get("enabled", false).asBool())
     {
         return false;
     }
-    for (const Json::Value& entry : webhooks)
+    const Json::Value items = webhooks.get("items", Json::nullValue);
+    if (!items.isArray())
+    {
+        return false;
+    }
+    for (const Json::Value& entry : items)
     {
         if (entry.isObject() && entry.get("enabled", false).asBool())
         {
@@ -207,13 +212,24 @@ WebhookNotifier::~WebhookNotifier()
 void WebhookNotifier::loadConfig(const Json::Value& config)
 {
     const Json::Value webhooks = config.get("webhooks", Json::nullValue);
-    if (!webhooks.isArray())
+    if (!webhooks.isObject())
     {
-        LOG(warning) << "Notification config has no webhooks array, webhook notifications disabled" << endl;
+        LOG(warning) << "Notification config has no webhooks object, webhook notifications disabled" << endl;
+        return;
+    }
+    if (!webhooks.get("enabled", false).asBool())
+    {
+        LOG(info) << "Webhooks are globally disabled in notification config" << endl;
+        return;
+    }
+    const Json::Value items = webhooks.get("items", Json::nullValue);
+    if (!items.isArray())
+    {
+        LOG(warning) << "Webhooks config has no items array, webhook notifications disabled" << endl;
         return;
     }
     size_t entryIndex = 0;
-    for (const Json::Value& entry : webhooks)
+    for (const Json::Value& entry : items)
     {
         entryIndex++;
         if (!entry.isObject())

@@ -19,8 +19,9 @@
  * @file webhook_notifier.cpp
  * @brief WebhookNotifier verification against the shared in-process TinyHttpServer.
  *
- * Exercises the notification_config.json webhooks schema: alert-type trigger
- * keys, receiver fan-out over the request array with a non-blocking
+ * Exercises the notification_config.json webhooks schema: the global enabled
+ * switch over the items array, alert-type trigger keys, receiver fan-out over
+ * the request array with a non-blocking
  * deliverMessage, per-receiver retry_on_status and backoff handling, header
  * templating, and the deferred HMAC signature header (must be absent).
  */
@@ -83,10 +84,11 @@ Json::Value makeWebhook(const std::string& alertType, const std::string& filterV
 Json::Value makeConfig(const std::vector<Json::Value>& webhooks)
 {
     Json::Value config;
-    config["webhooks"] = Json::Value(Json::arrayValue);
+    config["webhooks"]["enabled"] = true;
+    config["webhooks"]["items"] = Json::Value(Json::arrayValue);
     for (const Json::Value& webhook : webhooks)
     {
-        config["webhooks"].append(webhook);
+        config["webhooks"]["items"].append(webhook);
     }
     return config;
 }
@@ -361,4 +363,36 @@ TEST(WebhookNotifierTest, DisabledAndMalformedWebhooksAreSkipped)
     EXPECT_TRUE(notifier.deliverMessage(message));
     std::this_thread::sleep_for(milliseconds(200));
     EXPECT_TRUE(server.requests().empty());
+}
+
+TEST(WebhookNotifierTest, GloballyDisabledBlockLoadsNoWebhooks)
+{
+    Json::Value config = makeConfig(
+        {makeWebhook("camera_status_change", "camera_add", {makeRequest("http://127.0.0.1:9/off")})});
+    config["webhooks"]["enabled"] = false;
+
+    WebhookNotifier notifier(config);
+    EXPECT_EQ(notifier.webhookCount(), 0u);
+}
+
+TEST(WebhookNotifierTest, MissingGlobalEnabledFlagDisablesWebhooks)
+{
+    Json::Value config = makeConfig(
+        {makeWebhook("camera_status_change", "camera_add", {makeRequest("http://127.0.0.1:9/off")})});
+    config["webhooks"].removeMember("enabled");
+
+    WebhookNotifier notifier(config);
+    EXPECT_EQ(notifier.webhookCount(), 0u);
+}
+
+TEST(WebhookNotifierTest, LegacyFlatWebhookArrayIsRejected)
+{
+    // The pre-items schema: webhooks as a bare array of enabled entries.
+    Json::Value config;
+    config["webhooks"] = Json::Value(Json::arrayValue);
+    config["webhooks"].append(makeWebhook("camera_status_change", "camera_add",
+                                          {makeRequest("http://127.0.0.1:9/legacy")}));
+
+    WebhookNotifier notifier(config);
+    EXPECT_EQ(notifier.webhookCount(), 0u);
 }
