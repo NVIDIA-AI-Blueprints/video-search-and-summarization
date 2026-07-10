@@ -764,7 +764,11 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         await _run_brev_exec(self._instance_name, f"rm -f {remote_b64}",
                              timeout=30)
 
-        class _M:  # adapt to the existing marker-extraction flow below
+        # Reassemble the slices behind a regex-Match-shaped shim so the
+        # base64-cleanup + decode + extraction pipeline below stays byte-for-
+        # byte identical to the original single-stream implementation (it
+        # consumes `m.group(1)`); only the transport above changed.
+        class _M:
             def group(self, _i):
                 return "".join(parts)
         m = _M()
