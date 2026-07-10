@@ -9,19 +9,25 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers who need to search archived video content using natural-language queries, ingest video files or RTSP streams for search indexing, and manage search-ingested video sources. <br>
+Developers and engineers performing natural-language search across archived video content, ingesting video files or RTSP streams for vector-based search and retrieval. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Yes] <br>
+**Credential Type(s):** [API key] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Discovery Modes](references/discovery_modes.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [discovery_modes.md](references/discovery_modes.md) <br>
+- [troubleshooting.md](references/troubleshooting.md) <br>
+- [NVIDIA AI Blueprints: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
@@ -31,13 +37,13 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 task in the NVSkills-Eval external profile on the astra-sandbox environment. <br>
+Evaluated against 1 evaluation task in the NVSkills-Eval external profile (astra-sandbox environment). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -62,10 +68,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 100% (+75%) | 97% (+43%) |
-| Discoverability | 1 | 100% (+75%) | 89% (+39%) |
-| Effectiveness | 1 | 68% (+44%) | 62% (+26%) |
-| Efficiency | 1 | 94% (+72%) | 81% (+39%) |
+| Correctness | 1 | 100% (+75%) | 71% (+47%) |
+| Discoverability | 1 | 88% (+62%) | 84% (+48%) |
+| Effectiveness | 1 | 62% (+38%) | 50% (+26%) |
+| Efficiency | 1 | 71% (+48%) | 83% (+47%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
