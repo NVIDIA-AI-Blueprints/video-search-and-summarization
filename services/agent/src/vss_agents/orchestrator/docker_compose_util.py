@@ -593,7 +593,11 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
             ]
         )
     if brev_env_id:
-        apply_brev_proxy_env(merged, brev_env_id)
+        apply_brev_proxy_env(
+            merged,
+            brev_env_id,
+            explicit_link_domain=config.env_overrides.get("BREV_LINK_DOMAIN", ""),
+        )
 
     if merged.get("HARDWARE_PROFILE", "") not in config.supported_hardware_profiles:
         raise ValidationError(f"Invalid HARDWARE_PROFILE '{merged.get('HARDWARE_PROFILE', '')}'.")

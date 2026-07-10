@@ -50,12 +50,14 @@ def detect_brev_link_domain() -> str:
 
     try:
         result = subprocess.run(
-            ["netbird", "status"],
+            ["netbird", "status", "-d"],
             capture_output=True,
             text=True,
             timeout=3,
         )
-        if result.returncode == 0:
+        status_output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        skybridge_markers = ("skybridge", "brev.nvidia.com", "brev.dev")
+        if result.returncode == 0 and any(marker in status_output for marker in skybridge_markers):
             return "apps.run.brev.nvidia.com"
     except (OSError, subprocess.SubprocessError):
         pass
