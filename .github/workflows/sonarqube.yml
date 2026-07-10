@@ -108,14 +108,13 @@ jobs:
         run: |
           exclusions="**/node_modules/**,**/.venv/**,**/__pycache__/**,**/.mypy_cache/**,**/.ruff_cache/**,**/dist/**,**/build/**,**/.next/**,**/coverage/**,**/__tests__/**,**/*.test.ts,**/*.test.tsx,**/*.test.js,**/*.test.jsx,**/*.spec.ts,**/*.spec.tsx,**/3rdparty/**"
 
-          # The agent's docker/ tree is container build/runtime glue (entrypoint,
-          # proprietary-codec installer, vulnerability cleanup) with no unit-test
-          # or coverage harness in CI. Exclude it from analysis so deployment
-          # plumbing does not drag new-code coverage or raise hotspots
-          # (urllib/zipfile in the codec installer). Application logic under
-          # services/agent/src is still fully analyzed and covered.
+          # The agent scan owns the established NAT application. The standalone
+          # vss-cli project owns its extracted libraries and tests; scanning them
+          # here as well duplicates findings (and attributes its test fixtures to
+          # the agent project). The agent's docker/ tree is also container
+          # build/runtime glue without a unit-test or coverage harness in CI.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/vss-cli/**,services/agent/src/lib/_foundation/**,services/agent/src/lib/cli/**,services/agent/src/lib/search_core/**,services/agent/src/lib/vlm/**,services/agent/src/lib/vst/**"
           fi
 
           {

@@ -255,9 +255,10 @@ def discover_docker_host_endpoints(profile: str) -> dict[str, str]:
     """Return safe loopback management URLs for a running Docker profile."""
     _, env = _docker_profile_runtime(profile)
     return {
-        "agent_url": f"http://127.0.0.1:{_env_port(env, 'VSS_AGENT_HOST_PORT', default=8000)}",
-        "vst_url": f"http://127.0.0.1:{_env_port(env, 'VST_INGRESS_HOST_PORT', 'VST_PORT', default=30888)}",
-        "es_url": f"http://127.0.0.1:{_env_port(env, 'ELASTICSEARCH_HOST_PORT', default=9200)}",
+        # Docker publishes these management ports to the local host only.
+        "agent_url": f"http://127.0.0.1:{_env_port(env, 'VSS_AGENT_HOST_PORT', default=8000)}",  # NOSONAR
+        "vst_url": f"http://127.0.0.1:{_env_port(env, 'VST_INGRESS_HOST_PORT', 'VST_PORT', default=30888)}",  # NOSONAR
+        "es_url": f"http://127.0.0.1:{_env_port(env, 'ELASTICSEARCH_HOST_PORT', default=9200)}",  # NOSONAR
     }
 
 

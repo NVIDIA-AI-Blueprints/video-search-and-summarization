@@ -65,6 +65,17 @@
         "The `vss-cli search run` output returned zero hits because this object is not present in the video. The agent did NOT claim success, did NOT fabricate matches, and did NOT silently return an empty report \u2014 per the skill's mandatory workflow, zero matches trigger the troubleshooting loop",
         "The agent's final reply explicitly acknowledges the zero-hit outcome and explains why (e.g. the query may be too specific, the object may not be present, or suggests the user loosen the query / lower similarity threshold) \u2014 per the troubleshooting.md guidance"
       ]
+    },
+    {
+      "query": "Delete the video sample-warehouse-ladder. Agent backend is on localhost.",
+      "checks": [
+        "The agent resolved `sample-warehouse-ladder` to its VIOS sensor/video UUID by listing registered sources before deleting it",
+        "The agent deleted the video according to the `Delete source \u2014 agent-backed cleanup` section of `SKILL.md`: it issued `DELETE http://localhost:8000/api/v1/videos/<video_id>` using the resolved UUID",
+        "The agent did NOT delete the video through bare VIOS endpoints such as `DELETE http://localhost:30888/vst/api/v1/sensor/<video_id>` or `DELETE http://localhost:30888/vst/api/v1/storage/file/<video_id>` as the primary cleanup path",
+        "After deletion, the agent verified that `sample-warehouse-ladder` no longer appears in `GET http://localhost:30888/vst/api/v1/sensor/list`",
+        "After deletion, the agent verified that search index data for the deleted source was removed from Elasticsearch (for example, zero matching docs in `mdx-embed-filtered-2025-01-01` for the video UUID, and zero matching behavior/raw docs for `sample-warehouse-ladder`)",
+        "The agent's final reply reports the video deletion outcome and the VIOS / Elasticsearch cleanup verification results"
+      ]
     }
   ]
 }

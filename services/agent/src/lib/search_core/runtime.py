@@ -378,7 +378,7 @@ class SearchRuntime:
 
         # rtvi_cv: prefer Helm-style RTVI_CV_BASE_URL; else Docker-style HOST_IP+port.
         rtvi_cv = env.get("RTVI_CV_BASE_URL") or (
-            f"http://{host_ip}:{env['RTVI_CV_PORT']}" if env.get("RTVI_CV_PORT") else None
+            f"http://{host_ip}:{env['RTVI_CV_PORT']}" if env.get("RTVI_CV_PORT") else None  # NOSONAR
         )
         if not rtvi_cv:
             raise ConfigurationError(
@@ -390,7 +390,7 @@ class SearchRuntime:
         cosmos_embed = (
             env.get("COSMOS_EMBED_ENDPOINT")
             or env.get("RTVI_EMBED_BASE_URL")
-            or (f"http://{host_ip}:{env['RTVI_EMBED_PORT']}" if env.get("RTVI_EMBED_PORT") else None)
+            or (f"http://{host_ip}:{env['RTVI_EMBED_PORT']}" if env.get("RTVI_EMBED_PORT") else None)  # NOSONAR
         )
         if not cosmos_embed:
             raise ConfigurationError(
@@ -483,13 +483,13 @@ class SearchRuntime:
         rtvi_cv = _first_non_empty(
             attr_cfg.get("rtvi_cv_endpoint"),
             env.get("RTVI_CV_BASE_URL"),
-            f"http://{host_ip}:{env['RTVI_CV_PORT']}" if env.get("RTVI_CV_PORT") else None,
+            f"http://{host_ip}:{env['RTVI_CV_PORT']}" if env.get("RTVI_CV_PORT") else None,  # NOSONAR
         )
         cosmos_embed = _first_non_empty(
             embed_cfg.get("cosmos_embed_endpoint"),
             env.get("COSMOS_EMBED_ENDPOINT"),
             env.get("RTVI_EMBED_BASE_URL"),
-            f"http://{host_ip}:{env['RTVI_EMBED_PORT']}" if env.get("RTVI_EMBED_PORT") else None,
+            f"http://{host_ip}:{env['RTVI_EMBED_PORT']}" if env.get("RTVI_EMBED_PORT") else None,  # NOSONAR
         )
         es_endpoint = _require_config_value(
             "es_endpoint",
