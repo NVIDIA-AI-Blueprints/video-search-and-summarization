@@ -77,13 +77,35 @@ def get_brev_env_id() -> str:
     ]
     for hostname in hostname_candidates:
         host = hostname.strip().lower().rstrip(".")
-        if not host.endswith(".brevlab.com"):
-            continue
-        host = host[: -len(".brevlab.com")]
-        if "-" in host:
-            return host.split("-", 1)[1]
+        for link_domain in ("apps.run.brev.nvidia.com", "brevlab.com"):
+            suffix = f".{link_domain}"
+            if not host.endswith(suffix):
+                continue
+            secure_link_host = host[: -len(suffix)]
+            if "-" in secure_link_host:
+                return secure_link_host.split("-", 1)[1]
 
     return ""
+
+
+def detect_brev_link_domain() -> str:
+    explicit_domain = os.environ.get("BREV_LINK_DOMAIN", "").strip()
+    if explicit_domain:
+        return explicit_domain
+
+    try:
+        result = subprocess.run(
+            ["netbird", "status"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            return "apps.run.brev.nvidia.com"
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    return "brevlab.com"
 
 
 def read_remote_file(
@@ -286,10 +308,11 @@ def main() -> int:
     args = parser.parse_args()
 
     env_id = get_brev_env_id()
+    port = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip() or "18789"
     if env_id:
-        origin = f"https://18789-{env_id}.brevlab.com"
+        link_domain = detect_brev_link_domain()
+        origin = f"https://{port}-{env_id}.{link_domain}"
     else:
-        port = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
         origin = f"http://127.0.0.1:{port}"
 
     raw = read_remote_file(args.sandbox_name, args.config_path)

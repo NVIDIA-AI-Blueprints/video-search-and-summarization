@@ -43,12 +43,33 @@ def read_etc_environment() -> dict[str, str]:
     return env
 
 
+def detect_brev_link_domain() -> str:
+    explicit_domain = os.environ.get("BREV_LINK_DOMAIN", "").strip()
+    if explicit_domain:
+        return explicit_domain
+
+    try:
+        result = subprocess.run(
+            ["netbird", "status"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            return "apps.run.brev.nvidia.com"
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    return "brevlab.com"
+
+
 def build_vss_ui_url(port: int = 7777) -> str | None:
     brev_env_id = os.environ.get("BREV_ENV_ID", "").strip() or read_etc_environment().get("BREV_ENV_ID", "").strip()
     if not brev_env_id:
         return None
     link_prefix = os.environ.get("BREV_LINK_PREFIX", "").strip() or str(port)
-    return f"https://{link_prefix}-{brev_env_id}.brevlab.com/"
+    link_domain = detect_brev_link_domain()
+    return f"https://{link_prefix}-{brev_env_id}.{link_domain}/"
 
 
 def tool_call(
