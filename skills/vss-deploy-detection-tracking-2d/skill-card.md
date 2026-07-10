@@ -1,5 +1,5 @@
 ## Description: <br>
-Deploy, run, debug, tear down, or call the REST API of the RTVI-CV 2D detection and tracking microservice for real-time video intelligence. <br>
+Use this skill when the user wants to deploy, run, debug, tear down, or call the REST API of the RTVI-CV 2D detection / tracking microservice. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -7,12 +7,18 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying, operating, debugging, and managing the RTVI-CV 2D detection and tracking microservice for real-time video intelligence applications. <br>
+Developers and engineers deploying, operating, debugging, and calling the REST API of the RTVI-CV 2D detection/tracking microservice for real-time video intelligence applications. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Yes] <br>
+**Credential Type(s):** [API key] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
@@ -22,9 +28,10 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Deploy Workflow Reference](references/deploy-vss-detection-tracking-2d.md) <br>
 - [API Usage Reference](references/usage-vss-detection-tracking-2d.md) <br>
 - [API Reference](references/api-reference.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
 - [Pipeline Configuration](references/pipeline-config.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Platform Support](references/platforms.md) <br>
+- [Troubleshooting](references/troubleshooting.md) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
@@ -35,13 +42,13 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- Claude Code (`claude-code`) <br>
+- Codex (`codex`) <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 2 evaluation tasks (1 positive skill-activation, 1 negative activation) with 2 attempts per task in astra-sandbox environment using the external NVSkills-Eval profile. <br>
+Evaluated against 2 evaluation tasks (1 positive skill-activation, 1 negative) via NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -65,11 +72,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 4 | 100% (+0%) | 100% (+0%) |
-| Correctness | 4 | 69% (+33%) | 96% (+36%) |
-| Discoverability | 4 | 97% (+41%) | 92% (+22%) |
-| Effectiveness | 4 | 54% (+24%) | 74% (+29%) |
-| Efficiency | 4 | 86% (+29%) | 80% (+15%) |
+| Security | 2 | 100% (+0%) | 100% (+0%) |
+| Correctness | 2 | 73% (+42%) | 75% (+32%) |
+| Discoverability | 2 | 97% (+40%) | 89% (+26%) |
+| Effectiveness | 2 | 60% (+36%) | 48% (+3%) |
+| Efficiency | 2 | 85% (+27%) | 80% (+10%) |
 
 ## Skill Version(s): <br>
 3.2.1 (source: frontmatter) <br>

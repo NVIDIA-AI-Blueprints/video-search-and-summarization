@@ -7,12 +7,18 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to produce narrative summaries of recorded video clips via the LVS video summarization microservice with human-in-the-loop gating, or a direct VLM fallback when the service is unavailable. <br>
+Developers and engineers who need to produce narrative summaries of recorded video clips using the VSS video summarization microservice or a VLM fallback path. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Not Specified] <br>
+**Credential Type(s):** [None identified] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
@@ -25,12 +31,12 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Video Summarization Environment Variables](references/video-summarization-environment-variables.md) <br>
 - [HITL Prompts](references/hitl-prompts.md) <br>
 - [End-to-End Example](references/end-to-end-example.md) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [API Calls, Shell commands] <br>
+**Output Type(s):** [API Calls, Analysis] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
@@ -42,7 +48,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 task from the NVSkills-Eval external profile in the astra-sandbox environment. The dataset contained 1 positive skill-activation task with 1 attempt per task and a 50% pass threshold. Overall verdict: PASS. <br>
+Evaluated against 1 evaluation task (positive skill-activation case) in the astra-sandbox environment using the NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,11 +72,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 1 | 100% (+100%) | 100% (+100%) |
-| Correctness | 1 | 100% (+12%) | 97% (+36%) |
-| Discoverability | 1 | 100% (+6%) | 92% (+4%) |
-| Effectiveness | 1 | 72% (+10%) | 88% (+38%) |
-| Efficiency | 1 | 90% (+19%) | 83% (+7%) |
+| Security | 1 | 100% (+0%) | 100% (+0%) |
+| Correctness | 1 | 100% (+75%) | 67% (+42%) |
+| Discoverability | 1 | 92% (+42%) | 84% (+43%) |
+| Effectiveness | 1 | 76% (+56%) | 58% (+34%) |
+| Efficiency | 1 | 78% (+22%) | 77% (+33%) |
 
 ## Skill Version(s): <br>
 3.2.1 (source: frontmatter) <br>
