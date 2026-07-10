@@ -520,7 +520,7 @@ for root in /opt/vss-data "$HOME"/vss-data; do
   for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
     d="$root/$sub"
     [ -d "$d" ] || continue
-    sudo find "$d" -mindepth 1 -delete 2>/dev/null || { echo "failed to purge $d" >&2; exit 1; }
+    sudo find "$d" -mindepth 1 -delete || { echo "failed to purge $d" >&2; exit 1; }
     purged="$purged $d"
   done
 done
