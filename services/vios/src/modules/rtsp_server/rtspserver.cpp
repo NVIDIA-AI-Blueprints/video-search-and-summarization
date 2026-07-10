@@ -20,6 +20,7 @@
 #include "utils.h"
 #include "config.h"
 #include "logger.h"
+#include "vst_common.h"
 #include <chrono>
 #include <sys/prctl.h>
 #include "RtspSyncPlayback.h"
@@ -866,6 +867,7 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
         {
             event["tags"] = sensor->tags;
         }
+        event["camera_type"] = vst_common::sensorTypeToCameraType(sensor.get() != nullptr ? sensor->type : "");
 
         /* Add stream into stream_monitor */
         if (sensor.get() != nullptr)
