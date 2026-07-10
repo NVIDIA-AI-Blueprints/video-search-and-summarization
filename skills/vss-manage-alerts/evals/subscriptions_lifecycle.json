@@ -44,7 +44,7 @@
         "The trajectory calls Alert Bridge `GET /api/v1/realtime` to fetch the rule list.",
         "The agent's response includes at least one rule matching the warehouse_sample sensor and PPE-related tag (created in the previous step).",
         "The agent renders a human-readable table or list \u2014 not raw JSON.",
-        "The RTSP URL in the rule is reverse-resolved to the sensor name `warehouse_sample` (user never sees raw RTSP URLs)."
+        "The rule is presented with the human-readable sensor name `warehouse_sample` — taken from the rule record's `sensor_name` or resolved via VIOS, either mechanism is fine — and the user never sees raw RTSP / `live_stream_url` values in the reply."
       ]
     },
     {
