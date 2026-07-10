@@ -12,12 +12,12 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **search** profile on `{{platform}}` via `/vss-deploy-profile -p search`. Run autonomously.\n\n**Environment & prerequisites:** A **full-remote deployed VSS search profile** (deploy mode = `remote-all` \u2014 LLM and VLM both via remote launchpad endpoints, no local NIMs; Cosmos Embed1 still runs locally on the GPU, so the profile requires a GPU host even in remote-all). Run on ONE platform only \u2014 the search answers come from Cosmos Embed1 and Elasticsearch, which are hardware-agnostic and the LLM/VLM run remotely, so fanning out discovers nothing new. Pinned to `RTXPRO6000BW` with `gpu_count: 2` (operator allocation). Required: VSS agent reachable at http://localhost:8000/docs (OpenAPI visible), VST reachable at http://localhost:30888/vst/api/v1, Elasticsearch reachable at http://localhost:9200, the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 7777 per current Brev secure-link convention \u2014 see skills/vss-deploy-profile/references/brev.md), AND all sample videos downloaded from ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.2.0 then extracted with tar -xzvf then pre-ingested using `ACTION=file-ingest bash skills/vss-search-archive/scripts/manage_search_source.sh`, before running these checks.",
+      "query": "Deploy the VSS **search** profile on `{{platform}}` via `/vss-deploy-profile -p search`. Run autonomously.\n\n**Environment & prerequisites:** A **full-remote deployed VSS search profile** (deploy mode = `remote-all` \u2014 LLM and VLM both via remote launchpad endpoints, no local NIMs; Cosmos Embed1 still runs locally on the GPU, so the profile requires a GPU host even in remote-all). Run on ONE platform only \u2014 the search answers come from Cosmos Embed1 and Elasticsearch, which are hardware-agnostic and the LLM/VLM run remotely, so fanning out discovers nothing new. Pinned to `RTXPRO6000BW` with `gpu_count: 2` (operator allocation). Required: VSS agent reachable at http://localhost:8000/docs (OpenAPI visible), VST reachable at http://localhost:30888/vst/api/v1, Elasticsearch reachable at http://localhost:9200, the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 7777 per current Brev secure-link convention \u2014 see skills/vss-deploy-profile/references/brev.md), AND all sample videos downloaded from ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.2.0 then extracted with tar -xzvf and pre-ingested through the standard VSS agent-backed ingestion workflow before running these checks.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
-        "Host `uv` and `libs/vss-cli/pyproject.toml` are present, and `deploy/docker/developer-profiles/dev-profile-search/generated.env` exists for deployment discovery"
+        "Host `uv` and `services/agent/vss-cli/pyproject.toml` are present, and `deploy/docker/developer-profiles/dev-profile-search/generated.env` exists for deployment discovery"
       ]
     },
     {
@@ -31,7 +31,7 @@
     {
       "query": "Find all instances of forklifts in the sample warehouse video. The Docker search profile is deployed on this host.",
       "checks": [
-        "The agent issued exactly one host-side `uv run --project libs/vss-cli vss-cli search run` command with `--no-use-critic`, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
+        "The agent issued exactly one host-side `uv run --project services/agent/vss-cli vss-cli search run` command with `--no-use-critic`, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
         "The host command passed `--deployment docker --profile search`, used the profile's runtime `generated.env` plus checked-out config for discovery, and did not manually pass `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, or `--vst-external-url`",
         "The `vss-cli search run` command included `--query` text that paraphrases or contains `forklifts` and included `--video-source` for the resolved sample warehouse source \u2014 not a different user query, not a paraphrase that dropped the object noun",
         "The `vss-cli search run` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
@@ -46,7 +46,7 @@
     {
       "query": "Find a person wearing a white jacket climbing a ladder in sample-warehouse-ladder. The Docker search profile is deployed on this host. You are pre-authorized to run the Verification Step autonomously, without asking for confirmation.",
       "checks": [
-        "The agent issued exactly one host-side `uv run --project libs/vss-cli vss-cli search run` command with `--no-use-critic`, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
+        "The agent issued exactly one host-side `uv run --project services/agent/vss-cli vss-cli search run` command with `--no-use-critic`, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
         "The host command passed `--deployment docker --profile search`, used the profile's runtime `generated.env` plus checked-out config for discovery, and did not manually pass `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, or `--vst-external-url`",
         "The `vss-cli search run` command preserved both halves of the fused query: `--query` contains the action (`climbing a ladder`), `--attribute` contains the appearance attribute (`white jacket`), and `--has-action true` is present \u2014 the agent did NOT silently drop one half to simplify the search",
         "The `vss-cli search run` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
@@ -61,20 +61,9 @@
     {
       "query": "Find a neon-pink monster truck in the ingested sample warehouse video. The Docker search profile is deployed on this host.",
       "checks": [
-        "The agent issued a host-side `uv run --project libs/vss-cli vss-cli search run --deployment docker --profile search` command with `--no-use-critic` and `--query` containing `neon-pink monster truck` (or an equivalent paraphrase), did not use a container/pod shell or manual backend endpoint flags, and did not call `POST http://localhost:8000/generate` for search \u2014 it did NOT refuse the query up front",
+        "The agent issued a host-side `uv run --project services/agent/vss-cli vss-cli search run --deployment docker --profile search` command with `--no-use-critic` and `--query` containing `neon-pink monster truck` (or an equivalent paraphrase), did not use a container/pod shell or manual backend endpoint flags, and did not call `POST http://localhost:8000/generate` for search \u2014 it did NOT refuse the query up front",
         "The `vss-cli search run` output returned zero hits because this object is not present in the video. The agent did NOT claim success, did NOT fabricate matches, and did NOT silently return an empty report \u2014 per the skill's mandatory workflow, zero matches trigger the troubleshooting loop",
         "The agent's final reply explicitly acknowledges the zero-hit outcome and explains why (e.g. the query may be too specific, the object may not be present, or suggests the user loosen the query / lower similarity threshold) \u2014 per the troubleshooting.md guidance"
-      ]
-    },
-    {
-      "query": "Delete the video sample-warehouse-ladder. Agent backend is on localhost.",
-      "checks": [
-        "The agent resolved `sample-warehouse-ladder` to its VIOS sensor/video UUID by listing registered sources before deleting it",
-        "The agent deleted the video with `ACTION=file-delete bash skills/vss-search-archive/scripts/manage_search_source.sh`: it issued `DELETE http://localhost:8000/api/v1/videos/<video_id>` using the resolved UUID",
-        "The agent did NOT delete the video through bare VIOS endpoints such as `DELETE http://localhost:30888/vst/api/v1/sensor/<video_id>` or `DELETE http://localhost:30888/vst/api/v1/storage/file/<video_id>` as the primary cleanup path",
-        "After deletion, the agent verified that `sample-warehouse-ladder` no longer appears in `GET http://localhost:30888/vst/api/v1/sensor/list`",
-        "After deletion, the agent verified that search index data for the deleted source was removed from Elasticsearch (for example, zero matching docs in `mdx-embed-filtered-2025-01-01` for the video UUID, and zero matching behavior/raw docs for `sample-warehouse-ladder`)",
-        "The agent's final reply reports the video deletion outcome and the VIOS / Elasticsearch cleanup verification results"
       ]
     }
   ]

@@ -4,7 +4,7 @@ Run the `vss-cli` console executable from the independently distributed
 `nvidia-vss-cli` project in the checkout:
 
 ```bash
-uv run --project libs/vss-cli vss-cli search run [options]
+uv run --project services/agent/vss-cli vss-cli search run [options]
 ```
 
 Do not invoke it through `docker exec`, `kubectl exec`, a pod shell, or an
@@ -63,6 +63,5 @@ attribute portion removed.
 Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
-`vss-cli search run` is read-only. File upload, RTSP registration, and source
-deletion must use `scripts/manage_search_source.sh` as described in
-`source_lifecycle.md`; do not replace them with bare VIOS mutations.
+`vss-cli search run` is read-only. Do not use this skill to upload, register,
+delete, or repair sources.
