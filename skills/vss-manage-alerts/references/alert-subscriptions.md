@@ -319,6 +319,8 @@ Do not treat an empty list as an error.
 "Stop X" and "yes" are NOT the same intent. "Stop X" always produces a question. Only "yes" produces a deletion. Even if you already know the rule ID from conversation context, "Stop X" still produces only a question.
 
 > **This confirmation is a user-facing safety gate, not a setup/deploy confirmation.** It ALWAYS applies — including under autonomous, pre-authorized, or non-interactive/CI execution. A "run autonomously / do not ask for confirmation" instruction authorizes deploy and setup actions only; it does NOT authorize you to skip this stop/delete confirmation. When there is no interactive user to answer (e.g. an eval harness), reply with the yes/no confirmation question (stating the rule ID and sensor) and STOP — do not issue the `DELETE`.
+>
+> **`DELETE` is never a diagnostic.** Do not issue `DELETE` calls as connectivity probes, retries-against-a-dead-endpoint, or cleanup attempts — diagnostics use `GET` / `/health` only. And when **no matching rule was found**, there is nothing to delete: zero `DELETE` calls may be issued on that turn.
 
 ### On "Stop" Request — Find Rule and Ask Confirmation
 
