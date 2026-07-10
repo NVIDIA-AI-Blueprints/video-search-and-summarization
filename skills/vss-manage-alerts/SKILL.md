@@ -152,8 +152,12 @@ Both modes require the camera registered in VIOS first (via the `vss-manage-vide
 
 - RTSP URL / IP camera → add it with `POST /sensor/add` (that skill's Section 6); record the `sensorId` / name.
 - Named existing sensor → confirm it appears in `GET /sensor/list` before proceeding.
-- **Register under exactly the requested name and verify it.** After `POST /sensor/add`, confirm that exact name appears in `GET /sensor/list` — VST silently assigns a generic default (e.g. `SENSOR`) when the payload's `name` key is missing or mis-keyed. A default-named entry means the name was not applied: delete/re-register with a correct `name` field before proceeding.
-- **Register a reachable source URL and verify the stream.** Build RTSP URLs with the host's real IP (e.g. `rtsp://${HOST_IP}:31554/live/<name>` for NVStreamer-served streams) — never `localhost` (VST runs in a container where `localhost` is the container itself, so the stream never activates). After registering, confirm `GET /sensor/<sensorId>/streams` returns a non-empty `url` before proceeding — an empty `url` means the source is unreachable and the registration must be fixed.
+- **The `/sensor/add` payload MUST carry BOTH keys** — omitting `name` is the classic mistake (VST then silently names the sensor `SENSOR`):
+  ```json
+  { "sensorUrl": "<url exactly as NVStreamer's streams API returned it>", "name": "<exact requested name>" }
+  ```
+  After the POST, confirm that exact name appears in `GET /sensor/list`; a default-named entry (`SENSOR`) means the name was not applied — delete and re-register with the `name` key.
+- **Never hand-construct the RTSP URL.** For an NVStreamer-served stream, query NVStreamer for the served URL (`GET :31000/vst/api/v1/sensor/<name>/streams` → `url`) and register it **verbatim** — including its container-internal host/port (VST shares that docker network; a guessed `<host-ip>:<port>` or `localhost` URL is typically unreachable from the VST container and the stream never activates). After registering, confirm the sensor exposes a non-empty `rtsp://` stream URL (aggregate `GET /vst/api/v1/sensor/streams`) before proceeding — an empty `url` means the source is unreachable and the registration must be redone.
 
 On **CV**, adding the RTSP is the *entire* onboarding step (pipeline auto-picks it up). On **VLM**, it is the prerequisite for creating a realtime alert rule (Workflow D).
 
