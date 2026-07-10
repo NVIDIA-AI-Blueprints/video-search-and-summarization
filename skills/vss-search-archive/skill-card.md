@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill to run top-level VSS fusion search on already-ingested archived video. <br>
+Use this skill to run top-level VSS fusion search on archived video, or to ingest video files / RTSP streams for search. <br>
 
 This skill is for demonstration purposes and not for production usage. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers who need to search indexed archived video content using natural-language queries. <br>
+Developers and engineers who need to search archived video content using natural-language queries, ingest video files or RTSP streams for search indexing, and manage search-ingested video sources. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
