@@ -152,6 +152,7 @@ Both modes require the camera registered in VIOS first (via the `vss-manage-vide
 
 - RTSP URL / IP camera → add it with `POST /sensor/add` (that skill's Section 6); record the `sensorId` / name.
 - Named existing sensor → confirm it appears in `GET /sensor/list` before proceeding.
+- **Register under exactly the requested name and verify it.** After `POST /sensor/add`, confirm that exact name appears in `GET /sensor/list` — VST silently assigns a generic default (e.g. `SENSOR`) when the payload's `name` key is missing or mis-keyed. A default-named entry means the name was not applied: delete/re-register with a correct `name` field before proceeding.
 
 On **CV**, adding the RTSP is the *entire* onboarding step (pipeline auto-picks it up). On **VLM**, it is the prerequisite for creating a realtime alert rule (Workflow D).
 
