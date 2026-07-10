@@ -26,10 +26,10 @@ scripts:
   data: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-  # For multi-arch: 3.2.1-26.07.1
-  # For DGX-SPARK (SBSA): 3.2.1-sbsa-26.07.1
-  tag: "3.2.1-26.07.1"
+  repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+  # For multi-arch: 3.2.1
+  # For DGX-SPARK (SBSA): 3.2.1-sbsa
+  tag: "3.2.1"
   pullPolicy: IfNotPresent
 
 replicas: 1
