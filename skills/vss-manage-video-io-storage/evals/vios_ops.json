@@ -30,7 +30,7 @@
       ]
     },
     {
-      "query": "Fetch the uploaded video's recording timelines first, pick a valid 2-second window that falls inside one of the returned {startTime, endTime} ranges, extract an mp4 clip for that window, and return a shareable URL — use the `/url` variant (`GET /vst/api/v1/storage/file/<streamId>/url?startTime=...&endTime=...&container=mp4&disableAudio=true`), whose JSON `videoUrl` field is the shareable URL. Derive the window from the timeline rather than assuming a fixed offset from the upload time.",
+      "query": "Fetch the uploaded video's recording timelines first, pick a valid 2-second window that falls inside one of the returned {startTime, endTime} ranges, extract an mp4 clip for that window, and return a shareable URL — use the `/url` variant (`GET /vst/api/v1/storage/file/<streamId>/url?startTime=...&endTime=...&container=mp4&disableAudio=true`), whose JSON `videoUrl` field is the shareable URL. Derive the window from the timeline rather than assuming a fixed offset from the upload time. This is a **video clip, not a snapshot** — the shareable URL MUST come from `/storage/file/<streamId>/url` (field `videoUrl`) and end in `.mp4`. Do NOT use `/picture` or `/picture/url` (those return `image/jpeg` snapshots); an image URL does not satisfy this step.",
       "checks": [
         "The chosen startTime and endTime both fall within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines (or /vst/api/v1/sensor/<sensorId>/timelines).",
         "GET /vst/api/v1/storage/file/<streamId>/url?startTime=<chosen in-range start>&endTime=<chosen start + ~2s, still in range>&container=mp4&disableAudio=true returns a JSON object with a non-empty videoUrl field",
@@ -92,7 +92,7 @@
       ]
     },
     {
-      "query": "Get the sensor id for the uploaded sample warehouse video (reuse the `sensorId` captured from the step-1 upload response — stale `warehouse_<N>` duplicates can also be online with their own timelines, so do not re-resolve by bare name), fetch its recording timelines, pick a valid 2-second window, and return a shareable mp4 URL for that window — use the `/url` variant (`GET /vst/api/v1/storage/file/<streamId>/url?startTime=...&endTime=...&container=mp4&disableAudio=true`), whose JSON `videoUrl` field is the shareable URL.",
+      "query": "Get the sensor id for the uploaded sample warehouse video (reuse the `sensorId` captured from the step-1 upload response — stale `warehouse_<N>` duplicates can also be online with their own timelines, so do not re-resolve by bare name), fetch its recording timelines, pick a valid 2-second window, and return a shareable mp4 URL for that window — use the `/url` variant (`GET /vst/api/v1/storage/file/<streamId>/url?startTime=...&endTime=...&container=mp4&disableAudio=true`), whose JSON `videoUrl` field is the shareable URL. This is a **video clip, not a snapshot** — the shareable URL MUST come from `/storage/file/<streamId>/url` (field `videoUrl`) and end in `.mp4`. Do NOT use `/picture` or `/picture/url` (those return `image/jpeg` snapshots); an image URL does not satisfy this step.",
       "checks": [
         "The chosen `startTime` and `endTime` both fall within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
         "GET /vst/api/v1/storage/file/<streamId>/url?startTime=...&endTime=...&container=mp4&disableAudio=true returns a JSON object with non-empty `videoUrl` and `expiryISO`",
