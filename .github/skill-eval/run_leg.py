@@ -521,20 +521,7 @@ def run_invocations(
                 f"rc={rc} reward={reward if reward is not None else 'missing'}",
                 flush=True,
             )
-            # Chain-abort policy: only a HARD failure aborts the rest of the
-            # chain — a non-zero harbor rc means the agent/trial crashed or hit
-            # the harbor timeout, so the step never ran to completion and
-            # downstream steps that build on its setup can't be trusted. A SOFT
-            # check-miss (rc==0 but reward<1.0 — the agent completed the step's
-            # operations, but a grader check scored <1.0, often a grader
-            # timeout/flake or a miss on an independent read) is recorded via
-            # the step's own reward.txt but does NOT abort: later steps in a
-            # chain like vios_ops (13 steps) / nvstreamer_ops are mostly
-            # independent reads on step-1's shared sensor and should still run,
-            # so one grader flake no longer wipes out the tail of the chain.
-            # (Single-step specs — e.g. every vss-deploy-profile spec — never
-            # reach this branch.)
-            if rc != 0:
+            if rc == 124 or reward_value < 1.0:
                 write_skip_markers(
                     scratch,
                     spec_stem,
@@ -546,13 +533,6 @@ def run_invocations(
                 skipped_after[invocation.chain_key] = invocation.step_index
                 if rc == 124:
                     return 124
-            elif reward_value < 1.0:
-                print(
-                    f"[run-leg] {invocation.chain_key}/{invocation.include_task_name} "
-                    f"soft check-miss (reward={reward if reward is not None else 'missing'}); "
-                    f"continuing chain — later independent steps still run",
-                    flush=True,
-                )
 
     return overall_rc
 
