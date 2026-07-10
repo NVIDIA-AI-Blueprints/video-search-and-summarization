@@ -20,18 +20,41 @@ container images, and how to build them.
   Refer to the [VSS Calibration documentation](https://docs.nvidia.com/vss/latest/calibration.html)
   for how to create one.
 
+**Configuration** — all deployment settings live in one file,
+[docker/.env](docker/.env): the models directory (`MODELS_DIR`), camera count
+(`NUM_CAMS`), container images/tags (`PERCEPTION_IMAGE/TAG`,
+`BEV_FUSION_IMAGE/TAG`, …), GPU device, REST port, and broker endpoints. The
+steps below say when to set each; docker compose reads the file at launch, so
+make sure it is properly updated before [Launch](#3-launch). The default images
+are the NGC release images (`docker login nvcr.io` to pull) — see the
+[RT-CV-3D README](../README.md#docker-images) for the image list and how to
+build them locally instead.
+
 
 ## Table of Contents
 
 - [1. Place models and assets](#1-place-models-and-assets)
+  - [1.1 Download the models package](#11-download-the-models-package)
+  - [1.2 Optional: use a different RT-DETR model](#12-optional-use-a-different-rt-detr-model)
 - [2. Update configs for your dataset](#2-update-configs-for-your-dataset)
+  - [2.1 Generate camInfo and MQTT pub/sub configs](#21-generate-caminfo-and-mqtt-pubsub-configs)
+  - [2.2 Stage the DeepStream configs](#22-stage-the-deepstream-configs)
+  - [2.3 Optional: use your own DeepStream / tracker configs](#23-optional-use-your-own-deepstream--tracker-configs)
 - [3. Launch](#3-launch)
+  - [3.1 Option A — bundled brokers](#31-option-a--bundled-brokers)
+  - [3.2 Option B — your own brokers](#32-option-b--your-own-brokers)
+  - [3.3 Verify startup](#33-verify-startup)
 - [4. Add streams dynamically](#4-add-streams-dynamically)
 - [5. Check logs and receive metadata from Kafka](#5-check-logs-and-receive-metadata-from-kafka)
 - [6. Visualization](#6-visualization)
+  - [6.1 On-screen display (OSD)](#61-on-screen-display-osd)
+  - [6.2 BEV visualizer — live window](#62-bev-visualizer--live-window)
+  - [6.3 BEV visualizer — save as video](#63-bev-visualizer--save-as-video)
 - [Layout](#layout)
 
 ## 1. Place models and assets
+
+### 1.1 Download the models package
 
 Download the `vss-warehouse-app-data` package from NGC (substitute
 `<WAREHOUSE_APP_DATA_NGC>` / `<WAREHOUSE_APP_DATA_DIR>` with the resource
@@ -44,7 +67,7 @@ cd <WAREHOUSE_APP_DATA_DIR>
 tar -xvf *.tar.gz
 ```
 
-Point `MODELS_DIR` in [docker/.env](docker/.env) at its
+Then point **`MODELS_DIR`** in [docker/.env](docker/.env) at the extracted
 `vss-warehouse-app-data/models` directory. The stack uses:
 
 ```text
@@ -52,85 +75,121 @@ $MODELS_DIR/mtmc/                  RT-DETR onnx (+ TensorRT engines, built on fi
 $MODELS_DIR/mv3dt/BodyPose3DNet/   3D pose model
 ```
 
-Image names/tags are set in [docker/.env](docker/.env) (`PERCEPTION_IMAGE/TAG`,
-`BEV_FUSION_IMAGE/TAG`, …) — see the [RT-CV-3D README](../README.md#docker-images)
-for the images and how to build them; `docker login nvcr.io` to pull from NGC.
+### 1.2 Optional: use a different RT-DETR model
 
-**Using a different RT-DETR model** (for example a smart-city variant): place the
-onnx under `$MODELS_DIR/mtmc/`, then update the `onnx-file` and
-`model-engine-file` names in [configs/ds-pgie-config.yml](configs/ds-pgie-config.yml)
-(and the detector classes in `configs/ds-detector-labels.txt` plus the
-`CLASS_SPECS` height/radius priors when generating configs, if the class set
-differs).
+For example a smart-city variant:
+
+- place the onnx under `$MODELS_DIR/mtmc/`
+- update the `onnx-file` and `model-engine-file` names in
+  [configs/ds-pgie-config.yml](configs/ds-pgie-config.yml)
+- if the class set differs: update `configs/ds-detector-labels.txt` and the
+  `CLASS_SPECS` height/radius priors when generating configs
+  ([§2](#2-update-configs-for-your-dataset))
 
 ## 2. Update configs for your dataset
 
-Generate the per-camera configs from your `calibration.json`:
+### 2.1 Generate camInfo and MQTT pub/sub configs
+
+Generate from your `calibration.json`:
 
 ```bash
 ./scripts/generate-configs.sh /path/to/calibration.json
 ```
 
-This writes into `generated/` (gitignored):
+**Expected:** `DONE. Generated:` with one camInfo file per camera. Outputs go
+to `generated/` (gitignored):
 
 - `generated/camInfo/<sensor>.yml` — per-camera projection matrices + object-model priors
 - `generated/pub_sub_info_config.yml` — sparse MQTT pub/sub neighbour graph
   (tune with `NEIGHBOR_CRITERIA=top_N:<K>` or `overlap_threshold:<T>`)
 
-Then set **`NUM_CAMS`** in [docker/.env](docker/.env) to your camera count (=
-DeepStream batch size = BEV-fusion expected sensors), and stage the DeepStream
-config dir the container mounts (`generated/configs/`):
+The `/trck` topic endpoints in the pub/sub config point at the MQTT broker,
+default `localhost:1883`. If your broker is not on localhost, generate against
+it instead:
+
+```bash
+MQTT_BROKERS=<host>:<port> ./scripts/generate-configs.sh /path/to/calibration.json
+```
+
+### 2.2 Stage the DeepStream configs
+
+Set **`NUM_CAMS`** in [docker/.env](docker/.env) to your camera count (=
+DeepStream batch size = BEV-fusion expected sensors), then stage the config dir
+the container mounts (`generated/configs/`):
 
 ```bash
 ./scripts/stage-configs.sh          # OSD=1 ./scripts/stage-configs.sh for on-screen display
 ```
 
 Staging also rewrites the tracker config's `cameraModelFilepath` map to the
-cameras generated above. Sample configs live in [configs/](configs/) (RT-DETR
-pgie, MV3DT tracker, main config, Kafka/MQTT adaptors). You can use your own
-DeepStream and tracker configs instead of the samples:
+cameras generated above.
 
-- **Tracker**: pass your own base config when staging —
+### 2.3 Optional: use your own DeepStream / tracker configs
+
+The samples live in [configs/](configs/) (RT-DETR pgie, MV3DT tracker, main
+config, Kafka/MQTT adaptors). To replace them:
+
+- **Tracker**: a tracker config tuned for your specific dataset usually tracks
+  more accurately than the sample config — such a config is typically obtained
+  by manual tuning or with
+  [PipeTuner](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/Pipetuner-guide.html),
+  which is why the `TRACKER_CONFIG` override is supported. Pass your own tracker
+  config when staging —
   `TRACKER_CONFIG=/path/to/my-tracker-config.yml ./scripts/stage-configs.sh`
-  (its `cameraModelFilepath` map is still rewritten to your cameras).
-- **Other DeepStream configs** (pgie, main config, adaptors): edit or replace
+  (its `cameraModelFilepath` map will still be overwritten properly to your generated camInfo files).
+- **Other DeepStream configs** (pgie, main config, adaptors): edit
   the files in [configs/](configs/), then re-run `stage-configs.sh`.
 
 ## 3. Launch
 
-With the **bundled brokers** (no mosquitto/kafka of your own):
+### 3.1 Option A — bundled brokers
+
+Run the following command to start RT-CV-3D with bundled mosquitto and kafka brokers:
 
 ```bash
 cd docker
 COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
+
+# Tear down when done (from this docker/ directory):
+#   docker compose --profile "*" down
 ```
 
-With **your own brokers**: set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in
-[docker/.env](docker/.env) and launch without profiles. If the MQTT broker is not
-on localhost, also generate the pub/sub config against it
-(`MQTT_BROKERS=<host>:<port> ./scripts/generate-configs.sh ...`) so the `/trck`
-topic endpoints point at the right broker:
+### 3.2 Option B — your own brokers
+
+If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](docker/.env)
+and launch without `COMPOSE_PROFILES`:
 
 ```bash
 cd docker
 docker compose up -d
+
+# Tear down when done (from this docker/ directory):
+#   docker compose --profile "*" down
 ```
+
+### 3.3 Verify startup
+
+Either option — follow the perception logs until the pipeline reports ready:
+
+```bash
+docker logs -f vss-rtvi-cv-mv3dt      # Ctrl-C to exit
+```
+
+**Expected:** the pipeline starts without errors and prints `ds-ready: YES`;
+`**PERF` blocks stay at 0.0 FPS until streams are registered in
+[§4](#4-add-streams-dynamically).
 
 To see the per-view 3D bounding boxes on screen while the pipeline runs, stage
 the configs with `OSD=1` before launching — see [Visualization](#6-visualization).
 
-Teardown (either way):
-
-```bash
-cd docker
-docker compose --profile "*" down
-```
-
 <details>
-<summary><b>Alternative: launch the perception container with <code>docker run</code></b></summary>
+<summary><b>Alternative: launch Perception (MV3DT) only with <code>docker run</code> — no BEV Fusion</b></summary>
 
-Equivalent to the compose `perception` service (brokers and bev-fusion still come
-from compose or your own infrastructure):
+Runs only the Perception component (`vss-rt-cv`: RT-DETR + MV3DT). 
+It still needs the MQTT/Kafka brokers, and
+it publishes per-sensor measurements to `mdx-raw` — but without the BEV Fusion
+component there are no fused `mdx-bev` tracks. Start the brokers (and
+bev-fusion, if wanted) separately.
 
 ```bash
 source docker/.env    # run from the rt-cv-mv3dt directory
@@ -150,99 +209,130 @@ docker run -d --rm --name vss-rtvi-cv-mv3dt \
   bash -c "${DS_APP}/ds-start-mv3dt.sh"
 ```
 
-
-Defaults that make other settings unnecessary here: the output type defaults to
-kafka; the MQTT endpoint defaults to `localhost:1883`; the REST port comes from
-`http-port` in the staged main config (not an env var). For a remote MQTT broker
-add `-e MQTT_HOST=... -e MQTT_PORT=...`; for the on-screen display (`OSD=1`
-staging) add `-e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix`.
-
 </details>
 
 ## 4. Add streams dynamically
 
-Register your RTSP streams via the perception REST API. **The key of each
-`KEY=URL` pair is the `camera_id`, and it must exactly match the sensor id in
-your `calibration.json`.** With a mismatched key the MV3DT tracker cannot look
-up that camera's model and the stream will not track.
+Register your RTSP streams via the perception REST API — one
+`<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.
 
-Pass one `<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.
-Use the RTSP URLs exactly as your streaming source reports them (each stream may
-live on its own host/port/path — the URL does not need to contain the sensor id):
+Two rules:
+
+- **The key is the `camera_id` and must exactly match the sensor id in your
+  `calibration.json`.** With a mismatched key the MV3DT tracker cannot look up
+  that camera's model and the stream will not track.
+- **Use the RTSP URLs exactly as your streaming source reports them** — each
+  stream may live on its own host/port/path; the URL does not need to contain
+  the sensor id.
 
 ```bash
 ./scripts/add-streams.sh \
   <sensor_id_1>=rtsp://<host>:<port>/<path-to-stream-1> \
   <sensor_id_2>=rtsp://<host>:<port>/<path-to-stream-2> \
   ...
-```
 
-Or keep the pairs in a file (one `KEY=URL` per line, `#` comments allowed):
-
-```bash
+# or keep the pairs in a file (one KEY=URL per line, # comments allowed):
 ./scripts/add-streams.sh --file my-streams.txt
-```
 
-Runtime removal / inspection:
-
-```bash
+# runtime removal / inspection:
 ./scripts/add-streams.sh --remove <sensor_id_2>
 ./scripts/add-streams.sh --list
 ```
 
-The script waits for `ds-ready: YES` first — on the very first run for a given
-batch size, TensorRT builds the RT-DETR engine, which takes several minutes.
+**Expected:** the script waits for `ds-ready: YES`, then reports each stream as
+added. On the very first run for a given batch size, TensorRT builds the
+RT-DETR engine — allow several minutes; the script waits automatically.
 
 ## 5. Check logs and receive metadata from Kafka
 
 ```bash
-# per-source FPS (healthy: all sources at the stream frame rate)
-docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -A13 '\*\*PERF' | tail -15
+# a) per-source FPS (Ctrl-C to exit)
+docker logs -f vss-rtvi-cv-mv3dt
 
-# per-sensor 3D measurements from perception
+# b) per-sensor 3D measurements from perception
 ./scripts/kafka-dump.sh --topic mdx-raw --count 20
 
-# fused BEV tracks from bev-fusion
+# c) fused BEV tracks from bev-fusion
 ./scripts/kafka-dump.sh --topic mdx-bev --count 20
 ```
 
+**Expected:**
+
+- (a) every registered source at the stream frame rate (0.0 only during startup)
+- (b) rows for all sensor ids; the same scene moment shows matching timestamps
+  across sensors (within one frame's duration) — the quickest way to verify
+  your streams are synchronized
+- (c) rows with `sensorId = bev-sensor-1` at a steady rate
+
 `kafka-dump.sh` decodes the `nv.Frame` protobuf in-process and prints
-`(frame timestamp, sensorId, frame id)` per message — also the quickest way to
-verify your streams' timestamps are synchronized across cameras.
+`(frame timestamp, sensorId, frame id)` per message.
 
 ## 6. Visualization
 
-**On-screen display (OSD)** — a tiled per-camera view with 3D bounding boxes,
-rendered by the perception container on your X display:
+### 6.1 On-screen display (OSD)
+
+**Requires a display on the host.** A tiled per-camera view with 3D bounding
+boxes, rendered by the perception container on your display:
 
 ```bash
+# Run `xhost +` to allow the container to open the display
 OSD=1 ./scripts/stage-configs.sh && (cd docker && docker compose up -d perception)
 ```
 
-Requires a host X display (`DISPLAY` is passed through and `/tmp/.X11-unix` is
-mounted; run `xhost +local:` if the container cannot open the display). Leave
-`OSD=0` (default) for headless operation.
+### 6.2 BEV visualizer — live window
 
-**BEV visualizer** — a top-down trajectory map consumed live from Kafka.
-Launch it after your streams are registered ([§4](#4-add-streams-dynamically))
-and metadata is flowing (verify with the dumps in
-[§5](#5-check-logs-and-receive-metadata-from-kafka)); the live view consumes
-from the tail of the topic, so it only shows detections produced after it starts.
-Two sources are available:
+**Requires a display on the host** (without one, use
+[§6.3](#63-bev-visualizer--save-as-video)). A top-down trajectory map consumed
+live from Kafka. Launch it after your
+streams are registered ([§4](#4-add-streams-dynamically)) and metadata is
+flowing; the live view consumes
+from the tail of the topic, so it only shows detections produced after it
+starts:
 
 ```bash
-# per-camera measurements (mdx-raw): one point per camera view of each object
+# per-camera tracks with cross-camera consistent IDs (mdx-raw): one point per camera view of each object
 BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 
 # fused BEV tracks (mdx-bev): one merged point per object, as output by BEV Fusion
 BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 ```
 
-`BEV_DATASET_PATH` must contain `map.png` (BEV background) and `transforms.yml`
-(3×3 `T_ov2px` overlay→pixel matrix). With a display it opens a live window;
-headless (or `BEV_SAVE_VIDEO=1`) it saves an mp4 to `./bev-output/`. See the header
-of [scripts/bev-visualizer.sh](scripts/bev-visualizer.sh) for tuning knobs
+`BEV_DATASET_PATH` must contain `map.png` (BEV map image) and `transforms.yml`
+(3×3 `T_ov2px` world ground plane (in meters) → BEV map (in pixels) matrix). In the live window: `q` to quit, `r` to start/stop recording the window to an mp4. See the header of
+[scripts/bev-visualizer.sh](scripts/bev-visualizer.sh) for tuning knobs
 (ID labels, timestamp bucketing).
+
+**Generating `transforms.yml`** — if you don't already have one,
+`generate-transforms.sh` derives it from your `calibration.json`:
+
+```bash
+# with the map image (reads its size; writes transforms.yml next to it):
+./scripts/generate-transforms.sh /path/to/calibration.json /path/to/map.png
+
+# without a map image (assumes 1920x1080; writes ./transforms.yml):
+./scripts/generate-transforms.sh /path/to/calibration.json
+```
+
+The result is exact only when `map.png` is the same floor-plan image used during
+calibration. To catch a mismatch, the script projects the calibration's own
+reference points and warns if they don't land on the map.
+
+### 6.3 BEV visualizer — save as video
+
+Set `BEV_SAVE_VIDEO=1` (also the automatic behavior when no display is
+available):
+
+```bash
+BEV_SAVE_VIDEO=1 BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
+
+# same for the fused-track view:
+BEV_SAVE_VIDEO=1 BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
+```
+
+**Expected:** a `recorded N frames ...` progress line every ~10 s (a one-time
+`Waiting for first message ...` right after launch is normal). Stop with
+Ctrl-C — the mp4 is finalized and saved to `./bev-output/`
+(`Video saved: .../bev-output/trajectory_video_<stamp>.mp4 (N frames)`).
 
 ## Layout
 
@@ -254,7 +344,7 @@ of [scripts/bev-visualizer.sh](scripts/bev-visualizer.sh) for tuning knobs
 | [configs/](configs/) | sample DeepStream configs + `mosquitto.conf` |
 | [scripts/](scripts/) | shell utilities (config generation, staging, stream add/remove, visualizer/dump launchers) |
 | [utils/](utils/) | Python consumers (`kafka_bev_visualizer.py`, `kafka_fused_bev_visualizer.py`, `kafka-dump.py`, `schema_pb2.py`) + their `requirements.txt` |
-| `generated/` | generated + staged per-run files: `camInfo/`, `pub_sub_info_config.yml`, `configs/` (the staged dir the container mounts, incl. the rewritten tracker config) — gitignored |
+| `generated/` | generated + staged per-run files: `camInfo/`, `pub_sub_info_config.yml`, `configs/` (the staged dir the container mounts, incl. the rewritten tracker config) |
 
 Config generation wraps this repo's
 [`tools/rtvi-cv-mv3dt-utils`](../../../../tools/rtvi-cv-mv3dt-utils) generators;
