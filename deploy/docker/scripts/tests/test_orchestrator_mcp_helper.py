@@ -6,84 +6,164 @@ import os
 import subprocess
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest import mock
+
+HELPER_PATH = Path(__file__).parents[1] / "orchestrator_mcp_helper.py"
+MODULE_SPEC = importlib.util.spec_from_file_location("orchestrator_mcp_helper_under_test", HELPER_PATH)
+if MODULE_SPEC is None or MODULE_SPEC.loader is None:
+    raise RuntimeError(f"Could not load {HELPER_PATH}")
+helper = importlib.util.module_from_spec(MODULE_SPEC)
+MODULE_SPEC.loader.exec_module(helper)
 
 
-_HELPER_PATH = Path(__file__).resolve().parents[1] / "orchestrator_mcp_helper.py"
-_SPEC = importlib.util.spec_from_file_location("orchestrator_mcp_helper", _HELPER_PATH)
-if _SPEC is None or _SPEC.loader is None:
-    raise ImportError(f"Unable to load {_HELPER_PATH}")
-orchestrator_mcp_helper = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(orchestrator_mcp_helper)
-
-
-class DetectBrevLinkDomainTest(unittest.TestCase):
-    def test_explicit_domain_wins_without_running_netbird(self) -> None:
+class DetectBrevLinkDomainTests(unittest.TestCase):
+    def test_explicit_override_wins_without_calling_netbird(self) -> None:
         with (
-            patch.dict(os.environ, {"BREV_LINK_DOMAIN": "  links.example.test  "}, clear=True),
-            patch.object(
-                orchestrator_mcp_helper.subprocess,
-                "run",
-                side_effect=AssertionError("netbird must not run for an explicit domain"),
+            mock.patch.dict(os.environ, {"BREV_LINK_DOMAIN": " custom.example.com "}, clear=True),
+            mock.patch.object(helper.subprocess, "run", side_effect=AssertionError("netbird must not run")),
+        ):
+            self.assertEqual(helper.detect_brev_link_domain(), "custom.example.com")
+
+    def test_netbird_detailed_status_selects_secure_link_domain(self) -> None:
+        netbird_command = ["netbird", "status", "-d"]
+        generic_status = (
+            "OS: linux/amd64\n"
+            "Daemon version: 0.54.1\n"
+            "Management: Connected\n"
+            "Signal: Connected\n"
+            "FQDN: generic-peer.netbird.cloud\n"
+        )
+        skybridge_status = (
+            "OS: linux/amd64\n"
+            "Daemon version: 0.54.1\n"
+            "Management: Connected\n"
+            "Signal: Connected\n"
+            "FQDN: skybridge-env.apps.run.brev.nvidia.com\n"
+        )
+        cases = [
+            (
+                "generic healthy NetBird",
+                subprocess.CompletedProcess(
+                    netbird_command,
+                    0,
+                    stdout=generic_status,
+                    stderr="",
+                ),
+                "brevlab.com",
             ),
-        ):
-            domain = orchestrator_mcp_helper.detect_brev_link_domain()
+            (
+                "Skybridge identity",
+                subprocess.CompletedProcess(
+                    netbird_command,
+                    0,
+                    stdout=skybridge_status,
+                    stderr="",
+                ),
+                "apps.run.brev.nvidia.com",
+            ),
+            (
+                "nonzero status with Skybridge identity",
+                subprocess.CompletedProcess(
+                    netbird_command,
+                    1,
+                    stdout=skybridge_status,
+                    stderr="status unavailable",
+                ),
+                "brevlab.com",
+            ),
+            (
+                "netbird missing",
+                FileNotFoundError(2, "No such file or directory", "netbird"),
+                "brevlab.com",
+            ),
+            (
+                "status timeout",
+                subprocess.TimeoutExpired(netbird_command, 3),
+                "brevlab.com",
+            ),
+        ]
 
-        self.assertEqual(domain, "links.example.test")
-
-    def test_successful_netbird_status_selects_skybridge(self) -> None:
-        completed = subprocess.CompletedProcess(["netbird", "status"], returncode=0)
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch.object(orchestrator_mcp_helper.subprocess, "run", return_value=completed),
-        ):
-            domain = orchestrator_mcp_helper.detect_brev_link_domain()
-
-        self.assertEqual(domain, "apps.run.brev.nvidia.com")
-
-    def test_unavailable_netbird_selects_cloudflare(self) -> None:
-        cases = {
-            "status failure": subprocess.CompletedProcess(["netbird", "status"], returncode=1),
-            "missing executable": FileNotFoundError("netbird"),
-        }
-        for name, outcome in cases.items():
+        for name, result_or_error, expected in cases:
             with self.subTest(name=name):
-                kwargs = {"side_effect": outcome} if isinstance(outcome, Exception) else {"return_value": outcome}
-                with (
-                    patch.dict(os.environ, {}, clear=True),
-                    patch.object(orchestrator_mcp_helper.subprocess, "run", **kwargs),
-                ):
-                    domain = orchestrator_mcp_helper.detect_brev_link_domain()
+                if isinstance(result_or_error, BaseException):
+                    netbird_patch = mock.patch.object(helper.subprocess, "run", side_effect=result_or_error)
+                else:
+                    netbird_patch = mock.patch.object(helper.subprocess, "run", return_value=result_or_error)
 
-                self.assertEqual(domain, "brevlab.com")
+                with mock.patch.dict(os.environ, {}, clear=True), netbird_patch as netbird_run:
+                    self.assertEqual(helper.detect_brev_link_domain(), expected)
+                    netbird_run.assert_called_once_with(
+                        netbird_command,
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
+                    )
 
 
-class BuildVssUiUrlTest(unittest.TestCase):
-    def test_combines_prefix_environment_and_domain(self) -> None:
-        env = {
-            "BREV_ENV_ID": "release-321",
-            "BREV_LINK_PREFIX": "vss-ui",
-            "BREV_LINK_DOMAIN": "links.example.test",
-        }
-        with patch.dict(os.environ, env, clear=True):
-            url = orchestrator_mcp_helper.build_vss_ui_url()
-
-        self.assertEqual(url, "https://vss-ui-release-321.links.example.test/")
-
-    def test_no_brev_environment_returns_none(self) -> None:
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch.object(orchestrator_mcp_helper, "read_etc_environment", return_value={}),
-            patch.object(
-                orchestrator_mcp_helper,
-                "detect_brev_link_domain",
-                side_effect=AssertionError("domain detection must not run without a Brev environment"),
+class BuildVssUiUrlTests(unittest.TestCase):
+    def test_builds_url_for_each_detected_domain(self) -> None:
+        netbird_command = ["netbird", "status", "-d"]
+        generic_status = (
+            "OS: linux/amd64\n"
+            "Daemon version: 0.54.1\n"
+            "Management: Connected\n"
+            "Signal: Connected\n"
+            "FQDN: generic-peer.netbird.cloud\n"
+        )
+        skybridge_status = (
+            "OS: linux/amd64\n"
+            "Daemon version: 0.54.1\n"
+            "Management: Connected\n"
+            "Signal: Connected\n"
+            "FQDN: skybridge-env.apps.run.brev.nvidia.com\n"
+        )
+        cases = [
+            (
+                "Skybridge identity",
+                subprocess.CompletedProcess(
+                    netbird_command,
+                    0,
+                    stdout=skybridge_status,
+                    stderr="",
+                ),
+                "https://ui-env-123.apps.run.brev.nvidia.com/",
             ),
+            (
+                "generic healthy NetBird",
+                subprocess.CompletedProcess(
+                    netbird_command,
+                    0,
+                    stdout=generic_status,
+                    stderr="",
+                ),
+                "https://ui-env-123.brevlab.com/",
+            ),
+        ]
+
+        for name, netbird_result, expected in cases:
+            with self.subTest(name=name):
+                environment = {
+                    "BREV_ENV_ID": "env-123",
+                    "BREV_LINK_PREFIX": "ui",
+                }
+                with (
+                    mock.patch.dict(os.environ, environment, clear=True),
+                    mock.patch.object(
+                        helper.subprocess,
+                        "run",
+                        return_value=netbird_result,
+                    ),
+                ):
+                    self.assertEqual(helper.build_vss_ui_url(), expected)
+
+
+    def test_returns_none_outside_brev(self) -> None:
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(helper, "read_etc_environment", return_value={}),
+            mock.patch.object(helper.subprocess, "run", side_effect=AssertionError("netbird must not run")),
         ):
-            url = orchestrator_mcp_helper.build_vss_ui_url()
-
-        self.assertIsNone(url)
-
+            self.assertIsNone(helper.build_vss_ui_url())
 
 if __name__ == "__main__":
     unittest.main()
