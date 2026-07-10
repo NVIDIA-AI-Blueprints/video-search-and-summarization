@@ -5,7 +5,7 @@
 # BEV Frames to mdx-bev. The test host talks to Kafka on localhost:9092; the
 # fusion container talks to it over the compose network (kafka:29092).
 #
-# The service contract (see measurement-fusion/measurement_fusion.py):
+# The service contract (see src/measurement_fusion.py):
 #   - subscribe RAW_TOPIC (default mdx-raw), publish fused frames to FUSED_TOPIC (default mdx-bev)
 #   - signal READY by creating /tmp/fusion_ready after subscribing
 # We test against those documented defaults over Kafka (the broker the warehouse

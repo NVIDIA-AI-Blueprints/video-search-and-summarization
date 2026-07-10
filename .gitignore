@@ -18,3 +18,5 @@ deploy/docker/resolved.yml
 *.log
 *checkpoint.*
 .orchestrator-artifacts/*
+tools/rtvi-cv-mv3dt-utils/test
+tools/rtvi-cv-mv3dt-utils/venv

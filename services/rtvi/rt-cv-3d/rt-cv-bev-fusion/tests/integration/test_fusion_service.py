@@ -27,7 +27,7 @@ import uuid
 
 import pytest
 
-import schema_pb2  # from measurement-fusion/ (wired via tests/conftest.py)
+import schema_pb2  # from src/ (wired via tests/conftest.py)
 import measurement_fusion as mf
 
 from . import sample_scenario as ss

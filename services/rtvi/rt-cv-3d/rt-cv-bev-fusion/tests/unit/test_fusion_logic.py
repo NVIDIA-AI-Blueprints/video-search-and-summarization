@@ -27,7 +27,7 @@ locking in the fusion contract the service guarantees:
 
 import pytest
 
-# Imported from measurement-fusion/ (wired onto sys.path by tests/conftest.py).
+# Imported from src/ (wired onto sys.path by tests/conftest.py).
 import schema_pb2
 import measurement_fusion as mf
 

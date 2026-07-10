@@ -17,7 +17,7 @@ Shared pytest configuration for the MV3DT BEV fusion test suite.
 
 Wires up import paths so tests can `import schema_pb2` (protobuf) and
 `import measurement_fusion` (the service module) directly from the
-measurement-fusion source tree, and registers the common command-line options
+src/ source tree, and registers the common command-line options
 used across the unit / integration / e2e tiers.
 """
 
@@ -28,10 +28,10 @@ import pytest
 
 # Service root = parent of the tests/ directory this file lives in.
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# The measurement-fusion source ships both the service and the compiled
+# The src/ source tree ships both the service and the compiled
 # protobuf schema; put it on sys.path so unit + integration tests share the
 # exact same Frame definition the container runs.
-MEASUREMENT_FUSION_SRC = REPO_ROOT / "measurement-fusion"
+MEASUREMENT_FUSION_SRC = REPO_ROOT / "src"
 
 for _p in (str(MEASUREMENT_FUSION_SRC),):
     if _p not in sys.path:

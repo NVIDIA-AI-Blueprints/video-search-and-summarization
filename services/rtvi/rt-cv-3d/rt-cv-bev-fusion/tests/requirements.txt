@@ -1,7 +1,7 @@
 # Test dependencies for the MV3DT BEV fusion test suite.
 #
 # Versions are kept in step with the measurement-fusion image
-# (measurement-fusion/Pipfile) so the protobuf wire format and the Kafka
+# (src/Pipfile) so the protobuf wire format and the Kafka
 # client behave identically on both sides of the integration test.
 pytest>=7.0.0
 pytest-timeout>=2.1.0

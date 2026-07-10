@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List
 
-import schema_pb2  # from measurement-fusion/ (wired via tests/conftest.py)
+import schema_pb2  # from src/ (wired via tests/conftest.py)
 import measurement_fusion as mf
 
 

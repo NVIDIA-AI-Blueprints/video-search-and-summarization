@@ -27,8 +27,8 @@ The source files that implement the service are:
 
 | Path                                       | Purpose                                                                 |
 | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `measurement-fusion/measurement_fusion.py` | Service entry point and fusion logic.                                   |
-| `measurement-fusion/schema_pb2.py`         | Generated protobuf schema used to parse and serialize `Frame` messages. |
+| `src/measurement_fusion.py` | Service entry point and fusion logic.                                   |
+| `src/schema_pb2.py`         | Generated protobuf schema used to parse and serialize `Frame` messages. |
 
 ## Build
 
@@ -36,13 +36,13 @@ This source tree is intended to live in the broader VSS project as the
 `rt-cv-bev-fusion` service directory:
 
 ```bash
-services/rtvi/rt-cv-bev-fusion
+services/rtvi/rt-cv-3d/rt-cv-bev-fusion
 ```
 
 Build the image:
 
 ```bash
-cd services/rtvi/rt-cv-bev-fusion
+cd services/rtvi/rt-cv-3d/rt-cv-bev-fusion
 
 docker build \
   -f Dockerfiles/measurement-fusion.Dockerfile \
