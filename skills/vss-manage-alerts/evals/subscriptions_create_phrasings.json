@@ -70,7 +70,7 @@
         "The response contains at least 2 rules (from the previous create entries).",
         "The listed rules span BOTH sensors (`warehouse_sample` and `Camera_02`) \u2014 confirming that sensor extraction was correct across the two phrasings.",
         "The two rules created in this run are present with condition-specific snake_case `alert_type` tags \u2014 a `warehouse_sample` rule whose tag relates to fallen boxes (e.g. `fallen_boxes` / `box_drop`) and a `Camera_02` rule whose tag relates to smoke (e.g. `smoke_detection`) \u2014 i.e. tags derived from the detection condition, not generic (`alert`) or sensor-derived. (Leftover/pre-existing rules from other runs may also appear on the shared backend; this check concerns the rules this run created, not global uniqueness across all listed rules.)",
-        "The RTSP URLs are reverse-resolved to human-readable sensor names in the agent's output.",
+        "The agent's output presents each rule with a human-readable sensor name (taken from the rule record's `sensor_name` or resolved via VIOS — either mechanism is fine) and does not dump raw RTSP / `live_stream_url` values.",
         "The agent renders a readable table or list \u2014 not raw JSON."
       ]
     }
