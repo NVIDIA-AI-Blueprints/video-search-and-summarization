@@ -21,8 +21,8 @@
  *
  * Exercises the notification_config.json webhooks schema: the global enabled
  * switch over the items array, alert-type trigger keys, receiver fan-out over
- * the request array with a non-blocking
- * deliverMessage, per-receiver retry_on_status and backoff handling, header
+ * the request array with a non-blocking deliverMessage, per-receiver
+ * camera_type filtering, retry_on_status and backoff handling, header
  * templating, and the deferred HMAC signature header (must be absent).
  */
 
@@ -45,13 +45,22 @@ namespace
 
 Json::Value makeRequest(const std::string& url, const std::string& method = "POST",
                         int maxAttempts = 1, const std::vector<int>& backoffMs = {},
-                        const std::vector<int>& retryOnStatus = {})
+                        const std::vector<int>& retryOnStatus = {},
+                        const std::vector<std::string>& cameraTypes = {})
 {
     Json::Value request;
     request["url"] = url;
     request["method"] = method;
     request["headers"]["Content-Type"] = "application/json";
     request["query_params"] = Json::Value(Json::objectValue);
+    if (!cameraTypes.empty())
+    {
+        request["camera_type"] = Json::Value(Json::arrayValue);
+        for (const std::string& cameraType : cameraTypes)
+        {
+            request["camera_type"].append(cameraType);
+        }
+    }
     request["timeout_ms"] = 3000;
     request["retry"]["max_attempts"] = maxAttempts;
     request["retry"]["backoff_ms"] = Json::Value(Json::arrayValue);
@@ -363,6 +372,34 @@ TEST(WebhookNotifierTest, DisabledAndMalformedWebhooksAreSkipped)
     EXPECT_TRUE(notifier.deliverMessage(message));
     std::this_thread::sleep_for(milliseconds(200));
     EXPECT_TRUE(server.requests().empty());
+}
+
+TEST(WebhookNotifierTest, CameraTypeFilterGatesReceivers)
+{
+    TinyHttpServer server;
+    ASSERT_TRUE(server.start());
+
+    WebhookNotifier notifier(makeConfig({makeWebhook(
+        "camera_status_change", "camera_add",
+        {makeRequest(server.url("/file-only"), "POST", 1, {}, {}, {"file"}),
+         makeRequest(server.url("/rtsp-only"), "POST", 1, {}, {}, {"rtsp"}),
+         makeRequest(server.url("/all"))})}));
+
+    // A file event reaches the file receiver and the unfiltered receiver.
+    Json::Value fileEvent = makeCameraEvent("camera_add");
+    fileEvent["event"]["camera_type"] = "file";
+    EXPECT_TRUE(notifier.deliverMessage(fileEvent));
+    ASSERT_TRUE(waitForRequestCount(server, 2));
+
+    // An event without camera_type only reaches the unfiltered receiver.
+    Json::Value untypedEvent = makeCameraEvent("camera_add");
+    EXPECT_TRUE(notifier.deliverMessage(untypedEvent));
+    ASSERT_TRUE(waitForRequestCount(server, 3));
+
+    std::this_thread::sleep_for(milliseconds(300));
+    EXPECT_EQ(countRequestsForPath(server, "/file-only"), 1u);
+    EXPECT_EQ(countRequestsForPath(server, "/rtsp-only"), 0u);
+    EXPECT_EQ(countRequestsForPath(server, "/all"), 2u);
 }
 
 TEST(WebhookNotifierTest, GloballyDisabledBlockLoadsNoWebhooks)
