@@ -1,16 +1,18 @@
 ---
 name: vss-build-vision-agent
 description: >
-  Compose VSS-based agent deployments from a natural-language capability description.
-  Use this skill when the user asks for a new VSS profile or extension to an existing
-  one (e.g. "create a profile for streaming dense captioning", "add agentic search to
-  my base deployment", "integrate my third-party camera system with VSS"). The skill
-  reads per-microservice reference files (`integrate-{microservice}.md`,
+  Add agent-ready vision capabilities — dense captioning, detection, search, alerting,
+  summarization — to an agent or application through a customizable, self-contained
+  vision stack. Use this skill when a developer or agent wants to give their app vision:
+  pick capabilities via guided intake ("build a vision agent", "add vision capabilities")
+  or describe them in natural language ("create a profile for streaming dense captioning",
+  "add agentic search to my base deployment", "integrate my third-party camera system").
+  The skill reads per-microservice reference files (`integrate-{microservice}.md`,
   `deploy-{microservice}.md`) as ground truth, invents a unique compose-profile flag
-  per generation, patches local copies of the relevant upstream service composes
-  (never upstream itself), and outputs a validated, self-contained Docker Compose
-  deployment under `_builds/{build-name}/` (at the repository root) along with a
-  generated per-deployment deploy skill.
+  per generation, patches local copies of the relevant upstream VSS Blueprint composes
+  (never upstream itself), and outputs a validated, self-contained Docker Compose stack
+  under `_builds/{build-name}/` (at the repository root) along with bundled per-service
+  skills the agent can call to use the capabilities.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -22,11 +24,13 @@ metadata:
 
 > Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
 
-`build-vision-agent` is the orchestration skill that takes a natural-language capability description (and optionally an existing deployment to extend) and produces a validated Docker Compose file by reading authoritative per-microservice reference files. Use it whenever the user wants a VSS deployment composed for them — net-new profiles, extending a running stack, integrating a third-party system, or merging two profiles.
+`build-vision-agent` gives agents and developers **agent-ready vision capabilities through a customizable, self-contained application stack.** A developer or agent adds vision to their application by selecting the capabilities they want (guided intake) or describing them in natural language, and the skill composes a validated, deployable vision stack — wired, patched, and self-contained — from the **NVIDIA VSS Blueprint**, reading authoritative per-microservice reference files as ground truth (never training data). Use it whenever the user wants vision capabilities composed for them — net-new stacks, extending a running deployment, integrating a third-party system, or merging two profiles.
 
 The skill has been evaluated on **IN-1 — streaming and on-demand video dense captioning**, which combines VIOS + RT-VLM + ELK. IN-2 (RT-CV + RT-DETR person detection) and the broader catalog land in subsequent phases. The skill itself does not need updates as new microservices are added — only `references/microservice-catalog.md` and the per-service `integrate-*.md` / `deploy-*.md` files.
 
 ## When to Use
+
+Two ways in: **guided intake** (state an open intent like "build a vision agent" / "add vision capabilities" and the skill walks you through capability selection) or **prompt-driven** (name the capability directly). Both land on the same synthesis flow. Common triggers:
 
 - **Net-new profile**: "Create a profile for streaming and on-demand dense captioning"
 - **Extension**: "Add agentic video search to my current base deployment at `./compose.yml`"
