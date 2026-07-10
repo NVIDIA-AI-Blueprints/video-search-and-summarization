@@ -16,6 +16,7 @@
  */
 
 #include "vst_common.h"
+#include "vstmodule.h"
 #include "storage_management.h"
 #include "network_utils.h"
 #include "streamrecorder.h"
@@ -299,6 +300,42 @@ namespace vst_common
             case nv_vms::SensorStatusOffline:
             default: return "camera_remove";
         }
+    }
+
+    string sensorTypeToCameraType(const string& sensorType)
+    {
+        const string prefix = "sensor_";
+        if (sensorType.rfind(prefix, 0) == 0)
+        {
+            return sensorType.substr(prefix.length());
+        }
+        return sensorType;
+    }
+
+    string cameraTypeForSensor(const string& sensorOrStreamId)
+    {
+        shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
+        if (deviceManager == nullptr)
+        {
+            LOG(warning) << "camera_type lookup failed, device manager is unavailable" << endl;
+            return "";
+        }
+        shared_ptr<SensorInfo> sensor = deviceManager->getSensorInfo(sensorOrStreamId);
+        if (sensor == nullptr)
+        {
+            // Stream-level callers carry a stream id, not a sensor id.
+            string sensorId;
+            if (deviceManager->getSensorIdFromStreamId(sensorOrStreamId, sensorId) && !sensorId.empty())
+            {
+                sensor = deviceManager->getSensorInfo(sensorId);
+            }
+        }
+        if (sensor == nullptr)
+        {
+            LOG(warning) << "camera_type lookup failed for " << sensorOrStreamId << endl;
+            return "";
+        }
+        return sensorTypeToCameraType(sensor->type);
     }
 
     string toDomainName(const string& url, const string& id)
@@ -1331,6 +1368,7 @@ namespace vst_common
         event["camera_name"] = status.sensorName;
         event["camera_url"] = change == "camera_add" ? "" : sensor_url; // Use original URL for payload
         event["change"] = change;
+        event["camera_type"] = cameraTypeForSensor(status.sensorId);
         event["tags"] = status.tags;
         if (status.type.empty() == false)
         {

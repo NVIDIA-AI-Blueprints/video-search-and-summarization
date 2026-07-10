@@ -109,6 +109,10 @@ def _validate_event(
             event.get("camera_name") == Path(context.filename).stem,
             f"event.camera_name={event.get('camera_name')!r}",
         ),
+        (
+            event.get("camera_type") == "file",
+            f"event.camera_type={event.get('camera_type')!r}",
+        ),
     ]
     if change == "camera_add":
         checks.append(
