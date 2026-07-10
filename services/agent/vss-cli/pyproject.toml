@@ -26,14 +26,14 @@ license = "Apache-2.0"
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 dependencies = [
-    "aiohttp>=3.10",
-    "elasticsearch~=8.17.0",
-    "httpx>=0.28",
-    "opencv-python-headless>=4.13.0.92",
-    "pydantic>=2.11,<3",
-    "PyYAML>=6.0",
-    "tenacity>=9.0",
-    "typing-extensions>=4.12",
+    "aiohttp~=3.13",
+    "elasticsearch~=8.17",
+    "httpx~=0.28",
+    "opencv-python-headless~=4.13",
+    "pydantic~=2.12",
+    "PyYAML~=6.0",
+    "tenacity~=9.0",
+    "typing-extensions~=4.15",
 ]
 
 [project.scripts]
@@ -41,12 +41,12 @@ vss-cli = "lib.cli:main"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.15.0",
-    "pytest>=8.4.1",
-    "pytest-asyncio>=0.24",
-    "pytest-cov>=6.1",
-    "ruff>=0.12.0",
-    "types-pyyaml>=6.0.12.20260107",
+    "mypy~=1.19",
+    "pytest~=8.4",
+    "pytest-asyncio~=0.24",
+    "pytest-cov~=6.3",
+    "ruff~=0.15",
+    "types-pyyaml~=6.0",
 ]
 
 [tool.uv]
@@ -54,6 +54,34 @@ dev = [
 # Keep that path runtime-only; CI and contributors opt into tooling explicitly
 # with ``--group dev``.
 default-groups = []
+# Keep this standalone lockfile aligned with the versions already reviewed in
+# the repository's develop lockfiles.  The CLI is new; resolving broad ranges
+# at a later date must not turn its introduction into unrelated package bumps.
+constraint-dependencies = [
+    "aiohappyeyeballs==2.6.1",
+    "aiohttp==3.13.4",
+    "anyio==4.12.1",
+    "certifi==2026.1.4",
+    "coverage==7.13.4",
+    "elastic-transport==8.17.1",
+    "elasticsearch==8.17.2",
+    "httpx==0.28.1",
+    "librt==0.8.1",
+    "mypy==1.19.1",
+    "numpy==2.4.2",
+    "opencv-python-headless==4.13.0.92",
+    "pathspec==1.0.4",
+    "propcache==0.4.1",
+    "pydantic==2.12.5",
+    "pydantic-core==2.41.5",
+    "pytest==8.4.2",
+    "pytest-asyncio==0.24.0",
+    "pytest-cov==6.3.0",
+    "ruff==0.15.2",
+    "types-pyyaml==6.0.12.20250915",
+    "typing-extensions==4.15.0",
+    "yarl==1.22.0",
+]
 
 [[tool.uv.index]]
 name = "pypi"
