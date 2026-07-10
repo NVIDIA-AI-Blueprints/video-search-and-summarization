@@ -27,6 +27,7 @@
 						"method": "POST",
 						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
 						"query_params": {"change": "{{event.change}}"},
+						"camera_type": ["rtsp", "file"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					},
@@ -35,6 +36,7 @@
 						"method": "POST",
 						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
 						"query_params": {},
+						"camera_type": ["rtsp", "file"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					},
@@ -51,6 +53,24 @@
 						"method": "POST",
 						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
 						"query_params": {"change": "{{event.change}}"},
+						"camera_type": ["file"],
+						"timeout_ms": 5000,
+						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
+					},
+					{
+						"url": "http://127.0.0.1:18088/bdd/webhooks/camera/add/unfiltered",
+						"method": "POST",
+						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+						"query_params": {"change": "{{event.change}}"},
+						"timeout_ms": 5000,
+						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
+					},
+					{
+						"url": "http://127.0.0.1:18088/bdd/webhooks/camera/add/rtsp-only",
+						"method": "POST",
+						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+						"query_params": {"change": "{{event.change}}"},
+						"camera_type": ["rtsp"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					}
@@ -66,6 +86,7 @@
 						"method": "PUT",
 						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
 						"query_params": {},
+						"camera_type": ["rtsp"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					},
@@ -82,6 +103,7 @@
 						"method": "PUT",
 						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
 						"query_params": {"change": "{{event.change}}"},
+						"camera_type": ["file"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					}
@@ -105,6 +127,7 @@
 						"method": "DELETE",
 						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
 						"query_params": {"change": "{{event.change}}"},
+						"camera_type": ["file"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					}
