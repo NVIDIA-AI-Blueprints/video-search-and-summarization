@@ -123,7 +123,8 @@ Find the entry whose `name` matches the user's sensor name (case-insensitive). F
 - **`sensorId`** — e.g. `"2812768c-f21b-450e-a7be-2bbf406aaaa0"` → this becomes `sensor_id` in the payload
 - **`name`** — e.g. `"warehouse-dock-1"` → this becomes `sensor_name` in the payload
 
-If **no match** — **STOP here.** The named sensor does not exist in VIOS. Reply that `<sensor_name>` was **not found**, list the available sensor names, and ask the user to pick one. Do **NOT** invent or guess a `sensor_id` or `live_stream_url`, do **NOT** POST a rule to Alert Bridge, and do **NOT** report the alert as created — there is no sensor to attach it to. Reporting success for an unresolved sensor is a failure.
+If **no match** — **STOP here.** The named sensor does not exist in VIOS. Reply that `<sensor_name>` was **not found**, list the available sensor names, and ask the user to pick one. Do **NOT** invent or guess a `sensor_id` or `live_stream_url`, do **NOT** work around the miss by **registering a new sensor** (`POST /sensor/add`) to mint an id — onboarding happens only when the user explicitly asks to add a camera and supplies its source, never as a substitute for a sensor they named — do **NOT** POST a rule to Alert Bridge, and do **NOT** report the alert as created. Reporting success for an unresolved sensor is a failure.
+If **VIOS itself is unreachable** during resolution — do not improvise: report the connectivity error exactly as the Setup section says ("Cannot resolve sensor — the camera service (VST) is not responding…") and STOP; an unreachable VIOS is never a reason to mint sensors or rules.
 If **multiple matches** — list them and ask which one the user meant.
 
 **2c. Fetch RTSP URL using the `sensorId`:**
