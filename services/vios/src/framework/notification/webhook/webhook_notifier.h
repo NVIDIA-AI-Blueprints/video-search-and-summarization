@@ -37,7 +37,8 @@
  * expressed as a key whose value narrows the event, e.g.
  * "camera_status_change": "camera_add", and carries a request array: every
  * matching event is posted to all receivers in that array through
- * AsyncHttpClient.
+ * AsyncHttpClient. A receiver may narrow further with a camera_type list;
+ * it then only gets events whose event.camera_type is listed.
  *
  * deliverMessage() only enqueues HTTP work and returns true immediately: the
  * event-level 5 s retry loop in INotificationInterface is deliberately opted
@@ -85,6 +86,8 @@ private:
         int m_maxAttempts{1};
         std::vector<int64_t> m_backoffMs;
         std::vector<int> m_retryOnStatus;  // empty retries any non-2xx status
+        // Camera types this receiver accepts; empty receives every matched event.
+        std::vector<std::string> m_cameraTypes;
     };
 
     struct WebhookConfig
