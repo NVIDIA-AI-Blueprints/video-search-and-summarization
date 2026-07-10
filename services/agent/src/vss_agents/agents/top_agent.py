@@ -74,10 +74,13 @@ from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.postprocessing import POSTPROCESSING_FEEDBACK_MARKER
 from vss_agents.agents.postprocessing import PostprocessingConfig
 from vss_agents.agents.postprocessing import PostprocessingNode
+from vss_agents.tools.vst.timeline import get_timeline
+from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.utils.asyncmixin import AsyncMixin
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 from vss_agents.utils.reasoning_utils import get_thinking_tag
+from vss_agents.utils.time_convert import iso8601_to_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +91,7 @@ EMPTY_MESSAGES_ERROR = 'No input received in state: "current_message"'
 EMPTY_SCRATCHPAD_ERROR = 'No tool input received in state: "agent_scratchpad"'
 _TOOL_RESULTS_DELIMITER = "\n\n---\n### Latest Tool Results\n"
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
+_CONTEXT_BLOCK_PREFIX = "[Context:"
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -165,6 +169,89 @@ def strip_frontend_tags(content: str) -> str:
     cleaned = re.sub(r"<incidents>.*?</incidents>", "[Incident data]", content, flags=re.DOTALL)
 
     return cleaned
+
+
+async def _augment_context_clip_offsets(message_text: str) -> str:
+    """Add offset seconds alongside the ISO timestamps in a +Chat "[Context: [...]]" block.
+
+    dev-profile-search runs video_understanding in offset mode (seconds since stream
+    start), while the +Chat button emits ISO startTime/endTime. For each sensor-clip entry
+    this adds startOffset/endOffset (seconds) next to the original ISO fields, so the agent
+    can pass offsets to video_understanding while any other consumer still sees the ISO
+    values.
+
+    Additive and non-destructive: the original startTime/endTime are preserved and only
+    sensor-clip entries are touched. It reuses VST helpers read-only and returns the
+    message unchanged (byte-for-byte) when there is no block, parsing fails, or no clip was
+    augmented. The critic path is unaffected — it converts independently from search
+    results, not from this message.
+    """
+    if not message_text:
+        return message_text
+    prefix_idx = message_text.find(_CONTEXT_BLOCK_PREFIX)
+    if prefix_idx == -1:
+        return message_text
+    array_start = message_text.find("[", prefix_idx + len(_CONTEXT_BLOCK_PREFIX))
+    if array_start == -1:
+        return message_text
+    try:
+        clips, array_end = json.JSONDecoder().raw_decode(message_text, array_start)
+    except json.JSONDecodeError:
+        logger.warning("Could not parse +Chat [Context] block; leaving message unchanged")
+        return message_text
+    if not isinstance(clips, list):
+        return message_text
+
+    # Resolve sensor names to stream IDs with a single VST lookup, and memoize each stream's
+    # start time so multiple clips (even from the same sensor) don't trigger redundant VST
+    # round-trips. This turns the previous 2*N calls into 1 + (unique streams).
+    try:
+        name_to_stream_id = await get_name_to_stream_id_map()
+    except Exception as exc:  # keep the message intact on failure; never break the turn
+        logger.warning("Could not fetch VST stream map for [Context] offsets: %s", exc)
+        return message_text
+
+    stream_start_cache: dict[str, datetime] = {}
+
+    changed = False
+    for clip in clips:
+        if not isinstance(clip, dict):
+            continue
+        if clip.get("mediaType") != "sensor-clip":
+            continue
+        sensor_name = clip.get("sensorName")
+        start_iso = clip.get("startTime")
+        end_iso = clip.get("endTime")
+        if not (sensor_name and start_iso and end_iso):
+            continue
+
+        stream_id = name_to_stream_id.get(sensor_name)
+        if stream_id is None and sensor_name in name_to_stream_id.values():
+            # sensorName is already a stream ID.
+            stream_id = sensor_name
+        if stream_id is None:
+            logger.warning("Unknown sensor in [Context] clip, skipping: %s", sensor_name)
+            continue
+
+        try:
+            if stream_id not in stream_start_cache:
+                stream_start_iso, _ = await get_timeline(stream_id)
+                stream_start_cache[stream_id] = iso8601_to_datetime(stream_start_iso)
+            stream_start = stream_start_cache[stream_id]
+            # Add offsets alongside the original ISO fields (non-destructive).
+            clip["startOffset"] = (iso8601_to_datetime(start_iso) - stream_start).total_seconds()
+            clip["endOffset"] = (iso8601_to_datetime(end_iso) - stream_start).total_seconds()
+            changed = True
+        except Exception as exc:  # keep the message intact on failure; never break the turn
+            logger.warning("Failed to add offsets for [Context] clip %s: %s", sensor_name, exc)
+
+    if not changed:
+        return message_text
+    wrapper_close = message_text.find("]", array_end)
+    if wrapper_close == -1:
+        return message_text
+    augmented_block = f"{_CONTEXT_BLOCK_PREFIX} {json.dumps(clips)}]"
+    return message_text[:prefix_idx] + augmented_block + message_text[wrapper_close + 1 :]
 
 
 class TopAgentState(BaseModel):
@@ -1564,8 +1651,10 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
             # Convert request to ChatRequest following NAT's agent pattern:
             # https://github.com/NVIDIA/NeMo-Agent-Toolkit/blob/6184d2fb/src/nat/agent/tool_calling_agent/register.py#L86-L99
             chat_request = GlobalTypeConverter.get().convert(request, to_type=ChatRequest)
-            # Extract only the latest message. Conversation history is managed by agent state
-            current_message = HumanMessage(content=_extract_text_content(chat_request.messages[-1]).get("content", ""))
+            # Extract only the latest message. Conversation history is managed by agent state.
+            # Rewrite +Chat [Context] clip ISO timestamps to offset seconds for video_understanding.
+            raw_text = _extract_text_content(chat_request.messages[-1]).get("content", "")
+            current_message = HumanMessage(content=await _augment_context_clip_offsets(raw_text))
             # Collect all steps for unified trace
             steps = []
             final_content = []
