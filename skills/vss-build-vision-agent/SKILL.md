@@ -263,6 +263,15 @@ Write the compose file following VSS dev-profile conventions:
 
 For Helm output (post-v1, not implemented in v0.1): generate one Deployment / StatefulSet per service, one Service manifest per service, GPU resource requests parameterized in `values.yaml`, secrets in Secret manifests, all other config in ConfigMaps, with VSS labeling conventions (`app.kubernetes.io/part-of: vss`).
 
+#### MANIFEST.md contract (required for every generated build)
+
+Step 6 MUST write `<BUILD_DIR>/MANIFEST.md` as an operator-facing audit record, not a loose summary. Missing any required manifest section is a generation error. Before declaring Step 6 complete, reopen `MANIFEST.md` and verify these headings and contents exist:
+
+- **`## Build Identity`** — resolved build directory, compose profile flag, deployment shape, selected variants, generated files, and whether Step 0 created a fresh build or overwrote an existing one.
+- **`## Architecture`** — the Step 4 architecture diagram copied verbatim, including the surrounding code fence. If the build is resumed and no Step 4 diagram is available in context, reconstruct it before writing files using `references/architecture-diagram-template.md`; never replace it with ad hoc per-service boxes. The diagram must use one double-line-frame box per logical layer, layer headers annotated with `network_mode` + GPU, all allow-listed services inside their layer boxes, and inter-layer arrows labeled with protocol + port/topic/schema/shared-volume.
+- **`## Integration References` (NFR-5)** — cite exact reference file sections that justify the generated wiring. Cite section names, not just filenames. For every selected microservice, include the `integrate-<microservice>.md` sections used for inputs, outputs, required peers, environment, network, and GPU decisions. For IN-1, this section must include at minimum: `integrate-rt-vlm.md` sections covering RT-VLM stream/file inputs, Kafka caption output, and bridge/GPU behavior; `integrate-vios-service.md` sections covering uploaded-file playback, RTSP registration/proxy, and SDRC-routed VIOS topology; and `integrate-elk.md` sections covering Kafka -> Logstash -> Elasticsearch caption indexing.
+- **`## Patch Audit`** — copied compose files, inserted profile-flag sites, stripped `depends_on` entries, materialized bind-mount files, bundled skills, and the generated deploy skill.
+
 #### Emit the NvStreamer validation harness (when the sidecar has `validation_harness:`)
 
 If Step 4 recorded a `validation_harness: { rtsp_source: nvstreamer, ... }` key in the sidecar, emit the synthetic RTSP source so the generated deployment can exercise its live/streaming path without a real camera. Do all of the following (full contract in `references/validation-harness.md`):
@@ -382,7 +391,7 @@ Present a summary of the generated artifact:
 - Bundled skills (microservice + use-case, from Step 6)
 - Generated per-deployment deploy skill (`deploy-<profile-name>`, from Step 6) with its bring-up command
 
-Show the diff if the operation modified an existing deployment. Wait for user confirmation, then write all files to the output directory. Always emit a `MANIFEST.md` listing every generated file and its purpose. The manifest must include an `## Architecture` section embedding the ASCII flowchart produced in Step 4 verbatim — operators reading the manifest should see the wiring at a glance, without re-running the skill.
+Show the diff if the operation modified an existing deployment. Wait for user confirmation, then write all files to the output directory. Always emit a `MANIFEST.md` that satisfies the Step 6 MANIFEST.md contract: build identity, the verbatim Step 4 architecture diagram, NFR-5 integration-reference citations, and patch audit. Operators reading the manifest should see both the generated wiring and the reference sections that justified it without re-running the skill.
 
 #### Prompt to deploy
 

@@ -24,7 +24,7 @@
       ]
     },
     {
-      "query": "Please build the proposed dense-captioning profile under `_builds/in-1` and run the dry-run compose validation. Stop after generating the artifacts; do not deploy yet.",
+      "query": "Please build the proposed dense-captioning profile under `_builds/in-1` and run the dry-run compose validation. Stop after generating the artifacts; do not deploy yet. In `MANIFEST.md`, keep the Step 4 architecture diagram as double-line logical layer boxes with `network_mode` + GPU annotations and complete labeled arrows, and satisfy NFR-5 by citing exact sections from the RT-VLM, VIOS, and ELK integration references.",
       "checks": [
         "`{{repo_root}}/_builds/in-1/compose.yml`, `.env`, `.env.template`, `MANIFEST.md`, and `allow-list.yml` exist in the same generated build folder.",
         "`{{repo_root}}/_builds/in-1/compose.yml` is a top-level compose with `include:` directives pointing into `_builds/in-1/patched/` and not into upstream `deploy/docker/`.",
