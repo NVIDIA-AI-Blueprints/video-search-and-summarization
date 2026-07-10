@@ -1152,15 +1152,17 @@ function state_up() {
     local var_value="${2}"
     local mask="${3:-false}"
     local display_value="${var_value}"
+    local sed_value
+    sed_value="$(printf '%s' "${var_value}" | sed 's/[&|\\]/\\&/g')"
     if [[ "${mask}" == "true" ]]; then
       display_value="$(mask_secret "${var_value}")"
     fi
     if grep -q "^${var_name}=" "${_generated_env}"; then
       # Variable exists (uncommented), update it
-      sed -i "s|^${var_name}=.*|${var_name}=${var_value}|" "${_generated_env}"
+      sed -i "s|^${var_name}=.*|${var_name}=${sed_value}|" "${_generated_env}"
     elif grep -Eq "^#[[:space:]]*${var_name}=" "${_generated_env}"; then
       # Variable exists but is commented (with optional whitespace), uncomment and update it
-      sed -i -E "s|^#[[:space:]]*${var_name}=.*|${var_name}=${var_value}|" "${_generated_env}"
+      sed -i -E "s|^#[[:space:]]*${var_name}=.*|${var_name}=${sed_value}|" "${_generated_env}"
     else
       # Variable doesn't exist, append it
       echo "${var_name}=${var_value}" >> "${_generated_env}"
@@ -1188,15 +1190,18 @@ function state_up() {
 
   # ===== Brev secure links =====
   # Brev secure links use <prefix>-<env>.<domain>. During the phased tunnel
-  # migration, Netbird identifies Skybridge; Cloudflare remains the fallback.
-  # An explicit BREV_LINK_DOMAIN always overrides automatic detection.
+  # migration, Brev-managed NetBird details identify Skybridge; a generic
+  # healthy NetBird client is insufficient. An explicit domain always wins.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
     local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}}"
-    local _link_domain
+    local _link_domain _netbird_status=""
     if [[ -n "${BREV_LINK_DOMAIN:-}" ]]; then
       _link_domain="${BREV_LINK_DOMAIN}"
-    elif netbird status >/dev/null 2>&1; then
+    elif _netbird_status="$(netbird status -d 2>&1)" &&
+         [[ "${_netbird_status,,}" == *"skybridge"* ||
+            "${_netbird_status,,}" == *"brev.nvidia.com"* ||
+            "${_netbird_status,,}" == *"brev.dev"* ]]; then
       _link_domain="apps.run.brev.nvidia.com"
     else
       _link_domain="brevlab.com"

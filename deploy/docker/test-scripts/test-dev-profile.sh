@@ -1309,6 +1309,11 @@ NVIDIA_API_KEY=nv-test-key run_dry_run_up_and_check_generated_env "generated.env
  -i 127.0.0.1 -d -- \
   "NVIDIA_API_KEY" "nv-test-key"
 
+special_env_value='ampersand&backslash\pipe|end'
+NVIDIA_API_KEY="${special_env_value}" run_dry_run_up_and_check_generated_env "generated.env preserves literal NVIDIA_API_KEY characters" "base" \
+ -i 127.0.0.1 -d -- \
+  "NVIDIA_API_KEY" "${special_env_value}"
+
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_MODEL_TYPE VLM_MODEL_TYPE from profile defaults when remote" "base" \
  -i 127.0.0.1 --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
   "LLM_MODEL_TYPE" "nim" "VLM_MODEL_TYPE" "nim"
