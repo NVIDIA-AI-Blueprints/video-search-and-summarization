@@ -120,6 +120,7 @@ The script also honors these environment variables:
 - `NEMOCLAW_POLICY_FILE`
 - `VSS_CONTAINER_NAME`: explicit OpenShell gateway container name, if autodetection is not sufficient
 - `VSS_NAMESPACE`: Kubernetes namespace for the sandbox pod, default `openshell`
+- `BREV_LINK_DOMAIN`: optional secure-link domain override; Netbird selects `apps.run.brev.nvidia.com`, otherwise `brevlab.com`
 
 ## Expected Output
 
@@ -131,14 +132,14 @@ Successful runs usually include log lines like:
 [init_nemoclaw] Applying custom policy file /home/ubuntu/video-search-and-summarization/assets/vss_nemoclaw_policy.yaml to sandbox demo
 [init_nemoclaw] VSS skills installed
 [init_nemoclaw] Updating OpenClaw config for sandbox demo using script /home/ubuntu/video-search-and-summarization/deploy/docker/scripts/nemoclaw/update_openclaw_config.py
-OpenClaw UI at https://18789-<brev-id>.brevlab.com/#token=<token>
+OpenClaw UI at https://18789-<brev-id>.<brev-link-domain>/#token=<token>
 ```
 
 If the config update succeeds, the helper also prints:
 
 - `Updated /sandbox/.openclaw/openclaw.json` or `No JSON change needed ...`
 - `Brev instance ID: ...`
-- `Origin allowed in OpenClaw: https://18789-<brev-id>.brevlab.com`
+- `Origin allowed in OpenClaw: https://18789-<brev-id>.<brev-link-domain>`
 - `Dashboard token: ...`
 
 ## Troubleshooting

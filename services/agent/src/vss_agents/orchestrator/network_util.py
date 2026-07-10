@@ -26,6 +26,8 @@ DEFAULT_COMMAND_TIMEOUT_S: Final[int] = 5
 DEFAULT_PROXY_PORT: Final[str] = "7777"
 PROXY_MODE_VALUE: Final[str] = "proxy"
 KIBANA_PROXY_PORT_PREFIX: Final[str] = "5601"
+SKYBRIDGE_LINK_DOMAIN: Final[str] = "apps.run.brev.nvidia.com"
+CLOUDFLARE_LINK_DOMAIN: Final[str] = "brevlab.com"
 
 
 class BrevEnvKey(StrEnum):
@@ -33,6 +35,7 @@ class BrevEnvKey(StrEnum):
     PROXY_PORT = "PROXY_PORT"
     PROXY_MODE = "PROXY_MODE"
     BREV_LINK_PREFIX = "BREV_LINK_PREFIX"
+    BREV_LINK_DOMAIN = "BREV_LINK_DOMAIN"
     KIBANA_PROXY_PORT_PREFIX = "KIBANA_PROXY_PORT_PREFIX"
     KIBANA_PUBLIC_URL = "KIBANA_PUBLIC_URL"
     VST_EXTERNAL_URL = "VST_EXTERNAL_URL"
@@ -50,6 +53,24 @@ def run_text_command(command: list[str], *, timeout_seconds: int = DEFAULT_COMMA
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return ""
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def detect_brev_link_domain(explicit_domain: str = "") -> str:
+    """Select an explicit secure-link domain or detect the active Brev provider."""
+    domain = explicit_domain.strip()
+    if domain:
+        return domain
+
+    try:
+        result = subprocess.run(
+            ["netbird", "status"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=DEFAULT_COMMAND_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return CLOUDFLARE_LINK_DOMAIN
+    return SKYBRIDGE_LINK_DOMAIN if result.returncode == 0 else CLOUDFLARE_LINK_DOMAIN
 
 
 def detect_internal_ip() -> str:
@@ -100,17 +121,22 @@ def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
         or os.environ.get(BrevEnvKey.BREV_LINK_PREFIX.value, "").strip()
         or proxy_port
     )
+    link_domain = detect_brev_link_domain(
+        merged.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "")
+        or os.environ.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "")
+    )
     kibana_prefix = (
         merged.get(BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value, "").strip()
         or os.environ.get(BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value, "").strip()
         or KIBANA_PROXY_PORT_PREFIX
     )
-    brev_base = f"{brev_env_id}.brevlab.com"
+    brev_base = f"{brev_env_id}.{link_domain}"
     proxy_host = f"{link_prefix}-{brev_base}"
     proxy_https = f"https://{link_prefix}-{brev_base}"
     merged.update(
         {
             BrevEnvKey.BREV_ENV_ID.value: brev_env_id,
+            BrevEnvKey.BREV_LINK_DOMAIN.value: link_domain,
             BrevEnvKey.PROXY_PORT.value: proxy_port,
             BrevEnvKey.PROXY_MODE.value: PROXY_MODE_VALUE,
             BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value: kibana_prefix,

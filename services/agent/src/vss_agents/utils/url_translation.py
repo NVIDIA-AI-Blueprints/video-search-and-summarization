@@ -50,10 +50,11 @@ def rewrite_url_host(url: str, target_ip: str) -> str:
     the port and scheme are preserved as-is — this is the normal direct-IP case.
 
     When there is no explicit port and the host is not already *target_ip*,
-    the URL is assumed to be coming through a reverse proxy (e.g. a Brev
-    secure link like ``https://7777-abc.brevlab.com/vst/...``).  In that
-    case the scheme is forced to ``http`` and the port is resolved from the
-    path prefix via :data:`_PROXY_ROUTE_TABLE`.
+    the URL is assumed to be coming through a reverse proxy (for example, a
+    Brev secure link such as ``https://7777-abc.apps.run.brev.nvidia.com/vst/...``
+    or ``https://7777-abc.brevlab.com/vst/...``). In that case, the scheme is
+    forced to ``http`` and the port is resolved from the path prefix via
+    :data:`_PROXY_ROUTE_TABLE`.
 
     Args:
         url: The URL to rewrite.
