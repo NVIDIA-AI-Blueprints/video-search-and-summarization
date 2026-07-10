@@ -127,7 +127,7 @@ alert_agent:
     enabled: true
     vst_enabled: true
     elastic_enabled: true
-    dedup_enabled: false
+    dedup_enabled: true
     external_timeout_seconds: 30
     sink_warn_in_flight: 20
   url_transform:
