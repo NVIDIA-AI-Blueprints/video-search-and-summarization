@@ -530,7 +530,7 @@ echo "host data purge OK:${purged:- nothing to purge}"
             "Purging host bind-mount data dirs (data_log, nvstreamer state) on %s",
             self._instance_name,
         )
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=120)
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
