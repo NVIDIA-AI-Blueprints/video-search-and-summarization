@@ -102,8 +102,8 @@ function_groups:
           RTXPRO6000BW:
           OTHER:
           DGX-SPARK:
-            RTVI_VLM_IMAGE_TAG: "3.2.1-26.07.1-sbsa"
-            PERCEPTION_TAG: "3.2.1-sbsa-26.07.1"
+            RTVI_VLM_IMAGE_TAG: "3.2.1-sbsa"
+            PERCEPTION_TAG: "3.2.1-sbsa"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             alerts.verification:

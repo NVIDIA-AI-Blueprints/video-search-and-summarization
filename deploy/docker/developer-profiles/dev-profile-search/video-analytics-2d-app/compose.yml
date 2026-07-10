@@ -43,7 +43,7 @@ services:
 
   nvstreamer-2d-fusion:
     container_name: vss-vios-nvstreamer
-    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
     profiles: ["bp_developer_search_2d"]

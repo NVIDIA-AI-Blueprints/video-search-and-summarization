@@ -17,7 +17,7 @@
 
 services:
   vss-va-mcp:
-    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-va-mcp
     network_mode: host
     profiles:
@@ -60,9 +60,8 @@ services:
     restart: unless-stopped
 
   vss-agent:
-    # Version pinned via VSS_AGENT_VERSION (see the profile .env files). For the
-    # public release, switch the registry from nvstaging to nvidia.
-    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    # Version pinned via VSS_AGENT_VERSION (see the profile .env files).
+    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-agent
     network_mode: host
     profiles:
