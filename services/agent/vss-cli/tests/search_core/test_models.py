@@ -10,8 +10,8 @@ from datetime import datetime
 from pydantic import ValidationError
 import pytest
 
+from lib.critic import VideoInfo
 from lib.search_core.models.attribute_search import AttributeSearchInput
-from lib.search_core.models.common import VideoInfo
 from lib.search_core.models.embed_search import EmbedSearchInput
 from lib.search_core.models.search import SearchInput
 

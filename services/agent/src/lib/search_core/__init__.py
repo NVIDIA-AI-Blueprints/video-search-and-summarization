@@ -14,8 +14,7 @@
 # limitations under the License.
 """lib.search_core — VSS search primitives library.
 
-NAT-free Python library for embed_search, attribute_search, search, and
-critic_agent.
+NAT-free Python library for embed_search, attribute_search, and search.
 
 Design conventions (not CI-enforced — please respect them in review):
   - No `os.environ` / `os.getenv` / `dotenv.*` under primitives/ or clients/.
@@ -64,7 +63,6 @@ _LAZY_EXPORTS = {
     "AttributeSearch": ".primitives.attribute_search",
     "BackendUnreachableError": ".errors",
     "ConfigurationError": ".errors",
-    "CriticAgent": ".primitives.critic",
     "EmbedSearch": ".primitives.embed_search",
     "ErrorEvent": ".events",
     "FinalResultEvent": ".events",
@@ -100,7 +98,6 @@ if TYPE_CHECKING:
     from .events import StatusEvent
     from .host import VSSSearch
     from .primitives.attribute_search import AttributeSearch
-    from .primitives.critic import CriticAgent
     from .primitives.embed_search import EmbedSearch
     from .primitives.search import Search
     from .runtime import RuntimeSnapshot

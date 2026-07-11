@@ -292,11 +292,9 @@ def is_excluded(
 
     Timestamps are compared by instant (via :func:`iso8601_instants_match`), not
     by exact string, so this stays consistent with the attribute path
-    (``_attribute_helpers._is_attribute_excluded``). Critical for critic
-    re-search: the orchestrator builds an exclude entry from a REJECTED result
-    whose ``end_time`` was reformatted by ``merge_consecutive_results`` (a
-    round-trip that turns e.g. ``.752Z`` into ``.752000Z``), which an
-    exact-string comparison would fail to match against the raw re-fetched hit.
+    (``_attribute_helpers._is_attribute_excluded``). This remains robust when
+    an ``end_time`` has been reformatted by ``merge_consecutive_results`` (a
+    round-trip that turns e.g. ``.752Z`` into ``.752000Z``).
     """
     for ex in exclude_videos:
         ex_sensor = ex.get("sensor_id", "")

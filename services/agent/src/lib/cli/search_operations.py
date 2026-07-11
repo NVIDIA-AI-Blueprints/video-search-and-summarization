@@ -10,5 +10,4 @@ SEARCH_OPERATIONS = {
     "run": "search",
     "embed": "embed_search",
     "attribute": "attribute_search",
-    "critic": "critic",
 }

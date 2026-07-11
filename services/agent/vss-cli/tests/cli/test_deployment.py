@@ -632,7 +632,6 @@ def test_kubernetes_rewrites_only_requested_runtime_fields(monkeypatch: pytest.M
         rtvi_cv_endpoint="http://cv:9000",
         vst_internal_url="http://vst:30888",
         vst_external_url="https://public.example",
-        vlm_base_url="http://vlm:8000/v1",
     )
 
     try:
@@ -643,4 +642,3 @@ def test_kubernetes_rewrites_only_requested_runtime_fields(monkeypatch: pytest.M
     assert rewritten == ["http://es:9200", "http://embed:8017"]
     assert updated.es_endpoint == "local:http://es:9200"
     assert updated.rtvi_cv_endpoint == runtime.rtvi_cv_endpoint
-    assert updated.vlm_base_url == runtime.vlm_base_url

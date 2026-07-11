@@ -35,18 +35,17 @@ from typing import TYPE_CHECKING
 from lib._foundation.errors import BackendUnreachableError
 from lib._foundation.time import datetime_to_iso8601
 
-from ..models.critic import CriticAgentInput
-from ..models.critic import CriticAgentOutput
-from ..models.critic import CriticAgentResult
-from ..models.critic import TimeFormat
-from ..models.critic import VideoResult
+from .models import CriticAgentInput
+from .models import CriticAgentOutput
+from .models import CriticAgentResult
+from .models import TimeFormat
+from .models import VideoResult
 
 if TYPE_CHECKING:
     from lib.vlm.protocols import VLMAnalyzer
     from lib.vst.protocols import VSTSnapshot
 
-    from ..models.common import VideoInfo
-    from ..runtime import SearchRuntime
+    from .models import VideoInfo
 
 logger = logging.getLogger(__name__)
 
@@ -314,42 +313,6 @@ class CriticAgent:
             verdict, criteria = _parse_criteria(vlm_response)
             logger.debug(f"Video {video.sensor_id} verdict={verdict.value} criteria={criteria}")
             return VideoResult(video_info=video, result=verdict, criteria_met=criteria)
-
-    @classmethod
-    def from_runtime(
-        cls,
-        rt: SearchRuntime,
-        *,
-        vlm_analyzer: VLMAnalyzer,
-        vst: VSTSnapshot | None = None,
-        time_format: TimeFormat = "iso",
-        prompt: str | None = None,
-        num_videos_to_evaluate: int | None = None,
-    ) -> CriticAgent:
-        """Construct from a SearchRuntime.
-
-        `vlm_analyzer` is REQUIRED — there is no library-provided default; callers
-        (adapters and host facades) inject a concrete analyzer.
-
-        ``prompt`` and ``num_videos_to_evaluate`` let callers override the
-        constructor defaults without reaching into private attributes after
-        construction.
-        """
-        from lib.vst import VSTClient
-
-        return cls(
-            vlm_analyzer=vlm_analyzer,
-            vst=vst
-            or VSTClient(
-                internal_url=rt.vst_internal_url,
-                external_url=rt.vst_external_url,
-                timeout_seconds=rt.request_timeout_seconds,
-            ),
-            prompt=prompt if prompt is not None else DEFAULT_CRITIC_PROMPT,
-            max_concurrent_verifications=rt.max_concurrent_verifications,
-            time_format=time_format,
-            num_videos_to_evaluate=num_videos_to_evaluate,
-        )
 
     async def aclose(self) -> None:
         return None

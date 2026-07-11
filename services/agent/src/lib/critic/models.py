@@ -23,6 +23,7 @@ promoted to stable.
 
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003  Pydantic field annotation
 from enum import StrEnum
 from typing import Literal
 
@@ -30,14 +31,19 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
-# Used as a Pydantic field annotation (``CriticAgentInput.videos``) — must
-# be importable at runtime so Pydantic can resolve the stringified ref.
-from .common import VideoInfo  # noqa: TC001  Pydantic-resolved at runtime
-
 # Wire-shared format selector — 'iso' for ISO 8601 UTC strings, 'offset' for
 # seconds-since-stream-start. Shared so the primitive and the VLM analyzer
 # protocol agree on how timestamps are expressed.
 TimeFormat = Literal["iso", "offset"]
+
+
+class VideoInfo(BaseModel):
+    """A hashable video segment identified by sensor and time bounds."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    sensor_id: str
+    start_timestamp: datetime
+    end_timestamp: datetime
 
 
 class CriticAgentResult(StrEnum):

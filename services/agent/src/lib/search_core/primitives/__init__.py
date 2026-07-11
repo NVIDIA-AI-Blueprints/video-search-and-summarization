@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Search primitives: EmbedSearch, AttributeSearch, Search, CriticAgent.
+"""Search primitives: EmbedSearch, AttributeSearch, and Search.
 
 Convention: files in this directory MUST NOT read env directly. Receive
 configuration via SearchRuntime from the constructor / from_runtime factory.
@@ -24,18 +24,16 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 from typing import Any
 
-__all__ = ["AttributeSearch", "CriticAgent", "EmbedSearch", "Search"]
+__all__ = ["AttributeSearch", "EmbedSearch", "Search"]
 
 _LAZY_EXPORTS = {
     "AttributeSearch": ".attribute_search",
-    "CriticAgent": ".critic",
     "EmbedSearch": ".embed_search",
     "Search": ".search",
 }
 
 if TYPE_CHECKING:
     from .attribute_search import AttributeSearch
-    from .critic import CriticAgent
     from .embed_search import EmbedSearch
     from .search import Search
 

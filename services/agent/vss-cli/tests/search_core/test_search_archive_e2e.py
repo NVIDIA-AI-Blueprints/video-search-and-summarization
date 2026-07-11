@@ -286,7 +286,6 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             ),
             "similarity": 0.86,
             "object_ids": [],
-            "critic_result": None,
         }
     ]
     assert payload["search_messages"] == []
@@ -299,9 +298,8 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     # actual search request.
     search_request = mock_services.requests_ending_with("/_search")[-1]
     assert search_request.path == "/video_embeddings/_search"
-    # The orchestrator overfetches to replace critic-rejected results, and
-    # EmbedSearch overfetches again when ES filters may discard KNN hits.
-    assert search_request.body["size"] == 10
+    # EmbedSearch alone overfetches when ES filters may discard KNN hits.
+    assert search_request.body["size"] == 5
     assert search_request.body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
     assert "warehouse_clip" in json.dumps(search_request.body)
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)
@@ -348,7 +346,7 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     assert result.returncode == 0, result.stderr
     payload = _only_json_object(result.stdout)
     assert payload["data"][0]["object_ids"] == ["42"]
-    assert payload["data"][0]["critic_result"] is None
+    assert "critic_result" not in payload["data"][0]
     assert mock_services.requests_for("/v1/generate_text_embeddings") == []
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body == {
         "text_input": "white jacket",
@@ -411,7 +409,7 @@ def test_search_archive_cli_object_id_path_skips_query_embedding(
     assert behavior_searches[1].body["knn"]["query_vector"] == [0.3, 0.2, 0.1]
 
 
-def test_search_archive_cli_critic_uses_vst_clip_and_configured_vlm(
+def test_search_archive_cli_rejects_removed_critic_options(
     agent_root: Path,
     mock_services: _MockSearchServices,
 ) -> None:
@@ -420,40 +418,12 @@ def test_search_archive_cli_critic_uses_vst_clip_and_configured_vlm(
         mock_services,
         "--query",
         "red forklift",
-        "--top-k",
-        "1",
         "--use-critic",
-        "--enable-critic",
-        "--vlm-base-url",
-        mock_services.base_url,
-        "--vlm-model",
-        "nvidia/nemotron-omni-vl",
-        "--vlm-media-mode",
-        "video-base64",
-        "--vst-clip-enable-audio",
-        "--critic-time-format",
-        "offset",
-        "--critic-evaluation-count",
-        "1",
     )
 
-    assert result.returncode == 0, result.stderr
-    payload = _only_json_object(result.stdout)
-    assert payload["data"][0]["critic_result"] == {
-        "result": "confirmed",
-        "criteria_met": {
-            "subject:forklift": True,
-            "red": True,
-        },
-    }
-    clip_request = _single(mock_services.requests_for(f"/vst/api/v1/storage/file/{_STREAM_ID}/url"))
-    assert clip_request.method == "GET"
-    assert "disableAudio=false" in clip_request.raw_path
-    vlm_request = _single(mock_services.requests_for("/v1/chat/completions"))
-    assert vlm_request.body["model"] == "nvidia/nemotron-omni-vl"
-    assert vlm_request.body["mm_processor_kwargs"] == {"use_audio_in_video": True}
-    content = vlm_request.body["messages"][0]["content"]
-    assert content[1]["video_url"]["url"].startswith("data:video/mp4;base64,")
+    assert result.returncode == 2
+    assert "unrecognized arguments: --use-critic" in result.stderr
+    assert mock_services.requests_for("/v1/chat/completions") == []
 
 
 def test_search_archive_cli_validation_errors_exit_2(
@@ -507,7 +477,6 @@ async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
                 video_sources=["warehouse_clip"],
                 top_k=1,
                 agent_mode=False,
-                use_critic=False,
             )
     finally:
         await ElasticClient.close_all()
@@ -579,7 +548,6 @@ def _runtime_args(services: _MockSearchServices) -> list[str]:
         "0.1",
         "--behavior-index",
         "mdx-behavior-2025-01-01",
-        "--no-enable-critic",
         "--log-level",
         "ERROR",
     ]
