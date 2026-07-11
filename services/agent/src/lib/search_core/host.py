@@ -14,14 +14,12 @@
 # limitations under the License.
 """VSSSearch — facade for direct (non-HTTP) callers.
 
-All four primitives (embed_search, attribute_search, search, critic) are
+All three primitives (embed_search, attribute_search, search) are
 implemented and constructed lazily on first use. Query decomposition is
-NAT-owned and must run before `.search()` receives its input; VLM analysis
-remains an injected dependency for critic use.
+NAT-owned and must run before `.search()` receives its input.
 
 Lifecycle: build via one of the class methods and use as an async context
-manager (or call ``aclose()``) so lazily-built primitives — and any injected
-``vlm_analyzer`` the facade owns — release their backend clients cleanly.
+manager (or call ``aclose()``) so lazily-built primitives release their backend clients cleanly.
 """
 
 from __future__ import annotations
@@ -30,17 +28,13 @@ import asyncio
 from typing import TYPE_CHECKING
 from typing import Any
 
-from .errors import ConfigurationError
 from .models.attribute_search import AttributeSearchInput
 from .models.attribute_search import AttributeSearchOutput
-from .models.critic import CriticAgentInput
-from .models.critic import CriticAgentOutput
 from .models.embed_search import EmbedSearchInput
 from .models.embed_search import EmbedSearchOutput
 from .models.search import SearchInput
 from .models.search import SearchOutput
 from .primitives.attribute_search import AttributeSearch
-from .primitives.critic import CriticAgent
 from .primitives.embed_search import EmbedSearch
 from .primitives.search import Search
 from .runtime import RuntimeSnapshot
@@ -52,8 +46,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from lib.vlm.protocols import VLMAnalyzer
-
     from .events import SearchEvent
 
 
@@ -61,7 +53,7 @@ class VSSSearch:
     """One-stop facade for direct (non-HTTP) callers — host skills, notebooks, evals.
 
     Build with one of the class methods; call .embed_search / .attribute_search /
-    .search / .critic. Use as an async context manager so resources close cleanly:
+    .search. Use as an async context manager so resources close cleanly:
 
         async with VSSSearch.from_config_file(path) as vss:
             out = await vss.embed_search(query="red car", source_type="rtsp")
@@ -75,15 +67,12 @@ class VSSSearch:
         runtime: SearchRuntime,
         *,
         search_options: SearchOptions | None = None,
-        vlm_analyzer: VLMAnalyzer | None = None,
     ) -> None:
         self._rt = runtime
         self._opts = search_options or SearchOptions()
-        self._vlm_analyzer = vlm_analyzer
         self._embed: EmbedSearch | None = None
         self._attribute: AttributeSearch | None = None
         self._search: Search | None = None
-        self._critic: CriticAgent | None = None
 
     @property
     def runtime(self) -> SearchRuntime:
@@ -103,27 +92,23 @@ class VSSSearch:
         rt: SearchRuntime,
         *,
         search_options: SearchOptions | None = None,
-        vlm_analyzer: VLMAnalyzer | None = None,
     ) -> VSSSearch:
         return cls(
             rt,
             search_options=search_options,
-            vlm_analyzer=vlm_analyzer,
         )
 
     @classmethod
     def from_env(
         cls,
         env: Mapping[str, str] | None = None,
-        *,
-        vlm_analyzer: VLMAnalyzer | None = None,
     ) -> VSSSearch:
         """Build from os.environ only.
 
         Does NOT carry orchestrator-level options. For parity with a deployed
         profile, use from_config_file or from_remote instead.
         """
-        return cls(SearchRuntime.from_env(env), vlm_analyzer=vlm_analyzer)
+        return cls(SearchRuntime.from_env(env))
 
     @classmethod
     def from_config_file(
@@ -131,7 +116,6 @@ class VSSSearch:
         path: str | Path,
         *,
         env: Mapping[str, str] | None = None,
-        vlm_analyzer: VLMAnalyzer | None = None,
     ) -> VSSSearch:
         """Build from a NAT-style config file.
 
@@ -143,15 +127,12 @@ class VSSSearch:
         return cls(
             snap.runtime,
             search_options=snap.search,
-            vlm_analyzer=vlm_analyzer,
         )
 
     @classmethod
     def from_remote(
         cls,
         agent_url: str,
-        *,
-        vlm_analyzer: VLMAnalyzer | None = None,
     ) -> VSSSearch:
         """Fetch a snapshot from a running agent.
 
@@ -164,7 +145,6 @@ class VSSSearch:
         return cls(
             snap.runtime,
             search_options=snap.search,
-            vlm_analyzer=vlm_analyzer,
         )
 
     # ------------------------------------------------ Convenience primitive-only
@@ -196,7 +176,6 @@ class VSSSearch:
         """Lazy-build the Search primitive."""
         return Search.from_runtime(
             self._rt,
-            vlm_analyzer=self._vlm_analyzer,
             use_attribute_search=self._opts.use_attribute_search,
         )
 
@@ -210,49 +189,19 @@ class VSSSearch:
             self._search = self._build_search()
         return self._search.stream(SearchInput(**kw))
 
-    async def critic(self, **kw: Any) -> CriticAgentOutput:
-        if self._critic is None:
-            if not self._rt.enable_critic:
-                raise ConfigurationError("critic() was requested but the runtime disables critic wiring")
-            if self._vlm_analyzer is None:
-                raise ConfigurationError(
-                    "critic() requires an injected vlm_analyzer (pass it to the VSSSearch constructor / builder)"
-                )
-            self._critic = CriticAgent.from_runtime(
-                self._rt,
-                vlm_analyzer=self._vlm_analyzer,
-                time_format=self._rt.critic_time_format,
-                num_videos_to_evaluate=self._rt.critic_evaluation_count,
-            )
-        return await self._critic.run(CriticAgentInput(**kw))
-
     # ---------------------------------------------------------------- Lifecycle
 
     async def aclose(self) -> None:
-        """Close every lazily-built primitive and the injected VLM analyzer.
-
-        The analyzer is closed here because the facade is the only owner that
-        knows when critic work is done: neither ``Search`` nor ``CriticAgent``
-        close the injected ``vlm_analyzer`` (they must not close a dependency
-        they didn't create), so without this its httpx client would leak. The
-        analyzer's ``aclose`` is optional in the ``VLMAnalyzer`` protocol, so we
-        resolve it defensively. Refs are cleared afterwards so a second
-        ``aclose`` (e.g. explicit call + ``__aexit__``) is a no-op.
-        """
+        """Close every lazily-built search primitive."""
         coros: list[Any] = []
-        for p in (self._embed, self._attribute, self._search, self._critic):
+        for p in (self._embed, self._attribute, self._search):
             if p is not None:
                 coros.append(p.aclose())
-        analyzer_close = getattr(self._vlm_analyzer, "aclose", None)
-        if analyzer_close is not None:
-            coros.append(analyzer_close())
         if coros:
             await asyncio.gather(*coros, return_exceptions=True)
         self._embed = None
         self._attribute = None
         self._search = None
-        self._critic = None
-        self._vlm_analyzer = None
 
     async def __aenter__(self) -> VSSSearch:
         return self

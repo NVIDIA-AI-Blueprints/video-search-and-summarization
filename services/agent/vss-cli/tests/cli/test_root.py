@@ -16,7 +16,7 @@ def test_root_help_lists_registered_domains(capsys: pytest.CaptureFixture[str]) 
 
 def test_search_help_lists_operations(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["search", "--help"]) == 0
-    assert "{run,embed,attribute,critic}" in capsys.readouterr().out
+    assert "{run,embed,attribute}" in capsys.readouterr().out
 
 
 def test_unknown_root_command_returns_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
@@ -44,7 +44,7 @@ def test_search_run_routes_to_search_implementation(monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.parametrize(
     "operation",
-    ["embed", "attribute", "critic"],
+    ["embed", "attribute"],
 )
 def test_search_operations_route_to_their_primitives(monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
     calls: list[tuple[str, list[str]]] = []

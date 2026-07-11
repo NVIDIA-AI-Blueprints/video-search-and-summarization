@@ -8,11 +8,9 @@ import argparse
 import asyncio
 import io
 import json
-from pathlib import Path
 
 import pytest
 
-from lib.cli.deployment import DeploymentConfig
 from lib.cli.deployment import PortForwardError
 from lib.cli.search import _apply_runtime_overrides
 from lib.cli.search import _build_archive_search_payload
@@ -22,7 +20,6 @@ from lib.cli.search import _deployment_env_overrides
 from lib.cli.search import _exit_code_for_stream_error
 from lib.cli.search import _extract_rows
 from lib.cli.search import _load_payload
-from lib.cli.search import _maybe_build_vlm_analyzer
 from lib.cli.search import _parse_args
 from lib.cli.search import _preflight_embed_model
 from lib.cli.search import _preflight_index
@@ -95,7 +92,6 @@ def test_search_archive_flags_build_structured_search_input() -> None:
         "min_cosine_similarity": 0.25,
         "agent_mode": False,
     }
-    assert "use_critic" not in payload
 
 
 def test_search_archive_supports_repeated_sources_and_object_ids() -> None:
@@ -134,7 +130,6 @@ def test_search_archive_decomposed_json_preserves_host_agent_fields() -> None:
                 '"video_sources":["dock_cam"],'
                 '"attributes":["white jacket"],'
                 '"has_action":true,'
-                '"use_critic":true,'
                 '"top_k":3}'
             ),
         ]
@@ -148,7 +143,7 @@ def test_search_archive_decomposed_json_preserves_host_agent_fields() -> None:
     assert payload["video_sources"] == ["dock_cam"]
     assert payload["attributes"] == ["white jacket"]
     assert payload["has_action"] is True
-    assert payload["use_critic"] is True
+    assert "use_critic" not in payload
     assert payload["agent_mode"] is False
 
 
@@ -156,12 +151,11 @@ def test_search_archive_flags_override_decomposed_json() -> None:
     args = _parse_search_args(
         [
             "--decomposed-json",
-            '{"query":"old query","source_type":"video_file","use_critic":false}',
+            '{"query":"old query","source_type":"video_file"}',
             "--query",
             "new query",
             "--source-type",
             "rtsp",
-            "--use-critic",
         ]
     )
 
@@ -169,29 +163,7 @@ def test_search_archive_flags_override_decomposed_json() -> None:
 
     assert payload["query"] == "new query"
     assert payload["source_type"] == "rtsp"
-    assert payload["use_critic"] is True
-
-
-def test_search_archive_no_use_critic_sets_false() -> None:
-    args = _parse_search_args(["--query", "forklift", "--no-use-critic"])
-
-    payload = _build_archive_search_payload(args)
-
-    assert payload["use_critic"] is False
-
-
-def test_decomposed_json_null_critic_preserves_runtime_inheritance() -> None:
-    args = _parse_search_args(
-        [
-            "--decomposed-json",
-            '{"query":"forklift","source_type":"video_file","use_critic":null}',
-        ]
-    )
-
-    payload = _build_archive_search_payload(args)
-
-    assert "use_critic" in payload
-    assert payload["use_critic"] is None
+    assert "use_critic" not in payload
 
 
 def test_search_archive_config_env_interpolates_config_without_process_env(monkeypatch, tmp_path) -> None:
@@ -229,7 +201,6 @@ functions:
             "VST_EXTERNAL_URL=http://arg-vst.external",
             "--query",
             "forklift",
-            "--no-use-critic",
         ]
     )
 
@@ -281,8 +252,6 @@ def test_deployment_runtime_flags_fill_config_interpolation() -> None:
             "https://vst.example",
             "--vst-external-url",
             "https://public.example",
-            "--no-enable-critic",
-            "--vst-clip-enable-audio",
             "--query",
             "forklift",
         ]
@@ -296,8 +265,6 @@ def test_deployment_runtime_flags_fill_config_interpolation() -> None:
     assert env["RTVI_CV_ENDPOINT"] == "https://cv.example"
     assert env["RTVI_CV_BASE_URL"] == "https://cv.example"
     assert env["VST_INTERNAL_URL"] == "https://vst.example"
-    assert env["ENABLE_CRITIC"] == "false"
-    assert env["ENABLE_AUDIO"] == "true"
 
 
 def test_deployment_index_flags_fill_every_supported_interpolation_alias() -> None:
@@ -348,9 +315,7 @@ functions:
 """,
         encoding="utf-8",
     )
-    args = _parse_search_args(
-        ["--es-endpoint", "https://external-es.example", "--query", "forklift", "--no-use-critic"]
-    )
+    args = _parse_search_args(["--es-endpoint", "https://external-es.example", "--query", "forklift"])
 
     class RecordingDeployment:
         def __init__(self) -> None:
@@ -533,49 +498,6 @@ class TestRequiredRuntimeArgs:
             "vst_internal_url",
             "vst_external_url",
         }
-
-    def test_critic_only_requires_internal_vst_by_default(self) -> None:
-        assert _required_runtime_args("critic") == (("vst_internal_url", "--vst-internal-url"),)
-
-    def test_critic_runtime_builds_without_search_backends(self) -> None:
-        args = _parse_args(
-            [
-                "--vst-internal-url",
-                "http://vst:30888",
-                "--vlm-base-url",
-                "http://vlm:8000/v1",
-                "--vlm-model",
-                "model",
-            ],
-            operation="critic",
-        )
-
-        runtime = _runtime_from_args(args)
-
-        assert runtime.es_endpoint == ""
-        assert runtime.cosmos_embed_endpoint == ""
-        assert runtime.rtvi_cv_endpoint == ""
-        assert runtime.vst_external_url == ""
-
-    def test_critic_external_video_url_requires_external_vst(self) -> None:
-        args = _parse_args(
-            [
-                "--vst-internal-url",
-                "http://vst:30888",
-                "--vlm-base-url",
-                "http://vlm:8000/v1",
-                "--vlm-model",
-                "model",
-                "--vlm-media-mode",
-                "video-url",
-                "--vlm-video-url-scope",
-                "external",
-            ],
-            operation="critic",
-        )
-
-        with pytest.raises(ConfigurationError, match="--vst-external-url"):
-            _runtime_from_args(args)
 
     def test_embed_search_runtime_builds_without_rtvi_cv(self) -> None:
         args = _parse_args(
@@ -881,15 +803,13 @@ def test_search_primitive_still_accepts_search_flags() -> None:
 # --------------------------------------------------------------- analyzer gating (#8)
 
 
-def _runtime_with_vlm() -> SearchRuntime:
+def _runtime() -> SearchRuntime:
     return SearchRuntime.from_kwargs(
         es_endpoint="http://es:9200",
         cosmos_embed_endpoint="http://embed:8017",
         rtvi_cv_endpoint="http://cv:9000",
         vst_internal_url="http://vst:30888",
         vst_external_url="http://vst:7777",
-        vlm_base_url="http://vlm:8000/v1",
-        vlm_model_name="gpt-4o",
     )
 
 
@@ -901,7 +821,7 @@ def test_named_source_resolution_refuses_unavailable_source(monkeypatch: pytest.
     payload = {"video_sources": ["airport-camera"]}
 
     with pytest.raises(ConfigurationError, match="Stop and clarify"):
-        asyncio.run(_resolve_named_sources(payload, _runtime_with_vlm()))
+        asyncio.run(_resolve_named_sources(payload, _runtime()))
 
 
 def test_named_source_resolution_uses_only_unambiguous_normalized_match(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -911,7 +831,7 @@ def test_named_source_resolution_uses_only_unambiguous_normalized_match(monkeypa
     monkeypatch.setattr("lib.vst.get_name_to_stream_id_map", sources)
     payload = {"video_sources": ["warehouse-camera-3"]}
 
-    asyncio.run(_resolve_named_sources(payload, _runtime_with_vlm()))
+    asyncio.run(_resolve_named_sources(payload, _runtime()))
     assert payload["video_sources"] == ["Warehouse Camera 3"]
 
 
@@ -931,7 +851,7 @@ def test_embed_model_preflight_never_auto_selects_an_available_id(monkeypatch: p
     monkeypatch.setattr("lib.cli.search.httpx.AsyncClient", lambda **_kwargs: FakeClient())
 
     with pytest.raises(ConfigurationError, match="different-model"):
-        asyncio.run(_preflight_embed_model(_runtime_with_vlm()))
+        asyncio.run(_preflight_embed_model(_runtime()))
 
 
 def test_rtsp_index_preflight_uses_runtime_wildcard(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -949,7 +869,7 @@ def test_rtsp_index_preflight_uses_runtime_wildcard(monkeypatch: pytest.MonkeyPa
     elastic = FakeElastic()
     monkeypatch.setattr(ElasticClient, "from_runtime", classmethod(lambda _cls, _runtime: elastic))
 
-    asyncio.run(_preflight_index(_runtime_with_vlm(), source_type="rtsp"))
+    asyncio.run(_preflight_index(_runtime(), source_type="rtsp"))
 
     assert elastic.index == ["mdx-embed-filtered-*", "-mdx-embed-filtered-2025-01-01"]
 
@@ -967,7 +887,7 @@ def test_rtsp_index_preflight_rejects_expression_with_no_concrete_shards(
     monkeypatch.setattr(ElasticClient, "from_runtime", classmethod(lambda _cls, _runtime: FakeElastic()))
 
     with pytest.raises(IndexNotFoundError):
-        asyncio.run(_preflight_index(_runtime_with_vlm(), source_type="rtsp"))
+        asyncio.run(_preflight_index(_runtime(), source_type="rtsp"))
 
 
 def test_rtsp_index_preflight_preserves_target_in_candidate_diagnostic(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -992,7 +912,7 @@ def test_rtsp_index_preflight_preserves_target_in_candidate_diagnostic(monkeypat
     monkeypatch.setattr(ElasticClient, "from_runtime", classmethod(lambda _cls, _runtime: FakeElastic()))
 
     with pytest.raises(IndexNotFoundError) as error:
-        asyncio.run(_preflight_index(_runtime_with_vlm(), source_type="rtsp"))
+        asyncio.run(_preflight_index(_runtime(), source_type="rtsp"))
 
     assert error.value.index == target
     assert error.value.available_indices == ("mdx-embed-filtered-2025-02-01",)
@@ -1086,84 +1006,44 @@ def test_rtvi_cv_fallback_is_only_used_when_explicit(monkeypatch: pytest.MonkeyP
     payload = {"attributes": ["white jacket"], "has_action": True}
     args = argparse.Namespace(primitive="search", allow_embed_only_fallback=True)
 
-    asyncio.run(_preflight_rtvi_cv(args, payload, _runtime_with_vlm()))
+    asyncio.run(_preflight_rtvi_cv(args, payload, _runtime()))
     assert payload == {"attributes": [], "has_action": None}
 
 
-def test_plain_search_without_critic_builds_no_analyzer() -> None:
-    args = _parse_args([], operation="run")
-    analyzer = _maybe_build_vlm_analyzer(args, {"use_critic": False}, _runtime_with_vlm())
-    assert analyzer is None
-
-
-def test_critic_request_builds_analyzer() -> None:
-    args = _parse_args([], operation="critic")
-    analyzer = _maybe_build_vlm_analyzer(args, {}, _runtime_with_vlm())
-    assert analyzer is not None
-
-
-def test_omitted_critic_setting_inherits_enabled_runtime() -> None:
-    args = _parse_args([], operation="run")
-
-    analyzer = _maybe_build_vlm_analyzer(args, {"query": "forklift"}, _runtime_with_vlm())
-
-    assert analyzer is not None
-
-
-def test_discovered_critic_defaults_to_host_fetched_frames() -> None:
-    args = _parse_args([], operation="run")
-    discovered = DeploymentConfig(config_path=Path("config.yml"), env={"VLM_MODE": "remote"})
-
-    analyzer = _maybe_build_vlm_analyzer(
-        args,
-        {"query": "forklift"},
-        _runtime_with_vlm(),
-        deployment=discovered,
-    )
-
-    assert analyzer is not None
-    assert analyzer._media_mode == "frame_base64"
-    assert analyzer._video_url_scope == "internal"
-    assert analyzer._vst._rewrite_internal_clip_url is True
-
-
 def test_request_runtime_fields_exclude_unused_kubernetes_services() -> None:
-    args = _parse_search_args(["--query", "forklift", "--no-use-critic"])
+    args = _parse_search_args(["--query", "forklift"])
 
-    fields = _runtime_fields_for_request(args, _build_archive_search_payload(args), _runtime_with_vlm())
+    fields = _runtime_fields_for_request(args, _build_archive_search_payload(args), _runtime())
 
     assert fields == {"es_endpoint", "cosmos_embed_endpoint", "vst_external_url"}
 
 
-def test_pydantic_normalization_drives_route_and_critic_planning() -> None:
-    args = _parse_search_args(["--query", "forklift", "--no-use-critic"])
+def test_pydantic_normalization_drives_route_planning() -> None:
+    args = _parse_search_args(["--query", "forklift"])
     payload = {
         "query": "forklift",
         "source_type": "video_file",
         "attributes": ["white jacket"],
         "has_action": "true",
         "agent_mode": False,
-        "use_critic": "false",
     }
 
     _validate_payload_before_preflight(args, payload)
-    fields = _runtime_fields_for_request(args, payload, _runtime_with_vlm())
+    fields = _runtime_fields_for_request(args, payload, _runtime())
 
     assert payload["has_action"] is True
-    assert payload["use_critic"] is False
     assert {"es_endpoint", "cosmos_embed_endpoint", "behavior_es_endpoint", "rtvi_cv_endpoint"} <= fields
     assert "vlm_base_url" not in fields
 
 
 def test_rtvi_port_forward_failure_uses_explicit_embed_fallback(capsys: pytest.CaptureFixture[str]) -> None:
-    args = _parse_search_args(["--query", "forklift", "--allow-embed-only-fallback", "--no-use-critic"])
+    args = _parse_search_args(["--query", "forklift", "--allow-embed-only-fallback"])
     payload = {
         "query": "forklift",
         "source_type": "video_file",
         "attributes": ["white jacket"],
         "has_action": False,
         "agent_mode": False,
-        "use_critic": False,
     }
     _validate_payload_before_preflight(args, payload)
     calls: list[set[str]] = []
@@ -1175,7 +1055,7 @@ def test_rtvi_port_forward_failure_uses_explicit_embed_fallback(capsys: pytest.C
                 raise PortForwardError("no ready RTVI-CV pod")
             return runtime
 
-    _rewrite_deployment_runtime(args, payload, _runtime_with_vlm(), FailingRTVIDeployment())  # type: ignore[arg-type]
+    _rewrite_deployment_runtime(args, payload, _runtime(), FailingRTVIDeployment())  # type: ignore[arg-type]
 
     assert payload["attributes"] == []
     assert payload["has_action"] is None
@@ -1195,11 +1075,11 @@ def test_precomputed_embedding_skips_model_preflight(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr("lib.cli.search._preflight_embed_model", unexpected_model)
 
-    asyncio.run(_preflight_search_runtime(args, payload, _runtime_with_vlm()))
+    asyncio.run(_preflight_search_runtime(args, payload, _runtime()))
 
 
 def test_attribute_fallback_recomputes_embed_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
-    args = _parse_search_args(["--query", "forklift", "--allow-embed-only-fallback", "--no-use-critic"])
+    args = _parse_search_args(["--query", "forklift", "--allow-embed-only-fallback"])
     payload = {
         "query": "forklift",
         "source_type": "video_file",
@@ -1223,13 +1103,13 @@ def test_attribute_fallback_recomputes_embed_preflights(monkeypatch: pytest.Monk
     monkeypatch.setattr("lib.cli.search._preflight_index", index)
     monkeypatch.setattr("lib.cli.search._preflight_embed_model", model)
 
-    asyncio.run(_preflight_search_runtime(args, payload, _runtime_with_vlm()))
+    asyncio.run(_preflight_search_runtime(args, payload, _runtime()))
 
     assert calls == ["rtvi", "index:video_file", "model"]
 
 
 def test_single_word_attributes_use_embed_preflights_without_rtvi(monkeypatch: pytest.MonkeyPatch) -> None:
-    args = _parse_search_args(["--query", "forklift", "--attribute", "red", "--no-use-critic"])
+    args = _parse_search_args(["--query", "forklift", "--attribute", "red"])
     payload = _build_archive_search_payload(args)
     calls: list[str] = []
 
@@ -1246,13 +1126,13 @@ def test_single_word_attributes_use_embed_preflights_without_rtvi(monkeypatch: p
     monkeypatch.setattr("lib.cli.search._preflight_index", index)
     monkeypatch.setattr("lib.cli.search._preflight_embed_model", model)
 
-    asyncio.run(_preflight_search_runtime(args, payload, _runtime_with_vlm()))
+    asyncio.run(_preflight_search_runtime(args, payload, _runtime()))
 
     assert calls == ["index:video_file", "model"]
 
 
 def test_object_id_search_does_not_preflight_embed_or_rtvi(monkeypatch: pytest.MonkeyPatch) -> None:
-    args = _parse_search_args(["--query", "forklift", "--object-id", "42", "--no-use-critic"])
+    args = _parse_search_args(["--query", "forklift", "--object-id", "42"])
     payload = _build_archive_search_payload(args)
 
     async def unexpected(*_args: object, **_kwargs: object) -> None:
@@ -1262,4 +1142,4 @@ def test_object_id_search_does_not_preflight_embed_or_rtvi(monkeypatch: pytest.M
     monkeypatch.setattr("lib.cli.search._preflight_index", unexpected)
     monkeypatch.setattr("lib.cli.search._preflight_embed_model", unexpected)
 
-    asyncio.run(_preflight_search_runtime(args, payload, _runtime_with_vlm()))
+    asyncio.run(_preflight_search_runtime(args, payload, _runtime()))

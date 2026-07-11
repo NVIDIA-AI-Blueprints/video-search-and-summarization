@@ -346,7 +346,6 @@ def merge_consecutive_results(results: list[SearchResult]) -> list[SearchResult]
                     screenshot_url=first.screenshot_url,
                     similarity=similarity,
                     object_ids=merged_object_ids,
-                    critic_result=None,
                 )
             )
 

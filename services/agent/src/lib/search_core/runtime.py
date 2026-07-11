@@ -43,9 +43,6 @@ import os
 from pathlib import Path
 import re
 from typing import Any
-from typing import Literal
-
-from pydantic import SecretStr
 
 from .errors import BackendUnreachableError
 from .errors import ConfigurationError
@@ -94,22 +91,16 @@ def _bool(s: str | None) -> bool:
 # interpreted, instead of silently poisoning runtime behaviour.
 _BOOL_CONFIG_FIELDS = frozenset(
     {
-        "vst_clip_enable_audio",
         "enable_frame_lookup",
-        "enable_critic",
     }
 )
 _INT_CONFIG_FIELDS = frozenset(
     {
-        "vlm_max_frames",
-        "vlm_max_fps",
         "default_max_results",
         "embed_default_max_results",
         "rrf_k",
         "search_max_iterations",
-        "max_concurrent_verifications",
         "request_timeout_seconds",
-        "critic_evaluation_count",
     }
 )
 _FLOAT_CONFIG_FIELDS = frozenset(
@@ -167,16 +158,6 @@ def _coerce_config_float(name: str, value: Any) -> float:
     raise ConfigurationError(f"config value '{name}' must be a number, got {value!r}")
 
 
-def _coerce_secret(name: str, value: Any) -> SecretStr:
-    # Re-wrap a plaintext wire value as SecretStr so the invariant holds and no
-    # plaintext key survives on the dataclass / in its repr.
-    if isinstance(value, SecretStr):
-        return value
-    if isinstance(value, str):
-        return SecretStr(value)
-    raise ConfigurationError(f"config value '{name}' must be a string secret")
-
-
 def _coerce_config_value(name: str, value: Any) -> Any:
     """Coerce one raw config value to the SearchRuntime field's declared type."""
     if value is None:
@@ -187,25 +168,12 @@ def _coerce_config_value(name: str, value: Any) -> Any:
         return _coerce_config_int(name, value)
     if name in _FLOAT_CONFIG_FIELDS:
         return _coerce_config_float(name, value)
-    if name == "vlm_api_key":
-        return _coerce_secret(name, value)
     return value
 
 
 def _coerce_runtime_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
     """Coerce every SearchRuntime kwarg to its declared type (see helpers above)."""
     return {name: _coerce_config_value(name, value) for name, value in kwargs.items()}
-
-
-def _env_int(env: Mapping[str, str], key: str) -> int | None:
-    """Read an optional int env var, mapping a bad value to ConfigurationError."""
-    raw = env.get(key)
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError as e:
-        raise ConfigurationError(f"env var '{key}' must be an integer, got {raw!r}") from e
 
 
 # ${VAR} and ${VAR:-default} with shell `:-` semantics: the default fires when
@@ -299,15 +267,6 @@ class SearchRuntime:
     vst_internal_url: str
     vst_external_url: str
 
-    # ---- VLM (used by CriticAgent via the video_understanding NAT tool) ----
-    vlm_base_url: str | None = None
-    vlm_model_name: str | None = None
-    vlm_model_type: Literal["nim", "openai"] = "nim"
-    vlm_api_key: SecretStr | None = None
-    vlm_max_frames: int = 60
-    vlm_max_fps: int = 2
-    vst_clip_enable_audio: bool = False
-
     # ---- Indexes ----
     behavior_index: str = "mdx-behavior-2025-01-01"  # DEFAULT_BEHAVIOR_INDEX in code
     # NEW in v1: today's code hardcodes this literal at tools/search.py:997 and
@@ -326,7 +285,6 @@ class SearchRuntime:
     enable_frame_lookup: bool = True  # mirrors attribute_search.py:190
 
     # ---- Behavior knobs ----
-    enable_critic: bool = True
     # Search orchestrator default from functions.search.default_max_results.
     default_max_results: int = 10
     # Result cap for the embed primitive when a request omits top_k. Defaults to
@@ -341,9 +299,6 @@ class SearchRuntime:
     rrf_w: float = 0.5
     top_percent_filter: float | None = None
     search_max_iterations: int = 1
-    max_concurrent_verifications: int = 5
-    critic_time_format: Literal["iso", "offset"] = "iso"
-    critic_evaluation_count: int | None = None
     request_timeout_seconds: int = 30
 
     # =========================================================================
@@ -368,10 +323,8 @@ class SearchRuntime:
                                 RTVI_EMBED_PORT, RTVI_CV_PORT (no RTVI_CV_ENDPOINT
                                 today; assembled here from HOST_IP + RTVI_CV_PORT).
 
-        VLM fields are optional — embed_search, attribute_search, and search do
-        not need them. CriticAgent.from_runtime() validates VLM presence at
-        construction. This lets `vss-cli embed_search` run on pods that have
-        no VLM_BASE_URL set.
+        This runtime is retrieval-only: it configures embed, attribute, and
+        fusion search and intentionally does not read VLM or critic settings.
         """
         env = os.environ if env is None else env
         host_ip = env.get("HOST_IP", "localhost")
@@ -398,10 +351,6 @@ class SearchRuntime:
                 "RTVI_EMBED_BASE_URL (Helm) or RTVI_EMBED_PORT (+ HOST_IP) (Docker)"
             )
 
-        vlm_model_type: Literal["nim", "openai"] = "openai" if env.get("VLM_MODEL_TYPE") == "openai" else "nim"
-        # API key may be unset for local NIMs.
-        vlm_key_env = "OPENAI_API_KEY" if vlm_model_type == "openai" else "NVIDIA_API_KEY"
-
         es_endpoint = _req(env, "ELASTIC_SEARCH_ENDPOINT")
 
         return cls(
@@ -412,11 +361,6 @@ class SearchRuntime:
             rtvi_cv_endpoint=rtvi_cv,
             vst_internal_url=_req(env, "VST_INTERNAL_URL"),
             vst_external_url=_req(env, "VST_EXTERNAL_URL"),
-            vlm_base_url=env.get("VLM_BASE_URL"),
-            vlm_model_name=env.get("VLM_NAME"),
-            vlm_model_type=vlm_model_type,
-            vlm_api_key=SecretStr(env[vlm_key_env]) if env.get(vlm_key_env) else None,
-            vst_clip_enable_audio=_bool(env.get("ENABLE_AUDIO", "false")),
             video_embed_index=env.get("ELASTIC_SEARCH_INDEX", "mdx-embed-filtered-2025-01-01"),
             video_embed_index_wildcard=_first_non_empty(
                 env.get("ELASTIC_SEARCH_INDEX_WILDCARD"),
@@ -439,9 +383,6 @@ class SearchRuntime:
                 env.get("RTSP_RAW_ES_INDEX_PATTERN"),
                 "mdx-raw-*",
             ),
-            enable_critic=_bool(env.get("ENABLE_CRITIC", "true")),
-            critic_time_format="offset" if env.get("CRITIC_TIME_FORMAT") == "offset" else "iso",
-            critic_evaluation_count=_env_int(env, "CRITIC_EVALUATION_COUNT"),
         )
 
     @classmethod
@@ -475,9 +416,6 @@ class SearchRuntime:
         search_cfg = fns.get("search", {}) or {}
         embed_cfg = fns.get("embed_search", {}) or {}
         attr_cfg = fns.get("attribute_search", {}) or {}
-        critic_cfg = fns.get("critic_agent", {}) or {}
-        video_understanding_cfg = fns.get("video_understanding", {}) or {}
-        clip_cfg = fns.get("vst_video_clip", {}) or {}
 
         host_ip = env.get("HOST_IP", "localhost")
         rtvi_cv = _first_non_empty(
@@ -508,9 +446,6 @@ class SearchRuntime:
         )
         rtvi_cv_endpoint = _require_config_value("rtvi_cv_endpoint", rtvi_cv)
         cosmos_embed_endpoint = _require_config_value("cosmos_embed_endpoint", cosmos_embed)
-
-        vlm_model_type: Literal["nim", "openai"] = "openai" if env.get("VLM_MODEL_TYPE") == "openai" else "nim"
-        vlm_key_env = "OPENAI_API_KEY" if vlm_model_type == "openai" else "NVIDIA_API_KEY"
 
         kwargs: dict[str, Any] = {
             # ES + behavior
@@ -564,20 +499,9 @@ class SearchRuntime:
             "cosmos_embed_model": env.get("RTVI_EMBED_MODEL", "cosmos-embed1-448p"),
             "embed_default_max_results": embed_cfg.get("default_max_results", 100),
             "rtvi_cv_endpoint": rtvi_cv_endpoint,
-            # VLM
-            "vlm_base_url": env.get("VLM_BASE_URL"),
-            "vlm_model_name": env.get("VLM_NAME"),
-            "vlm_model_type": vlm_model_type,
-            "vlm_api_key": SecretStr(env[vlm_key_env]) if env.get(vlm_key_env) else None,
-            "vlm_max_frames": video_understanding_cfg.get("max_frames", 60),
-            "vlm_max_fps": video_understanding_cfg.get("max_fps", 2),
-            "vst_clip_enable_audio": clip_cfg.get("enable_audio", False),
             # Search orchestrator profile knobs — the whole point of this builder
-            "enable_critic": search_cfg.get("enable_critic", True),
             "embed_confidence_threshold": search_cfg.get("embed_confidence_threshold", 0.1),
             "search_max_iterations": search_cfg.get("search_max_iterations", 1),
-            "critic_time_format": critic_cfg.get("time_format", "iso"),
-            "critic_evaluation_count": critic_cfg.get("num_videos_to_evaluate"),
             "default_max_results": search_cfg.get("default_max_results", 10),
             "fusion_method": search_cfg.get("fusion_method", "rrf"),
             "w_attribute": search_cfg.get("w_attribute", 0.55),
@@ -593,7 +517,7 @@ class SearchRuntime:
         """Fetch a runtime snapshot from a running agent.
 
         Convenience for callers that only need the flat runtime
-        (embed_search / attribute_search / critic). For Search orchestrator
+        (embed_search / attribute_search). For Search orchestrator
         callers, use RuntimeSnapshot.from_remote() instead so use_attribute_search
         survives the round-trip.
 
@@ -647,8 +571,7 @@ class RuntimeSnapshot:
         missing = sorted(_REQUIRED_SEARCH_RUNTIME_FIELDS - runtime_payload.keys())
         if missing:
             raise ConfigurationError(f"runtime snapshot is missing required field(s): {', '.join(missing)}")
-        # Wire values are untrusted: coerce numeric/bool fields and re-wrap the
-        # VLM key as SecretStr so no plaintext key is stored (or leaked via repr).
+        # Wire values are untrusted: coerce numeric/bool fields before use.
         coerced = _coerce_runtime_kwargs(runtime_payload)
         return cls(
             runtime=SearchRuntime.from_kwargs(**coerced),

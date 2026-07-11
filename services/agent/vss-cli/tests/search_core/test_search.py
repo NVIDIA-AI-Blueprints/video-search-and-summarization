@@ -14,7 +14,6 @@ import pytest
 from lib.search_core.agent_chunks import AgentMessageChunk
 from lib.search_core.agent_chunks import AgentMessageChunkType
 from lib.search_core.errors import BackendUnreachableError
-from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import IndexNotFoundError
 from lib.search_core.errors import InvalidInputError
 from lib.search_core.errors import NoFinalResultError
@@ -24,16 +23,12 @@ from lib.search_core.events import StatusEvent
 from lib.search_core.models.attribute_search import AttributeSearchMetadata
 from lib.search_core.models.attribute_search import AttributeSearchOutput
 from lib.search_core.models.attribute_search import AttributeSearchResult
-from lib.search_core.models.critic import CriticAgentOutput
-from lib.search_core.models.critic import CriticAgentResult
-from lib.search_core.models.critic import VideoResult
 from lib.search_core.models.embed_search import EmbedSearchOutput
 from lib.search_core.models.embed_search import EmbedSearchResultItem
 from lib.search_core.models.search import SearchInput
 from lib.search_core.primitives._search_helpers import execute_core_search_wrapper
 from lib.search_core.primitives.search import Search
 from lib.search_core.primitives.search import _coerce_attribute_payload
-from lib.search_core.primitives.search import _coerce_critic_payload
 from lib.search_core.primitives.search import _coerce_embed_payload
 
 # --------------------------------------------------------------------- fakes
@@ -67,57 +62,7 @@ class _FakeAttr:
         return list(self._results)
 
 
-class _FakeCritic:
-    """Applies one verdict per call to every video handed in."""
-
-    def __init__(self, verdicts: list[CriticAgentResult], error: Exception | None = None) -> None:
-        self._verdicts = verdicts
-        self._error = error
-        self.calls = 0
-
-    async def ainvoke(self, payload: Any) -> CriticAgentOutput:
-        if self._error is not None:
-            raise self._error
-        verdict = self._verdicts[min(self.calls, len(self._verdicts) - 1)]
-        self.calls += 1
-        videos = payload["videos"]
-        return CriticAgentOutput(
-            video_results=[VideoResult(video_info=v, result=verdict, criteria_met={"ok": True}) for v in videos]
-        )
-
-
-class _PerVideoCritic:
-    """Applies a per-sensor verdict; records the sensor set seen on each call.
-
-    Lets a test assert both which videos were (re-)sent to the critic and the
-    verdict each received — needed for the reject-replacement and merge-stability
-    scenarios where a single blanket verdict is not expressive enough.
-    """
-
-    def __init__(self, verdict_by_sensor: dict[str, CriticAgentResult]) -> None:
-        self._verdicts = verdict_by_sensor
-        self.calls = 0
-        self.seen_sensors: list[set[str]] = []
-
-    async def ainvoke(self, payload: Any) -> CriticAgentOutput:
-        self.calls += 1
-        videos = payload["videos"]
-        self.seen_sensors.append({v.sensor_id for v in videos})
-        return CriticAgentOutput(
-            video_results=[
-                VideoResult(
-                    video_info=v,
-                    result=self._verdicts.get(v.sensor_id, CriticAgentResult.UNVERIFIED),
-                    criteria_met={"ok": True},
-                )
-                for v in videos
-            ]
-        )
-
-
 class _FakeBehaviorEs:
-    """Minimal behavior-index ES for the object_id path (embedding fetch + kNN)."""
-
     endpoint = "http://es"
 
     async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
@@ -134,7 +79,7 @@ def _behavior_hit(object_id: str = "42", sensor_id: str = "cam1", score: float =
         "_id": f"h{object_id}",
         "_score": score,
         "_source": {
-            "object": {"id": object_id, "type": "Person", "bbox": {"leftX": 1, "rightX": 2, "topY": 3, "bottomY": 4}},
+            "object": {"id": object_id, "type": "Person", "bbox": {}},
             "sensor": {"id": sensor_id},
             "timestamp": "2025-01-01T00:00:00Z",
             "end": "2025-01-01T00:00:10Z",
@@ -173,22 +118,22 @@ def _attr_result(
     start_time: str = "2025-01-01T00:00:00Z",
     end_time: str = "2025-01-01T00:00:05Z",
 ) -> AttributeSearchResult:
-    meta = AttributeSearchMetadata(
-        sensor_id=sensor_id,
-        object_id=object_id,
-        object_type="person",
-        behavior_score=behavior_score,
-        start_time=start_time,
-        end_time=end_time,
+    return AttributeSearchResult(
+        screenshot_url=None,
+        metadata=AttributeSearchMetadata(
+            sensor_id=sensor_id,
+            object_id=object_id,
+            object_type="person",
+            behavior_score=behavior_score,
+            start_time=start_time,
+            end_time=end_time,
+        ),
     )
-    return AttributeSearchResult(screenshot_url=None, metadata=meta)
 
 
 def _config(**overrides: Any) -> SimpleNamespace:
     base: dict[str, Any] = {
         "attribute_search_tool": "attribute_search",
-        "critic_agent": None,
-        "enable_critic": False,
         "use_attribute_search": False,
         "embed_confidence_threshold": 0.1,
         "search_max_iterations": 1,
@@ -408,71 +353,6 @@ class TestFusionErrorSemantics:
             )
 
 
-class TestCriticLoop:
-    @pytest.mark.asyncio
-    async def test_critic_confirms(self):
-        embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", sensor_id="camA", similarity=0.8)])])
-        critic = _FakeCritic([CriticAgentResult.CONFIRMED])
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=2),
-            critic_agent=critic,
-        )
-        assert critic.calls == 1
-        assert embed.calls and len(embed.calls) == 1  # confirmed -> no re-search
-        assert out.data[0].critic_result is not None
-        assert out.data[0].critic_result.result == "confirmed"
-
-    @pytest.mark.asyncio
-    async def test_critic_reject_triggers_research(self):
-        # Iteration 1 returns v1 (rejected); iteration 2 returns v2 (confirmed).
-        embed = _FakeEmbed(
-            [
-                _embed_output([_embed_item(video_name="v1", sensor_id="camA", similarity=0.8)]),
-                _embed_output([_embed_item(video_name="v2", sensor_id="camB", similarity=0.8)]),
-            ]
-        )
-        critic = _FakeCritic([CriticAgentResult.REJECTED, CriticAgentResult.CONFIRMED])
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=2),
-            critic_agent=critic,
-        )
-        assert len(embed.calls) == 2  # rejection forced a re-search
-        assert critic.calls == 2
-        assert out.data[0].video_name == "v2"
-        assert out.data[0].critic_result.result == "confirmed"
-
-    @pytest.mark.asyncio
-    async def test_critic_soft_fails_on_backend_error(self):
-        embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", sensor_id="camA", similarity=0.8)])])
-        critic = _FakeCritic([], error=BackendUnreachableError("vlm", "service unavailable"))
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=1),
-            critic_agent=critic,
-        )
-        # Critic failure is best-effort: results still returned, with a note.
-        assert len(out.data) == 1
-        assert any("Critic verification unavailable" in m for m in out.search_messages)
-
-    @pytest.mark.asyncio
-    async def test_critic_unexpected_error_propagates(self):
-        embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", sensor_id="camA", similarity=0.8)])])
-        critic = _FakeCritic([], error=RuntimeError("critic implementation bug"))
-
-        with pytest.raises(RuntimeError, match="implementation bug"):
-            await _run(
-                SearchInput(query="q", source_type="video_file", agent_mode=False),
-                embed_search=embed,
-                config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=1),
-                critic_agent=critic,
-            )
-
-
 class TestFinalCapping:
     @pytest.mark.asyncio
     async def test_final_top_k_caps_results(self):
@@ -534,7 +414,6 @@ class TestInputValidation:
         search = Search(
             embed=_PrimEmbed(),  # type: ignore[arg-type]
             attribute=_PrimAttr(),  # type: ignore[arg-type]
-            critic=None,
             behavior_es=_PrimBehaviorEs(),  # type: ignore[arg-type]
             behavior_index="behavior_index",
         )
@@ -552,176 +431,10 @@ class TestInputValidation:
 # --------------------------------------------------------------- reject semantics
 
 
-class TestCriticRejectReplacement:
-    """TRUE reject-replacement semantics (#1): a REJECTED result is dropped from
-    the output, its slot goes to a lower-ranked replacement, and rejected clips
-    are excluded on re-search."""
-
-    @pytest.mark.asyncio
-    async def test_rejected_removed_and_replacement_promoted_into_cap(self):
-        # STABLE embed fake: same three-result set every call. top_k=2 means the
-        # final cap keeps 2. If the rejected top hit were kept it would occupy a
-        # slot and push v3 out; TRUE replacement drops it so v3 surfaces.
-        embed = _FakeEmbed(
-            [
-                _embed_output(
-                    [
-                        _embed_item(video_name="v1", sensor_id="camA", similarity=0.9),
-                        _embed_item(video_name="v2", sensor_id="camB", similarity=0.8),
-                        _embed_item(video_name="v3", sensor_id="camC", similarity=0.7),
-                    ]
-                )
-            ]
-        )
-        critic = _PerVideoCritic(
-            {
-                "camA": CriticAgentResult.REJECTED,
-                "camB": CriticAgentResult.CONFIRMED,
-                "camC": CriticAgentResult.CONFIRMED,
-            }
-        )
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False, top_k=2),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=2),
-            critic_agent=critic,
-        )
-        names = {r.video_name for r in out.data}
-        assert "v1" not in names  # rejected result removed
-        assert names == {"v2", "v3"}  # replacement (v3) promoted into the top-2
-        assert len(embed.calls) == 2  # rejection forced a bounded re-search
-
-        # The rejected clip is threaded into the re-search as an exclusion.
-        second_payload = json.loads(embed.calls[1])
-        excluded_sensors = {ev["sensor_id"] for ev in second_payload["exclude_videos"]}
-        assert "camA" in excluded_sensors
-
-    @pytest.mark.asyncio
-    async def test_default_single_iteration_still_removes_rejected(self):
-        # With the default search_max_iterations=1 there is no re-search, but the
-        # rejected result must STILL be dropped from the output.
-        embed = _FakeEmbed(
-            [
-                _embed_output(
-                    [
-                        _embed_item(video_name="v1", sensor_id="camA", similarity=0.9),
-                        _embed_item(video_name="v2", sensor_id="camB", similarity=0.8),
-                    ]
-                )
-            ]
-        )
-        critic = _PerVideoCritic({"camA": CriticAgentResult.REJECTED, "camB": CriticAgentResult.CONFIRMED})
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=1),
-            critic_agent=critic,
-        )
-        assert {r.video_name for r in out.data} == {"v2"}
-        assert len(embed.calls) == 1  # no re-search at the default iteration cap
-
-
-class TestCriticLoopBounds:
-    @pytest.mark.asyncio
-    async def test_loop_bounded_by_search_max_iterations(self):
-        # A fresh candidate each call + always-reject would loop forever if not
-        # bounded; embed must be called exactly search_max_iterations times.
-        embed = _FakeEmbed(
-            [
-                _embed_output([_embed_item(video_name="v1", sensor_id="cam1", similarity=0.9)]),
-                _embed_output([_embed_item(video_name="v2", sensor_id="cam2", similarity=0.9)]),
-                _embed_output([_embed_item(video_name="v3", sensor_id="cam3", similarity=0.9)]),
-                _embed_output([_embed_item(video_name="v4", sensor_id="cam4", similarity=0.9)]),
-            ]
-        )
-        critic = _FakeCritic([CriticAgentResult.REJECTED])
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=3),
-            critic_agent=critic,
-        )
-        assert len(embed.calls) == 3  # bounded — never a 4th iteration
-        assert out.data == []  # every candidate was rejected and removed
-
-    @pytest.mark.asyncio
-    async def test_all_unverified_stops_research(self):
-        embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", sensor_id="camA", similarity=0.8)])])
-        critic = _FakeCritic([CriticAgentResult.UNVERIFIED])
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=3),
-            critic_agent=critic,
-        )
-        # An all-UNVERIFIED verdict set halts re-search after the first pass.
-        assert len(embed.calls) == 1
-        assert {r.video_name for r in out.data} == {"v1"}
-        assert any("VLM verification unavailable" in m for m in out.search_messages)
-
-    @pytest.mark.asyncio
-    async def test_verdict_key_stable_across_merge(self):
-        # #6: a video CONFIRMED in iteration 1 (bounds A) must not be re-sent to
-        # the critic in iteration 2 after merge_consecutive_results extends its
-        # end_time (bounds B). Keying verdicts by (sensor_id, start_time) keeps it
-        # recognised as already-confirmed.
-        embed = _FakeEmbed(
-            [
-                _embed_output(
-                    [
-                        _embed_item(
-                            video_name="vA",
-                            sensor_id="camA",
-                            similarity=0.9,
-                            start="2025-01-01T00:00:00Z",
-                            end="2025-01-01T00:00:05Z",
-                        ),
-                        _embed_item(video_name="vB", sensor_id="camB", similarity=0.8),
-                    ]
-                ),
-                _embed_output(
-                    [
-                        _embed_item(
-                            video_name="vA",
-                            sensor_id="camA",
-                            similarity=0.9,
-                            start="2025-01-01T00:00:00Z",
-                            end="2025-01-01T00:00:05Z",
-                        ),
-                        _embed_item(
-                            video_name="vA",
-                            sensor_id="camA",
-                            similarity=0.88,
-                            start="2025-01-01T00:00:04Z",
-                            end="2025-01-01T00:00:10Z",
-                        ),
-                    ]
-                ),
-            ]
-        )
-        critic = _PerVideoCritic({"camA": CriticAgentResult.CONFIRMED, "camB": CriticAgentResult.REJECTED})
-        out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False),
-            embed_search=embed,
-            config=_config(enable_critic=True, critic_agent="critic", search_max_iterations=2),
-            critic_agent=critic,
-        )
-        # Iteration 2's embed set merges camA into 00:00->00:10 (end drifted), but
-        # the critic is invoked only once — the merged result is recognised as the
-        # already-confirmed camA and NOT re-verified.
-        assert critic.calls == 1
-        cam_a_results = [r for r in out.data if r.sensor_id == "camA"]
-        assert len(cam_a_results) == 1
-        assert cam_a_results[0].end_time == "2025-01-01T00:00:10Z"  # merged bounds
-        assert cam_a_results[0].critic_result is not None
-        assert cam_a_results[0].critic_result.result == "confirmed"
-
-
 class TestTopKOverflow:
     @pytest.mark.asyncio
     async def test_embed_path_high_top_k_does_not_error_and_clamps_overfetch(self):
-        # A user top_k in [501, 1000] doubles past the downstream le=1000 bound;
-        # the overfetch must be clamped to 1000 so no ValidationError is raised.
+        # Search sends the requested limit directly.
         embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", similarity=0.8)])])
         out = await _run(
             SearchInput(query="q", source_type="video_file", agent_mode=False, top_k=750),
@@ -730,7 +443,7 @@ class TestTopKOverflow:
         )
         assert len(out.data) == 1
         sent = json.loads(embed.calls[0])
-        assert sent["params"]["top_k"] == "1000"  # 750*2 clamped to 1000
+        assert sent["params"]["top_k"] == "750"
 
     def test_coerce_embed_payload_maps_validation_error(self):
         with pytest.raises(InvalidInputError):
@@ -739,74 +452,6 @@ class TestTopKOverflow:
     def test_coerce_attribute_payload_maps_validation_error(self):
         with pytest.raises(InvalidInputError):
             _coerce_attribute_payload({"query": "x", "top_k": 5000})
-
-    def test_coerce_critic_payload_maps_validation_error(self):
-        with pytest.raises(InvalidInputError):
-            _coerce_critic_payload({"query": "verify"})
-
-
-class TestConfigurationErrors:
-    @pytest.mark.asyncio
-    async def test_omitted_critic_inherits_enabled_runtime_and_requires_analyzer(self):
-        search = _build_stream_search(
-            lambda _inp: _embed_output([]),
-            enable_critic=True,
-        )
-
-        with pytest.raises(ConfigurationError, match="no VLM analyzer"):
-            await search.run(SearchInput(query="q", source_type="video_file", agent_mode=False))
-
-    @pytest.mark.asyncio
-    async def test_explicit_critic_cannot_override_disabled_runtime(self):
-        search = _build_stream_search(lambda _inp: _embed_output([]))
-
-        with pytest.raises(ConfigurationError, match="runtime disables"):
-            await search.run(
-                SearchInput(
-                    query="q",
-                    source_type="video_file",
-                    agent_mode=False,
-                    use_critic=True,
-                )
-            )
-
-    @pytest.mark.asyncio
-    async def test_missing_behavior_es_endpoint_raises_configuration_error(self):
-        embed = _FakeEmbed([_embed_output([])])
-        with pytest.raises(ConfigurationError):
-            await _run(
-                SearchInput(query="q", source_type="video_file", object_ids=[42], agent_mode=False),
-                embed_search=embed,
-                config=_config(behavior_es_endpoint=None),
-                behavior_es=None,
-            )
-
-    @pytest.mark.asyncio
-    async def test_missing_attribute_search_fn_raises_configuration_error(self):
-        embed = _FakeEmbed([_embed_output([])])
-        with pytest.raises(ConfigurationError):
-            await _run(
-                SearchInput(
-                    query="q",
-                    source_type="video_file",
-                    attributes=["white jacket"],
-                    has_action=False,
-                    agent_mode=False,
-                ),
-                embed_search=embed,
-                config=_config(),
-                attribute_search_fn=None,
-            )
-
-    @pytest.mark.asyncio
-    async def test_critic_configuration_error_propagates(self):
-        with pytest.raises(ConfigurationError, match="invalid VLM configuration"):
-            await _run(
-                SearchInput(query="q", source_type="video_file", agent_mode=False, use_critic=True),
-                embed_search=_FakeEmbed([_embed_output([_embed_item(video_name="v1")])]),
-                config=_config(enable_critic=True, critic_agent="critic"),
-                critic_agent=_FakeCritic([], error=ConfigurationError("invalid VLM configuration")),
-            )
 
 
 class TestSingleWordPruning:
@@ -863,7 +508,6 @@ def _build_stream_search(embed_run: Any, **config_overrides: Any) -> Search:
     return Search(
         embed=_PrimEmbed(),  # type: ignore[arg-type]
         attribute=_PrimAttr(),  # type: ignore[arg-type]
-        critic=None,
         behavior_es=_PrimBehaviorEs(),  # type: ignore[arg-type]
         behavior_index="behavior_index",
         **config_overrides,

@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Search — orchestrator that fuses embed_search + attribute_search + critic.
+"""Search — orchestrator that fuses embed_search + attribute_search.
 
 Self-contained: all orchestration logic lives in ``_search_helpers.py`` (thin
 async wiring) and ``_fusion.py`` (pure fusion math) under this package.
@@ -33,7 +33,6 @@ from typing import Protocol
 from pydantic import ValidationError
 
 from .._internal.embed_translation import params_to_embed_input
-from ..errors import ConfigurationError
 from ..errors import InvalidInputError
 from ..errors import SearchError
 from ..events import ErrorEvent
@@ -41,21 +40,16 @@ from ..events import FinalResultEvent
 from ..events import SearchEvent
 from ..events import StatusEvent
 from ..models.attribute_search import AttributeSearchInput
-from ..models.critic import CriticAgentInput
 from ..models.embed_search import EmbedSearchInput
 from ..models.search import SearchInput
 from ..models.search import SearchOutput
 from . import _search_helpers
 from .attribute_search import AttributeSearch
-from .critic import CriticAgent
 from .embed_search import EmbedSearch
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from collections.abc import Callable
-
-    from lib.vlm.protocols import VLMAnalyzer
-    from lib.vst.protocols import VSTSnapshot
 
     from ..clients.protocols import ElasticIndex
     from ..models.common import FusionMethod
@@ -65,8 +59,8 @@ if TYPE_CHECKING:
 class _SupportsRun(Protocol):
     """The single-method surface :class:`_PrimitiveAdapter` drives.
 
-    Each wrapped primitive (``EmbedSearch`` / ``AttributeSearch`` /
-    ``CriticAgent``) exposes an ``async run(inp) -> out``; their concrete input
+    Each wrapped primitive (``EmbedSearch`` / ``AttributeSearch``) exposes an
+    ``async run(inp) -> out``; their concrete input
     and output types differ, so the payload/return stay ``Any`` while the method
     contract itself is typed.
     """
@@ -169,22 +163,6 @@ def _coerce_attribute_payload(payload: Any) -> AttributeSearchInput:
     raise TypeError(f"cannot coerce {type(payload).__name__} to AttributeSearchInput")
 
 
-def _coerce_critic_payload(payload: Any) -> CriticAgentInput:
-    if isinstance(payload, CriticAgentInput):
-        return payload
-    if isinstance(payload, dict):
-        try:
-            return CriticAgentInput(**payload)
-        except ValidationError as exc:
-            raise InvalidInputError(f"Invalid critic input: {exc}") from exc
-    if hasattr(payload, "model_dump"):
-        try:
-            return CriticAgentInput.model_validate(payload.model_dump())
-        except ValidationError as exc:
-            raise InvalidInputError(f"Invalid critic input: {exc}") from exc
-    raise TypeError(f"cannot coerce {type(payload).__name__} to CriticAgentInput")
-
-
 def _wrap_embed(primitive: EmbedSearch) -> _PrimitiveAdapter:
     return _PrimitiveAdapter(primitive, _coerce_embed_payload)
 
@@ -192,10 +170,6 @@ def _wrap_embed(primitive: EmbedSearch) -> _PrimitiveAdapter:
 def _wrap_attribute(primitive: AttributeSearch) -> _PrimitiveAdapter:
     # Orchestrator expects a bare list of AttributeSearchResult, not the envelope.
     return _PrimitiveAdapter(primitive, _coerce_attribute_payload, unwrap_output=lambda out: out.results)
-
-
-def _wrap_critic(primitive: CriticAgent) -> _PrimitiveAdapter:
-    return _PrimitiveAdapter(primitive, _coerce_critic_payload)
 
 
 class Search:
@@ -213,7 +187,6 @@ class Search:
         *,
         embed: EmbedSearch,
         attribute: AttributeSearch,
-        critic: CriticAgent | None,
         behavior_es: ElasticIndex,
         behavior_index: str,
         behavior_index_wildcard: str = "mdx-behavior-*",
@@ -227,29 +200,24 @@ class Search:
         embed_confidence_threshold: float = 0.1,
         search_max_iterations: int = 1,
         default_max_results: int = 10,
-        enable_critic: bool = False,
         # VST URLs are needed by execute_core_search via its config object
         vst_internal_url: str = "",
         vst_external_url: str = "",
     ) -> None:
         self._embed = embed
         self._attribute = attribute
-        self._critic = critic
         self._behavior_es = behavior_es
 
         # Pre-build the adapters once; they're stateless wrappers around
         # immutable primitive references, so reusing them across calls is safe.
         self._embed_adapter = _wrap_embed(embed)
         self._attr_adapter = _wrap_attribute(attribute)
-        self._critic_adapter = _wrap_critic(critic) if critic else None
 
         # Pre-build the duck-typed config that execute_core_search reads by
         # attribute. All fields are determined at construction; no per-call
         # mutation.
         self._config = SimpleNamespace(
             attribute_search_tool="attribute_search",
-            critic_agent="critic_agent" if critic else None,
-            enable_critic=enable_critic,
             use_attribute_search=use_attribute_search,
             embed_confidence_threshold=embed_confidence_threshold,
             search_max_iterations=search_max_iterations,
@@ -270,13 +238,11 @@ class Search:
     async def run(self, inp: SearchInput) -> SearchOutput:
         """Single-shot: collect chunks, return final SearchOutput."""
         inp.validate_semantics()
-        inp = self._resolve_critic_policy(inp)
         return await _search_helpers.execute_core_search_wrapper(
             search_input=inp,
             embed_search=self._embed_adapter,
             config=self._config,
             attribute_search_fn=self._attr_adapter,
-            critic_agent=self._critic_adapter,
             behavior_es=self._behavior_es,
         )
 
@@ -286,13 +252,11 @@ class Search:
         """
         try:
             inp.validate_semantics()
-            inp = self._resolve_critic_policy(inp)
             async for chunk in _search_helpers.execute_core_search(
                 search_input=inp,
                 embed_search=self._embed_adapter,
                 config=self._config,
                 attribute_search_fn=self._attr_adapter,
-                critic_agent=self._critic_adapter,
                 behavior_es=self._behavior_es,
             ):
                 if isinstance(chunk, SearchOutput):
@@ -315,18 +279,6 @@ class Search:
             message="execute_core_search exited without yielding SearchOutput",
         )
 
-    def _resolve_critic_policy(self, inp: SearchInput) -> SearchInput:
-        """Resolve request omission against runtime policy and validate wiring."""
-        if inp.use_critic is True and not self._config.enable_critic:
-            raise ConfigurationError("critic verification was requested but the runtime disables critic wiring")
-        requested = self._config.enable_critic if inp.use_critic is None else inp.use_critic
-        if requested and self._critic_adapter is None:
-            raise ConfigurationError(
-                "critic verification is enabled but no VLM analyzer is configured; "
-                "inject a vlm_analyzer or explicitly set use_critic=false"
-            )
-        return inp.model_copy(update={"use_critic": requested})
-
     @classmethod
     def from_runtime(
         cls,
@@ -334,9 +286,6 @@ class Search:
         *,
         embed: EmbedSearch | None = None,
         attribute: AttributeSearch | None = None,
-        critic: CriticAgent | None = None,
-        vlm_analyzer: VLMAnalyzer | None = None,
-        vst: VSTSnapshot | None = None,
         behavior_es: ElasticIndex | None = None,
         use_attribute_search: bool = False,
     ) -> Search:
@@ -345,39 +294,14 @@ class Search:
         Query decomposition must happen before this primitive receives
         SearchInput.
 
-        Critic policy: explicit `critic` wins; else if rt.enable_critic and
-        vlm_analyzer is provided, build via CriticAgent.from_runtime; else None.
         """
-        from lib.vst import VSTClient
-
         from ..clients.elastic import ElasticClient
-
-        # vst is needed only for CriticAgent construction (the orchestrator
-        # itself uses URL strings via the config). Build once for that.
-        vst_obj = vst or VSTClient(
-            internal_url=rt.vst_internal_url,
-            external_url=rt.vst_external_url,
-            timeout_seconds=rt.request_timeout_seconds,
-        )
-        if critic is not None:
-            critic_obj = critic
-        elif rt.enable_critic and vlm_analyzer is not None:
-            critic_obj = CriticAgent.from_runtime(
-                rt,
-                vlm_analyzer=vlm_analyzer,
-                vst=vst_obj,
-                time_format=rt.critic_time_format,
-                num_videos_to_evaluate=rt.critic_evaluation_count,
-            )
-        else:
-            critic_obj = None
 
         behavior_es_obj = behavior_es or ElasticClient.from_runtime_behavior(rt)
 
         return cls(
             embed=embed or EmbedSearch.from_runtime(rt),
             attribute=attribute or AttributeSearch.from_runtime(rt),
-            critic=critic_obj,
             behavior_es=behavior_es_obj,
             behavior_index=rt.behavior_index,
             behavior_index_wildcard=rt.behavior_index_wildcard,
@@ -391,7 +315,6 @@ class Search:
             embed_confidence_threshold=rt.embed_confidence_threshold,
             search_max_iterations=rt.search_max_iterations,
             default_max_results=rt.default_max_results,
-            enable_critic=rt.enable_critic,
             vst_internal_url=rt.vst_internal_url,
             vst_external_url=rt.vst_external_url,
         )
@@ -402,6 +325,4 @@ class Search:
             self._attribute.aclose(),
             self._behavior_es.aclose(),
         ]
-        if self._critic is not None:
-            coros.append(self._critic.aclose())
         await asyncio.gather(*coros, return_exceptions=True)

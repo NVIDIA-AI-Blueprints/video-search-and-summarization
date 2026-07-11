@@ -112,30 +112,6 @@ class TestFromEnv:
         with pytest.raises(ConfigurationError, match="Embed endpoint"):
             SearchRuntime.from_env(env)
 
-    def test_vlm_fields_optional(self) -> None:
-        """from_env must not require VLM_BASE_URL / VLM_NAME.
-
-        Embed-only workflows must work without these. The lazy facade
-        validates VLM presence only when critic() is exercised.
-        """
-        rt = SearchRuntime.from_env(_HELM_ENV)  # no VLM_BASE_URL / VLM_NAME
-        assert rt.vlm_base_url is None
-        assert rt.vlm_model_name is None
-
-    def test_vlm_api_key_selected_by_model_type(self) -> None:
-        env = dict(_HELM_ENV)
-        env["VLM_MODEL_TYPE"] = "openai"
-        env["OPENAI_API_KEY"] = "sk-openai"
-        env["NVIDIA_API_KEY"] = "nvapi-should-not-be-picked"
-        env["VLM_BASE_URL"] = "https://api.openai.com"
-        env["VLM_NAME"] = "gpt-4o"
-        rt = SearchRuntime.from_env(env)
-        assert rt.vlm_api_key is not None
-        assert rt.vlm_api_key.get_secret_value() == "sk-openai"
-
-
-# --------------------------------------------------------------- RuntimeSnapshot
-
 
 class TestRuntimeSnapshot:
     """RuntimeSnapshot.from_dict shape contract for /api/v1/runtime/config consumers."""
@@ -261,55 +237,6 @@ functions:
 
         assert snap.runtime.es_endpoint == "http://es:9200"
         assert snap.runtime.cosmos_embed_endpoint == "http://embed:8017"
-
-    def test_from_config_file_carries_critic_and_vlm_media_knobs(self, tmp_path) -> None:
-        config = tmp_path / "config.yml"
-        config.write_text(
-            """
-functions:
-  embed_search:
-    es_endpoint: http://es:9200
-    cosmos_embed_endpoint: http://embed:8017
-    vst_internal_url: http://vst:30888
-    vst_external_url: http://vst.external
-  attribute_search:
-    rtvi_cv_endpoint: http://cv:9000
-  search:
-    enable_critic: true
-  critic_agent:
-    time_format: offset
-    num_videos_to_evaluate: 3
-  video_understanding:
-    max_frames: 12
-    max_fps: 4
-  vst_video_clip:
-    enable_audio: true
-""",
-        )
-
-        snap = RuntimeSnapshot.from_config_file(config, env={})
-
-        assert snap.runtime.critic_time_format == "offset"
-        assert snap.runtime.critic_evaluation_count == 3
-        assert snap.runtime.vlm_max_frames == 12
-        assert snap.runtime.vlm_max_fps == 4
-        assert snap.runtime.vst_clip_enable_audio is True
-
-
-# --------------------------------------------------------------- config load errors
-
-
-def _minimal_config_body() -> str:
-    return """
-functions:
-  embed_search:
-    es_endpoint: http://es:9200
-    cosmos_embed_endpoint: http://embed:8017
-    vst_internal_url: http://vst:30888
-    vst_external_url: http://vst.external
-  attribute_search:
-    rtvi_cv_endpoint: http://cv:9000
-"""
 
 
 class TestConfigLoadErrors:
@@ -465,11 +392,6 @@ class TestFromDictValidation:
         assert snap.runtime.default_max_results == 7
         assert isinstance(snap.runtime.default_max_results, int)
 
-    def test_stringly_typed_bool_is_coerced(self) -> None:
-        # "no" would be truthy if stored verbatim in a bool field.
-        snap = RuntimeSnapshot.from_dict(self._full_payload(enable_critic="no"))
-        assert snap.runtime.enable_critic is False
-
     def test_stringly_typed_float_is_coerced(self) -> None:
         snap = RuntimeSnapshot.from_dict(self._full_payload(embed_confidence_threshold="0.25"))
         assert snap.runtime.embed_confidence_threshold == pytest.approx(0.25)
@@ -478,39 +400,8 @@ class TestFromDictValidation:
         with pytest.raises(ConfigurationError, match="default_max_results"):
             RuntimeSnapshot.from_dict(self._full_payload(default_max_results="not-a-number"))
 
-    def test_bad_bool_raises_configuration_error(self) -> None:
-        with pytest.raises(ConfigurationError, match="enable_critic"):
-            RuntimeSnapshot.from_dict(self._full_payload(enable_critic="maybe"))
-
-    def test_plaintext_vlm_api_key_is_rewrapped_as_secret(self) -> None:
-        snap = RuntimeSnapshot.from_dict(self._full_payload(vlm_api_key="sk-super-secret"))
-        # Never stored as a plaintext str; re-wrapped as SecretStr.
-        assert snap.runtime.vlm_api_key is not None
-        assert not isinstance(snap.runtime.vlm_api_key, str)
-        assert snap.runtime.vlm_api_key.get_secret_value() == "sk-super-secret"
-
-    def test_plaintext_vlm_api_key_not_leaked_in_repr(self) -> None:
-        snap = RuntimeSnapshot.from_dict(self._full_payload(vlm_api_key="sk-super-secret"))
-        assert "sk-super-secret" not in repr(snap.runtime)
-        assert "sk-super-secret" not in str(snap.runtime)
-
-
-# --------------------------------------------------------------- from_env / from_config_file coercion
-
 
 class TestNumericCoercion:
-    def test_from_env_bad_int_raises_configuration_error(self) -> None:
-        env = dict(_HELM_ENV)
-        env["CRITIC_EVALUATION_COUNT"] = "not-an-int"
-        with pytest.raises(ConfigurationError, match="CRITIC_EVALUATION_COUNT"):
-            SearchRuntime.from_env(env)
-
-    def test_from_env_valid_int_is_parsed(self) -> None:
-        env = dict(_HELM_ENV)
-        env["CRITIC_EVALUATION_COUNT"] = "4"
-        rt = SearchRuntime.from_env(env)
-        assert rt.critic_evaluation_count == 4
-
     def test_from_config_file_coerces_quoted_numbers(self, tmp_path) -> None:
         config = tmp_path / "config.yml"
         config.write_text(

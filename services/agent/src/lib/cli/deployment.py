@@ -688,7 +688,6 @@ class KubernetesDeploymentConfig(DeploymentConfig):
             "cosmos_embed_endpoint",
             "rtvi_cv_endpoint",
             "vst_internal_url",
-            "vlm_base_url",
         )
         selected = set((*rewritable, "vst_external_url") if fields is None else fields)
         external_vst = getattr(runtime, "vst_external_url", None)
