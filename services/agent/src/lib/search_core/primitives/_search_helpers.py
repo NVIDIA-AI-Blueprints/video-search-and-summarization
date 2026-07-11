@@ -19,14 +19,13 @@ Two layers cooperate here:
     resolution) that unit-test with plain data; the fusion math, chunk merging,
     top-percent filtering, and embed->result coercion live in :mod:`._fusion`; and
   - :func:`execute_core_search`, a thin async generator that wires the injected
-    embed/attribute/critic/behavior-ES adapters to those pure helpers and yields
+    embed/attribute/behavior-ES adapters to those pure helpers and yields
     progress chunks then a final :class:`SearchOutput`.
 
 Error policy is hybrid: systemic failures (any :class:`SearchError` —
 ``IndexNotFoundError`` / ``BackendUnreachableError`` / ``InvalidInputError``)
 propagate so callers get precise errors and exit codes; only genuinely
-best-effort work degrades softly (a single video's attribute lookup during
-fusion, and the additive critic-verification pass).
+best-effort work degrades softly (a single video's attribute lookup during fusion).
 """
 
 from __future__ import annotations
@@ -55,11 +54,7 @@ from ..errors import ConfigurationError
 from ..errors import NoFinalResultError
 from ..errors import SearchError
 from ..models.attribute_search import AttributeSearchResult
-from ..models.common import VideoInfo
-from ..models.critic import CriticAgentResult
-from ..models.critic import VideoResult as CriticVideoResult
 from ..models.embed_search import EmbedSearchOutput
-from ..models.search import CriticResult
 from ..models.search import SearchInput
 from ..models.search import SearchOutput
 from ..models.search import SearchResult
@@ -76,23 +71,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Downstream input models (``EmbedSearchInput`` / ``AttributeSearchInput``) cap
-# ``top_k`` at this value (``Field(le=1000)``). Overfetching / critic-driven
-# growth is clamped to it so a large user ``top_k`` never trips a Pydantic
+# ``top_k`` at this value (``Field(le=1000)``). Internal fetch growth is
+# clamped to it so a large user ``top_k`` never trips a Pydantic
 # ``ValidationError`` deep in a primitive.
 _DOWNSTREAM_MAX_TOP_K = 1000
-
-# A stable per-result identity for critic bookkeeping. Merging consecutive chunks
-# extends a result's ``end_time`` between iterations, so keying verdicts by the
-# full (sensor, start, end) window would let a merged result look "new" and get
-# re-sent to the VLM. Sensor id + the chunk's start_time is stable across merges
-# because :func:`_fusion.merge_consecutive_results` keeps the earliest start.
-CriticKey = tuple[str, str]
 
 
 class SupportsAinvoke(Protocol):
     """The single-method async adapter surface the orchestrator invokes.
 
-    ``embed_search`` / ``attribute_search_fn`` / ``critic_agent`` are all wrapped
+    ``embed_search`` / ``attribute_search_fn`` are wrapped
     by ``search.py``'s ``_PrimitiveAdapter`` (or a test double) exposing exactly
     this method, so the orchestrator can stay ignorant of the concrete primitive.
     """
@@ -114,7 +102,6 @@ class SearchConfig(Protocol):
     search_max_iterations: int
     embed_confidence_threshold: float
     use_attribute_search: bool
-    enable_critic: bool
     fusion_method: str
     w_attribute: float
     w_embed: float
@@ -123,38 +110,6 @@ class SearchConfig(Protocol):
     vst_internal_url: str
     vst_external_url: str
     behavior_index: str
-
-
-def _critic_key(result: SearchResult) -> CriticKey:
-    """Stable identity for a result across re-search/merge iterations."""
-    return (result.sensor_id, result.start_time)
-
-
-def _exclude_entry(result: SearchResult) -> dict[str, str]:
-    """Build an ``exclude_videos`` entry matching the embed/attribute filters.
-
-    The embed and attribute paths both match an exclusion on the raw
-    ``(sensor_id, start_timestamp, end_timestamp)`` strings, so a rejected
-    result's own fields are the correct keys to suppress it on re-search.
-    """
-    return {
-        "sensor_id": result.sensor_id,
-        "start_timestamp": result.start_time,
-        "end_timestamp": result.end_time,
-    }
-
-
-def _video_info_for_critic(result: SearchResult) -> VideoInfo | None:
-    """Build a :class:`VideoInfo` for critic verification, or None.
-
-    A result whose start/end timestamps do not parse cannot be clip-verified, so
-    it is skipped (returns None) rather than crashing the critic pass.
-    """
-    start_dt = safe_iso8601_to_datetime(result.start_time)
-    end_dt = safe_iso8601_to_datetime(result.end_time)
-    if start_dt is None or end_dt is None:
-        return None
-    return VideoInfo(sensor_id=result.sensor_id, start_timestamp=start_dt, end_timestamp=end_dt)
 
 
 # ==========================================================================
@@ -422,7 +377,6 @@ async def execute_core_search(
     embed_search: SupportsAinvoke,
     config: SearchConfig,
     attribute_search_fn: SupportsAinvoke | None = None,
-    critic_agent: SupportsAinvoke | None = None,
     behavior_es: ElasticIndex | None = None,
 ) -> AsyncGenerator[AgentMessageChunk | SearchOutput]:
     """Core search execution: yields progress chunks, then a final SearchOutput.
@@ -433,22 +387,11 @@ async def execute_core_search(
       3. embed-only (no attributes)
       4. fusion (attributes present and embed confidence is high enough)
 
-    The injected adapters (``embed_search``, ``attribute_search_fn``,
-    ``critic_agent``) each expose an async ``.ainvoke``; ``behavior_es`` is an
+    The injected adapters (``embed_search``, ``attribute_search_fn``) each expose
+    an async ``.ainvoke``; ``behavior_es`` is an
     Elasticsearch surface used only by the object_id path. All are supplied by
     the caller; this generator only wires them to the pure helpers.
     """
-    if search_input.use_critic is True and not config.enable_critic:
-        raise ConfigurationError("critic verification was requested but the runtime disables critic wiring")
-    critic_requested = config.enable_critic if search_input.use_critic is None else search_input.use_critic
-    if critic_requested and critic_agent is None:
-        raise ConfigurationError(
-            "critic verification is enabled but no VLM analyzer is configured; "
-            "inject a critic agent or explicitly set use_critic=false"
-        )
-    search_input = search_input.model_copy(update={"use_critic": critic_requested})
-    original_query = search_input.original_query or search_input.query
-
     # ----- OBJECT_ID PATH: Direct behavior KNN -----
     if search_input.object_ids:
         behavior_es_endpoint = getattr(config, "behavior_es_endpoint", None)
@@ -535,11 +478,7 @@ async def execute_core_search(
     # ----- SETUP COMMON QUERY PARAMETERS -----
     top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
     original_top_k = top_k
-    # Overfetch 2x so critic-driven replacement has spare candidates to promote,
-    # but clamp to the downstream models' ``le=1000`` bound — a large user top_k
-    # (e.g. 900) would otherwise double to 1800 and trip a Pydantic
-    # ValidationError deep in the embed/attribute primitive.
-    top_k = min(top_k * 2, _DOWNSTREAM_MAX_TOP_K)
+    top_k = min(top_k, _DOWNSTREAM_MAX_TOP_K)
 
     # Collected here (before routing) so a routing-affecting decision like
     # single-word attribute pruning can surface an observable note.
@@ -591,24 +530,15 @@ async def execute_core_search(
     # name without a fresh annotation keeps mypy's no-redef check happy.
     search_results = []
     do_search = True
-    # Critic bookkeeping is keyed by a STABLE per-result identity (see CriticKey)
-    # so a verdict survives the end_time drift that merge_consecutive_results
-    # introduces across re-search iterations.
-    rejected_keys: set[CriticKey] = set()
-    confirmed_keys: set[CriticKey] = set()
-    # Running exclusion list built from rejected results, threaded into each
-    # re-search so rejected candidates are not simply re-fetched.
     exclude_videos: list[dict[str, str]] = []
     iteration_num = 0
-    persistent_critic_results: dict[CriticKey, CriticResult] = {}
 
     while do_search and iteration_num < config.search_max_iterations:
         iteration_num += 1
         do_search = False
         logger.info(f"[Search] Running embed search iteration {iteration_num}")
 
-        # ``top_k`` may have grown via critic-driven re-search; clamp to the
-        # downstream models' bound so the fetch size never trips a ValidationError.
+        # Clamp to the downstream models' bound so the fetch size never trips a ValidationError.
         top_k = min(top_k, _DOWNSTREAM_MAX_TOP_K)
         query_params["top_k"] = str(top_k)
         # Thread the running exclusion list into the embed envelope so a re-search
@@ -776,109 +706,6 @@ async def execute_core_search(
 
         search_results = _fusion.merge_consecutive_results(search_results)
 
-        # Critic verification.
-        #
-        # DELIBERATE DEVIATION from the hybrid error policy used elsewhere in
-        # this module: a typed ``BackendUnreachableError`` from the experimental,
-        # additive critic soft-fails with a ``search_messages`` note so a
-        # transient VLM/VST outage does not discard otherwise-valid search
-        # results. Configuration, input, and unexpected implementation errors
-        # propagate; they must not be mislabeled as optional backend downtime.
-        if config.enable_critic and search_input.use_critic and critic_agent and search_results:
-            try:
-                critic_results: dict[VideoInfo, CriticVideoResult] = {}
-
-                yield AgentMessageChunk(
-                    type=AgentMessageChunkType.THOUGHT,
-                    content=f"Verifying {len(search_results)} results with critic agent",
-                )
-
-                # Map each candidate VideoInfo back to its stable key and result
-                # so verdicts (returned keyed by VideoInfo) can be recorded under
-                # the merge-stable identity.
-                search_videos: list[VideoInfo] = []
-                info_to_key: dict[VideoInfo, CriticKey] = {}
-                info_to_result: dict[VideoInfo, SearchResult] = {}
-                for result in search_results:
-                    info = _video_info_for_critic(result)
-                    if info is None:
-                        # No parseable timestamps -> cannot be clip-verified.
-                        continue
-                    crit_key = _critic_key(result)
-                    if crit_key in confirmed_keys or crit_key in rejected_keys:
-                        continue
-                    search_videos.append(info)
-                    info_to_key[info] = crit_key
-                    info_to_result[info] = result
-
-                if len(search_videos) > 0:
-                    critic_input = {"query": original_query, "videos": search_videos}
-                    with TimeMeasure("search: critic agent verification"):
-                        critic_output = await critic_agent.ainvoke(critic_input)
-                    critic_results = {r.video_info: r for r in critic_output.video_results}
-
-                    for info, video_result in critic_results.items():
-                        recorded_key = info_to_key.get(info)
-                        if recorded_key is None:
-                            continue
-                        match video_result.result:
-                            case CriticAgentResult.CONFIRMED:
-                                confirmed_keys.add(recorded_key)
-                            case CriticAgentResult.REJECTED:
-                                rejected_keys.add(recorded_key)
-                                # Suppress the rejected clip on re-search and grow
-                                # the fetch so a replacement can take its slot.
-                                exclude_videos.append(_exclude_entry(info_to_result[info]))
-                                top_k += 1
-                                do_search = True
-                            case CriticAgentResult.UNVERIFIED:
-                                logger.warning(f"[Search] Unverified for {info.sensor_id}")
-
-                    if critic_results and all(
-                        r.result == CriticAgentResult.UNVERIFIED for r in critic_results.values()
-                    ):
-                        msg = "VLM verification unavailable. Returning search results without critic verification."
-                        search_messages.append(msg)
-                        yield AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content=msg)
-                        do_search = False
-
-                    for info, vr in critic_results.items():
-                        recorded_key = info_to_key.get(info)
-                        if recorded_key is not None:
-                            persistent_critic_results[recorded_key] = CriticResult(
-                                result=vr.result.value,
-                                criteria_met=vr.criteria_met or {},
-                            )
-
-                for result in search_results:
-                    crit_key = _critic_key(result)
-                    if crit_key in persistent_critic_results:
-                        result.critic_result = persistent_critic_results[crit_key]
-
-                verified_count = sum(1 for vr in critic_results.values() if vr.result == CriticAgentResult.CONFIRMED)
-                unverified_count = sum(1 for vr in critic_results.values() if vr.result == CriticAgentResult.UNVERIFIED)
-
-                yield AgentMessageChunk(
-                    type=AgentMessageChunkType.THOUGHT,
-                    content=(
-                        f"Critic verification complete: {verified_count}/{len(critic_results)} verified, "
-                        f"{unverified_count}/{len(critic_results)} unverified"
-                    ),
-                )
-
-            except BackendUnreachableError as e:
-                logger.error(f"[Search] Error calling critic agent: {e}", exc_info=True)
-                msg = "Critic verification unavailable. Returning results without verification."
-                search_messages.append(msg)
-                yield AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content=msg)
-
-    # TRUE reject-replacement semantics: drop every result the critic REJECTED so
-    # a rejected clip cannot keep its slot (and squeeze out a replacement) after
-    # the final top_k cap. This is applied unconditionally — even at the default
-    # search_max_iterations=1, where no re-search happens, the rejected result is
-    # still removed from the output.
-    search_results = [r for r in search_results if _critic_key(r) not in rejected_keys]
-
     result_count = len(search_results)
     yield AgentMessageChunk(
         type=AgentMessageChunkType.THOUGHT,
@@ -895,7 +722,6 @@ async def execute_core_search_wrapper(
     embed_search: SupportsAinvoke,
     config: SearchConfig,
     attribute_search_fn: SupportsAinvoke | None = None,
-    critic_agent: SupportsAinvoke | None = None,
     behavior_es: ElasticIndex | None = None,
 ) -> SearchOutput:
     """Non-streaming wrapper: collects chunks, returns final SearchOutput."""
@@ -904,7 +730,6 @@ async def execute_core_search_wrapper(
         embed_search=embed_search,
         config=config,
         attribute_search_fn=attribute_search_fn,
-        critic_agent=critic_agent,
         behavior_es=behavior_es,
     ):
         if isinstance(update, SearchOutput):

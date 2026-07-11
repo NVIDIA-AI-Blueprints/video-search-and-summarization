@@ -40,6 +40,9 @@ def test_removed_search_core_modules_have_no_compatibility_shims() -> None:
     assert importlib.util.find_spec("lib.search_core.cli") is None
     assert importlib.util.find_spec("lib.search_core.clients.vst") is None
     assert importlib.util.find_spec("lib.search_core.clients.vlm_openai") is None
+    assert importlib.util.find_spec("lib.search_core.models.critic") is None
+    assert importlib.util.find_spec("lib.search_core.primitives.critic") is None
+    assert importlib.util.find_spec("lib.critic") is not None
 
 
 def test_reusable_vst_and_vlm_packages_do_not_import_search_core() -> None:
@@ -48,7 +51,7 @@ def test_reusable_vst_and_vlm_packages_do_not_import_search_core() -> None:
     src_path = str(Path(__file__).resolve().parents[2] / "src")
     env["PYTHONPATH"] = src_path if not pythonpath else f"{src_path}{os.pathsep}{pythonpath}"
 
-    for package in ("lib.vst", "lib.vlm"):
+    for package in ("lib.vst", "lib.vlm", "lib.critic"):
         code = f"import sys; import {package}; assert 'lib.search_core' not in sys.modules"
         subprocess.run([sys.executable, "-B", "-c", code], check=True, env=env)
 

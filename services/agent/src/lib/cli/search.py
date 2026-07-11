@@ -16,7 +16,7 @@
 
 A single search domain dispatches every primitive:
 
-    vss-cli search {run,embed,attribute,critic} [--runtime-flags...] [--config <path>] [--json '<payload>'] [--stream]
+    vss-cli search {run,embed,attribute} [--runtime-flags...] [--config <path>] [--json '<payload>'] [--stream]
        runtime:   backend URLs and runtime knobs are passed explicitly as CLI
                   flags. The CLI intentionally does not read endpoint env vars
                   or $VSS_AGENT_CONFIG_FILE.
@@ -32,7 +32,7 @@ A single search domain dispatches every primitive:
     decomposed fields as flags (``--query``, ``--attribute``, ``--has-action``,
     ``--object-id``, ``--video-source``, ``--timestamp-start/-end``, ``--top-k``,
     ``--min-cosine-similarity``, ``--description``, ``--decomposed-json``,
-    ``--use-critic``) so a host agent can invoke it directly without hand-writing
+    ``--description``, ``--decomposed-json``) so a host agent can invoke it directly without hand-writing
     a JSON payload. These set ``agent_mode=false``; an explicit ``--json``/stdin
     payload takes precedence when present. Query decomposition is host-agent-owned:
     the CLI consumes fields that have already been decomposed by the caller.
@@ -58,11 +58,9 @@ import re
 import sys
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Literal
 from typing import get_args
 
 import httpx
-from pydantic import SecretStr
 from pydantic import ValidationError
 
 from lib.search_core.errors import BackendUnreachableError
@@ -81,7 +79,6 @@ if TYPE_CHECKING:
     from lib.search_core.host import VSSSearch
     from lib.search_core.runtime import SearchOptions
     from lib.search_core.runtime import SearchRuntime
-    from lib.vlm import OpenAIVLMAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +102,8 @@ def _required_runtime_args(primitive: str) -> tuple[tuple[str, str], ...]:
     those endpoints for every primitive would reject valid invocations. The
     unused endpoint is filled with an empty-string sentinel in
     ``_runtime_from_args`` to preserve SearchRuntime's "all fields present"
-    invariant. ``search`` fuses both surfaces and needs all five. ``critic``
-    only needs VST; its VLM settings are validated separately after the
-    runtime is built.
+    invariant. ``search`` fuses both surfaces and needs all five.
     """
-    if primitive == "critic":
-        return (("vst_internal_url", "--vst-internal-url"),)
     required = list(_ALWAYS_REQUIRED_RUNTIME_ARGS)
     if primitive != "attribute_search":
         required.append(("cosmos_embed_endpoint", "--cosmos-embed-endpoint"))
@@ -251,37 +244,6 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
     runtime.add_argument("--vst-internal-url", default=None, help="Internal VST URL for timeline/source resolution.")
     runtime.add_argument("--vst-external-url", default=None, help="External VST URL used to build screenshot links.")
     runtime.add_argument(
-        "--vlm-base-url", default=None, help="OpenAI-compatible VLM base URL, e.g. http://vlm:8000/v1."
-    )
-    runtime.add_argument("--vlm-model", dest="vlm_model_name", default=None, help="VLM model/deployment name.")
-    runtime.add_argument("--vlm-api-key", default=None, help="Optional VLM API key. Pass explicitly; no env fallback.")
-    runtime.add_argument(
-        "--vlm-media-mode",
-        choices=("video-url", "video-base64", "frame-base64"),
-        default=None,
-        help=(
-            "Send VST clips as URLs, inline MP4 base64, or sampled JPEG frame base64. "
-            "Deployment discovery defaults to host-fetched frame base64; direct mode defaults to video URLs."
-        ),
-    )
-    runtime.add_argument(
-        "--vlm-video-url-scope",
-        choices=("internal", "external"),
-        default=None,
-        help=(
-            "Use internal or external VST clip URLs when --vlm-media-mode=video-url. "
-            "Defaults to external for discovered deployments and internal for direct mode."
-        ),
-    )
-    runtime.add_argument("--vlm-max-frames", type=_parse_positive_int, default=None)
-    runtime.add_argument("--vlm-max-fps", type=_parse_positive_int, default=None)
-    runtime.add_argument(
-        "--vst-clip-enable-audio",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Preserve audio in VST clips for audio-capable VLMs.",
-    )
-    runtime.add_argument(
         "--cosmos-embed-model",
         default=None,
         help="Cosmos embedding model name. Defaults to search_core runtime default when omitted.",
@@ -301,24 +263,6 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Enable/disable attribute-search frame lookup.",
-    )
-    runtime.add_argument(
-        "--enable-critic",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable/disable critic wiring in the search runtime.",
-    )
-    runtime.add_argument(
-        "--critic-time-format",
-        choices=("iso", "offset"),
-        default=None,
-        help="Timestamp format used for critic clip extraction.",
-    )
-    runtime.add_argument(
-        "--critic-evaluation-count",
-        type=_parse_positive_int,
-        default=None,
-        help="Maximum number of candidate clips to verify with the critic.",
     )
     runtime.add_argument("--default-max-results", type=_parse_positive_int, default=None)
     runtime.add_argument("--embed-default-max-results", type=_parse_positive_int, default=None)
@@ -462,15 +406,6 @@ def _add_search_query_args(p: argparse.ArgumentParser) -> None:
         default=[],
         help="Search for visually similar tracked objects by object ID. May be repeated.",
     )
-    group.add_argument(
-        "--use-critic",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help=(
-            "Verify candidate results with the NAT-free VLM critic. Omission inherits the deployment/runtime "
-            "enable_critic setting; an enabled request fails if its VLM wiring is unavailable."
-        ),
-    )
 
 
 # Agent-friendly `search`-only flags. They live on the single shared parser (so
@@ -492,7 +427,6 @@ _SEARCH_ONLY_FLAGS: tuple[tuple[str, str], ...] = (
     ("--attribute", "attributes"),
     ("--has-action", "has_action"),
     ("--object-id", "object_ids"),
-    ("--use-critic", "use_critic"),
 )
 _LIST_SEARCH_ONLY_DESTS = frozenset({"video_sources", "attributes", "object_ids"})
 
@@ -501,7 +435,7 @@ def _reject_search_only_flags_for_non_search(args: argparse.Namespace) -> None:
     """Raise if a `search`-only flag was explicitly passed to another primitive.
 
     These flags are only honored for the ``search`` primitive; ``embed_search`` /
-    ``attribute_search`` / ``critic`` read a ``--json``/stdin payload instead. A
+    ``attribute_search`` read a ``--json``/stdin payload instead. A
     flag left at its default is fine (the flags are always registered); only an
     explicitly-provided value is rejected, so it fails loudly (exit 2) rather than
     being silently dropped.
@@ -598,10 +532,6 @@ def _build_archive_search_payload(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "agent_mode": False,
     }
-    if args.use_critic is not None:
-        payload["use_critic"] = args.use_critic
-    elif "use_critic" in base:
-        payload["use_critic"] = base["use_critic"]
     return payload
 
 
@@ -675,15 +605,11 @@ def _build_facade(
         if deployment is not None:
             runtime = _rewrite_deployment_runtime(args, search_payload or {}, runtime, deployment)
         search_options = _search_options_from_args(args, base=snap.search, search_payload=search_payload)
-        vlm_analyzer = _maybe_build_vlm_analyzer(args, search_payload, runtime, deployment=deployment)
-        _validate_critic_request(args, search_payload, runtime, vlm_analyzer)
-        return VSSSearch.from_runtime(runtime, search_options=search_options, vlm_analyzer=vlm_analyzer)
+        return VSSSearch.from_runtime(runtime, search_options=search_options)
 
     runtime = _runtime_from_args(args)
     search_options = _search_options_from_args(args, search_payload=search_payload)
-    vlm_analyzer = _maybe_build_vlm_analyzer(args, search_payload, runtime)
-    _validate_critic_request(args, search_payload, runtime, vlm_analyzer)
-    return VSSSearch.from_runtime(runtime, search_options=search_options, vlm_analyzer=vlm_analyzer)
+    return VSSSearch.from_runtime(runtime, search_options=search_options)
 
 
 def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
@@ -708,8 +634,6 @@ _DEPLOYMENT_RUNTIME_ENV_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("rtvi_cv_endpoint", ("RTVI_CV_ENDPOINT", "RTVI_CV_BASE_URL")),
     ("vst_internal_url", ("VST_INTERNAL_URL",)),
     ("vst_external_url", ("VST_EXTERNAL_URL",)),
-    ("vlm_base_url", ("VLM_BASE_URL",)),
-    ("vlm_model_name", ("VLM_NAME",)),
     ("video_embed_index", ("ELASTIC_SEARCH_INDEX", "RTVI_EMBED_ES_INDEX")),
     (
         "video_embed_index_wildcard",
@@ -725,8 +649,6 @@ _DEPLOYMENT_RUNTIME_ENV_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "frames_index_wildcard",
         ("FRAMES_INDEX_WILDCARD", "RTSP_RAW_ES_INDEX_PATTERN"),
     ),
-    ("enable_critic", ("ENABLE_CRITIC",)),
-    ("vst_clip_enable_audio", ("ENABLE_AUDIO",)),
 )
 
 
@@ -751,12 +673,6 @@ def _runtime_from_args(args: argparse.Namespace) -> SearchRuntime:
 
     primitive = getattr(args, "primitive", "search")
     required = list(_required_runtime_args(primitive))
-    if (
-        primitive == "critic"
-        and (args.vlm_media_mode or "video-url") == "video-url"
-        and (args.vlm_video_url_scope or "internal") == "external"
-    ):
-        required.append(("vst_external_url", "--vst-external-url"))
     missing = [flag for attr, flag in required if not getattr(args, attr, None)]
     if missing:
         raise ConfigurationError(
@@ -780,14 +696,8 @@ def _runtime_from_args(args: argparse.Namespace) -> SearchRuntime:
         value = getattr(args, field, None)
         if value is not None:
             kwargs[field] = value
-    if args.vlm_api_key is not None:
-        kwargs["vlm_api_key"] = SecretStr(args.vlm_api_key)
     if args.enable_frame_lookup is not None:
         kwargs["enable_frame_lookup"] = args.enable_frame_lookup
-    if args.enable_critic is not None:
-        kwargs["enable_critic"] = args.enable_critic
-    if args.vst_clip_enable_audio is not None:
-        kwargs["vst_clip_enable_audio"] = args.vst_clip_enable_audio
     return SearchRuntime.from_kwargs(**kwargs)
 
 
@@ -802,14 +712,8 @@ _RUNTIME_OVERRIDE_FIELDS = (
     "default_max_results",
     "embed_default_max_results",
     "request_timeout_seconds",
-    "vlm_base_url",
-    "vlm_model_name",
-    "vlm_max_frames",
-    "vlm_max_fps",
     "embed_confidence_threshold",
     "search_max_iterations",
-    "critic_time_format",
-    "critic_evaluation_count",
     "fusion_method",
     "w_attribute",
     "w_embed",
@@ -835,12 +739,6 @@ def _apply_runtime_overrides(runtime: SearchRuntime, args: argparse.Namespace) -
             overrides[field] = value
     if args.enable_frame_lookup is not None:
         overrides["enable_frame_lookup"] = args.enable_frame_lookup
-    if args.enable_critic is not None:
-        overrides["enable_critic"] = args.enable_critic
-    if args.vst_clip_enable_audio is not None:
-        overrides["vst_clip_enable_audio"] = args.vst_clip_enable_audio
-    if args.vlm_api_key is not None:
-        overrides["vlm_api_key"] = SecretStr(args.vlm_api_key)
     # Only default behavior_es_endpoint from a --es-endpoint override when the
     # config didn't already configure a *distinct* behavior cluster. Otherwise a
     # user tweaking only --es-endpoint would silently clobber a separate
@@ -909,23 +807,10 @@ def _search_backend_route(payload: dict[str, Any]) -> tuple[bool, bool]:
     return uses_embed, uses_attribute
 
 
-def _payload_requests_critic(
-    args: argparse.Namespace,
-    payload: dict[str, Any] | None,
-    runtime: SearchRuntime,
-) -> bool:
-    if getattr(args, "primitive", None) == "critic":
-        return True
-    if getattr(args, "primitive", None) == "search" and payload:
-        requested = payload.get("use_critic")
-        return runtime.enable_critic if requested is None else bool(requested)
-    return False
-
-
 def _runtime_fields_for_request(
     args: argparse.Namespace,
     payload: dict[str, Any],
-    runtime: SearchRuntime,
+    _runtime: SearchRuntime,
 ) -> set[str]:
     """Return only runtime endpoints that the selected request can contact."""
     primitive = getattr(args, "primitive", "search")
@@ -936,17 +821,9 @@ def _runtime_fields_for_request(
             fields.add("cosmos_embed_endpoint")
     elif primitive == "attribute_search":
         fields.update(("behavior_es_endpoint", "rtvi_cv_endpoint", "vst_internal_url", "vst_external_url"))
-    elif primitive == "critic":
-        fields.update(("vlm_base_url", "vst_internal_url"))
-        if args.vlm_media_mode == "video-url" and args.vlm_video_url_scope != "internal":
-            fields.add("vst_external_url")
     elif primitive == "search":
         if payload.get("object_ids"):
             fields.update(("behavior_es_endpoint", "vst_internal_url", "vst_external_url"))
-            if _payload_requests_critic(args, payload, runtime):
-                fields.update(("vlm_base_url", "vst_internal_url"))
-                if args.vlm_media_mode == "video-url" and args.vlm_video_url_scope != "internal":
-                    fields.add("vst_external_url")
             return fields
         uses_embed, uses_attribute = _search_backend_route(payload)
         if uses_embed:
@@ -957,10 +834,6 @@ def _runtime_fields_for_request(
             fields.add("vst_internal_url")
         if getattr(args, "allow_embed_only_fallback", False) and uses_attribute and not uses_embed:
             fields.update(("es_endpoint", "cosmos_embed_endpoint"))
-        if _payload_requests_critic(args, payload, runtime):
-            fields.update(("vlm_base_url", "vst_internal_url"))
-            if args.vlm_media_mode == "video-url" and args.vlm_video_url_scope != "internal":
-                fields.add("vst_external_url")
     return fields
 
 
@@ -1000,91 +873,6 @@ def _rewrite_deployment_runtime(
         else:
             fields.remove("rtvi_cv_endpoint")
     return deployment.rewrite_runtime(runtime, fields=fields)
-
-
-def _maybe_build_vlm_analyzer(
-    args: argparse.Namespace,
-    search_payload: dict[str, Any] | None,
-    runtime: SearchRuntime,
-    *,
-    deployment: DeploymentConfig | None = None,
-) -> OpenAIVLMAnalyzer | None:
-    """Build the VLM analyzer only when critic verification is actually requested.
-
-    Constructing it unconditionally (as the old code did) wrapped a fresh VST
-    client and an httpx client for every plain ``search`` that never runs the
-    critic — a resource that was then never closed. Gating construction on an
-    actual critic request eliminates that leak; the facade closes the analyzer
-    it is given in ``aclose()``.
-    """
-    if not _payload_requests_critic(args, search_payload, runtime):
-        return None
-    return _vlm_analyzer_from_runtime(runtime, args, deployment=deployment)
-
-
-def _vlm_analyzer_from_runtime(
-    runtime: SearchRuntime,
-    args: argparse.Namespace,
-    *,
-    deployment: DeploymentConfig | None = None,
-) -> OpenAIVLMAnalyzer | None:
-    if not runtime.vlm_base_url or not runtime.vlm_model_name:
-        return None
-
-    from lib.vlm import OpenAIVLMAnalyzer
-    from lib.vst import VSTClient
-
-    api_key = runtime.vlm_api_key.get_secret_value() if runtime.vlm_api_key is not None else None
-    deployed_vlm_mode = (deployment.env.get("VLM_MODE", "") if deployment is not None else "").strip().lower()
-    if args.vlm_media_mode is not None:
-        media_mode = args.vlm_media_mode.replace("-", "_")
-    elif deployment is not None:
-        # Host-side execution cannot safely hand a container/remote VLM the
-        # managed 127.0.0.1 VST URL. Fetch through the host forward and send
-        # sampled frames for remote, local, local_shared, RT-VLM (mode=none),
-        # and older deployments that did not publish VLM_MODE.
-        media_mode = "frame_base64"
-        if deployed_vlm_mode not in {"", "none", "remote", "local", "local_shared"}:
-            logger.warning("Unrecognized deployed VLM_MODE; using frame-base64 transport")
-    else:
-        media_mode = "video_url"
-    video_url_scope: Literal["internal", "external"] = args.vlm_video_url_scope or (
-        "external" if deployment is not None and media_mode == "video_url" else "internal"
-    )
-    return OpenAIVLMAnalyzer(
-        base_url=runtime.vlm_base_url,
-        model=runtime.vlm_model_name,
-        api_key=api_key,
-        vst=VSTClient(
-            internal_url=runtime.vst_internal_url,
-            external_url=runtime.vst_external_url,
-            timeout_seconds=runtime.request_timeout_seconds,
-            rewrite_internal_clip_url=deployment is not None and media_mode != "video_url",
-        ),
-        timeout_seconds=runtime.request_timeout_seconds,
-        media_mode=media_mode,
-        video_url_scope=video_url_scope,
-        disable_audio=not runtime.vst_clip_enable_audio,
-        max_frames=runtime.vlm_max_frames,
-        max_fps=runtime.vlm_max_fps,
-    )
-
-
-def _validate_critic_request(
-    args: argparse.Namespace,
-    payload: dict[str, Any] | None,
-    runtime: SearchRuntime,
-    vlm_analyzer: OpenAIVLMAnalyzer | None,
-) -> None:
-    if not _payload_requests_critic(args, payload, runtime):
-        return
-    if not runtime.enable_critic:
-        raise ConfigurationError("critic verification was requested but --no-enable-critic disables critic wiring")
-    if vlm_analyzer is None:
-        raise ConfigurationError(
-            "critic verification requires a configured VLM base URL and model; provide them through the "
-            "deployment/config or explicit --vlm-base-url and --vlm-model options"
-        )
 
 
 # Keys under which each primitive/search output nests its list of result rows.
@@ -1451,10 +1239,6 @@ def _validate_payload_before_preflight(args: argparse.Namespace, payload: dict[s
         attribute_input.validate_semantics()
         _replace_payload_with_model(payload, attribute_input)
         return
-    if args.primitive == "critic":
-        from lib.search_core.models.critic import CriticAgentInput
-
-        _replace_payload_with_model(payload, CriticAgentInput(**payload))
 
 
 async def _run(args: argparse.Namespace) -> int:

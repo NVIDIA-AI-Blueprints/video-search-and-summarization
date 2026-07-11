@@ -39,11 +39,11 @@ if TYPE_CHECKING:
 
 
 class StatusEvent(BaseModel):
-    """Lifecycle progress signal — 'starting embed_search', 'critic running', etc."""
+    """Lifecycle progress signal for a search stage."""
 
     model_config = ConfigDict(extra="forbid")
     type: Literal["status"] = "status"
-    stage: str  # e.g. "embed_search", "attribute_search", "critic"
+    stage: str  # e.g. "embed_search" or "attribute_search"
     message: str
 
 

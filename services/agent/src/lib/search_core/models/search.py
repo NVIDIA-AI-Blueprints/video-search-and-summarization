@@ -15,8 +15,7 @@
 """Search-orchestrator input/output models.
 
 ``SearchInput`` is the user-facing request; ``SearchOutput`` wraps the ranked
-``SearchResult`` items (each carrying an optional per-result ``CriticResult``
-verdict). ``use_attribute_search`` is deliberately absent — it is an
+``SearchResult`` items. ``use_attribute_search`` is deliberately absent — it is an
 orchestrator config-time flag, not a user-routable field on the request.
 """
 
@@ -58,10 +57,6 @@ class SearchInput(BaseModel):
     # low-confidence searches, so don't clamp the lower bound to 0.
     min_cosine_similarity: float = Field(default=0.0, ge=-1.0, le=1.0)
     agent_mode: bool
-    # None means "inherit the runtime's enable_critic policy". Keeping omission
-    # distinct from an explicit true/false prevents host CLIs and direct callers
-    # from silently changing a deployment-level default.
-    use_critic: bool | None = None
 
     def validate_semantics(self) -> None:
         """Raise :class:`InvalidInputError` for cross-field problems.
@@ -82,18 +77,6 @@ class SearchInput(BaseModel):
             raise InvalidInputError(f"top_k must be >= 1 when provided (got {self.top_k})")
 
 
-class CriticResult(BaseModel):
-    """Per-search-result verdict from the critic agent.
-
-    Values use the same enum vocabulary as ``CriticAgentResult`` —
-    confirmed / rejected / unverified.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-    result: str
-    criteria_met: dict[str, bool] = Field(default_factory=dict)
-
-
 class SearchResult(BaseModel):
     """A single search result item."""
 
@@ -106,7 +89,6 @@ class SearchResult(BaseModel):
     screenshot_url: str
     similarity: float
     object_ids: list[str] = Field(default_factory=list)
-    critic_result: CriticResult | None = None
 
 
 class SearchOutput(BaseModel):

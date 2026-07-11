@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Contract tests for lib.search_core.primitives.CriticAgent.
+"""Contract tests for lib.critic.CriticAgent.
 
 Locks in the behaviors `/api/v1/critic` depends on:
   - All criteria True → CONFIRMED
@@ -24,11 +24,11 @@ from datetime import datetime
 import pytest
 
 from lib._foundation.errors import BackendUnreachableError
-from lib.search_core import CriticAgent
+from lib.critic import CriticAgent
+from lib.critic import VideoInfo
+from lib.critic.models import CriticAgentInput
+from lib.critic.models import CriticAgentResult
 from lib.search_core.errors import ConfigurationError
-from lib.search_core.models.common import VideoInfo
-from lib.search_core.models.critic import CriticAgentInput
-from lib.search_core.models.critic import CriticAgentResult
 
 # ---------------------------------------------------------------------- mocks
 
