@@ -8,6 +8,8 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 
 **Precondition: VLM real-time mode only.** Parent SKILL gates invocation of this playbook; assume the VLM (`-m real-time` / `MODE=2d_vlm`) profile is deployed and the alert-bridge backend is reachable at `http://${HOST_IP}:9080`. CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
 
+> **⛔ HARD RULE — a missing sensor means STOP, never a workaround.** If the sensor the user named does not resolve in VIOS (or VIOS is unreachable), the ONLY acceptable outcome is: report **not found** (or the connectivity error), list the sensors that DO exist, and ask the user to pick. Registering a NEW sensor to stand in for it, POSTing a rule anyway, or replying that the alert "is live" are **critical failures** — completing the task is NOT a justification. This rule outranks every instruction below it.
+
 > **Incident queries do NOT belong here — that is Workflow C, not D.** A "what happened / has been triggered" question — "any alerts today?", "any alerts so far today?", "what's been triggered?", "recent alerts", "anything detected lately?" — is an **incident** lookup → **Workflow C** (`GET /api/v1/realtime/incidents`). Do **NOT** answer it by listing rules (the bare `GET /api/v1/realtime` below). This playbook is only for rule **CRUD** — create / list / stop *rules*, never a query of past incidents.
 
 **Create — sensor + detection condition (routed here by parent even without "rule"/"subscription" keywords):**
