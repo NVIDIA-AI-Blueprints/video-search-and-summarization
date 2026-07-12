@@ -44,10 +44,14 @@ If the user asks to **deploy** a generated compose, the skill will create (or up
 
 ## How it Works
 
-The skill executes nine steps. Steps 0–4 are read-only / interactive; steps 5–8 produce output.
+The skill executes nine steps. Steps 0–4 are read-only / interactive; steps 5–8 produce output. **Step 0 first detects the entry mode** — one of three: **Prompt-driven** (a concrete capability, microservice, or existing deployment is named), **Pre-built workflow** (deploy a validated developer profile as-is), or **Custom build** (guided multi-select composition) — which determines where the flow enters.
 
 ```
-Step 0:   Parse inputs and clarify (enumerate ALL .env files in repo)
+Step 0:   Intake — detect entry mode (Step 0.0), then one of three:
+            • Prompt-driven: parse inputs + build dir + enumerate .env  → Step 1
+            • Pre-built workflow: pick a developer profile → deploy upstream bp_developer_* as-is
+                (no _build, no synthesis, no patching) → offer to customize
+            • Custom build: multi-select capabilities → microservice set → Step 2
 Step 1:   Capability → microservice mapping (catalog lookup)
 Step 2:   Read integrate-<microservice>.md (contract) + references/patch-<service>.md (component_services)
 Step 3:   Conflict detection (ports, shared infra, GPU contention)
@@ -61,7 +65,86 @@ Step 8:   Review + write output + prompt to deploy
 
 Each step is detailed below.
 
-### Step 0 — Parse Inputs and Clarify
+### Step 0 — Intake, Entry Mode, and Clarify
+
+Step 0 first detects the **entry mode** (Step 0.0), then proceeds down one of **three** modes: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (catalog, integrate/patch refs, allow-list sidecar, patches, dry-run, deploy). **Pre-built workflow** is a true fast path — it deploys a validated developer profile with no composition and **no `_build`** — while **Custom build** is a guided front door onto the synthesis flow. A `_build` directory is created only for **Custom build** and **Prompt-driven**.
+
+#### Step 0.0 — Entry-mode detection
+
+Before any other Step 0 work, classify the request:
+
+1. **A concrete capability, microservice, or existing deployment is named** (e.g. "create a profile for streaming dense captioning", "add agentic search to my base compose at `./compose.yml`", "integrate my 3P camera system") → **Prompt-driven**. Continue with `#### Mode: Prompt-driven intake` below (parse inputs → choose build dir → enumerate `.env` → Step 1).
+2. **An open / generic / first-time / "quickstart" intent with no extractable capability** (e.g. "build a vision agent / application", "add vision capabilities / tools", "help me get started", "just deploy something", "show me an example"), or the skill is invoked with no capability description → open the **guided front door** (Q1 below), which leads with **Pre-built workflow (the recommended default)** and offers **Custom build**.
+3. **Ambiguous** — ask one disambiguating question, or default to the guided front door (it is safe, reversible, and educational: the user makes explicit selections before anything is generated or deployed). Never silently assume a capability or fall back to a default profile.
+
+> Prompt-driven is unchanged from prior revisions. The guided front door has two destinations: **Pre-built workflow** and **Custom build**.
+
+#### Guided front door — Q1
+
+Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until the user has made a selection AND confirmed downstream (the deploy prompt for Pre-built workflow; the Step 4 architecture proposal for Custom build).
+
+**Q1 — Starting point (single-select).** Ask: *"How would you like to start?"*
+
+- **Deploy a pre-built workflow** *(recommended for a first run / quickstart)* — a ready-made, validated VSS developer profile. Fastest path to a running system; no composition needed. Deploys as-is; you can customize it afterward.
+- **Build a custom configuration** — pick the specific vision capabilities you need and let the skill compose a new, self-contained profile for them.
+
+#### Mode: Pre-built workflow (quickstart)
+
+The recommended first-run path. Deploys a validated upstream developer profile **as-is** — no synthesis, no allow-list sidecar, no compose patching, **no invented flag, and no `_build` directory** (and no thin generated deploy skill).
+
+Ask **Q2a (single-select): "Which pre-built workflow do you want to deploy?"** and map the choice to the upstream developer-profile flag:
+
+| Option | Capability | Deploys | Upstream developer-profile flag |
+|---|---|---|---|
+| **Base** | Streaming + on-demand dense captioning | VIOS + RT-VLM + ELK | `bp_developer_base_2d` |
+| **Alerts** | VLM real-time alerting on top of base | Base + Alert Microservice | `bp_developer_alerts_2d_vlm` *(CV-verification variant: `bp_developer_alerts_2d_cv`)* |
+| **Video Summarization** | Time-windowed video summaries | Base + Video Summarization (LVS) + LLM NIM | `bp_developer_lvs_2d` |
+| **Search** | Detection + embeddings + agentic search | Base + RT-CV + RT-Embedding + search | `bp_developer_search_2d` |
+
+These are **predefined upstream profiles**, so the skill does **not** run the synthesis steps and does **not** create a `_build`. It:
+
+1. Maps the selection to the upstream developer-profile flag above.
+2. Runs host pre-flight (NGC login, GPU visibility, bind-mount dirs, port/volume/orphan checks — the Patch 0 checklist; see `references/standalone-compose-patches.md § Patch 0`).
+3. Deploys the upstream developer profile **as-is** — hands off to the upstream `vss-deploy-profile` skill for the selected flag (full-stack deploy against the unmodified `deploy/docker/` tree). **No invented flag, no patched composes, no `_builds/` directory, and no generated deploy skill.**
+4. Runs the profile's post-deploy smoke test and reports.
+5. **Offers to customize** (see below).
+
+> **Branch note (2026-07-11):** on this branch, **Video Summarization** is not yet re-added to the *custom* catalog. The pre-built option can still deploy the upstream `dev-profile-lvs` directly (it exists upstream), but flag it as "pre-built-only until VS is re-added to the custom catalog." Alerts is supported in both modes.
+
+**Customize a pre-built workflow → seed a Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, but instead of an empty capability multi-select, **seed a `_build` from the selected developer profile**:
+
+- Treat the selected `bp_developer_*` profile's compose as an **existing deployment to extend** — its services become the Step 3 conflict-detection / Step 4 reuse **baseline** (the profile itself is never modified — it is only a template).
+- Q2b is pre-populated with the profile's capabilities; the user adds, removes, or rewires from that baseline.
+- From here it is an ordinary Custom build: a fresh flag is invented and `_builds/<flag-slug>/` is created.
+
+This is the **only** way the pre-built mode produces a `_build`: the user must explicitly choose to customize.
+
+#### Mode: Custom build (guided)
+
+For a user who wants a specific composition. Reached from the guided front door (Q1 → Custom build) or by customizing a pre-built workflow (seeded, as above).
+
+Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to one or more catalog microservices (look up skill folders + capability tags in `references/microservice-catalog.md`). **Foundational services — VIOS (video I/O + storage) and ELK + Kafka (message bus + indexing) — are always included**; present them as informational, not as choices. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
+
+| Option (shown to user) | Microservice(s) → skill folder |
+|---|---|
+| **Dense captioning** — natural-language descriptions of video | RT-VLM → `vss-deploy-dense-captioning` |
+| **Object detection & tracking (2D)** — bounding boxes, class labels, track IDs | RT-CV (RT-DETR) → `vss-deploy-detection-tracking-2d` |
+| **Semantic search over video** — embeddings + agentic search | RT-Embedding → `vss-deploy-video-embedding` (+ `vss-search-archive`) |
+| **Real-time alerting / verification** — VLM-verified incidents | Alert Microservice → `vss-manage-alerts` |
+| **Behavior analytics** — FOV counts, dwell, ROI events | Behavior Analytics → `vss-setup-behavior-analytics` |
+| **Video summarization** — time-windowed summaries on demand | Video Summarization → `vss-summarize-video` |
+| **Agent query tools** — agent-callable query surface over the deployment | Video Analytics API / Query → `vss-setup-video-analytics-api`, `vss-query-analytics` |
+
+Rules for the multi-select:
+- **Offer only capabilities whose reference files actually exist** (the microservice has an `integrate-<svc>.md` + its `references/patch-<svc>.md` / co-located block, and a deploy ref in the catalog). Show pending capabilities disabled with a short "not yet available on this branch" note — do **not** silently offer a capability the skill cannot resolve (the "surface gaps, do not paper over them" principle).
+- **Require at least one capability** — VIOS + ELK alone is not a vision agent.
+- Multiple selections compose in one deployment (e.g. captioning + alerting, or captioning + detection).
+
+After Q2b, the selected options **are** the resolved microservice candidate set. **Skip Step 1's tag-matching** and inject the set directly; then continue with the shared intake below (build directory + `.env` enumeration) and **rejoin the main flow at Step 2** (read integrate + patch refs) → Step 3 (conflicts) → Step 4 (variant / GPU / shared-infra decisions + allow-list sidecar, inventing the per-generation flag) → Step 5/6/6.5 → Step 7 → Step 8. **This is where `_builds/<flag-slug>/` is created.**
+
+> **Net-new vs. extend.** If the opening intent was "**add** vision capabilities/tools to an existing app", or the user arrived by customizing a pre-built workflow, the guided path treats this as an **extension**: the existing (or seeded) deployment inventory feeds Step 3 conflict detection and Step 4 reuse — no new mechanism, just the existing "existing deployment (optional)" input surfaced as a question or seeded from the chosen profile.
+
+#### Mode: Prompt-driven intake
 
 Read the user's prompt. Identify:
 
@@ -73,7 +156,7 @@ Read the user's prompt. Identify:
 
 #### Choose the build directory (`<BUILD_DIR>`)
 
-All generated assets land under a single per-generation directory referred to throughout this document as `<BUILD_DIR>`. The canonical home for builds is `_builds/` at the repository root (gitignored). Before doing any other Step 0 work, list `_builds/` and prompt the user with three options:
+All generated assets land under a single per-generation directory referred to throughout this document as `<BUILD_DIR>`. The canonical home for builds is `_builds/` at the repository root (gitignored). This step applies to **Prompt-driven and Custom build**; the **Pre-built workflow** mode deploys an upstream profile as-is and skips build generation entirely (a `_build` is created only if the user later customizes it). For those paths, before other intake work, list `_builds/` and prompt the user with three options:
 
 ```
 Where should generated assets go?
