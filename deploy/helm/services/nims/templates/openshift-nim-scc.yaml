@@ -28,7 +28,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 priority: 15
 allowPrivilegedContainer: false
-allowPrivilegeEscalation: true
+allowPrivilegeEscalation: false
 allowedCapabilities: []
 defaultAddCapabilities: []
 requiredDropCapabilities:
@@ -51,8 +51,6 @@ volumes:
   - persistentVolumeClaim
   - projected
   - secret
-users:
-  - system:serviceaccount:{{ .Release.Namespace }}:nim-cache-sa
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
