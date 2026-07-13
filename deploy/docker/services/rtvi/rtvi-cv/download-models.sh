@@ -120,7 +120,9 @@ download_package() {
   fi
 
   mkdir -p "$package_dir"
-  ngc registry model download-version "$package_ref" --org "$org" --dest "$package_dir"
+  # This function is called through command substitution. Keep NGC's progress and
+  # completion output out of stdout so package_dir contains only the path below.
+  ngc registry model download-version "$package_ref" --org "$org" --dest "$package_dir" >&2
 
   echo "$package_dir"
 }
