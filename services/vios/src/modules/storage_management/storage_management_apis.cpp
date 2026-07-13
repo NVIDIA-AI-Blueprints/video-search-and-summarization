@@ -52,6 +52,7 @@ string StorageManagement::computeConfigHash(const string& enableOverlay,
                         const string& disableAudio,
                         const string& transcode,
                         const string& uselibav,
+                        const string& frameRate,
                         const OverlayBBoxParams* overlay)
 {
     Json::Value root(Json::objectValue);
@@ -60,6 +61,7 @@ string StorageManagement::computeConfigHash(const string& enableOverlay,
     root["disableAudio"]  = disableAudio;
     root["transcode"]     = transcode;
     root["uselibav"]      = uselibav;
+    root["frameRate"]     = frameRate;
 
     if (overlay && enableOverlay == "true")
     {
@@ -1558,7 +1560,7 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
             // cached file generated with a different overlay. See
             // computeConfigHash() above for the field set.
             params.configHash = computeConfigHash(enableOverlay, container, disableAudio,
-                                                  transcode, uselibav, &olParams);
+                                                  transcode, uselibav, frameRate, &olParams);
 
             // Parse blocking parameter to decide between sync and async generation
             string blockingStr;
