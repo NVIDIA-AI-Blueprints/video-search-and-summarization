@@ -47,6 +47,7 @@ The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p a
 - Set up or manage Slack incident notifications
 - List or query detected incidents / alerts (Workflow C)
 - Inspect CV verification results and verdicts (confirmed/rejected/not-confirmed/verification-failed), explain how verification works, customize VLM-verifier prompts (CV mode — Workflow B)
+- Run a one-shot on-demand verification of a specific video/image URL (CV mode — Workflow F)
 - Check whether always-on alerting is active, query its incidents, troubleshoot missing always-on alerts (VLM real-time — Workflow G; operate only, no config authoring)
 - Add a new camera to the alerts pipeline (Workflow A)
 
@@ -71,7 +72,7 @@ If the probe fails, ask which mode to deploy and hand off to `/vss-deploy-profil
 
 | Mode | Deploy flag | Env (`.env`) | What runs | What is available |
 |---|---|---|---|---|
-| **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**). Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
+| **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
 | **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — feature-gated via `alert_agent.always_on`, default **off**). No static CV pipeline. |
 
 **Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag (VLM → CV adds the CV pipeline; CV → VLM tears it down). `rtvi-vlm` runs in both modes.
@@ -118,8 +119,9 @@ grep -E '^MODE=' "$ENV_FILE"
 | **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see canonical refusal text below |
 | **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?") | **Workflow C (Query)** — works on both; **always run the query, never answer from memory** |
 | **CV** | verification results / verdicts ("was it confirmed?", "show verification results"), *how does verification work*, verifier-prompt customization | **Workflow B (Verification)** — `references/verification.md` |
+| **CV** | one-shot "verify **this** clip/image" with a media URL, or the literal "on-demand" | **Workflow F (On-demand)** — `references/on-demand-verification.md` |
 | **CV** | static CV alert onboarding | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; pipeline auto-picks it up |
-| **VLM** | verification results / verdict inspection or verifier-prompt config (CV-only capabilities) | *Explain-only* asks → answer from **Workflow B** background, no calls needed. *Execution* asks → VLM-mode refusal text below (redeploy hint `-m verification`) |
+| **VLM** | verification results / verdict inspection, verifier-prompt config, or on-demand verification (CV-only capabilities) | *Explain-only* asks → answer from **Workflow B/F** background, no calls needed. *Execution* asks → VLM-mode refusal text below (redeploy hint `-m verification`) |
 | **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then `vss-deploy-profile -m verification` |
 | **any** | video summarization, highlight reels, reports, non-alert analytics | **Out of scope** — hand off to `vss-generate-video-report` / `vss-query-analytics` (Cross-Skill Links); do **not** answer it via incidents or rules, even when incidents are empty |
 
@@ -128,11 +130,12 @@ grep -E '^MODE=' "$ENV_FILE"
 ### Intent precedence (first match wins)
 
 1. **Workflow E (Slack)** — Slack-specific keywords (`slack`, `webhook` + `slack`, `bot token`, `slack channel`). `notify` alone is **not** sufficient.
-2. **Workflow G (Always-on)** — the literal `always-on` (status, incidents, troubleshooting phrasings). Operate-not-author: status checks and queries only; never author or edit always-on rule config. A request to *create* an ordinary realtime rule is **not** G — that's D.
-3. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C.
-4. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete).
-5. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
-6. **Workflow A (CV)** — CV deployment handling for anything not matched above.
+2. **Workflow F (On-demand)** — a one-shot "verify / check / analyze **this**" pointing at a **specific media artifact** (video/image URL, clip, file), or the literal `on-demand`. Guard: *continuous monitoring of a sensor/stream* is **never** F — that's D ("watch camera X for PPE" → D; "verify this clip URL for PPE" → F).
+3. **Workflow G (Always-on)** — the literal `always-on` (status, incidents, troubleshooting phrasings). Operate-not-author: status checks and queries only; never author or edit always-on rule config. A request to *create* an ordinary realtime rule is **not** G — that's D.
+4. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a media artifact to verify and without a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C.
+5. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete).
+6. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
+7. **Workflow A (CV)** — CV deployment handling for anything not matched above.
 
 > **`alerts` vs `alert rules` (C vs D) — pick exactly one, never both:**
 > *what happened / has been triggered* (incidents) → **Workflow C**
@@ -160,11 +163,11 @@ When the deployed mode is CV verification and the user asks for an alert-subscri
 
 No auto-redeploy. The user decides whether to switch modes.
 
-### VLM-mode text for verification-execution intents (Workflow B)
+### VLM-mode text for verification-execution intents (Workflows B and F)
 
-Verification verdicts exist only on a CV (verification) deployment. On VLM real-time, *explain-only* asks ("how does verification work?") are always answerable from Workflow B background — no calls, no refusal. For *execution* asks (inspect verdicts, customize verifier prompts), reply with this message verbatim:
+Verification verdicts and on-demand verification exist only on a CV (verification) deployment. On VLM real-time, *explain-only* asks ("how does verification work?") are always answerable from Workflow B/F background — no calls, no refusal. For *execution* asks (inspect verdicts, customize verifier prompts, verify a clip on demand), reply with this message verbatim:
 
-> "Verification verdicts and verifier-prompt configuration require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy with `/vss-deploy-profile -p alerts -m verification` (note: switching stops currently-running realtime monitoring)."
+> "Verification workflows (verdict inspection, verifier-prompt configuration, on-demand verification) require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy with `/vss-deploy-profile -p alerts -m verification` (note: switching stops currently-running realtime monitoring)."
 
 No auto-redeploy here either.
 
@@ -257,6 +260,25 @@ Load and follow `references/alert-notify.md`. Code lives in `scripts/alert-notif
 
 ---
 
+## Workflow F — On-Demand Verification (CV mode)
+
+One-shot verification of a **specific media artifact** the user points at — never a continuous rule. Endpoint is **`POST $AB/api/v1/verification/ondemand`** (there is **no** `/verification/verify` route):
+
+1. **Resolve the category first** — `GET $AB/api/v1/verification/config` and pick the existing `alert_type` matching the user's ask (e.g. a ladder/PPE config for a ladder-safety question). Never invent a category: an unknown one is a deterministic `400 {"error":"unknown_category"}`.
+2. **Submit**:
+   ```bash
+   curl -sf -X POST "$AB/api/v1/verification/ondemand" -H 'Content-Type: application/json' -d '{
+     "category": "<alert_type from config>",
+     "info": { "media_urls": ["<video/image URL>"], "media_type": "video" }
+   }'
+   ```
+   Response is **HTTP 202** `{"status":"accepted","correlationId":"…","message":…,"timestamp":…}` — report the actual `correlationId` (server default `ondemand-<uuid>`; your own `id` field is used if you send one). 400 = `unknown_category` / `invalid_request` (`info.media_urls` list + `media_type` ∈ `video`|`image` are required).
+3. **Result lands async** in the same `mdx-vlm-alerts-*` store as CV verification — inspect via **Workflow B**'s interim ES probe keyed on the `correlationId` (allow ≥2 min; the VLM must fetch the URL itself, so an unreachable URL still lands a document via the error path with a non-200 `verificationResponseCode`).
+
+Load `references/on-demand-verification.md` for the full contract, media constraints, and result-validation checklist. CV mode for execution; explain-only asks answerable anywhere. A 202 means **accepted**, not verified — never report a verdict at submit time.
+
+---
+
 ## Workflow G — Always-On Operation (VLM real-time mode only)
 
 Always-on alerting starts pre-configured rules automatically when SDR announces a camera (`camera_streaming` → one realtime rule per `always_on_rules` YAML entry; `camera_remove` tears them down) via `POST $AB/api/v1/realtime/always-on`. **Operate, don't author** — this workflow never creates or edits always-on rule config; it checks status, queries results, and troubleshoots.
@@ -310,6 +332,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 
 - **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** Slack ops → Workflow E (`alert-notify`); never route Slack to `vss-alert-bridge`'s `/api/v1/realtime`.
 - **Workflow scope by mode:** A and B are CV-only (B's explain-only asks answerable anywhere); **C queries the real-time incident store** (`/api/v1/realtime/incidents`; CV behavior-alert verdicts live in `mdx-vlm-alerts-*` — **no REST query endpoint yet**, use Workflow B's interim ES probe); D and E are VLM real-time only (refuse on CV with the canonical text).
+- **On-demand verification is `POST /api/v1/verification/ondemand`** — not `/verification/verify`, not a realtime rule, not `/generate`. 202 = accepted (async), never a verdict.
 - **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate (default off) or a `503 ALWAYS_ON_DISABLED` from `POST /api/v1/realtime/always-on`; its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
 - **Don't use `vss-rtvi-vlm` as a mode signal** — it runs in both modes. Use `vss-behavior-analytics` (CV-only) or the `MODE` env var.
 - **A mode switch tears down the current deployment** — running VLM streams and un-persisted CV alert state are lost.
