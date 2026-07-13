@@ -19,6 +19,6 @@ dependencies:
   version: 3.2.1-rc1-d16a216
 - name: rtvi
   repository: file://../../services/rtvi
-  version: 3.2.0
-digest: sha256:523325589b88d89d7804f9cca67430bf8359a244ed39ce5b367712f2611e0596
-generated: "2026-07-07T00:29:08.865023301-07:00"
+  version: 3.2.1
+digest: sha256:7231b27d81c94aa341a9cc44f06b5903c6cdcb72555211883eaf634ca76c15b8
+generated: "2026-07-13T21:39:36.793567+05:30"

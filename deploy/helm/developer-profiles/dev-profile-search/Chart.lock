@@ -7,7 +7,7 @@ dependencies:
   version: 3.2.0
 - name: rtvi
   repository: file://../../services/rtvi
-  version: 3.2.0
+  version: 3.2.1
 - name: analytics
   repository: file://../../services/analytics
   version: 3.2.0
@@ -20,5 +20,5 @@ dependencies:
 - name: nims
   repository: file://../../services/nims
   version: 3.2.0
-digest: sha256:232894ebbdb43dd8ad94877cdcbb53f69a15f5bc65839048f2ad5c809fc379e8
-generated: "2026-06-04T16:43:46.668602+05:30"
+digest: sha256:dbb2a4a8a7b2cfc85c62fde484dc532bdc563091d1fbbf868b16324ebccdfe5c
+generated: "2026-07-13T21:39:37.291943+05:30"

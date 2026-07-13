@@ -19,9 +19,9 @@ dependencies:
   version: 3.2.0
 - name: rtvi
   repository: file://../../services/rtvi
-  version: 3.2.0
+  version: 3.2.1
 - name: nims
   repository: file://../../services/nims
   version: 3.2.0
-digest: sha256:155d515f8ce31c30ba46c3333bbb724adb023b28cce66b4d3353f3dfc670d7df
-generated: "2026-06-04T16:43:55.568698+05:30"
+digest: sha256:379dd6494c088221c73e93611c730c71e0fc4e542fe55817d1521af4beba1070
+generated: "2026-07-13T21:39:36.317977+05:30"

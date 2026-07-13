@@ -7,6 +7,6 @@ dependencies:
   version: 3.2.0
 - name: vss-rtvi-embed
   repository: file://./charts/rtvi-embed
-  version: 3.2.0
-digest: sha256:d80b8574891c8d58a9ee5f93edfdfb849337f4841dd9139e0c34d2a37b7a6eb8
-generated: "2026-06-04T16:43:31.676914+05:30"
+  version: 3.2.1
+digest: sha256:37bddfb21dfa7cd5ba2a3b8e1d5bf0c076a5259058ce7d332933d0485d129aa1
+generated: "2026-07-13T21:39:34.223822+05:30"
