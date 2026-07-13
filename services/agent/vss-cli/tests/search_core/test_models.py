@@ -11,13 +11,14 @@ from pydantic import ValidationError
 import pytest
 
 from lib.critic import VideoInfo
+from lib.search_core.errors import InvalidInputError
 from lib.search_core.models.attribute_search import AttributeSearchInput
 from lib.search_core.models.embed_search import EmbedSearchInput
 from lib.search_core.models.search import SearchInput
 
 
 def _valid_search_input(**overrides: object) -> SearchInput:
-    kwargs: dict[str, object] = {"query": "q", "source_type": "video_file", "agent_mode": False}
+    kwargs: dict[str, object] = {"query": "q", "source_type": "video_file"}
     kwargs.update(overrides)
     return SearchInput(**kwargs)  # type: ignore[arg-type]
 
@@ -30,6 +31,12 @@ def test_search_input_forbids_extra():
 def test_embed_input_forbids_extra():
     with pytest.raises(ValidationError):
         EmbedSearchInput(source_type="video_file", bogus=1)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("field", ["precomputed_embedding", "image_url", "video_url"])
+def test_embed_input_rejects_unsupported_embedding_sources(field: str) -> None:
+    with pytest.raises(ValidationError):
+        EmbedSearchInput(query="q", **{field: "unsupported"})
 
 
 def test_attribute_input_forbids_extra():
@@ -45,7 +52,18 @@ def test_search_input_top_k_out_of_bounds_rejected(bad_top_k):
 
 def test_search_input_top_k_within_bounds_accepted():
     assert _valid_search_input(top_k=5).top_k == 5
-    assert _valid_search_input(top_k=None).top_k is None
+    assert SearchInput(query="q").top_k is None
+
+
+def test_search_mode_requires_matching_explicit_inputs() -> None:
+    with pytest.raises(InvalidInputError, match="requires at least one attribute"):
+        _valid_search_input(search_mode="fusion").validate_semantics()
+    with pytest.raises(InvalidInputError, match="attributes require"):
+        _valid_search_input(attributes=["red"]).validate_semantics()
+    with pytest.raises(InvalidInputError, match="object_ids require"):
+        _valid_search_input(object_ids=[42]).validate_semantics()
+    with pytest.raises(InvalidInputError, match="does not accept attributes"):
+        _valid_search_input(search_mode="object", object_ids=[42], attributes=["red"]).validate_semantics()
 
 
 @pytest.mark.parametrize("bad_top_k", [0, 5000])

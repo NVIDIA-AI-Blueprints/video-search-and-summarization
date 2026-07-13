@@ -234,9 +234,8 @@ functions:
     behavior_index: mdx-behavior-2025-01-01
     enable_frame_lookup: false
   search:
-    use_attribute_search: false
+    use_attribute_search: true
     enable_critic: false
-    search_max_iterations: 1
     default_max_results: 5
     embed_confidence_threshold: 0.1
     behavior_es_endpoint: {mock_services.base_url}
@@ -337,8 +336,8 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
         "person wearing a white jacket",
         "--attribute",
         "white jacket",
-        "--has-action",
-        "false",
+        "--search-mode",
+        "attribute",
         "--top-k",
         "1",
     )
@@ -355,7 +354,7 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     assert mock_services.requests_ending_with("/_search")[-1].path == "/mdx-behavior-2025-01-01/_search"
 
 
-def test_search_archive_cli_auto_fusion_for_action_plus_attributes(
+def test_search_archive_cli_explicit_fusion_for_action_plus_attributes(
     agent_root: Path,
     mock_services: _MockSearchServices,
 ) -> None:
@@ -366,8 +365,8 @@ def test_search_archive_cli_auto_fusion_for_action_plus_attributes(
         "person in a white jacket climbing a ladder",
         "--attribute",
         "white jacket",
-        "--has-action",
-        "true",
+        "--search-mode",
+        "fusion",
         "--top-k",
         "1",
     )
@@ -395,6 +394,8 @@ def test_search_archive_cli_object_id_path_skips_query_embedding(
         "find objects similar to tracked person 42",
         "--object-id",
         "42",
+        "--search-mode",
+        "object",
         "--top-k",
         "1",
     )
@@ -476,7 +477,6 @@ async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
                 source_type="video_file",
                 video_sources=["warehouse_clip"],
                 top_k=1,
-                agent_mode=False,
             )
     finally:
         await ElasticClient.close_all()
@@ -540,10 +540,6 @@ def _runtime_args(services: _MockSearchServices) -> list[str]:
         "video_embeddings",
         "--default-max-results",
         "5",
-        "--embed-default-max-results",
-        "10",
-        "--search-max-iterations",
-        "1",
         "--embed-confidence-threshold",
         "0.1",
         "--behavior-index",

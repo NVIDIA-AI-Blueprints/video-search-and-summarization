@@ -31,14 +31,14 @@
     {
       "query": "Find all instances of forklifts in the sample warehouse video. The Docker search profile is deployed on this host.",
       "checks": [
-        "The agent issued exactly one host-side `uv run --project services/agent/vss-cli vss-cli search run` command with `--no-use-critic`, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
+        "The agent issued a host-side `uv run --project services/agent/vss-cli vss-cli search run` command, did not pass removed critic/VLM flags, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
         "The host command passed `--deployment docker --profile search`, used the profile's runtime `generated.env` plus checked-out config for discovery, and did not manually pass `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, or `--vst-external-url`",
         "The `vss-cli search run` command included `--query` text that paraphrases or contains `forklifts` and included `--video-source` for the resolved sample warehouse source \u2014 not a different user query, not a paraphrase that dropped the object noun",
         "The `vss-cli search run` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
         "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers \u2014 not a raw JSON dump, not a chat-style bullet list",
         "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the `vss-cli search run` output \u2014 no fabricated timestamps, no paraphrased similarity scores",
         "Every screenshot_url / clip_url cited in the agent's final report matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...) \u2014 otherwise the user cannot open them from outside the Brev box",
-        "If a search hit has non-null `critic_result`, the report displays a critic result outcome column and a criteria column listing all evaluation criteria relevant to that result (formatted with \u2713 for true and \u2717 for false); if `critic_result` is null, the report marks critic verification as skipped.",
+        "The report does not claim that retrieval similarity is visual verification and does not expect a `critic_result` field that the CLI does not return.",
         "The agent's final reply includes a `Verification Step` offer at the end of the report, telling the user that screenshots can be downloaded and inspected \u2014 it does NOT silently download screenshots without opt-in",
         "The agent did NOT start the video ingest handshake (`POST /api/v1/videos` or `POST /api/v1/videos/{sensorId}/complete`) during this step, it considered the video was in the system already"
       ]
@@ -46,9 +46,9 @@
     {
       "query": "Find a person wearing a white jacket climbing a ladder in sample-warehouse-ladder. The Docker search profile is deployed on this host. You are pre-authorized to run the Verification Step autonomously, without asking for confirmation.",
       "checks": [
-        "The agent issued exactly one host-side `uv run --project services/agent/vss-cli vss-cli search run` command with `--no-use-critic`, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
+        "The agent issued a host-side `uv run --project services/agent/vss-cli vss-cli search run` command without removed critic/VLM flags, did not wrap it in `docker exec`, `kubectl exec`, or a pod/container shell, and did not call `POST http://localhost:8000/generate` for search",
         "The host command passed `--deployment docker --profile search`, used the profile's runtime `generated.env` plus checked-out config for discovery, and did not manually pass `--es-endpoint`, `--behavior-es-endpoint`, `--cosmos-embed-endpoint`, `--rtvi-cv-endpoint`, `--vst-internal-url`, or `--vst-external-url`",
-        "The `vss-cli search run` command preserved both halves of the fused query: `--query` contains the action (`climbing a ladder`), `--attribute` contains the appearance attribute (`white jacket`), and `--has-action true` is present \u2014 the agent did NOT silently drop one half to simplify the search",
+        "The `vss-cli search run` command preserved both halves of the fused query: `--query` contains the action (`climbing a ladder`), `--attribute` contains the appearance attribute (`white jacket`), and `--search-mode fusion` is present \u2014 the agent did NOT silently drop one half to simplify the search",
         "The `vss-cli search run` JSON output contained a non-empty `data` array of search hits (each hit has similarity score and timestamped clip metadata)",
         "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers \u2014 not a raw JSON dump, not a chat-style bullet list",
         "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the `vss-cli search run` output \u2014 no fabricated timestamps, no paraphrased similarity scores",
@@ -61,7 +61,7 @@
     {
       "query": "Find a neon-pink monster truck in the ingested sample warehouse video. The Docker search profile is deployed on this host.",
       "checks": [
-        "The agent issued a host-side `uv run --project services/agent/vss-cli vss-cli search run --deployment docker --profile search` command with `--no-use-critic` and `--query` containing `neon-pink monster truck` (or an equivalent paraphrase), did not use a container/pod shell or manual backend endpoint flags, and did not call `POST http://localhost:8000/generate` for search \u2014 it did NOT refuse the query up front",
+        "The agent issued a host-side `uv run --project services/agent/vss-cli vss-cli search run --deployment docker --profile search` command without removed critic/VLM flags and with `--query` containing `neon-pink monster truck` (or an equivalent paraphrase), did not use a container/pod shell or manual backend endpoint flags, and did not call `POST http://localhost:8000/generate` for search \u2014 it did NOT refuse the query up front",
         "The `vss-cli search run` output returned zero hits because this object is not present in the video. The agent did NOT claim success, did NOT fabricate matches, and did NOT silently return an empty report \u2014 per the skill's mandatory workflow, zero matches trigger the troubleshooting loop",
         "The agent's final reply explicitly acknowledges the zero-hit outcome and explains why (e.g. the query may be too specific, the object may not be present, or suggests the user loosen the query / lower similarity threshold) \u2014 per the troubleshooting.md guidance"
       ]

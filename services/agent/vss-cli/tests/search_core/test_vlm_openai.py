@@ -7,8 +7,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from lib.search_core.errors import BackendUnreachableError
-from lib.search_core.errors import ConfigurationError
+from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.errors import ConfigurationError
 from lib.vlm.openai import OpenAIVLMAnalyzer
 
 
