@@ -1,0 +1,53 @@
+{
+  "skills": [
+    "vss-manage-alerts",
+    "vss-deploy-profile"
+  ],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": [
+          "remote-all"
+        ]
+      }
+    }
+  },
+  "deploy_mode": "real-time",
+  "description": "Slack as the primary non-OpenClaw notification path (Workflow E): on a real-time deploy with NO alert-notify server running and NO Slack credentials available, the agent must (a) route a Slack setup ask to the alert-notify relay on :9090 (never Alert Bridge realtime APIs), hit the credentials gate - ask for SLACK_BOT_TOKEN + SLACK_CHANNEL_ID and mention selecting the Slack backend (NOTIFY_BACKENDS, default targets the OpenClaw Dashboard) - and STOP without starting the server (it hard-exits on placeholder creds), (b) handle a test-notification ask grounded in the not-running probe, and (c) explain the Slack-vs-OpenClaw two-backends-one-relay model. No fake-credentials start step exists BY DESIGN: the server sys.exit(1)s on failed Slack auth_test.",
+  "expects": [
+    {
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints.",
+      "checks": [
+        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
+        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification)."
+      ]
+    },
+    {
+      "query": "Set up Slack notifications for alert incidents on this deployment.",
+      "checks": [
+        "The agent routes the ask to the alert-notify webhook relay (Workflow E, port 9090 / scripts/alert-notify), NOT to Alert Bridge: the trajectory contains no POST/PUT/DELETE against `http://localhost:9080/api/v1/realtime*` for this Slack ask (read-only GETs are acceptable) and it does not present a realtime rule as a notification setup.",
+        "The agent hits the credentials gate correctly: it asks the user for a real `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` (and may mention `VST_ENDPOINT`), and it does NOT start the webhook server in this turn — no server process is launched with placeholder/dummy credentials (the server exits at startup on a failed Slack auth, so a placeholder start is a known failure mode).",
+        "The agent mentions backend selection: Slack delivery requires selecting the Slack backend (`NOTIFY_BACKENDS=slack`, or `slack,dashboard`) because the relay's default backend is the OpenClaw Dashboard — a setup description that omits backend selection and would silently deliver to the Dashboard is a failure.",
+        "`sh -c '! curl -sf --max-time 5 http://localhost:9090/webhook/alert-notify/health >/dev/null 2>&1'` returns exit 0 (ground truth: no webhook server was started in this trial — the credentials gate held)."
+      ]
+    },
+    {
+      "query": "OK — for now just send a test alert notification to Slack so I can see what it looks like.",
+      "checks": [
+        "The agent attempts the test through the alert-notify path (a probe of `:9090` health/status or an explicit statement that the relay is not running), and grounds its reply in that evidence: the webhook server is not running / not yet configured, so no test message can be delivered until credentials are provided and the server is started. Offering to start it once credentials exist is good.",
+        "The agent does NOT fabricate success: no claim that a test notification was 'sent' or 'delivered', and no fallback that misuses Alert Bridge (`:9080/api/v1/realtime*`) or `POST /generate` to simulate a Slack notification.",
+        "`sh -c '! curl -sf --max-time 5 http://localhost:9090/webhook/alert-notify/health >/dev/null 2>&1'` returns exit 0 (still no server started — the agent did not launch it with placeholder credentials to force a test through)."
+      ]
+    },
+    {
+      "query": "Do Slack alerts and the OpenClaw Dashboard notifications go through the same service? How do I choose where alerts end up?",
+      "checks": [
+        "The reply explains the two-backends-one-relay model: a single alert-notify webhook server (port 9090) receives incidents from Alert Bridge on `POST /webhook/alert-notify` and fans them out to the enabled backends — Slack and/or the OpenClaw Dashboard.",
+        "The reply states that the destination is chosen via the `NOTIFY_BACKENDS` environment variable (default `dashboard`; `slack` / `slack,dashboard` for Slack delivery) with per-backend credential sets (Slack bot token + channel ID vs OpenClaw gateway URL + auth token), and explicitly notes that Slack notifications are NOT configured through Alert Bridge realtime rule APIs (`:9080`).",
+        "The answer is consistent with the deployment evidence gathered earlier in this trial (relay not currently running) and fabricates nothing — describing how it WOULD work is expected; claiming it is currently delivering is a failure."
+      ]
+    }
+  ]
+}

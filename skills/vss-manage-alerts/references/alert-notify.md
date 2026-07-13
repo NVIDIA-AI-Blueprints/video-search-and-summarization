@@ -16,9 +16,27 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 - "Stop the alert Slack webhook"
 - "What's the status of the Slack notification service?"
 
-**Not this skill** (handled by parent Workflow D or B instead):
+**Not this skill** (handled by parent Workflow D instead):
 - "Notify me when someone enters the zone" — alert creation, not Slack setup
 - "Alert and notify on incidents" — no Slack/webhook keyword, ambiguous destination
+
+---
+
+## Two backends, one relay
+
+The webhook server is a single relay on `:9090`; Alert Bridge POSTs incidents to `POST /webhook/alert-notify`, and the server fans each incident out to **all enabled backends**:
+
+| Backend | Selected by | Credentials |
+|---|---|---|
+| **Slack** | `NOTIFY_BACKENDS=slack` | `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID` |
+| **OpenClaw Dashboard** | `NOTIFY_BACKENDS=dashboard` (the **default** when unset) | `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN` |
+| Both | `NOTIFY_BACKENDS=slack,dashboard` | both sets |
+
+- **Slack is the primary non-OpenClaw path** — a Slack-only setup MUST set `NOTIFY_BACKENDS=slack`; leaving the default silently targets the Dashboard instead.
+- Where alerts go is chosen here, by env — **never** through Alert Bridge realtime rule APIs (`:9080/api/v1/realtime*` plays no role in notification routing).
+- The `/status` endpoint reports per-backend state — use it to tell the user which destinations are live.
+
+> ⚠️ **The server exits at startup on a bad backend.** A failed Slack `auth_test` (invalid/placeholder `SLACK_BOT_TOKEN`), missing Dashboard credentials, or an unset `VST_ENDPOINT` each terminate the process (`sys.exit(1)`) — there is no degraded half-started mode. Collect real credentials **before** starting; never launch with placeholders to "see if it works".
 
 ---
 
