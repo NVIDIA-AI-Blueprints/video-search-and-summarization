@@ -7,25 +7,31 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying, operating, or integrating the NVIDIA VSS Video Embedding (RT-Embed) microservice for video and text embedding generation in AI-powered video analytics applications. <br>
+Developers and engineers deploying, operating, and integrating the VSS Video Embedding (RT-Embed) microservice for video and text embedding generation in AI-powered video analytics applications. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Yes] <br>
+**Credential Type(s):** [API key] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [Deployment Reference](references/deploy-vss-deploy-video-embedding.md) <br>
 - [Integration Reference](references/integrate-vss-deploy-video-embedding.md) <br>
 - [REST API Catalog](references/rest-api.md) <br>
 - [Environment Variable Matrix](references/environment.md) <br>
-- [Troubleshooting](references/troubleshooting.md) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Troubleshooting Guide](references/troubleshooting.md) <br>
 
 
 ## Skill Output: <br>
@@ -35,13 +41,13 @@ Mitigation: Review and scan skill before deployment. <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-2 evaluation tasks (2 positive skill-activation tasks, 0 negative tasks) via NVSkills-Eval external profile in astra-sandbox environment. <br>
+Evaluated against 2 internal evaluation tasks (2 positive skill-activation cases). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,13 +72,13 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 2 | 100% (+0%) | 100% (+0%) |
-| Correctness | 2 | 50% (+50%) | 50% (+50%) |
-| Discoverability | 2 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 2 | 92% (+80%) | 84% (+66%) |
-| Efficiency | 2 | 27% (-0%) | 28% (-0%) |
+| Correctness | 2 | 75% (+75%) | 50% (+38%) |
+| Discoverability | 2 | 50% (+50%) | 0% (-25%) |
+| Effectiveness | 2 | 95% (+82%) | 85% (+72%) |
+| Efficiency | 2 | 61% (+34%) | 28% (-16%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+3.2.1 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

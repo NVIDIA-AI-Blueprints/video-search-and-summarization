@@ -277,6 +277,12 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
     # harbor verifier multiplier (3.0 → 1800s total) still bound the run.
     max_turns = int(os.environ.get("JUDGE_MAX_TURNS", "100"))
 
+    # permission_mode="bypassPermissions" maps to --dangerously-skip-permissions,
+    # which the claude CLI refuses under root unless IS_SANDBOX=1. Harbor
+    # verifiers run as root on eval nodes.
+    if os.geteuid() == 0:
+        os.environ.setdefault("IS_SANDBOX", "1")
+
     options = ClaudeAgentOptions(
         system_prompt=_JUDGE_SYSTEM_PROMPT,
         allowed_tools=["Bash", "Read", "Grep"],

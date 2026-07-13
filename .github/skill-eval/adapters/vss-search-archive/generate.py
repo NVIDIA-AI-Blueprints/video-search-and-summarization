@@ -71,7 +71,12 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "setup action the trial requires, INCLUDING the sample-video ingest that "
+    "the Environment & prerequisites section explicitly mandates during setup. "
+    "Pre-authorization does NOT cover ingesting a NEW source in response to a "
+    "query that names an unregistered source — in that case follow the skill's "
+    "missing-source rule (state it is missing, list registered sources, stop); "
+    "in this harness that IS the correct autonomous behavior."
 )
 
 

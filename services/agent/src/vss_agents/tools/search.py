@@ -1644,6 +1644,14 @@ class SearchResult(BaseModel):
     description: str = Field(..., description="Description of the video")
     start_time: str = Field(..., description="Start time of the video in ISO timestamp format")
     end_time: str = Field(..., description="End time of the video in ISO timestamp format")
+    start_offset: float | None = Field(
+        default=None,
+        description="Start time in seconds since the stream/video timeline start (offset for video_understanding)",
+    )
+    end_offset: float | None = Field(
+        default=None,
+        description="End time in seconds since the stream/video timeline start (offset for video_understanding)",
+    )
     sensor_id: str = Field(..., description="Sensor ID (e.g., 21908c9a-bd40-4941-8a2e-79bc0880fb5a)")
     screenshot_url: str = Field(..., description="URL to access the screenshot")
     similarity: float = Field(..., description="Cosine similarity score")

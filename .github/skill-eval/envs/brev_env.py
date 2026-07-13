@@ -271,6 +271,12 @@ class BrevEnvironment(BaseEnvironment):
         # during deploy (NGC_CLI_API_KEY, NVIDIA_API_KEY) must land on
         # the instance out-of-band.
         forwarded: list[tuple[str, str]] = [
+            # The verifier's LLM judge (claude-agent-sdk) runs on the instance
+            # as whatever user the SSH grant lands as. On root-runner fleets
+            # claude refuses --dangerously-skip-permissions for root unless
+            # IS_SANDBOX=1 — without it every judge check dies with
+            # ProcessError(exit 1) and the trial scores 0.0.
+            ("IS_SANDBOX", "1"),
             # claude-code 2.1.x emits a `context_management` field in every
             # /v1/messages body to drive server-side thinking-block cleanup
             # (`clear_thinking_20251015`). NVIDIA's Anthropic-compatible
@@ -361,6 +367,11 @@ class BrevEnvironment(BaseEnvironment):
             )
         else:
             await self._reset_docker_runtime()
+            # Host bind-mount purge runs AFTER the docker reset so every
+            # container that writes into these dirs is already gone —
+            # purging first would race the writers and the dirs would be
+            # dirty again by the time the trial starts.
+            await self._purge_host_data_dirs()
 
         # Sync ~/video-search-and-summarization on the box to the PR's
         # actual head SHA before any deploy/agent step reads it.
@@ -467,6 +478,77 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _purge_host_data_dirs(self) -> None:
+        """Purge per-trial VSS state that lives in host bind-mounts.
+
+        `_reset_docker_runtime` removes containers/volumes/networks, but
+        several services persist state in **host directories bind-mounted
+        into the containers** — invisible to `docker volume rm`:
+
+        - `<root>/nvstreamer/videos{,-upload}/` — uploaded media. NvStreamer
+          auto-suffixes a new upload whose filename already exists, so a
+          leftover `warehouse_safety_0001.mp4` turns the next trial's upload
+          into `warehouse_safety_0001_5` and fails identifier-semantics
+          checks (observed: PR #1241 `nvstreamer_ops` step-1, six leftover
+          copies on the box).
+        - `<root>/nvstreamer/vst_data/` and `<root>/data_log/` — the
+          NvStreamer/VST sensor registry and runtime DB, so sensors from
+          prior trials survive the docker reset.
+        - `<root>/videos/nvstreamer/` — alternate layout used by some
+          profiles for the same uploaded-media state.
+
+        The GitLab `ci-vss-oss` eval jobs have always done the equivalent
+        ("Cleaning VSS_DATA_DIR data_log (kafka, elastic, redis, vst,
+        nvstreamer, ...)"); this brings the skill-eval harness to parity.
+
+        Roots are **globbed, not read from `$VSS_DATA_DIR`**: the env var is
+        chosen per-deploy inside the trial, and pool boxes accumulate more
+        than one root over time (observed: `/opt/vss-data` AND
+        `~/vss-data` on the same box). `$REPO/deploy/docker/data-dir` needs
+        no handling here — `_sync_repo_to_pr_head`'s `git clean` covers it.
+
+        Contents are deleted but the directories themselves are kept, so
+        operator-provisioned ownership/permissions on the mount points
+        survive. `sudo` is required — containers write these files as root.
+        Same first-trial-only gate as the docker reset: step-2+ of a
+        multi-step spec depends on the state step-1 uploaded.
+        """
+        cmd = r"""set -uo pipefail
+purged=""
+for root in /opt/vss-data "$HOME"/vss-data; do
+  [ -d "$root" ] || continue
+  for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
+    d="$root/$sub"
+    [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete || { echo "failed to purge $d" >&2; exit 1; }
+    purged="$purged $d"
+  done
+done
+# Fail loud if anything survived — a half-purged dir is the same silent
+# cross-trial contamination the docker-reset guard protects against.
+for d in $purged; do
+  n=$(sudo find "$d" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" = "0" ] || { echo "host data purge incomplete: $n entries remain in $d" >&2; exit 1; }
+done
+echo "host data purge OK:${purged:- nothing to purge}"
+"""
+        logger.info(
+            "Purging host bind-mount data dirs (data_log, nvstreamer state) on %s",
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"host data purge failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Host data purge on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
+        )
+
     async def _sync_repo_to_pr_head(self) -> None:
         """Reset `~/video-search-and-summarization` on the Brev box to the
         PR's actual head SHA. Runs once per trial, before any deploy or
@@ -524,6 +606,11 @@ fi
 # Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract — slow to re-pull from NGC) and any .env tweaks
 # the active trial may have placed.
+# A prior STEP's deploy may have chattr +i'd generated files (e.g.
+# deploy/docker/resolved.yml, developer-profiles/*/generated.env) — strip
+# the immutable bit or git clean dies with "Operation not permitted" and
+# kills the whole step chain.
+chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
 # Use sudo git clean as a fallback: prior docker containers may have created
 # root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
 # a non-root git clean cannot remove ("Permission denied").
@@ -674,23 +761,93 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         # base64 from brev CLI spinner/connection noise.
         import base64 as _b64, re as _re, subprocess as _sp
         marker = "__HARBOR_B64_" + uuid.uuid4().hex[:8] + "__"
+        # Stage the archive as a base64 FILE on the node, then fetch it in
+        # small slices with independent per-slice retries. A single-stream
+        # fetch dies on the flaky gateway (MAC / bad-packet corruption is
+        # near-certain above ~8MB), and a fresh session JSONL alone can be
+        # >10MB, so streaming in one exec is structurally unreliable.
+        remote_b64 = f"/tmp/.harbor_dl_{uuid.uuid4().hex[:8]}.b64"
         result = await _run_brev_exec(
             self._instance_name,
-            f"echo '{marker}START'; "
-            f"tar -czf - -C {shlex.quote(source_dir)} . 2>/dev/null | base64 -w 0; "
-            f"echo; echo '{marker}END'",
+            # Exclude bulky non-essential payloads (archived prior sessions,
+            # the tee'd raw stream) — harbor only needs the fresh session
+            # JSONLs + trajectory.
+            f"tar -czf - -C {shlex.quote(source_dir)} "
+            f"--exclude='./sessions-archive*' --exclude='./claude-code.txt' "
+            f"--exclude='*.tar.gz' --exclude='./sessions/debug' "
+            f". 2>/dev/null | base64 -w 0 > {remote_b64}; "
+            f"stat -c %s {remote_b64}",
             timeout=120,
         )
         if result.return_code != 0:
-            raise RuntimeError(f"Download dir failed: {result.stderr}")
-        stdout = result.stdout or ""
-        # Extract only the bytes between START and END markers
-        m = _re.search(rf"{marker}START\s*\n(.*?)\n{marker}END", stdout, _re.DOTALL)
-        if not m:
+            raise RuntimeError(f"Download dir failed (stage): {result.stderr}")
+        try:
+            # brev exec may append the instance name as a trailing line to
+            # stdout, so find the first line that is a valid integer (the
+            # stat -c %s output) rather than blindly taking [-1].
+            _lines = (result.stdout or "0").strip().splitlines()
+            total = None
+            for _l in reversed(_lines):
+                _l = _l.strip()
+                if _l.isdigit():
+                    total = int(_l)
+                    break
+            if total is None:
+                raise ValueError(f"no numeric line in stat output: {_lines!r}")
+        except ValueError:
             raise RuntimeError(
-                f"Download dir failed: markers not found in output "
-                f"(len={len(stdout)})"
+                f"Download dir failed: could not stat staged archive "
+                f"({(result.stdout or '')[-120:]})"
             )
+        chunk = 2 * 1024 * 1024  # 2MB of base64 per slice — survives the gateway
+        parts: list[str] = []
+        offset = 0
+        while offset < total:
+            piece = None
+            for attempt in range(4):
+                res = await _run_brev_exec(
+                    self._instance_name,
+                    f"echo '{marker}START'; "
+                    f"dd if={remote_b64} bs=64K skip={offset // 65536} "
+                    f"count={chunk // 65536} 2>/dev/null; "
+                    f"echo; echo '{marker}END'",
+                    timeout=180,
+                )
+                mm = _re.search(rf"{marker}START\s*\n(.*?)\n?{marker}END",
+                                res.stdout or "", _re.DOTALL)
+                if res.return_code == 0 and mm:
+                    got = _re.sub(r"[^A-Za-z0-9+/=]", "", mm.group(1))
+                    expected = min(chunk, total - offset)
+                    if len(got) == expected:
+                        piece = got
+                        break
+                logger.warning(
+                    "download slice @%d attempt %d/4 failed (rc=%s, got=%s/%s)",
+                    offset, attempt + 1, res.return_code,
+                    len(mm.group(1)) if mm else "no-markers",
+                    min(chunk, total - offset),
+                )
+                await asyncio.sleep(5)
+            if piece is None:
+                await _run_brev_exec(self._instance_name,
+                                     f"rm -f {remote_b64}", timeout=30)
+                raise RuntimeError(
+                    f"Download dir failed: slice at offset {offset} "
+                    f"unrecoverable after retries"
+                )
+            parts.append(piece)
+            offset += chunk
+        await _run_brev_exec(self._instance_name, f"rm -f {remote_b64}",
+                             timeout=30)
+
+        # Reassemble the slices behind a regex-Match-shaped shim so the
+        # base64-cleanup + decode + extraction pipeline below stays byte-for-
+        # byte identical to the original single-stream implementation (it
+        # consumes `m.group(1)`); only the transport above changed.
+        class _M:
+            def group(self, _i):
+                return "".join(parts)
+        m = _M()
         # Strip any remaining non-base64 chars (e.g. CR, stray spinner bytes)
         raw_b64 = "".join(c for c in m.group(1) if c in
                           "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
@@ -822,19 +979,28 @@ async def _load_registered_nodes() -> dict[str, dict]:
     """Return {lower_name: node_dict} from `brev ls nodes --json`.
     Cached per-process.  Safe to call on any host that has the brev CLI."""
     global _registered_nodes_cache
-    if _registered_nodes_cache is not None:
+    if _registered_nodes_cache:
         return _registered_nodes_cache
-    _registered_nodes_cache = {}
-    try:
-        result = await _run_brev("ls", "nodes", "--json", timeout=15)
-        nodes = _parse_brev_json(result.stdout) if result.stdout else []
-        for n in nodes:
-            name = (n.get("name") or "").strip()
-            if name:
-                _registered_nodes_cache[name.lower()] = n
-    except Exception as e:
-        logger.warning("brev ls nodes failed (registered nodes unavailable): %s", e)
-    return _registered_nodes_cache
+    # Retry transient CLI failures and NEVER cache an empty result from a
+    # failed call — one hiccup here used to poison the whole trial with
+    # "instance not found" (empty dict cached per-process, no second chance).
+    for attempt in range(4):
+        cache: dict[str, dict] = {}
+        try:
+            result = await _run_brev("ls", "nodes", "--json", timeout=15)
+            nodes = _parse_brev_json(result.stdout) if result.stdout else []
+            for n in nodes:
+                name = (n.get("name") or "").strip()
+                if name:
+                    cache[name.lower()] = n
+        except Exception as e:
+            logger.warning("brev ls nodes failed (attempt %s): %s", attempt + 1, e)
+        if cache:
+            _registered_nodes_cache = cache
+            return cache
+        await asyncio.sleep(5)
+    logger.warning("brev ls nodes returned no nodes after retries")
+    return {}
 
 
 async def _is_registered_node(name: str) -> bool:
@@ -951,6 +1117,10 @@ async def _run_brev_exec(
     brev CLI doesn't enter interactive mode.
     """
     if await _is_registered_node(instance):
+        # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
+        # forwarded ~/.eval_env) is never sourced, silently dropping
+        # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
+        command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
     # brev exec <instance> <command> — brev handles SSH transparently
     cmd = ["brev", "exec", instance, command]
@@ -986,6 +1156,27 @@ async def _run_brev_exec(
 
 
 async def _run_brev_copy(
+    src: str,
+    dst: str,
+    timeout: int = BREV_COPY_TIMEOUT,
+) -> ExecResult:
+    """Run ``brev copy <src> <dst>`` with transient-failure retries.
+
+    The brev gateway occasionally corrupts a connection mid-transfer
+    ("Bad packet length ... Connection corrupted"), which used to fail the
+    whole trial (AddTestsDirError). Copies are idempotent — retry."""
+    result = None
+    for attempt in range(3):
+        result = await _run_brev_copy_once(src, dst, timeout)
+        if result.return_code == 0:
+            return result
+        logger.warning("brev copy failed (attempt %s): %s",
+                       attempt + 1, (result.stderr or "")[-200:])
+        await asyncio.sleep(10)
+    return result
+
+
+async def _run_brev_copy_once(
     src: str,
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
@@ -1110,13 +1301,20 @@ async def _find_brev_instance(name: str) -> dict | None:
         # A well-formed JSON array response (even if empty) is authoritative —
         # treat an empty-list response as "not a Brev-managed instance" and
         # fall through to the registered-node check.  Only truly empty stdout
-        # or missing closing `]` is transient.
-        if raw.strip() == "" or raw.rfind("]") < 0:
+        # or missing closing `]` is transient. An org with zero managed
+        # instances prints `null` (not `[]`) — also authoritative-empty, or
+        # every registered-external-node lookup would burn all retries here
+        # and report "instance not found" without ever checking nodes.
+        # (`null` may be followed by a "Please create a running instance…"
+        # banner on the same stream.)
+        if raw.strip().startswith("null"):
+            parsed = []
+        elif raw.strip() == "" or raw.rfind("]") < 0:
             logger.info("brev ls returned empty stdout (attempt %s) — retrying", attempt + 1)
             await asyncio.sleep(5)
             continue
-
-        parsed = _parse_brev_json(raw)
+        else:
+            parsed = _parse_brev_json(raw)
         for inst in parsed:
             if inst.get("name") == name:
                 return inst
