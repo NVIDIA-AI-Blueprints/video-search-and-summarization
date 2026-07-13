@@ -228,7 +228,7 @@ How a CV alert becomes a verdict: RT-CV (Grounding DINO) detections → Behavior
    ```bash
    curl -sf "http://${HOST_IP}:9200/mdx-vlm-alerts-*/_search?size=10" | jq '.hits.hits[]._source'
    ```
-   An **empty hit list is a valid answer** — report "no verification results yet" and stop; never substitute the rules list or `/incidents` for a verdict question.
+   An **empty hit list is a valid answer** — report "no verification results yet" and stop. Never substitute another source for a verdict question: not the rules list, not `/incidents`, and **not the `mdx-vlm-incidents-*` ES index** (that is Workflow C's incident store — its documents carry no verification verdicts; presenting them as "verdicts recorded" is a wrong answer even when `mdx-vlm-alerts-*` is empty).
 3. **Verifier-prompt config** — REST CRUD on `$AB/api/v1/verification/config[/{alert_type}]` (`GET` list / `GET` one / `POST` / `PUT` / `DELETE`), or the config-file + restart path — rules and payload shapes in `references/verification.md`.
 
 Load `references/verification.md` for the full verdict table, probe recipes, and prompt-customization rules. CV mode only for execution; explain-only asks are answerable in any mode.
