@@ -312,11 +312,14 @@ class DirectMediaHandler:
                     config_overrides=config_overrides,
                 )
             finally:
-                duration = time.monotonic() - start_time
-                self._observe_vlm_duration(
-                    duration, message.get("sensorId")
-                )
+                if self._vlm_duration_observer is not None:
+                    duration = time.monotonic() - start_time
+                    self._observe_vlm_duration(
+                        duration, message.get("sensorId")
+                    )
 
+            if self._vlm_duration_observer is None:
+                duration = time.monotonic() - start_time
             duration = round(duration, 3)
             response_content = vlm_response.content
             logger.info("VLM response received (direct video) [sensor=%s category=%s] duration=%.3fs",
@@ -334,6 +337,7 @@ class DirectMediaHandler:
             self._publish_error(
                 message, user_prompt, system_prompt,
                 code=502, status=str(e),
+                error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
             )
         except Exception as e:
             self._handle_vlm_error(e, message, user_prompt, system_prompt)
@@ -365,11 +369,14 @@ class DirectMediaHandler:
                     config_overrides=config_overrides,
                 )
             finally:
-                duration = time.monotonic() - start_time
-                self._observe_vlm_duration(
-                    duration, message.get("sensorId")
-                )
+                if self._vlm_duration_observer is not None:
+                    duration = time.monotonic() - start_time
+                    self._observe_vlm_duration(
+                        duration, message.get("sensorId")
+                    )
 
+            if self._vlm_duration_observer is None:
+                duration = time.monotonic() - start_time
             duration = round(duration, 3)
             response_content = vlm_response.content
             logger.info("VLM response received (%d image(s)) [sensor=%s category=%s] duration=%.3fs",
@@ -393,6 +400,7 @@ class DirectMediaHandler:
             self._publish_error(
                 message, user_prompt, system_prompt,
                 code=502, status=str(e),
+                error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
             )
         except Exception as e:
             self._handle_vlm_error(e, message, user_prompt, system_prompt)

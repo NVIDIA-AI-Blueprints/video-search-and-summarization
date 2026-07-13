@@ -29,6 +29,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, status
 from fastapi.responses import JSONResponse
 from openai import BadRequestError
 
+from metrics import PROMETHEUS_ENABLED
 from metrics.recorder import inc_ondemand_request
 
 from ..schemas.verification_schemas import OnDemandVerificationRequest
@@ -125,7 +126,7 @@ async def verify_ondemand(
     background_tasks: BackgroundTasks,
     service: OnDemandVerificationService = Depends(get_ondemand_service),
 ) -> JSONResponse:
-    request_start_time = time.monotonic()
+    request_start_time = time.monotonic() if PROMETHEUS_ENABLED else None
     try:
         message, user_prompt, system_prompt = service.prepare(
             payload.model_dump()

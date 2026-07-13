@@ -37,6 +37,7 @@ from typing import Any, Dict, Optional, Tuple
 from handlers.direct_media.direct_media_handler import DirectMediaHandler
 from handlers.prompt_handler.prompt_manager import PromptManager
 from mdx.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
+from metrics import PROMETHEUS_ENABLED
 from metrics.recorder import (
     observe_ondemand_vlm_duration,
     record_ondemand_event_complete,
@@ -78,7 +79,7 @@ class OnDemandVerificationService:
             vlm_client=self.vlm_client,
             vlm_enhanced_event_sink=self.vlm_enhanced_event_sink,
             config=self.config,
-            vlm_duration_observer=observe_ondemand_vlm_duration,
+            vlm_duration_observer=observe_ondemand_vlm_duration if PROMETHEUS_ENABLED else None,
         )
 
         self.max_media_count = (
@@ -153,7 +154,7 @@ class OnDemandVerificationService:
         pipeline is identical to the Kafka-driven path.  This method is
         blocking (synchronous) and is intended to run inside a background task.
         """
-        processing_start_time = time.monotonic()
+        processing_start_time = time.monotonic() if PROMETHEUS_ENABLED else 0.0
         failure_reason = None
         try:
             info_block = message.get("info", {})
@@ -168,9 +169,10 @@ class OnDemandVerificationService:
             failure_reason = "background_exception"
             raise
         finally:
-            record_ondemand_event_complete(
-                request_start_time=request_start_time,
-                processing_start_time=processing_start_time,
-                message=message,
-                failure_reason=failure_reason,
-            )
+            if PROMETHEUS_ENABLED:
+                record_ondemand_event_complete(
+                    request_start_time=request_start_time,
+                    processing_start_time=processing_start_time,
+                    message=message,
+                    failure_reason=failure_reason,
+                )
