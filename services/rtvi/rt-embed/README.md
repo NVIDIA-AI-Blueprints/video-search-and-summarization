@@ -58,7 +58,7 @@ Create `docker/.env` with the variables you want to override. A starting templat
 ```bash
 BACKEND_PORT=8017
 RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>
-#RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-26.07.1-custom
+#RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-custom
 MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #HF_TOKEN=<HF_TOKEN>
 #NGC_API_KEY=nvapi-XXXXXX
@@ -70,7 +70,7 @@ KAFKA_ENABLED=true
 #ERROR_MESSAGE_TOPIC=vision-embed-errors
 ```
 
-Replace `<tag>` with the NGC image tag for your platform (for example `3.2.1-26.07.1` on x86, or `3.2.1-26.07.1-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
+Replace `<tag>` with the NGC image tag for your platform (for example `3.2.1` on x86, or `3.2.1-sbsa` on SBSA). You can set `RTVI_IMAGE` in `docker/.env` to pin the exact image tag for your deployment.
 
 `compose.yaml` provides defaults for every other variable — see [Complete Environment Variable Reference](#complete-environment-variable-reference) below for the full list.
 
@@ -121,14 +121,14 @@ Only needed if you've edited files under [`src/`](src/) and want those changes b
 
 ```bash
 # From the rt-embed/ directory — Dockerfile expects src/ in the build context
-docker build -f docker/Dockerfile -t rtvi-embed:3.2.1-26.07.1-custom .
+docker build -f docker/Dockerfile -t rtvi-embed:3.2.1-custom .
 ```
 
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:
 
 ```bash
 #RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>
-RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-26.07.1-custom
+RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-custom
 ```
 
 Restart:
