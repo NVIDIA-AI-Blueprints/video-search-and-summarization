@@ -836,6 +836,7 @@ async def search_single_attribute(
     enable_frame_lookup: bool = True,
 ) -> list[AttributeSearchResult]:
     """Embed a single attribute string and run the attribute search pipeline."""
+    assert search_input.top_k is not None
     with TimeMeasure("attribute_search: generate text embedding"):
         query_embedding = await embed_client.get_text_embedding(query_text)
     return await search_by_attributes(
@@ -1018,6 +1019,7 @@ async def _append_multi_attribute(
     # on (sensor_id, object_id).
     all_results.sort(key=_append_rank_key)
     top_k = search_input.top_k
+    assert top_k is not None
     if top_k > 0 and len(all_results) > top_k:
         all_results = all_results[:top_k]
     return all_results

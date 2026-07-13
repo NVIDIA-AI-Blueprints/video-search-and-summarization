@@ -68,6 +68,9 @@ class AttributeSearch:
     async def run(self, inp: AttributeSearchInput) -> AttributeSearchOutput:
         """Execute attribute search and return the ranked results."""
         inp.validate_semantics()
+        if inp.top_k is None:
+            inp = inp.model_copy(update={"top_k": self._default_k})
+        assert inp.top_k is not None
         results = await _attribute_helpers.search_attributes(
             search_input=inp,
             embed_client=self._embed,

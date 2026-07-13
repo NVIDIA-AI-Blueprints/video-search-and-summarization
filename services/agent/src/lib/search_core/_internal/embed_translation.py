@@ -40,13 +40,12 @@ def params_to_embed_input(
     params: dict[str, str],
     source_type: str,
     *,
-    precomputed_embedding: list[float] | None = None,
     exclude_videos: list[dict[str, str]] | None = None,
 ) -> EmbedSearchInput:
     """Translate a params string-dict into an :class:`EmbedSearchInput`.
 
-    ``precomputed_embedding`` and ``exclude_videos`` are passed through from the
-    caller; they live outside the ``params`` sub-dict.
+    ``exclude_videos`` is passed through from the caller; it lives outside the
+    ``params`` sub-dict.
     """
     p = params or {}
 
@@ -76,7 +75,7 @@ def params_to_embed_input(
         else:
             vs = [v.strip() for v in vs_raw.split(",") if v.strip()]
 
-    # Leave top_k as None when unspecified so the primitive's configured default applies.
+    # None delegates to the shared runtime default.
     # params values are freeform strings; surface a bad numeric string as a typed
     # InvalidInputError rather than a raw ValueError, matching the lenient handling
     # elsewhere in this translator.
@@ -93,8 +92,6 @@ def params_to_embed_input(
     try:
         return EmbedSearchInput(
             query=p.get("query", "") or "",
-            image_url=p.get("image_url") or None,
-            video_url=p.get("video_url") or None,
             description=p.get("description") or None,
             # Pydantic narrows the runtime value to ``SourceType``; cast satisfies
             # the static type checker without re-validating here.
@@ -107,7 +104,6 @@ def params_to_embed_input(
             top_k=top_k,
             min_cosine_similarity=min_cosine_similarity,
             exclude_videos=exclude_videos or [],
-            precomputed_embedding=precomputed_embedding,
         )
     except ValidationError as exc:
         # e.g. top_k="0" coerces to int cleanly but violates the ge=1 field bound.

@@ -29,11 +29,10 @@ A single search domain dispatches every primitive:
                   are present, --json takes precedence (stdin is not read).
 
     The ``search`` primitive additionally accepts agent-friendly, already-
-    decomposed fields as flags (``--query``, ``--attribute``, ``--has-action``,
+    decomposed fields as flags (``--query``, ``--search-mode``, ``--attribute``,
     ``--object-id``, ``--video-source``, ``--timestamp-start/-end``, ``--top-k``,
-    ``--min-cosine-similarity``, ``--description``, ``--decomposed-json``,
-    ``--description``, ``--decomposed-json``) so a host agent can invoke it directly without hand-writing
-    a JSON payload. These set ``agent_mode=false``; an explicit ``--json``/stdin
+    ``--min-cosine-similarity``, ``--description``, ``--decomposed-json``) so a host agent can invoke it directly without hand-writing
+    a JSON payload. An explicit ``--json``/stdin
     payload takes precedence when present. Query decomposition is host-agent-owned:
     the CLI consumes fields that have already been decomposed by the caller.
 
@@ -77,7 +76,6 @@ from .search_operations import SEARCH_OPERATIONS
 
 if TYPE_CHECKING:
     from lib.search_core.host import VSSSearch
-    from lib.search_core.runtime import SearchOptions
     from lib.search_core.runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
@@ -265,14 +263,7 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
         help="Enable/disable attribute-search frame lookup.",
     )
     runtime.add_argument("--default-max-results", type=_parse_positive_int, default=None)
-    runtime.add_argument("--embed-default-max-results", type=_parse_positive_int, default=None)
     runtime.add_argument("--request-timeout-seconds", type=_parse_positive_int, default=None)
-    runtime.add_argument(
-        "--use-attribute-search",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable/disable fusion reranking when attributes and actions are supplied.",
-    )
     runtime.add_argument(
         "--allow-embed-only-fallback",
         action="store_true",
@@ -282,7 +273,6 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
         ),
     )
     runtime.add_argument("--embed-confidence-threshold", type=_parse_cosine_similarity, default=None)
-    runtime.add_argument("--search-max-iterations", type=_parse_positive_int, default=None)
     runtime.add_argument("--fusion-method", choices=FUSION_METHODS, default=None)
     runtime.add_argument("--w-attribute", type=float, default=None)
     runtime.add_argument("--w-embed", type=float, default=None)
@@ -297,7 +287,7 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_output_args(p: argparse.ArgumentParser) -> None:
+def _add_output_args(p: argparse.ArgumentParser, *, supports_stream: bool) -> None:
     output = p.add_argument_group("output options")
     output.add_argument(
         "--output",
@@ -305,8 +295,8 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
         default="json",
         help=(
             "Output format: a single JSON object (default), one JSON object per result row "
-            "(jsonl, ideal for piping), or a human-readable table. Ignored for --stream, which "
-            "always emits event JSON lines."
+            "(jsonl, ideal for piping), or a human-readable table."
+            + (" Ignored for --stream, which always emits event JSON lines." if supports_stream else "")
         ),
     )
     output.add_argument(
@@ -324,8 +314,7 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Include the query embedding vector in the output. Omitted by default because it is "
-            "large and rarely needed; pass this when you want to reuse the vector as a "
-            "precomputed_embedding for follow-up searches."
+            "large and rarely needed."
         ),
     )
 
@@ -334,8 +323,7 @@ def _add_search_query_args(p: argparse.ArgumentParser) -> None:
     """Add the agent-friendly, already-decomposed query flags for `search`.
 
     These are only meaningful for the ``search`` primitive; a host agent uses
-    them to invoke search directly without hand-writing a JSON payload. They set
-    ``agent_mode=false`` (the library never performs NAT query decomposition).
+    them to invoke search directly without hand-writing a JSON payload.
     An explicit ``--json``/stdin payload takes precedence over these flags.
     """
     group = p.add_argument_group(
@@ -343,6 +331,12 @@ def _add_search_query_args(p: argparse.ArgumentParser) -> None:
         description="Agent-friendly, already-decomposed fields for the `search` primitive.",
     )
     group.add_argument("--query", default=None, help="Decomposed visual query to embed and search for.")
+    group.add_argument(
+        "--search-mode",
+        choices=("embed", "attribute", "fusion", "object"),
+        default=None,
+        help="Explicit execution path. Default: embed.",
+    )
     group.add_argument(
         "--decomposed-json",
         default=None,
@@ -393,12 +387,6 @@ def _add_search_query_args(p: argparse.ArgumentParser) -> None:
         help=("Appearance/metadata attribute for attribute or fusion search, e.g. 'white jacket'. May be repeated."),
     )
     group.add_argument(
-        "--has-action",
-        type=_parse_bool,
-        default=None,
-        help=("Set true when the query includes an action plus attributes (fusion); false for attribute-only search."),
-    )
-    group.add_argument(
         "--object-id",
         dest="object_ids",
         action="append",
@@ -406,52 +394,6 @@ def _add_search_query_args(p: argparse.ArgumentParser) -> None:
         default=[],
         help="Search for visually similar tracked objects by object ID. May be repeated.",
     )
-
-
-# Agent-friendly `search`-only flags. They live on the single shared parser (so
-# `search` can accept them without a subparser), but they are meaningless for the
-# other primitives — those consume a --json/stdin payload. Rather than silently
-# ignore an explicit `vss-cli embed_search --query ...`, we reject it. Each entry
-# is (flag, dest); ``_LIST_SEARCH_ONLY_DESTS`` marks the append-action dests
-# whose "unset" sentinel is an empty list rather than None.
-_SEARCH_ONLY_FLAGS: tuple[tuple[str, str], ...] = (
-    ("--query", "query"),
-    ("--decomposed-json", "decomposed_json"),
-    ("--source-type", "source_type"),
-    ("--video-source", "video_sources"),
-    ("--description", "description"),
-    ("--timestamp-start", "timestamp_start"),
-    ("--timestamp-end", "timestamp_end"),
-    ("--top-k", "top_k"),
-    ("--min-cosine-similarity", "min_cosine_similarity"),
-    ("--attribute", "attributes"),
-    ("--has-action", "has_action"),
-    ("--object-id", "object_ids"),
-)
-_LIST_SEARCH_ONLY_DESTS = frozenset({"video_sources", "attributes", "object_ids"})
-
-
-def _reject_search_only_flags_for_non_search(args: argparse.Namespace) -> None:
-    """Raise if a `search`-only flag was explicitly passed to another primitive.
-
-    These flags are only honored for the ``search`` primitive; ``embed_search`` /
-    ``attribute_search`` read a ``--json``/stdin payload instead. A
-    flag left at its default is fine (the flags are always registered); only an
-    explicitly-provided value is rejected, so it fails loudly (exit 2) rather than
-    being silently dropped.
-    """
-    provided: list[str] = []
-    for flag, dest in _SEARCH_ONLY_FLAGS:
-        value = getattr(args, dest, None)
-        is_set = bool(value) if dest in _LIST_SEARCH_ONLY_DESTS else value is not None
-        if is_set:
-            provided.append(flag)
-    if provided:
-        operation = next(operation for operation, primitive in SEARCH_OPERATIONS.items() if primitive == args.primitive)
-        raise InvalidInputError(
-            f"{', '.join(provided)} {'is' if len(provided) == 1 else 'are'} only valid for the `search` "
-            f"primitive; pass a payload to `vss-cli search {operation}` via --json or stdin instead"
-        )
 
 
 def _parse_args(argv: list[str] | None = None, *, operation: str) -> argparse.Namespace:
@@ -476,14 +418,17 @@ def _parse_args(argv: list[str] | None = None, *, operation: str) -> argparse.Na
         default=None,
         help="Payload as a JSON object matching the primitive's input model.",
     )
-    p.add_argument(
-        "--stream",
-        action="store_true",
-        help="Emit SearchEvent JSON lines instead of a single output JSON. Only valid for `search`.",
-    )
-    _add_search_query_args(p)
+    if primitive == "search":
+        p.add_argument(
+            "--stream",
+            action="store_true",
+            help="Emit SearchEvent JSON lines instead of a single output JSON.",
+        )
+        _add_search_query_args(p)
+    else:
+        p.set_defaults(stream=False)
     _add_runtime_args(p)
-    _add_output_args(p)
+    _add_output_args(p, supports_stream=primitive == "search")
     p.set_defaults(cli_name=prog)
     return p.parse_args(argv)
 
@@ -491,9 +436,8 @@ def _parse_args(argv: list[str] | None = None, *, operation: str) -> argparse.Na
 def _build_archive_search_payload(args: argparse.Namespace) -> dict[str, Any]:
     """Convert agent-friendly flags into the structured SearchInput shape.
 
-    The wrapper deliberately sets ``agent_mode=false``. Query decomposition is
-    a host-agent concern; this CLI receives fields already extracted by the
-    calling agent and invokes the NAT-free library path.
+    Query decomposition and route selection are host-agent concerns; this CLI
+    receives fields already extracted by the caller.
     """
     base: dict[str, Any] = {}
     if args.decomposed_json is not None:
@@ -522,15 +466,14 @@ def _build_archive_search_payload(args: argparse.Namespace) -> dict[str, Any]:
         "timestamp_start": args.timestamp_start if args.timestamp_start is not None else base.get("timestamp_start"),
         "timestamp_end": args.timestamp_end if args.timestamp_end is not None else base.get("timestamp_end"),
         "top_k": args.top_k if args.top_k is not None else base.get("top_k"),
+        "search_mode": args.search_mode or base.get("search_mode", "embed"),
         "attributes": args.attributes or base.get("attributes") or [],
-        "has_action": args.has_action if args.has_action is not None else base.get("has_action"),
         "object_ids": args.object_ids or base.get("object_ids") or None,
         "min_cosine_similarity": (
             args.min_cosine_similarity
             if args.min_cosine_similarity is not None
             else base.get("min_cosine_similarity", 0.0)
         ),
-        "agent_mode": False,
     }
     return payload
 
@@ -594,8 +537,8 @@ def _build_facade(
         config_env.update(_deployment_env_overrides(args) if deployment is not None else _config_env_from_args(args))
         # When --config is explicitly provided we must NOT silently fall back to
         # args-only construction on a ConfigurationError: doing so would drop
-        # every profile knob the config carries (use_attribute_search, w_*,
-        # rrf_*, embed_confidence_threshold, search_max_iterations, ...). Let the
+        # every profile knob the config carries (w_*,
+        # rrf_*, embed_confidence_threshold, ...). Let the
         # error surface (exit 4) so the operator fixes the config they asked for.
         snap = RuntimeSnapshot.from_config_file(config_path, env=config_env)
         # Resolve explicit flags before deployment rewriting so an external
@@ -604,12 +547,10 @@ def _build_facade(
         runtime = _apply_runtime_overrides(snap.runtime, args)
         if deployment is not None:
             runtime = _rewrite_deployment_runtime(args, search_payload or {}, runtime, deployment)
-        search_options = _search_options_from_args(args, base=snap.search, search_payload=search_payload)
-        return VSSSearch.from_runtime(runtime, search_options=search_options)
+        return VSSSearch.from_runtime(runtime)
 
     runtime = _runtime_from_args(args)
-    search_options = _search_options_from_args(args, search_payload=search_payload)
-    return VSSSearch.from_runtime(runtime, search_options=search_options)
+    return VSSSearch.from_runtime(runtime)
 
 
 def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
@@ -710,10 +651,8 @@ _RUNTIME_OVERRIDE_FIELDS = (
     "frames_index",
     "frames_index_wildcard",
     "default_max_results",
-    "embed_default_max_results",
     "request_timeout_seconds",
     "embed_confidence_threshold",
-    "search_max_iterations",
     "fusion_method",
     "w_attribute",
     "w_embed",
@@ -755,56 +694,21 @@ def _apply_runtime_overrides(runtime: SearchRuntime, args: argparse.Namespace) -
     return dataclass_replace(runtime, **overrides) if overrides else runtime
 
 
-def _search_options_from_args(
-    args: argparse.Namespace,
-    *,
-    base: SearchOptions | None = None,
-    search_payload: dict[str, Any] | None = None,
-) -> SearchOptions:
-    from lib.search_core.runtime import SearchOptions
-
-    # Precedence: an explicit --use-attribute-search flag wins over everything.
-    if args.use_attribute_search is not None:
-        return SearchOptions(use_attribute_search=args.use_attribute_search)
-
-    # Next, an explicit config value wins — INCLUDING a config that set
-    # use_attribute_search: false. The payload fusion heuristic must not override
-    # what the profile config decided, so when a config `base` is present we
-    # trust it and only fall back to the heuristic when there was no config.
-    if base is not None:
-        return base
-
-    if _payload_wants_fusion(search_payload):
-        return SearchOptions(use_attribute_search=True)
-
-    return SearchOptions()
-
-
-def _payload_wants_fusion(payload: dict[str, Any] | None) -> bool:
-    if not payload:
-        return False
-    return bool(payload.get("attributes")) and payload.get("has_action") is True
-
-
 def _effective_search_attributes(payload: dict[str, Any]) -> list[str]:
-    """Apply the core search primitive's routing-only attribute pruning."""
-    attributes = payload.get("attributes") or []
+    """Return the validated, non-blank attribute list."""
     return [
-        attribute
-        for attribute in attributes
-        if isinstance(attribute, str)
-        and (" " in attribute.strip() or "-" in attribute.strip() or "." in attribute.strip())
+        attribute.strip()
+        for attribute in payload.get("attributes") or []
+        if isinstance(attribute, str) and attribute.strip()
     ]
 
 
 def _search_backend_route(payload: dict[str, Any]) -> tuple[bool, bool]:
     """Return ``(uses_embed, uses_attribute)`` using core search semantics."""
-    if payload.get("object_ids"):
+    mode = payload.get("search_mode", "embed")
+    if mode == "object":
         return False, True
-    attributes = _effective_search_attributes(payload)
-    uses_attribute = bool(attributes)
-    uses_embed = not attributes or payload.get("has_action") is True
-    return uses_embed, uses_attribute
+    return mode in {"embed", "fusion"}, mode in {"attribute", "fusion"}
 
 
 def _runtime_fields_for_request(
@@ -817,8 +721,7 @@ def _runtime_fields_for_request(
     fields: set[str] = set()
     if primitive == "embed_search":
         fields.update(("es_endpoint", "vst_external_url"))
-        if not payload.get("precomputed_embedding"):
-            fields.add("cosmos_embed_endpoint")
+        fields.add("cosmos_embed_endpoint")
     elif primitive == "attribute_search":
         fields.update(("behavior_es_endpoint", "rtvi_cv_endpoint", "vst_internal_url", "vst_external_url"))
     elif primitive == "search":
@@ -840,7 +743,7 @@ def _runtime_fields_for_request(
 def _activate_embed_only_fallback(payload: dict[str, Any], *, reason: str) -> None:
     """Convert a fusion/attribute request to the explicitly allowed embed route."""
     payload["attributes"] = []
-    payload["has_action"] = None
+    payload["search_mode"] = "embed"
     sys.stderr.write(f"[vss-cli] RTVI-CV {reason}; continuing with explicit embed-only fallback.\n")
 
 
@@ -1011,19 +914,13 @@ def _resolve_search_payload(args: argparse.Namespace) -> dict[str, Any]:
     """Build the `search` payload from an explicit --json/stdin payload or flags.
 
     An explicit ``--json``/stdin payload wins (power-user path); otherwise the
-    agent-friendly, already-decomposed flags are assembled into a SearchInput
-    payload with ``agent_mode=false``.
+    agent-friendly, already-decomposed flags are assembled into a SearchInput.
     """
     raw = _load_payload(args)
     # An explicit --json payload (even an empty "{}") or a non-empty stdin body is
     # a full SearchInput payload and takes precedence; only fall back to the
     # agent-friendly flags when no explicit payload was supplied at all.
     if args.json_payload is not None or raw:
-        if raw.get("agent_mode") is True:
-            raise InvalidInputError(
-                "vss-cli search run does not perform NAT query decomposition; set agent_mode=false "
-                "or call the NAT search/search_agent function"
-            )
         return raw
     return _build_archive_search_payload(args)
 
@@ -1200,7 +1097,7 @@ async def _preflight_search_runtime(args: argparse.Namespace, payload: dict[str,
     search_uses_embed = args.primitive == "search" and _search_backend_route(payload)[0]
     if search_uses_embed:
         await _preflight_index(runtime, source_type=str(payload.get("source_type") or "video_file"))
-    if search_uses_embed or (args.primitive == "embed_search" and not payload.get("precomputed_embedding")):
+    if search_uses_embed or args.primitive == "embed_search":
         await _preflight_embed_model(runtime)
 
 
@@ -1218,11 +1115,6 @@ def _validate_payload_before_preflight(args: argparse.Namespace, payload: dict[s
 
         search_input = SearchInput(**payload)
         search_input.validate_semantics()
-        if search_input.agent_mode:
-            raise InvalidInputError(
-                "vss-cli search run does not perform NAT query decomposition; set agent_mode=false "
-                "or call the NAT search/search_agent function"
-            )
         _replace_payload_with_model(payload, search_input)
         return
     if args.primitive == "embed_search":
@@ -1242,13 +1134,9 @@ def _validate_payload_before_preflight(args: argparse.Namespace, payload: dict[s
 
 
 async def _run(args: argparse.Namespace) -> int:
-    if args.stream and args.primitive != "search":
-        raise InvalidInputError("--stream is only valid for the `search` primitive")
-
     if args.primitive == "search":
         payload = _resolve_search_payload(args)
     else:
-        _reject_search_only_flags_for_non_search(args)
         payload = _load_payload(args)
 
     deployment: DeploymentConfig | None = None

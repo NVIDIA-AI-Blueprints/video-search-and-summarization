@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""SearchRuntime, RuntimeSnapshot, SearchOptions — runtime construction.
+"""SearchRuntime and RuntimeSnapshot — runtime construction.
 
 Primitives and clients NEVER read env; they receive a SearchRuntime that was
 built by one of the explicit builders here. CLI entrypoints pass explicit args
@@ -25,7 +25,7 @@ Four builders, three runtime-state shapes:
                                     against an explicit env mapping
   SearchRuntime.from_remote       — fetch /api/v1/runtime/config from a running agent
 
-  RuntimeSnapshot.from_remote     — fetch the full {runtime, search_options} bundle
+  RuntimeSnapshot.from_remote     — fetch and validate a runtime snapshot
   RuntimeSnapshot.from_dict       — parse a JSON-decoded payload
 
 Builders map every failure onto the library error hierarchy: unreadable or
@@ -38,7 +38,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import MISSING
 from dataclasses import dataclass
-from dataclasses import field
 import os
 from pathlib import Path
 import re
@@ -97,9 +96,7 @@ _BOOL_CONFIG_FIELDS = frozenset(
 _INT_CONFIG_FIELDS = frozenset(
     {
         "default_max_results",
-        "embed_default_max_results",
         "rrf_k",
-        "search_max_iterations",
         "request_timeout_seconds",
     }
 )
@@ -213,32 +210,6 @@ def _interpolate(text: str, env: Mapping[str, str]) -> str:
 
 
 # =============================================================================
-# SearchOptions — orchestrator config-time flags that don't belong in SearchRuntime
-# =============================================================================
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SearchOptions:
-    """Search-orchestrator config-time flags surfaced separately from SearchRuntime.
-
-    `use_attribute_search` lives in the NAT config block `functions.search`
-    (config.yml:75 sets it to true for the search profile). It is NOT a
-    SearchRuntime field because it's a Search-constructor arg, not state.
-    The CLI / facade reads it from the same config file as the runtime and
-    passes it to Search.from_runtime(..., use_attribute_search=...).
-    """
-
-    use_attribute_search: bool = False
-
-    @classmethod
-    def from_config_file(cls, path: str | Path, *, env: Mapping[str, str] | None = None) -> SearchOptions:
-        """Parse orchestrator-only options from the same NAT config as SearchRuntime."""
-        fns = _load_config_functions(path, env=env)
-        search_cfg = fns.get("search", {}) or {}
-        return cls(use_attribute_search=bool(search_cfg.get("use_attribute_search", False)))
-
-
-# =============================================================================
 # SearchRuntime — the one env boundary
 # =============================================================================
 
@@ -287,10 +258,6 @@ class SearchRuntime:
     # ---- Behavior knobs ----
     # Search orchestrator default from functions.search.default_max_results.
     default_max_results: int = 10
-    # Result cap for the embed primitive when a request omits top_k. Defaults to
-    # 100 to match the deployed search profiles; a bare from_kwargs() runtime
-    # should not silently return only a handful of embed hits.
-    embed_default_max_results: int = 100
     embed_confidence_threshold: float = 0.1  # config.yml:80 override; code default is 0.2
     fusion_method: FusionMethod = "rrf"
     w_attribute: float = 0.55
@@ -298,7 +265,6 @@ class SearchRuntime:
     rrf_k: int = 60
     rrf_w: float = 0.5
     top_percent_filter: float | None = None
-    search_max_iterations: int = 1
     request_timeout_seconds: int = 30
 
     # =========================================================================
@@ -393,13 +359,12 @@ class SearchRuntime:
         This builder is useful for callers that must reproduce a deployed
         profile. Env alone cannot do that — profile-level settings live only
         in the NAT config:
-          - functions.search.use_attribute_search (config.yml:75)
-          - functions.search.search_max_iterations, default_max_results
+          - functions.search.default_max_results
           - functions.embed_search.default_max_results
           - functions.search.embed_confidence_threshold (config.yml:80)
           - functions.search.w_attribute / w_embed / rrf_k / rrf_w / top_percent_filter
         These have no env-var counterpart in current deployments; env-only
-        would silently disable use_attribute_search and shift defaults.
+        would silently shift profile defaults.
 
         Layered precedence (later wins):
           1. Class defaults
@@ -407,9 +372,8 @@ class SearchRuntime:
              functions.embed_search, functions.attribute_search)
           3. Values from `env` (for fields the NAT block references as ${VAR})
 
-        Note: SearchOptions (use_attribute_search) is NOT part of the returned
-        SearchRuntime. Callers that drive the orchestrator should also read it
-        from the same config; VSSSearch.from_config_file() in host.py does both.
+        Legacy ``functions.search.use_attribute_search`` values are ignored;
+        per-request ``search_mode`` is authoritative.
         """
         env = os.environ if env is None else env
         fns = _load_config_functions(path, env=env)
@@ -497,11 +461,9 @@ class SearchRuntime:
             # Embed clients
             "cosmos_embed_endpoint": cosmos_embed_endpoint,
             "cosmos_embed_model": env.get("RTVI_EMBED_MODEL", "cosmos-embed1-448p"),
-            "embed_default_max_results": embed_cfg.get("default_max_results", 100),
             "rtvi_cv_endpoint": rtvi_cv_endpoint,
             # Search orchestrator profile knobs — the whole point of this builder
             "embed_confidence_threshold": search_cfg.get("embed_confidence_threshold", 0.1),
-            "search_max_iterations": search_cfg.get("search_max_iterations", 1),
             "default_max_results": search_cfg.get("default_max_results", 10),
             "fusion_method": search_cfg.get("fusion_method", "rrf"),
             "w_attribute": search_cfg.get("w_attribute", 0.55),
@@ -516,10 +478,7 @@ class SearchRuntime:
     def from_remote(cls, agent_url: str, *, timeout: float = 5.0) -> SearchRuntime:
         """Fetch a runtime snapshot from a running agent.
 
-        Convenience for callers that only need the flat runtime
-        (embed_search / attribute_search). For Search orchestrator
-        callers, use RuntimeSnapshot.from_remote() instead so use_attribute_search
-        survives the round-trip.
+        Convenience for callers that only need the flat runtime.
 
         WARNING: in Helm the agent returns in-cluster DNS URLs that are NOT
         reachable from a developer laptop. Host callers should use
@@ -536,31 +495,22 @@ class SearchRuntime:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RuntimeSnapshot:
-    """Bundles SearchRuntime with SearchOptions so the host receives a faithful
-    reproduction of the deployed profile's `search()` behavior, including
-    use_attribute_search (which is NOT a SearchRuntime field).
-    """
+    """Validated runtime returned by ``GET /api/v1/runtime/config``."""
 
     runtime: SearchRuntime
-    search: SearchOptions = field(default_factory=SearchOptions)
 
     @classmethod
     def from_config_file(cls, path: str | Path, *, env: Mapping[str, str] | None = None) -> RuntimeSnapshot:
-        """Parse runtime and search options from one NAT config file."""
+        """Parse runtime values from one NAT config file."""
         env = os.environ if env is None else env
-        return cls(
-            runtime=SearchRuntime.from_config_file(path, env=env),
-            search=SearchOptions.from_config_file(path, env=env),
-        )
+        return cls(runtime=SearchRuntime.from_config_file(path, env=env))
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> RuntimeSnapshot:
         """Parse the JSON returned by /api/v1/runtime/config.
 
-        Tolerates a missing `search` key (older agents that predate the
-        nested block).
+        Ignores the legacy nested ``search`` block and unknown fields.
         """
-        search_block = payload.get("search") or {}
         # Anything not in the SearchRuntime field set is ignored — newer agents
         # may add fields we don't yet know about; older agents may omit fields
         # we have defaults for. Either way we don't blow up.
@@ -573,14 +523,7 @@ class RuntimeSnapshot:
             raise ConfigurationError(f"runtime snapshot is missing required field(s): {', '.join(missing)}")
         # Wire values are untrusted: coerce numeric/bool fields before use.
         coerced = _coerce_runtime_kwargs(runtime_payload)
-        return cls(
-            runtime=SearchRuntime.from_kwargs(**coerced),
-            search=SearchOptions(
-                use_attribute_search=bool(search_block.get("use_attribute_search", False))
-                if isinstance(search_block, Mapping)
-                else False,
-            ),
-        )
+        return cls(runtime=SearchRuntime.from_kwargs(**coerced))
 
     @classmethod
     def from_remote(cls, agent_url: str, *, timeout: float = 5.0) -> RuntimeSnapshot:

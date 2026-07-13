@@ -31,11 +31,9 @@ from lib.cli.search import _resolve_named_sources
 from lib.cli.search import _rewrite_deployment_runtime
 from lib.cli.search import _runtime_fields_for_request
 from lib.cli.search import _runtime_from_args
-from lib.cli.search import _search_options_from_args
 from lib.cli.search import _validate_payload_before_preflight
 from lib.cli.search import _write_search_stream
 from lib.cli.search import run
-from lib.search_core import SearchOptions
 from lib.search_core import SearchRuntime
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import InvalidInputError
@@ -66,8 +64,8 @@ def test_search_archive_flags_build_structured_search_input() -> None:
             "sample-warehouse-ladder",
             "--attribute",
             "white jacket",
-            "--has-action",
-            "true",
+            "--search-mode",
+            "fusion",
             "--top-k",
             "5",
             "--min-cosine-similarity",
@@ -86,11 +84,10 @@ def test_search_archive_flags_build_structured_search_input() -> None:
         "timestamp_start": None,
         "timestamp_end": None,
         "top_k": 5,
+        "search_mode": "fusion",
         "attributes": ["white jacket"],
-        "has_action": True,
         "object_ids": None,
         "min_cosine_similarity": 0.25,
-        "agent_mode": False,
     }
 
 
@@ -109,6 +106,8 @@ def test_search_archive_supports_repeated_sources_and_object_ids() -> None:
             "42",
             "--object-id",
             "99",
+            "--search-mode",
+            "object",
         ]
     )
 
@@ -129,7 +128,7 @@ def test_search_archive_decomposed_json_preserves_host_agent_fields() -> None:
                 '"source_type":"rtsp",'
                 '"video_sources":["dock_cam"],'
                 '"attributes":["white jacket"],'
-                '"has_action":true,'
+                '"search_mode":"fusion",'
                 '"top_k":3}'
             ),
         ]
@@ -142,9 +141,8 @@ def test_search_archive_decomposed_json_preserves_host_agent_fields() -> None:
     assert payload["source_type"] == "rtsp"
     assert payload["video_sources"] == ["dock_cam"]
     assert payload["attributes"] == ["white jacket"]
-    assert payload["has_action"] is True
+    assert payload["search_mode"] == "fusion"
     assert "use_critic" not in payload
-    assert payload["agent_mode"] is False
 
 
 def test_search_archive_flags_override_decomposed_json() -> None:
@@ -210,7 +208,6 @@ functions:
     assert facade._rt.es_endpoint == "http://arg-es:9200"
     assert facade._rt.cosmos_embed_endpoint == "http://arg-embed:8017"
     assert facade._rt.rtvi_cv_endpoint == "http://arg-cv:9000"
-    assert facade._opts.use_attribute_search is True
     assert facade._rt.default_max_results == 7
 
 
@@ -588,29 +585,13 @@ def test_behavior_es_defaults_from_es_when_base_not_distinct() -> None:
     assert updated.behavior_es_endpoint == "http://es-new:9200"
 
 
-# --------------------------------------------------------------- use_attribute_search precedence (#11)
+# --------------------------------------------------------------- retired search toggle
 
 
-def test_explicit_config_false_beats_payload_fusion_heuristic() -> None:
-    args = _parse_args([], operation="run")  # no --use-attribute-search flag
-    base = SearchOptions(use_attribute_search=False)
-    payload = {"attributes": ["white jacket"], "has_action": True}  # heuristic would say True
-    result = _search_options_from_args(args, base=base, search_payload=payload)
-    assert result.use_attribute_search is False
-
-
-def test_explicit_flag_beats_config() -> None:
-    args = _parse_args(["--no-use-attribute-search"], operation="run")
-    base = SearchOptions(use_attribute_search=True)
-    result = _search_options_from_args(args, base=base, search_payload=None)
-    assert result.use_attribute_search is False
-
-
-def test_heuristic_applies_without_config() -> None:
-    args = _parse_args([], operation="run")
-    payload = {"attributes": ["white jacket"], "has_action": True}
-    result = _search_options_from_args(args, base=None, search_payload=payload)
-    assert result.use_attribute_search is True
+@pytest.mark.parametrize("flag", ["--use-attribute-search", "--no-use-attribute-search"])
+def test_legacy_attribute_search_flags_are_rejected(flag: str) -> None:
+    with pytest.raises(SystemExit):
+        _parse_args([flag], operation="run")
 
 
 # --------------------------------------------------------------- config error surfaces (#1)
@@ -676,26 +657,10 @@ def test_main_malformed_config_exits_4(tmp_path) -> None:
             "--vst-external-url",
             "http://vst:7777",
             "--json",
-            '{"query":"forklift","source_type":"video_file","agent_mode":false}',
+            '{"query":"forklift","source_type":"video_file"}',
         ],
     )
     assert exit_code == 4
-
-
-@pytest.mark.parametrize("agent_mode", [True, "true", "yes", 1])
-def test_search_rejects_agent_mode_after_pydantic_normalization(agent_mode: object) -> None:
-    payload = {"query": "forklift", "source_type": "video_file", "agent_mode": agent_mode}
-
-    with pytest.raises(InvalidInputError, match="does not perform NAT query decomposition"):
-        _validate_payload_before_preflight(argparse.Namespace(primitive="search"), payload)
-
-
-def test_search_accepts_normalized_false_agent_mode() -> None:
-    payload = {"query": "forklift", "source_type": "video_file", "agent_mode": "false"}
-
-    _validate_payload_before_preflight(argparse.Namespace(primitive="search"), payload)
-
-    assert payload["agent_mode"] is False
 
 
 # --------------------------------------------------------------- stream/non-stream exit-code parity (#4)
@@ -742,7 +707,7 @@ def test_main_index_not_found_non_stream_exits_3(monkeypatch) -> None:
     monkeypatch.setattr("lib.cli.search._build_facade", boom)
     exit_code = run(
         "run",
-        ["--json", '{"query":"forklift","source_type":"video_file","agent_mode":false}'],
+        ["--json", '{"query":"forklift","source_type":"video_file"}'],
     )
     # Same exit code (3) as the streamed IndexNotFoundError path above.
     assert exit_code == 3
@@ -752,8 +717,8 @@ def test_main_index_not_found_non_stream_exits_3(monkeypatch) -> None:
 
 
 def test_stream_rejected_on_non_search_primitive() -> None:
-    exit_code = run("embed", ["--stream", "--json", "{}"])
-    assert exit_code == 2
+    with pytest.raises(SystemExit, match="2"):
+        run("embed", ["--stream", "--json", "{}"])
 
 
 # --------------------------------------------------- search-only flags on other primitives (#1)
@@ -762,34 +727,22 @@ def test_stream_rejected_on_non_search_primitive() -> None:
 def test_search_only_flag_rejected_on_embed_search() -> None:
     # --query is a `search`-only flag; embed_search reads --json/stdin. Passing it
     # to embed_search must fail loudly (exit 2), not be silently ignored.
-    exit_code = run("embed", ["--query", "red car", "--json", "{}"])
-    assert exit_code == 2
+    with pytest.raises(SystemExit, match="2"):
+        run("embed", ["--query", "red car", "--json", "{}"])
 
 
 def test_search_only_list_flag_rejected_on_attribute_search() -> None:
-    exit_code = run("attribute", ["--attribute", "white jacket", "--json", "{}"])
-    assert exit_code == 2
+    with pytest.raises(SystemExit, match="2"):
+        run("attribute", ["--attribute", "white jacket", "--json", "{}"])
 
 
-def test_reject_search_only_flags_names_the_offending_flags() -> None:
-    from lib.cli.search import _reject_search_only_flags_for_non_search
-
-    args = _parse_args(["--query", "x", "--top-k", "5"], operation="embed")
-    with pytest.raises(InvalidInputError) as exc:
-        _reject_search_only_flags_for_non_search(args)
-    message = str(exc.value)
-    assert "--query" in message
-    assert "--top-k" in message
-    assert "vss-cli search embed" in message
-
-
-def test_non_search_primitive_without_search_flags_is_allowed() -> None:
-    # No search-only flags provided -> the guard is a no-op even though the flags
-    # are registered on the shared parser with default sentinels.
-    from lib.cli.search import _reject_search_only_flags_for_non_search
-
-    args = _parse_args(["--es-endpoint", "http://es:9200"], operation="embed")
-    _reject_search_only_flags_for_non_search(args)  # must not raise
+def test_non_search_help_omits_run_only_flags(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        _parse_args(["--help"], operation="embed")
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--query" not in help_text
+    assert "--stream" not in help_text
 
 
 def test_search_primitive_still_accepts_search_flags() -> None:
@@ -1003,11 +956,11 @@ def test_rtvi_cv_fallback_is_only_used_when_explicit(monkeypatch: pytest.MonkeyP
             return httpx.Response(404, request=httpx.Request("POST", url))
 
     monkeypatch.setattr("lib.cli.search.httpx.AsyncClient", lambda **_kwargs: FakeClient())
-    payload = {"attributes": ["white jacket"], "has_action": True}
+    payload = {"attributes": ["white jacket"], "search_mode": "fusion"}
     args = argparse.Namespace(primitive="search", allow_embed_only_fallback=True)
 
     asyncio.run(_preflight_rtvi_cv(args, payload, _runtime()))
-    assert payload == {"attributes": [], "has_action": None}
+    assert payload == {"attributes": [], "search_mode": "embed"}
 
 
 def test_request_runtime_fields_exclude_unused_kubernetes_services() -> None:
@@ -1024,14 +977,13 @@ def test_pydantic_normalization_drives_route_planning() -> None:
         "query": "forklift",
         "source_type": "video_file",
         "attributes": ["white jacket"],
-        "has_action": "true",
-        "agent_mode": False,
+        "search_mode": "fusion",
     }
 
     _validate_payload_before_preflight(args, payload)
     fields = _runtime_fields_for_request(args, payload, _runtime())
 
-    assert payload["has_action"] is True
+    assert payload["search_mode"] == "fusion"
     assert {"es_endpoint", "cosmos_embed_endpoint", "behavior_es_endpoint", "rtvi_cv_endpoint"} <= fields
     assert "vlm_base_url" not in fields
 
@@ -1042,8 +994,7 @@ def test_rtvi_port_forward_failure_uses_explicit_embed_fallback(capsys: pytest.C
         "query": "forklift",
         "source_type": "video_file",
         "attributes": ["white jacket"],
-        "has_action": False,
-        "agent_mode": False,
+        "search_mode": "attribute",
     }
     _validate_payload_before_preflight(args, payload)
     calls: list[set[str]] = []
@@ -1058,24 +1009,12 @@ def test_rtvi_port_forward_failure_uses_explicit_embed_fallback(capsys: pytest.C
     _rewrite_deployment_runtime(args, payload, _runtime(), FailingRTVIDeployment())  # type: ignore[arg-type]
 
     assert payload["attributes"] == []
-    assert payload["has_action"] is None
+    assert payload["search_mode"] == "embed"
     assert calls == [
         {"rtvi_cv_endpoint"},
         {"es_endpoint", "cosmos_embed_endpoint", "vst_external_url"},
     ]
     assert "explicit embed-only fallback" in capsys.readouterr().err
-
-
-def test_precomputed_embedding_skips_model_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
-    args = _parse_args([], operation="embed")
-    payload = {"source_type": "video_file", "precomputed_embedding": [0.1, 0.2]}
-
-    async def unexpected_model(_runtime: SearchRuntime) -> None:
-        pytest.fail("precomputed embedding must not probe the unused model service")
-
-    monkeypatch.setattr("lib.cli.search._preflight_embed_model", unexpected_model)
-
-    asyncio.run(_preflight_search_runtime(args, payload, _runtime()))
 
 
 def test_attribute_fallback_recomputes_embed_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1084,14 +1023,14 @@ def test_attribute_fallback_recomputes_embed_preflights(monkeypatch: pytest.Monk
         "query": "forklift",
         "source_type": "video_file",
         "attributes": ["white jacket"],
-        "has_action": False,
+        "search_mode": "attribute",
     }
     calls: list[str] = []
 
     async def fallback(_args: argparse.Namespace, current: dict[str, object], _runtime: SearchRuntime) -> None:
         calls.append("rtvi")
         current["attributes"] = []
-        current["has_action"] = None
+        current["search_mode"] = "embed"
 
     async def index(_runtime: SearchRuntime, *, source_type: str) -> None:
         calls.append(f"index:{source_type}")
@@ -1108,13 +1047,13 @@ def test_attribute_fallback_recomputes_embed_preflights(monkeypatch: pytest.Monk
     assert calls == ["rtvi", "index:video_file", "model"]
 
 
-def test_single_word_attributes_use_embed_preflights_without_rtvi(monkeypatch: pytest.MonkeyPatch) -> None:
-    args = _parse_search_args(["--query", "forklift", "--attribute", "red"])
+def test_single_word_attributes_use_attribute_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    args = _parse_search_args(["--query", "forklift", "--search-mode", "attribute", "--attribute", "red"])
     payload = _build_archive_search_payload(args)
     calls: list[str] = []
 
-    async def unexpected_rtvi(*_args: object) -> None:
-        pytest.fail("single-word attributes are pruned before RTVI routing")
+    async def rtvi(*_args: object) -> None:
+        calls.append("rtvi")
 
     async def index(_runtime: SearchRuntime, *, source_type: str) -> None:
         calls.append(f"index:{source_type}")
@@ -1122,17 +1061,17 @@ def test_single_word_attributes_use_embed_preflights_without_rtvi(monkeypatch: p
     async def model(_runtime: SearchRuntime) -> None:
         calls.append("model")
 
-    monkeypatch.setattr("lib.cli.search._preflight_rtvi_cv", unexpected_rtvi)
+    monkeypatch.setattr("lib.cli.search._preflight_rtvi_cv", rtvi)
     monkeypatch.setattr("lib.cli.search._preflight_index", index)
     monkeypatch.setattr("lib.cli.search._preflight_embed_model", model)
 
     asyncio.run(_preflight_search_runtime(args, payload, _runtime()))
 
-    assert calls == ["index:video_file", "model"]
+    assert calls == ["rtvi"]
 
 
 def test_object_id_search_does_not_preflight_embed_or_rtvi(monkeypatch: pytest.MonkeyPatch) -> None:
-    args = _parse_search_args(["--query", "forklift", "--object-id", "42"])
+    args = _parse_search_args(["--query", "forklift", "--search-mode", "object", "--object-id", "42"])
     payload = _build_archive_search_payload(args)
 
     async def unexpected(*_args: object, **_kwargs: object) -> None:

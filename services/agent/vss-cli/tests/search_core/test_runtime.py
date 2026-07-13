@@ -5,8 +5,7 @@
 Covers the four invariants that the rest of the library depends on:
   - SearchRuntime.from_env reads the env names this repo actually injects.
   - _interpolate implements shell `:-` semantics (empty-string treated as unset).
-  - RuntimeSnapshot.from_dict separates the nested `search` block and
-    tolerates unknown forward-compat fields.
+  - RuntimeSnapshot.from_dict ignores legacy/unknown forward-compat fields.
   - VLM fields are Optional — embed-only flows must work without them.
 """
 
@@ -15,7 +14,6 @@ from __future__ import annotations
 import pytest
 
 from lib.search_core import RuntimeSnapshot
-from lib.search_core import SearchOptions
 from lib.search_core import SearchRuntime
 from lib.search_core.errors import BackendUnreachableError
 from lib.search_core.errors import ConfigurationError
@@ -125,24 +123,20 @@ class TestRuntimeSnapshot:
             "vst_external_url": "http://vst:7777",
         }
 
-    def test_extracts_nested_search_block(self) -> None:
+    def test_ignores_legacy_nested_search_block(self) -> None:
         snap = RuntimeSnapshot.from_dict({**self._base_payload(), "search": {"use_attribute_search": True}})
-        assert snap.search.use_attribute_search is True
         assert snap.runtime.es_endpoint == "http://es:9200"
 
-    def test_missing_search_block_defaults_to_false(self) -> None:
+    def test_missing_search_block_is_valid(self) -> None:
         snap = RuntimeSnapshot.from_dict(self._base_payload())
-        assert snap.search.use_attribute_search is False
+        assert snap.runtime.es_endpoint == "http://es:9200"
 
     def test_ignores_unknown_forward_compat_fields(self) -> None:
         """Older hosts must tolerate newer agents that add fields."""
         snap = RuntimeSnapshot.from_dict({**self._base_payload(), "future_field_we_dont_know_about": "shrug"})
         assert snap.runtime.es_endpoint == "http://es:9200"
 
-    def test_search_options_default(self) -> None:
-        assert SearchOptions().use_attribute_search is False
-
-    def test_from_config_file_carries_search_options(self, tmp_path) -> None:
+    def test_from_config_file_ignores_legacy_search_toggle(self, tmp_path) -> None:
         config = tmp_path / "config.yml"
         config.write_text(
             """
@@ -163,9 +157,7 @@ functions:
 
         snap = RuntimeSnapshot.from_config_file(config, env=_HELM_ENV)
 
-        assert snap.search.use_attribute_search is True
         assert snap.runtime.default_max_results == 7
-        assert snap.runtime.embed_default_max_results == 100
         assert snap.runtime.es_endpoint == _HELM_ENV["ELASTIC_SEARCH_ENDPOINT"]
 
     def test_from_config_file_carries_custom_index_contract(self, tmp_path) -> None:
@@ -299,7 +291,6 @@ class TestFromRemote:
         _patch_httpx_with_handler(monkeypatch, handler)
         snap = RuntimeSnapshot.from_remote("http://agent:8000")
         assert snap.runtime.es_endpoint == "http://es:9200"
-        assert snap.search.use_attribute_search is True
 
     def test_connection_error_maps_to_backend_unreachable(self, monkeypatch) -> None:
         import httpx

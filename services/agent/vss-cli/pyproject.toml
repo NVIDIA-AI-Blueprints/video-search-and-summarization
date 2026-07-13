@@ -20,7 +20,7 @@ exclude = ["src/lib/knowledge/**"]
 [project]
 name = "nvidia-vss-cli"
 version = "0.1.0"
-description = "NAT-free VSS search library and host CLI"
+description = "NAT-free VSS search, critic, VLM, and VST libraries with a host CLI"
 requires-python = ">=3.13,<3.15"
 license = "Apache-2.0"
 authors = [{ name = "NVIDIA Corporation" }]

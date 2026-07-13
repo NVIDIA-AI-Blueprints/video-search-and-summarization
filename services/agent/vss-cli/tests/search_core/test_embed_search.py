@@ -5,7 +5,7 @@
 Locks in the behaviors that /api/v1/embed_search depends on:
   - index selection by source_type (video_file → configured index;
     rtsp → wildcard list excluding configured index)
-  - precomputed_embedding bypasses the embed client
+  - text queries are the only supported embedding source
   - hits without an `llm` field are skipped
   - min_cosine_similarity threshold (cosine = 2*_score - 1, rounded to 2dp)
   - exclude_videos filter
@@ -148,31 +148,6 @@ class TestEmbedSearchContract:
         assert es.last_index == ["mdx-embed-filtered-*", "-video_embeddings"]
 
     @pytest.mark.asyncio
-    async def test_precomputed_embedding_bypasses_embed_client(self, make_search):
-        e, _es, embed, _vst = make_search()
-        await e.run(
-            EmbedSearchInput(
-                query="ignored",
-                source_type="video_file",
-                precomputed_embedding=[1.0, 2.0, 3.0],
-            )
-        )
-        assert embed.text_calls == 0
-
-    @pytest.mark.asyncio
-    async def test_image_url_routes_to_image_embed(self, make_search):
-        e, _es, embed, _vst = make_search()
-        await e.run(EmbedSearchInput(query="", source_type="video_file", image_url="data:image/jpeg;base64,Zm9v"))
-        assert embed.image_calls == 1
-        assert embed.text_calls == 0
-
-    @pytest.mark.asyncio
-    async def test_video_url_routes_to_video_embed(self, make_search):
-        e, _es, embed, _vst = make_search()
-        await e.run(EmbedSearchInput(query="", source_type="video_file", video_url="https://example.com/x.mp4"))
-        assert embed.video_calls == 1
-
-    @pytest.mark.asyncio
     async def test_missing_llm_key_is_skipped(self, make_search):
         e, _es, _embed, _vst = make_search()
         out = await e.run(EmbedSearchInput(query="q", source_type="video_file"))
@@ -223,13 +198,13 @@ class TestEmbedSearchContract:
     @pytest.mark.asyncio
     async def test_empty_input_raises(self, make_search):
         e, _es, _embed, _vst = make_search()
-        with pytest.raises(InvalidInputError, match="at least one"):
+        with pytest.raises(InvalidInputError, match="query must be non-empty"):
             await e.run(EmbedSearchInput(source_type="video_file"))
 
     @pytest.mark.asyncio
     async def test_whitespace_only_query_raises(self, make_search):
         e, _es, embed, _vst = make_search()
-        with pytest.raises(InvalidInputError, match="at least one"):
+        with pytest.raises(InvalidInputError, match="query must be non-empty"):
             await e.run(EmbedSearchInput(query="   ", source_type="video_file"))
         assert embed.text_calls == 0  # never hit the embed service
 

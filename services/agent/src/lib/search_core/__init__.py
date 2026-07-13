@@ -39,20 +39,17 @@ __all__ = [
     "AttributeSearch",
     "BackendUnreachableError",
     "ConfigurationError",
-    "CriticAgent",
     "EmbedSearch",
     "ErrorEvent",
     "FinalResultEvent",
     "IndexNotFoundError",
     "InvalidInputError",
     "NoFinalResultError",
-    "NoResultsError",
     "PartialResultEvent",
     "RuntimeSnapshot",
     "Search",
     "SearchError",
     "SearchEvent",
-    "SearchOptions",
     "SearchRuntime",
     "StatusEvent",
     "VSSSearch",
@@ -68,14 +65,12 @@ _LAZY_EXPORTS = {
     "FinalResultEvent": ".events",
     "IndexNotFoundError": ".errors",
     "InvalidInputError": ".errors",
-    "NoResultsError": ".errors",
     "NoFinalResultError": ".errors",
     "PartialResultEvent": ".events",
     "RuntimeSnapshot": ".runtime",
     "Search": ".primitives.search",
     "SearchError": ".errors",
     "SearchEvent": ".events",
-    "SearchOptions": ".runtime",
     "SearchRuntime": ".runtime",
     "StatusEvent": ".events",
     "VSSSearch": ".host",
@@ -89,7 +84,6 @@ if TYPE_CHECKING:
     from .errors import IndexNotFoundError
     from .errors import InvalidInputError
     from .errors import NoFinalResultError
-    from .errors import NoResultsError
     from .errors import SearchError
     from .events import ErrorEvent
     from .events import FinalResultEvent
@@ -101,7 +95,6 @@ if TYPE_CHECKING:
     from .primitives.embed_search import EmbedSearch
     from .primitives.search import Search
     from .runtime import RuntimeSnapshot
-    from .runtime import SearchOptions
     from .runtime import SearchRuntime
 
 

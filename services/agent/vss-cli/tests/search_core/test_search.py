@@ -134,9 +134,7 @@ def _attr_result(
 def _config(**overrides: Any) -> SimpleNamespace:
     base: dict[str, Any] = {
         "attribute_search_tool": "attribute_search",
-        "use_attribute_search": False,
         "embed_confidence_threshold": 0.1,
-        "search_max_iterations": 1,
         "default_max_results": 5,
         "fusion_method": "rrf",
         "w_attribute": 0.55,
@@ -166,7 +164,7 @@ class TestExecutionPaths:
     async def test_embed_only_path(self):
         embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", similarity=0.8)])])
         out = await _run(
-            SearchInput(query="red forklift", source_type="video_file", agent_mode=False),
+            SearchInput(query="red forklift", source_type="video_file"),
             embed_search=embed,
             config=_config(),
         )
@@ -184,8 +182,7 @@ class TestExecutionPaths:
                 query="person in white jacket",
                 source_type="video_file",
                 attributes=["white jacket"],
-                has_action=False,
-                agent_mode=False,
+                search_mode="attribute",
             ),
             embed_search=embed,
             config=_config(),
@@ -206,15 +203,32 @@ class TestExecutionPaths:
                 query="person climbing ladder",
                 source_type="video_file",
                 attributes=["white jacket"],
-                has_action=True,
-                agent_mode=False,
+                search_mode="fusion",
             ),
             embed_search=embed,
-            config=_config(use_attribute_search=True),
+            config=_config(),
             attribute_search_fn=attr,
         )
         assert len(embed.calls) == 1
         # fusion runs an attribute lookup per embed result.
+        assert len(attr.calls) == 1
+        assert len(out.data) == 1
+
+    @pytest.mark.asyncio
+    async def test_fusion_mode_is_authoritative(self):
+        embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", sensor_id="camA", similarity=0.8)])])
+        attr = _FakeAttr([_attr_result(object_id="42", sensor_id="camA")])
+        out = await _run(
+            SearchInput(
+                query="person climbing ladder",
+                source_type="video_file",
+                attributes=["white jacket"],
+                search_mode="fusion",
+            ),
+            embed_search=embed,
+            config=_config(),
+            attribute_search_fn=attr,
+        )
         assert len(attr.calls) == 1
         assert len(out.data) == 1
 
@@ -228,11 +242,10 @@ class TestExecutionPaths:
                 query="q",
                 source_type="video_file",
                 attributes=["white jacket"],
-                has_action=True,
-                agent_mode=False,
+                search_mode="fusion",
             ),
             embed_search=embed,
-            config=_config(embed_confidence_threshold=0.1, use_attribute_search=True),
+            config=_config(embed_confidence_threshold=0.1),
             attribute_search_fn=attr,
         )
         assert out.data[0].object_ids == ["42"]
@@ -241,7 +254,7 @@ class TestExecutionPaths:
     async def test_object_id_path(self):
         embed = _FakeEmbed([_embed_output([])])
         out = await _run(
-            SearchInput(query="similar to 42", source_type="video_file", object_ids=[42], agent_mode=False),
+            SearchInput(query="similar to 42", source_type="video_file", search_mode="object", object_ids=[42]),
             embed_search=embed,
             config=_config(),
             behavior_es=_FakeBehaviorEs(),
@@ -267,7 +280,7 @@ class TestExecutionPaths:
         embed = _FakeEmbed([_embed_output([])])
         with pytest.raises(InvalidInputError):
             await _run(
-                SearchInput(query="similar to 42", source_type="video_file", object_ids=[42], agent_mode=False),
+                SearchInput(query="similar to 42", source_type="video_file", search_mode="object", object_ids=[42]),
                 embed_search=embed,
                 config=_config(),
                 behavior_es=_RaisingBehaviorEs(),
@@ -289,7 +302,7 @@ class TestExecutionPaths:
                 return await super().search(index=index, body=body, **_kwargs)
 
         out = await _run(
-            SearchInput(query="similar to 42", source_type="video_file", object_ids=[42], agent_mode=False),
+            SearchInput(query="similar to 42", source_type="video_file", search_mode="object", object_ids=[42]),
             embed_search=_FakeEmbed([_embed_output([])]),
             config=_config(),
             behavior_es=_UnknownBehaviorEs(),
@@ -327,12 +340,11 @@ class TestFusionErrorSemantics:
                 query="q",
                 source_type="video_file",
                 attributes=["white jacket"],
-                has_action=True,
-                agent_mode=False,
+                search_mode="fusion",
                 top_k=5,
             ),
             embed_search=embed,
-            config=_config(use_attribute_search=True),
+            config=_config(),
             attribute_search_fn=attr,
         )
         # The degraded video still appears (with its embed-only score).
@@ -344,11 +356,9 @@ class TestFusionErrorSemantics:
         attr = _FakeAttr(error=IndexNotFoundError("behavior_index"))
         with pytest.raises(IndexNotFoundError):
             await _run(
-                SearchInput(
-                    query="q", source_type="video_file", attributes=["white jacket"], has_action=True, agent_mode=False
-                ),
+                SearchInput(query="q", source_type="video_file", attributes=["white jacket"], search_mode="fusion"),
                 embed_search=embed,
-                config=_config(use_attribute_search=True),
+                config=_config(),
                 attribute_search_fn=attr,
             )
 
@@ -359,7 +369,7 @@ class TestFinalCapping:
         items = [_embed_item(video_name=f"v{i}", sensor_id=f"cam{i}", similarity=0.9 - i * 0.1) for i in range(3)]
         embed = _FakeEmbed([_embed_output(items)])
         out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False, top_k=1),
+            SearchInput(query="q", source_type="video_file", top_k=1),
             embed_search=embed,
             config=_config(),
         )
@@ -371,7 +381,6 @@ class TestInputValidation:
         inp = SearchInput(
             query="q",
             source_type="video_file",
-            agent_mode=False,
             timestamp_start="2025-01-02T00:00:00Z",
             timestamp_end="2025-01-01T00:00:00Z",
         )
@@ -382,11 +391,11 @@ class TestInputValidation:
         # top_k now carries Field(ge=1, le=1000), so a sub-1 value is rejected at
         # model construction (Pydantic) rather than reaching validate_semantics().
         with pytest.raises(ValidationError):
-            SearchInput(query="q", source_type="video_file", agent_mode=False, top_k=0)
+            SearchInput(query="q", source_type="video_file", top_k=0)
 
     def test_top_k_above_max_rejected_at_construction(self):
         with pytest.raises(ValidationError):
-            SearchInput(query="q", source_type="video_file", agent_mode=False, top_k=1001)
+            SearchInput(query="q", source_type="video_file", top_k=1001)
 
     @pytest.mark.asyncio
     async def test_search_primitive_run_rejects_invalid_timestamp_order(self):
@@ -420,7 +429,6 @@ class TestInputValidation:
         inp = SearchInput(
             query="q",
             source_type="video_file",
-            agent_mode=False,
             timestamp_start="2025-01-02T00:00:00Z",
             timestamp_end="2025-01-01T00:00:00Z",
         )
@@ -437,7 +445,7 @@ class TestTopKOverflow:
         # Search sends the requested limit directly.
         embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", similarity=0.8)])])
         out = await _run(
-            SearchInput(query="q", source_type="video_file", agent_mode=False, top_k=750),
+            SearchInput(query="q", source_type="video_file", top_k=750),
             embed_search=embed,
             config=_config(),
         )
@@ -454,11 +462,9 @@ class TestTopKOverflow:
             _coerce_attribute_payload({"query": "x", "top_k": 5000})
 
 
-class TestSingleWordPruning:
+class TestSingleWordAttributes:
     @pytest.mark.asyncio
-    async def test_pruning_all_attributes_surfaces_message(self):
-        # Every attribute is single-word -> pruning empties the list and silently
-        # flips routing to embed-only. A search_message must make that visible.
+    async def test_valid_single_word_attributes_are_not_pruned(self):
         embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", similarity=0.8)])])
         attr = _FakeAttr([_attr_result(object_id="42", sensor_id="camX")])
         out = await _run(
@@ -466,17 +472,14 @@ class TestSingleWordPruning:
                 query="q",
                 source_type="video_file",
                 attributes=["person", "red"],
-                has_action=True,
-                agent_mode=False,
+                search_mode="fusion",
             ),
             embed_search=embed,
-            config=_config(use_attribute_search=True),
+            config=_config(),
             attribute_search_fn=attr,
         )
-        assert any("single-word" in m for m in out.search_messages)
-        # Routing flipped to embed-only: no per-video attribute lookups happened.
-        assert attr.calls == []
-        assert {r.video_name for r in out.data} == {"v1"}
+        assert not any("single-word" in m for m in out.search_messages)
+        assert attr.calls
 
 
 # ------------------------------------------------------------- stream() contract
@@ -521,7 +524,7 @@ class TestStreamContract:
             return _embed_output([_embed_item(video_name="v1", similarity=0.8)])
 
         search = _build_stream_search(embed_run)
-        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file", agent_mode=False))]
+        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file"))]
 
         terminals = [e for e in events if isinstance(e, (FinalResultEvent, ErrorEvent))]
         assert len(terminals) == 1  # exactly one terminator
@@ -538,7 +541,7 @@ class TestStreamContract:
             raise IndexNotFoundError("behavior_index")
 
         search = _build_stream_search(embed_run)
-        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file", agent_mode=False))]
+        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file"))]
 
         terminals = [e for e in events if isinstance(e, (FinalResultEvent, ErrorEvent))]
         assert len(terminals) == 1
@@ -551,7 +554,7 @@ class TestStreamContract:
             raise RuntimeError("boom")
 
         search = _build_stream_search(embed_run)
-        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file", agent_mode=False))]
+        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file"))]
 
         terminals = [e for e in events if isinstance(e, (FinalResultEvent, ErrorEvent))]
         assert len(terminals) == 1
@@ -573,7 +576,7 @@ class TestStreamContract:
 
         search = _build_stream_search(embed_run)
         monkeypatch.setattr(sh, "execute_core_search", _only_status)
-        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file", agent_mode=False))]
+        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file"))]
 
         terminals = [e for e in events if isinstance(e, (FinalResultEvent, ErrorEvent))]
         assert len(terminals) == 1
@@ -590,7 +593,7 @@ class TestStreamContract:
         monkeypatch.setattr(sh, "execute_core_search", _only_status)
         with pytest.raises(NoFinalResultError, match="without yielding SearchOutput"):
             await _run(
-                SearchInput(query="q", source_type="video_file", agent_mode=False),
+                SearchInput(query="q", source_type="video_file"),
                 embed_search=_FakeEmbed([_embed_output([])]),
                 config=_config(),
             )

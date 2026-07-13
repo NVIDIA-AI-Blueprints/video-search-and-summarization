@@ -8,7 +8,6 @@ from lib.search_core.errors import BackendUnreachableError
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import IndexNotFoundError
 from lib.search_core.errors import InvalidInputError
-from lib.search_core.errors import NoResultsError
 from lib.search_core.errors import SearchError
 
 
@@ -74,7 +73,7 @@ def test_index_not_found_caught_before_generic_backend():
 
 
 def test_other_errors_are_search_errors():
-    for err in (ConfigurationError("x"), InvalidInputError("x"), NoResultsError("x")):
+    for err in (ConfigurationError("x"), InvalidInputError("x")):
         assert isinstance(err, SearchError)
 
 
