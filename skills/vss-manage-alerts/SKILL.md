@@ -1,16 +1,16 @@
 ---
 name: vss-manage-alerts
-description: Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, camera onboarding. Not for non-alert analytics.
+description: Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, verification verdicts, on-demand verification, always-on operation, Slack notifications, incident queries, camera onboarding. Not for non-alert analytics.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization Team <vss-team@nvidia.com>"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
 ## Purpose
 
-Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, Slack notifications, queries, camera onboarding, verifier-prompt customization).
+Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, verification verdicts, on-demand verification, always-on operation, Slack notifications, queries, camera onboarding, verifier-prompt customization).
 
 ## Prerequisites
 
@@ -335,7 +335,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 ## Gotchas
 
 - **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** Slack ops → Workflow E (`alert-notify`); never route Slack to `vss-alert-bridge`'s `/api/v1/realtime`.
-- **Workflow scope by mode:** A and B are CV-only (B's explain-only asks answerable anywhere); **C queries the real-time incident store** (`/api/v1/realtime/incidents`; CV behavior-alert verdicts live in `mdx-vlm-alerts-*` — **no REST query endpoint yet**, use Workflow B's interim ES probe); D and E are VLM real-time only (refuse on CV with the canonical text).
+- **Workflow scope by mode:** A, B, and F are CV-only (B/F explain-only asks answerable anywhere); **C queries the real-time incident store** (`/api/v1/realtime/incidents`; CV behavior-alert verdicts live in `mdx-vlm-alerts-*` — **no REST query endpoint yet**, use Workflow B's interim ES probe); D, E, and G are VLM real-time only (refuse on CV with the canonical text).
 - **On-demand verification is `POST /api/v1/verification/ondemand`** — not `/verification/verify`, not a realtime rule, not `/generate`. 202 = accepted (async), never a verdict.
 - **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate (default off) or a `503 ALWAYS_ON_DISABLED` from `POST /api/v1/realtime/always-on`; its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
 - **Don't use `vss-rtvi-vlm` as a mode signal** — it runs in both modes. Use `vss-behavior-analytics` (CV-only) or the `MODE` env var.
