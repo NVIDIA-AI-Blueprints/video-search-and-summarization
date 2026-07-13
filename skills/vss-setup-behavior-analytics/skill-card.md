@@ -9,10 +9,16 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying the NVIDIA VSS behavior-analytics service as a standalone container with a chosen entrypoint, configuration source, and optional calibration. <br>
+Developers and engineers use this skill to deploy the behavior-analytics service standalone with a chosen entrypoint, configuration source, and optional calibration, without requiring the full VSS warehouse stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Yes] <br>
+**Credential Type(s):** [API key] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
@@ -21,11 +27,11 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Deploy Behavior Analytics Service](references/deploy-behavior-analytics-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
-- [Dynamic Calibration](references/dynamic-calibration.md) <br>
 - [Dynamic Config](references/dynamic-config.md) <br>
-- [NGC API Key & Registry Login](references/ngc-api-key-registry-login.md) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Dynamic Calibration](references/dynamic-calibration.md) <br>
+- [Integrate Behavior Analytics Service](references/integrate-behavior-analytics-service.md) <br>
+- [NGC API Key and Registry Login](references/ngc-api-key-registry-login.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
@@ -41,7 +47,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-1 evaluation task in NVSkills-Eval external profile (astra-sandbox environment, pass threshold 50%). <br>
+Evaluated against 1 evaluation task in the astra-sandbox environment using the external NVSkills-Eval profile with a 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,10 +72,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 100% (+100%) | 50% (+50%) |
-| Discoverability | 1 | 100% (+100%) | 0% (+0%) |
-| Effectiveness | 1 | 100% (+100%) | 50% (+50%) |
-| Efficiency | 1 | 94% (+67%) | 28% (+0%) |
+| Correctness | 1 | 50% (+50%) | 50% (+50%) |
+| Discoverability | 1 | 0% (+0%) | 0% (+0%) |
+| Effectiveness | 1 | 62% (+62%) | 50% (+50%) |
+| Efficiency | 1 | 27% (+0%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
