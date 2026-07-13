@@ -67,7 +67,7 @@ curl -sf "$ES/mdx-vlm-alerts-*/_search?q=<correlationId>" | jq '.hits.hits[]._so
 Reading the results:
 
 - Summarize each hit's `category`, timestamp, sensor, `info.verdict`, and `info.reasoning`. Accept camelCase or snake_case on the response-code field (`verificationResponseCode` / `verification_response_code`) — index mappings have varied.
-- **Zero hits is a valid answer.** CV detection has latency (stream must be online, detections must trip a Behavior Analytics rule, VLM round-trip). Report "no verification results yet", optionally note the latency reasons, and STOP — never pad the answer with the rules list, `/incidents`, or invented documents.
+- **Zero hits is a valid answer.** CV detection has latency (stream must be online, detections must trip a Behavior Analytics rule, VLM round-trip). Report "no verification results yet", optionally note the latency reasons, and STOP — never pad the answer with the rules list, `/incidents`, the `mdx-vlm-incidents-*` ES index (incident-kind docs carry no verdicts — a populated incidents index next to an empty alerts index is normal, not a substitute), or invented documents.
 - Never report a verdict you did not read from a returned document.
 
 ## Customize CV verifier prompts
