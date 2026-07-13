@@ -141,6 +141,11 @@ jobs:
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
+          # Prefer the rotatable repository secret for Anthropic auth. The
+          # coordinator .env remains the source for NGC/Brev and is loaded
+          # below, then this value is restored so it cannot overwrite the
+          # GitHub Actions secret.
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -161,6 +166,9 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
+            export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
           # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
