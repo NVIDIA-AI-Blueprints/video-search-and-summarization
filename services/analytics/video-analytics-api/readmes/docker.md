@@ -23,7 +23,7 @@ docker run --network=host \
 ## Pre-built image example
 ```bash
 docker run --network=host \
-  nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-video-analytics-api:3.2
+  nvcr.io/nvidia/vss-core/vss-video-analytics-api:3.2.0
 ```
 
 ## Notes

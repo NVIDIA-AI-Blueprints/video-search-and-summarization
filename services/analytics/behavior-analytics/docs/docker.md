@@ -22,7 +22,7 @@ docker run --network=host \
 ## Pre-built image example
 ```bash
 docker run --network=host \
-  nvcr.io/nv-metropolis-dev/metropolis-analytic/vss-behavior-analytics:3.2 \
+  nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1 \
   python3 src/mdx/analytics/core/tools/latency/latency_monitor.py
 ```
 

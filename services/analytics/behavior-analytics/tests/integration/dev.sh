@@ -32,7 +32,7 @@ docker compose -f $SCRIPT_DIR/docker_compose/infra/compose.yml up -d --build --f
 docker run -it --rm --network host \
   -v $PROJ_ROOT_DIR/configs/frame_playback_config.json:/resources/frame_playback_config.json \
   -v $PROJ_ROOT_DIR/${DATA_FILEPATH}:/opt/mdx/playback/playback_data.txt \
-  nvcr.io/nv-metropolis-dev/metropolis-analytic/mdx-behavior-analytics:3.2 \
+  nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1 \
   python3 apps/playback/playback_frames.py \
   --config /resources/frame_playback_config.json \
   --playback-filepath /opt/mdx/playback/playback_data.txt \
