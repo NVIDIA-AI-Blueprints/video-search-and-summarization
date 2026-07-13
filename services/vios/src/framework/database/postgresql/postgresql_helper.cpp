@@ -3942,6 +3942,7 @@ void Postgresql::createDatabaseTables()
           TempFilesDBColumns::end_time_ms + " BIGINT DEFAULT 0, " +
           TempFilesDBColumns::file_type + " VARCHAR(16) DEFAULT '', " +
           TempFilesDBColumns::container_format + " VARCHAR(32) DEFAULT '', " +
+          TempFilesDBColumns::config_hash + " VARCHAR(64) DEFAULT '', " +
           TempFilesDBColumns::created_date_time + " VARCHAR(1024) NOT NULL, " +
           TempFilesDBColumns::modified_date_time + " VARCHAR(1024) NOT NULL );";
     LOG(verbose) << "SQL query: Table: " << TempFilesDBColumns::table_name << " " << queryTemplate << endl;
@@ -3968,6 +3969,10 @@ void Postgresql::createDatabaseTables()
           " ADD COLUMN IF NOT EXISTS " + TempFilesDBColumns::container_format + " VARCHAR(32) DEFAULT '';";
     executeQuery(queryTemplate);
 
+    queryTemplate = "ALTER TABLE " + TempFilesDBColumns::table_name +
+          " ADD COLUMN IF NOT EXISTS " + TempFilesDBColumns::config_hash + " VARCHAR(64) DEFAULT '';";
+    executeQuery(queryTemplate);
+
     /* Create indexes for TEMP_VIDEO_FILES table performance */
     queryTemplate = "CREATE INDEX IF NOT EXISTS idx_temp_files_expiry ON " + 
           TempFilesDBColumns::table_name + " (" + TempFilesDBColumns::expiry_timestamp + ");";
@@ -3983,13 +3988,19 @@ void Postgresql::createDatabaseTables()
         LOG(error) << "Error creating temp files device index: " << queryTemplate << endl;
     }
 
-    queryTemplate = "CREATE INDEX IF NOT EXISTS idx_temp_files_stream_time ON " +
+    // Renamed from idx_temp_files_stream_time (5-col) to include
+    // config_hash. CREATE INDEX IF NOT EXISTS would not extend an existing
+    // index, so a fresh name guarantees the new column gets indexed on
+    // pre-existing databases too. The old 5-col index, if present, stays
+    // around harmlessly and is dropped naturally on the next DB reset.
+    queryTemplate = "CREATE INDEX IF NOT EXISTS idx_temp_files_stream_time_v2 ON " +
           TempFilesDBColumns::table_name + " (" +
           TempFilesDBColumns::device_id + ", " +
           TempFilesDBColumns::stream_id + ", " +
           TempFilesDBColumns::start_time_ms + ", " +
           TempFilesDBColumns::end_time_ms + ", " +
-          TempFilesDBColumns::file_type + ");";
+          TempFilesDBColumns::file_type + ", " +
+          TempFilesDBColumns::config_hash + ");";
     if (!executeQuery(queryTemplate))
     {
         LOG(error) << "Error creating temp files stream_time index: " << queryTemplate << endl;
@@ -4288,10 +4299,11 @@ int Postgresql::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN(TempFilesDBColumns::end_time_ms, std::to_string(row.end_time_ms_value), queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::file_type, row.file_type_value, queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::container_format, row.container_format_value, queryTemplate)
+    APPEND_COLUMN(TempFilesDBColumns::config_hash, row.config_hash_value, queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::created_date_time, currentUtcTime, queryTemplate)
     APPEND_COLUMN(TempFilesDBColumns::modified_date_time, currentUtcTime, queryTemplate)
     queryTemplate.pop_back(); // Remove trailing comma
-    
+
     // Build parameterized values using safe macros
     std::vector<std::string> params;
     APPEND_COLUMN_VALUE(row.device_id_value, params)
@@ -4304,6 +4316,7 @@ int Postgresql::insertTempFileRecord(TempFilesDBColumns &row)
     APPEND_COLUMN_VALUE_INT(row.end_time_ms_value, params)
     APPEND_COLUMN_VALUE(row.file_type_value, params)
     APPEND_COLUMN_VALUE(row.container_format_value, params)
+    APPEND_COLUMN_VALUE(row.config_hash_value, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
     APPEND_COLUMN_VALUE(currentUtcTime, params)
     
@@ -4312,6 +4325,14 @@ int Postgresql::insertTempFileRecord(TempFilesDBColumns &row)
     queryTemplate += " ON CONFLICT (" + TempFilesDBColumns::file_path + ") " +
                 "DO UPDATE SET " +
                 TempFilesDBColumns::expiry_timestamp + " = EXCLUDED." + TempFilesDBColumns::expiry_timestamp + ", " +
+                // Refresh every column that findTempFileByStreamAndTime filters
+                // on so a file_path collision cannot leave the surviving row
+                // mis-keyed against the new insert's intent. file_path
+                // collisions should not happen in practice (taskId carries a
+                // random suffix from generate_uuid), but stale lookup keys
+                // would silently bypass the cache for the surviving row.
+                TempFilesDBColumns::container_format + " = EXCLUDED." + TempFilesDBColumns::container_format + ", " +
+                TempFilesDBColumns::config_hash + " = EXCLUDED." + TempFilesDBColumns::config_hash + ", " +
                 TempFilesDBColumns::modified_date_time + " = EXCLUDED." + TempFilesDBColumns::modified_date_time + ";";
 
     LOG(verbose) << "SQL query: " << queryTemplate << endl;
@@ -4360,7 +4381,8 @@ std::vector<TempFilesDBColumns> Postgresql::getAllTempFiles()
                 TempFilesDBColumns::start_time_ms + ", " +
                 TempFilesDBColumns::end_time_ms + ", " +
                 TempFilesDBColumns::file_type + ", " +
-                TempFilesDBColumns::container_format +
+                TempFilesDBColumns::container_format + ", " +
+                TempFilesDBColumns::config_hash +
                 " FROM " + TempFilesDBColumns::table_name +
                 " ORDER BY " + TempFilesDBColumns::created_timestamp + ";";
 
@@ -4417,8 +4439,12 @@ std::vector<TempFilesDBColumns> Postgresql::getAllTempFiles()
             {
                 record.container_format_value = column.second;
             }
+            else if (iequals(column.first, TempFilesDBColumns::config_hash))
+            {
+                record.config_hash_value = column.second;
+            }
         }
-        
+
         // Skip records with invalid file paths (likely corrupted old data)
         if (record.file_path_value.length() < 10 || 
             (record.file_path_value.find('/') == string::npos && 
@@ -4478,7 +4504,8 @@ TempFilesDBColumns Postgresql::findTempFileByStreamAndTime(
     const std::string& deviceId, const std::string& streamId,
     int64_t startTimeMs, int64_t endTimeMs,
     const std::string& fileType,
-    const std::string& containerFormat)
+    const std::string& containerFormat,
+    const std::string& configHash)
 {
     TempFilesDBColumns record;
     queryResult queryRes;
@@ -4509,9 +4536,13 @@ TempFilesDBColumns Postgresql::findTempFileByStreamAndTime(
 
     if (!containerFormat.empty())
     {
-        queryTemplate += " AND " + TempFilesDBColumns::container_format + " = " + PARAM_PLACEHOLDER(8);
+        queryTemplate += " AND " + TempFilesDBColumns::container_format + " = " + PARAM_PLACEHOLDER(params.size());
         params.push_back(containerFormat);
     }
+    // Cache key is partitioned by overlay/transcode configuration; see the
+    // SQLite implementation for full rationale.
+    queryTemplate += " AND " + TempFilesDBColumns::config_hash + " = " + PARAM_PLACEHOLDER(params.size());
+    params.push_back(configHash);
     queryTemplate += " LIMIT 1;";
 
     LOG(verbose) << "SQL query: " << queryTemplate << endl;

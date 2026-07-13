@@ -28,12 +28,109 @@
 #include <atomic>
 #include <memory>
 #include <random>
+#include <algorithm>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 #include "VideoGeneratorTaskManager.h"
 #include "HttpServerRequestHandler.h"
 #include "vstmodule.h"
 #include "health_probes.h"
 
 using namespace std;
+
+// Implementation of StorageManagement::computeConfigHash (declared in
+// storage_management.h). Defined here rather than in storage_management.cpp
+// because it sits next to the /url-flow code that uses it.
+//
+// Only fields that change the produced video bytes belong in this hash.
+// Cache-lifetime knobs (expiryMinutes, blocking) and presentation-only
+// params must NOT be included or the cache will fragment for no reason.
+string StorageManagement::computeConfigHash(const string& enableOverlay,
+                        const string& container,
+                        const string& disableAudio,
+                        const string& transcode,
+                        const string& uselibav,
+                        const OverlayBBoxParams* overlay)
+{
+    Json::Value root(Json::objectValue);
+    root["enableOverlay"] = enableOverlay;
+    root["container"]     = container;
+    root["disableAudio"]  = disableAudio;
+    root["transcode"]     = transcode;
+    root["uselibav"]      = uselibav;
+
+    if (overlay && enableOverlay == "true")
+    {
+        Json::Value ol(Json::objectValue);
+        ol["enableBbox"]        = overlay->m_enableBbox;
+        ol["enableTripwire"]    = overlay->m_enableTripwire;
+        ol["enableROI"]         = overlay->m_enableROI;
+        ol["enableSensorName"]  = overlay->m_enableSensorNameText;
+        ol["sensorNamePosX"]    = overlay->m_sensorNameTextPosX;
+        ol["sensorNamePosY"]    = overlay->m_sensorNameTextPosY;
+        ol["enableGodsEyeView"] = overlay->m_enableGodsEyeView;
+        ol["enablePose"]        = overlay->m_enablePose;
+        ol["enableBboxId"]      = overlay->m_enableBboxId;
+        ol["enableHalos"]       = overlay->m_enableHalos;
+        ol["bboxThickness"]     = static_cast<Json::UInt>(overlay->m_bboxThickness);
+        ol["bboxOpacity"]       = static_cast<Json::UInt>(overlay->m_bboxOpacity);
+        ol["bboxColor"]         = overlay->m_bboxColor;
+        ol["bboxDebug"]         = overlay->m_bboxDebug;
+        ol["bboxDebugFontSize"] = overlay->m_bboxDebugFontSize;
+        ol["bboxIdPosition"]    = static_cast<int>(overlay->m_bboxIdPosition);
+        ol["bboxIdColor"]       = overlay->m_bboxIdColor;
+        ol["bboxIdBgColor"]     = overlay->m_bboxIdBgColor;
+        ol["proximityClass"]    = overlay->m_proximityClass;
+        ol["entrantClass"]      = overlay->m_entrantClass;
+        // max_digits10 preserves every distinct double value while the
+        // classic locale keeps the decimal representation stable.
+        std::ostringstream proximityAreaFactor;
+        proximityAreaFactor.imbue(std::locale::classic());
+        proximityAreaFactor
+            << std::setprecision(std::numeric_limits<double>::max_digits10)
+            << overlay->m_proximityAreaFactor;
+        ol["proximityAreaFactor"] = proximityAreaFactor.str();
+        ol["proximityAnimation"]  = overlay->m_proximityAnimation;
+
+        // Sort the bbox ID list so URL parameter order does not fragment
+        // the cache. TRIPWIRE/ROI slots are not populated by the /url
+        // overlay JSON parser; they are reserved for other code paths and
+        // would just hash to empty arrays here, so we skip them.
+        {
+            std::vector<std::string> sortedBbox = overlay->m_overlayIdList[BBOX];
+            std::sort(sortedBbox.begin(), sortedBbox.end());
+            Json::Value arr(Json::arrayValue);
+            for (const auto& s : sortedBbox) { arr.append(s); }
+            ol["overlayIdList_bbox"] = arr;
+        }
+        {
+            std::vector<std::string> sortedClass = overlay->m_overlayClassTypeList;
+            std::sort(sortedClass.begin(), sortedClass.end());
+            Json::Value arr(Json::arrayValue);
+            for (const auto& s : sortedClass) { arr.append(s); }
+            ol["overlayClassTypeList"] = arr;
+        }
+        // m_colorCode: map ordering is already deterministic (std::map).
+        Json::Value colorMap(Json::objectValue);
+        for (const auto& kv : overlay->m_colorCode)
+        {
+            Json::Value arr(Json::arrayValue);
+            for (int v : kv.second) { arr.append(v); }
+            colorMap[kv.first] = arr;
+        }
+        ol["colorCode"] = colorMap;
+
+        root["overlay"] = ol;
+    }
+
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    const std::string serialized = Json::writeString(builder, root);
+
+    return vst_common::computeStableHash(serialized);
+}
 
 static string gStorageManagementApiList = R"([
         {"method": "GET - To get total used storage size and used storage size for each recorded streams", "endpoint": "/api/v1/storage/size"},
@@ -1456,6 +1553,12 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
             params.overlayParams = olParams;  // Directly assign the value, will be wrapped in optional
             params.frameRate = frameRate;
             params.isCloudStream = isCloudStream;
+            // Partition the temp-file cache by output-affecting config so a
+            // request with a different overlay setup doesn't reuse an earlier
+            // cached file generated with a different overlay. See
+            // computeConfigHash() above for the field set.
+            params.configHash = computeConfigHash(enableOverlay, container, disableAudio,
+                                                  transcode, uselibav, &olParams);
 
             // Parse blocking parameter to decide between sync and async generation
             string blockingStr;
@@ -1658,6 +1761,16 @@ VmsErrorCode StorageManagement::generateReplayVideoUrlSync(const VideoGeneration
 // Helper method implementations
 bool StorageManagement::tryReuseCachedTempFile(const VideoGenerationParam& params, VideoUrlGenerationContext& context, Json::Value& response)
 {
+    // Operator kill switch: skip the cache-lookup step entirely so every
+    // /url request regenerates. Inserts still happen so cleanup/expiry
+    // continue to track every produced file.
+    if (GET_CONFIG().disable_url_caching)
+    {
+        LOG(info) << "[CACHE] disable_url_caching=true; bypassing video temp-file reuse "
+                  << "for streamId=" << params.streamId << endl;
+        return false;
+    }
+
     int64_t startMs = parseTimeToEpochMs(params.startTime);
     int64_t endMs = parseTimeToEpochMs(params.endTime);
 
@@ -1673,7 +1786,8 @@ bool StorageManagement::tryReuseCachedTempFile(const VideoGenerationParam& param
     }
 
     auto existing = dbHelper->findTempFileByStreamAndTime(
-        m_deviceId, params.streamId, startMs, endMs, nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO, params.container);
+        m_deviceId, params.streamId, startMs, endMs,
+        nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO, params.container, params.configHash);
 
     if (existing.file_path_value.empty() || !isFileExist(existing.file_path_value))
     {
@@ -1772,6 +1886,7 @@ VmsErrorCode StorageManagement::recordTempFileInDatabase(const VideoUrlGeneratio
             tempRec.end_time_ms_value = parseTimeToEpochMs(params.endTime);
             tempRec.file_type_value = nv_vms::TempFilesDBColumns::FILE_TYPE_VIDEO;
             tempRec.container_format_value = params.container;
+            tempRec.config_hash_value = params.configHash;
 
             int ins = dbHelper->insertTempFileRecord(tempRec);
             if (ins != 0)
