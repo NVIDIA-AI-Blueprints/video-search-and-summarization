@@ -167,7 +167,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 | `VLM_BATCH_SIZE` | `VLM_BATCH_SIZE` | auto (3 / 16 / 64 / 128 by GPU mem) | Batch size for inference. Auto-clamps to GPU capacity. |
 | `RTVI_EMBED_NUM_GPUS` / `VSS_NUM_GPUS_PER_VLM_PROC` | `NUM_GPUS` | empty (1) | Multi-GPU distribution per embed process. |
 | `RT_EMBED_DEVICE_ID` | (compose `device_ids`) | `1` | Which GPU RT-Embed pins to. |
-| `RTVI_EMBED_TAG` | (image tag) | `3.2.1-26.07.1` | x86 / iGPU. For DGX Spark: use the published `3.2.1-26.07.1-sbsa` variant when available. |
+| `RTVI_EMBED_TAG` | (image tag) | `3.2.1` | x86 / iGPU. For DGX Spark: use the published `3.2.1-sbsa` variant when available. |
 
 **Default Cosmos-Embed1 deployment runs on Triton (ONNX), not vLLM.** From `start_rtvi_embed.sh:47-49` and `src/models/custom/samples/cosmos-embed1/inference.py:55-56`, the default `VLM_MODEL_TO_USE=custom` loads Cosmos-Embed1 via Triton-served ONNX models (`text_embeddings`, `video_embeddings`). For that path:
 
@@ -196,7 +196,7 @@ Knobs (in `dev-profile-search/.env`):
 | `DS_TRACKER_REID` | `false` | Enable re-identification (extra VRAM). |
 | `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by `perception-2d-init`. |
 | `RT_CV_DEVICE_ID` | `0` | Which GPU RT-CV pins to. |
-| `PERCEPTION_TAG` | `3.2.1-26.07.1` | Image tag (use `-sbsa-` variant on DGX Spark). |
+| `PERCEPTION_TAG` | `3.2.1` | Image tag (use `-sbsa-` variant on DGX Spark). |
 
 The upstream perf guide doesn't publish a single GB number — it publishes per-GPU max stream counts (consistent with the table above for RT-Embed). Treat **`NUM_STREAMS=16`** as a starting point on H100 / RTX PRO 6000 / L40S; lower it on smaller GPUs or when co-locating with a VLM.
 

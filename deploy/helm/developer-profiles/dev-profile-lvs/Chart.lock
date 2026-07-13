@@ -16,9 +16,9 @@ dependencies:
   version: 3.2.0
 - name: vss-summarization
   repository: file://../../services/video-summarization
-  version: 3.2.1-rc1-d16a216
+  version: 3.2.1
 - name: rtvi
   repository: file://../../services/rtvi
   version: 3.2.1
-digest: sha256:7231b27d81c94aa341a9cc44f06b5903c6cdcb72555211883eaf634ca76c15b8
-generated: "2026-07-13T21:39:36.793567+05:30"
+digest: sha256:6e9f3505990f678acc88a46049c5beebf39faaa50311fb3e45aa7d0a44b9eebe
+generated: "2026-07-13T20:09:17.924858116+00:00"

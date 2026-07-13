@@ -20,7 +20,7 @@ Key service signals in the current develop branch:
 | Compose profile | `bp_developer_lvs_2d` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
-| video summarization image | `${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.1-rc1-d16a216}` (use `LVS_TAG=3.2.1-rc1-d16a216-arm64-sbsa` on SBSA / DGX Spark / Grace) |
+| video summarization image | `${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.1}` (use `LVS_TAG=3.2.1-sbsa` on SBSA / DGX Spark / Grace) |
 | REST API | `http://<HOST_IP>:38111` |
 | Readiness | `GET /v1/ready` |
 | MCP port | `38112`, disabled by default in the developer profile |
@@ -87,7 +87,7 @@ Video summarization service values:
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
 | `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | video summarization image repository. |
-| `LVS_TAG` | `3.2.1-rc1-d16a216` (x86 / Jetson Thor); `3.2.1-rc1-d16a216-arm64-sbsa` (SBSA / DGX Spark / Grace) | video summarization image tag in current develop. The tag must match the host CPU platform. |
+| `LVS_TAG` | `3.2.1` (x86 / Jetson Thor); `3.2.1-sbsa` (SBSA / DGX Spark / Grace) | video summarization image tag in current develop. The tag must match the host CPU platform. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
@@ -279,7 +279,7 @@ The Helm service chart lives at `deploy/helm/services/video-summarization`.
 Important 3.2 values:
 
 - `image.repository: nvcr.io/nvidia/vss-core/vss-video-summarization`
-- `image.tag: "3.2.1-rc1-d16a216"` (use `"3.2.1-rc1-d16a216-arm64-sbsa"` on SBSA / DGX Spark / Grace hosts)
+- `image.tag: "3.2.1"` (use `"3.2.1-sbsa"` on SBSA / DGX Spark / Grace hosts)
 - `service.backendPort: 38111`
 - `service.mcpPort: 38112`
 - `KAFKA_ENABLED: "true"`
