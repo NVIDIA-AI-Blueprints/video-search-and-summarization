@@ -119,14 +119,14 @@ Build the custom image from the RT-VLM service directory:
 
 ```bash
 cd video-search-and-summarization/services/rtvi/rt-vlm
-docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom .
+docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.2.1-custom .
 ```
 
 To test the custom image with Docker Compose, set `RTVI_IMAGE` in `docker/.env`:
 
 ```bash
 #RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1
-RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom
+RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.2.1-custom
 ```
 
 Then restart the service:
@@ -144,7 +144,7 @@ export IS_SBSA=true
 docker buildx build --platform linux/arm64 \
   --build-arg IS_SBSA \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom-sbsa \
+  -t <registry>/<repo>/vss-rt-vlm:3.2.1-custom-sbsa \
   --load .
 ```
 
@@ -153,7 +153,7 @@ For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. T
 ```bash
 docker buildx build --platform linux/arm64 \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.2.1-26.07.1-custom-thor \
+  -t <registry>/<repo>/vss-rt-vlm:3.2.1-custom-thor \
   --load .
 ```
 
