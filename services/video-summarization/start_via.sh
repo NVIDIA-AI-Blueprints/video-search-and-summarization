@@ -41,6 +41,17 @@ DISABLE_CA_RAG=${DISABLE_CA_RAG:-false}
 MODE="${MODE:-release}"
 export VSS_LOG_LEVEL=$VSS_LOG_LEVEL
 
+# DB caption retrieval requires Kafka mode. Force LVS_CAPTION_SOURCE=sse (with a
+# warning) when Kafka is disabled, BEFORE any Python reads it, so a stray
+# LVS_CAPTION_SOURCE=db cannot imply DB retrieval anywhere downstream (the
+# via-engine handler, or the via-ctx-rag config resolved from this env via !ENV).
+_kafka_enabled_val="${KAFKA_ENABLED:-false}"
+_caption_source_val="${LVS_CAPTION_SOURCE:-}"
+if [ "${_kafka_enabled_val,,}" != "true" ] && [ "${_kafka_enabled_val,,}" != "1" ] && [ "${_caption_source_val,,}" = "db" ]; then
+    echo "WARNING: LVS_CAPTION_SOURCE=db requires KAFKA_ENABLED=true; forcing LVS_CAPTION_SOURCE=sse (DB caption retrieval is only available in Kafka mode)."
+    export LVS_CAPTION_SOURCE=sse
+fi
+
 python3 -c 'import os; os.makedirs("/tmp/via-logs/", exist_ok=True)'
 
 PID_FILE="/tmp/pids.txt"
