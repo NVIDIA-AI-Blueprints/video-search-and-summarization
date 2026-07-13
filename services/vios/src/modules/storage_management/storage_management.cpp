@@ -3865,8 +3865,15 @@ StorageManagement::tryFindFullFileMatch(const std::string& sensorId,
 {
     FullFileMatch m;
 
-    // Any form of processing disqualifies the fast path.
-    if (transcode == "full" || enableOverlay == "true")
+    // Any form of processing disqualifies the fast path. The full-file path
+    // returns a raw symlink of the stored recording, so it can only be served
+    // when the response bytes would be identical to the source. The previous
+    // gate caught transcode=full and overlay but missed transcode=gop
+    // (keyframe re-spacing changes bytes), disableAudio=true (audio strip),
+    // and uselibav=true (libav muxer can produce a different byte stream
+    // than the recorder's mp4mux output).
+    if (transcode != "none" || enableOverlay == "true" ||
+        disableAudio == "true" || uselibav == "true")
     {
         return m;
     }
@@ -4080,7 +4087,11 @@ StorageManagement::generateFullFileUrl(const FullFileMatch& match,
     // We look up by the FILE's actual [start, start+duration] (matching
     // what we wrote in the DB) so callers passing slightly different
     // requested ranges still hit the same cached entry.
+    //
+    // Skipped entirely when disable_url_caching is set: every /url call
+    // creates a fresh symlink so the caller never reuses prior output.
     // -----------------------------------------------------------------
+    if (!GET_CONFIG().disable_url_caching)
     {
         const int64_t fileStartMs = static_cast<int64_t>(match.startTimeMs);
         const int64_t fileEndMs   = fileStartMs + static_cast<int64_t>(match.durationMs);
