@@ -14,10 +14,10 @@ from unittest.mock import MagicMock, patch
 def _load_handler_module():
     """Load the handler outside test modules that stub handlers.*."""
     alert_root = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..")
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
     )
     direct_media_root = os.path.join(
-        alert_root, "handlers", "direct_media"
+        alert_root, "src", "handlers", "direct_media"
     )
     package_name = "_direct_media_metrics_pkg"
     package = types.ModuleType(package_name)
