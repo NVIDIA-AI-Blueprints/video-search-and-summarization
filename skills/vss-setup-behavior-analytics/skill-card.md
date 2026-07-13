@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to deploy the behavior-analytics service standalone with a chosen entrypoint, configuration source, and optional calibration, without requiring the full VSS warehouse stack. <br>
+Developers and engineers deploying the behavior-analytics spatial-AI pipeline as a standalone service, choosing entrypoints, configuration sources, and calibration options without spinning up the full VSS warehouse stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -27,9 +27,8 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Deploy Behavior Analytics Service](references/deploy-behavior-analytics-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
-- [Dynamic Config](references/dynamic-config.md) <br>
+- [Dynamic Configuration](references/dynamic-config.md) <br>
 - [Dynamic Calibration](references/dynamic-calibration.md) <br>
-- [Integrate Behavior Analytics Service](references/integrate-behavior-analytics-service.md) <br>
 - [NGC API Key and Registry Login](references/ngc-api-key-registry-login.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
@@ -47,7 +46,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task in the astra-sandbox environment using the external NVSkills-Eval profile with a 50% pass threshold. <br>
+Evaluated against 1 internal skill task (positive activation) using NVSkills-Eval 3-Tier Evaluation, external profile, astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -74,7 +73,7 @@ Underlying evaluation signals used in this run: <br>
 | Security | 1 | 100% (+0%) | 100% (+0%) |
 | Correctness | 1 | 50% (+50%) | 50% (+50%) |
 | Discoverability | 1 | 0% (+0%) | 0% (+0%) |
-| Effectiveness | 1 | 62% (+62%) | 50% (+50%) |
+| Effectiveness | 1 | 50% (+50%) | 50% (+50%) |
 | Efficiency | 1 | 27% (+0%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
