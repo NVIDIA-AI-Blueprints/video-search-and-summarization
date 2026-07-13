@@ -122,8 +122,7 @@ def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
         or proxy_port
     )
     link_domain = detect_brev_link_domain(
-        merged.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "")
-        or os.environ.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "")
+        merged.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "") or os.environ.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "")
     )
     kibana_prefix = (
         merged.get(BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value, "").strip()
