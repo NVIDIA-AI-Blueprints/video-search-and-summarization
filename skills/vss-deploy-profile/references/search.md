@@ -140,7 +140,7 @@ For VLM and LLM weight cost + the general formula, see [`base.md` § Sizing math
 
 ### RT-Embed sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.1-26.07.1` (SBSA: `3.2.1-26.07.1-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Image: `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1` (SBSA: `3.2.1-26.07.1-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 Per the upstream `perf/benchmark/rtvi_embed_gpu_initial_stream_counts.json`, the **dedicated-GPU ceiling** — max concurrent streams when RT-Embed has the GPU to itself with **no co-resident** model:
 
@@ -181,7 +181,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 
 ### RT-CV sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.1-26.07.1` (SBSA: `3.2.1-sbsa-26.07.1`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
+Image: `nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1` (SBSA: `3.2.1-sbsa-26.07.1`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
 
 RT-CV is a **DeepStream perception pipeline**, not a vLLM container. It has no `--gpu-memory-utilization`-style knob. Memory scales with stream count and the active model family.
 

@@ -57,7 +57,7 @@ Create `docker/.env` with the variables you want to override. A starting templat
 
 ```bash
 BACKEND_PORT=8017
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>
+RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>
 #RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-26.07.1-custom
 MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 #HF_TOKEN=<HF_TOKEN>
@@ -127,7 +127,7 @@ docker build -f docker/Dockerfile -t rtvi-embed:3.2.1-26.07.1-custom .
 Then, in `docker/.env`, comment out the shipped image and uncomment the local-build line:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>
+#RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:<tag>
 RTVI_IMAGE=docker.io/library/rtvi-embed:3.2.1-26.07.1-custom
 ```
 
@@ -570,7 +570,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 #### Docker Configuration
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.1-26.07.1` | No |
+| `RTVI_IMAGE` | Docker image to use | `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1` | No |
 | `HF_TOKEN` | Hugging Face Hub access token for private `git:` model downloads; forwarded from `docker/.env` into the container by Compose | - | No |
 
 #### AWS Configuration

@@ -10,7 +10,7 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 
 | Container | Image | Role |
 |---|---|---|
-| `vss-rtvi-cv-mv3dt` | `nvcr.io/nvstaging/vss-core/vss-rt-cv:${PERCEPTION_TAG}` | Per-camera DeepStream perception |
+| `vss-rtvi-cv-mv3dt` | `nvcr.io/nvidia/vss-core/vss-rt-cv:${PERCEPTION_TAG}` | Per-camera DeepStream perception |
 | `vss-rtvi-cv-bev-fusion` | `nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:${BEV_FUSION_MV3DT_TAG}` | BEV Fusion — fuses per-camera detections to a single BEV frame |
 | `mosquitto` | `eclipse-mosquitto:2` | MQTT bus between perception and fusion |
 | `kafka` *or* `redis` | (per `STREAM_TYPE`) | Carries `mdx-raw` (input) and `mdx-bev` (output) |
