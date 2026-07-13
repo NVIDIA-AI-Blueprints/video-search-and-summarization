@@ -32,6 +32,10 @@ The LVS performance benchmark supports two modes: `single_file` and `file_burst`
 | `vlm_latency` | VLM model inference time only (subset of pipeline) |
 | `decode_latency` | Video decode time (from RT-VLM `/v1/metrics`) |
 | `ca_rag_latency` | Context-aware RAG inference and Elasticsearch time (from `/metrics`) |
+| `dense_captions_retrieval_latency` | CA-RAG dense-caption retrieval from Elasticsearch (from `/metrics`; ~0 unless `LVS_CAPTION_SOURCE=db`) |
+| `aggregate_summarization_latency` | CA-RAG aggregate-summarization LLM call that produces the video summary (from `/metrics`) |
+| `llm_event_merge_latency` | CA-RAG LLM event-description merging (from `/metrics`; N/A unless `LVS_ENABLE_LLM_MERGING=true`) |
+| `event_type_inference_latency` | CA-RAG LLM event-type inference (from `/metrics`) |
 | `vlm_gpu_usage_mean` | Mean GPU compute utilization % on VLM GPU(s) during the test |
 | `llm_gpu_usage_mean` | Mean GPU compute utilization % on LLM GPU(s) during the test |
 | `vlm_gpu_memory_mean` | Mean GPU memory utilization % on VLM GPU(s) |

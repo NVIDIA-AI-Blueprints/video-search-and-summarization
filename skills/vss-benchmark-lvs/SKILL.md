@@ -282,6 +282,7 @@ Read the JSON result files and extract the following key metrics for analysis:
 - **VLM pipeline latency** (`vlm_pipeline_latency`): time spent in the vision model pipeline
 - **VLM pipeline %**: `vlm_pipeline_latency / e2e_latency * 100`
 - **CA-RAG latency** (`ca_rag_latency`): context-aware RAG inference time
+- **CA-RAG per-stage latencies** (sub-components of `ca_rag_latency`, shown in a separate "CA-RAG metrics" table / `Summary CA-RAG metrics` sheet with columns `DC DB FETCH`, `AGGR SUMM`, `EVENT MERGING`, `TYPE INFER`). For the optional stages, `-` = disabled, `0` = enabled but nothing to do, a value = it ran: `dense_captions_retrieval_latency` (dense-caption DB retrieval; `-` when `LVS_CAPTION_SOURCE=sse`, `0` when `=db` but nothing fetched), `aggregate_summarization_latency` (the summarization LLM call that produces the video summary), `llm_event_merge_latency` (`-` when `LVS_ENABLE_LLM_MERGING=false`, `0` when enabled but no events needed merging), `event_type_inference_latency`
 - **VLM GPU utilization mean** (`vlm_gpu_usage_mean`): GPU compute utilization % for VLM
 - **LLM GPU utilization mean** (`llm_gpu_usage_mean`): GPU compute utilization % for LLM
 - **GPU memory mean** (`vlm_gpu_memory_mean`, `llm_gpu_memory_mean`): memory pressure %

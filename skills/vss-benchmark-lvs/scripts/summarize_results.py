@@ -115,6 +115,23 @@ def extract_single_file(data: dict) -> list[dict]:
             # intentionally NOT used — they accumulate across all requests/iterations.
             return _agg([it.get("api_metrics", {}).get(k) for it in src])
 
+        def api_stage(latest_key, count_key):
+            # Optional CA-RAG stages (dense-caption DB retrieval, LLM event merging)
+            # only run in specific configs. A registered-but-unset `_latest` gauge
+            # reads 0, so use the histogram `_count` to report N/A ("-") when the
+            # stage never ran (count == 0) instead of a misleading 0. `_count` is
+            # cumulative, so this assumes a dedicated benchmark container.
+            vals = []
+            for it in src:
+                am = it.get("api_metrics", {})
+                cnt = am.get(count_key)
+                vals.append(
+                    am.get(latest_key)
+                    if isinstance(cnt, (int, float)) and cnt > 0
+                    else None
+                )
+            return _agg(vals)
+
         def gpu(k, agg):
             vals = [it.get("gpu_metrics", {}).get(k) for it in src]
             vals = [v for v in vals if isinstance(v, (int, float))]
@@ -128,6 +145,19 @@ def extract_single_file(data: dict) -> list[dict]:
             "warm_iterations": len(warm),
             "e2e_s": api("e2e_latency_seconds_latest"),
             "ca_rag_s": api("ca_rag_latency_seconds_latest"),
+            # CA-RAG per-stage latencies. Dense-caption DB retrieval and LLM event
+            # merging only run in specific configs; they render '-' (N/A) when the
+            # stage never ran (histogram count == 0).
+            "dense_captions_retrieval_s": api_stage(
+                "dense_captions_retrieval_latency_seconds_latest",
+                "dense_captions_retrieval_latency_seconds_count",
+            ),
+            "aggregate_summarization_s": api("ca_rag_aggregation_latency_seconds_latest"),
+            "llm_event_merging_s": api_stage(
+                "ca_rag_llm_merge_latency_seconds_latest",
+                "ca_rag_llm_merge_latency_seconds_count",
+            ),
+            "event_type_inference_s": api("ca_rag_infer_event_type_latency_seconds_latest"),
             # VLM-stage wall-clock SPAN (first-chunk start -> last-chunk end), NOT
             # per-chunk; chunks run concurrently so this sits well below the summed
             # per-chunk VLM time.
@@ -175,13 +205,14 @@ def render_single_file(rows: list[dict]) -> str:
     # iterations only — mean across them, with [min-max] when more than one.
     # ITERS is the cold iteration count. "VLM s" is the VLM-stage wall-clock span
     # (first-chunk start -> last-chunk end), NOT per-chunk.
-    headers = ["VIDEO", "CHUNK", "ITERS", "E2E s", "CA-RAG s", "VLM s", "DECODE s",
+    headers = ["VIDEO", "CHUNK", "ITERS", "E2E s", "CA-RAG s",
+               "VLM s", "DECODE s",
                "VLM GPU% mn/p90", "LLM GPU% mn/p90", "EVENTS"]
     table_rows = []
     for r in rows:
         if r.get("status") == "FAILED":
             table_rows.append([r["video"], _num(r["chunk_size"], "{}"), "0",
-                               "FAILED", "-", "-", "-", "-", "-", "-"])
+                               "FAILED"] + ["-"] * 6)
             continue
         table_rows.append([
             r["video"], _num(r["chunk_size"], "{}"),
@@ -193,6 +224,29 @@ def render_single_file(rows: list[dict]) -> str:
             f"{_num(r['vlm_gpu_mean'], '{:.0f}')}/{_num(r['vlm_gpu_p90'], '{:.0f}')}",
             f"{_num(r['llm_gpu_mean'], '{:.0f}')}/{_num(r['llm_gpu_p90'], '{:.0f}')}",
             _num(r["events_detected"], "{}"),
+        ])
+    return _table(headers, table_rows)
+
+
+def render_single_file_ca_rag(rows: list[dict]) -> str:
+    # Per-stage CA-RAG latency breakdown (sub-components of the CA-RAG s column in
+    # the main table). DC DB FETCH and EVENT MERGING render '-' (N/A) when the
+    # stage did not run (histogram count == 0).
+    headers = ["VIDEO", "CHUNK", "ITERS",
+               "DC DB FETCH", "AGGR SUMM", "EVENT MERGING", "TYPE INFER"]
+    table_rows = []
+    for r in rows:
+        if r.get("status") == "FAILED":
+            table_rows.append([r["video"], _num(r["chunk_size"], "{}"), "0",
+                               "FAILED"] + ["-"] * 3)
+            continue
+        table_rows.append([
+            r["video"], _num(r["chunk_size"], "{}"),
+            str(r.get("cold_iterations", r["iterations"])),
+            _e2e_cell(r["dense_captions_retrieval_s"]),
+            _e2e_cell(r["aggregate_summarization_s"]),
+            _e2e_cell(r["llm_event_merging_s"]),
+            _e2e_cell(r["event_type_inference_s"]),
         ])
     return _table(headers, table_rows)
 
@@ -259,14 +313,21 @@ def main() -> None:
         return
 
     for entry in results:
+        title = (f"Scenario: {entry['scenario']}   mode: {entry['mode']}   "
+                 f"({entry['passed']}/{entry['total']} test cases passed)")
         print("=" * 88)
-        print(f"Scenario: {entry['scenario']}   mode: {entry['mode']}   "
-              f"({entry['passed']}/{entry['total']} test cases passed)")
+        print(title)
         print("=" * 88)
         if entry.get("note"):
             print(f"  {entry['note']}")
         elif entry["mode"] == "single_file":
             print(render_single_file(entry["test_cases"]))
+            # Separate table for the CA-RAG per-stage breakdown metrics.
+            print()
+            print("=" * 88)
+            print(f"{title} CA-RAG metrics")
+            print("=" * 88)
+            print(render_single_file_ca_rag(entry["test_cases"]))
         elif entry["mode"] == "file_burst":
             print(render_file_burst(entry["test_cases"]))
         print()

@@ -83,7 +83,15 @@ E2E Latency = Decode Latency + VLM Pipeline Latency + CA-RAG Latency
 | `e2e_latency` | `api_metrics.e2e_latency_seconds_latest` | Varies by video length and hardware |
 | `vlm_pipeline_latency` | `api_metrics.vlm_pipeline_latency_seconds_latest` | 60–80% of E2E is typical |
 | `ca_rag_latency` | `api_metrics.ca_rag_latency_seconds_latest` | < 20% of E2E is healthy |
+| `dense_captions_retrieval_latency` | `api_metrics.dense_captions_retrieval_latency_seconds_latest` | `N/A` (`-`) when disabled (`LVS_CAPTION_SOURCE=sse`); `0` when enabled (`=db`) but nothing was fetched; a value when the DB-fetch path runs |
+| `aggregate_summarization_latency` | `api_metrics.ca_rag_aggregation_latency_seconds_latest` | The CA-RAG summarization LLM call (produces the video summary) |
+| `llm_event_merge_latency` | `api_metrics.ca_rag_llm_merge_latency_seconds_latest` | `N/A` (`-`) when disabled (`LVS_ENABLE_LLM_MERGING=false`); `0` when enabled but no events needed merging; a value when a merge runs |
+| `event_type_inference_latency` | `api_metrics.ca_rag_infer_event_type_latency_seconds_latest` | Small; only when events lack a type |
 | `decode_latency` | `api_metrics.rtvi_decode_latency_seconds` (scraped from RT-VLM `/v1/metrics`) | Small — typically < 5% |
+
+The four rows above `decode_latency` break `ca_rag_latency` into its CA-RAG sub-stages (dense-caption retrieval, aggregate summarization, LLM event merging, event-type inference). Storing the aggregate summary back to Elasticsearch (Kafka -> Logstash -> ES) is asynchronous and is intentionally not reported.
+
+Because they are sub-components of `ca_rag_latency`, these four are shown in a **separate table** (not the main table) in both the text summary (`summarize_results.py`) and the XLSX report (`Summary CA-RAG metrics` sheet). That table is keyed by `VIDEO`, `CHUNK`, `ITERS` and uses the short column headers `DC DB FETCH`, `AGGR SUMM`, `EVENT MERGING`, `TYPE INFER`. For the optional stages (`DC DB FETCH`, `EVENT MERGING`): `-` means the stage is **disabled** (`LVS_CAPTION_SOURCE=sse` / `LVS_ENABLE_LLM_MERGING=false`), `0` means it is **enabled but had nothing to do**, and a value means it ran.
 
 **GPU utilization (from NVML monitoring):**
 

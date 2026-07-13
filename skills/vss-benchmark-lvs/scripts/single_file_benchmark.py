@@ -22,7 +22,7 @@ Handles traditional video upload + summarization workflow.
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import pandas as pd
 from base import BenchmarkBase
@@ -524,6 +524,7 @@ class SingleFileBenchmark(BenchmarkBase):
         # Parse all test case results
         summary_data = []
         detail_data = []
+        ca_rag_summary_data = []
 
         for test_case in execution_summary["test_cases"]:
             if not test_case.get("success", False):
@@ -533,6 +534,7 @@ class SingleFileBenchmark(BenchmarkBase):
             test_case_dir = os.path.join(results_dir, test_case_id)
 
             # Process each iteration
+            test_case_iterations = []
             for iteration_result in test_case["iteration_results"]:
                 if not iteration_result.get("success", False):
                     continue
@@ -543,6 +545,7 @@ class SingleFileBenchmark(BenchmarkBase):
                 # Parse iteration data
                 iteration_data = self._parse_iteration_data(iteration_dir, test_case, iteration)
                 if iteration_data:
+                    test_case_iterations.append(iteration_data)
                     detail_data.append(iteration_data)
 
             # Calculate test case summary
@@ -550,6 +553,10 @@ class SingleFileBenchmark(BenchmarkBase):
                 test_case_summary = self._calculate_test_case_summary(test_case_dir, test_case)
                 if test_case_summary:
                     summary_data.append(test_case_summary)
+                # Separate per-stage CA-RAG breakdown table
+                ca_rag_row = self._calculate_ca_rag_summary(test_case_iterations, test_case)
+                if ca_rag_row:
+                    ca_rag_summary_data.append(ca_rag_row)
 
         # Create Excel file
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -559,6 +566,13 @@ class SingleFileBenchmark(BenchmarkBase):
             if summary_data:
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name="Summary", index=False)
+
+            # CA-RAG per-stage metrics sheet (breakdown of the CA-RAG latency)
+            if ca_rag_summary_data:
+                ca_rag_df = pd.DataFrame(ca_rag_summary_data)
+                ca_rag_df.to_excel(
+                    writer, sheet_name="Summary CA-RAG metrics", index=False
+                )
 
             # GPU Info sheet
             try:
@@ -662,6 +676,17 @@ class SingleFileBenchmark(BenchmarkBase):
                     for key, value in input_data.items():
                         test_config[f"test_{key}"] = value
 
+            # A CA-RAG stage that never ran leaves its `_latest` gauge registered at
+            # 0 (prometheus_client exposes created-but-unset gauges as 0). Use the
+            # histogram `_count` to distinguish "ran and was fast" (count > 0) from
+            # "never ran" (count == 0 -> None, rendered as N/A). NOTE: `_count` is
+            # cumulative, so this assumes a dedicated benchmark container.
+            def _stage_latency(latest_key: str, count_key: str):
+                count = api_metrics.get(count_key)
+                if isinstance(count, (int, float)) and count > 0:
+                    return api_metrics.get(latest_key, 0)
+                return None
+
             # Combine all data - only the essential columns
             iteration_data = {
                 "test_case_id": test_case["test_case_id"],
@@ -677,6 +702,24 @@ class SingleFileBenchmark(BenchmarkBase):
                 # in _execute_single_iteration); LVS no longer publishes decode metrics.
                 "decode_latency": api_metrics.get("rtvi_decode_latency_seconds", 0),
                 "ca_rag_latency": api_metrics.get("ca_rag_latency_seconds_latest", 0),
+                # CA-RAG per-stage latencies. Dense-caption retrieval (DB-fetch path)
+                # and LLM event merging only run in specific configs; when they don't
+                # run their histogram _count stays 0 and they are reported as N/A
+                # rather than a misleading 0.
+                "dense_captions_retrieval_latency": _stage_latency(
+                    "dense_captions_retrieval_latency_seconds_latest",
+                    "dense_captions_retrieval_latency_seconds_count",
+                ),
+                "aggregate_summarization_latency": api_metrics.get(
+                    "ca_rag_aggregation_latency_seconds_latest", 0
+                ),
+                "llm_event_merge_latency": _stage_latency(
+                    "ca_rag_llm_merge_latency_seconds_latest",
+                    "ca_rag_llm_merge_latency_seconds_count",
+                ),
+                "event_type_inference_latency": api_metrics.get(
+                    "ca_rag_infer_event_type_latency_seconds_latest", 0
+                ),
                 "e2e_latency": api_metrics.get("e2e_latency_seconds_latest", 0),
                 "vlm_gpu_usage_mean": gpu_metrics.get("vlm_gpu_usage_mean", 0),
                 "vlm_gpu_usage_p90": gpu_metrics.get("vlm_gpu_usage_p90", 0),
@@ -774,3 +817,46 @@ class SingleFileBenchmark(BenchmarkBase):
         except Exception as e:
             self.logger.error(f"Error calculating test case summary: {e}")
             return None
+
+    def _calculate_ca_rag_summary(
+        self, iteration_data: List[Dict], test_case: Dict
+    ) -> Dict[str, Any]:
+        """Per-stage CA-RAG latency breakdown for the separate 'CA-RAG metrics' table.
+
+        These stages are sub-components of the overall CA-RAG latency. DC DB FETCH
+        and EVENT MERGING only run in specific configs, so they report 'N/A' when the
+        stage never ran (value is None) instead of a misleading 0.
+        """
+        if not iteration_data:
+            return None
+        ca_rag_fields = [
+            ("DC DB FETCH", "dense_captions_retrieval_latency"),
+            ("AGGR SUMM", "aggregate_summarization_latency"),
+            ("EVENT MERGING", "llm_event_merge_latency"),
+            ("TYPE INFER", "event_type_inference_latency"),
+        ]
+        row: Dict[str, Any] = {
+            "VIDEO": os.path.basename((test_case.get("video_url") or "").split("?")[0]),
+            "CHUNK": test_case.get("chunk_size"),
+            "ITERS": len(iteration_data),
+        }
+        for label, field in ca_rag_fields:
+            values = [d.get(field) for d in iteration_data if d.get(field) is not None]
+            if values:
+                mean_val = sum(values) / len(values)
+                if len(values) > 1:
+                    std_val = (
+                        sum((x - mean_val) ** 2 for x in values) / (len(values) - 1)
+                    ) ** 0.5
+                    std_pct = (std_val / mean_val * 100) if mean_val > 0 else 0
+                else:
+                    std_pct = 0
+                if mean_val >= 100:
+                    row[label] = f"{mean_val:.0f} ± {std_pct:.1f}%"
+                elif mean_val >= 10:
+                    row[label] = f"{mean_val:.1f} ± {std_pct:.1f}%"
+                else:
+                    row[label] = f"{mean_val:.2f} ± {std_pct:.1f}%"
+            else:
+                row[label] = "N/A"
+        return row
