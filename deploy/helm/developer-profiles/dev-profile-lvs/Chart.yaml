@@ -41,7 +41,7 @@ dependencies:
     repository: "file://../../services/nims"
     condition: nims.enabled
   - name: vss-summarization
-    version: 3.2.1-rc1-d16a216
+    version: 3.2.1
     repository: "file://../../services/video-summarization"
     condition: vss-summarization.enabled
   - name: rtvi

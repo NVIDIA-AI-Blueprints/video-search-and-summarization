@@ -371,9 +371,9 @@ mixed into it.
 - **Render output verbatim** — no paraphrasing, no reformatting, no rewriting
   the `video_summary` or `choices[0].message.content`.
 - **One call, one render.** No parallel hedging, no double renderings.
-- **Match the image tag to the host platform.** Use `LVS_TAG=3.2.1-rc1-d16a216`
-  (and `RTVI_VLM_IMAGE_TAG=3.2.1-26.07.1`) on x86 / Jetson Thor, and
-  `LVS_TAG=3.2.1-rc1-d16a216-arm64-sbsa` (and `RTVI_VLM_IMAGE_TAG=3.2.1-26.07.1-sbsa`)
+- **Match the image tag to the host platform.** Use `LVS_TAG=3.2.1`
+  (and `RTVI_VLM_IMAGE_TAG=3.2.1`) on x86 / Jetson Thor, and
+  `LVS_TAG=3.2.1-sbsa` (and `RTVI_VLM_IMAGE_TAG=3.2.1-sbsa`)
   on SBSA / DGX Spark / Grace (server-class ARM64) hosts.
 
 ## Cross-reference
