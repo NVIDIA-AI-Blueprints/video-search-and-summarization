@@ -215,15 +215,9 @@ docker run -d --rm --name vss-rtvi-cv-mv3dt \
 
 Register your RTSP streams via the perception REST API — one
 `<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.
+**The key is the `camera_id` and must exactly match the sensor id in your
+  `calibration.json`.**
 
-Two rules:
-
-- **The key is the `camera_id` and must exactly match the sensor id in your
-  `calibration.json`.** With a mismatched key the MV3DT tracker cannot look up
-  that camera's model and the stream will not track.
-- **Use the RTSP URLs exactly as your streaming source reports them** — each
-  stream may live on its own host/port/path; the URL does not need to contain
-  the sensor id.
 
 ```bash
 ./scripts/add-streams.sh \
@@ -258,14 +252,8 @@ docker logs -f vss-rtvi-cv-mv3dt
 
 **Expected:**
 
-- (a) every registered source at the stream frame rate (0.0 only during startup)
-- (b) rows for all sensor ids; the same scene moment shows matching timestamps
-  across sensors (within one frame's duration) — the quickest way to verify
-  your streams are synchronized
-- (c) rows with `sensorId = bev-sensor-1` at a steady rate
-
-`kafka-dump.sh` decodes the `nv.Frame` protobuf in-process and prints
-`(frame timestamp, sensorId, frame id)` per message.
+- (a) every registered stream running at its frame rate (30 FPS)
+- (b) / (c) prints 20 rows of `(frame timestamp, sensorId, frame id, …)` received messages
 
 ## 6. Visualization
 
@@ -329,8 +317,7 @@ BEV_SAVE_VIDEO=1 BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 BEV_SAVE_VIDEO=1 BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 ```
 
-**Expected:** a `recorded N frames ...` progress line every ~10 s (a one-time
-`Waiting for first message ...` right after launch is normal). Stop with
+**Expected:** a `recorded N frames ...` progress line every ~10 s. Stop with
 Ctrl-C — the mp4 is finalized and saved to `./bev-output/`
 (`Video saved: .../bev-output/trajectory_video_<stamp>.mp4 (N frames)`).
 
