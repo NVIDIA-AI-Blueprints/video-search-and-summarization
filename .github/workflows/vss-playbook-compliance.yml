@@ -109,13 +109,13 @@ jobs:
             git fetch --no-tags --quiet origin "${PR_BASE}:refs/remotes/origin/${PR_BASE}"
             git diff --name-only "origin/${PR_BASE}...HEAD" > "$changed_files"
 
-            awk -F/ '$1 == "skills" && $2 != "" {print $2}' "$changed_files" \
+            awk -F/ '$1 == "skills" && NF >= 3 && $2 != "" {print $2}' "$changed_files" \
               | sort -u \
               | while IFS= read -r skill; do
                   if [ -d "skills/$skill" ]; then
                     printf '%s\n' "$skill"
                   else
-                    echo "::notice::skills/$skill no longer exists on this ref; skipping."
+                    echo "::notice::skills/$skill no longer exists on this ref; skipping." >&2
                   fi
                 done > "$targets_file"
 

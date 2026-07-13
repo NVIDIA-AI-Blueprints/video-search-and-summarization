@@ -105,7 +105,7 @@ jobs:
           else
             git fetch --no-tags --quiet origin "${PR_BASE}:refs/remotes/origin/${PR_BASE}"
             git diff --name-only "origin/${PR_BASE}...HEAD" \
-              | awk -F/ '$1 == "skills" && $2 != "" {print $2}' \
+              | awk -F/ '$1 == "skills" && NF >= 3 && $2 != "" {print $2}' \
               | sort -u > "$targets_file"
           fi
 
