@@ -17,7 +17,7 @@ apiVersion: v2
 name: vss
 description: "VSS stack - Helm chart for developer profiles - LVS (Long Video Summarization)"
 type: application
-version: 3.2.0
+version: 3.2.1
 appVersion: "1.0"
 dependencies:
   - name: infra
@@ -45,7 +45,7 @@ dependencies:
     repository: "file://../../services/video-summarization"
     condition: vss-summarization.enabled
   - name: rtvi
-    version: 3.2.0
+    version: 3.2.1
     repository: "file://../../services/rtvi"
     condition: rtvi.enabled
   # Optional HAProxy Kubernetes Ingress controller was previously vendored here; it pulled
