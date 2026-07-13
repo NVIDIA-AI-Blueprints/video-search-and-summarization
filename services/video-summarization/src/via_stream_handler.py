@@ -533,13 +533,13 @@ class ViaStreamHandler:
                 logger.error("Failed to initialize via-engine Kafka producer: %s", ex)
                 self._kafka_producer = None
 
-        self._caption_source = os.environ.get("LVS_CAPTION_SOURCE", "db").lower()
+        self._caption_source = os.environ.get("LVS_CAPTION_SOURCE", "sse").lower()
         if self._caption_source not in ("sse", "db"):
             logger.warning(
-                "Invalid LVS_CAPTION_SOURCE=%r, falling back to 'db'",
+                "Invalid LVS_CAPTION_SOURCE=%r, falling back to 'sse'",
                 self._caption_source,
             )
-            self._caption_source = "db"
+            self._caption_source = "sse"
         if self._kafka_enabled:
             logger.info(
                 "Kafka file-path caption source: LVS_CAPTION_SOURCE=%s "
@@ -3964,7 +3964,7 @@ This is very important and you must follow this strictly.
             aggregation completes.
 
         The caption source for aggregation is controlled by
-        ``LVS_CAPTION_SOURCE`` (default ``db``):
+        ``LVS_CAPTION_SOURCE`` (default ``sse``):
           * ``sse`` — aggregation uses the in-process captions received
             via SSE (``start_index / end_index``).
           * ``db`` — aggregation retrieves captions from Elastic DB
