@@ -24,6 +24,7 @@ consumes prepared ``SearchInput`` fields only.
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -93,21 +94,6 @@ class _PrimitiveAdapter:
         return self._unwrap(out) if self._unwrap else out
 
 
-def _precomputed_from_embeddings(embeddings: Any) -> list[float] | None:
-    """Extract a precomputed vector from an ``embeddings`` list.
-
-    Returns ``embeddings[0]["vector"]`` when it is a non-empty list, else None
-    so the primitive falls back to query/image/video embedding.
-    """
-    if not embeddings or not isinstance(embeddings, list):
-        return None
-    first = embeddings[0]
-    vec = first.get("vector", []) if isinstance(first, dict) else []
-    if isinstance(vec, list) and vec:
-        return [float(x) for x in vec]
-    return None
-
-
 def _coerce_embed_payload(payload: Any) -> EmbedSearchInput:
     """`execute_core_search` builds `{"params": ..., "source_type": ...}` JSON
     on the embed path; detect that shape and delegate to the shared translator.
@@ -120,14 +106,10 @@ def _coerce_embed_payload(payload: Any) -> EmbedSearchInput:
         payload = json.loads(payload)
     if isinstance(payload, dict):
         if "params" in payload or "prompts" in payload:
-            # Forward the extras (``embeddings`` -> precomputed vector,
-            # ``exclude_videos``) that live alongside ``params`` in the envelope,
-            # otherwise they would be silently dropped. ``params_to_embed_input``
-            # already maps a ValidationError to InvalidInputError.
+            # Forward exclusions that live alongside ``params`` in the envelope.
             return params_to_embed_input(
                 payload.get("params") or {},
                 payload.get("source_type", "video_file"),
-                precomputed_embedding=_precomputed_from_embeddings(payload.get("embeddings")),
                 exclude_videos=payload.get("exclude_videos"),
             )
         # Map a Pydantic ValidationError (e.g. top_k out of bounds) to a typed
@@ -190,7 +172,6 @@ class Search:
         behavior_es: ElasticIndex,
         behavior_index: str,
         behavior_index_wildcard: str = "mdx-behavior-*",
-        use_attribute_search: bool = False,
         fusion_method: FusionMethod = "rrf",
         w_attribute: float = 0.55,
         w_embed: float = 0.35,
@@ -198,7 +179,6 @@ class Search:
         rrf_w: float = 0.5,
         top_percent_filter: float | None = None,
         embed_confidence_threshold: float = 0.1,
-        search_max_iterations: int = 1,
         default_max_results: int = 10,
         # VST URLs are needed by execute_core_search via its config object
         vst_internal_url: str = "",
@@ -218,9 +198,7 @@ class Search:
         # mutation.
         self._config = SimpleNamespace(
             attribute_search_tool="attribute_search",
-            use_attribute_search=use_attribute_search,
             embed_confidence_threshold=embed_confidence_threshold,
-            search_max_iterations=search_max_iterations,
             default_max_results=default_max_results,
             fusion_method=fusion_method,
             w_attribute=w_attribute,
@@ -252,18 +230,20 @@ class Search:
         """
         try:
             inp.validate_semantics()
-            async for chunk in _search_helpers.execute_core_search(
+            core_updates = _search_helpers.execute_core_search(
                 search_input=inp,
                 embed_search=self._embed_adapter,
                 config=self._config,
                 attribute_search_fn=self._attr_adapter,
                 behavior_es=self._behavior_es,
-            ):
-                if isinstance(chunk, SearchOutput):
-                    yield FinalResultEvent(output=chunk)
-                    return
-                # The other arm of the union is AgentMessageChunk.
-                yield StatusEvent(stage=chunk.type.value, message=chunk.content)
+            )
+            async with aclosing(core_updates):
+                async for chunk in core_updates:
+                    if isinstance(chunk, SearchOutput):
+                        yield FinalResultEvent(output=chunk)
+                        return
+                    # The other arm of the union is AgentMessageChunk.
+                    yield StatusEvent(stage=chunk.type.value, message=chunk.content)
         except SearchError as e:
             yield ErrorEvent(error_code=type(e).__name__, message=str(e))
             return
@@ -287,7 +267,6 @@ class Search:
         embed: EmbedSearch | None = None,
         attribute: AttributeSearch | None = None,
         behavior_es: ElasticIndex | None = None,
-        use_attribute_search: bool = False,
     ) -> Search:
         """Construct from SearchRuntime.
 
@@ -305,7 +284,6 @@ class Search:
             behavior_es=behavior_es_obj,
             behavior_index=rt.behavior_index,
             behavior_index_wildcard=rt.behavior_index_wildcard,
-            use_attribute_search=use_attribute_search,
             fusion_method=rt.fusion_method,
             w_attribute=rt.w_attribute,
             w_embed=rt.w_embed,
@@ -313,7 +291,6 @@ class Search:
             rrf_w=rt.rrf_w,
             top_percent_filter=rt.top_percent_filter,
             embed_confidence_threshold=rt.embed_confidence_threshold,
-            search_max_iterations=rt.search_max_iterations,
             default_max_results=rt.default_max_results,
             vst_internal_url=rt.vst_internal_url,
             vst_external_url=rt.vst_external_url,

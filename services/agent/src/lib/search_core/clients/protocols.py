@@ -49,7 +49,7 @@ class VideoEmbedder(Protocol):
 
 @runtime_checkable
 class CosmosEmbedder(TextEmbedder, ImageEmbedder, VideoEmbedder, Protocol):
-    """Full embedding surface used by embed_search (text + image + video)."""
+    """Full Cosmos client surface; search primitives currently use text only."""
 
 
 @runtime_checkable

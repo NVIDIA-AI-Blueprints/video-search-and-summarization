@@ -31,9 +31,9 @@ no selector is used, all required backend values must be supplied explicitly
 or through `--config` and explicit non-secret `--config-env KEY=VALUE` pairs.
 The CLI does not read host process endpoint variables.
 
-Always append exactly one critic choice: `--no-use-critic` for ordinary host
-search, or `--use-critic` only when operator-supported VLM wiring is available.
-Do not rely on an omitted flag because omission inherits the deployment default.
+Search is retrieval-only. The CLI has no critic or VLM flags. When visual
+verification is requested or authorized, inspect the returned screenshots as a
+separate, explicit workflow.
 
 ## Query controls
 
@@ -46,7 +46,7 @@ Do not rely on an omitted flag because omission inherits the deployment default.
 --timestamp-start "2025-01-01T14:00:00" --timestamp-end "2025-01-01T15:00:00"
 
 # Fusion search
---query "person in white jacket running" --attribute "white jacket" --has-action true
+--query "person in white jacket running" --search-mode fusion --attribute "white jacket"
 ```
 
 `--video-source` is validated against the selected deployment's VST source
@@ -63,5 +63,5 @@ attribute portion removed.
 Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
-`vss-cli search run` is read-only. Do not use this skill to upload, register,
-delete, or repair sources.
+`vss-cli search run` is read-only. For upload, registration, deletion, or
+repair, use the agent-backed mutation workflows in the parent skill.

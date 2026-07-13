@@ -2,8 +2,8 @@
 
 Run host-side `uv run --project services/agent/vss-cli vss-cli search run` with one of the deployment selectors from the main `SKILL.md`. Do not invoke it in a container or pod. The snippets below are query/control flags to append after the deployment options.
 
-Append `--no-use-critic` to ordinary searches. Use `--use-critic` only when
-operator-supported VLM wiring is available; never rely on the omitted default.
+The search command is retrieval-only. Inspect returned screenshots separately
+when the user requests or pre-authorizes visual verification.
 
 ## Wide-net discovery — cast the widest net, fast
 
@@ -19,7 +19,7 @@ For exploratory searches when recall matters more than precision. Start broad wi
 Typical follow-ups:
 - Take the most promising results and re-run with high-precision mode.
 - Scope to cameras/time — if certain cameras or time windows surfaced interesting results, re-run narrowed to those specific video sources and time ranges.
-- Search based on attributes — if a person of interest appeared in the results, follow up with `--attribute` and `--has-action`.
+- Search based on attributes — if a person of interest appeared in the results, follow up with `--search-mode attribute` or `--search-mode fusion` and `--attribute`.
 
 ## Narrow to specific cameras and/or time — scope to a known incident
 
@@ -55,8 +55,8 @@ When false positives are costly, use a lower result count and higher similarity 
 ```bash
 --query "person in a red jacket running" \
   --source-type video_file \
+  --search-mode fusion \
   --attribute "red jacket" \
-  --has-action true \
   --top-k 10
 ```
 
@@ -65,8 +65,8 @@ For attribute-only searches:
 ```bash
 --query "person wearing a red jacket" \
   --source-type video_file \
+  --search-mode attribute \
   --attribute "red jacket" \
-  --has-action false \
   --top-k 10
 ```
 

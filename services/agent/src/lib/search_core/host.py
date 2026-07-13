@@ -38,7 +38,6 @@ from .primitives.attribute_search import AttributeSearch
 from .primitives.embed_search import EmbedSearch
 from .primitives.search import Search
 from .runtime import RuntimeSnapshot
-from .runtime import SearchOptions
 from .runtime import SearchRuntime
 
 if TYPE_CHECKING:
@@ -62,14 +61,8 @@ class VSSSearch:
     fields. The facade never builds or invokes model clients for decomposition.
     """
 
-    def __init__(
-        self,
-        runtime: SearchRuntime,
-        *,
-        search_options: SearchOptions | None = None,
-    ) -> None:
+    def __init__(self, runtime: SearchRuntime) -> None:
         self._rt = runtime
-        self._opts = search_options or SearchOptions()
         self._embed: EmbedSearch | None = None
         self._attribute: AttributeSearch | None = None
         self._search: Search | None = None
@@ -87,16 +80,8 @@ class VSSSearch:
     # ------------------------------------------------------------------ Builders
 
     @classmethod
-    def from_runtime(
-        cls,
-        rt: SearchRuntime,
-        *,
-        search_options: SearchOptions | None = None,
-    ) -> VSSSearch:
-        return cls(
-            rt,
-            search_options=search_options,
-        )
+    def from_runtime(cls, rt: SearchRuntime) -> VSSSearch:
+        return cls(rt)
 
     @classmethod
     def from_env(
@@ -119,15 +104,11 @@ class VSSSearch:
     ) -> VSSSearch:
         """Build from a NAT-style config file.
 
-        Loads BOTH SearchRuntime AND SearchOptions (use_attribute_search) from
-        the same config — guarantees parity with the deployed profile. This is
-        the recommended builder for vss-cli and any production caller.
+        Loads SearchRuntime from the config. Per-request ``search_mode`` is the
+        sole selector for embed, attribute, fusion, and object search.
         """
         snap = RuntimeSnapshot.from_config_file(path, env=env)
-        return cls(
-            snap.runtime,
-            search_options=snap.search,
-        )
+        return cls(snap.runtime)
 
     @classmethod
     def from_remote(
@@ -142,10 +123,7 @@ class VSSSearch:
         discovery and managed port-forwards instead.
         """
         snap = RuntimeSnapshot.from_remote(agent_url)
-        return cls(
-            snap.runtime,
-            search_options=snap.search,
-        )
+        return cls(snap.runtime)
 
     # ------------------------------------------------ Convenience primitive-only
 
@@ -174,10 +152,7 @@ class VSSSearch:
 
     def _build_search(self) -> Search:
         """Lazy-build the Search primitive."""
-        return Search.from_runtime(
-            self._rt,
-            use_attribute_search=self._opts.use_attribute_search,
-        )
+        return Search.from_runtime(self._rt)
 
     async def search(self, **kw: Any) -> SearchOutput:
         if self._search is None:

@@ -186,7 +186,7 @@ async def test_attribute_only_soft_degrade_appends_search_message():
     messages: list[str] = []
     out = await sh._run_attribute_only_search(
         attribute_list=["red hat"],
-        search_input=SearchInput(query="q", source_type="video_file", attributes=["red hat"], agent_mode=False),
+        search_input=SearchInput(query="q", source_type="video_file", search_mode="attribute", attributes=["red hat"]),
         attribute_search_fn=attr,
         top_k=5,
         min_similarity=0.0,
@@ -203,7 +203,9 @@ async def test_attribute_only_propagates_systemic_search_error():
     with pytest.raises(IndexNotFoundError):
         await sh._run_attribute_only_search(
             attribute_list=["red hat"],
-            search_input=SearchInput(query="q", source_type="video_file", attributes=["red hat"], agent_mode=False),
+            search_input=SearchInput(
+                query="q", source_type="video_file", search_mode="attribute", attributes=["red hat"]
+            ),
             attribute_search_fn=attr,
             top_k=5,
             min_similarity=0.0,

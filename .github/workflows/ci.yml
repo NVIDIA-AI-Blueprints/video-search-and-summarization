@@ -281,7 +281,7 @@ jobs:
           uv run --no-sync ruff check src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst tests
           uv run --no-sync ruff format --check src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst tests
           uv run --no-sync mypy src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst
-          uv run --no-sync pytest --cov=src/lib --cov-report=xml:coverage.xml -m "not slow and not integration"
+          uv run --no-sync pytest -W error::RuntimeWarning -W error::ResourceWarning --cov=src/lib --cov-report=xml:coverage.xml -m "not slow and not integration"
           rm -rf dist
           uv build
 

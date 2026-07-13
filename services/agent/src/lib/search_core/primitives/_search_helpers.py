@@ -31,6 +31,7 @@ best-effort work degrades softly (a single video's attribute lookup during fusio
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 from datetime import timedelta
 import json
 import logging
@@ -99,9 +100,7 @@ class SearchConfig(Protocol):
     """
 
     default_max_results: int
-    search_max_iterations: int
     embed_confidence_threshold: float
-    use_attribute_search: bool
     fusion_method: str
     w_attribute: float
     w_embed: float
@@ -383,9 +382,9 @@ async def execute_core_search(
 
     Routes to one of four paths:
       1. object_id re-search (direct behavior kNN by an existing object's vector)
-      2. attribute-only (attributes present and ``has_action`` is false)
-      3. embed-only (no attributes)
-      4. fusion (attributes present and embed confidence is high enough)
+      2. explicit attribute-only mode
+      3. explicit embed-only mode
+      4. explicit fusion mode
 
     The injected adapters (``embed_search``, ``attribute_search_fn``) each expose
     an async ``.ainvoke``; ``behavior_es`` is an
@@ -393,7 +392,8 @@ async def execute_core_search(
     the caller; this generator only wires them to the pure helpers.
     """
     # ----- OBJECT_ID PATH: Direct behavior KNN -----
-    if search_input.object_ids:
+    if search_input.search_mode == "object":
+        assert search_input.object_ids is not None
         behavior_es_endpoint = getattr(config, "behavior_es_endpoint", None)
         if not behavior_es_endpoint:
             raise ConfigurationError("behavior_es_endpoint config is required for object_id re-search")
@@ -494,60 +494,34 @@ async def execute_core_search(
         query_params["timestamp_start"] = search_input.timestamp_start.isoformat()
     if search_input.timestamp_end:
         query_params["timestamp_end"] = search_input.timestamp_end.isoformat()
-    if not search_input.agent_mode:
-        query_params["min_cosine_similarity"] = str(search_input.min_cosine_similarity)
+    query_params["min_cosine_similarity"] = str(search_input.min_cosine_similarity)
 
     attribute_list: list[str] = []
-    is_attribute_only = False
+    is_attribute_only = search_input.search_mode == "attribute"
     if search_input.attributes:
         attribute_list = search_input.attributes
 
-        def _is_single_word(attr: str) -> bool:
-            attr = attr.strip()
-            return " " not in attr and "-" not in attr and "." not in attr
-
-        original_count = len(attribute_list)
-        attribute_list = [attr for attr in attribute_list if not _is_single_word(attr)]
-        if len(attribute_list) < original_count:
-            pruned_count = original_count - len(attribute_list)
-            logger.info(f"Pruned {pruned_count} single-word attribute(s). Remaining: {attribute_list}")
-            if not attribute_list:
-                # Pruning emptied the list, which silently flips routing from
-                # attribute-only/fusion to embed-only. Surface it so the change
-                # is observable rather than buried in an INFO log.
-                msg = f"All {original_count} attribute(s) were single-word and pruned; routing to embed-only search."
-                search_messages.append(msg)
-                yield AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content=msg)
-
-        if search_input.has_action is not None:
-            is_attribute_only = not search_input.has_action
-        elif attribute_list:
-            is_attribute_only = True
+        attribute_list = [attr.strip() for attr in attribute_list if attr.strip()]
 
     # ----- EXECUTION FLOW: embed / attribute-only / fusion -----
     # The object_id path above returns before reaching here, so this
     # ``search_results`` init is only hit on the remaining paths. Reusing the
     # name without a fresh annotation keeps mypy's no-redef check happy.
     search_results = []
-    do_search = True
-    exclude_videos: list[dict[str, str]] = []
-    iteration_num = 0
-
-    while do_search and iteration_num < config.search_max_iterations:
-        iteration_num += 1
-        do_search = False
-        logger.info(f"[Search] Running embed search iteration {iteration_num}")
+    # A one-element loop preserves the existing execution block's scope while
+    # making the single-pass contract explicit. Search has no hidden re-search.
+    for _search_pass in (None,):
+        logger.info("[Search] Running search")
 
         # Clamp to the downstream models' bound so the fetch size never trips a ValidationError.
         top_k = min(top_k, _DOWNSTREAM_MAX_TOP_K)
         query_params["top_k"] = str(top_k)
-        # Thread the running exclusion list into the embed envelope so a re-search
-        # surfaces NEW candidates instead of re-fetching rejected ones.
+        # Search is single-pass, so there are no orchestrator-generated exclusions.
         query_input_json = json.dumps(
             {
                 "params": query_params,
                 "source_type": search_input.source_type,
-                "exclude_videos": exclude_videos,
+                "exclude_videos": [],
             }
         )
 
@@ -569,7 +543,7 @@ async def execute_core_search(
                     attribute_search_fn=attribute_search_fn,
                     top_k=min(original_top_k, _DOWNSTREAM_MAX_TOP_K),
                     min_similarity=0.0,
-                    exclude_videos=exclude_videos,
+                    exclude_videos=[],
                     search_messages=search_messages,
                 )
 
@@ -648,7 +622,7 @@ async def execute_core_search(
                             attribute_search_fn=attribute_search_fn,
                             top_k=top_k,
                             min_similarity=0.0,
-                            exclude_videos=exclude_videos,
+                            exclude_videos=[],
                             search_messages=search_messages,
                         )
 
@@ -657,7 +631,7 @@ async def execute_core_search(
                         content=f"Found {len(search_results)} results from attribute-only search",
                     )
                 elif (
-                    config.use_attribute_search
+                    search_input.search_mode == "fusion"
                     and len(search_results) > 0
                     and max_embed_score >= config.embed_confidence_threshold
                 ):
@@ -725,13 +699,15 @@ async def execute_core_search_wrapper(
     behavior_es: ElasticIndex | None = None,
 ) -> SearchOutput:
     """Non-streaming wrapper: collects chunks, returns final SearchOutput."""
-    async for update in execute_core_search(
+    updates = execute_core_search(
         search_input=search_input,
         embed_search=embed_search,
         config=config,
         attribute_search_fn=attribute_search_fn,
         behavior_es=behavior_es,
-    ):
-        if isinstance(update, SearchOutput):
-            return update
+    )
+    async with aclosing(updates):
+        async for update in updates:
+            if isinstance(update, SearchOutput):
+                return update
     raise NoFinalResultError("execute_core_search exited without yielding SearchOutput")

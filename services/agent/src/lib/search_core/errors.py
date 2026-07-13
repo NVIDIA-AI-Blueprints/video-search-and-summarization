@@ -21,8 +21,8 @@ exception chained via __cause__. One error surface, one catch-block for callers.
 
 from __future__ import annotations
 
-from lib._foundation.errors import BackendUnreachableError
-from lib._foundation.errors import ConfigurationError
+from lib._foundation.errors import BackendUnreachableError as FoundationBackendUnreachableError
+from lib._foundation.errors import ConfigurationError as FoundationConfigurationError
 from lib._foundation.errors import LibraryError
 
 __all__ = [
@@ -31,11 +31,20 @@ __all__ = [
     "IndexNotFoundError",
     "InvalidInputError",
     "NoFinalResultError",
-    "NoResultsError",
     "SearchError",
 ]
 
-SearchError = LibraryError
+
+class SearchError(LibraryError):
+    """Base class for errors emitted by the public search library."""
+
+
+class ConfigurationError(FoundationConfigurationError, SearchError):
+    """Invalid or incomplete search configuration."""
+
+
+class BackendUnreachableError(FoundationBackendUnreachableError, SearchError):
+    """A backend required by search could not be reached."""
 
 
 class IndexNotFoundError(BackendUnreachableError):
@@ -73,16 +82,6 @@ class InvalidInputError(SearchError):
 
     Examples: timestamp_start > timestamp_end, top_k <= 0 after defaults applied,
     contradictory filters. Distinct from Pydantic's own ValidationError.
-    """
-
-
-class NoResultsError(SearchError):
-    """Recoverable: search ran successfully but produced zero results.
-
-    Callers may choose to relax filters and retry. Note: the library does not
-    currently emit this — normal "no matches" cases return an empty list inside
-    the output model. It is retained as public API for callers/subclasses that
-    want to signal the condition explicitly.
     """
 
 

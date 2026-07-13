@@ -46,7 +46,7 @@ class AttributeSearchInput(BaseModel):
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
     video_sources: list[str] | None = None
-    top_k: int = Field(default=1, ge=1, le=1000)
+    top_k: int | None = Field(default=None, ge=1, le=1000)
     min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
     fuse_multi_attribute: bool = True
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
@@ -101,9 +101,19 @@ class AttributeSearchResult(BaseModel):
     screenshot_url: str | None = None
     metadata: AttributeSearchMetadata
 
+    @property
+    def similarity(self) -> float:
+        """Unified score accessor using the ranked behavior similarity."""
+        return self.metadata.behavior_score
+
 
 class AttributeSearchOutput(BaseModel):
     """Output envelope wrapping the list of attribute-search results."""
 
     model_config = ConfigDict(extra="forbid")
     results: list[AttributeSearchResult] = Field(default_factory=list)
+
+    @property
+    def data(self) -> list[AttributeSearchResult]:
+        """Compatibility accessor shared with ``SearchOutput``."""
+        return self.results

@@ -41,10 +41,8 @@ class EmbedSearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = ""
-    image_url: str | None = None
-    video_url: str | None = None
     description: str | None = None
-    source_type: SourceType
+    source_type: SourceType = "video_file"
     video_sources: list[str] | None = None
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
@@ -52,27 +50,12 @@ class EmbedSearchInput(BaseModel):
         default=None,
         ge=1,
         le=1000,
-        description=(
-            "Cap on returned results. When None, the primitive's "
-            "embed_default_max_results (from SearchRuntime) is used instead."
-        ),
+        description=("Cap on returned results. None uses SearchRuntime.default_max_results."),
     )
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
     # low-confidence searches, so don't clamp the lower bound to 0.
     min_cosine_similarity: float = Field(default=0.0, ge=-1.0, le=1.0)
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
-    # Bypass the embed-client call when the caller already has the vector.
-    precomputed_embedding: list[float] | None = None
-
-    def has_embedding_source(self) -> bool:
-        """True when at least one usable embedding source is present.
-
-        A whitespace-only ``query`` and an empty ``precomputed_embedding`` do
-        not count — they cannot produce a meaningful query vector.
-        """
-        return bool(
-            self.precomputed_embedding or self.image_url or self.video_url or (self.query and self.query.strip())
-        )
 
     def validate_semantics(self) -> None:
         """Raise :class:`InvalidInputError` for cross-field problems.
@@ -82,10 +65,8 @@ class EmbedSearchInput(BaseModel):
         Centralizing them here keeps the primitive's ``run()`` thin and gives
         callers (and tests) one place to exercise input semantics.
         """
-        if not self.has_embedding_source():
-            raise InvalidInputError(
-                "EmbedSearchInput needs at least one of: query, image_url, video_url, precomputed_embedding"
-            )
+        if not self.query.strip():
+            raise InvalidInputError("EmbedSearchInput.query must be non-empty")
         if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
             raise InvalidInputError(
                 f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "
@@ -105,6 +86,11 @@ class EmbedSearchResultItem(BaseModel):
     screenshot_url: str = ""
     similarity_score: float = 0.0
 
+    @property
+    def similarity(self) -> float:
+        """Unified read-only score name shared with ``SearchResult``."""
+        return self.similarity_score
+
 
 class EmbedSearchOutput(BaseModel):
     """Output of EmbedSearch.run()."""
@@ -112,3 +98,8 @@ class EmbedSearchOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query_embedding: list[float] = Field(default_factory=list)
     results: list[EmbedSearchResultItem] = Field(default_factory=list)
+
+    @property
+    def data(self) -> list[EmbedSearchResultItem]:
+        """Compatibility accessor shared with ``SearchOutput``."""
+        return self.results

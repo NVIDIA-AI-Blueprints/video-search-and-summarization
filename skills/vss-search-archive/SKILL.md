@@ -23,25 +23,31 @@ performs NAT query decomposition.
 - Host `uv`, plus Docker access for Docker deployments or `kubectl` access to
   Deployments, ConfigMaps, Services, Endpoints, Ingresses, and port-forwards for Kubernetes.
 - The `vss-manage-video-io-storage` skill for source listing and inspection.
-- `curl`, `jq`, and Docker available for agent-backed source ingestion or deletion.
+- `curl` and `jq`, plus Docker or Kubernetes access appropriate to the deployment,
+  for agent-backed source ingestion or deletion. Ordinary search needs no API key.
 
 Do not execute `vss-cli` inside a distroless VSS container or a pod. Do not
 wrap it with `docker exec`, `kubectl exec`, or `sh -lc`.
 
 ## Deployment prerequisite
 
-This skill requires the VSS **search** profile running on the host at `$HOST_IP`.
+This skill requires the VSS **search** profile. Resolve `AGENT_URL` and `ES_URL`
+from the selected deployment rather than assuming host ports: use the generated
+Docker profile ports, or a durable Kubernetes Ingress/operator-managed
+port-forward for the agent mutation endpoint and Elasticsearch. Authentication,
+if configured, must use the operator's approved mechanism and must not be copied
+into prompts or logs.
 Before an agent-backed source mutation:
 
 1. Probe the stack:
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
-     && curl -sf --max-time 5 "http://${HOST_IP}:9200/" >/dev/null
+   curl -sfS --max-time 5 "${AGENT_URL}/docs" >/dev/null \
+     && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null
    ```
    (The second check confirms Elasticsearch is up — unique to the search profile.)
 
 2. **If the probe fails**, ask the user:
-   > *"The VSS `search` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p search`?"*
+   > *"The selected VSS `search` profile endpoints are not reachable. Shall I deploy or reconnect it using the `/vss-deploy-profile` skill with `-p search`?"*
 
    - If yes → hand off to the `/vss-deploy-profile` skill. Return here once it succeeds.
    - If no → stop. Do not run this skill against a missing or wrong-profile stack.
@@ -77,14 +83,14 @@ FILENAME="<filename.mp4>"
 FILE_PATH="/path/to/${FILENAME}"
 
 # 1. Ask the agent for the chunked-upload URL
-UPLOAD_URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
+UPLOAD_URL=$(curl -sfS -X POST "${AGENT_URL}/api/v1/videos" \
   -H "Content-Type: application/json" \
   -d "{\"filename\":\"${FILENAME}\"}" | jq -r .url)
 
 # 2. Chunked POST the file to that VST URL (nvstreamer protocol).
 #    The final-chunk response carries sensorId.
 IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
-UPLOAD_RESPONSE=$(curl -s -X POST "${UPLOAD_URL}" \
+UPLOAD_RESPONSE=$(curl -sfS -X POST "${UPLOAD_URL}" \
   -H "nvstreamer-chunk-number: 1" \
   -H "nvstreamer-total-chunks: 1" \
   -H "nvstreamer-is-last-chunk: true" \
@@ -100,7 +106,7 @@ SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" | jq -r .sensorId)
   && { echo "Upload failed: no sensorId in response: ${UPLOAD_RESPONSE}"; exit 1; }
 printf '%s' "${UPLOAD_RESPONSE}" \
   | jq --arg filename "${FILENAME}" '. + {filename: $filename}' \
-  | curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos/${SENSOR}/complete" \
+  | curl -sfS -X POST "${AGENT_URL}/api/v1/videos/${SENSOR}/complete" \
       -H "Content-Type: application/json" \
       -d @- | jq .
 ```
@@ -115,7 +121,7 @@ embeddings land). Only then is the video searchable.
 ### RTSP stream — single endpoint
 
 ```bash
-curl -s -X POST "http://${HOST_IP}:8000/api/v1/rtsp-streams/add" \
+curl -sfS -X POST "${AGENT_URL}/api/v1/rtsp-streams/add" \
   -H "Content-Type: application/json" \
   -d '{
     "sensorUrl": "rtsp://<host>:<port>/<path>",
@@ -134,6 +140,12 @@ confirms the request was accepted and the embedding pipeline is running in the
 background, **not** that the stream is searchable yet. Search hits start
 appearing only after enough chunks land in Elasticsearch.
 
+Use a bounded readiness check before searching: poll the selected embed index
+for documents whose source/sensor identifier equals the registered stream name
+or resolved sensor ID. Require a count greater than zero, retry with backoff for
+at most five minutes, and fail with the last count/backend error when the
+deadline expires. Do not treat elapsed time alone as readiness.
+
 ### Delete source — agent-backed cleanup
 
 Delete through the agent backend, not bare VIOS, so VIOS storage and search
@@ -141,11 +153,17 @@ embeddings are cleaned up together.
 
 ```bash
 # For video files: video_id is the VIOS sensor/video UUID
-curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/videos/<video_id>" | jq .
+curl -sfS -X DELETE "${AGENT_URL}/api/v1/videos/<video_id>" | jq .
 
 # For RTSP streams: name is the registered source name
-curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | jq .
+curl -sfS -X DELETE "${AGENT_URL}/api/v1/rtsp-streams/delete/<name>" | jq .
 ```
+
+Deletion is complete only after all three postconditions hold: the source is
+absent from the VST sensor list, the selected embedding index contains zero
+documents for its UUID/name, and the behavior/raw index patterns contain zero
+documents for it. Report each count; a successful DELETE response alone is not
+sufficient.
 
 ---
 
@@ -167,15 +185,14 @@ curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | j
 3. Decompose the request into explicit fields using
    [Query decomposition](references/query_decomposition.md). The CLI does not
    decompose natural language. Preserve the requested object/action and use
-   `--query`, `--attribute`, `--has-action`, `--video-source`, time bounds, and
-   `--use-critic` as appropriate.
+   `--query`, `--search-mode`, `--attribute`, `--video-source`, time bounds, and
+   the relevant query controls.
 4. Run the host command for the selected deployment. It validates named
    sources again against that deployment's VST listing before querying ES.
 5. Present an inspection report titled `Video Search Results`, not raw JSON.
    For every hit, copy the selected source, start/end timestamps, similarity,
    and screenshot/clip URL verbatim from CLI output. Never invent or normalize
-   evidence. Show critic status and every returned criterion (`✓`/`✗`); mark a
-   null critic result as skipped.
+   evidence. Similarity is retrieval evidence, not visual verification.
 6. End with a `Verification Step`. Offer to download and visually inspect the
    returned screenshots, but do not download them without user opt-in or prior
    authorization. When authorized, inspect the pixels and report a grounded
@@ -213,7 +230,7 @@ and VST.
 uv run --project services/agent/vss-cli vss-cli search run \
   --deployment docker --profile search \
   --query "find all instances of forklifts" \
-  --source-type video_file --top-k 10 --no-use-critic
+  --source-type video_file --top-k 10
 ```
 
 Before running this, start the profile with `dev-profile.sh` so `generated.env`
@@ -243,8 +260,8 @@ uv run --project services/agent/vss-cli vss-cli search run \
   --deployment kubernetes --namespace <namespace> --release <release> \
   --kube-context <optional-context> \
   --query "person in a white jacket climbing a ladder" \
-  --attribute "white jacket" --has-action true \
-  --video-source <resolved-source> --top-k 10 --no-use-critic
+  --search-mode fusion --attribute "white jacket" \
+  --video-source <resolved-source> --top-k 10
 ```
 
 If a required runtime value is Secret-backed or absent from the Deployment and
@@ -266,15 +283,8 @@ through the operator-managed workflow.
   search. `--allow-embed-only-fallback` is the only opt-in way to remove
   attributes and continue as embed-only search.
 - Result object IDs that are missing or `unknown` are not merged together.
-- Always make critic intent explicit. Use `--no-use-critic` for ordinary host
-  searches. Use `--use-critic` only when the deployment exposes an
-  operator-reachable, unauthenticated VLM or an approved operator-managed
-  authenticated workflow has already been established. This skill never reads
-  or copies an API key. Requested critic configuration errors are fatal; only
-  transient backend failures degrade to unverified results.
-- Deployment-discovered critic calls default to frame-base64 media so remote or
-  containerized VLMs never receive a host-loopback VST URL. Use video-url only
-  when the selected VLM can demonstrably reach the chosen VST URL.
+- `vss-cli search run` performs retrieval only. Visual verification is the
+  explicit screenshot-inspection step described above; it is not a CLI flag.
 
 ## Query examples
 
@@ -282,21 +292,20 @@ through the operator-managed workflow.
 # Embed-only search across all ingested files
 uv run --project services/agent/vss-cli vss-cli search run \
   --deployment docker --profile search \
-  --query "red forklift near a loading bay" --source-type video_file \
-  --no-use-critic
+  --query "red forklift near a loading bay" --source-type video_file
 
 # Attribute-only search; source must have been resolved first
 uv run --project services/agent/vss-cli vss-cli search run \
   --deployment kubernetes --namespace vss --release search \
   --query "person wearing a white jacket" \
-  --attribute "white jacket" --has-action false \
-  --video-source warehouse-camera-3 --no-use-critic
+  --search-mode attribute --attribute "white jacket" \
+  --video-source warehouse-camera-3
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
 uv run --project services/agent/vss-cli vss-cli search run \
   --deployment docker --profile search \
   --query "forklift near a loading bay" --attribute "yellow forklift" \
-  --has-action true --allow-embed-only-fallback --no-use-critic
+  --search-mode fusion --allow-embed-only-fallback
 ```
 
 ## Troubleshooting

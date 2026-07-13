@@ -46,8 +46,8 @@ from . import _embed_helpers as helpers
 if TYPE_CHECKING:
     from lib.vst.protocols import VSTSnapshot
 
-    from ..clients.protocols import CosmosEmbedder
     from ..clients.protocols import ElasticIndex
+    from ..clients.protocols import TextEmbedder
     from ..runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
@@ -65,11 +65,11 @@ class EmbedSearch:
         self,
         *,
         es: ElasticIndex,
-        embed: CosmosEmbedder,
+        embed: TextEmbedder,
         vst: VSTSnapshot,
         video_embed_index: str,
         video_embed_index_wildcard: str = "mdx-embed-filtered-*",
-        default_max_results: int = 100,
+        default_max_results: int = 10,
     ) -> None:
         self._es = es
         self._embed = embed
@@ -116,19 +116,8 @@ class EmbedSearch:
     # ------------------------------------------------------------------- Steps
 
     async def _generate_query_embedding(self, inp: EmbedSearchInput) -> list[float]:
-        """Produce an embedding vector from whichever input field is set.
-
-        Precedence: precomputed_embedding > image_url > query > video_url.
-        ``inp.validate_semantics()`` guarantees one of these is usable.
-        """
-        if inp.precomputed_embedding:
-            return [float(v) for v in inp.precomputed_embedding]
-        if inp.image_url:
-            return await self._embed.get_image_embedding(inp.image_url)
-        if inp.query and inp.query.strip():
-            return await self._embed.get_text_embedding(inp.query.strip())
-        # validate_semantics() ensures video_url is the only remaining option.
-        return await self._embed.get_video_embedding(inp.video_url or "")
+        """Produce a text embedding for the validated query."""
+        return await self._embed.get_text_embedding(inp.query.strip())
 
     async def _search(self, search_index: str | list[str], search_query: dict[str, Any]) -> Any:
         """Run the ES search through the library's ElasticIndex boundary.
@@ -195,7 +184,7 @@ class EmbedSearch:
         rt: SearchRuntime,
         *,
         es: ElasticIndex | None = None,
-        embed: CosmosEmbedder | None = None,
+        embed: TextEmbedder | None = None,
         vst: VSTSnapshot | None = None,
     ) -> EmbedSearch:
         """Construct from a SearchRuntime, optionally with injected dependencies."""
@@ -215,7 +204,7 @@ class EmbedSearch:
             ),
             video_embed_index=rt.video_embed_index,
             video_embed_index_wildcard=rt.video_embed_index_wildcard,
-            default_max_results=rt.embed_default_max_results,
+            default_max_results=rt.default_max_results,
         )
 
     async def aclose(self) -> None:

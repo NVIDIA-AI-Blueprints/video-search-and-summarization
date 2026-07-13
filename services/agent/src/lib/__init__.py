@@ -12,4 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""VSS libraries."""
+"""VSS libraries.
+
+The standalone ``nvidia-vss-cli`` distribution supports ``lib.search_core``,
+``lib.critic``, ``lib.vlm``, and ``lib.vst`` with explicit runtime
+configuration. ``lib.knowledge`` belongs to the full agent application, may
+read deployment environment variables, and is intentionally excluded from the
+standalone wheel.
+"""

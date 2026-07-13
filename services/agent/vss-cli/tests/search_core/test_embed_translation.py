@@ -54,14 +54,12 @@ def test_min_cosine_similarity_parsed():
     assert out.min_cosine_similarity == 0.25
 
 
-def test_forwarded_precomputed_and_exclude():
+def test_forwarded_exclude():
     out = params_to_embed_input(
         {"query": "q"},
         "video_file",
-        precomputed_embedding=[0.1, 0.2],
         exclude_videos=[{"sensor_id": "x", "start_timestamp": "s", "end_timestamp": "e"}],
     )
-    assert out.precomputed_embedding == [0.1, 0.2]
     assert out.exclude_videos == [{"sensor_id": "x", "start_timestamp": "s", "end_timestamp": "e"}]
 
 
