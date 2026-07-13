@@ -140,7 +140,7 @@ For VLM and LLM weight cost + the general formula, see [`base.md` § Sizing math
 
 ### RT-Embed sizing
 
-Image: `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1` (SBSA: `3.2.1-26.07.1-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Image: `nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1` (SBSA: `3.2.1-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 Per the upstream `perf/benchmark/rtvi_embed_gpu_initial_stream_counts.json`, the **dedicated-GPU ceiling** — max concurrent streams when RT-Embed has the GPU to itself with **no co-resident** model:
 
