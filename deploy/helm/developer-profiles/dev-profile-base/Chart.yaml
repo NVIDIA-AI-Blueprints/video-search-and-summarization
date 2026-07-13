@@ -17,7 +17,7 @@ apiVersion: v2
 name: vss
 description: "VSS stack - Helm chart for developer profiles - base"
 type: application
-version: 3.2.0
+version: 3.2.1
 appVersion: "1.0"
 dependencies:
   - name: infra
