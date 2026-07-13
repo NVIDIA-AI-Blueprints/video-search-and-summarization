@@ -13,7 +13,7 @@ def test_apply_brev_proxy_env_sets_brev_and_public_ui_routes(monkeypatch):
     monkeypatch.setattr(
         network_util.subprocess,
         "run",
-        lambda *args, **kwargs: network_util.subprocess.CompletedProcess(args[0], returncode=1),
+        lambda *args, **_kwargs: network_util.subprocess.CompletedProcess(args[0], returncode=1),
     )
     merged: dict[str, str] = {}
 
@@ -38,7 +38,7 @@ def test_apply_brev_proxy_env_respects_custom_link_prefix(monkeypatch):
     monkeypatch.setattr(
         network_util.subprocess,
         "run",
-        lambda *args, **kwargs: network_util.subprocess.CompletedProcess(args[0], returncode=1),
+        lambda *args, **_kwargs: network_util.subprocess.CompletedProcess(args[0], returncode=1),
     )
     merged: dict[str, str] = {}
 
@@ -54,7 +54,7 @@ def test_apply_brev_proxy_env_selects_skybridge_for_active_netbird(monkeypatch):
     monkeypatch.setattr(
         network_util.subprocess,
         "run",
-        lambda *args, **kwargs: network_util.subprocess.CompletedProcess(args[0], returncode=0),
+        lambda *args, **_kwargs: network_util.subprocess.CompletedProcess(args[0], returncode=0),
     )
     merged = {
         "PROXY_PORT": "7777",
