@@ -47,6 +47,7 @@ The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p a
 - Set up or manage Slack incident notifications
 - List or query detected incidents / alerts (Workflow C)
 - Inspect CV verification results and verdicts (confirmed/rejected/not-confirmed/verification-failed), explain how verification works, customize VLM-verifier prompts (CV mode — Workflow B)
+- Check whether always-on alerting is active, query its incidents, troubleshoot missing always-on alerts (VLM real-time — Workflow G; operate only, no config authoring)
 - Add a new camera to the alerts pipeline (Workflow A)
 
 ---
@@ -71,7 +72,7 @@ If the probe fails, ask which mode to deploy and hand off to `/vss-deploy-profil
 | Mode | Deploy flag | Env (`.env`) | What runs | What is available |
 |---|---|---|---|---|
 | **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**). Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
-| **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), and incident queries (**C**). No static CV pipeline. |
+| **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — feature-gated via `alert_agent.always_on`, default **off**). No static CV pipeline. |
 
 **Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag (VLM → CV adds the CV pipeline; CV → VLM tears it down). `rtvi-vlm` runs in both modes.
 
@@ -111,6 +112,8 @@ grep -E '^MODE=' "$ENV_FILE"
 | Deployed mode | User asks about… | Action |
 |---|---|---|
 | **VLM real-time** | Slack webhook setup/status/test/stop | **Workflow E** — `references/alert-notify.md` |
+| **VLM real-time** | always-on status ("is always-on active?"), always-on incidents, "why aren't always-on alerts appearing?" | **Workflow G** — `references/always-on.md` (operate only; config authoring is out of scope) |
+| **CV verification** | always-on operation | Refuse — always-on rides the realtime rule engine; canonical refusal text below |
 | **VLM real-time** | rule CRUD, or start/stop a realtime alert on a sensor (with **or without** a detection condition — no condition → default prompt), or stop/delete a named alert (by `alert_type`/condition or rule ID) | **Workflow D** — `references/alert-subscriptions.md` (incl. two-step stop/confirm) |
 | **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see canonical refusal text below |
 | **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?") | **Workflow C (Query)** — works on both; **always run the query, never answer from memory** |
@@ -125,10 +128,11 @@ grep -E '^MODE=' "$ENV_FILE"
 ### Intent precedence (first match wins)
 
 1. **Workflow E (Slack)** — Slack-specific keywords (`slack`, `webhook` + `slack`, `bot token`, `slack channel`). `notify` alone is **not** sufficient.
-2. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C.
-3. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete).
-4. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
-5. **Workflow A (CV)** — CV deployment handling for anything not matched above.
+2. **Workflow G (Always-on)** — the literal `always-on` (status, incidents, troubleshooting phrasings). Operate-not-author: status checks and queries only; never author or edit always-on rule config. A request to *create* an ordinary realtime rule is **not** G — that's D.
+3. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C.
+4. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete).
+5. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
+6. **Workflow A (CV)** — CV deployment handling for anything not matched above.
 
 > **`alerts` vs `alert rules` (C vs D) — pick exactly one, never both:**
 > *what happened / has been triggered* (incidents) → **Workflow C**
@@ -148,11 +152,11 @@ grep -E '^MODE=' "$ENV_FILE"
 
 If a prompt mixes workflows ("start monitoring and send to Slack"), ask one clarifying question to split execution order.
 
-### CV-mode refusal text for D and E intents
+### CV-mode refusal text for D, E, and G intents
 
-When the deployed mode is CV verification and the user asks for an alert-subscription or Slack/notification intent, refuse with this message verbatim:
+When the deployed mode is CV verification and the user asks for an alert-subscription, always-on, or Slack/notification intent, refuse with this message verbatim:
 
-> "Alert subscriptions and Slack notifications are only supported in VLM real-time mode. Your current deployment is `<CV verification | not deployed>`. To use these features, redeploy with `/vss-deploy-profile -p alerts -m real-time` (note: switching tears down current CV monitoring)."
+> "Alert subscriptions, always-on operation, and Slack notifications are only supported in VLM real-time mode. Your current deployment is `<CV verification | not deployed>`. To use these features, redeploy with `/vss-deploy-profile -p alerts -m real-time` (note: switching tears down current CV monitoring)."
 
 No auto-redeploy. The user decides whether to switch modes.
 
@@ -253,6 +257,18 @@ Load and follow `references/alert-notify.md`. Code lives in `scripts/alert-notif
 
 ---
 
+## Workflow G — Always-On Operation (VLM real-time mode only)
+
+Always-on alerting starts pre-configured rules automatically when SDR announces a camera (`camera_streaming` → one realtime rule per `always_on_rules` YAML entry; `camera_remove` tears them down) via `POST $AB/api/v1/realtime/always-on`. **Operate, don't author** — this workflow never creates or edits always-on rule config; it checks status, queries results, and troubleshoots.
+
+1. **Status** — the feature is opt-in via `alert_agent.always_on` in the Alert Bridge `config.yaml` (default **false**). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or a `503 {"reason":"ALWAYS_ON_DISABLED"}` from the endpoint. Zero-side-effect probe options in `references/always-on.md`.
+2. **Query incidents** — always-on rules are ordinary realtime rules once started; their incidents surface through **Workflow C** (`GET $AB/api/v1/realtime/incidents`). The rules live in an **in-memory sidecar** (not the ES-backed rules index), so they may not appear in Workflow D's rules list — that is expected, not a bug.
+3. **Troubleshoot "no always-on alerts"** — walk the ladder in `references/always-on.md`: feature gate → rules YAML resolves/validates at boot → SDR events actually reaching Alert Bridge → stream registered on `rtvi-vlm` → incidents query.
+
+Load `references/always-on.md` for the event contract, reason-code table, YAML resolution chain, and the troubleshooting ladder. VLM real-time mode only; refuse on CV with the canonical text. Config authoring (editing `always_on_rules`) is **out of scope** in this pass — say so when asked.
+
+---
+
 ## Workflow C — Query Incidents (real-time incident store)
 
 Query past incidents **directly** from Alert Bridge — no `/generate`:
@@ -266,7 +282,7 @@ curl -sf "$AB/api/v1/realtime/incidents?sensor_id=<UUID>&start_time=<ISO>&end_ti
 
 Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. Summarize each incident's timestamp, sensor (reverse-resolve `sensor_id` → name), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer**: report "none found / count 0" and STOP; do not fall back to listing rules.
 
-**Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D).
+**Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D). Incidents produced by **always-on** rules (Workflow G) appear here like any other realtime incident.
 
 > **Do NOT list subscription rules for an incident query.** The **bare** `GET /api/v1/realtime` (no `/incidents`) lists *rules* (Workflow D) and is wrong for "what happened".
 
@@ -294,6 +310,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 
 - **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** Slack ops → Workflow E (`alert-notify`); never route Slack to `vss-alert-bridge`'s `/api/v1/realtime`.
 - **Workflow scope by mode:** A and B are CV-only (B's explain-only asks answerable anywhere); **C queries the real-time incident store** (`/api/v1/realtime/incidents`; CV behavior-alert verdicts live in `mdx-vlm-alerts-*` — **no REST query endpoint yet**, use Workflow B's interim ES probe); D and E are VLM real-time only (refuse on CV with the canonical text).
+- **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate (default off) or a `503 ALWAYS_ON_DISABLED` from `POST /api/v1/realtime/always-on`; its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
 - **Don't use `vss-rtvi-vlm` as a mode signal** — it runs in both modes. Use `vss-behavior-analytics` (CV-only) or the `MODE` env var.
 - **A mode switch tears down the current deployment** — running VLM streams and un-persisted CV alert state are lost.
 - **Alert ops call Alert Bridge (`:9080`) directly** — the skill does not use the VSS Agent `/generate`, and never calls `rtvi-vlm` directly. The VLM trigger is a `"yes"`/`"true"` token match (case-insensitive); prompts must force a Yes/No answer.
