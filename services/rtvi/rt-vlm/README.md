@@ -918,7 +918,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 |-------|-------------|---------|
 | `enabled` | Enable the RT-VLM chart | `false` in `values.yaml`, `true` in `overrides_rtvi_vlm.yaml` |
 | `image.repository` | RT-VLM image repository | `nvcr.io/nvidia/vss-core/vss-rt-vlm` |
-| `image.tag` | RT-VLM image tag | `3.2.1-26.07.1` |
+| `image.tag` | RT-VLM image tag | `3.2.1` |
 | `image.pullPolicy` | Kubernetes image pull policy | `IfNotPresent` |
 | `replicas` | Number of RT-VLM replicas | `1` |
 | `useSharedNim` | Use an in-cluster or remote OpenAI-compatible NIM instead of loading the model in the RT-VLM pod | `false` |
