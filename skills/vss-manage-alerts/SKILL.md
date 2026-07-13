@@ -277,7 +277,7 @@ One-shot verification of a **specific media artifact** the user points at — ne
    }'
    ```
    Response is **HTTP 202** `{"status":"accepted","correlationId":"…","message":…,"timestamp":…}` — report the actual `correlationId` (server default `ondemand-<uuid>`; your own `id` field is used if you send one). 400 = `unknown_category` / `invalid_request` (`info.media_urls` list + `media_type` ∈ `video`|`image` are required).
-3. **Result lands async** in the same `mdx-vlm-alerts-*` store as CV verification — inspect via **Workflow B**'s interim ES probe keyed on the `correlationId` (allow ≥2 min; the VLM must fetch the URL itself, so an unreachable URL still lands a document via the error path with a non-200 `verificationResponseCode`).
+3. **Result lands async** in the same `mdx-vlm-alerts-*` store as CV verification — inspect via **Workflow B**'s interim ES probe keyed on the `correlationId` (allow ≥2 min; the VLM must fetch the URL itself, so an unreachable URL still lands a document via the error path with a non-200 `verificationResponseCode`). **When describing the result fields**, report: `verificationResponseCode` (200 = VLM success, 4xx/5xx = error path) and the raw VLM output (`reasoning` / `vlm_response`) — and **always note that `verdict` may be absent or empty** on the default deploy (`use_verdict: false` freestyle mode); never present `verdict` as a guaranteed field.
 
 Load `references/on-demand-verification.md` for the full contract, media constraints, and result-validation checklist. CV mode for execution; explain-only asks answerable anywhere. A 202 means **accepted**, not verified — never report a verdict at submit time.
 
