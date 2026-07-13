@@ -26,10 +26,10 @@ These run against simulators with known inputs — not a live deployment.
 |------|-------------|-------------------|
 | `test_document_parity` | Send an incident; verify output doc is in the correct dated ES index with `sensorId` preserved | Field pass-through and index routing |
 | `test_verdict_distribution` | Send 3 incidents with unique timestamps (unique fingerprints); verify all receive non-null VLM verdicts | VLM classifies each independently (not deduped) |
-| `test_redis_dedup` | Send the same incident twice with identical ID; verify only 1 doc is indexed | Redis deduplication is active |
+| `test_redis_dedup` | Send the same incident twice with identical ID; verify only 1 doc is indexed | In-process deduplication is active (Redis removed) |
 | `test_async_smoke` | Restart AB with async external I/O guardrails enabled; send one incident; verify output doc and async guardrail log | Async guardrails can be enabled without breaking end-to-end flow |
 | `test_async_verdict_parity` | Run one sync incident + one async incident with same payload shape; compare verdict/status signature | Async mode preserves sync verdict/status behavior |
-| `test_async_dedup_parity` | Run duplicate-incident dedup check in sync then async mode; compare indexed document count | Async Redis wrapper preserves dedup semantics |
+| `test_async_dedup_parity` | Run duplicate-incident dedup check in sync then async mode; compare indexed document count | Async dedup wrapper preserves dedup semantics |
 | `test_async_kafka_non_blocking` | Inject fixed VLM delay, send a burst of incidents, and verify async dispatch queueing continues before first delayed response | Kafka consume/scheduling is decoupled from slow VLM I/O in async mode |
 | `test_vst_video_url` | Send an incident; verify output doc contains a `videoUrl`/`videoSource` referencing the VST simulator | VST integration and URL extraction |
 | `test_document_schema` | Send an incident; verify output doc has all required fields | Full schema completeness |
@@ -51,6 +51,9 @@ These run against simulators with known inputs — not a live deployment.
 | `test_http_ondemand_verification` | POST to `/api/v1/verification/ondemand`: (1) valid request → 200; (2) unknown alert_type → 400; (3) NIM down → 503 | On-demand verification API contract, error handling, and VLM fault tolerance |
 | `test_kafka_sink_vlm` | Send incident with `info.video_path`; verify VLM result published to Kafka sink | Base64 encode + VLM + Kafka sink pipeline |
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
+| `test_realtime_alerts` (Test 8c) | Index 3 consecutive positives (same camera + alert type); `GET /api/v1/realtime/incidents?consolidate=true` (with a time window) returns one event and `total=1` (event count), `consolidate=false` returns 3 raw, and `consolidate=true` without a window is rejected `400` | Read-time consolidation groups duplicates into one event over a required window while raw chunk records remain available |
+| `test_realtime_alerts` (Test 8d) | Index sensor A/alert (2 chunks), A/intrusion (1), B/alert (1); per-sensor `consolidate=true` returns A=2 events, B=1 event | Consolidation groups are isolated by `(sensorId, category)` |
+| `test_realtime_alerts` (Test 8e) | Index one realtime chunk (has `info.chunkIdx`) + one verifier-path doc (`analyticsModule`, no `chunkIdx`) for the same sensor; `consolidate=true` returns 1 event from the realtime chunk only, raw returns both | REG-009: verifier-path incidents are filtered out of the consolidated view (realtime discriminator) |
 
 ## Structure
 
@@ -110,7 +113,7 @@ The orchestrator starts Alert Bridge fresh with each test's `config.yaml` before
 
 ### test_redis_dedup
 
-**Purpose:** Verify the Redis deduplication layer drops a duplicate incident that carries an identical ID suffix.
+**Purpose:** Verify the in-process deduplication layer (Redis removed) drops a duplicate incident that carries an identical ID suffix.
 
 **Trigger:** The same incident produced twice with the fixed ID suffix `p1_dedup_fixed`.
 
@@ -224,10 +227,10 @@ NIM simulator is automatically restarted after this test regardless of outcome.
 
 **Purpose:** Verify the end time delta filter blocks incident updates where the `end` timestamp has not changed significantly (below threshold).
 
-**Config:** `event_bridge.redis_source.end_time_delta_filter.enabled: true`, `threshold_seconds: 5`.
+**Config:** `alert_agent.event_filters.end_time_delta_filter.enabled: true`, `threshold_seconds: 5`.
 
 **Trigger:**
-1. Incident #1 sent with `end=T` — first seen, passes delta filter and dedup, stored in Redis.
+1. Incident #1 sent with `end=T` — first seen, passes delta filter and dedup, stored in the in-process dedup cache.
 2. Wait 10s — incident #1 is processed and the dedup TTL (3s) expires.
 3. Incident #2 sent with identical payload except `end=T+2s` — delta (2s) is below the 5s threshold.
 
@@ -459,9 +462,9 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 ### test_async_dedup_parity
 
-**Purpose:** Verify Redis dedup behavior is unchanged when dedup path runs through async wrapper.
+**Purpose:** Verify dedup behavior is unchanged when the dedup path runs through the async wrapper.
 
-**Trigger:** Run duplicate incident (same ID suffix twice) in sync mode, then repeat in async mode (AB restarted between runs; Redis/ES state reset between modes).
+**Trigger:** Run duplicate incident (same ID suffix twice) in sync mode, then repeat in async mode (AB restarted between runs, which resets in-process dedup state; the ES verdict index is reset between modes).
 
 **Check:** For both modes, compute `docs_added = after - before`.
 
@@ -525,7 +528,7 @@ print_status "ok" "PASS: ..."
 ### What the framework handles
 
 - **Timestamps** — `produce_incident` patches to today automatically
-- **State isolation** — Redis and ES sim are flushed between tests
+- **State isolation** — in-process dedup state resets on each AB restart; the ES sim (and ES verdict index) is flushed between tests
 - **AB lifecycle** — orchestrator restarts AB with your config before each test
 - **Cleanup** — orchestrator handles teardown after all tests
 
@@ -534,7 +537,7 @@ print_status "ok" "PASS: ..."
 Run all P1 functional tests from the repo root:
 
 ```bash
-# Step 1: Ensure Docker is available (for Kafka and Redis containers)
+# Step 1: Ensure Docker is available (for the Kafka container)
 docker info
 
 # Step 2: Activate venv
@@ -568,14 +571,13 @@ cat /tmp/alert_agent_p1_functional/alert_bridge.log
 | Service | Port | Health Check |
 |---------|------|--------------|
 | Kafka | 9092 | TCP connect |
-| Redis | 6379 | TCP connect |
 | Elasticsearch (sim) | 9200 | `GET /health` |
 | NIM (sim) | 18081 | TCP connect |
 | VST (sim) | 30888 | `GET /status` |
 | VSS (sim) | 8080 | `GET /models` |
 | Alert Bridge (HTTP) | 9080 | `GET /health` |
 
-Kafka and Redis run as Docker containers. All other services run as Python processes managed by `run_p1.sh`.
+Kafka runs as a Docker container. All other services run as Python processes managed by `run_p1.sh`. No Redis is required.
 
 ---
 

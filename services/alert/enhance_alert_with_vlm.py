@@ -13,20 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os as _os
+import sys as _sys
+# Bootstrap: this launcher lives at the service root while the packages live
+# under ``src/``. Put ``src/`` on the import path so ``import vlm`` etc. resolve
+# both locally and inside the container (Dockerfile keeps CMD at /app).
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "src"))
+
 import argparse
 import json
-import logging
 import os
 import signal
 import sys
 import time
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from multiprocessing import Process
 from queue import Queue, Empty
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
-import uuid
-import mimetypes
 
 from concurrent.futures import ThreadPoolExecutor, Future, TimeoutError as FutureTimeoutError
 
@@ -35,15 +39,14 @@ import uvicorn
 import yaml
 from openai import APIConnectionError, APITimeoutError, InternalServerError, UnprocessableEntityError
 from openai.types.chat import ChatCompletionMessage
-from urllib.parse import urlsplit
 
 from metrics import PROMETHEUS_ENABLED
 if PROMETHEUS_ENABLED:
     from metrics import reset_prometheus_multiproc_dir
     reset_prometheus_multiproc_dir()
 
-from its_redis.redis_handler import RedisHandler
-from mdx.anomaly.event_bridge_factory import EventBridgeFactory
+from clients.redis_handler import RedisHandler
+from mdx.event_bridge_factory import EventBridgeFactory
 from vst.exceptions import (
     VSTError,
     VSTClientError,
@@ -52,23 +55,23 @@ from vst.exceptions import (
     VSTTimeoutError,
     VSTUnavailableError,
 )
-from mdx.anomaly.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
-from models.responses import (
+from mdx.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
+from schemas.vlm_responses import (
     AlertBridgeResponse,
     VLMResponse,
     merge_info_with_response,
 )
-from models.base_response_parser import load_response_parser
-from models.pluggable_parser_runtime import (
+from schemas.base_response_parser import load_response_parser
+from schemas.pluggable_parser_runtime import (
     ERROR_SOURCE_MEDIA_DOWNLOAD,
-    ERROR_SOURCE_PLUGGABLE_PARSER,
     ERROR_SOURCE_VLM_API,
     ERROR_SOURCE_VLM_SCHEMA,
     PLUGGABLE_PARSER_ERROR_STATUS,
     PLUGGABLE_PARSER_OK_STATUS,
     apply_pluggable_parser_error as _apply_pluggable_parser_error,
     apply_pluggable_parser_output as _apply_pluggable_parser_output,
-    safe_json_dumps_parser_output as _safe_json_dumps_parser_output,
+    ERROR_SOURCE_PLUGGABLE_PARSER, 
+    safe_json_dumps_parser_output as _safe_json_dumps_parser_output,  
 )
 if TYPE_CHECKING:
     from webhook import OpenClawNotifier, WebhookKafkaForwarder
@@ -77,7 +80,7 @@ if TYPE_CHECKING:
 # (``_PLUGGABLE_PARSER_OK_STATUS`` / ``_PLUGGABLE_PARSER_ERROR_STATUS``).
 # External tests and a handful of diagnostic scripts still read these via
 # ``enhance_alert_with_vlm._PLUGGABLE_PARSER_OK_STATUS``; the helpers and
-# constants themselves now live in :mod:`models.pluggable_parser_runtime`
+# constants themselves now live in :mod:`schemas.pluggable_parser_runtime`
 # so Mode-3 (``DirectMediaHandler``) can import them at module load time
 # without paying a circular-import lazy-import penalty.
 _PLUGGABLE_PARSER_OK_STATUS = PLUGGABLE_PARSER_OK_STATUS
@@ -89,17 +92,15 @@ from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from utils.event_utils import normalize_alert_message, is_alert
 from utils.url_transformer import transform_video_url, is_vlm_local
-from mdx.anomaly.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
+from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
 from utils.logging_config import setup_logging, get_logger, enforce_log_level
 from utils.schema_util import protobuf_anomalies_to_json_string_list
 from vlm.vlm_client import VLMClient, AsyncVLMRuntime
 from vlm.warmup import warmup_vlm, WARMUP_VIDEO
-from vss import VSSHandler
 from metrics.recorder import (
     inc_events_after_dedup,
     inc_events_dropped,
     inc_events_skipped_confirmed,
-    observe_pipeline_latency,
     observe_video_length,
     observe_vlm_duration,
     observe_vst_duration,
@@ -161,12 +162,13 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         # Get source type for logging
         self.source_type = self.config.get('event_bridge', {}).get('sourceType', 'unknown')
 
-        # Initialize RedisHandler early so it can be shared with the VLM sink
+        # Initialize the in-process dedup/verdict-protection state handler
+        # early so it can be shared with the VLM sink. (No Redis: dedup /
+        # filter state is in-process; verdict protection is ES-backed.)
         self.redis_handler = RedisHandler(config_file)
 
         # PromptManager has to come before the sink build so its
-        # AlertConfigStore (constructed from event_bridge.redis_source via
-        # DynamicPromptHandler — same backend the verification API
+        # AlertConfigStore (the same ES-backed store the verification API
         # writes to) can be threaded into the sink. Without this the
         # sink would have no live source for output_category and would
         # silently use the startup file mapping instead.
@@ -186,17 +188,46 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             ),
         )
 
-        # Initialize VSS handler only if enabled
-        if self.config.get('vss_agent', {}).get('enabled', False):
-            logger.info("VSS is enabled, initializing VSS handler...")
-            self.vss_handler = VSSHandler(self.config)
-            # Initialize VSS handler (will try up to 3 times)
-            logger.info("Initializing VSS handler - will retry up to 3 times...")
-            self.vss_handler.initialize()
-            logger.info("VSS handler initialization completed")
-        else:
-            logger.info("VSS is disabled, skipping VSS handler initialization")
-            self.vss_handler = None
+        # Create the confirmed-verdict marker index up front (before any
+        # traffic) so a mapping/creation problem surfaces at startup and the
+        # index-readiness gauge reflects the real state, rather than the
+        # index only appearing on the first confirmed write. Non-fatal: a
+        # transient ES outage here leaves verdict protection to fail open and
+        # retry via the handler's backoff path.
+        self._verdict_retention_job = None
+        try:
+            if self.redis_handler is not None:
+                self.redis_handler.ensure_verdict_index()
+        except Exception as e:
+            logger.warning("Verdict index startup ensure failed (non-fatal): %s", e)
+
+        # Start the hourly throttled reaper for expired
+        # confirmed-verdict markers so ``ab-confirmed-verdicts`` does not grow
+        # unbounded. Only runs when verdict protection is enabled.
+        try:
+            if getattr(self.redis_handler, "_protect_confirmed_enabled", False):
+                from clients.verdict_retention import (
+                    DEFAULT_INTERVAL_SECONDS,
+                    DEFAULT_REQUESTS_PER_SECOND,
+                    VerdictRetentionJob,
+                )
+                _protect_cfg = (
+                    self.config.get('alert_agent', {})
+                    .get('event_filters', {})
+                    .get('protect_confirmed_verdicts', {})
+                )
+                self._verdict_retention_job = VerdictRetentionJob(
+                    self.redis_handler,
+                    interval_seconds=_protect_cfg.get(
+                        'retention_interval_seconds', DEFAULT_INTERVAL_SECONDS
+                    ),
+                    requests_per_second=_protect_cfg.get(
+                        'retention_requests_per_second', DEFAULT_REQUESTS_PER_SECOND
+                    ),
+                )
+                self._verdict_retention_job.start()
+        except Exception as e:
+            logger.warning("Verdict retention job failed to start (non-fatal): %s", e)
 
         self.num_workers = self.config.get('alert_agent', {}).get(
             'num_workers', 1)  # Default to sequential
@@ -229,7 +260,12 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         )
         self.async_vst_enabled = bool(async_io_cfg.get('vst_enabled', False)) and self.async_io_enabled
         self.async_elastic_enabled = bool(async_io_cfg.get('elastic_enabled', False)) and self.async_io_enabled
-        self.async_redis_enabled = bool(async_io_cfg.get('redis_enabled', False)) and self.async_io_enabled
+        # ``dedup_enabled`` is the current key; ``redis_enabled`` is the
+        # deprecated legacy name (kept for back-compat). This flag controls
+        # async submission of the in-process dedup/state operations.
+        self.async_redis_enabled = bool(
+            async_io_cfg.get('dedup_enabled', async_io_cfg.get('redis_enabled', False))
+        ) and self.async_io_enabled
         external_timeout = async_io_cfg.get('external_timeout_seconds', 30)
         try:
             self.async_external_timeout_seconds = max(1.0, float(external_timeout))
@@ -249,7 +285,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             "enabled" if self.async_elastic_enabled else "disabled",
         )
         logger.info(
-            "Async Redis mode is %s",
+            "Async dedup-state mode is %s",
             "enabled" if self.async_redis_enabled else "disabled",
         )
         # Lazy-initialized VST handler for media path resolution
@@ -318,11 +354,11 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         )
 
         # Initialize entity validator for request processing
-        from entity_management import EntityValidator
+        from schemas import EntityValidator
         self.entity_validator = EntityValidator()
 
         # Initialize ResponseBuilder for clean response handling
-        from entity_management.response_entity import ResponseBuilder
+        from schemas.response_entity import ResponseBuilder
         self.response_builder = ResponseBuilder()
 
         # PromptManager is now initialised earlier (before the VLM
@@ -707,28 +743,21 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                                 #     len(sub_batch_messages),
                                 #     str(batch_worker_id),
                                 # )
-                                if not self.config.get("vss_agent", {}).get("enabled", False):
-                                    batch_kind = (batch.get("kind") or "").lower()
-                                    batch_message_type = (
-                                        "Incident"
-                                        if batch_kind == "incident"
-                                        else "Behavior"
-                                    )
-                                    future: Future = executor.submit(
-                                        self.process_batch_vlm,
-                                        batch_worker_id,
-                                        sub_batch_messages,
-                                        batch_message_type,
-                                        batch.get("kafka_consumed_at"),
-                                        batch.get("kafka_published_at"),
-                                        batch_worker_assigned_at,
-                                    )
-                                else:
-                                    future: Future = executor.submit(
-                                        self.process_batch_vss,
-                                        batch_worker_id,
-                                        sub_batch_messages,
-                                    )
+                                batch_kind = (batch.get("kind") or "").lower()
+                                batch_message_type = (
+                                    "Incident"
+                                    if batch_kind == "incident"
+                                    else "Behavior"
+                                )
+                                future: Future = executor.submit(
+                                    self.process_batch_vlm,
+                                    batch_worker_id,
+                                    sub_batch_messages,
+                                    batch_message_type,
+                                    batch.get("kafka_consumed_at"),
+                                    batch.get("kafka_published_at"),
+                                    batch_worker_assigned_at,
+                                )
 
                                 # When the sub-batch is done, release the worker slot back to the pool
                                 future.add_done_callback(
@@ -795,8 +824,6 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 self._webhook_forwarder.close()
             if self._openclaw_notifier is not None:
                 self._openclaw_notifier.close()
-            if self.vss_handler:
-                self.vss_handler.close()
             self.sink.close()
             self.source.close()
             logger.info("Resources closed successfully")
@@ -2113,164 +2140,6 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         # ``EVENTS_DROPPED{reason="unknown"}`` works for filter drops.
         return "vst_unknown"
 
-    def process_batch_vss(self, worker_id, messages):
-        """
-        Processes a batch of messages from the event bridge source.
-        :param worker_id: ID of the worker processing the batch.
-        :param messages: List of simple JSON messages.
-        """
-        try:
-            logger.info("Processing batch", extra={
-                "worker_id": worker_id,
-                "batch_size": len(messages)
-            })
-
-            if not messages:
-                logger.debug("Empty batch received", extra={"worker_id": worker_id})
-                return
-
-            # Debug logging for received messages with full payload details
-            for i, message in enumerate(messages):
-                if isinstance(message, str):
-                    logger.debug(f"Processing Alert message in JSON {i+1}/{len(messages)} - Worker {worker_id} - Payload: {message}")
-                else:
-                    logger.debug(f"Processing Alert message in dict {i+1}/{len(messages)} - Worker {worker_id} - Payload: {json.dumps(message, indent=2)}")
-
-           # Validate and build AlertRequestEntity objects (EntityValidator now handles JSON parsing)
-            alert_entities = self.entity_validator.validate_and_build(messages)
-            logger.debug("AlertRequestEntity objects built from messages", extra={
-                "worker_id": worker_id,
-                "entity_count": len(alert_entities)
-            })
-
-            # Resolve media file path via VST (when vst_id is present)
-            if alert_entities:
-                alert_entities = [self._resolve_media_path_if_needed(entity) for entity in alert_entities]
-
-            # Handle validation failures - create and send error responses
-            if len(alert_entities) != len(messages):
-                failed_count = len(messages) - len(alert_entities)
-                logger.info(f"Creating error responses for {failed_count} validation failures", extra={
-                    "worker_id": worker_id,
-                    "failed_count": failed_count,
-                    "total_messages": len(messages)
-                })
-
-                # Create error responses for failed validation messages
-                error_responses = self._create_validation_error_responses(messages, alert_entities)
-
-                # Send error responses to Redis
-                if error_responses:
-                    self._send_error_responses(error_responses, worker_id)
-
-            if not alert_entities:
-                logger.debug("No entities to process after building", extra={"worker_id": worker_id})
-                return
-
-            # Process AlertRequestEntity objects through VSS
-            entities_with_vss_results = self.vss_handler.process_video_batch(alert_entities)
-
-            # Debug: Log VSS Handler results before ResponseBuilder
-            logger.debug(f"VSS Handler completed - Worker {worker_id}: {len(entities_with_vss_results)} VSS results → ResponseBuilder")
-
-            for i, vss_result in enumerate(entities_with_vss_results):
-                if isinstance(vss_result, dict) and 'raw_vss_result' in vss_result:
-                    raw_result = vss_result['raw_vss_result']
-                    original_entity = vss_result['original_entity']
-                    entity_id = original_entity.id if hasattr(original_entity, 'id') else 'N/A'
-                    logger.debug(f"VSS Result {i} for {entity_id}: Success={raw_result.get('success', False)}, Evaluations={len(raw_result.get('evaluations', []))}, Error={raw_result.get('error') is not None}")
-
-            # Build responses using ResponseBuilder - clean single method call
-            enhanced_anomalies = self.response_builder.build_redis_responses_from_vss_results(entities_with_vss_results)
-
-            # Debug: Log ResponseBuilder results
-            logger.debug(f"ResponseBuilder completed - Worker {worker_id}: {len(entities_with_vss_results)} VSS results → {len(enhanced_anomalies)} Redis anomalies")
-
-            # Publish enhanced anomalies using new sink interface
-            incidents = []
-            for i, anomaly in enumerate(enhanced_anomalies):
-                from mdx.anomaly.stream_message import StreamMessage
-
-                # Debug: Log the JSON structure being sent to Redis
-                anomaly_json = json.dumps(anomaly)
-                logger.debug(f"Creating StreamMessage for Redis - Worker {worker_id}, Event {anomaly.get('id', 'N/A')}, Size: {len(anomaly_json)} bytes")
-
-                incident_message = StreamMessage.from_json_with_schema(
-                    anomaly_json, 'response_schema.yaml'
-                )
-                incidents.append(incident_message)
-
-            # Debug: Log Redis write operation
-            logger.debug(f"Writing {len(incidents)} incidents to Redis stream - Worker {worker_id}")
-
-            # Debug: Show complete JSON being written to Redis (for debugging)
-            if enhanced_anomalies:
-                complete_json = json.dumps(enhanced_anomalies[0], indent=2)
-                logger.debug(f"COMPLETE JSON being written to Redis for {enhanced_anomalies[0].get('id', 'N/A')}:")
-                logger.debug(complete_json)
-
-            self.sink.write(incidents)  # Fixed: Send all processed alerts to enhanced stream
-
-            logger.info("Batch processing completed", extra={
-                "worker_id": worker_id,
-                "published_count": len(incidents)
-            })
-
-            # Debug: Log successful Redis write with details
-            total_json_bytes = sum(len(json.dumps(anomaly)) for anomaly in enhanced_anomalies)
-            logger.debug(f"Successfully wrote to Redis stream - Worker {worker_id}: {len(incidents)} incidents, {total_json_bytes} total bytes")
-
-        except Exception as e:
-            logger.error("Error processing batch", extra={
-                "worker_id": worker_id,
-                "error": str(e),
-                "error_type": type(e).__name__
-            }, exc_info=True)
-
-    def _resolve_media_path_if_needed(self, entity):
-        """If entity has vst_id, resolve media path from VST and update video_path.
-        Returns the original entity on failure or when vst_id is absent.
-        """
-        try:
-            vst_id = getattr(entity, 'vst_id', None)
-            if not vst_id:
-                return entity
-
-            # Lazy init VST handler
-            if self._vst_handler is None:
-                try:
-                    from vst.its_vst_handler import ITS_VST_HANDLER
-                    self._vst_handler = ITS_VST_HANDLER(self.config)
-                except Exception as init_err:
-                    logger.error("Failed to initialize VST handler", extra={
-                        "eventId": getattr(entity, 'id', 'N/A'),
-                        "error": str(init_err)
-                    }, exc_info=True)
-                    return entity
-
-            resolved_path = self._vst_handler.get_media_file_path_by_vst_id(vst_id)
-            if not resolved_path:
-                logger.warning("VST media path not resolved; using original videoPath", extra={
-                    "eventId": getattr(entity, 'id', 'N/A'),
-                    "vst_id": vst_id
-                })
-                return entity
-
-            # Update entity immutably
-            new_entity = entity.model_copy(update={'video_path': resolved_path})
-            logger.info(
-                f"VST media path merged into entity: eventId={getattr(entity, 'id', 'N/A')}, "
-                f"vst_id={vst_id}, videoPath={resolved_path}"
-            )
-            return new_entity
-
-        except Exception as e:
-            logger.error("Error resolving VST media path", extra={
-                "eventId": getattr(entity, 'id', 'N/A'),
-                "error": str(e)
-            }, exc_info=True)
-            return entity
-
     def _create_validation_error_responses(self, original_messages, validated_entities):
         """
         Create error responses for failed validation entities.
@@ -2282,8 +2151,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         Returns:
             List of AlertResponseEntity error responses
         """
-        from entity_management.response_entity.models import AlertResponseEntity
-        from entity_management.shared import ProcessingStatus
+        from schemas.response_entity.models import AlertResponseEntity
         from datetime import datetime, timezone
         import json
 
@@ -2307,10 +2175,10 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             # If this message wasn't successfully validated, create error response
             if message_id not in validated_ids:
                 # Create error response for validation failure
-                from entity_management.response_entity.models.responses import (
+                from schemas.response_entity.models.responses import (
                     AlertResponseEntity, AlertInfo, EventInfo, VerificationInfo
                 )
-                from entity_management.shared.enums import AlertSeverity, AlertStatus
+                from schemas.shared.enums import AlertSeverity, AlertStatus
 
                 error_response = AlertResponseEntity(
                     id=message_id,
@@ -2359,7 +2227,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
             worker_id: Worker ID for logging
         """
         try:
-            from mdx.anomaly.stream_message import StreamMessage
+            from mdx.stream_message import StreamMessage
             from datetime import datetime, timezone
 
             # Convert error responses to StreamMessage format
@@ -2402,7 +2270,7 @@ def start_fastapi():
     try:
         port = int(os.getenv("FASTAPI_PORT", 9080))
         logger.info(f"Starting Alert Bridge FastAPI server on port {port}...")
-        uvicorn.run("alert-agent-web.app.main:app", host="0.0.0.0", port=port)
+        uvicorn.run("web.main:app", host="0.0.0.0", port=port)
     except Exception as e:
         logger.error(f"FastAPI server failed to start: {e}")
         raise

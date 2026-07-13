@@ -85,6 +85,9 @@ clear_rtvi() {
     curl -s -X DELETE "${RTVI_SIM_HOST}/v1/calls" >/dev/null 2>&1
     curl -s -X DELETE "${RTVI_SIM_HOST}/v1/fault" >/dev/null 2>&1
     curl -s -X DELETE "${RTVI_SIM_HOST}/v1/delay" >/dev/null 2>&1
+    # Drop the stream registry so replay re-issues streams/add, mirroring a
+    # real RTVI restart (the scenario replay exists to recover from).
+    curl -s -X DELETE "${RTVI_SIM_HOST}/v1/streams" >/dev/null 2>&1
 }
 
 do_request() {
@@ -184,6 +187,10 @@ subtest_partial_failure() {
     old_stream_id=$(curl -s "${ES_HOST}/${ES_RULES_INDEX}/_doc/${id1}" 2>/dev/null \
         | python3 -c "import sys,json; print(json.load(sys.stdin).get('_source',{}).get('rtvi_stream_id',''))" 2>/dev/null)
 
+    # Simulate an RTVI restart: drop the just-registered stream so replay must
+    # re-issue streams/add (the call the injected fault targets).
+    curl -s -X DELETE "${RTVI_SIM_HOST}/v1/streams" >/dev/null 2>&1
+
     curl -s -X PUT "${RTVI_SIM_HOST}/v1/fault" \
         -H "Content-Type: application/json" \
         -d '{"endpoint": "streams_add", "status_code": 500, "body": {"error": "injected"}}' >/dev/null 2>&1
@@ -201,16 +208,25 @@ subtest_partial_failure() {
         return 1
     fi
 
-    local current_stream_id
-    current_stream_id=$(curl -s "${ES_HOST}/${ES_RULES_INDEX}/_doc/${id1}" 2>/dev/null \
-        | python3 -c "import sys,json; print(json.load(sys.stdin).get('_source',{}).get('rtvi_stream_id',''))" 2>/dev/null)
+    # The record must be RETAINED (not deleted) and marked FAILED with its
+    # stale stream id cleared — the documented contract for a replay whose
+    # streams/add fails (see _mark_rule_failed and the unit test
+    # test_replay_start_stream_failure_marks_es_failed).
+    local doc status current_stream_id
+    doc=$(curl -s "${ES_HOST}/${ES_RULES_INDEX}/_doc/${id1}" 2>/dev/null)
+    status=$(echo "$doc" | python3 -c "import sys,json; print(str(json.load(sys.stdin).get('_source',{}).get('status','')).lower())" 2>/dev/null)
+    current_stream_id=$(echo "$doc" | python3 -c "import sys,json; print(json.load(sys.stdin).get('_source',{}).get('rtvi_stream_id') or '')" 2>/dev/null)
 
-    if [ "$current_stream_id" != "$old_stream_id" ]; then
-        print_status "fail" "Sub-test 2 FAIL: ES record mutated (old=$old_stream_id, new=$current_stream_id)"
+    if [ "$status" != "failed" ]; then
+        print_status "fail" "Sub-test 2 FAIL: expected record retained as FAILED, got status='$status' (old_stream_id=$old_stream_id)"
+        return 1
+    fi
+    if [ -n "$current_stream_id" ]; then
+        print_status "fail" "Sub-test 2 FAIL: expected rtvi_stream_id cleared on failure, got '$current_stream_id'"
         return 1
     fi
 
-    print_status "ok" "Sub-test 2 PASS: replay failed=1, ES record unchanged (rtvi_stream_id=$old_stream_id)"
+    print_status "ok" "Sub-test 2 PASS: replay failed=1, ES record retained as FAILED with stream id cleared"
 }
 
 # ===========================================================================
@@ -229,6 +245,10 @@ subtest_concurrent_409() {
         print_status "fail" "Sub-test 3 FAIL: Could not create rule"
         return 1
     fi
+
+    # Simulate an RTVI restart so replay re-issues streams/add (the delayed call
+    # that keeps the replay in-flight while the concurrent request races it).
+    curl -s -X DELETE "${RTVI_SIM_HOST}/v1/streams" >/dev/null 2>&1
 
     curl -s -X PUT "${RTVI_SIM_HOST}/v1/delay" \
         -H "Content-Type: application/json" \
@@ -264,6 +284,10 @@ subtest_post_during_replay_503() {
     local r1 id1
     r1=$(create_rule "collision" "sensor-block-post-1")
     id1=$(echo "$r1" | get_json id)
+
+    # Simulate an RTVI restart so replay re-issues the delayed streams/add and
+    # stays in-flight while the concurrent POST is blocked.
+    curl -s -X DELETE "${RTVI_SIM_HOST}/v1/streams" >/dev/null 2>&1
 
     curl -s -X PUT "${RTVI_SIM_HOST}/v1/delay" \
         -H "Content-Type: application/json" \
@@ -306,6 +330,10 @@ subtest_delete_during_replay_503() {
         print_status "fail" "Sub-test 5 FAIL: Could not create rule"
         return 1
     fi
+
+    # Simulate an RTVI restart so replay re-issues the delayed streams/add and
+    # stays in-flight while the concurrent DELETE is blocked.
+    curl -s -X DELETE "${RTVI_SIM_HOST}/v1/streams" >/dev/null 2>&1
 
     curl -s -X PUT "${RTVI_SIM_HOST}/v1/delay" \
         -H "Content-Type: application/json" \

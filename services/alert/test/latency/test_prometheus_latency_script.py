@@ -871,7 +871,7 @@ class TestSensorIdCliFlag:
     def test_sensor_id_flag_passes_sensor_to_prometheus_report(self, monkeypatch):
         called_with = {}
 
-        def _fake(base_url, window, now_str, sensor_id=None):
+        def _fake(base_url, window, now_str, sensor_id=None, csv_rows=None):
             called_with["base_url"] = base_url
             called_with["window"] = window
             called_with["sensor_id"] = sensor_id
@@ -889,7 +889,7 @@ class TestSensorIdCliFlag:
     def test_no_sensor_id_flag_keeps_prometheus_report_global(self, monkeypatch):
         called_with = {}
 
-        def _fake(base_url, window, now_str, sensor_id=None):
+        def _fake(base_url, window, now_str, sensor_id=None, csv_rows=None):
             called_with["sensor_id"] = sensor_id
             return True
 
@@ -905,7 +905,7 @@ class TestSensorIdCliFlag:
         calls = {"per_sensor": 0}
         prom_call = {}
 
-        def _fake_prom(base_url, window, now_str, sensor_id=None):
+        def _fake_prom(base_url, window, now_str, sensor_id=None, csv_rows=None):
             prom_call["sensor_id"] = sensor_id
             return True
 

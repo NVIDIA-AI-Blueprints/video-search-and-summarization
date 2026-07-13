@@ -15,7 +15,7 @@
 
 services:
   alert-bridge:
-    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
+    image: nvcr.io/nvstaging/vss-core/vss-alert-ms:3.3.0-26.07.10-e4c886ba00e5
     container_name: vss-alert-bridge
     profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     restart: unless-stopped
@@ -46,8 +46,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      redis:
-        condition: service_started
       elasticsearch:
         condition: service_healthy
       kafka-topic-init-container:

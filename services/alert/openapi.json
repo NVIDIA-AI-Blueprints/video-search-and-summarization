@@ -2026,18 +2026,24 @@
                         },
                         "type": "array",
                         "title": "Incidents",
-                        "description": "List of incident documents from Elasticsearch",
+                        "description": "Incident documents in nvschema shape. By default these are raw chunk-level documents from Elasticsearch; when consolidate=true they are consolidated events (same schema, with info.isConsolidated set to \"true\").",
                         "default": []
                     },
                     "count": {
                         "type": "integer",
                         "title": "Count",
-                        "description": "Number of incidents returned"
+                        "description": "Number of items in `incidents` on this page — raw documents, or consolidated events when consolidate=true."
                     },
                     "total": {
                         "type": "integer",
                         "title": "Total",
-                        "description": "Total number of matching incidents in ES"
+                        "description": "Total matches for the query. Raw chunk count by default; the number of consolidated events in the requested window when consolidate=true."
+                    },
+                    "truncated": {
+                        "type": "boolean",
+                        "title": "Truncated",
+                        "description": "True only in the consolidated view when the window held more raw chunks than the internal scan cap; the oldest chunks were dropped and events may be incomplete. Narrow the time window.",
+                        "default": false
                     },
                     "timestamp": {
                         "type": "string",
@@ -3338,17 +3344,6 @@
                             }
                         ],
                         "title": "Sampling Fps"
-                    },
-                    "cr1_optimization": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Cr1 Optimization"
                     },
                     "max_retries": {
                         "anyOf": [
