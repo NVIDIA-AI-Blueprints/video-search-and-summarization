@@ -125,7 +125,7 @@ The base (`deploy/docker/services/analytics/behavior-analytics/compose.yml`) plu
 # --- base (copied into the patched tree so `extends:` resolves) ---
 services:
   vss-behavior-analytics-base:
-    image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:3.2.1-26.07.2
+    image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:<tag>   # authoritative image lives in services/analytics/behavior-analytics/compose.yml
     network_mode: "host"
     restart: always
     volumes:
