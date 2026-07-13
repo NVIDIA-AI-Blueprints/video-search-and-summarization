@@ -131,7 +131,7 @@ For IN-1 specifically:
 
 ### Step 2 — Read the Integration Contract + Patch Reference for Each Candidate
 
-For each selected microservice, read two sources: (a) its **integration contract** — `integrate-<microservice>.md` from `skills/<skill-folder>/references/` (peers, inputs/outputs, env vars, constraints); and (b) its **`component_services:` block + patch specifics** from build-vision-agent's own per-service **patch reference** — `references/patch-vios.md` (VIOS), `references/patch-rt-vlm.md` (RT-VLM), or `references/integrate-elk.md` (ELK, co-located). The catalog (`references/microservice-catalog.md`) names the patch reference per microservice. Extract:
+For each selected microservice, read two sources: (a) its **integration contract** — `integrate-<microservice>.md` from `skills/<skill-folder>/references/` (peers, inputs/outputs, env vars, constraints); and (b) its **`component_services:` block + patch specifics** from build-vision-agent's own per-service **patch reference** — `references/patch-vios.md` (VIOS), `references/patch-rt-vlm.md` (RT-VLM), `references/patch-alerts.md` (Alert Microservice), `references/patch-behavior-analytics.md` (Behavior Analytics), or `references/integrate-elk.md` (ELK, co-located). The catalog (`references/microservice-catalog.md`) names the patch reference per microservice. Extract:
 
 - **Required peer services (prose)** — confirm each is satisfied (see Step 1).
 - **`component_services:` block** — the structured YAML in the microservice's **patch reference** (`references/patch-<service>.md`, or `references/integrate-elk.md` for ELK) listing the upstream compose service-keys this microservice owns. The block has two parts:
