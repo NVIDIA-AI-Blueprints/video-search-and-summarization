@@ -63,7 +63,7 @@ services:
 
   # Alert Bridge container for LOCAL mode (depends on local Kafka/Redis)
   alert-bridge-local:
-    image: nvcr.io/nv-metropolis-dev/met-vlm-as-verifier/alert-bridge:0.0.10-amd64
+    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
     container_name: alert-bridge-dev
     network_mode: host
     depends_on:
@@ -86,7 +86,7 @@ services:
 
   # Alert Bridge container for REMOTE mode (no local dependencies)
   alert-bridge-remote:
-    image: nvcr.io/nv-metropolis-dev/met-vlm-as-verifier/alert-bridge:0.0.10-amd64
+    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
     container_name: alert-bridge-dev
     network_mode: host
     volumes:

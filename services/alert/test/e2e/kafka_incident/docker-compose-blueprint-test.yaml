@@ -57,7 +57,7 @@ services:
 
   # Alert Bridge container - config file passed via BLUEPRINT_CONFIG env var
   alert-bridge:
-    image: nvcr.io/nv-metropolis-dev/met-vlm-as-verifier/alert-bridge:0.0.10-amd64
+    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
     container_name: alert-bridge-test
     network_mode: host
     depends_on:

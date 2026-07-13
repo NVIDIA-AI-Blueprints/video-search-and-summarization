@@ -34,7 +34,7 @@ services:
 
   # Alert bridge service - runs with either profile
   alert-bridge:
-    image: nvcr.io/nv-metropolis-dev/metropolis-analytic/alert-bridge:0.19.0-multiarch
+    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
     #image: alert-bridge:19
     user: "0:0"
     network_mode: "host"
