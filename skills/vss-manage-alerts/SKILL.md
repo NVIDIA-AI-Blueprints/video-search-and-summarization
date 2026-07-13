@@ -252,7 +252,11 @@ Load and follow `references/alert-subscriptions.md` as the authoritative playboo
 Use when the user **explicitly mentions Slack or the webhook relay** (start/stop webhook server, check status/health, send a test message, set Slack channel/token). The word `notify` alone is **not** enough.
 
 > **`alert-notify` (port 9090) ≠ `vss-alert-bridge` (`/api/v1/realtime`).**
-> Do NOT touch `vss-alert-bridge` for Slack ops.
+> Do NOT touch `vss-alert-bridge` for Slack ops — Slack is never configured through Alert Bridge realtime rule APIs.
+
+One relay, **two backends**: the `alert-notify` webhook server fans incidents out to **Slack** and/or the **OpenClaw Dashboard**, selected by `NOTIFY_BACKENDS` (default **`dashboard`** — a Slack setup MUST set `NOTIFY_BACKENDS=slack`, or `slack,dashboard` for both). The four skill-level ops all hit `:9090`: **status** (`GET /webhook/alert-notify/status`), **start** (creds gate below), **test** (POST a sample incident to `/webhook/alert-notify`), **stop**.
+
+**Credentials gate before any start:** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID` (plus `VST_ENDPOINT`); the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT` — never start it with placeholder values. Ask for real credentials and stop until provided.
 
 Routes here: "Set up Slack notifications", "Check if alert-notify is running", "Send a test alert to Slack". Does **not** route here: "Notify me when someone enters the zone" (→ Workflow D), "Alert and notify on my phone" (ambiguous — ask).
 
