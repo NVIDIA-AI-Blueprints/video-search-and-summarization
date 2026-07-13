@@ -154,6 +154,10 @@ rtvi_vlm:
   pending_ttl_seconds: 300
   health_check_interval_seconds: 30
   enable_realtime_persistence: true
+  consolidation:
+    max_inter_alert_gap_seconds: 60
+    max_event_duration_seconds: 300
+    representative: "latest"
 
 # Webhook Notification — fire-and-forget POST on VLM-verified incidents
 webhook:
