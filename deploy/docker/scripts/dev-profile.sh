@@ -324,7 +324,7 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 function get_rtvi_vlm_max_model_len() {
   local _hardware_profile="${1}"
   case "${_hardware_profile}" in
-    RTXPRO4500BW) echo "20480" ;;
+    RTXPRO4500BW) echo "18000" ;;
     *) echo "" ;;
   esac
 }
