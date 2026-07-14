@@ -24,7 +24,7 @@ Source-of-truth definitions: `deploy/docker/services/analytics/behavior-analytic
 
 **Core data path (required):**
 
-- **Message broker (Kafka / Redis Streams / MQTT)** — required. The `sourceType` / `sinkType` app-config keys pick which backend is live (Kafka is the default; brokers are configured **inside the config JSON**, not via env — e.g. `kafka.brokers: ${HOST_IP}:9092`). Behavior Analytics consumes candidate frame metadata and produces behaviors/events/incidents. Owned by ELK/infra.
+- **Message broker (Kafka / Redis Streams / MQTT)** — required. The `sourceType` / `sinkType` app-config keys pick which backend is live (Kafka is the default; brokers are configured **inside the config JSON**, not via env — e.g. `kafka.brokers: kafka:29092` (a Docker DNS service name on the compose bridge network; for a standalone deploy against an external broker, set this to a reachable `host:port` — see Network Requirements § Standalone caveat). Behavior Analytics consumes candidate frame metadata and produces behaviors/events/incidents. Owned by ELK/infra.
 - **kafka-topic-init-container** — required (Kafka backend). **Every topic a registered processor reads or writes must exist and be mapped in `kafka.topics`, or the sink raises `Could not find a kafka topic with key: <name>` at the first batch** (topic resolution is eager, even for empty writes). Map exactly the topics the enabled processors touch (see Outputs). Owned by ELK/infra.
 - **Calibration source** — required for spatial transforms (`transform_frame`, ROIs, tripwires, homography). Supplied as a mounted calibration JSON (`--calibration <path>`) or delivered at runtime via a dynamic-calibration notification (see Inputs). **Optional at startup**: with no file the app uses `CalibrationI` (image-plane, no perspective) and can switch once a calibration arrives. See `dynamic-calibration.md`.
 - **Upstream detector (for the incident / behavior paths)** — an RTVI CV / perception producer (Grounding DINO / RT-DETR, DeepStream) writing frame metadata to the raw topic. Without it the incident/behavior processors have no input. Owned by RT-CV (`skills/vss-deploy-detection-tracking-2d/`). In the alerts profile the config-bearing key `perception-alerts` is contributed by the `cv-verification` variant in `vss-build-vision-agent/references/patch-alerts.md`.
@@ -89,22 +89,23 @@ Key integration knobs:
 
 ## Environment Variables
 
-The base compose is deliberately thin — broker endpoints, topics, and all tuning live in the **mounted config JSON**, not env. The env touched at compose time:
+The base compose is deliberately thin — broker endpoints, topics, and all tuning live in the **mounted config JSON**, not env. Broker addresses in the shipped configs are **Docker DNS service names** (`kafka:29092`, `redis:6379`), resolved on the compose bridge network — **not** `${HOST_IP}` (Behavior Analytics does not read `HOST_IP`). The env touched at compose time:
 
 | Variable | Purpose | Required? |
 |---|---|---|
 | `VSS_APPS_DIR` | Compose interpolation for the config (and `extends`) bind-mount paths (`$VSS_APPS_DIR/services/analytics/behavior-analytics/...`). | **Yes (compose-set)** |
-| `HOST_IP` | Referenced inside the config JSON's broker URLs (`kafka.brokers`, `redisStream.host`, `mqtt.host`) on `network_mode: host`. | Effective (config-side) |
 | `STREAM_TYPE` | Selects the search-profile config variant (`vss-search-analytics-${STREAM_TYPE}-config.json`, e.g. `kafka` / `redis`). | Search profile only |
 
 ## Network Requirements
 
-- **Ports exposed:** none inbound (no REST surface). Runs `network_mode: host`.
+- **Ports exposed:** none inbound (no REST surface).
 - **Outbound traffic:**
-  - Message broker — Kafka `${HOST_IP}:9092`, Redis `${HOST_IP}:6379`, or MQTT `${HOST_IP}:1883` (per `sourceType`/`sinkType`).
+  - Message broker — Kafka `kafka:29092`, Redis `redis:6379`, or MQTT `<mqtt-broker>:1883` (per `sourceType`/`sinkType`), as set in the config JSON's broker block.
   - NGC registry `nvcr.io` for the image pull on first boot.
-- **DNS / hostname assumptions:** on host network all peer endpoints resolve via the config JSON's `${HOST_IP}` (not bridge service names).
-- **`network_mode`:** host.
+- **DNS / hostname assumptions:** peers resolve by **Docker DNS service name** on the compose bridge network (`kafka`, `redis`, …) — the base compose uses the default bridge network (no `network_mode: host`), and the profile composes join it via the `default` network with alias `vss-behavior-analytics`.
+- **`network_mode`:** default bridge (not host).
+
+> **Standalone caveat.** The shipped broker addresses (`kafka:29092`, `redis:6379`) only resolve **inside the VSS compose network**, where the broker services run under those names. Running Behavior Analytics on its own (this skill's standalone path) against an **external** broker requires editing the config JSON's `brokers` / `host` to a reachable address (a routable `host:port`, or attach the container to the broker's network) — the default DNS names will not resolve on a lone bridge network. See `deploy-behavior-analytics-service.md § Step 4`.
 
 ## Known Integration Constraints
 
@@ -126,7 +127,6 @@ The base (`deploy/docker/services/analytics/behavior-analytics/compose.yml`) plu
 services:
   vss-behavior-analytics-base:
     image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:<tag>   # authoritative image lives in services/analytics/behavior-analytics/compose.yml
-    network_mode: "host"
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
