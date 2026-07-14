@@ -99,16 +99,6 @@ spec:
             - name: models
               mountPath: /models-data
         {{- end }}
-        - name: copy-scripts
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "-c", "cp /scripts-ro/ds-start.sh /wdm-scripts/ds-start.sh && chmod +x /wdm-scripts/ds-start.sh"]
-          volumeMounts:
-            - name: startup-script
-              mountPath: /scripts-ro
-              readOnly: true
-            - name: scripts-writable
-              mountPath: /wdm-scripts
         {{- if $waitForKafka }}
         - name: wait-for-kafka
           image: busybox:1.37.0
@@ -130,7 +120,7 @@ spec:
           workingDir: {{ .Values.workingDir | quote }}
           command:
             - bash
-            - /wdm-scripts/ds-start.sh
+            - /startup-script/ds-start.sh
           env:
             - name: DS_MODEL_FAMILY
               value: {{ .Values.env.DS_MODEL_FAMILY | quote }}
@@ -150,9 +140,14 @@ spec:
               value: {{ .Values.env.STREAM_TYPE | quote }}
             - name: HARDWARE_PROFILE
               value: {{ .Values.env.HARDWARE_PROFILE | default "" | quote }}
+            - name: DS_MODE_FLAG
+              value: {{ .Values.env.DS_MODE_FLAG | default "1" | quote }}
+            - name: DS_MESSAGE_RATE
+              value: {{ .Values.env.DS_MESSAGE_RATE | default "1" | quote }}
           volumeMounts:
-            - name: scripts-writable
-              mountPath: /wdm-scripts
+            - name: startup-script
+              mountPath: /startup-script
+              readOnly: true
             - name: models
               mountPath: /opt/storage
             {{- if $engineCacheEnabled }}
@@ -179,8 +174,6 @@ spec:
           configMap:
             name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
             defaultMode: 420
-        - name: scripts-writable
-          emptyDir: {}
         - name: runtime-configs
           emptyDir: {}
         - name: models
@@ -273,16 +266,6 @@ spec:
             - name: models
               mountPath: /models-data
         {{- end }}
-        - name: copy-scripts
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "-c", "cp /scripts-ro/ds-start.sh /wdm-scripts/ds-start.sh && chmod +x /wdm-scripts/ds-start.sh"]
-          volumeMounts:
-            - name: startup-script
-              mountPath: /scripts-ro
-              readOnly: true
-            - name: scripts-writable
-              mountPath: /wdm-scripts
         - name: wait-for-kafka
           image: busybox:1.37.0
           command:
@@ -302,7 +285,7 @@ spec:
           workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
           command:
             - bash
-            - /wdm-scripts/ds-start.sh
+            - /startup-script/ds-start.sh
           {{- if .Values.httpPort }}
           ports:
             - name: http
@@ -374,8 +357,9 @@ spec:
           volumeMounts:
             - name: models
               mountPath: /opt/storage
-            - name: scripts-writable
-              mountPath: /wdm-scripts
+            - name: startup-script
+              mountPath: /startup-script
+              readOnly: true
             - name: profile-configs
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs
               readOnly: true
@@ -393,8 +377,6 @@ spec:
           configMap:
             name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
             defaultMode: 420
-        - name: scripts-writable
-          emptyDir: {}
         - name: runtime-configs
           emptyDir: {}
 {{- end }}
