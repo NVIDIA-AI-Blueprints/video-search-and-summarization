@@ -19,6 +19,19 @@ See the License for the specific language governing permissions and limitations 
 
 Helm chart for deploying **VSS Alerts Developer Profile** on Kubernetes.
 
+## RTVI CV startup policy
+
+Alerts uses the shared `ds-start.sh` owned by the `rtvi-cv` subchart; this
+profile's ConfigMap contains configuration data only. At startup, Kubernetes
+mounts that data under `mounted-configs/`, and the shared script stages a
+writable copy under `configs/` before applying runtime changes.
+
+The verification profile selects `DS_MODEL_FAMILY=rtdetr-gdino`. Its model
+download Job writes one completion marker per destination artifact, and the
+RTVI CV pod waits for both each marker and its artifact before starting.
+Standalone warehouse and MV3DT startup scripts are separate and are not
+affected by this developer-profile policy.
+
 ## Modes
 
 Two modes, each with a **single values file** — use only one `-f` when installing:

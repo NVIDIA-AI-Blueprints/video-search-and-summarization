@@ -62,7 +62,9 @@ spec:
               while true; do
                 READY=true
                 {{- range .Values.ngcModelsToDownload }}
-                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
+                DEST_REL={{ .destPath | quote }}
+                MARKER="${MODELS_ROOT}/.${DEST_REL//\//__}.done"
+                if [[ ! -f "${MARKER}" || ! -e "${MODELS_ROOT}/${DEST_REL}" ]]; then
                   READY=false
                 fi
                 {{- end }}
@@ -77,7 +79,7 @@ spec:
                 sleep 15
                 ELAPSED=$((ELAPSED + 15))
               done              
-              echo "[INFO] Model files present, proceeding."
+              echo "[INFO] Model artifacts and completion markers present, proceeding."
           volumeMounts:
             - name: models
               mountPath: /models-data
@@ -100,9 +102,9 @@ spec:
         - name: copy-scripts
           image: {{ include "vss-rtvi-cv.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "-c", "cp -r /scripts-ro/. /wdm-scripts/ && chmod +x /wdm-scripts/ds-start.sh"]
+          command: ["/bin/bash", "-c", "cp /scripts-ro/ds-start.sh /wdm-scripts/ds-start.sh && chmod +x /wdm-scripts/ds-start.sh"]
           volumeMounts:
-            - name: scripts
+            - name: startup-script
               mountPath: /scripts-ro
               readOnly: true
             - name: scripts-writable
@@ -129,16 +131,25 @@ spec:
           command:
             - bash
             - /wdm-scripts/ds-start.sh
-            - /wdm-scripts/run_config-api-rtdetr-protobuf.txt
           env:
+            - name: DS_MODEL_FAMILY
+              value: {{ .Values.env.DS_MODEL_FAMILY | quote }}
+            - name: DS_CONFIG_FILE
+              value: {{ .Values.env.DS_CONFIG_FILE | default "" | quote }}
+            - name: DS_VISION_ENCODER
+              value: {{ .Values.env.DS_VISION_ENCODER | default "false" | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ .Values.env.DS_TRACKER_REID | default "false" | quote }}
+            - name: DS_SHOW_SENSOR_ID
+              value: {{ .Values.env.DS_SHOW_SENSOR_ID | default "false" | quote }}
             - name: MODEL_NAME_2D
               value: {{ .Values.env.MODEL_NAME_2D | quote }}
-            - name: MODEL_TYPE
-              value: {{ .Values.env.MODEL_TYPE | quote }}
             - name: NUM_SENSORS
               value: {{ .Values.env.NUM_SENSORS | quote }}
             - name: STREAM_TYPE
               value: {{ .Values.env.STREAM_TYPE | quote }}
+            - name: HARDWARE_PROFILE
+              value: {{ .Values.env.HARDWARE_PROFILE | default "" | quote }}
           volumeMounts:
             - name: scripts-writable
               mountPath: /wdm-scripts
@@ -150,31 +161,27 @@ spec:
               subPath: {{ $engineCacheSubPath | quote }}
             {{- end }}
             {{- $wd := .Values.workingDir }}
-            - name: scripts
-              mountPath: {{ $wd }}/rtdetr-960x544.txt
-              subPath: rtdetr-960x544.txt
-            - name: scripts
-              mountPath: {{ $wd }}/rtdetr-960x544-labels.txt
-              subPath: rtdetr-960x544-labels.txt
-            - name: scripts
-              mountPath: {{ $wd }}/config_triton_nvinferserver_gdino.txt
-              subPath: config_triton_nvinferserver_gdino.txt
-            - name: scripts
-              mountPath: {{ $wd }}/coco_classmap.txt
-              subPath: coco_classmap.txt
-            - name: scripts
-              mountPath: {{ $wd }}/cfg_kafka.txt
-              subPath: cfg_kafka.txt
+            - name: profile-configs
+              mountPath: {{ $wd }}/mounted-configs
+              readOnly: true
+            - name: runtime-configs
+              mountPath: {{ $wd }}/configs
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
-        - name: scripts
+        - name: startup-script
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-ds-start
+            defaultMode: 493
+        - name: profile-configs
           configMap:
             name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
-            defaultMode: 493
+            defaultMode: 420
         - name: scripts-writable
+          emptyDir: {}
+        - name: runtime-configs
           emptyDir: {}
         - name: models
           {{- if .Values.modelsVolume }}
@@ -244,7 +251,9 @@ spec:
               while true; do
                 READY=true
                 {{- range .Values.ngcModelsToDownload }}
-                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
+                DEST_REL={{ .destPath | quote }}
+                MARKER="${MODELS_ROOT}/.${DEST_REL//\//__}.done"
+                if [[ ! -f "${MARKER}" || ! -e "${MODELS_ROOT}/${DEST_REL}" ]]; then
                   READY=false
                 fi
                 {{- end }}
@@ -259,11 +268,21 @@ spec:
                 sleep 15
                 ELAPSED=$((ELAPSED + 15))
               done
-              echo "[INFO] Model files present, proceeding."
+              echo "[INFO] Model artifacts and completion markers present, proceeding."
           volumeMounts:
             - name: models
               mountPath: /models-data
         {{- end }}
+        - name: copy-scripts
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c", "cp /scripts-ro/ds-start.sh /wdm-scripts/ds-start.sh && chmod +x /wdm-scripts/ds-start.sh"]
+          volumeMounts:
+            - name: startup-script
+              mountPath: /scripts-ro
+              readOnly: true
+            - name: scripts-writable
+              mountPath: /wdm-scripts
         - name: wait-for-kafka
           image: docker.io/library/busybox:1.37.0
           command:
@@ -283,8 +302,7 @@ spec:
           workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
           command:
             - bash
-            - -c
-            - ./ds-start.sh
+            - /wdm-scripts/ds-start.sh
           {{- if .Values.httpPort }}
           ports:
             - name: http
@@ -311,10 +329,26 @@ spec:
             timeoutSeconds: 5
           {{- end }}
           env:
-            - name: MODEL_TYPE
-              value: {{ .Values.modelType | quote }}
+            - name: DS_MODEL_FAMILY
+              value: {{ .Values.env.DS_MODEL_FAMILY | quote }}
+            - name: DS_CONFIG_FILE
+              value: {{ .Values.env.DS_CONFIG_FILE | default "" | quote }}
+            - name: DS_VISION_ENCODER
+              value: {{ .Values.env.DS_VISION_ENCODER | default "false" | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ .Values.env.DS_TRACKER_REID | default "false" | quote }}
+            - name: DS_SHOW_SENSOR_ID
+              value: {{ .Values.env.DS_SHOW_SENSOR_ID | default "false" | quote }}
+            - name: VISION_ENCODER_MODEL
+              value: {{ .Values.env.VISION_ENCODER_MODEL | default "" | quote }}
+            - name: VISION_ENCODER_VERSION
+              value: {{ .Values.env.VISION_ENCODER_VERSION | default "" | quote }}
             - name: STREAM_TYPE
-              value: {{ .Values.streamType | quote }}
+              value: {{ .Values.env.STREAM_TYPE | default .Values.streamType | quote }}
+            - name: DS_MODE_FLAG
+              value: {{ .Values.env.DS_MODE_FLAG | default "1" | quote }}
+            - name: DS_MESSAGE_RATE
+              value: {{ .Values.env.DS_MESSAGE_RATE | default "1" | quote }}
             - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
               value: {{ .Values.deepstreamEnableSensorIdExtraction | quote }}
             - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
@@ -340,30 +374,27 @@ spec:
           volumeMounts:
             - name: models
               mountPath: /opt/storage
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
-              subPath: ds-start.sh
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config.txt
-              subPath: ds-main-config.txt
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-pgie-config.yml
-              subPath: ds-pgie-config.yml
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-nvdcf-accuracy-tracker-config.yml
-              subPath: ds-nvdcf-accuracy-tracker-config.yml
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-detector-labels.txt
-              subPath: ds-detector-labels.txt
-            - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-kafka-config.txt
-              subPath: ds-kafka-config.txt
+            - name: scripts-writable
+              mountPath: /wdm-scripts
+            - name: profile-configs
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs
+              readOnly: true
+            - name: runtime-configs
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
       volumes:
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
-        - name: ds-scripts
+        - name: startup-script
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-ds-start
+            defaultMode: 493
+        - name: profile-configs
           configMap:
             name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
-            defaultMode: 0755
+            defaultMode: 420
+        - name: scripts-writable
+          emptyDir: {}
+        - name: runtime-configs
+          emptyDir: {}
 {{- end }}
