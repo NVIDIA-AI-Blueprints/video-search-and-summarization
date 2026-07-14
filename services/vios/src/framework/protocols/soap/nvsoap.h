@@ -25,6 +25,7 @@
 #include <vector>
 #include <map>
 #include <mutex>
+#include <atomic>
 #include <unistd.h>
 #include <iostream>
 #include <libxml/encoding.h>
@@ -399,6 +400,18 @@ private:
     bool m_membership;
     int fdCtrl[2];
     std::mutex m_reqMutex;
+
+    // Cached per-device clock offset for the WS-UsernameToken timestamp, so we do
+    // not GetSystemDateAndTime before every authenticated request. NvSoap is
+    // per-ClientSession (per sensor), so this offset is per device.
+    // m_deviceTimeOffsetSec = deviceEpochSec - localEpochSec at last sync.
+    // m_offsetSyncedAtSec   = local epoch (secs) of the last sync, 0 = never/invalid.
+    std::atomic<int64_t> m_deviceTimeOffsetSec{0};
+    std::atomic<int64_t> m_offsetSyncedAtSec{0};
+public:
+    // Drop the cached clock offset so the next authenticated request re-syncs the
+    // device time. Called from the 401 retry path so a drifted clock self-heals.
+    void invalidateDeviceTimeOffset() { m_offsetSyncedAtSec.store(0); }
 };
 
 
