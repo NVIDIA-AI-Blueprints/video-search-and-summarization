@@ -2087,19 +2087,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={isRangeDialogOpen} onClose={() => setIsRangeDialogOpen(false)} container={fullscreenContainer}>
-                <DialogTitle>Select Range</DialogTitle>
-                <DialogContent>
-                    <RangePickerDialog
-                        open={isRangeDialogOpen}
-                        onClose={handleCalenderDatePickerClose}
-                        onSubmit={handleCalenderRangePlayback}
-                    />
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setIsRangeDialogOpen(false)}>Close</Button>
-                </DialogActions>
-            </Dialog>
+            <RangePickerDialog
+                open={isRangeDialogOpen}
+                onClose={handleCalenderDatePickerClose}
+                onSubmit={handleCalenderRangePlayback}
+                container={fullscreenContainer}
+            />
 
             {streamType !== StreamType.Streambridge && (
                 <AnalyticsOverlayDialog
