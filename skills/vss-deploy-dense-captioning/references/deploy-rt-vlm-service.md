@@ -11,7 +11,7 @@
 Derive `<compose-default>` from the checked-out
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
 hardcoding it in commands. The current `develop` compose default is
-`3.2.0`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All other
+`3.2.1`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All other
 platforms use the normal multiarch tag.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
