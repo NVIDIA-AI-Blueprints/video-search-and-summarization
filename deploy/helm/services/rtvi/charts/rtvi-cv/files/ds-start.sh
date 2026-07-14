@@ -184,6 +184,8 @@ start_rtdetr_gdino()
         sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so' "$config_file"
     fi
 
+    TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
+
     if [[ "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
         echo "##### Setting compute-hw=2 in tracker section of $config_file... #####"
         sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' "$config_file"
@@ -191,7 +193,6 @@ start_rtdetr_gdino()
         echo "##### Setting low-latency-mode to 0 for source-list section... #####"
         sed -i '/^\[source-list\]/,/^\[/{/^low-latency-mode=/d;}' "$config_file"
         sed -i '/^\[source-list\]/a low-latency-mode=0' "$config_file"
-        TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
         echo "##### Updating VisualTracker section in $TRACKER_CONFIG... #####"
         if [[ -f "$TRACKER_CONFIG" ]]; then
             sed -i '/^VisualTracker:/,/^[A-Z][a-zA-Z]*:/ {/^[[:space:]]*visualTrackerType:/d;}' "$TRACKER_CONFIG"
@@ -205,7 +206,6 @@ start_rtdetr_gdino()
         fi
     fi
 
-    TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
     echo "##### Updating minTrackerConfidence in $TRACKER_CONFIG... #####"
     if [[ -f "$TRACKER_CONFIG" ]]; then
         sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*minTrackerConfidence:.*/  minTrackerConfidence: 0.2513/;}' "$TRACKER_CONFIG"
@@ -217,12 +217,15 @@ start_rtdetr_gdino()
     echo "##### Contents of $TRACKER_CONFIG: #####"
     cat "$TRACKER_CONFIG"
 
+    local extra_flags
+    extra_flags=$(build_extra_flags)
+
     cat "$config_file"
-    echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -t 0 -l 5 --message-rate $DS_MESSAGE_RATE --show-sensor-id"
+    echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -t 0 -l 5 --message-rate $DS_MESSAGE_RATE $extra_flags"
     exec ./metropolis_perception_app -c "$config_file" \
         -m "$DS_MODE_FLAG" -t 0 -l 5 \
         --message-rate "$DS_MESSAGE_RATE" \
-        --show-sensor-id
+        $extra_flags
 }
 
 start_sparse4d_warehouse()
