@@ -27,7 +27,7 @@ services:
       default:
         aliases:
           - vss-behavior-analytics
-    command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json
+    command: python3 apps/search_and_alerts/main_search_and_alerts_app.py --config /resources/vss-search-analytics-config.json
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
