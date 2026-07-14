@@ -48,7 +48,7 @@ export VSS_LOG_LEVEL=$VSS_LOG_LEVEL
 _kafka_enabled_val="${KAFKA_ENABLED:-false}"
 _caption_source_val="${LVS_CAPTION_SOURCE:-}"
 if [ "${_kafka_enabled_val,,}" != "true" ] && [ "${_kafka_enabled_val,,}" != "1" ] && [ "${_caption_source_val,,}" = "db" ]; then
-    echo "WARNING: LVS_CAPTION_SOURCE=db requires KAFKA_ENABLED=true; forcing LVS_CAPTION_SOURCE=sse (DB caption retrieval is only available in Kafka mode)."
+    echo "WARNING: LVS_CAPTION_SOURCE=db requires KAFKA_ENABLED=true; forcing LVS_CAPTION_SOURCE=sse (DB caption retrieval is only available in Kafka mode)." >&2
     export LVS_CAPTION_SOURCE=sse
 fi
 
