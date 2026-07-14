@@ -81,6 +81,18 @@ async def test_valid_dict_result_returns_embedding(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("embedding", [[], [1.0, "bad"], [float("inf")]])
+async def test_invalid_embedding_values_map_to_backend_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+    embedding: list[Any],
+) -> None:
+    _install_fake_httpx(monkeypatch, {"data": [{"embedding": embedding}]})
+    client = RTVICVEmbedClient("http://rtvi")
+    with pytest.raises(BackendUnreachableError, match="embedding response"):
+        await client.get_text_embedding("query")
+
+
+@pytest.mark.asyncio
 async def test_client_is_reused_and_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     created = _install_fake_httpx(monkeypatch, {"data": [{"embedding": [1.0, 2.0]}]})
     client = RTVICVEmbedClient("http://rtvi")

@@ -53,6 +53,8 @@ class AttributeSearch:
         default_max_results: int = 10,
         vst_external_url: str = "",
         vst_internal_url: str | None = None,
+        owns_es: bool = False,
+        owns_embed: bool = False,
     ) -> None:
         self._es = es
         self._embed = embed
@@ -64,6 +66,8 @@ class AttributeSearch:
         self._default_k = default_max_results
         self._vst_external_url = vst_external_url
         self._vst_internal_url = vst_internal_url
+        self._owns_es = owns_es
+        self._owns_embed = owns_embed
 
     async def run(self, inp: AttributeSearchInput) -> AttributeSearchOutput:
         """Execute attribute search and return the ranked results."""
@@ -101,22 +105,28 @@ class AttributeSearch:
         # a separate Elasticsearch cluster from the video-embedding endpoint.
         # ``from_runtime_behavior`` honors ``rt.behavior_es_endpoint`` and
         # falls back to ``rt.es_endpoint`` when not separately configured.
+        owns_es = es is None
+        owns_embed = embed is None
         return cls(
-            es=es or ElasticClient.from_runtime_behavior(rt),
-            embed=embed or RTVICVEmbedClient.from_runtime(rt),
+            es=es if es is not None else ElasticClient.from_runtime_behavior(rt),
+            embed=embed if embed is not None else RTVICVEmbedClient.from_runtime(rt),
             behavior_index=rt.behavior_index,
             behavior_index_wildcard=rt.behavior_index_wildcard,
             frames_index=rt.frames_index,
             frames_index_wildcard=rt.frames_index_wildcard,
             enable_frame_lookup=rt.enable_frame_lookup,
             default_max_results=rt.default_max_results,
-            vst_external_url=rt.vst_external_url,
-            vst_internal_url=rt.vst_internal_url,
+            vst_external_url=rt.require("vst_external_url"),
+            vst_internal_url=rt.require("vst_internal_url"),
+            owns_es=owns_es,
+            owns_embed=owns_embed,
         )
 
     async def aclose(self) -> None:
-        await asyncio.gather(
-            self._es.aclose(),
-            self._embed.aclose(),
-            return_exceptions=True,
-        )
+        coros = []
+        if self._owns_es:
+            coros.append(self._es.aclose())
+        if self._owns_embed:
+            coros.append(self._embed.aclose())
+        if coros:
+            await asyncio.gather(*coros, return_exceptions=True)

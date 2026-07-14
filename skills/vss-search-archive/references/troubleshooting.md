@@ -1,7 +1,14 @@
 # Search troubleshooting
 
-- **Docker `generated.env` missing:** start the selected profile with
-  `deploy/docker/scripts/dev-profile.sh`; do not use `.env` instead.
+- **Host CLI entry point fails:** run
+  `uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run --help`
+  after validating `VSS_REPO_ROOT`, and preserve the error. The
+  executable is project-local, so `which vss-cli` is not a valid preflight.
+  Stop instead of switching search interfaces or calling backends manually.
+- **Docker profile environment missing:** `.env` and runtime `generated.env`
+  are both required. Start the selected profile with
+  `deploy/docker/scripts/dev-profile.sh` when the generated overlay is absent;
+  `.env` alone is not initialized runtime state.
 - **Kubernetes discovery fails:** check namespace/release spelling and RBAC for
   Deployments, ConfigMaps, Services, and port-forwards. Do not replace the host
   command with `kubectl exec`.
@@ -20,5 +27,5 @@
   and set `--cosmos-embed-model` explicitly.
 - **RTVI-CV text embedding absent:** repair RTVI-CV, or use
   `--allow-embed-only-fallback` only when dropping all attributes is intended.
-- **Authenticated VLM:** use the operator-managed secret workflow; do not pass
+- **Authenticated visual/media route:** use the operator-managed secret workflow; do not pass
   API keys through `vss-cli` or copy a Secret to the host.

@@ -91,6 +91,7 @@ async def test_registry_race_schedules_awaitable_loser_cleanup(monkeypatch: pyte
 
     monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
     monkeypatch.setattr(ElasticClient, "_clients", _LosingRegistry())
+    monkeypatch.setattr(ElasticClient, "_ref_counts", {})
 
     client = ElasticClient.from_endpoint("http://es")
 
@@ -100,6 +101,7 @@ async def test_registry_race_schedules_awaitable_loser_cleanup(monkeypatch: pyte
 
 def test_registry_is_loop_affine() -> None:
     ElasticClient._clients.clear()
+    ElasticClient._ref_counts.clear()
     endpoint = "http://localhost:19299"
     # Hold both loops for the whole test so they stay distinct live objects
     # (avoids the id/object reuse that a closed-then-freed loop would allow).
@@ -131,6 +133,7 @@ def test_registry_is_loop_affine() -> None:
 
 def test_close_all_clears_registry_with_tuple_keys() -> None:
     ElasticClient._clients.clear()
+    ElasticClient._ref_counts.clear()
 
     async def scenario() -> None:
         ElasticClient.from_endpoint("http://localhost:19298")
@@ -142,12 +145,14 @@ def test_close_all_clears_registry_with_tuple_keys() -> None:
 
 
 def test_registry_prunes_clients_bound_to_closed_loops(monkeypatch: pytest.MonkeyPatch) -> None:
+    closed = asyncio.Event()
+
     class _FakeAsyncElasticsearch:
         def __init__(self, **_kwargs: Any) -> None:
             pass
 
         async def close(self) -> None:
-            return None
+            closed.set()
 
     monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
     stale_loop = asyncio.new_event_loop()
@@ -158,7 +163,35 @@ def test_registry_prunes_clients_bound_to_closed_loops(monkeypatch: pytest.Monke
     async def scenario() -> None:
         ElasticClient.from_endpoint("http://live")
         assert ("http://stale", stale_loop) not in ElasticClient._clients
+        await asyncio.wait_for(closed.wait(), timeout=1)
         await ElasticClient.close_all()
+
+    asyncio.run(scenario())
+
+
+def test_shared_transport_closes_after_final_reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeAsyncElasticsearch:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
+    ElasticClient._clients.clear()
+    ElasticClient._ref_counts.clear()
+
+    async def scenario() -> None:
+        first = ElasticClient.from_endpoint("http://es")
+        second = ElasticClient.from_endpoint("http://es")
+        raw = first.raw
+        assert raw is second.raw
+        await first.aclose()
+        assert raw.closed is False
+        await second.aclose()
+        assert raw.closed is True
+        assert ElasticClient._clients == {}
+        assert ElasticClient._ref_counts == {}
 
     asyncio.run(scenario())
 
@@ -184,6 +217,7 @@ def test_synchronous_factory_rebinds_across_asyncio_run_loops(monkeypatch: pytes
 
     monkeypatch.setattr(elastic_module, "AsyncElasticsearch", _FakeAsyncElasticsearch)
     monkeypatch.setattr(ElasticClient, "_clients", {})
+    monkeypatch.setattr(ElasticClient, "_ref_counts", {})
     client = ElasticClient.from_endpoint("http://es")
     assert not created
 

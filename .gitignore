@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 /services/agent/vss-cli/.coverage
 /services/agent/vss-cli/coverage.xml
+/services/agent/vss-cli/.venv*/
 /services/agent/vss-cli/.wheel-smoke/
 /services/agent/vss-cli/dist/
 

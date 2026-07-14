@@ -97,6 +97,11 @@ class TestFromEnv:
         assert rt.rtvi_cv_endpoint == "http://10.0.0.1:9000"
         assert rt.cosmos_embed_endpoint == "http://10.0.0.1:8017"
 
+    def test_docker_env_prefers_exported_rtvi_cv_endpoint(self) -> None:
+        env = {**_DOCKER_ENV, "RTVI_CV_ENDPOINT": "http://vss-rtvi-cv:9000"}
+        rt = SearchRuntime.from_env(env)
+        assert rt.rtvi_cv_endpoint == "http://vss-rtvi-cv:9000"
+
     def test_missing_rtvi_cv_raises(self) -> None:
         env = dict(_HELM_ENV)
         env.pop("RTVI_CV_BASE_URL")
@@ -391,8 +396,36 @@ class TestFromDictValidation:
         with pytest.raises(ConfigurationError, match="default_max_results"):
             RuntimeSnapshot.from_dict(self._full_payload(default_max_results="not-a-number"))
 
+    def test_fractional_integer_is_rejected(self) -> None:
+        with pytest.raises(ConfigurationError, match="default_max_results"):
+            RuntimeSnapshot.from_dict(self._full_payload(default_max_results=1.9))
+
+    def test_non_object_payload_is_rejected(self) -> None:
+        with pytest.raises(ConfigurationError, match="JSON object"):
+            RuntimeSnapshot.from_dict([])  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("default_max_results", 0),
+            ("request_timeout_seconds", 0),
+            ("rrf_k", 0),
+            ("top_percent_filter", 1.0),
+            ("fusion_method", "unknown"),
+        ],
+    )
+    def test_invalid_runtime_knob_is_rejected(self, field, value) -> None:
+        with pytest.raises(ConfigurationError, match=field):
+            RuntimeSnapshot.from_dict(self._full_payload(**{field: value}))
+
 
 class TestNumericCoercion:
+    def test_non_mapping_function_block_is_rejected(self, tmp_path) -> None:
+        config = tmp_path / "config.yml"
+        config.write_text("functions:\n  search: invalid\n")
+        with pytest.raises(ConfigurationError, match="must be a mapping"):
+            SearchRuntime.from_config_file(config, env={})
+
     def test_from_config_file_coerces_quoted_numbers(self, tmp_path) -> None:
         config = tmp_path / "config.yml"
         config.write_text(

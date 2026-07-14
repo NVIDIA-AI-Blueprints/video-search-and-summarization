@@ -38,6 +38,7 @@ from typing import Literal
 
 from elasticsearch import NotFoundError as ESNotFoundError
 
+from lib._foundation.errors import LibraryError
 from lib._foundation.sanitize import scrub_log
 from lib._foundation.time import datetime_to_iso8601
 from lib._foundation.time import iso8601_instants_match
@@ -51,7 +52,6 @@ from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter
 from .._internal.time_measure import TimeMeasure
 from ..errors import IndexNotFoundError
-from ..errors import SearchError
 from ..models.attribute_search import AttributeSearchInput
 from ..models.attribute_search import AttributeSearchMetadata
 from ..models.attribute_search import AttributeSearchResult
@@ -922,7 +922,7 @@ async def _fuse_multi_attribute(
     """Fuse mode: run each attribute (top_k=1), then resolve one screenshot per result.
 
     Each attribute runs independently; a per-attribute failure is isolated the
-    same way append mode isolates one — systemic ``SearchError`` (missing index,
+    same way append mode isolates one — systemic ``LibraryError`` (missing index,
     backend unreachable) re-raises, while a non-systemic failure only drops that
     attribute's contribution instead of sinking the whole fuse request.
     """
@@ -943,7 +943,7 @@ async def _fuse_multi_attribute(
 
     all_results: list[AttributeSearchResult] = []
     for query, outcome in zip(queries, results_list, strict=True):
-        if isinstance(outcome, SearchError):
+        if isinstance(outcome, LibraryError):
             raise outcome
         if isinstance(outcome, BaseException):
             if not isinstance(outcome, Exception):
@@ -1000,7 +1000,7 @@ async def _append_multi_attribute(
             else:
                 all_results.extend(attr_results)
             logger.info(f"Attribute '{scrub_log(attr_query)}': found {len(attr_results)} result(s)")
-        except SearchError:
+        except LibraryError:
             # Systemic failures (missing index, backend unreachable, invalid input)
             # affect every attribute equally — fail fast rather than retrying.
             raise

@@ -48,11 +48,17 @@ _DEFAULT_TIMEOUT_SECONDS = 30
 # Only transient connection/timeout failures are worth retrying. Deterministic
 # failures (4xx, JSON/parse/validation errors, VSTError) must fail fast rather
 # than burning three attempts on an outcome that cannot change.
-_VST_RETRYABLE_ERRORS: tuple[type[BaseException], ...] = (
+_VST_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     aiohttp.ClientConnectionError,
+    aiohttp.ClientPayloadError,
     aiohttp.ServerTimeoutError,
     TimeoutError,
 )
+
+# Keep the retry policy deliberately narrow, but make the public helper
+# boundary total for aiohttp failures. Errors raised while reading a response
+# body (for example ClientPayloadError) are not all connection subclasses.
+_VST_BOUNDARY_ERRORS: tuple[type[Exception], ...] = (aiohttp.ClientError, TimeoutError)
 
 
 # ---------------------------------------------------------------------- types
@@ -155,23 +161,26 @@ async def get_video_clip_url(
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{stream_seg}/url?{query_params}"
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
-            with retry:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        raise VSTError(f"Failed to get video clip URL: HTTP {response.status}")
-                    text = await response.text()
-                    try:
-                        payload = json.loads(text)
-                    except json.JSONDecodeError as e:
-                        raise VSTError(f"Invalid JSON in VST clip response: {e}") from e
-                    if not isinstance(payload, dict):
-                        raise VSTError(f"Unexpected VST clip response shape: {type(payload).__name__}")
-                    video_url = payload.get("videoUrl")
-                    if not video_url:
-                        raise VSTError("No videoUrl in VST clip response")
-                    return str(video_url)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
+                with retry:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            raise VSTError(f"Failed to get video clip URL: HTTP {response.status}")
+                        text = await response.text()
+                        try:
+                            payload = json.loads(text)
+                        except json.JSONDecodeError as e:
+                            raise VSTError(f"Invalid JSON in VST clip response: {e}") from e
+                        if not isinstance(payload, dict):
+                            raise VSTError(f"Unexpected VST clip response shape: {type(payload).__name__}")
+                        video_url = payload.get("videoUrl")
+                        if not video_url:
+                            raise VSTError("No videoUrl in VST clip response")
+                        return str(video_url)
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError("Failed to get video clip URL after retrying transport errors", e) from e
 
     raise VSTError("Failed to get video clip URL")
 
@@ -188,35 +197,38 @@ async def get_name_to_stream_id_map(
     """
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
-            with retry:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        raise VSTError(f"VST streams API returned status {response.status}")
-                    text = await response.text()
-                    try:
-                        payload = json.loads(text)
-                        if not isinstance(payload, list):
-                            raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
-                        mapping: dict[str, str] = {}
-                        for file in payload:
-                            if not isinstance(file, dict) or not file:
-                                logger.warning("Skipping malformed VST stream entry")
-                                continue
-                            stream_id = next(iter(file))
-                            entries = file[stream_id]
-                            if isinstance(entries, list) and len(entries) > 0 and isinstance(entries[0], dict):
-                                name = entries[0].get("name")
-                                if name is not None:
-                                    mapping[name] = stream_id
-                            else:
-                                logger.warning(f"Stream ID {stream_id} is empty, skipping")
-                        return mapping
-                    except VSTError:
-                        raise
-                    except Exception as e:
-                        raise VSTError(f"Error parsing name to stream ID map: {e}") from e
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
+                with retry:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            raise VSTError(f"VST streams API returned status {response.status}")
+                        text = await response.text()
+                        try:
+                            payload = json.loads(text)
+                            if not isinstance(payload, list):
+                                raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
+                            mapping: dict[str, str] = {}
+                            for file in payload:
+                                if not isinstance(file, dict) or not file:
+                                    logger.warning("Skipping malformed VST stream entry")
+                                    continue
+                                stream_id = next(iter(file))
+                                entries = file[stream_id]
+                                if isinstance(entries, list) and len(entries) > 0 and isinstance(entries[0], dict):
+                                    name = entries[0].get("name")
+                                    if name is not None:
+                                        mapping[name] = stream_id
+                                else:
+                                    logger.warning(f"Stream ID {stream_id} is empty, skipping")
+                            return mapping
+                        except VSTError:
+                            raise
+                        except Exception as e:
+                            raise VSTError(f"Error parsing name to stream ID map: {e}") from e
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError("Failed to get name to stream ID map after retrying transport errors", e) from e
     return {}  # unreachable; satisfies mypy
 
 
@@ -232,38 +244,41 @@ async def get_streams_info(
     """
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
-            with retry:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        raise VSTError(f"VST streams API returned status {response.status}")
-                    text = await response.text()
-                    try:
-                        payload = json.loads(text)
-                        if not isinstance(payload, list):
-                            raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
-                        result: dict[str, dict[str, str]] = {}
-                        for entry in payload:
-                            if not isinstance(entry, dict) or not entry:
-                                logger.warning("Skipping malformed VST stream entry")
-                                continue
-                            stream_id = next(iter(entry))
-                            stream_list = entry[stream_id]
-                            if (
-                                isinstance(stream_list, list)
-                                and len(stream_list) > 0
-                                and isinstance(stream_list[0], dict)
-                            ):
-                                result[stream_id] = {
-                                    "name": stream_list[0].get("name", ""),
-                                    "url": stream_list[0].get("url", ""),
-                                }
-                        return result
-                    except VSTError:
-                        raise
-                    except Exception as e:
-                        raise VSTError(f"Error parsing streams info: {e}") from e
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
+                with retry:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            raise VSTError(f"VST streams API returned status {response.status}")
+                        text = await response.text()
+                        try:
+                            payload = json.loads(text)
+                            if not isinstance(payload, list):
+                                raise VSTError(f"Unexpected VST streams response shape: {type(payload).__name__}")
+                            result: dict[str, dict[str, str]] = {}
+                            for entry in payload:
+                                if not isinstance(entry, dict) or not entry:
+                                    logger.warning("Skipping malformed VST stream entry")
+                                    continue
+                                stream_id = next(iter(entry))
+                                stream_list = entry[stream_id]
+                                if (
+                                    isinstance(stream_list, list)
+                                    and len(stream_list) > 0
+                                    and isinstance(stream_list[0], dict)
+                                ):
+                                    result[stream_id] = {
+                                        "name": stream_list[0].get("name", ""),
+                                        "url": stream_list[0].get("url", ""),
+                                    }
+                            return result
+                        except VSTError:
+                            raise
+                        except Exception as e:
+                            raise VSTError(f"Error parsing streams info: {e}") from e
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError("Failed to get streams info after retrying transport errors", e) from e
     return {}  # unreachable; satisfies mypy
 
 
@@ -336,14 +351,15 @@ async def get_timeline(
     timelines_url = f"{base}/vst/api/v1/storage/timelines"
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
-            with retry:
-                try:
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
+                with retry:
                     async with session.get(timelines_url) as response:
                         if response.status != 200:
                             raise VSTError(f"VST timelines API returned status {response.status}")
                         text = await response.text()
+                    try:
                         timelines_data = json.loads(text)
                         if not isinstance(timelines_data, dict):
                             raise VSTError(f"Unexpected VST timelines response shape: {type(timelines_data).__name__}")
@@ -364,10 +380,12 @@ async def get_timeline(
                         if (end_dt - start_dt).total_seconds() < 1:
                             raise VSTError(f"Timeline duration is too short for stream {stream_id}")
                         return start, end
-                except VSTError:
-                    raise
-                except Exception as e:
-                    raise VSTError(f"Error getting timeline for stream {stream_id}: {e}") from e
+                    except VSTError:
+                        raise
+                    except Exception as e:
+                        raise VSTError(f"Error getting timeline for stream {stream_id}: {e}") from e
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError(f"Failed to get timeline for stream {stream_id} after retrying transport errors", e) from e
     return "", ""  # unreachable; satisfies mypy
 
 

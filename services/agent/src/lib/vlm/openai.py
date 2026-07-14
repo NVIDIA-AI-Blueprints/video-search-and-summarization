@@ -75,6 +75,16 @@ class OpenAIVLMAnalyzer:
         max_frames: int = 60,
         max_fps: int = 2,
     ) -> None:
+        if not base_url.strip():
+            raise ConfigurationError("VLM base_url must be non-empty")
+        if not model.strip():
+            raise ConfigurationError("VLM model must be non-empty")
+        if timeout_seconds < 1:
+            raise ConfigurationError("VLM timeout_seconds must be >= 1")
+        if media_mode not in {"video_url", "video_base64", "frame_base64"}:
+            raise ConfigurationError(f"unsupported VLM media_mode: {media_mode!r}")
+        if video_url_scope not in {"internal", "external"}:
+            raise ConfigurationError(f"unsupported VLM video_url_scope: {video_url_scope!r}")
         self._base_url = _normalize_base_url(base_url)
         self._model = model
         self._api_key = api_key
@@ -147,7 +157,10 @@ class OpenAIVLMAnalyzer:
             response = await self._request_with_retries(
                 "POST", self._chat_completions_url, headers=headers, json=payload
             )
-            return _extract_chat_content(response.json())
+            answer = _extract_chat_content(response.json())
+            if not answer.strip():
+                raise ValueError("VLM response contained no text content")
+            return answer
         except BackendUnreachableError:
             # Library errors from the injected VST dependency (backend="vst") or
             # elsewhere already carry backend context — let them propagate as-is

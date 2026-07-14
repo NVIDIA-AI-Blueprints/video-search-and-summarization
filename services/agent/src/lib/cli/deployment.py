@@ -8,7 +8,8 @@ contains in-cluster URLs that are not usable from a workstation.  Instead we
 reconstruct the non-secret runtime inputs from the deployment's source of
 truth:
 
-* Docker: a profile's generated.env and checked-out agent config;
+* Docker: shared service defaults, a profile's layered .env/generated.env
+  files, and checked-out agent config;
 * Kubernetes: the live agent Deployment, ConfigMap, and non-secret ConfigMap
   references used by that Deployment.
 
@@ -120,7 +121,7 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     try:
         lines = path.read_text().splitlines()
     except OSError as e:
-        raise ConfigurationError(f"could not read Docker generated.env {str(path)!r}: {e}") from e
+        raise ConfigurationError(f"could not read Docker environment file {str(path)!r}: {e}") from e
 
     env: dict[str, str] = {}
     for number, raw in enumerate(lines, start=1):
@@ -129,7 +130,7 @@ def _parse_env_file(path: Path) -> dict[str, str]:
             continue
         match = _ENV_LINE.fullmatch(line)
         if match is None:
-            raise ConfigurationError(f"invalid generated.env line {number} in {str(path)!r}")
+            raise ConfigurationError(f"invalid Docker environment line {number} in {str(path)!r}")
         key, value = match.groups()
         # Docker accepts quoted values in env files.  We do not expand shell
         # syntax: RuntimeSnapshot owns the small, safe ${VAR} interpolation
@@ -137,17 +138,17 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         if len(value) >= 2 and value[:1] == value[-1:] and value[:1] in {"'", '"'}:
             value = value[1:-1]
         if "\n" in value or "\r" in value:
-            raise ConfigurationError(f"generated.env value for {key!r} must not contain newlines")
+            raise ConfigurationError(f"Docker environment value for {key!r} in {str(path)!r} must not contain newlines")
         env[key] = value
     return env
 
 
 def _expand_env_values(values: Mapping[str, str]) -> dict[str, str]:
-    """Resolve Docker-style references in env values using only this file.
+    """Resolve Docker-style references in a merged profile environment.
 
-    A generated.env normally contains final values but a few durable profile
-    defaults retain references (``VST_PORT=${...}``).  This bounded expansion
-    matches the config interpolation semantics and never consults process env.
+    The checked-in ``.env`` supplies stable defaults and ``generated.env``
+    overlays deployment-specific values. This bounded expansion matches the
+    config interpolation semantics and never consults process env.
     """
     source = dict(values)
     resolved: dict[str, str] = {}
@@ -158,7 +159,7 @@ def _expand_env_values(values: Mapping[str, str]) -> dict[str, str]:
             return cached
         if key in visiting:
             cycle = " -> ".join((*visiting[visiting.index(key) :], key))
-            raise ConfigurationError(f"generated.env contains a circular variable reference: {cycle}")
+            raise ConfigurationError(f"Docker profile environment contains a circular variable reference: {cycle}")
 
         def substitute(match: re.Match[str]) -> str:
             dependency = match.group(1)
@@ -206,9 +207,9 @@ def _env_port(env: Mapping[str, str], *keys: str, default: int) -> int:
     try:
         port = int(raw)
     except ValueError as e:
-        raise ConfigurationError(f"generated.env port {keys[0]!r} must be an integer, got {raw!r}") from e
+        raise ConfigurationError(f"Docker profile port {keys[0]!r} must be an integer, got {raw!r}") from e
     if not 1 <= port <= 65535:
-        raise ConfigurationError(f"generated.env port {keys[0]!r} must be in [1, 65535], got {port}")
+        raise ConfigurationError(f"Docker profile port {keys[0]!r} must be in [1, 65535], got {port}")
     return port
 
 
@@ -236,11 +237,19 @@ class DeploymentConfig:
 
 
 def _docker_profile_runtime(profile: str) -> tuple[Path, dict[str, str]]:
-    """Return a profile config and fully expanded generated.env values."""
+    """Return a profile config and its fully expanded Compose environment."""
     normalized = profile.removeprefix("dev-profile-")
-    profile_dir = _repo_root() / "deploy" / "docker" / "developer-profiles" / f"dev-profile-{normalized}"
+    docker_root = _repo_root() / "deploy" / "docker"
+    profile_dir = docker_root / "developer-profiles" / f"dev-profile-{normalized}"
+    stable = profile_dir / ".env"
     generated = profile_dir / "generated.env"
     config = profile_dir / "vss-agent" / "configs" / "config.yml"
+    service_defaults = (
+        docker_root / "services" / "vios" / "vst.env",
+        docker_root / "services" / "rtvi" / "rtvi.env",
+    )
+    if not stable.is_file():
+        raise ConfigurationError(f"Docker profile {profile!r} has no .env at {str(stable)!r}.")
     if not generated.is_file():
         raise ConfigurationError(
             f"Docker profile {profile!r} has no generated.env at {str(generated)!r}. "
@@ -248,7 +257,28 @@ def _docker_profile_runtime(profile: str) -> tuple[Path, dict[str, str]]:
         )
     if not config.is_file():
         raise ConfigurationError(f"Docker profile {profile!r} has no agent config at {str(config)!r}")
-    return config, _expand_env_values(_parse_env_file(generated))
+    for path in service_defaults:
+        if not path.is_file():
+            raise ConfigurationError(f"Docker profile {profile!r} has no service environment at {str(path)!r}")
+
+    # Compose includes the shared VST/RTVI defaults beneath the profile. Keep
+    # only runtime keys from those broad service files so unrelated variables
+    # (including self-defaulting Compose expressions) cannot affect discovery.
+    env: dict[str, str] = {}
+    for path in service_defaults:
+        env.update({key: value for key, value in _parse_env_file(path).items() if key in RUNTIME_ENV_ALLOWLIST})
+
+    # Match Docker Compose's --env-file ordering: stable profile values first,
+    # then deployment-specific generated values as the authoritative overlay.
+    env.update(_parse_env_file(stable))
+    env.update(_parse_env_file(generated))
+    # agent/compose.yml supplies this private, service-to-service endpoint
+    # directly. RTVI-CV does not expose TLS inside the Compose network.
+    env.setdefault(
+        "RTVI_CV_ENDPOINT",
+        "http://vss-rtvi-cv:${RTVI_CV_PORT:-9000}",  # NOSONAR S5332
+    )
+    return config, _expand_env_values(env)
 
 
 def discover_docker_host_endpoints(profile: str) -> dict[str, str]:

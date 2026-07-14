@@ -36,8 +36,8 @@ ConfigurationError; connection/timeout failures raise BackendUnreachableError.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import MISSING
 from dataclasses import dataclass
+import math
 import os
 from pathlib import Path
 import re
@@ -75,13 +75,6 @@ def _require_config_value(name: str, *values: Any) -> Any:
     return value
 
 
-def _bool(s: str | None) -> bool:
-    """Parse a shell-style boolean string. None / unset / falsy → False."""
-    if s is None:
-        return False
-    return s.strip().lower() in {"1", "true", "yes", "on"}
-
-
 # Config values arrive from YAML or a JSON snapshot where a quoted scalar
 # (``"7"``) or a stringly-typed boolean (``"no"``) would otherwise be stored
 # verbatim on the frozen dataclass — an int field holding a str, or a truthy
@@ -116,8 +109,8 @@ _FALSE_STRINGS = frozenset({"0", "false", "no", "off"})
 def _coerce_config_bool(name: str, value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    if isinstance(value, int):
-        return value != 0
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
     if isinstance(value, str):
         normalized = value.strip().lower()
         if normalized in _TRUE_STRINGS:
@@ -134,7 +127,11 @@ def _coerce_config_int(name: str, value: Any) -> int:
         raise ConfigurationError(f"config value '{name}' must be an integer, got {value!r}")
     if isinstance(value, int):
         return value
-    if isinstance(value, (str, float)):
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ConfigurationError(f"config value '{name}' must be an integer, got {value!r}")
+        return int(value)
+    if isinstance(value, str):
         try:
             return int(value)
         except (TypeError, ValueError) as e:
@@ -224,7 +221,7 @@ class SearchRuntime:
     """
 
     # ---- Backend URLs ----
-    es_endpoint: str
+    es_endpoint: str | None = None
     # ES cluster for behavior index (object_id re-search). Often the same URL
     # as es_endpoint in single-cluster deployments; kept separate to match
     # SearchConfig.behavior_es_endpoint at tools/search.py:1560.
@@ -232,11 +229,11 @@ class SearchRuntime:
     # COSMOS_EMBED_ENDPOINT and RTVI_EMBED port 8017 are the same physical
     # service in current deployments — one logical embed service exposed via
     # two env names (see from_env() below).
-    cosmos_embed_endpoint: str
+    cosmos_embed_endpoint: str | None = None
     cosmos_embed_model: str = "cosmos-embed1-448p"  # from RTVI_EMBED_MODEL
-    rtvi_cv_endpoint: str
-    vst_internal_url: str
-    vst_external_url: str
+    rtvi_cv_endpoint: str | None = None
+    vst_internal_url: str | None = None
+    vst_external_url: str | None = None
 
     # ---- Indexes ----
     behavior_index: str = "mdx-behavior-2025-01-01"  # DEFAULT_BEHAVIOR_INDEX in code
@@ -267,6 +264,34 @@ class SearchRuntime:
     top_percent_filter: float | None = None
     request_timeout_seconds: int = 30
 
+    def __post_init__(self) -> None:
+        """Reject invalid behavior knobs before they reach backend code."""
+        if self.default_max_results < 1:
+            raise ConfigurationError("default_max_results must be >= 1")
+        if self.request_timeout_seconds < 1:
+            raise ConfigurationError("request_timeout_seconds must be >= 1")
+        if self.rrf_k < 1:
+            raise ConfigurationError("rrf_k must be >= 1")
+        if self.fusion_method not in {"weighted_linear", "rrf", "rrf_with_attribute_rank"}:
+            raise ConfigurationError(f"unsupported fusion_method: {self.fusion_method!r}")
+        for name in ("embed_confidence_threshold", "w_attribute", "w_embed", "rrf_w"):
+            value = getattr(self, name)
+            if not math.isfinite(value):
+                raise ConfigurationError(f"{name} must be finite")
+        if not -1.0 <= self.embed_confidence_threshold <= 1.0:
+            raise ConfigurationError("embed_confidence_threshold must be in [-1, 1]")
+        if self.w_attribute < 0 or self.w_embed < 0 or self.rrf_w < 0:
+            raise ConfigurationError("fusion weights must be non-negative")
+        if self.top_percent_filter is not None and not 0 < self.top_percent_filter < 1:
+            raise ConfigurationError("top_percent_filter must be in (0, 1) when provided")
+
+    def require(self, name: str) -> str:
+        """Return one required non-empty string field or raise a typed error."""
+        value = getattr(self, name, None)
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigurationError(f"Required runtime value '{name}' is missing or empty")
+        return value
+
     # =========================================================================
     # Builders — the FOUR doors into the library. No primitive may read env.
     # =========================================================================
@@ -284,10 +309,10 @@ class SearchRuntime:
           Helm   (values.yaml): RTVI_CV_BASE_URL, RTVI_EMBED_BASE_URL,
                                 COSMOS_EMBED_ENDPOINT, ELASTIC_SEARCH_ENDPOINT,
                                 ELASTIC_SEARCH_INDEX, RTVI_EMBED_MODEL, HOST_IP
-          Docker (compose.yml): COSMOS_EMBED_ENDPOINT, ELASTIC_SEARCH_ENDPOINT,
-                                ELASTIC_SEARCH_INDEX, RTVI_EMBED_MODEL, HOST_IP,
-                                RTVI_EMBED_PORT, RTVI_CV_PORT (no RTVI_CV_ENDPOINT
-                                today; assembled here from HOST_IP + RTVI_CV_PORT).
+          Docker (compose.yml): RTVI_CV_ENDPOINT, COSMOS_EMBED_ENDPOINT,
+                                ELASTIC_SEARCH_ENDPOINT, ELASTIC_SEARCH_INDEX,
+                                RTVI_EMBED_MODEL, HOST_IP, RTVI_EMBED_PORT,
+                                RTVI_CV_PORT.
 
         This runtime is retrieval-only: it configures embed, attribute, and
         fusion search and intentionally does not read VLM or critic settings.
@@ -295,13 +320,17 @@ class SearchRuntime:
         env = os.environ if env is None else env
         host_ip = env.get("HOST_IP", "localhost")
 
-        # rtvi_cv: prefer Helm-style RTVI_CV_BASE_URL; else Docker-style HOST_IP+port.
-        rtvi_cv = env.get("RTVI_CV_BASE_URL") or (
-            f"http://{host_ip}:{env['RTVI_CV_PORT']}" if env.get("RTVI_CV_PORT") else None  # NOSONAR
+        # Docker exports RTVI_CV_ENDPOINT; Helm commonly uses RTVI_CV_BASE_URL.
+        rtvi_cv = (
+            env.get("RTVI_CV_ENDPOINT")
+            or env.get("RTVI_CV_BASE_URL")
+            or (
+                f"http://{host_ip}:{env['RTVI_CV_PORT']}" if env.get("RTVI_CV_PORT") else None  # NOSONAR
+            )
         )
         if not rtvi_cv:
             raise ConfigurationError(
-                "RTVI CV endpoint missing: set RTVI_CV_BASE_URL (Helm) or RTVI_CV_PORT (+ HOST_IP) (Docker)"
+                "RTVI CV endpoint missing: set RTVI_CV_ENDPOINT, RTVI_CV_BASE_URL, or RTVI_CV_PORT (+ HOST_IP)"
             )
 
         # cosmos_embed: prefer COSMOS_EMBED_ENDPOINT; fall back to RTVI_EMBED_BASE_URL
@@ -380,10 +409,14 @@ class SearchRuntime:
         search_cfg = fns.get("search", {}) or {}
         embed_cfg = fns.get("embed_search", {}) or {}
         attr_cfg = fns.get("attribute_search", {}) or {}
+        for name, block in (("search", search_cfg), ("embed_search", embed_cfg), ("attribute_search", attr_cfg)):
+            if not isinstance(block, Mapping):
+                raise ConfigurationError(f"NAT config function '{name}' must be a mapping")
 
         host_ip = env.get("HOST_IP", "localhost")
         rtvi_cv = _first_non_empty(
             attr_cfg.get("rtvi_cv_endpoint"),
+            env.get("RTVI_CV_ENDPOINT"),
             env.get("RTVI_CV_BASE_URL"),
             f"http://{host_ip}:{env['RTVI_CV_PORT']}" if env.get("RTVI_CV_PORT") else None,  # NOSONAR
         )
@@ -511,6 +544,8 @@ class RuntimeSnapshot:
 
         Ignores the legacy nested ``search`` block and unknown fields.
         """
+        if not isinstance(payload, Mapping):
+            raise ConfigurationError("runtime snapshot must be a JSON object")
         # Anything not in the SearchRuntime field set is ignored — newer agents
         # may add fields we don't yet know about; older agents may omit fields
         # we have defaults for. Either way we don't blow up.
@@ -545,7 +580,7 @@ class RuntimeSnapshot:
             with httpx.Client(timeout=timeout) as c:
                 response = c.get(url)
                 response.raise_for_status()
-                payload = response.json()
+            payload = response.json()
         except httpx.HTTPStatusError as e:
             raise ConfigurationError(f"agent at {url} returned HTTP {e.response.status_code}") from e
         except httpx.TransportError as e:
@@ -553,6 +588,8 @@ class RuntimeSnapshot:
             raise BackendUnreachableError("agent", f"could not reach agent at {url}: {e}", e) from e
         except (json.JSONDecodeError, ValueError) as e:
             raise ConfigurationError(f"agent at {url} returned invalid JSON: {e}") from e
+        if not isinstance(payload, Mapping):
+            raise ConfigurationError("agent runtime snapshot must be a JSON object")
         return cls.from_dict(payload)
 
 
@@ -563,7 +600,7 @@ _SEARCH_RUNTIME_FIELDS = frozenset(f.name for f in SearchRuntime.__dataclass_fie
 # requires; from_dict validates their presence before constructing so a partial
 # payload raises ConfigurationError instead of a bare TypeError.
 _REQUIRED_SEARCH_RUNTIME_FIELDS = frozenset(
-    f.name for f in SearchRuntime.__dataclass_fields__.values() if f.default is MISSING and f.default_factory is MISSING
+    {"es_endpoint", "cosmos_embed_endpoint", "rtvi_cv_endpoint", "vst_internal_url", "vst_external_url"}
 )
 
 

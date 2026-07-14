@@ -30,6 +30,7 @@ from lib.search_core.primitives._search_helpers import execute_core_search_wrapp
 from lib.search_core.primitives.search import Search
 from lib.search_core.primitives.search import _coerce_attribute_payload
 from lib.search_core.primitives.search import _coerce_embed_payload
+from lib.vst import VSTError
 
 # --------------------------------------------------------------------- fakes
 
@@ -251,6 +252,25 @@ class TestExecutionPaths:
         assert out.data[0].object_ids == ["42"]
 
     @pytest.mark.asyncio
+    async def test_fusion_without_embed_candidates_falls_back_to_attribute_only(self):
+        embed = _FakeEmbed([_embed_output([])])
+        attr = _FakeAttr([_attr_result(object_id="42", sensor_id="camX")])
+        out = await _run(
+            SearchInput(
+                query="person climbing ladder",
+                source_type="video_file",
+                attributes=["white jacket"],
+                search_mode="fusion",
+            ),
+            embed_search=embed,
+            config=_config(),
+            attribute_search_fn=attr,
+        )
+        assert len(embed.calls) == 1
+        assert len(attr.calls) == 1
+        assert out.data[0].object_ids == ["42"]
+
+    @pytest.mark.asyncio
     async def test_object_id_path(self):
         embed = _FakeEmbed([_embed_output([])])
         out = await _run(
@@ -377,6 +397,10 @@ class TestFinalCapping:
 
 
 class TestInputValidation:
+    def test_blank_query_rejected_semantically(self):
+        with pytest.raises(InvalidInputError, match="non-empty"):
+            SearchInput(query="   ").validate_semantics()
+
     def test_validate_semantics_timestamp_order(self):
         inp = SearchInput(
             query="q",
@@ -547,6 +571,27 @@ class TestStreamContract:
         assert len(terminals) == 1
         assert isinstance(terminals[0], ErrorEvent)
         assert terminals[0].error_code == "IndexNotFoundError"  # precise code preserved
+
+    @pytest.mark.asyncio
+    async def test_stream_vst_error_uses_backend_error_code(self, monkeypatch):
+        from lib.search_core.primitives import _search_helpers as sh
+
+        async def vst_failure(**_kwargs: Any):
+            if False:
+                yield None
+            raise VSTError("connection refused")
+
+        async def embed_run(_inp: Any) -> EmbedSearchOutput:
+            return _embed_output([])
+
+        search = _build_stream_search(embed_run)
+        monkeypatch.setattr(sh, "execute_core_search", vst_failure)
+
+        events = [e async for e in search.stream(SearchInput(query="q", source_type="video_file"))]
+
+        assert len(events) == 1
+        assert isinstance(events[0], ErrorEvent)
+        assert events[0].error_code == "VSTError"
 
     @pytest.mark.asyncio
     async def test_stream_unexpected_error_maps_to_unexpected_error_code(self):

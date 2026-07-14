@@ -38,6 +38,19 @@ def test_get_returns_a_copy() -> None:
     assert second == [1.0, 2.0, 3.0]
 
 
+def test_put_copies_the_producer_value() -> None:
+    cache = LRUEmbeddingCache(maxsize=4)
+    produced = [1.0, 2.0]
+    cache.put("k", produced)
+    produced.append(999.0)
+    assert cache.get("k") == [1.0, 2.0]
+
+
+def test_non_positive_maxsize_is_rejected() -> None:
+    with pytest.raises(ValueError, match="maxsize"):
+        LRUEmbeddingCache(maxsize=0)
+
+
 @pytest.mark.asyncio
 async def test_held_lock_survives_get_lock_eviction() -> None:
     cache = LRUEmbeddingCache(maxsize=1)

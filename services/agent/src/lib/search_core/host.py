@@ -130,7 +130,7 @@ class VSSSearch:
     @staticmethod
     def embed_only(rt: SearchRuntime) -> EmbedSearch:
         """Build just an EmbedSearch (e.g. for embed-only workflows that don't
-        need VLM env vars)."""
+        do not need the RTVI-CV endpoint)."""
         return EmbedSearch.from_runtime(rt)
 
     @staticmethod

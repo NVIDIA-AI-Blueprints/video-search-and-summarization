@@ -18,7 +18,10 @@ def _search_handler(argv: list[str]) -> int:
         operations = ",".join(SEARCH_OPERATIONS)
         sys.stdout.write(
             f"usage: vss-cli search {{{operations}}} [options]\n\n"
-            "Search primitives. Use `vss-cli search <operation> --help` for command details.\n"
+            "Normal archive search: vss-cli search run --help\n"
+            "Lower-level primitives: vss-cli search <embed|attribute> --help\n"
+            "From the checkout: set VSS_REPO_ROOT, then run\n"
+            '  uv run --project "$VSS_REPO_ROOT/services/agent/vss-cli" vss-cli search run ...\n'
         )
         return 0
     operation = argv[0]
