@@ -1,0 +1,23 @@
+version = "1.0.0"
+
+[oss.excluded]
+
+[[oss.excluded.directories]]
+paths = [
+  'services/agent/',
+  'services/alert/',
+  'services/analytics/behavior-analytics/',
+  'services/rtvi/',
+  'services/ui/',
+  'services/video-summarization/',
+  'services/vios/',
+  'deploy/',
+  'libs/',
+  'tools/',
+  'skills/',
+  'assets/',
+  '.github/',
+  '.openclaw/',
+  '.cursor/'
+]
+comment = 'Only include Video Analytics API microservice'
