@@ -22,6 +22,7 @@
   "first_party_registry_roots": [
     "nvcr.io/nvidia/vss-core",
     "nvcr.io/nvstaging/vss-core",
+    "nvcr.io/nv-metropolis-dev/met-moe-agents",
     "ghcr.io/nvidia-ai-blueprints"
   ],
   "images": [
