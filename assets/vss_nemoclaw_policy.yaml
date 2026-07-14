@@ -37,34 +37,6 @@ network_policies:
     binaries:
       - { path: /usr/local/bin/claude }
 
-  nvidia:
-    name: nvidia
-    endpoints:
-      - host: integrate.api.nvidia.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        tls: terminate
-        allowed_ips:
-          - 10.0.0.0/8
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-      - host: inference-api.nvidia.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        tls: terminate
-        allowed_ips:
-          - 10.0.0.0/8
-        rules:
-          - allow: { method: GET, path: "/**" }
-          - allow: { method: POST, path: "/**" }
-    binaries:
-      - { path: /usr/local/bin/claude }
-      - { path: /usr/local/bin/openclaw }
-      - { path: /usr/local/bin/node }
-
   github:
     name: github
     endpoints:
