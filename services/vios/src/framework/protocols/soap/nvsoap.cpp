@@ -35,6 +35,9 @@
 #include <sys/ioctl.h>
 #include <algorithm>
 #include <regex>
+#include <chrono>
+#include <sstream>
+#include <iomanip>
 
 using namespace std;
 using namespace nv_vms;
@@ -3000,6 +3003,38 @@ static void getCameraPositionResult(const string& xmlData, SensorPosition& posit
     return;
 }
 
+// Parse an ONVIF UTC timestamp "YYYY-M-DThh:mm:ssZ" (fields may be unpadded) into
+// a UTC epoch (seconds). Returns 0 on failure.
+static time_t parseIso8601ToEpoch(const string& iso)
+{
+    if (iso.empty())
+    {
+        return 0;
+    }
+    struct tm tmv{};
+    // strptime accepts unpadded numeric fields, so this handles both
+    // "2026-7-13T8:15:46Z" (device) and "2026-07-13T08:15:46Z" (local) forms.
+    if (strptime(iso.c_str(), "%Y-%m-%dT%H:%M:%SZ", &tmv) == nullptr)
+    {
+        return 0;
+    }
+    return timegm(&tmv);
+}
+
+// Format a UTC epoch (seconds) as "%Y-%m-%dT%XZ" -- identical to getCurrentUtcTime(),
+// so the cached path produces the same string form as the known-good fallback.
+static string formatUtcFromEpoch(time_t epoch)
+{
+    struct tm gmtm{};
+    if (gmtime_r(&epoch, &gmtm) == nullptr)
+    {
+        return string();
+    }
+    std::ostringstream oss;
+    oss << std::put_time(&gmtm, "%Y-%m-%dT%XZ");
+    return oss.str();
+}
+
 int NvSoap::addUserToken(nvsoap_& soap, xmlTextWriterPtr& writer)
 {
       int rc;
@@ -3007,15 +3042,49 @@ int NvSoap::addUserToken(nvsoap_& soap, xmlTextWriterPtr& writer)
       string nounce64 = base64_encode(nounce.c_str(), nounce.size());
       string utcTime;
 
-      nvsoap_ soap_time;
-      soap_time.url = soap.device_url;
-      soap_time.timeout = 5;   // 5sec
-      soap_time.curl = soap.curl;
-      soap_time.authMethod = soap.authMethod;
-      if (GetSystemDateAndTime(soap_time, utcTime) != 0)
+      // Build the WS-UsernameToken "Created" timestamp. To avoid a
+      // GetSystemDateAndTime round-trip before every authenticated request, cache
+      // the device clock offset (deviceTime - localTime) and reuse it while fresh.
+      // Falls back to a live GetSystemDateAndTime when stale/unset/disabled; the
+      // offset is invalidated on a 401 (see createAndSendRequest) so it self-heals.
+      bool cacheEnabled = GET_CONFIG().onvif_cache_device_time_offset;
+      int64_t ttlSec = GET_CONFIG().onvif_sensor_time_sync_interval_secs;
+      if (ttlSec <= 0)
       {
-          // Use current system utc time if get device time fails.
-          utcTime = getCurrentUtcTime();
+          ttlSec = 60;
+      }
+      time_t localNow = time(nullptr);
+      int64_t syncedAt = m_offsetSyncedAtSec.load();
+
+      if (cacheEnabled && syncedAt != 0 && ((int64_t)localNow - syncedAt) < ttlSec)
+      {
+          // Fresh cached offset -> compute the timestamp locally, no round-trip.
+          utcTime = formatUtcFromEpoch(localNow + m_deviceTimeOffsetSec.load());
+      }
+      else
+      {
+          nvsoap_ soap_time;
+          soap_time.url = soap.device_url;
+          soap_time.timeout = 5;   // 5sec
+          soap_time.curl = soap.curl;
+          soap_time.authMethod = soap.authMethod;
+          if (GetSystemDateAndTime(soap_time, utcTime) != 0)
+          {
+              // Use current system utc time if get device time fails.
+              utcTime = getCurrentUtcTime();
+          }
+          else if (cacheEnabled)
+          {
+              // Refresh the cached offset for subsequent requests. Re-read the local
+              // clock right next to the device time so the offset is accurate.
+              time_t deviceEpoch = parseIso8601ToEpoch(utcTime);
+              if (deviceEpoch > 0)
+              {
+                  time_t localAfter = time(nullptr);
+                  m_deviceTimeOffsetSec.store((int64_t)deviceEpoch - (int64_t)localAfter);
+                  m_offsetSyncedAtSec.store((int64_t)localAfter);
+              }
+          }
       }
       LOG(verbose2) << "utcTime: "<<utcTime << endl;
 
@@ -4767,6 +4836,10 @@ int NvSoap::createAndSendRequest(nvsoap_& soap, string& outData)
                 if (httpCode == 400 || httpCode == 401)
                 {
                     m_httpErrorString = "Camera has not authorized, please set credentials";
+                    // A cached clock offset that has drifted out of the device's
+                    // accepted skew window would surface here as a 401. Drop it so the
+                    // next authenticated request re-syncs the device time (self-heal).
+                    invalidateDeviceTimeOffset();
                 }
                 else
                 {
