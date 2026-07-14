@@ -17,7 +17,7 @@
 
 services:
   vss-va-mcp:
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-va-mcp
     profiles:
     - bp_wh_2d
@@ -62,7 +62,7 @@ services:
 
   vss-agent:
     # Version pinned via VSS_AGENT_VERSION (see the profile .env files).
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-agent
     profiles:
     - bp_wh_2d
