@@ -101,6 +101,10 @@
 			"value": "1"
 		},
 		{
+			"name": "numWorkersForIncidentGeneration",
+			"value": "0"
+		},
+		{
 			"name": "inSimulationMode",
 			"value": "true"
 		},
