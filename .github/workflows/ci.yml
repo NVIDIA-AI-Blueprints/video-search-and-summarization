@@ -684,6 +684,44 @@ jobs:
         run: python3 .github/scripts/check_no_patented_codecs.py --from-deploy vss-agent
 
   # ---------------------------------------------------------------------------
+  # Job 11c: Container coordinates golden test (containers.env SSOT)
+  # Guards the single source of truth for first-party image coordinates:
+  # (1) unit-test the resolver, (2) prove every resolved compose image ref
+  # matches the checked-in golden file, and (3) prove containers.env cannot
+  # drift from the inline compose defaults. Pure Python, no registry access.
+  # ---------------------------------------------------------------------------
+  compose-golden:
+    name: Container Coordinates Golden
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the golden resolver and SSOT-aware name matching
+        run: python3 .github/scripts/test_compose_image_golden.py
+
+      - name: Unit-test the release-set tooling
+        run: python3 .github/scripts/test_release_set.py
+
+      - name: Unit-test the build change detection
+        run: python3 .github/scripts/test_detect_changed_images.py
+
+      - name: Unit-test the GHCR immutability/provenance guard
+        run: python3 .github/scripts/test_ghcr_image_guard.py
+
+      - name: Unit-test the last-green channel controller
+        run: python3 .github/scripts/test_last_green.py
+
+      - name: Verify resolved image refs match the golden file
+        run: python3 .github/scripts/compose_image_golden.py
+
+      - name: Verify profile dependency closure over the container inventory
+        run: python3 .github/scripts/release_set.py closure
+
+  # ---------------------------------------------------------------------------
   # Job 12: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
