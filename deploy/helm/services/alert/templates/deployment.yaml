@@ -90,6 +90,8 @@ spec:
             {{- $rawVlmMerged = $rawVlmGlob }}
             {{- end }}
             {{- $vlmUrl := trim (tpl $rawVlmMerged .) }}
+            {{- $globVlmUrl := trim (default "" (index $g "vlmBaseUrl")) }}
+            {{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
             {{- $subVn := trim (default "" .Values.vlmName) }}
             {{- $globVn := trim (default "" (index $g "vlmName")) }}
             {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos3-nano-reasoner" }}
@@ -97,11 +99,11 @@ spec:
             - name: EXTERNAL_IP
               value: {{ .Values.externalIp | default (index (.Values.global | default dict) "externalHost" | default "" | trim) | default "127.0.0.1" | quote }}
             - name: INTERNAL_IP
-              value: {{ .Values.internalIp | default (ternary (printf "%s-vss-alert-bridge" .Release.Name) "vss-alert-bridge" $pfx) | quote }}
+              value: {{ .Values.internalIp | default $vstIngHost | quote }}
             - name: VLM_BASE_URL
               value: {{ $vlmUrl | default $vlmDef | quote }}
             - name: VLM_MODE
-              value: {{ ternary "remote" "local" (ne $vlmUrl "") | quote }}
+              value: {{ ternary "remote" "local" (ne $globVlmUrl "") | quote }}
             - name: VLM_NAME
               value: {{ $vlmNameStr | quote }}
             - name: RTVI_VLM_MODEL_TO_USE
