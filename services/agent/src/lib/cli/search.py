@@ -62,12 +62,13 @@ from typing import get_args
 import httpx
 from pydantic import ValidationError
 
-from lib.search_core.errors import BackendUnreachableError
+from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.errors import LibraryError
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import IndexNotFoundError
 from lib.search_core.errors import InvalidInputError
-from lib.search_core.errors import SearchError
 from lib.search_core.models.common import FusionMethod
+from lib.vst import VSTError
 
 from .deployment import DeploymentConfig
 from .deployment import PortForwardError
@@ -84,12 +85,6 @@ SOURCE_TYPES = ("video_file", "rtsp")
 # Derived from the shared FusionMethod literal so CLI choices can never drift
 # from the strategies the orchestrator actually implements.
 FUSION_METHODS = get_args(FusionMethod)
-# Endpoints every primitive/runtime needs regardless of which primitive runs.
-_ALWAYS_REQUIRED_RUNTIME_ARGS: tuple[tuple[str, str], ...] = (
-    ("es_endpoint", "--es-endpoint"),
-    ("vst_internal_url", "--vst-internal-url"),
-    ("vst_external_url", "--vst-external-url"),
-)
 
 
 def _required_runtime_args(primitive: str) -> tuple[tuple[str, str], ...]:
@@ -97,41 +92,51 @@ def _required_runtime_args(primitive: str) -> tuple[tuple[str, str], ...]:
 
     ``embed_search`` never touches the RTVI-CV text embedder and
     ``attribute_search`` never touches the Cosmos embed service, so forcing
-    those endpoints for every primitive would reject valid invocations. The
-    unused endpoint is filled with an empty-string sentinel in
-    ``_runtime_from_args`` to preserve SearchRuntime's "all fields present"
-    invariant. ``search`` fuses both surfaces and needs all five.
+    those endpoints for every primitive would reject valid invocations.
+    ``search`` can route across both surfaces and therefore needs all five.
     """
-    required = list(_ALWAYS_REQUIRED_RUNTIME_ARGS)
-    if primitive != "attribute_search":
-        required.append(("cosmos_embed_endpoint", "--cosmos-embed-endpoint"))
-    if primitive != "embed_search":
-        required.append(("rtvi_cv_endpoint", "--rtvi-cv-endpoint"))
-    return tuple(required)
+    if primitive == "embed_search":
+        return (
+            ("es_endpoint", "--es-endpoint"),
+            ("cosmos_embed_endpoint", "--cosmos-embed-endpoint"),
+            ("vst_external_url", "--vst-external-url"),
+        )
+    if primitive == "attribute_search":
+        return (
+            ("es_endpoint", "--es-endpoint"),
+            ("rtvi_cv_endpoint", "--rtvi-cv-endpoint"),
+            ("vst_internal_url", "--vst-internal-url"),
+            ("vst_external_url", "--vst-external-url"),
+        )
+    return (
+        ("es_endpoint", "--es-endpoint"),
+        ("cosmos_embed_endpoint", "--cosmos-embed-endpoint"),
+        ("rtvi_cv_endpoint", "--rtvi-cv-endpoint"),
+        ("vst_internal_url", "--vst-internal-url"),
+        ("vst_external_url", "--vst-external-url"),
+    )
 
 
-# Resolve the CLI exit code for a streamed ErrorEvent by SearchError subtype so
+# Resolve the CLI exit code for a streamed ErrorEvent by LibraryError subtype so
 # streaming matches the non-streaming main() try/except (which relies on normal
 # subclass catching). Ordered most-specific-need-not-come-first because the
-# three SearchError branches below are disjoint; IndexNotFoundError resolves via
+# three LibraryError branches below are disjoint; IndexNotFoundError resolves via
 # issubclass(BackendUnreachableError) → 3, exactly like the non-stream path.
-_ERROR_EXIT_CODES: tuple[tuple[type[SearchError], int], ...] = (
+_ERROR_EXIT_CODES: tuple[tuple[type[LibraryError], int], ...] = (
     (InvalidInputError, 2),
     (BackendUnreachableError, 3),
     (ConfigurationError, 4),
 )
-_SEARCH_ERROR_CLASSES: dict[str, type[SearchError]] = {
-    cls.__name__: cls for cls in (InvalidInputError, BackendUnreachableError, IndexNotFoundError, ConfigurationError)
+_SEARCH_ERROR_CLASSES: dict[str, type[LibraryError]] = {
+    cls.__name__: cls
+    for cls in (InvalidInputError, BackendUnreachableError, IndexNotFoundError, VSTError, ConfigurationError)
 }
-_STREAM_BACKEND_ERROR_CODES = frozenset({"VSTError"})
 
 
 def _exit_code_for_stream_error(error_code: str) -> int:
     """Map an ErrorEvent.error_code string to the same exit code main() would use."""
     if error_code == "ValidationError":
         return 2
-    if error_code in _STREAM_BACKEND_ERROR_CODES:
-        return 3
     error_cls = _SEARCH_ERROR_CLASSES.get(error_code)
     if error_cls is not None:
         for base, code in _ERROR_EXIT_CODES:
@@ -623,15 +628,13 @@ def _runtime_from_args(args: argparse.Namespace) -> SearchRuntime:
             + "or --config-env KEY=VALUE pairs for interpolated deployment config."
         )
 
-    # Fill an endpoint a given primitive doesn't use with an empty-string
-    # sentinel so the frozen SearchRuntime keeps all fields present.
     kwargs: dict[str, Any] = {
-        "es_endpoint": args.es_endpoint or "",
-        "behavior_es_endpoint": args.behavior_es_endpoint or args.es_endpoint or "",
-        "cosmos_embed_endpoint": args.cosmos_embed_endpoint or "",
-        "rtvi_cv_endpoint": args.rtvi_cv_endpoint or "",
+        "es_endpoint": args.es_endpoint,
+        "behavior_es_endpoint": args.behavior_es_endpoint or args.es_endpoint,
+        "cosmos_embed_endpoint": args.cosmos_embed_endpoint,
+        "rtvi_cv_endpoint": args.rtvi_cv_endpoint,
         "vst_internal_url": args.vst_internal_url,
-        "vst_external_url": args.vst_external_url or "",
+        "vst_external_url": args.vst_external_url,
     }
     for field in _RUNTIME_OVERRIDE_FIELDS:
         value = getattr(args, field, None)
@@ -946,7 +949,7 @@ async def _resolve_named_sources(payload: dict[str, Any], runtime: SearchRuntime
 
     from lib.vst import get_name_to_stream_id_map
 
-    name_to_stream = await get_name_to_stream_id_map(runtime.vst_internal_url)
+    name_to_stream = await get_name_to_stream_id_map(runtime.require("vst_internal_url"))
     if not name_to_stream:
         raise ConfigurationError(
             "the deployment returned no registered VST sources; ingest the named source through the agent before search"
@@ -1033,7 +1036,8 @@ async def _preflight_embed_model(runtime: SearchRuntime) -> None:
     value is preserved, and a default/mistyped value fails with the IDs an
     operator can choose from explicitly.
     """
-    url = f"{runtime.cosmos_embed_endpoint.rstrip('/')}/v1/models"
+    endpoint = runtime.require("cosmos_embed_endpoint")
+    url = f"{endpoint.rstrip('/')}/v1/models"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(url)
@@ -1066,7 +1070,8 @@ async def _preflight_rtvi_cv(args: argparse.Namespace, payload: dict[str, Any], 
         needs_text_embedding = True
     if not needs_text_embedding:
         return
-    url = f"{runtime.rtvi_cv_endpoint.rstrip('/')}/api/v1/generate_text_embeddings"
+    endpoint = runtime.require("rtvi_cv_endpoint")
+    url = f"{endpoint.rstrip('/')}/api/v1/generate_text_embeddings"
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=2.0)) as client:
             response = await client.post(url, json={"text_input": "vss-cli capability probe", "model": ""})

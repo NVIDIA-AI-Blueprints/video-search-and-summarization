@@ -7,7 +7,7 @@ allow-direct-references = true
 
 [tool.hatch.build]
 exclude = [
-    "/.venv",
+    "/.venv*",
     "/.wheel-smoke",
     "/coverage.xml",
     "/dist",
@@ -33,7 +33,6 @@ dependencies = [
     "pydantic~=2.12",
     "PyYAML~=6.0",
     "tenacity~=9.0",
-    "typing-extensions~=4.15",
 ]
 
 [project.scripts]
@@ -61,15 +60,18 @@ constraint-dependencies = [
     "aiohappyeyeballs==2.6.1",
     "aiohttp==3.13.4",
     "anyio==4.12.1",
+    "attrs==25.4.0",
     "certifi==2026.1.4",
     "coverage==7.13.4",
     "elastic-transport==8.17.1",
     "elasticsearch==8.17.2",
     "httpx==0.28.1",
+    "idna==3.11",
     "librt==0.8.1",
     "mypy==1.19.1",
     "numpy==2.4.2",
     "opencv-python-headless==4.13.0.92",
+    "packaging==26.0",
     "pathspec==1.0.4",
     "propcache==0.4.1",
     "pydantic==2.12.5",

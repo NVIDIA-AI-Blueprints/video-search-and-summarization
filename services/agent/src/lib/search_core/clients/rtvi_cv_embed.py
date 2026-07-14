@@ -22,14 +22,14 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
-from typing import cast
+from typing import override
 
 import httpx
-from typing_extensions import override  # noqa: UP035  # mypy targets 3.11
 
 from ..errors import BackendUnreachableError
 from ._cache import LRUEmbeddingCache
 from .embed_base import EmbedClient
+from .embed_base import validate_embedding
 
 if TYPE_CHECKING:
     from ..runtime import SearchRuntime
@@ -50,7 +50,7 @@ class RTVICVEmbedClient(EmbedClient):
 
     @classmethod
     def from_runtime(cls, rt: SearchRuntime) -> RTVICVEmbedClient:
-        return cls(rt.rtvi_cv_endpoint)
+        return cls(rt.require("rtvi_cv_endpoint"))
 
     @override
     async def aclose(self) -> None:
@@ -98,9 +98,9 @@ class RTVICVEmbedClient(EmbedClient):
 
             embedding_data = result["data"][0]
             if isinstance(embedding_data, list):
-                return embedding_data
+                return validate_embedding(embedding_data, backend="rtvi_cv")
             if isinstance(embedding_data, dict) and "embedding" in embedding_data:
-                return cast("list[float]", embedding_data["embedding"])
+                return validate_embedding(embedding_data["embedding"], backend="rtvi_cv")
             raise ValueError(f"Unexpected embedding data format: {type(embedding_data).__name__}")
 
         except httpx.HTTPError as e:

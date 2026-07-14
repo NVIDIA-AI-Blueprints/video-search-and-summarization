@@ -78,7 +78,7 @@ def iso8601_instants_match(a: str | None, b: str | None) -> bool:
     so non-timestamp sentinels still compare correctly.
 
     Shared by the embed and attribute exclusion filters so both paths agree on
-    what "the same clip" means when suppressing a critic-rejected result on
+    what "the same clip" means when suppressing an excluded result on
     re-search: :func:`merge_consecutive_results` reformats a result's
     ``end_time`` via the round-trip above, so an exact-string comparison would
     silently fail to exclude the rejected clip on the embed path.

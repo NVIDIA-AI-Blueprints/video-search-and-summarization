@@ -4,8 +4,26 @@ Run the `vss-cli` console executable from the independently distributed
 `nvidia-vss-cli` project in the checkout:
 
 ```bash
-uv run --project services/agent/vss-cli vss-cli search run [options]
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+test -f "${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml" || {
+  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
+  exit 1
+}
+cd "${VSS_REPO_ROOT}" &&
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+  vss-cli search run [options]
 ```
+
+The executable is provided by that project and need not exist globally. Do not
+use `which vss-cli`; verify the supported entry point directly:
+
+```bash
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+  vss-cli search run --help
+```
+
+If this preflight fails, report its error and stop. Do not substitute an agent
+runtime route or manually call Elasticsearch, embedding, or search endpoints.
 
 Do not invoke it through `docker exec`, `kubectl exec`, a pod shell, or an
 agent runtime endpoint.
@@ -54,8 +72,10 @@ listing. An unavailable or ambiguous source stops the command before search.
 
 ## Capability controls
 
-`ELASTIC_SEARCH_INDEX` is preferred; the fallback is
-`mdx-embed-filtered-2025-01-01`. Model IDs are verified through `/v1/models`.
+`ELASTIC_SEARCH_INDEX` names only the video embedding index and is preferred
+for that field; its fallback is `mdx-embed-filtered-2025-01-01`. It must not be
+reused as the behavior or raw index. Those are separate values resolved from
+the interpolated deployment config. Model IDs are verified through `/v1/models`.
 RTVI-CV text embedding is preflighted for attribute/fusion search. Use
 `--allow-embed-only-fallback` only to explicitly accept a result with the
 attribute portion removed.

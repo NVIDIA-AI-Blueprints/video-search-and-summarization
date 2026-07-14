@@ -65,6 +65,8 @@ class SearchInput(BaseModel):
         combination; centralizing them keeps the primitive's ``run()``/``stream()``
         thin and gives callers one place to exercise input semantics.
         """
+        if not self.query.strip():
+            raise InvalidInputError("SearchInput.query must be non-empty")
         if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
             raise InvalidInputError(
                 f"timestamp_start ({self.timestamp_start.isoformat()}) must not be after "

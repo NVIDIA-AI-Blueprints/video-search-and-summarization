@@ -21,11 +21,10 @@ its OWN endpoint-keyed registry of AsyncElasticsearch instances (the ClassVar
 decoupled from that module. The two registries therefore open independent
 connection pools per endpoint.
 
-Lifecycle: per-instance ``aclose()`` is a no-op because clients are shared
-within this registry; for teardown call the class method
-``ElasticClient.close_all()`` (separately from ``VSSESClient.close_all()`` —
-one does not cover the other). As with VSSESClient, in the long-lived agent
-process the pools are otherwise reaped at process exit.
+Lifecycle: wrappers acquire a reference to the shared transport and release it
+from ``aclose()``. The transport closes when the last wrapper releases it.
+``ElasticClient.close_all()`` remains available as a process-exit safety net
+(separately from ``VSSESClient.close_all()`` — one does not cover the other).
 """
 
 from __future__ import annotations
@@ -94,6 +93,7 @@ class ElasticClient:
     # reuses after a closed loop is freed) gives each loop its own client and
     # never returns a client bound to a different, already-closed loop.
     _clients: ClassVar[dict[tuple[str, asyncio.AbstractEventLoop], AsyncElasticsearch]] = {}
+    _ref_counts: ClassVar[dict[tuple[str, asyncio.AbstractEventLoop], int]] = {}
 
     def __init__(
         self,
@@ -111,6 +111,10 @@ class ElasticClient:
         self._client_loop = loop
         self._request_timeout = request_timeout
         self._max_retries = max_retries
+        self._registry_key: tuple[str, asyncio.AbstractEventLoop] | None = (
+            (endpoint, loop) if managed and client is not None and loop is not None else None
+        )
+        self._released = False
 
     # ---- Construction --------------------------------------------------------
 
@@ -146,15 +150,19 @@ class ElasticClient:
         initialization per key; subsequent callers reuse the existing client and
         these kwargs are ignored.
         """
-        # A closed loop cannot run the async close method any more, but retaining
-        # its client keeps both the loop and transport alive indefinitely. Drop
-        # those stale entries before looking up the active loop's client.
-        for stale_key in list(cls._clients):
-            stale_loop = stale_key[1]
-            if stale_loop is not None and stale_loop.is_closed():
-                cls._clients.pop(stale_key, None)
-
+        # A closed loop cannot service this transport again. Remove stale
+        # entries and best-effort close their transports on the active loop
+        # instead of silently dropping them and leaking sockets.
         loop = cls._current_loop()
+        if loop is not None:
+            for stale_key in list(cls._clients):
+                stale_loop = stale_key[1]
+                if stale_loop.is_closed():
+                    stale_client = cls._clients.pop(stale_key, None)
+                    cls._ref_counts.pop(stale_key, None)
+                    if stale_client is not None:
+                        loop.create_task(cls._close_discarded_client(stale_client))
+
         if loop is None:
             # Public factories are synchronous and may be called before
             # ``asyncio.run``. Do not create/cache a transport under a None key:
@@ -170,6 +178,7 @@ class ElasticClient:
         key = (endpoint, loop)
         existing = cls._clients.get(key)
         if existing is not None:
+            cls._ref_counts[key] = cls._ref_counts.get(key, 0) + 1
             return cls(
                 endpoint=endpoint,
                 client=existing,
@@ -196,6 +205,9 @@ class ElasticClient:
             loop = cls._current_loop()
             if loop is not None:
                 loop.create_task(cls._close_discarded_client(new))
+            cls._ref_counts[key] = cls._ref_counts.get(key, 0) + 1
+        else:
+            cls._ref_counts[key] = 1
         return cls(
             endpoint=endpoint,
             client=client,
@@ -211,18 +223,15 @@ class ElasticClient:
             assert self._client is not None
             return self._client
         loop = asyncio.get_running_loop()
-        if self._client is not None and self._client_loop is loop:
+        if self._client is not None and self._client_loop is loop and not self._released:
             return self._client
 
         old_client = self._client
         old_loop = self._client_loop
-        if old_client is not None and old_loop is not None and old_loop.is_closed():
-            if self._clients.get((self._endpoint, old_loop)) is old_client:
-                self._clients.pop((self._endpoint, old_loop), None)
-            try:
-                await old_client.close()
-            except Exception:
-                logger.debug("Failed to close Elasticsearch client from a closed loop", exc_info=True)
+        if old_client is not None and old_loop is not None and not self._released:
+            if old_loop is not loop and not old_loop.is_closed():
+                raise RuntimeError("ElasticClient cannot be used concurrently from multiple event loops")
+            await self._release_registry_reference((self._endpoint, old_loop), old_client)
 
         rebound = self.from_endpoint(
             self._endpoint,
@@ -232,17 +241,40 @@ class ElasticClient:
         assert rebound._client is not None
         self._client = rebound._client
         self._client_loop = loop
+        self._registry_key = rebound._registry_key
+        self._released = False
+        rebound._released = True  # ownership transferred to this wrapper
         return self._client
+
+    @classmethod
+    async def _release_registry_reference(
+        cls,
+        key: tuple[str, asyncio.AbstractEventLoop],
+        client: AsyncElasticsearch,
+    ) -> None:
+        """Release one registry acquisition and close on the final release."""
+        if cls._clients.get(key) is not client:
+            return
+        remaining = cls._ref_counts.get(key, 1) - 1
+        if remaining > 0:
+            cls._ref_counts[key] = remaining
+            return
+        cls._clients.pop(key, None)
+        cls._ref_counts.pop(key, None)
+        try:
+            await client.close()
+        except Exception:
+            logger.debug("Failed to close Elasticsearch client", exc_info=True)
 
     @classmethod
     def from_runtime(cls, rt: SearchRuntime) -> ElasticClient:
         """Build the default (es_endpoint) client from a SearchRuntime."""
-        return cls.from_endpoint(rt.es_endpoint, request_timeout=rt.request_timeout_seconds)
+        return cls.from_endpoint(rt.require("es_endpoint"), request_timeout=rt.request_timeout_seconds)
 
     @classmethod
     def from_runtime_behavior(cls, rt: SearchRuntime) -> ElasticClient:
         """Build a client targeting rt.behavior_es_endpoint (falls back to es_endpoint)."""
-        endpoint = rt.behavior_es_endpoint or rt.es_endpoint
+        endpoint = rt.behavior_es_endpoint or rt.require("es_endpoint")
         return cls.from_endpoint(endpoint, request_timeout=rt.request_timeout_seconds)
 
     # ---- ElasticIndex protocol surface --------------------------------------
@@ -275,12 +307,14 @@ class ElasticClient:
             raise BackendUnreachableError("elasticsearch", str(e), e) from e
 
     async def aclose(self) -> None:
-        """No-op at the instance level — clients are shared via the class registry.
-
-        For teardown, call ``await ElasticClient.close_all()`` from a process-exit
-        hook (or the agent's shutdown handler).
-        """
-        return None
+        """Release this wrapper's shared transport reference. Idempotent."""
+        if not self._managed or self._released or self._registry_key is None or self._client is None:
+            return
+        await self._release_registry_reference(self._registry_key, self._client)
+        self._released = True
+        self._client = None
+        self._client_loop = None
+        self._registry_key = None
 
     # ---- Class-level teardown -----------------------------------------------
 
@@ -293,6 +327,7 @@ class ElasticClient:
             except Exception:
                 logger.debug("Error closing ES client for %s", _redact_endpoint(endpoint), exc_info=True)
         cls._clients.clear()
+        cls._ref_counts.clear()
 
     # ---- Direct access for legacy call sites that still want the raw client.
     @property
@@ -305,7 +340,15 @@ class ElasticClient:
         loop = self._current_loop()
         if loop is None:
             raise RuntimeError("ElasticClient.raw requires a running event loop when constructed synchronously")
-        if self._client is None or self._client_loop is not loop:
+        if self._client is None or self._client_loop is not loop or self._released:
+            if (
+                self._client is not None
+                and self._client_loop is not None
+                and self._client_loop is not loop
+                and not self._client_loop.is_closed()
+                and not self._released
+            ):
+                raise RuntimeError("ElasticClient cannot be used concurrently from multiple event loops")
             rebound = self.from_endpoint(
                 self._endpoint,
                 request_timeout=self._request_timeout,
@@ -314,6 +357,9 @@ class ElasticClient:
             assert rebound._client is not None
             self._client = rebound._client
             self._client_loop = loop
+            self._registry_key = rebound._registry_key
+            self._released = False
+            rebound._released = True
         return self._client
 
     @property

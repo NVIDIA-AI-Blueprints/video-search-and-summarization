@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from lib._foundation.errors import BackendUnreachableError as FoundationBackendUnreachableError
+from lib._foundation.errors import ConfigurationError as FoundationConfigurationError
+from lib._foundation.errors import LibraryError
 from lib.search_core.errors import BackendUnreachableError
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import IndexNotFoundError
@@ -56,7 +59,7 @@ def test_isinstance_hierarchy():
     err = IndexNotFoundError("idx")
     assert isinstance(err, IndexNotFoundError)
     assert isinstance(err, BackendUnreachableError)
-    assert isinstance(err, SearchError)
+    assert isinstance(err, LibraryError)
     assert isinstance(err, Exception)
 
 
@@ -72,9 +75,17 @@ def test_index_not_found_caught_before_generic_backend():
     assert caught == "index"
 
 
-def test_other_errors_are_search_errors():
-    for err in (ConfigurationError("x"), InvalidInputError("x")):
-        assert isinstance(err, SearchError)
+def test_foundation_errors_are_reexported_instead_of_subclassed():
+    assert BackendUnreachableError is FoundationBackendUnreachableError
+    assert ConfigurationError is FoundationConfigurationError
+    assert SearchError is LibraryError
+
+
+def test_search_specific_errors_share_the_foundation_root():
+    assert isinstance(ConfigurationError("x"), SearchError)
+    assert isinstance(BackendUnreachableError("vst", "down"), SearchError)
+    assert isinstance(IndexNotFoundError("idx"), SearchError)
+    assert isinstance(InvalidInputError("x"), SearchError)
 
 
 def test_invalid_input_not_backend_unreachable():

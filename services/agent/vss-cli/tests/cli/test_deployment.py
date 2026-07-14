@@ -7,6 +7,7 @@ from __future__ import annotations
 from argparse import Namespace
 from io import StringIO
 from pathlib import Path
+import shutil
 import tempfile
 from typing import TYPE_CHECKING
 from typing import Any
@@ -16,6 +17,7 @@ import pytest
 import lib.cli.deployment as deployment
 from lib.search_core import SearchRuntime
 from lib.search_core.errors import ConfigurationError
+from lib.search_core.runtime import RuntimeSnapshot
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -34,27 +36,47 @@ functions:
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
 """
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 
-def test_docker_uses_generated_env_and_rewrites_private_hosts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def _write_docker_service_envs(root: Path) -> None:
+    vst = root / "deploy/docker/services/vios/vst.env"
+    vst.parent.mkdir(parents=True, exist_ok=True)
+    vst.write_text("VST_PORT=30888\nVST_INTERNAL_URL=http://vst-ingress:${VST_PORT}\n")
+    rtvi = root / "deploy/docker/services/rtvi/rtvi.env"
+    rtvi.parent.mkdir(parents=True, exist_ok=True)
+    rtvi.write_text("RTVI_EMBED_PORT=8017\n")
+
+
+def test_docker_layers_profile_env_and_rewrites_private_hosts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     profile = tmp_path / "deploy/docker/developer-profiles/dev-profile-search"
     config = profile / "vss-agent/configs/config.yml"
     config.parent.mkdir(parents=True)
     config.write_text(_CONFIG)
-    (profile / "generated.env").write_text(
+    _write_docker_service_envs(tmp_path)
+    (profile / ".env").write_text(
         "\n".join(
             (
                 "ELASTIC_SEARCH_ENDPOINT=http://elasticsearch:9200",
-                "ELASTICSEARCH_HOST_PORT=19200",
+                "ELASTICSEARCH_HOST_PORT=9200",
                 "COSMOS_EMBED_ENDPOINT=http://rtvi-embed:8000",
                 "RTVI_EMBED_PORT=18017",
                 "RTVI_CV_BASE_URL=http://vss-rtvi-cv:${RTVI_CV_PORT}",
-                "RTVI_CV_PORT=19000",
                 "VST_INTERNAL_URL=http://vst-ingress:${VST_PORT}",
                 "VST_PORT=30888",
-                "VST_EXTERNAL_URL=http://public.example",
                 "VLM_BASE_URL=http://vss-vlm-nim:8000",
                 "VLM_PORT=30082",
                 "ELASTIC_SEARCH_INDEX=mdx-embed-filtered-2025-01-01",
+                "HF_TOKEN=must-not-leave-discovery",
+            )
+        )
+    )
+    (profile / "generated.env").write_text(
+        "\n".join(
+            (
+                "ELASTICSEARCH_HOST_PORT=19200",
+                "RTVI_CV_PORT=19000",
+                "VST_EXTERNAL_URL=http://public.example",
                 "VSS_AGENT_HOST_PORT=18000",
                 "NVIDIA_API_KEY=must-not-leave-discovery",
                 "OPENAI_API_KEY=must-not-leave-discovery-either",
@@ -72,6 +94,8 @@ def test_docker_uses_generated_env_and_rewrites_private_hosts(tmp_path: Path, mo
     assert discovered.env["VST_INTERNAL_URL"] == "http://127.0.0.1:30888"
     assert discovered.env["VST_EXTERNAL_URL"] == "http://public.example"
     assert discovered.env["VLM_BASE_URL"] == "http://127.0.0.1:30082"
+    assert discovered.env["ELASTIC_SEARCH_INDEX"] == "mdx-embed-filtered-2025-01-01"
+    assert "HF_TOKEN" not in discovered.env
     assert "NVIDIA_API_KEY" not in discovered.env
     assert "OPENAI_API_KEY" not in discovered.env
     assert deployment.discover_docker_host_endpoints("search") == {
@@ -86,6 +110,8 @@ def test_docker_retains_external_vss_prefixed_vlm_host(tmp_path: Path, monkeypat
     config = profile / "vss-agent/configs/config.yml"
     config.parent.mkdir(parents=True)
     config.write_text(_CONFIG)
+    _write_docker_service_envs(tmp_path)
+    (profile / ".env").write_text("")
     (profile / "generated.env").write_text(
         "\n".join(
             (
@@ -104,6 +130,92 @@ def test_docker_retains_external_vss_prefixed_vlm_host(tmp_path: Path, monkeypat
     discovered = deployment.discover_docker("search")
 
     assert discovered.env["VLM_BASE_URL"] == "https://vss-models.example.com/v1"
+
+
+@pytest.mark.parametrize(
+    ("missing_name", "message"),
+    ((".env", r"has no \.env"), ("generated.env", "has no generated.env")),
+)
+def test_docker_requires_both_environment_layers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing_name: str, message: str
+) -> None:
+    profile = tmp_path / "deploy/docker/developer-profiles/dev-profile-search"
+    config = profile / "vss-agent/configs/config.yml"
+    config.parent.mkdir(parents=True)
+    config.write_text(_CONFIG)
+    for name in (".env", "generated.env"):
+        if name != missing_name:
+            (profile / name).write_text("")
+    monkeypatch.setattr(deployment, "_repo_root", lambda: tmp_path)
+
+    with pytest.raises(ConfigurationError, match=message):
+        deployment.discover_docker("search")
+
+
+def test_docker_reports_the_malformed_environment_layer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = tmp_path / "deploy/docker/developer-profiles/dev-profile-search"
+    config = profile / "vss-agent/configs/config.yml"
+    config.parent.mkdir(parents=True)
+    config.write_text(_CONFIG)
+    (profile / ".env").write_text("VALID=value\n")
+    (profile / "generated.env").write_text("not an assignment\n")
+    _write_docker_service_envs(tmp_path)
+    monkeypatch.setattr(deployment, "_repo_root", lambda: tmp_path)
+
+    with pytest.raises(ConfigurationError, match=r"invalid Docker environment line 1.*generated\.env"):
+        deployment.discover_docker("search")
+
+
+def test_docker_rejects_cross_layer_cycles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = tmp_path / "deploy/docker/developer-profiles/dev-profile-search"
+    config = profile / "vss-agent/configs/config.yml"
+    config.parent.mkdir(parents=True)
+    config.write_text(_CONFIG)
+    (profile / ".env").write_text("A=${B}\n")
+    (profile / "generated.env").write_text("B=${A}\n")
+    _write_docker_service_envs(tmp_path)
+    monkeypatch.setattr(deployment, "_repo_root", lambda: tmp_path)
+
+    with pytest.raises(ConfigurationError, match="circular variable reference"):
+        deployment.discover_docker("search")
+
+
+def test_docker_env_read_error_names_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / ".env"
+
+    def unreadable(_self: Path) -> str:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+
+    with pytest.raises(ConfigurationError, match=r"Docker environment file.*\.env.*permission denied"):
+        deployment._parse_env_file(path)
+
+
+def test_docker_real_search_profile_builds_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = REPOSITORY_ROOT / "deploy/docker"
+    profile = tmp_path / "deploy/docker/developer-profiles/dev-profile-search"
+    config = profile / "vss-agent/configs/config.yml"
+    config.parent.mkdir(parents=True)
+    shutil.copy2(source / "developer-profiles/dev-profile-search/.env", profile / ".env")
+    shutil.copy2(source / "developer-profiles/dev-profile-search/overrides.env", profile / "generated.env")
+    shutil.copy2(source / "developer-profiles/dev-profile-search/vss-agent/configs/config.yml", config)
+    for relative in ("services/vios/vst.env", "services/rtvi/rtvi.env"):
+        destination = tmp_path / "deploy/docker" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / relative, destination)
+    monkeypatch.setattr(deployment, "_repo_root", lambda: tmp_path)
+
+    discovered = deployment.discover_docker("search")
+    runtime = RuntimeSnapshot.from_config_file(discovered.config_path, env=discovered.env).runtime
+
+    assert runtime.vst_internal_url == "http://127.0.0.1:30888"
+    assert runtime.rtvi_cv_endpoint == "http://127.0.0.1:9000"
+    assert runtime.cosmos_embed_endpoint == "http://127.0.0.1:8017"
+    assert runtime.video_embed_index == "mdx-embed-filtered-2025-01-01"
+    assert runtime.behavior_index == "mdx-behavior-2025-01-01"
+    assert runtime.frames_index == "mdx-raw-2025-01-01"
+    assert len({runtime.video_embed_index, runtime.behavior_index, runtime.frames_index}) == 3
 
 
 def _deployment(*, secret_vst: bool = False) -> dict[str, Any]:
@@ -583,7 +695,9 @@ def test_kubernetes_rejects_ephemeral_external_vst_forward(monkeypatch: pytest.M
         config.close()
 
 
-def test_kubernetes_allows_internal_vst_for_critic_without_durable_links(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kubernetes_allows_internal_vst_for_source_lookup_without_durable_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     temporary_directory = tempfile.TemporaryDirectory()
     config = deployment.KubernetesDeploymentConfig(
         config_path=Path(temporary_directory.name) / "config.yml",

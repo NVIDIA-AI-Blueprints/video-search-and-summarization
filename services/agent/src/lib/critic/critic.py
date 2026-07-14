@@ -33,6 +33,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.errors import ConfigurationError
 from lib._foundation.time import datetime_to_iso8601
 
 from .models import CriticAgentInput
@@ -181,7 +182,9 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
             # bool()'d into a (possibly failing) criterion — e.g. {"result": ""}
             # would otherwise flip an otherwise-confirmable clip to REJECTED.
             raw_criteria = {k: v for k, v in payload.items() if k != "result"}
-        criteria = {str(k): bool(v) for k, v in raw_criteria.items()}
+        if any(not isinstance(value, bool) for value in raw_criteria.values()):
+            raise TypeError("criteria values must be JSON booleans")
+        criteria = {str(k): value for k, value in raw_criteria.items()}
 
         # Honor an explicit verdict for all three vocabulary values (not just the
         # two negative ones) so a VLM that self-reports ``"confirmed"`` is trusted
@@ -192,14 +195,14 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
                 return CriticAgentResult.UNVERIFIED, criteria
             if normalized == CriticAgentResult.REJECTED.value:
                 return CriticAgentResult.REJECTED, criteria
-            if normalized == CriticAgentResult.CONFIRMED.value:
+            if normalized == CriticAgentResult.CONFIRMED.value and criteria and all(criteria.values()):
                 return CriticAgentResult.CONFIRMED, criteria
+            if normalized == CriticAgentResult.CONFIRMED.value:
+                return CriticAgentResult.UNVERIFIED, criteria
 
-        verdict = CriticAgentResult.CONFIRMED
-        for v in criteria.values():
-            if not v:
-                verdict = CriticAgentResult.REJECTED
-                break
+        if not criteria:
+            return CriticAgentResult.UNVERIFIED, {}
+        verdict = CriticAgentResult.CONFIRMED if all(criteria.values()) else CriticAgentResult.REJECTED
         return verdict, criteria
     except (json.JSONDecodeError, AttributeError, TypeError) as e:
         logger.error(f"Error parsing VLM response: {e}")
@@ -219,6 +222,12 @@ class CriticAgent:
         time_format: TimeFormat = "iso",
         num_videos_to_evaluate: int | None = None,
     ) -> None:
+        if max_concurrent_verifications < 1:
+            raise ConfigurationError("max_concurrent_verifications must be >= 1")
+        if num_videos_to_evaluate is not None and num_videos_to_evaluate < 1:
+            raise ConfigurationError("num_videos_to_evaluate must be >= 1 when provided")
+        if time_format not in {"iso", "offset"}:
+            raise ConfigurationError(f"unsupported critic time_format: {time_format!r}")
         self._vlm = vlm_analyzer
         self._vst = vst
         self._prompt = prompt

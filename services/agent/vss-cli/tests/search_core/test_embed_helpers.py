@@ -244,7 +244,7 @@ def test_is_excluded_no_match():
 
 def test_is_excluded_tolerates_fractional_second_round_trip():
     # Integration regression: the orchestrator builds an exclude entry from a
-    # critic-REJECTED result whose end_time was reformatted by
+    # excluded result whose end_time was reformatted by
     # merge_consecutive_results (".752Z" -> ".752000Z"). Exclusion must still
     # match the raw re-fetched hit by INSTANT, not by exact string, or the
     # rejected clip would slip back into the embed re-search unfiltered.

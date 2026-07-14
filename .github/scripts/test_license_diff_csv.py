@@ -19,6 +19,14 @@ MODULE_SPEC.loader.exec_module(license_diff_csv)
 
 
 class ParseUvLockTest(unittest.TestCase):
+    def test_vss_cli_lock_excludes_development_only_packages(self) -> None:
+        lock_path = Path(__file__).parents[2] / "services" / "agent" / "vss-cli" / "uv.lock"
+
+        inventory = license_diff_csv.parse_uv_lock(lock_path.read_bytes())
+        names = {name for name, _version in inventory}
+
+        self.assertTrue(names.isdisjoint({"coverage", "mypy", "pytest", "ruff"}))
+
     def test_includes_runtime_closure_but_excludes_dev_dependencies_and_root(self) -> None:
         lock = b'''version = 1
 

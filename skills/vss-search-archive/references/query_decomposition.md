@@ -1,6 +1,6 @@
 # Query Decomposition for `vss-cli search run`
 
-Use this reference before every `vss-cli search run` call that is more complex than a plain object/action query. The CLI and `lib.search_core` do not call the VSS agent `/generate` API and do not run NAT query decomposition; the host agent must produce the same structured fields explicitly.
+Use this reference before every `vss-cli search run` call that is more complex than a plain object/action query. The CLI and `lib.search_core` do not run NAT query decomposition; the host agent must produce the structured fields explicitly.
 
 ## Output Contract
 
@@ -11,7 +11,7 @@ Prefer passing one JSON object through `--decomposed-json`:
   "query": "person in a white jacket climbing a ladder",
   "original_query": "Who climbed the ladder in the warehouse clip?",
   "source_type": "video_file",
-  "video_sources": ["sample-warehouse-ladder"],
+  "video_sources": ["warehouse-ladder"],
   "description": null,
   "timestamp_start": null,
   "timestamp_end": null,

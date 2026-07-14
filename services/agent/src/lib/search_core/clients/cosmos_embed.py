@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from typing import override
 
 import httpx
-from typing_extensions import override  # noqa: UP035  # mypy targets 3.11
 
 from ..errors import BackendUnreachableError
 from ._cache import LRUEmbeddingCache
 from .embed_base import EmbedClient
+from .embed_base import validate_embedding
 
 if TYPE_CHECKING:
     from ..runtime import SearchRuntime
@@ -55,7 +56,7 @@ class CosmosEmbedClient(EmbedClient):
 
     @classmethod
     def from_runtime(cls, rt: SearchRuntime) -> CosmosEmbedClient:
-        return cls(rt.cosmos_embed_endpoint, model=rt.cosmos_embed_model)
+        return cls(rt.require("cosmos_embed_endpoint"), model=rt.cosmos_embed_model)
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -90,8 +91,7 @@ class CosmosEmbedClient(EmbedClient):
             response = await self._get_client().post(self.image_embeddings_url, json=payload)
             response.raise_for_status()
             result = response.json()
-            embedding: list[float] = result["data"][0]["embedding"]
-            return embedding
+            return validate_embedding(result["data"][0]["embedding"], backend="cosmos_embed")
         except httpx.HTTPError as e:
             logger.error(f"Failed to get image embedding: {e}")
             raise BackendUnreachableError("cosmos_embed", str(e), e) from e
@@ -126,8 +126,7 @@ class CosmosEmbedClient(EmbedClient):
             response = await self._get_client().post(self.text_embeddings_url, json=payload)
             response.raise_for_status()
             result = response.json()
-            embeddings: list[float] = result["data"][0]["embeddings"]
-            return embeddings
+            return validate_embedding(result["data"][0]["embeddings"], backend="cosmos_embed")
         except httpx.HTTPError as e:
             logger.error(f"Failed to get text embedding: {e}")
             raise BackendUnreachableError("cosmos_embed", str(e), e) from e
@@ -157,7 +156,7 @@ class CosmosEmbedClient(EmbedClient):
             response = await self._get_client().post(self.video_embeddings_url, json=payload)
             response.raise_for_status()
             result = response.json()
-            embeddings = [item["embedding"] for item in result["data"]]
+            embeddings = [validate_embedding(item["embedding"], backend="cosmos_embed") for item in result["data"]]
             logger.info(f"Successfully generated {len(embeddings)} embeddings")
             return embeddings
         except httpx.HTTPError as e:
