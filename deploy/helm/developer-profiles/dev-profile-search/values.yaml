@@ -797,6 +797,6 @@ nims:
         effect: NoSchedule
     env:
       CUDA_VISIBLE_DEVICES: '1'
-      NIM_KVCACHE_PERCENT: '0.75'
+      NIM_GPU_MEMORY_UTILIZATION: '0.75'
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: '1'
       NIM_DELETE_LAST_FRAMES: '1'
