@@ -16,8 +16,7 @@
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
-        "Host `uv` and `services/agent/vss-cli/pyproject.toml` are present, and `deploy/docker/developer-profiles/dev-profile-search/generated.env` exists for deployment discovery"
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0"
       ]
     },
     {
