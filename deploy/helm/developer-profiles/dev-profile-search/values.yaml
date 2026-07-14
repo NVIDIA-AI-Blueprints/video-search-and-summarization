@@ -791,8 +791,8 @@ nims:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
+    # The cosmos3-reasoner subchart does not consume this env map — runtime env
+    # comes from the gpuProfiles.<gpuType>.cosmos3 ConfigMap. Override via
+    # nims.gpuProfiles.<gpuType>.cosmos3 instead.
     env:
       CUDA_VISIBLE_DEVICES: '1'
-      NIM_GPU_MEMORY_UTILIZATION: '0.75'
-      NIM_DISABLE_MM_PREPROCESSOR_CACHE: '1'
-      NIM_DELETE_LAST_FRAMES: '1'
