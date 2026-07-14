@@ -21,7 +21,7 @@ version: 3.2.1
 appVersion: "1.0"
 dependencies:
   - name: vss-rtvi-cv
-    version: 3.2.0
+    version: 3.2.1
     repository: "file://./charts/rtvi-cv"
     condition: vss-rtvi-cv.enabled
   - name: vss-rtvi-vlm
