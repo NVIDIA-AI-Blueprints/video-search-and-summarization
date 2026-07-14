@@ -30,10 +30,14 @@ redisPort: "6379"
 elasticHosts: ""
 vlmBaseUrl: ""
 vlmName: "nvidia/cosmos3-nano-reasoner"
-# VST base for URLs passed to the VLM (video fetch). Default: in-cluster vst-ingress service. If global.vlmBaseUrl is set (remote VLM), default becomes global.externalScheme/Host/Port so the VLM can reach media via ingress (set vss-alert-bridge.vstBaseUrl explicitly if you use remote VLM without global.vlmBaseUrl).
+# VST base for Alert Bridge media lookup (vst_config.base_url). Default: in-cluster
+# vss-vios-ingress service (Docker parity: always ${VST_INTERNAL_URL}). Public URLs
+# for remote VLM are rewritten via url_transform + EXTERNAL_IP/INTERNAL_IP, not by
+# flipping vst_config to global.externalHost.
 vstBaseUrl: ""
 
 externalIp: ""
+# Host:port for url_transform internal side (default: in-cluster vss-vios-ingress:30888).
 internalIp: ""
 
 # RTVI_VLM_MODEL_TO_USE passed to the container (default: vlmName)
