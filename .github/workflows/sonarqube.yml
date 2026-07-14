@@ -35,42 +35,20 @@ jobs:
             project_key: TEGRASW_metropolis_video-search-and-summarization-agent_video-search-and-summarization
             project_name: video-search-and-summarization-agent
             sources: services/agent
-            tests: services/agent/tests
+            tests: services/agent/tests,services/agent/vss-cli/tests
             python_version: "3.13"
-            workdir: services/agent
-            coverage_path: services/agent/coverage.xml
-            coverage_target: src/vss_agents
-            sync_args: "--no-install-package pycairo --no-install-package rlpycairo"
-          - name: vss-cli
-            project_key: TEGRASW_metropolis_video-search-and-summarization-vss-cli_video-search-and-summarization
-            project_name: video-search-and-summarization-vss-cli
-            sources: services/agent/src/lib/_foundation,services/agent/src/lib/cli,services/agent/src/lib/search_core,services/agent/src/lib/vlm,services/agent/src/lib/vst
-            tests: services/agent/vss-cli/tests
-            python_version: "3.13"
-            workdir: services/agent/vss-cli
-            coverage_path: services/agent/vss-cli/coverage.xml
-            coverage_target: "src/lib/_foundation --cov=src/lib/cli --cov=src/lib/search_core --cov=src/lib/vlm --cov=src/lib/vst"
-            sync_args: ""
           - name: ui
             project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
             project_name: video-search-and-summarization-ui
             sources: services/ui
             tests: ""
             python_version: ""
-            workdir: ""
-            coverage_path: ""
-            coverage_target: ""
-            sync_args: ""
           - name: skills
             project_key: TEGRASW_metropolis_video-search-and-summarization-skills_video-search-and-summarization
             project_name: video-search-and-summarization-skills
             sources: skills
             tests: ""
             python_version: ""
-            workdir: ""
-            coverage_path: ""
-            coverage_target: ""
-            sync_args: ""
 
     steps:
       - name: Checkout source
@@ -104,17 +82,14 @@ jobs:
           SONAR_SOURCES: ${{ matrix.sources }}
           SONAR_TESTS: ${{ matrix.tests }}
           SONAR_PYTHON_VERSION: ${{ matrix.python_version }}
-          SONAR_COVERAGE_REPORT: ${{ matrix.coverage_path }}
         run: |
           exclusions="**/node_modules/**,**/.venv/**,**/__pycache__/**,**/.mypy_cache/**,**/.ruff_cache/**,**/dist/**,**/build/**,**/.next/**,**/coverage/**,**/__tests__/**,**/*.test.ts,**/*.test.tsx,**/*.test.js,**/*.test.jsx,**/*.spec.ts,**/*.spec.tsx,**/3rdparty/**"
 
-          # The agent scan owns the established NAT application. The standalone
-          # vss-cli project owns its extracted libraries and tests; scanning them
-          # here as well duplicates findings (and attributes its test fixtures to
-          # the agent project). The agent's docker/ tree is also container
-          # build/runtime glue without a unit-test or coverage harness in CI.
+          # Keep the agent's production and test scopes disjoint. The vss-cli
+          # src/lib symlink points back to services/agent/src/lib, so exclude the
+          # symlink while scanning the real shared-library sources once.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**,services/agent/vss-cli/**,services/agent/src/lib/_foundation/**,services/agent/src/lib/cli/**,services/agent/src/lib/search_core/**,services/agent/src/lib/vlm/**,services/agent/src/lib/vst/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/tests/**,services/agent/vss-cli/tests/**,services/agent/vss-cli/src/**"
           fi
 
           {
@@ -127,26 +102,16 @@ jobs:
             echo "sonar.exclusions=${exclusions}"
           } > sonar-project.properties
 
-          if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-vss-cli" ]; then
-            echo "sonar.qualitygate.wait=true" >> sonar-project.properties
-          fi
-
           if [ -n "$SONAR_TESTS" ]; then
-            {
-              echo "sonar.tests=${SONAR_TESTS}"
-              echo "sonar.test.inclusions=${SONAR_TESTS}/**/*.py"
-            } >> sonar-project.properties
+            echo "sonar.tests=${SONAR_TESTS}" >> sonar-project.properties
           fi
 
           if [ -n "$SONAR_PYTHON_VERSION" ]; then
             echo "sonar.python.version=${SONAR_PYTHON_VERSION}" >> sonar-project.properties
           fi
 
-          if [ -n "$SONAR_COVERAGE_REPORT" ]; then
-            echo "sonar.python.coverage.reportPaths=${SONAR_COVERAGE_REPORT}" >> sonar-project.properties
-          fi
-
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
+            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml,services/agent/vss-cli/coverage.xml" >> sonar-project.properties
             # Keep in sync with [tool.coverage.run] omit in
             # services/agent/pyproject.toml. Files omitted there produce no
             # data in coverage.xml, so without a matching exclusion Sonar
@@ -202,24 +167,38 @@ jobs:
           sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
 
       - name: Install uv
-        if: matrix.python_version != ''
+        if: matrix.name == 'agent'
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           version: "0.6.2"
 
       - name: Set up Python
-        if: matrix.python_version != ''
+        if: matrix.name == 'agent'
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python_version }}
 
-      - name: Generate Python coverage
-        if: matrix.coverage_path != ''
-        working-directory: ${{ matrix.workdir }}
+      - name: Generate agent coverage
+        if: matrix.name == 'agent'
+        working-directory: services/agent
         run: |
-          uv sync --group dev --frozen ${{ matrix.sync_args }}
+          # The Sonar self-hosted runner cannot install system packages.
+          # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
+          # instead of requiring cairo headers and pkg-config on the runner.
+          uv sync --group dev --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run --no-sync pytest \
-            --cov=${{ matrix.coverage_target }} \
+            --cov=src/vss_agents \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            -m "not slow and not integration"
+
+      - name: Generate vss-cli coverage
+        if: matrix.name == 'agent'
+        working-directory: services/agent/vss-cli
+        run: |
+          uv sync --group dev --frozen
+          uv run --no-sync pytest \
+            --cov=src/lib \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"

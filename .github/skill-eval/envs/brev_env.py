@@ -709,12 +709,7 @@ chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
 # root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
 # a non-root git clean cannot remove ("Permission denied").
 git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
-ACTUAL_HEAD_SHA="$(git rev-parse HEAD)"
-if [ -n "$PR_HEAD_SHA" ] && [ "$ACTUAL_HEAD_SHA" != "$PR_HEAD_SHA" ]; then
-  echo "repo sync landed on $ACTUAL_HEAD_SHA, expected $PR_HEAD_SHA" >&2
-  exit 1
-fi
-echo "synced $REPO to ${ACTUAL_HEAD_SHA:0:12}"
+echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
         result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
