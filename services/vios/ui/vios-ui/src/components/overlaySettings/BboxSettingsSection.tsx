@@ -33,6 +33,7 @@ interface BboxSettingsSectionProps {
     objIdTextBGColor: string;
     setObjIdTextBGColor: (value: string) => void;
     availableClassLabels?: string[];
+    menuContainer?: Element | null;
 }
 
 const positionOptions = [
@@ -61,6 +62,7 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
     objIdTextBGColor,
     setObjIdTextBGColor,
     availableClassLabels,
+    menuContainer,
 }) => {
     return (
         <Box
@@ -90,7 +92,13 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
                 </Typography>
                 <FormControl fullWidth>
                     <InputLabel sx={{ fontWeight: 500 }}>Class Type</InputLabel>
-                    <Select multiple value={classType} onChange={e => setClassType(e.target.value as string[])} label='Class Type'>
+                    <Select
+                        multiple
+                        value={classType}
+                        onChange={e => setClassType(e.target.value as string[])}
+                        label='Class Type'
+                        MenuProps={{ container: menuContainer }}
+                    >
                         {availableClassLabels?.map(label => (
                             <MenuItem key={label} value={label}>
                                 {label}
@@ -136,7 +144,12 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
                     <Grid item xs={12} sm={4}>
                         <FormControl fullWidth disabled={!showObjId}>
                             <InputLabel sx={{ fontWeight: 500 }}>Position</InputLabel>
-                            <Select value={objIdPosition} onChange={e => setObjIdPosition(e.target.value as number)} label='Position'>
+                            <Select
+                                value={objIdPosition}
+                                onChange={e => setObjIdPosition(e.target.value as number)}
+                                label='Position'
+                                MenuProps={{ container: menuContainer }}
+                            >
                                 {positionOptions.map(opt => (
                                     <MenuItem key={opt.value} value={opt.value}>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -171,7 +184,12 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
                     <Grid item xs={12} sm={4}>
                         <FormControl fullWidth disabled={!showObjId}>
                             <InputLabel sx={{ fontWeight: 500 }}>Text Color</InputLabel>
-                            <Select value={objIdTextColor} onChange={e => setObjIdTextColor(e.target.value)} label='Text Color'>
+                            <Select
+                                value={objIdTextColor}
+                                onChange={e => setObjIdTextColor(e.target.value)}
+                                label='Text Color'
+                                MenuProps={{ container: menuContainer }}
+                            >
                                 {colorOptions.map(c => (
                                     <MenuItem key={c} value={c}>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -194,7 +212,12 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
                     <Grid item xs={12} sm={4}>
                         <FormControl fullWidth disabled={!showObjId}>
                             <InputLabel sx={{ fontWeight: 500 }}>Background Color</InputLabel>
-                            <Select value={objIdTextBGColor} onChange={e => setObjIdTextBGColor(e.target.value)} label='Background Color'>
+                            <Select
+                                value={objIdTextBGColor}
+                                onChange={e => setObjIdTextBGColor(e.target.value)}
+                                label='Background Color'
+                                MenuProps={{ container: menuContainer }}
+                            >
                                 {colorOptions.map(c => (
                                     <MenuItem key={c} value={c}>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

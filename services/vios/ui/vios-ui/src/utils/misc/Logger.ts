@@ -88,7 +88,16 @@ class Logger {
 
     private formatMessage(level: LogLevel, message: unknown, args: unknown[]): string {
         const timestamp = new Date().toISOString();
-        const stringify = (arg: unknown): string => (typeof arg === 'object' && arg !== null ? JSON.stringify(arg, null, 2) : String(arg));
+        const stringify = (arg: unknown): string => {
+            if (typeof arg !== 'object' || arg === null) {
+                return String(arg);
+            }
+            try {
+                return JSON.stringify(arg, null, 2);
+            } catch {
+                return String(arg);
+            }
+        };
         const head = stringify(message);
         const tail = args.map(stringify).join(' ');
         return `[${timestamp}] [${LEVEL_NAMES[level]}] ${head}${tail ? ` ${tail}` : ''}`;

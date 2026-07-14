@@ -51,7 +51,13 @@ const AnalyticsOverlayDialog: React.FC<AnalyticsOverlayDialogProps> = ({ open, o
                 Analytics Overlay Settings
             </DialogTitle>
             <DialogContent sx={{ p: 0 }}>
-                <OverlaySettingsPanel ref={panelRef} onSettingsChange={onSave} sensors={sensors} streamType={streamType} />
+                <OverlaySettingsPanel
+                    ref={panelRef}
+                    onSettingsChange={onSave}
+                    sensors={sensors}
+                    streamType={streamType}
+                    menuContainer={container}
+                />
             </DialogContent>
             <DialogActions
                 sx={{
