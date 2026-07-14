@@ -65,6 +65,33 @@ def detect_brev_link_domain() -> str:
     return "brevlab.com"
 
 
+
+def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
+    """Return the running OpenShell sandbox container name for *sandbox_name*.
+
+    Uses OpenShell owner labels instead of the container name prefix/format
+    (``openshell-<name>-<id>``), which is an implementation detail.
+    """
+    result = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "--no-trunc",
+            "--filter",
+            "label=openshell.ai/managed-by=openshell",
+            "--filter",
+            f"label=openshell.ai/sandbox-name={sandbox_name}",
+            "--format",
+            "{{.Names}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return names[0] if names else None
+
+
 def build_vss_ui_url(port: int = 7777) -> str | None:
     brev_env_id = os.environ.get("BREV_ENV_ID", "").strip() or read_etc_environment().get("BREV_ENV_ID", "").strip()
     if not brev_env_id:
