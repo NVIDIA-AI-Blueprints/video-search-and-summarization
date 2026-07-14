@@ -12,6 +12,28 @@ Run Compose from **`deploy/docker`** so relative paths resolve correctly.
 
 ---
 
+## Container coordinates — single source of truth (`containers.env`)
+
+First-party (`vss-core/*`) image coordinates live in one file, **`deploy/docker/containers.env`**, instead of being copied across ~30 compose files and dozens of `.env` files:
+
+- **`VSS_CONTAINER_REGISTRY`** / **`VSS_CONTAINER_STAGING_REGISTRY`** — registry roots for first-party images.
+- **`VSS_<IMAGE>_IMAGE` / `VSS_<IMAGE>_TAG`** — per-image coordinates (a few images keep their historical tag variables, e.g. `VSS_AGENT_VERSION`, `NVSTREAMER_IMAGE_TAG`).
+
+Every first-party compose `image:` line consumes these variables **and** carries the same literal as an inline `${VAR:-default}` fallback, so behavior is identical whether or not `containers.env` is sourced. Override anything from the environment without editing files:
+
+```bash
+# Point the agent at a GHCR candidate for one run
+VSS_AGENT_IMAGE=ghcr.io/nvidia-ai-blueprints/vss-agent \
+VSS_AGENT_VERSION=pr-1234-0123456789ab \
+  ./deploy/docker/scripts/dev-profile.sh up --profile base --hardware-profile H100
+```
+
+Two CI guards (job **`Container Coordinates Golden`**) keep this safe: a golden test pins every resolved image reference (`.github/scripts/compose_image_golden.py`, regenerate with `--update`), and a drift check proves `containers.env` always resolves identically to the inline defaults. The machine-readable classification of every first-party image (build/mirror scope, source path, platforms) is **`deploy/docker/container-inventory.json`**; see `docs/proposals/container-dev-and-release-workflow.md` for the release flow built on top (immutable GHCR candidates, release sets, and the last-green lock in `deploy/docker/last-green.lock.json`).
+
+Third-party / NIM images (`nvcr.io/nim/*`, `vllm`, `postgres`, `redis`, `cadvisor`, …) are **not** first-party and stay pinned as-is.
+
+---
+
 ## Developer profiles (recommended path)
 
 Use the **`dev-profile`** helper instead of hand-editing Compose for day-to-day developer stacks (**base**, **lvs**, **search**, **alerts**).
