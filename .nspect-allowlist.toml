@@ -1,0 +1,30 @@
+version = "1.0.0"
+
+[oss.excluded]
+
+# Umbrella blueprint — exclude all microservice source
+[[oss.excluded.directories]]
+paths = ['services/']
+comment = 'This is for github repo video-search-and-summerization and services/* microservice are excluded.'
+nspect_ids = ['NSPECT-Z2LM-L59M']
+
+# Behavior Analytics (services/analytics/behavior-analytics/)
+[[oss.excluded.directories]]
+paths = [
+  'services/agent/',
+  'services/alert/',
+  'services/analytics/video-analytics-api/',
+  'services/rtvi/',
+  'services/ui/',
+  'services/video-summarization/',
+  'services/vios/',
+  'deploy/',
+  'libs/',
+  'tools/',
+  'skills/',
+  'assets/',
+  '.github/',
+  '.openclaw/',
+]
+comment = 'Behavior Analytics only'
+nspect_ids = ['NSPECT-GPW2-30MV']
