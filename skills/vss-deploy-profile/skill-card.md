@@ -16,7 +16,7 @@ Global <br>
 
 ## Requirements / Dependencies: <br>
 **Requires API Key or External Credential:** [Yes] <br>
-**Credential Type(s):** [API key] <br>  
+**Credential Type(s):** [API key] <br>
 
 Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
