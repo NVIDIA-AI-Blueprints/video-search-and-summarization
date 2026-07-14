@@ -374,7 +374,7 @@ analytics:
     enabled: true
     command:
       - python3
-      - apps/dev_example/main_dev_example_app.py
+      - apps/search_and_alerts/main_search_and_alerts_app.py
       - --config
       - /resources/vss-behavior-analytics-config.json
     config:
@@ -385,7 +385,8 @@ analytics:
             "topics": [
               {"name": "raw", "value": "mdx-raw"},
               {"name": "notification", "value": "mdx-notification"},
-              {"name": "incidents", "value": "mdx-incidents"}
+              {"name": "incidents", "value": "mdx-incidents"},
+              {"name": "frames", "value": "mdx-frames"}
             ],
             "consumer": {
               "autoOffsetReset": "latest",
@@ -409,6 +410,8 @@ analytics:
             {"name": "sourceType", "value": "kafka"},
             {"name": "sinkType", "value": "kafka"},
             {"name": "numWorkersForIncidentGeneration", "value": "2"},
+            {"name": "numWorkersForBehaviorCreation", "value": "0"},
+            {"name": "numWorkersForEmbedFiltering", "value": "0"},
             {"name": "fovCountViolationIncidentEnable", "value": "true"},
             {"name": "fovCountViolationIncidentObjectThreshold", "value": "1"},
             {"name": "fovCountViolationIncidentThreshold", "value": "2"},
