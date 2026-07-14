@@ -53,6 +53,18 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
 
+# Public NVIDIA sample used by the RT-VLM test suite. Operators can override it
+# for isolated environments, but the eval remains runnable without extra CI
+# configuration.
+DEFAULT_RTSP_SAMPLE_URL = (
+    "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/sample_1080p_h264.mp4"
+)
+
+
+def _resolve_rtsp_sample_url() -> str:
+    """Return the operator-provided RTSP sample URL or the public default."""
+    return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
+
 
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
@@ -287,12 +299,14 @@ class BrevEnvironment(BaseEnvironment):
             # don't rely on extended thinking, so the cost is negligible.
             # Revisit if/when the proxy accepts the field.
             ("CLAUDE_CODE_DISABLE_THINKING", "1"),
+            # Dense-captioning evals require one URL that both the Brev host
+            # and its bridge-networked RT-VLM container can reach.
+            ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
         for key in (
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
-            "RTSP_SAMPLE_URL",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
