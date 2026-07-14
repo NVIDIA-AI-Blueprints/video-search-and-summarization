@@ -171,5 +171,99 @@ class SkipMarkers(unittest.TestCase):
             )
 
 
+class PoolCandidates(unittest.TestCase):
+    FLEET = [
+        {"name": "vss-eval-rtx-1g-2", "status": "RUNNING",
+         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
+        {"name": "vss-eval-rtx-1g-3", "status": "STOPPED",
+         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
+        {"name": "vss-eval-rtx-2g-2", "status": "RUNNING",
+         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.12xlarge"},
+        {"name": "vss-eval-l40s", "status": "RUNNING",
+         "gpu": "L40S", "instance_type": "massedcompute_L40Sx2"},
+        # gpu flake: catalog refresh returns "-" but instance_type carries it
+        {"name": "vss-eval-l40s-2", "status": "RUNNING",
+         "gpu": "-", "instance_type": "massedcompute_L40Sx2"},
+        {"name": "not-a-pool-box", "status": "RUNNING",
+         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
+    ]
+
+    def setUp(self):
+        self._orig = run_leg._list_brev_instances
+        run_leg._list_brev_instances = lambda: self.FLEET
+
+    def tearDown(self):
+        run_leg._list_brev_instances = self._orig
+
+    def test_filters_running_pool_and_gpu_type(self):
+        names = run_leg.pool_candidates(
+            {"gpu_type": "RTX PRO 6000", "gpu_count": 1})
+        self.assertEqual(names, ["vss-eval-rtx-1g-2", "vss-eval-rtx-2g-2"])
+
+    def test_exact_count_hint_sorts_first(self):
+        names = run_leg.pool_candidates(
+            {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
+        self.assertEqual(names[0], "vss-eval-rtx-2g-2")
+
+    def test_gpu_flake_accepted_via_instance_type(self):
+        names = run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1})
+        self.assertEqual(names, ["vss-eval-l40s", "vss-eval-l40s-2"])
+
+    def test_gpu_count_zero_accepts_any_running_pool_box(self):
+        names = run_leg.pool_candidates({"gpu_count": 0})
+        self.assertEqual(len(names), 4)
+        self.assertNotIn("not-a-pool-box", names)
+        self.assertNotIn("vss-eval-rtx-1g-3", names)
+
+
+class HoldPoolLock(unittest.TestCase):
+    def test_claims_first_free_candidate(self):
+        import fcntl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            # Hold the preferred box's lock as if another leg owns it.
+            held = (lock_dir / "box-a.lock").open("a+")
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                with run_leg.hold_pool_lock(
+                    lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
+                ) as chosen:
+                    self.assertEqual(chosen, "box-b")
+            finally:
+                held.close()
+
+    def test_times_out_when_all_held(self):
+        import fcntl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            held = (lock_dir / "box-a.lock").open("a+")
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                start = time.monotonic()
+                with self.assertRaises(run_leg.LockTimeoutError):
+                    with run_leg.hold_pool_lock(
+                        lambda: ["box-a"], lock_dir, timeout_sec=0
+                    ):
+                        pass
+                self.assertLess(time.monotonic() - start, 5)
+            finally:
+                held.close()
+
+    def test_lock_released_on_exit(self):
+        import fcntl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            with run_leg.hold_pool_lock(lambda: ["box-a"], lock_dir, 5) as chosen:
+                self.assertEqual(chosen, "box-a")
+            probe = (lock_dir / "box-a.lock").open("a+")
+            try:
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                probe.close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
