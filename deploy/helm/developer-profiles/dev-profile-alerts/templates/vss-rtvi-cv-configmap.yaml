@@ -26,8 +26,6 @@ metadata:
 {{- $ctxVals := merge (dict "global" (.Values.global | default dict)) $rtvi }}
 {{- $ctx := dict "Values" $ctxVals "Release" .Release }}
 data:
-  ds-start.sh: |
-{{ .Files.Get "configs/vss-rtvi-cv/alerts/ds-start.sh" | indent 4 }}
   run_config-api-rtdetr-protobuf.txt: |
 {{ tpl (.Files.Get "configs/vss-rtvi-cv/alerts/run_config-api-rtdetr-protobuf.txt") $ctx | indent 4 }}
   rtdetr-960x544.txt: |

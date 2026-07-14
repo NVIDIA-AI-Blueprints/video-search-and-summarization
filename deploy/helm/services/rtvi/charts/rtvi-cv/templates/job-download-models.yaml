@@ -52,38 +52,97 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.ngcApiKeySecretName | default "ngc-api" }}
                   key: {{ .Values.ngcApiKeySecretKey | default "NGC_CLI_API_KEY" }}
+            - name: STORAGE_UID
+              value: {{ .Values.ngcDownload.storageUid | default 1001 | quote }}
+            - name: STORAGE_GID
+              value: {{ .Values.ngcDownload.storageGid | default 1001 | quote }}
           command:
             - /bin/bash
             - -c
             - |
-              set -e
+              set -euo pipefail
               export DEBIAN_FRONTEND=noninteractive
               echo "[INFO] Installing NGC CLI..."
-              apt-get update -qq && apt-get install -y -qq wget unzip > /dev/null
+              apt-get update -qq && apt-get install -y -qq ca-certificates wget unzip > /dev/null
               cd /tmp
-              wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
-              unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
+              case "$(uname -m)" in
+                aarch64|arm64) NGC_CLI_ZIP="ngccli_arm64.zip" ;;
+                *)             NGC_CLI_ZIP="ngccli_linux.zip" ;;
+              esac
+              wget -q "https://ngc.nvidia.com/downloads/${NGC_CLI_ZIP}" -O ngccli.zip
+              unzip -q ngccli.zip && chmod +x ngc-cli/ngc
               export PATH="/tmp/ngc-cli:$PATH"
               ngc --version
+
+              resolve_source_path() {
+                local package_dir="$1"
+                local source_rel="$2"
+                if [[ -e "${package_dir}/${source_rel}" ]]; then
+                  printf '%s\n' "${package_dir}/${source_rel}"
+                  return
+                fi
+                local candidate
+                candidate="$(find "${package_dir}" -mindepth 1 \( -path "*/${source_rel}" -o -name "$(basename "${source_rel}")" \) | head -n1)"
+                if [[ -n "${candidate}" ]]; then
+                  printf '%s\n' "${candidate}"
+                  return
+                fi
+                echo "[ERROR] Unable to resolve ${source_rel} under ${package_dir}" >&2
+                return 1
+              }
+
+              apply_artifact_permissions() {
+                local path="$1"
+                chown -R "${STORAGE_UID}:${STORAGE_GID}" "${path}"
+                if [[ -d "${path}" ]]; then
+                  find "${path}" -type d -exec chmod 0777 {} +
+                  find "${path}" -type f -exec chmod 0644 {} +
+                else
+                  chmod 0644 "${path}"
+                  chown "${STORAGE_UID}:${STORAGE_GID}" "$(dirname "${path}")"
+                  chmod 0777 "$(dirname "${path}")"
+                fi
+              }
+
               echo "[INFO] Downloading models from NGC..."
               DEST="/data/models"
+              PACKAGE_CACHE="/tmp/ngc-model-cache"
+              mkdir -p "${DEST}" "${PACKAGE_CACHE}"
+              chown "${STORAGE_UID}:${STORAGE_GID}" "${DEST}" 2>/dev/null || true
+              chmod 0777 "${DEST}" 2>/dev/null || true
               {{- range .Values.ngcModelsToDownload }}
-              mkdir -p "${DEST}/$(dirname {{ .destPath | quote }})"
-              ngc registry model download-version {{ .model | quote }} --org {{ $.Values.ngcOrg | default "nvidia" | quote }}
-              mv {{ .sourcePath | quote }} "${DEST}/{{ .destPath }}"
-              rm -rf $(dirname {{ .sourcePath | quote }})
-              {{- end }}
-              {{- $vals := .Values | toYaml | fromYaml }}
-              {{- $veModel := dig "models" "visionEncoder" "model" "siglip_v2" $vals }}
-              {{- $veVersion := dig "models" "visionEncoder" "version" "v1.1" $vals }}
-              # Workaround: DeepStream expects "siglip2_*" but NGC ships "siglip_v2_*".
-              WEIGHTS_FILE="{{ $veModel }}_{{ $veVersion }}_weights.bin"
-              COMPAT_LINK="{{ $veModel | replace "_v2" "2" }}_{{ $veVersion }}_weights.bin"
-              if [[ -f "${DEST}/${WEIGHTS_FILE}" && ! -e "${DEST}/${COMPAT_LINK}" ]]; then
-                ln -s "${WEIGHTS_FILE}" "${DEST}/${COMPAT_LINK}"
-                echo "[INFO] Created compatibility symlink: ${COMPAT_LINK} -> ${WEIGHTS_FILE}"
+              MODEL={{ .model | quote }}
+              SOURCE_REL={{ .sourcePath | quote }}
+              DEST_REL={{ .destPath | quote }}
+              ORG={{ .org | default $.Values.ngcOrg | default "nvidia" | quote }}
+              MARKER="${DEST}/.${DEST_REL//\//__}.done"
+              DEST_ABS="${DEST}/${DEST_REL}"
+              if [[ -f "${MARKER}" && -e "${DEST_ABS}" ]]; then
+                echo "[INFO] Skipping ${MODEL} -> ${DEST_REL}; marker and artifact are present."
+              else
+                PACKAGE_KEY="$(printf '%s' "${MODEL}" | tr -c 'A-Za-z0-9._-' '_')"
+                PACKAGE_DIR="${PACKAGE_CACHE}/${PACKAGE_KEY}"
+                if [[ ! -f "${PACKAGE_DIR}/.downloaded" ]]; then
+                  rm -rf "${PACKAGE_DIR}"
+                  mkdir -p "${PACKAGE_DIR}"
+                  ngc registry model download-version "${MODEL}" --org "${ORG}" --dest "${PACKAGE_DIR}"
+                  touch "${PACKAGE_DIR}/.downloaded"
+                fi
+                SOURCE_ABS="$(resolve_source_path "${PACKAGE_DIR}" "${SOURCE_REL}")"
+                mkdir -p "$(dirname "${DEST_ABS}")"
+                rm -rf "${DEST_ABS}"
+                if [[ -d "${SOURCE_ABS}" ]]; then
+                  mkdir -p "${DEST_ABS}"
+                  cp -a "${SOURCE_ABS}/." "${DEST_ABS}/"
+                else
+                  cp -a "${SOURCE_ABS}" "${DEST_ABS}"
+                fi
+                apply_artifact_permissions "${DEST_ABS}"
+                touch "${MARKER}"
+                chown "${STORAGE_UID}:${STORAGE_GID}" "${MARKER}"
+                chmod 0644 "${MARKER}"
               fi
-              chmod -R a+rX "${DEST}"
+              {{- end }}
               echo "[INFO] Models downloaded to ${DEST}"
           volumeMounts:
             - name: models

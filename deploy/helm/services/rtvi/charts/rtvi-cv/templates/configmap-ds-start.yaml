@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.enabled (or (eq .Values.profileMode "alerts") (eq .Values.profileMode "search")) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-ds-start
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+data:
+  ds-start.sh: |
+{{ .Files.Get "files/ds-start.sh" | indent 4 }}
+{{- end }}

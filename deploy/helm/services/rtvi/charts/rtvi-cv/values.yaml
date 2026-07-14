@@ -63,7 +63,6 @@ streamAffinity:
   hashHeader: x-stream-id
 
 streamType: "kafka"
-modelType: "cnn"
 otelSdkDisabled: "true"
 otelServiceName: "rtvi-cv"
 deepstreamEnableSensorIdExtraction: "1"
@@ -72,10 +71,19 @@ hfHubOffline: "0"
 transformersOffline: "0"
 
 env:
+  DS_MODEL_FAMILY: "rtdetr-gdino"
+  DS_CONFIG_FILE: ""
+  DS_VISION_ENCODER: "false"
+  DS_TRACKER_REID: "false"
+  DS_SHOW_SENSOR_ID: "false"
+  DS_MODE_FLAG: "1"
+  DS_MESSAGE_RATE: "1"
+  VISION_ENCODER_MODEL: ""
+  VISION_ENCODER_VERSION: ""
   MODEL_NAME_2D: "GDINO"
-  MODEL_TYPE: "cnn"
   NUM_SENSORS: "1"
   STREAM_TYPE: "kafka"
+  HARDWARE_PROFILE: ""
 
 kafka:
   bootstrapServers: ""
@@ -94,6 +102,8 @@ ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"
 ngcDownload:
+  storageUid: 1001
+  storageGid: 1001
   image:
     repository: docker.io/library/ubuntu
     tag: "22.04"
