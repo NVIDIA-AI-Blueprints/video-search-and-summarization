@@ -21,14 +21,16 @@ from __future__ import annotations
 from datetime import UTC
 from datetime import datetime
 
+from pydantic import ValidationError
 import pytest
 
 from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.errors import ConfigurationError
 from lib.critic import CriticAgent
 from lib.critic import VideoInfo
 from lib.critic.models import CriticAgentInput
 from lib.critic.models import CriticAgentResult
-from lib.search_core.errors import ConfigurationError
+from lib.vst import VSTError
 
 # ---------------------------------------------------------------------- mocks
 
@@ -125,9 +127,34 @@ class TestCriticVerdict:
 
 class TestCriticErrors:
     @pytest.mark.asyncio
+    async def test_empty_json_is_unverified(self):
+        c = CriticAgent(vlm_analyzer=_FakeVLM("{}"), vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+
+    @pytest.mark.asyncio
+    async def test_string_boolean_is_unverified(self):
+        c = CriticAgent(vlm_analyzer=_FakeVLM('{"running": "false"}'), vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+
+    @pytest.mark.asyncio
     async def test_backend_failure_yields_unverified(self):
         error = BackendUnreachableError("vlm", "temporarily unavailable")
         critic = CriticAgent(vlm_analyzer=_FailingVLM(error), vst=_FakeVST())
+
+        out = await critic.run(CriticAgentInput(query="q", videos=[_video()]))
+
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert out.video_results[0].criteria_met == {}
+
+    @pytest.mark.asyncio
+    async def test_vst_failure_yields_per_video_unverified(self):
+        class DeadVST(_FakeVST):
+            async def resolve_stream_id(self, sensor_id: str) -> str:
+                raise VSTError(f"cannot resolve {sensor_id}")
+
+        critic = CriticAgent(vlm_analyzer=_FakeVLM('{"object": true}'), vst=DeadVST(), time_format="offset")
 
         out = await critic.run(CriticAgentInput(query="q", videos=[_video()]))
 
@@ -181,17 +208,32 @@ class TestCriticErrors:
         assert out.video_results[0].result == CriticAgentResult.REJECTED
 
     @pytest.mark.asyncio
-    async def test_explicit_confirmed_verdict_is_honored(self):
-        # An explicit "confirmed" verdict is trusted even when a stray criterion
-        # parses False (parity with the explicit rejected/unverified handling).
+    async def test_explicit_confirmed_verdict_cannot_override_failed_criterion(self):
         vlm = _FakeVLM('{"result": "confirmed", "criteria_met": {"running": false}}')
         c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
         out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
-        assert out.video_results[0].result == CriticAgentResult.CONFIRMED
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
         assert out.video_results[0].criteria_met == {"running": False}
 
 
 class TestCriticBatching:
+    def test_non_positive_concurrency_is_rejected(self):
+        with pytest.raises(ConfigurationError, match="max_concurrent"):
+            CriticAgent(vlm_analyzer=_FakeVLM("{}"), vst=_FakeVST(), max_concurrent_verifications=0)
+
+    def test_invalid_default_evaluation_count_is_rejected(self):
+        with pytest.raises(ConfigurationError, match="num_videos"):
+            CriticAgent(vlm_analyzer=_FakeVLM("{}"), vst=_FakeVST(), num_videos_to_evaluate=0)
+
+    def test_blank_query_is_rejected(self):
+        with pytest.raises(ValidationError, match="query"):
+            CriticAgentInput(query=" ", videos=[])
+
+    def test_invalid_video_time_range_is_rejected(self):
+        timestamp = datetime(2025, 1, 1, tzinfo=UTC)
+        with pytest.raises(ValidationError, match="end_timestamp"):
+            VideoInfo(sensor_id="cam", start_timestamp=timestamp, end_timestamp=timestamp)
+
     @pytest.mark.asyncio
     async def test_empty_sensor_id_skipped(self):
         vlm = _FakeVLM("{}")

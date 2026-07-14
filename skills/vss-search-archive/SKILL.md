@@ -14,8 +14,8 @@ metadata:
 Run NAT-free archive search from the host machine with `vss-cli`, and retain the
 agent-backed source ingestion and deletion lifecycle. The `nvidia-vss-cli`
 distribution exports `lib.*` for Python callers and provides the `vss-cli`
-console executable. Search never calls the VSS agent `/generate` route and never
-performs NAT query decomposition.
+console executable. Search uses the checked-out host CLI and performs no internal
+LLM query decomposition.
 
 ## Prerequisites
 
@@ -29,6 +29,26 @@ performs NAT query decomposition.
 Do not execute `vss-cli` inside a distroless VSS container or a pod. Do not
 wrap it with `docker exec`, `kubectl exec`, or `sh -lc`.
 
+`vss-cli` does not need to be installed globally and `which vss-cli` is not an
+availability check. Resolve the checkout once, allowing the operator to
+override Harbor's default, and validate it before the first search:
+
+```bash
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+test -f "${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml" || {
+  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
+  exit 1
+}
+cd "${VSS_REPO_ROOT}" &&
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+  vss-cli search run --help
+```
+
+`$HOME/video-search-and-summarization` is only the Harbor/default workspace;
+set `VSS_REPO_ROOT` for a checkout elsewhere. If validation or the command
+fails, report the error and stop. Do not substitute an agent runtime route or
+manually call search backends.
+
 ## Deployment prerequisite
 
 This skill requires the VSS **search** profile. Resolve `AGENT_URL` and `ES_URL`
@@ -37,11 +57,24 @@ Docker profile ports, or a durable Kubernetes Ingress/operator-managed
 port-forward for the agent mutation endpoint and Elasticsearch. Authentication,
 if configured, must use the operator's approved mechanism and must not be copied
 into prompts or logs.
+
+The deployment is not ready for archive search until its fully expanded
+`VST_EXTERNAL_URL` is reachable from the host that will consume search results.
+For a Brev deployment, follow `vss-deploy-profile`'s secure-link setup (including
+making `BREV_ENV_ID` from `/etc/environment` and any platform-provided
+`BREV_LINK_DOMAIN` available to the deployment command) and require an HTTPS
+public origin, not localhost or an internal IP. Domain selection belongs to the
+deployment workflow: do not construct a Brev hostname in this skill. After local
+agent and VST health succeeds, read the fully expanded generated public origin
+and validate it with a bounded GET. Stop or repair deployment routing within the
+bounded setup deadline when that request fails; do not download or ingest sample
+media first. Do not rewrite returned media URLs after search to compensate for a
+bad deployment.
 Before an agent-backed source mutation:
 
 1. Probe the stack:
    ```bash
-   curl -sfS --max-time 5 "${AGENT_URL}/docs" >/dev/null \
+   curl -sfS --max-time 5 "${AGENT_URL}/health" >/dev/null \
      && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null
    ```
    (The second check confirms Elasticsearch is up — unique to the search profile.)
@@ -76,16 +109,25 @@ name you provided and can be selected with `--video-source`.
 Use the timestamped upload form below. The VSS agent/search profile uses
 `2025-01-01T00:00:00.000Z` as the uploaded `video_file` base timestamp; VIOS
 storage and embeddings must share that timeline, otherwise screenshot URLs and
-critic frame fetches can fail.
+visual-verification frame fetches can fail.
 
 ```bash
-FILENAME="<filename.mp4>"
-FILE_PATH="/path/to/${FILENAME}"
+FILE_PATH="/path/to/<filename.mp4>"
+[ -f "${FILE_PATH}" ] && [ -r "${FILE_PATH}" ] \
+  || { echo "Upload failed: file is missing or unreadable: ${FILE_PATH}"; exit 1; }
+SOURCE_FILENAME=$(basename -- "${FILE_PATH}")
+# Optional: set UPLOAD_FILENAME before this recipe to give the registered source
+# a canonical name. Use the same value for every upload and completion field.
+UPLOAD_FILENAME="${UPLOAD_FILENAME:-${SOURCE_FILENAME}}"
 
 # 1. Ask the agent for the chunked-upload URL
-UPLOAD_URL=$(curl -sfS -X POST "${AGENT_URL}/api/v1/videos" \
+UPLOAD_REQUEST=$(jq -cn --arg filename "${UPLOAD_FILENAME}" '{filename: $filename}')
+UPLOAD_URL_RESPONSE=$(curl -sfS --max-time 30 -X POST "${AGENT_URL}/api/v1/videos" \
   -H "Content-Type: application/json" \
-  -d "{\"filename\":\"${FILENAME}\"}" | jq -r .url)
+  -d "${UPLOAD_REQUEST}")
+UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" \
+  | jq -er '.url | select(type == "string" and length > 0)') \
+  || { echo "Upload failed: invalid upload URL response: ${UPLOAD_URL_RESPONSE}"; exit 1; }
 
 # 2. Chunked POST the file to that VST URL (nvstreamer protocol).
 #    The final-chunk response carries sensorId.
@@ -95,24 +137,94 @@ UPLOAD_RESPONSE=$(curl -sfS -X POST "${UPLOAD_URL}" \
   -H "nvstreamer-total-chunks: 1" \
   -H "nvstreamer-is-last-chunk: true" \
   -H "nvstreamer-identifier: ${IDENTIFIER}" \
-  -H "nvstreamer-file-name: ${FILENAME}" \
-  -F "mediaFile=@${FILE_PATH};filename=${FILENAME}" \
-  -F "filename=${FILENAME}" \
+  -H "nvstreamer-file-name: ${UPLOAD_FILENAME}" \
+  -F "mediaFile=@${FILE_PATH};filename=${UPLOAD_FILENAME}" \
+  -F "filename=${UPLOAD_FILENAME}" \
   -F 'metadata={"timestamp":"2025-01-01T00:00:00"}')
 
 # 3. Tell the agent the upload finished — this fans out to RTVI-CV + RTVI-Embed
-SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" | jq -r .sensorId)
-[ -z "${SENSOR}" ] || [ "${SENSOR}" = "null" ] \
-  && { echo "Upload failed: no sensorId in response: ${UPLOAD_RESPONSE}"; exit 1; }
-printf '%s' "${UPLOAD_RESPONSE}" \
-  | jq --arg filename "${FILENAME}" '. + {filename: $filename}' \
+SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" \
+  | jq -er '.sensorId | select(type == "string" and length > 0)') \
+  || { echo "Upload failed: no sensorId in response: ${UPLOAD_RESPONSE}"; exit 1; }
+COMPLETE_RESPONSE=$(printf '%s' "${UPLOAD_RESPONSE}" \
+  | jq --arg filename "${UPLOAD_FILENAME}" '. + {filename: $filename}' \
   | curl -sfS -X POST "${AGENT_URL}/api/v1/videos/${SENSOR}/complete" \
       -H "Content-Type: application/json" \
-      -d @- | jq .
+      -d @-)
+printf '%s' "${COMPLETE_RESPONSE}" \
+  | jq -e --arg sensor "${SENSOR}" \
+      '.sensor_id == $sensor and (.chunks_processed | type == "number" and . > 0)' \
+      >/dev/null \
+  || { echo "Upload completion failed validation: ${COMPLETE_RESPONSE}"; exit 1; }
+printf '%s' "${COMPLETE_RESPONSE}" | jq .
 ```
 
-Wait for the `/complete` response (it returns `chunks_processed > 0` once
-embeddings land). Only then is the video searchable.
+By default, the upload name is the source file basename. When a stable alias is
+needed, set `UPLOAD_FILENAME` (including the extension) before the recipe. The
+upload request, VST chunk metadata, multipart filename, and `/complete` body must
+all use that same value; mixing names can produce incompatible VST, behavior,
+and raw-index source identifiers.
+
+The validated `/complete` response proves that embedding generation processed
+at least one chunk. Probe the required final state once and continue immediately
+when it is already ready. Otherwise, retry only the incomplete condition with
+bounded requests and backoff for at most five minutes. Embed search requires
+documents in the configured embedding index for the resolved sensor UUID.
+Attribute or fusion search additionally requires behavior documents under
+`sensor.id.keyword` and raw documents under `sensorId.keyword`. Record the exact
+identifier used by each index instead of assuming that the VST name, sensor UUID,
+behavior identifier, and raw identifier are textually identical. RTVI-CV
+registration is asynchronous, so `/complete` alone does not prove those two
+indexes are ready.
+
+For a deployed Docker profile, resolve the endpoints and all three indexes in
+one operation from the same sources used by `vss-cli`. Do not reuse
+`ELASTIC_SEARCH_INDEX` for behavior or raw-data checks: that variable names only
+the video embedding index.
+
+```bash
+PROFILE="${PROFILE:-search}"
+RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+  python -c 'import json,sys; from lib.cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
+  "${PROFILE}") || exit 1
+
+printf '%s' "${RUNTIME_JSON}" | jq -e '
+  (.agent_url | type == "string" and length > 0) and
+  (.es_url | type == "string" and length > 0) and
+  (.vst_url | type == "string" and length > 0) and
+  (.video_embed_index | type == "string" and length > 0) and
+  (.behavior_index | type == "string" and length > 0) and
+  (.raw_index | type == "string" and length > 0) and
+  (.video_embed_index != .behavior_index) and
+  (.video_embed_index != .raw_index) and
+  (.behavior_index != .raw_index)
+' >/dev/null || { echo "Invalid or aliased search runtime indexes: ${RUNTIME_JSON}" >&2; exit 1; }
+
+AGENT_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.agent_url') || exit 1
+ES_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.es_url') || exit 1
+VST_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.vst_url') || exit 1
+EMBED_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.video_embed_index') || exit 1
+BEHAVIOR_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.behavior_index') || exit 1
+RAW_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.raw_index') || exit 1
+
+index_count() {
+  INDEX=$1 FIELD=$2 VALUE=$3
+  QUERY=$(jq -cn --arg field "${FIELD}" --arg value "${VALUE}" \
+    '{query:{term:{($field):$value}}}') || return 1
+  curl -fsS --max-time 15 -H 'Content-Type: application/json' \
+    "${ES_URL}/${INDEX}/_count" -d "${QUERY}" | jq -er '.count | numbers'
+}
+```
+
+For uploaded video files, poll these exact tuples independently and require
+each count to become greater than zero within the bounded deadline:
+
+- `EMBED_INDEX`, `sensor.id.keyword`, resolved VST sensor UUID;
+- `BEHAVIOR_INDEX`, `sensor.id.keyword`, canonical source name;
+- `RAW_INDEX`, `sensorId.keyword`, canonical source name.
+
+Print the three resolved index names and final counts. A count from a different
+index or field does not satisfy readiness.
 
 > The deprecated `PUT /api/v1/videos-for-search/{filename}` route is also wired
 > in for legacy callers (single-shot, agent-driven), but its OpenAPI entry is
@@ -159,11 +271,15 @@ curl -sfS -X DELETE "${AGENT_URL}/api/v1/videos/<video_id>" | jq .
 curl -sfS -X DELETE "${AGENT_URL}/api/v1/rtsp-streams/delete/<name>" | jq .
 ```
 
-Deletion is complete only after all three postconditions hold: the source is
-absent from the VST sensor list, the selected embedding index contains zero
-documents for its UUID/name, and the behavior/raw index patterns contain zero
-documents for it. Report each count; a successful DELETE response alone is not
-sufficient.
+Require the agent DELETE response's `status` to be `success`; `partial` means
+cleanup is incomplete and must not be reported as success. Then poll with a
+bounded timeout until all postconditions hold: the source is absent from the
+VST sensor list, the selected embedding index contains zero documents for the
+resolved video UUID under `sensor.id.keyword`, and the behavior and raw indexes
+contain zero documents for the exact identifiers recorded during readiness
+validation. Reuse the `RUNTIME_JSON` resolver and the exact three index/field
+tuples above; do not derive behavior/raw indexes from `ELASTIC_SEARCH_INDEX`.
+Report every final count. A successful DELETE response alone is not sufficient.
 
 ---
 
@@ -181,28 +297,199 @@ sufficient.
    - If several sources match, stop and ask the user to choose.
    - Never remove a requested source constraint, substitute a different video,
      or run a broad search as a probe.
+   - If the source is absent, do not test or invoke the search CLI; clarification
+     is the final action for that request.
 
 3. Decompose the request into explicit fields using
    [Query decomposition](references/query_decomposition.md). The CLI does not
    decompose natural language. Preserve the requested object/action and use
-   `--query`, `--search-mode`, `--attribute`, `--video-source`, time bounds, and
-   the relevant query controls.
+   `--query`, an explicit `--search-mode`, `--attribute`, `--video-source`, time
+   bounds, and the relevant query controls. For complex fusion requests, prefer
+   `--decomposed-json`; explicit flags override fields from that object.
 4. Run the host command for the selected deployment. It validates named
-   sources again against that deployment's VST listing before querying ES.
-5. Present an inspection report titled `Video Search Results`, not raw JSON.
-   For every hit, copy the selected source, start/end timestamps, similarity,
-   and screenshot/clip URL verbatim from CLI output. Never invent or normalize
-   evidence. Similarity is retrieval evidence, not visual verification.
-6. End with a `Verification Step`. Offer to download and visually inspect the
-   returned screenshots, but do not download them without user opt-in or prior
-   authorization. When authorized, inspect the pixels and report a grounded
-   confirmed/rejected/uncertain verdict for each inspected hit.
-7. If the result set is empty, say that no matches were found. Keep all source
+   sources again against that deployment's VST listing before querying ES. Use
+   `--output json --raw` when parsing the result: `--raw` selects compact JSON,
+   and the unified `SearchOutput` remains an object with a `data` array.
+   Put the complete, concrete invocation (including `--output json --raw`) in a
+   `SEARCH_COMMAND` array, then capture and validate its exact stdout. Do not
+   continue after a nonzero CLI status or malformed output:
+
+   ```bash
+   : "${QUERY:?set the decomposed visual query}"
+   : "${SEARCH_MODE:?set the explicit search mode}"
+   : "${VIDEO_SOURCE:?set the resolved source name or stream ID}"
+   PROFILE="${PROFILE:-search}"
+   TOP_K="${TOP_K:-3}"
+   SEARCH_COMMAND=(
+     uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli"
+     vss-cli search run
+     --deployment docker --profile "${PROFILE}"
+     --query "${QUERY}" --search-mode "${SEARCH_MODE}"
+     --video-source "${VIDEO_SOURCE}" --top-k "${TOP_K}"
+     --output json --raw
+   )
+   # Add any required attributes, time bounds, or decomposition flags to the
+   # array before executing it.
+   if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+     echo "Search command failed" >&2
+     exit 1
+   fi
+   printf '%s' "${SEARCH_JSON}" |
+     jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
+       echo "Search did not return a SearchOutput object with a data array" >&2
+       exit 1
+     }
+   ```
+
+   `SEARCH_COMMAND` must invoke the project-local `vss-cli search run`, not a
+   shell string or another interface. Media validation must consume each hit's
+   returned `screenshot_url` from `SEARCH_JSON`.
+   If the command cannot start or returns a configuration error, report the
+   error and stop; never replace it with another search interface.
+5. Validate each returned media URL with a bounded GET using the hit's sensor ID
+   as the required VST `streamId` header. For availability-only validation,
+   discard the body; this is not visual inspection:
+
+   For every hit, extract both values from the same result object. Compare the
+   normalized origins (scheme, hostname, and effective port), then issue the GET
+   against the **same, unmodified** `SCREENSHOT_URL`:
+
+   First run exactly one selector-specific assignment. Do not assume
+   `VST_EXTERNAL_URL` is exported in the operation shell.
+
+   Docker (`PROFILE` must match `--profile`):
+
+   ```bash
+   PROFILE="${PROFILE:-search}"
+   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+     python -c 'import sys; from lib.cli.deployment import discover_docker; print(discover_docker(sys.argv[1]).env["VST_EXTERNAL_URL"])' \
+     "${PROFILE}")
+   ```
+
+   Kubernetes (`NAMESPACE`, `RELEASE`, and `KUBE_CONTEXT` must match the search
+   command):
+
+   ```bash
+   : "${NAMESPACE:?set the selected Kubernetes namespace}"
+   : "${RELEASE:?set the selected Kubernetes release}"
+   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+     python -c 'import sys; from lib.cli.deployment import discover_kubernetes; d=discover_kubernetes(namespace=sys.argv[1], release=sys.argv[2], context=sys.argv[3] or None); print(d.env["VST_EXTERNAL_URL"]); d.close()' \
+     "${NAMESPACE}" "${RELEASE}" "${KUBE_CONTEXT:-}")
+   ```
+
+   With no deployment selector, set `EXPECTED_VST_EXTERNAL_URL` to the same
+   explicit non-secret `--vst-external-url` value passed to `vss-cli`.
+
+   Then validate the exact returned URLs. A media-bearing external VST origin
+   must be public HTTPS: reject HTTP, localhost, single-label/internal hostnames,
+   and non-global IP addresses even if the returned URL matches the configured
+   value. This is mandatory on Brev and prevents an internally valid but
+   user-inaccessible URL from passing verification.
+
+   ```bash
+   : "${EXPECTED_VST_EXTERNAL_URL:?resolve the effective VST external URL first}"
+
+   url_origin() {
+     URL_ORIGIN_PY=$(printf '%s\n' \
+       'import ipaddress' \
+       'import sys' \
+       'from urllib.parse import urlsplit' \
+       'url = urlsplit(sys.argv[1])' \
+       'hostname = (url.hostname or "").lower().rstrip(".")' \
+       'if url.scheme != "https" or not hostname or url.username or url.password:' \
+       '    raise SystemExit("media origin must be an unauthenticated HTTPS URL")' \
+       'if hostname == "localhost" or hostname.endswith((".localhost", ".local", ".internal")):' \
+       '    raise SystemExit("localhost/internal media origin is forbidden")' \
+       'try:' \
+       '    address = ipaddress.ip_address(hostname)' \
+       'except ValueError:' \
+       '    if "." not in hostname:' \
+       '        raise SystemExit("single-label/internal media origin is forbidden")' \
+       'else:' \
+       '    if not address.is_global:' \
+       '        raise SystemExit("non-global media origin is forbidden")' \
+       'print(f"https://{hostname}:{url.port or 443}")') || return 1
+     uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+       python -c "${URL_ORIGIN_PY}" "$1"
+   }
+
+   EXPECTED_ORIGIN=$(url_origin "${EXPECTED_VST_EXTERNAL_URL}") || exit 1
+   HIT_COUNT=$(printf '%s' "${SEARCH_JSON}" | jq -er '.data | length') || exit 1
+
+   # Set VERIFY_PIXELS=true only after the user authorizes visual inspection.
+   VERIFY_PIXELS="${VERIFY_PIXELS:-false}"
+   if [ "${VERIFY_PIXELS}" = "true" ] && [ "${HIT_COUNT}" -gt 0 ]; then
+     INSPECTION_DIR=$(mktemp -d /tmp/vss-search-verification.XXXXXX)
+   fi
+   VALIDATED_COUNT=0
+
+   if [ "${HIT_COUNT}" -gt 0 ]; then
+     HITS_JSONL=$(printf '%s' "${SEARCH_JSON}" | jq -cer '.data[]') || exit 1
+     while IFS= read -r HIT; do
+       SCREENSHOT_URL=$(printf '%s' "${HIT}" | jq -er '.screenshot_url | select(type == "string" and length > 0)') || exit 1
+       STREAM_ID=$(printf '%s' "${HIT}" | jq -er '.sensor_id | select(type == "string" and length > 0)') || exit 1
+       ACTUAL_ORIGIN=$(url_origin "${SCREENSHOT_URL}") || exit 1
+       [ "${ACTUAL_ORIGIN}" = "${EXPECTED_ORIGIN}" ] || {
+         echo "Media URL origin mismatch: ${ACTUAL_ORIGIN} != ${EXPECTED_ORIGIN}" >&2
+         exit 1
+       }
+
+       OUTPUT_PATH=/dev/null
+       if [ "${VERIFY_PIXELS}" = "true" ]; then
+         OUTPUT_PATH="${INSPECTION_DIR}/hit-${VALIDATED_COUNT}.jpg"
+       fi
+       curl -fS --max-time 20 -H "streamId: ${STREAM_ID}" \
+         "${SCREENSHOT_URL}" -o "${OUTPUT_PATH}" || exit 1
+       if [ "${VERIFY_PIXELS}" = "true" ]; then
+         [ -s "${OUTPUT_PATH}" ] || { echo "Empty screenshot: ${OUTPUT_PATH}" >&2; exit 1; }
+       fi
+       VALIDATED_COUNT=$((VALIDATED_COUNT + 1))
+     done <<< "${HITS_JSONL}"
+   fi
+
+   [ "${VALIDATED_COUNT}" -eq "${HIT_COUNT}" ] || {
+     echo "Validated ${VALIDATED_COUNT} of ${HIT_COUNT} search hits" >&2
+     exit 1
+   }
+   ```
+
+   A zero-length `data` array has zero media URLs to validate and therefore
+   satisfies the count equality above. Handle it with workflow step 8. Only a
+   query whose contract explicitly requires candidates should reject zero hits.
+
+   When `VERIFY_PIXELS=true`, inspect every saved file in `INSPECTION_DIR` and
+   report a verdict for every hit. Merely saving the files is not inspection.
+
+   `SCREENSHOT_URL` must come only from the CLI hit. Never replace it with
+   `VST_EXTERNAL_URL`, a localhost URL, or any reconstructed URL for the probe.
+   A failed origin comparison or GET is a result/configuration error to report,
+   not permission to rewrite the URL.
+6. Parse the compact JSON internally and never paste it into the final reply.
+   Use this exact response structure for nonempty results:
+
+   ```text
+   ## Video Search Results
+   <formatted hits with source, start/end timestamps, similarity, and media URL>
+
+   Similarity scores are retrieval evidence; they do not visually confirm the requested object or action.
+
+   ## Verification Step
+   <offer visual inspection, or report authorized inspection verdicts>
+   ```
+
+   Copy every evidence field verbatim from CLI output. Never invent or normalize
+   evidence.
+7. Without user opt-in or prior authorization, do not save or inspect media
+   pixels. When authorized, repeat the bounded GET with the `streamId` header,
+   save each returned screenshot under `/tmp/`, inspect the saved pixels, and
+   report a grounded confirmed/rejected/uncertain verdict for each hit under
+   `## Verification Step`.
+8. If the result set is empty, say that no matches were found. Keep all source
    constraints, explain that the object may be absent or the query too narrow,
    and offer a specific query or similarity-threshold refinement. Never broaden
    the search silently or fabricate a result.
 
-8. For source ingestion or deletion, use the agent-backed flows above. Never
+9. For source ingestion or deletion, use the agent-backed flows above. Never
    substitute a bare VIOS or Elasticsearch mutation.
 
 ## Host CLI
@@ -210,8 +497,12 @@ sufficient.
 Always invoke the checked-out `services/agent/vss-cli` project with `uv run`:
 
 ```bash
-uv run --project services/agent/vss-cli vss-cli search run [deployment options] [query options]
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+  vss-cli search run [deployment options] [query options]
 ```
+
+The `uv run --project` prefix creates the project-local console entry point;
+do not require or search for a global `vss-cli` executable.
 
 Direct low-level invocation remains environment-free. Use explicit runtime
 flags or `--config` with explicit `--config-env KEY=VALUE` values only when a
@@ -220,22 +511,28 @@ from the host process.
 
 ### Docker
 
-Docker requires a deployed profile's generated file, not its checked-in `.env`.
-The command reads `deploy/docker/developer-profiles/dev-profile-<profile>/generated.env`
-and that profile's checked-out agent config. It translates Compose-only service
-DNS to the loopback ports published for Elasticsearch, RTVI-Embed, RTVI-CV,
-and VST.
+Docker requires the checkout's shared VST/RTVI service defaults plus the
+deployed profile's checked-in `.env` and runtime `generated.env`. The command
+applies the shared defaults first, then reads the profile files in Docker
+Compose order—`.env` followed by `generated.env` as the authoritative
+overlay—expands the effective values, and uses that environment with the
+profile's checked-out agent config. It translates Compose-only service DNS to
+the loopback ports published for Elasticsearch, RTVI-Embed, RTVI-CV, and VST.
+The embedding index is resolved from the profile layers; behavior and raw index
+names are resolved from the interpolated agent config.
 
 ```bash
-uv run --project services/agent/vss-cli vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
   --deployment docker --profile search \
   --query "find all instances of forklifts" \
-  --source-type video_file --top-k 10
+  --search-mode embed --source-type video_file --top-k 10 \
+  --output json --raw
 ```
 
 Before running this, start the profile with `dev-profile.sh` so `generated.env`
-exists. Do not use a checked-in `.env` as a substitute. Private service ports
-are loopback-only; do not expose them to a LAN simply to run a search.
+exists. The checked-in `.env` supplies stable profile values but is not, by
+itself, proof of a running initialized deployment. Private service ports are
+loopback-only; do not expose them to a LAN simply to run a search.
 
 ### Kubernetes / Helm
 
@@ -256,17 +553,18 @@ forward whose lifetime extends through result consumption. The CLI rejects an
 in-cluster Service URL in that external field instead of returning dead links.
 
 ```bash
-uv run --project services/agent/vss-cli vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
   --deployment kubernetes --namespace <namespace> --release <release> \
   --kube-context <optional-context> \
   --query "person in a white jacket climbing a ladder" \
   --search-mode fusion --attribute "white jacket" \
-  --video-source <resolved-source> --top-k 10
+  --video-source <resolved-source> --top-k 10 \
+  --output json --raw
 ```
 
 If a required runtime value is Secret-backed or absent from the Deployment and
 its non-secret ConfigMaps, stop. Do not print or pass a secret. Use an explicit
-non-secret endpoint override when valid, or route authenticated VLM work
+non-secret endpoint override when valid, or route authenticated visual/media work
 through the operator-managed workflow.
 
 ## Search behavior and safeguards
@@ -285,33 +583,46 @@ through the operator-managed workflow.
 - Result object IDs that are missing or `unknown` are not merged together.
 - `vss-cli search run` performs retrieval only. Visual verification is the
   explicit screenshot-inspection step described above; it is not a CLI flag.
+- `vss-cli search embed` and `vss-cli search attribute` expose the lower-level
+  primitives for callers that explicitly need one primitive or for focused
+  troubleshooting. Normal archive-search requests should use `search run` with
+  an explicit mode so they retain unified source validation, routing, and the
+  `SearchOutput.data` contract.
 
 ## Query examples
 
 ```bash
 # Embed-only search across all ingested files
-uv run --project services/agent/vss-cli vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
   --deployment docker --profile search \
-  --query "red forklift near a loading bay" --source-type video_file
+  --query "red forklift near a loading bay" --search-mode embed \
+  --source-type video_file --output json --raw
 
 # Attribute-only search; source must have been resolved first
-uv run --project services/agent/vss-cli vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
   --deployment kubernetes --namespace vss --release search \
   --query "person wearing a white jacket" \
   --search-mode attribute --attribute "white jacket" \
-  --video-source warehouse-camera-3
+  --video-source warehouse-camera-3 --output json --raw
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
-uv run --project services/agent/vss-cli vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
   --deployment docker --profile search \
   --query "forklift near a loading bay" --attribute "yellow forklift" \
-  --search-mode fusion --allow-embed-only-fallback
+  --search-mode fusion --allow-embed-only-fallback --output json --raw
 ```
 
 ## Troubleshooting
 
-- **`generated.env` missing**: start the selected Docker profile with
-  `deploy/docker/scripts/dev-profile.sh`; do not fall back to `.env`.
+- **Host CLI preflight fails**: preserve the output from
+  `uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run
+  --help`, verify `VSS_REPO_ROOT` and host `uv`, and stop. Do not switch search
+  interfaces.
+
+- **Docker profile environment missing**: both `.env` and runtime
+  `generated.env` are required. Start the selected profile with
+  `deploy/docker/scripts/dev-profile.sh` when `generated.env` is absent; do not
+  treat `.env` alone as initialized runtime state.
 - **Kubernetes ConfigMap/port-forward error**: verify read and port-forward
   RBAC in the selected namespace. Do not use a pod shell as a workaround.
 - **Kubernetes `VST_EXTERNAL_URL` is Service-backed**: configure a durable
@@ -321,13 +632,14 @@ uv run --project services/agent/vss-cli vss-cli search run \
 - **Zero results**: report the empty outcome, retain the selected source, and
   offer an explicit query or similarity-threshold refinement. Run a broader
   search only after the user accepts it.
-- **Missing index**: verify ingestion completion and the deployed
-  `ELASTIC_SEARCH_INDEX` value.
+- **Missing index**: verify ingestion completion and the
+  `ELASTIC_SEARCH_INDEX` value resolved from `.env` plus the `generated.env`
+  overlay.
 - **Model preflight failure**: pass an explicit deployed model ID after
   reviewing the reported list.
 - **RTVI-CV preflight failure**: repair the service or use the explicit
   `--allow-embed-only-fallback` option only when an embed-only result is
   acceptable.
-- **Critic needs authentication**: stop and use the secret-managed operator
-  path. Never copy API keys into CLI flags, generated files, logs, or skill
-  output.
+- **Visual verification needs an authenticated media route**: stop and use the
+  operator-managed route. Never copy API keys into CLI flags, generated files,
+  logs, or skill output.

@@ -33,6 +33,8 @@ class LRUEmbeddingCache:
     """
 
     def __init__(self, maxsize: int = 1024) -> None:
+        if maxsize < 1:
+            raise ValueError("maxsize must be >= 1")
         self._maxsize = maxsize
         self._cache: OrderedDict[str, list[float]] = OrderedDict()
         self._locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
@@ -47,7 +49,9 @@ class LRUEmbeddingCache:
         return list(value)
 
     def put(self, key: str, value: list[float]) -> None:
-        self._cache[key] = value
+        # Copy on insertion as well as retrieval: the caller that produced the
+        # first embedding must not be able to mutate the cached value later.
+        self._cache[key] = list(value)
         self._cache.move_to_end(key)
         while len(self._cache) > self._maxsize:
             evicted, _ = self._cache.popitem(last=False)

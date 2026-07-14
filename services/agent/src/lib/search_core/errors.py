@@ -21,8 +21,8 @@ exception chained via __cause__. One error surface, one catch-block for callers.
 
 from __future__ import annotations
 
-from lib._foundation.errors import BackendUnreachableError as FoundationBackendUnreachableError
-from lib._foundation.errors import ConfigurationError as FoundationConfigurationError
+from lib._foundation.errors import BackendUnreachableError
+from lib._foundation.errors import ConfigurationError
 from lib._foundation.errors import LibraryError
 
 __all__ = [
@@ -35,16 +35,10 @@ __all__ = [
 ]
 
 
-class SearchError(LibraryError):
-    """Base class for errors emitted by the public search library."""
-
-
-class ConfigurationError(FoundationConfigurationError, SearchError):
-    """Invalid or incomplete search configuration."""
-
-
-class BackendUnreachableError(FoundationBackendUnreachableError, SearchError):
-    """A backend required by search could not be reached."""
+# Backward-compatible public catch-all.  Keeping this as an alias preserves the
+# ``except SearchError`` contract without creating a second error hierarchy
+# beside the foundation types re-exported above.
+SearchError = LibraryError
 
 
 class IndexNotFoundError(BackendUnreachableError):

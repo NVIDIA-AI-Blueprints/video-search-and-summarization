@@ -30,6 +30,7 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import model_validator
 
 # Wire-shared format selector — 'iso' for ISO 8601 UTC strings, 'offset' for
 # seconds-since-stream-start. Shared so the primitive and the VLM analyzer
@@ -45,6 +46,12 @@ class VideoInfo(BaseModel):
     start_timestamp: datetime
     end_timestamp: datetime
 
+    @model_validator(mode="after")
+    def validate_time_range(self) -> VideoInfo:
+        if self.end_timestamp <= self.start_timestamp:
+            raise ValueError("end_timestamp must be after start_timestamp")
+        return self
+
 
 class CriticAgentResult(StrEnum):
     """Verdict produced by the critic agent for a single video clip."""
@@ -58,13 +65,19 @@ class CriticAgentInput(BaseModel):
     """Input for CriticAgent.run(): a query plus the candidate videos to verify."""
 
     model_config = ConfigDict(extra="forbid")
-    query: str
+    query: str = Field(min_length=1)
     videos: list[VideoInfo]
     evaluation_count: int | None = Field(
         default=None,
         ge=1,
         description="Optional cap on how many videos to evaluate (saves VLM calls).",
     )
+
+    @model_validator(mode="after")
+    def validate_query(self) -> CriticAgentInput:
+        if not self.query.strip():
+            raise ValueError("query must be non-empty")
+        return self
 
 
 class VideoResult(BaseModel):

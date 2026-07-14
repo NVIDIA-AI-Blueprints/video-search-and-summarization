@@ -33,9 +33,10 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
+from lib._foundation.errors import LibraryError
+
 from .._internal.embed_translation import params_to_embed_input
 from ..errors import InvalidInputError
-from ..errors import SearchError
 from ..events import ErrorEvent
 from ..events import FinalResultEvent
 from ..events import SearchEvent
@@ -183,10 +184,16 @@ class Search:
         # VST URLs are needed by execute_core_search via its config object
         vst_internal_url: str = "",
         vst_external_url: str = "",
+        owns_embed: bool = False,
+        owns_attribute: bool = False,
+        owns_behavior_es: bool = False,
     ) -> None:
         self._embed = embed
         self._attribute = attribute
         self._behavior_es = behavior_es
+        self._owns_embed = owns_embed
+        self._owns_attribute = owns_attribute
+        self._owns_behavior_es = owns_behavior_es
 
         # Pre-build the adapters once; they're stateless wrappers around
         # immutable primitive references, so reusing them across calls is safe.
@@ -244,7 +251,7 @@ class Search:
                         return
                     # The other arm of the union is AgentMessageChunk.
                     yield StatusEvent(stage=chunk.type.value, message=chunk.content)
-        except SearchError as e:
+        except LibraryError as e:
             yield ErrorEvent(error_code=type(e).__name__, message=str(e))
             return
         except Exception as e:
@@ -276,11 +283,14 @@ class Search:
         """
         from ..clients.elastic import ElasticClient
 
-        behavior_es_obj = behavior_es or ElasticClient.from_runtime_behavior(rt)
+        owns_embed = embed is None
+        owns_attribute = attribute is None
+        owns_behavior_es = behavior_es is None
+        behavior_es_obj = behavior_es if behavior_es is not None else ElasticClient.from_runtime_behavior(rt)
 
         return cls(
-            embed=embed or EmbedSearch.from_runtime(rt),
-            attribute=attribute or AttributeSearch.from_runtime(rt),
+            embed=embed if embed is not None else EmbedSearch.from_runtime(rt),
+            attribute=attribute if attribute is not None else AttributeSearch.from_runtime(rt),
             behavior_es=behavior_es_obj,
             behavior_index=rt.behavior_index,
             behavior_index_wildcard=rt.behavior_index_wildcard,
@@ -292,14 +302,20 @@ class Search:
             top_percent_filter=rt.top_percent_filter,
             embed_confidence_threshold=rt.embed_confidence_threshold,
             default_max_results=rt.default_max_results,
-            vst_internal_url=rt.vst_internal_url,
-            vst_external_url=rt.vst_external_url,
+            vst_internal_url=rt.require("vst_internal_url"),
+            vst_external_url=rt.require("vst_external_url"),
+            owns_embed=owns_embed,
+            owns_attribute=owns_attribute,
+            owns_behavior_es=owns_behavior_es,
         )
 
     async def aclose(self) -> None:
-        coros: list = [
-            self._embed.aclose(),
-            self._attribute.aclose(),
-            self._behavior_es.aclose(),
-        ]
-        await asyncio.gather(*coros, return_exceptions=True)
+        coros: list = []
+        if self._owns_embed:
+            coros.append(self._embed.aclose())
+        if self._owns_attribute:
+            coros.append(self._attribute.aclose())
+        if self._owns_behavior_es:
+            coros.append(self._behavior_es.aclose())
+        if coros:
+            await asyncio.gather(*coros, return_exceptions=True)

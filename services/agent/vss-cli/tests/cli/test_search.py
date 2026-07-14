@@ -42,6 +42,7 @@ from lib.search_core.models.embed_search import EmbedSearchOutput
 from lib.search_core.models.embed_search import EmbedSearchResultItem
 from lib.search_core.models.search import SearchOutput
 from lib.search_core.models.search import SearchResult
+from lib.vst import VSTError
 
 
 def _parse_search_args(argv: list[str]) -> argparse.Namespace:
@@ -512,8 +513,7 @@ class TestRequiredRuntimeArgs:
         )
         runtime = _runtime_from_args(args)
         assert runtime.es_endpoint == "http://es:9200"
-        # Unused endpoint filled with an empty-string sentinel.
-        assert runtime.rtvi_cv_endpoint == ""
+        assert runtime.rtvi_cv_endpoint is None
 
     def test_attribute_search_runtime_builds_without_cosmos_embed(self) -> None:
         args = _parse_args(
@@ -530,7 +530,7 @@ class TestRequiredRuntimeArgs:
             operation="attribute",
         )
         runtime = _runtime_from_args(args)
-        assert runtime.cosmos_embed_endpoint == ""
+        assert runtime.cosmos_embed_endpoint is None
         assert runtime.rtvi_cv_endpoint == "http://cv:9000"
 
     def test_search_without_rtvi_cv_raises_configuration_error(self) -> None:
@@ -775,6 +775,31 @@ def test_named_source_resolution_refuses_unavailable_source(monkeypatch: pytest.
 
     with pytest.raises(ConfigurationError, match="Stop and clarify"):
         asyncio.run(_resolve_named_sources(payload, _runtime()))
+
+
+def test_dead_vst_during_named_source_resolution_exits_3(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    class FakeFacade:
+        runtime = _runtime()
+
+        async def __aenter__(self) -> FakeFacade:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    async def dead_vst(_endpoint: str) -> dict[str, str]:
+        raise VSTError("connection refused")
+
+    monkeypatch.setattr("lib.cli.search._build_facade", lambda *_args, **_kwargs: FakeFacade())
+    monkeypatch.setattr("lib.vst.get_name_to_stream_id_map", dead_vst)
+
+    exit_code = run(
+        "run",
+        ["--json", '{"query":"forklift","source_type":"video_file","video_sources":["warehouse-camera"]}'],
+    )
+
+    assert exit_code == 3
+    assert "backend unreachable: vst: connection refused" in capsys.readouterr().err
 
 
 def test_named_source_resolution_uses_only_unambiguous_normalized_match(monkeypatch: pytest.MonkeyPatch) -> None:

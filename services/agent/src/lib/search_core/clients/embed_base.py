@@ -23,6 +23,23 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+import math
+from numbers import Real
+from typing import Any
+
+from ..errors import BackendUnreachableError
+
+
+def validate_embedding(value: Any, *, backend: str) -> list[float]:
+    """Return a finite numeric embedding or raise a typed backend error."""
+    if not isinstance(value, list) or not value:
+        raise BackendUnreachableError(backend, "embedding response must be a non-empty list")
+    if any(isinstance(item, bool) or not isinstance(item, Real) for item in value):
+        raise BackendUnreachableError(backend, "embedding response contains a non-numeric value")
+    embedding = [float(item) for item in value]
+    if not all(math.isfinite(item) for item in embedding):
+        raise BackendUnreachableError(backend, "embedding response contains a non-finite value")
+    return embedding
 
 
 class EmbedClient(ABC):

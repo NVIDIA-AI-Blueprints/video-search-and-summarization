@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import aiohttp
 import pytest
 
+from lib._foundation.retry import create_retry_strategy
 from lib.search_core.clients.cosmos_embed import CosmosEmbedClient
 from lib.search_core.errors import BackendUnreachableError
 from lib.vst import VSTClient
@@ -67,6 +69,28 @@ class _EmptyDataHttpClient:
         return None
 
 
+class _PayloadResponse:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+class _PayloadHttpClient:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    async def post(self, *_args: Any, **_kwargs: Any) -> _PayloadResponse:
+        return _PayloadResponse(self._payload)
+
+    async def aclose(self) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_cosmos_get_video_embedding_empty_data_is_backend_unreachable() -> None:
     client = CosmosEmbedClient("http://embed")
@@ -74,6 +98,15 @@ async def test_cosmos_get_video_embedding_empty_data_is_backend_unreachable() ->
 
     with pytest.raises(BackendUnreachableError, match="empty embedding response"):
         await client.get_video_embedding("http://vst/video.mp4")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("embedding", [[], [1.0, "bad"], [float("nan")]])
+async def test_cosmos_rejects_invalid_numeric_embedding(embedding: list[Any]) -> None:
+    client = CosmosEmbedClient("http://embed")
+    client._client = _PayloadHttpClient({"data": [{"embeddings": embedding}]})
+    with pytest.raises(BackendUnreachableError, match="embedding response"):
+        await client.get_text_embedding("query")
 
 
 def test_cosmos_endpoint_trailing_slash_normalized() -> None:
@@ -143,3 +176,136 @@ async def test_vst_clip_rejects_mixed_iso_and_offset_inputs() -> None:
             end_time=10.0,
             vst_internal_url="http://internal:30888",
         )
+
+
+class _FailingRequest:
+    def __init__(self, attempts: list[int]) -> None:
+        self._attempts = attempts
+
+    async def __aenter__(self) -> None:
+        self._attempts.append(1)
+        raise aiohttp.ClientConnectionError("connection refused")
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+class _FailingSession:
+    def __init__(self, attempts: list[int]) -> None:
+        self._attempts = attempts
+
+    async def __aenter__(self) -> _FailingSession:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    def get(self, _url: str) -> _FailingRequest:
+        return _FailingRequest(self._attempts)
+
+
+class _PayloadFailingResponse:
+    def __init__(self, attempts: list[int]) -> None:
+        self._attempts = attempts
+        self.status = 200
+
+    async def __aenter__(self) -> _PayloadFailingResponse:
+        self._attempts.append(1)
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    async def text(self) -> str:
+        raise aiohttp.ClientPayloadError("truncated response body")
+
+
+class _PayloadFailingSession(_FailingSession):
+    def get(self, _url: str) -> _PayloadFailingResponse:
+        return _PayloadFailingResponse(self._attempts)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("helper", "kwargs"),
+    [
+        (
+            vst_module.get_video_clip_url,
+            {
+                "stream_id": "stream-1",
+                "start_time": "2026-01-01T00:00:00Z",
+                "end_time": "2026-01-01T00:00:10Z",
+                "vst_internal_url": "http://vst:30888",
+            },
+        ),
+        (vst_module.get_name_to_stream_id_map, {"vst_internal_url": "http://vst:30888"}),
+        (vst_module.get_streams_info, {"vst_internal_url": "http://vst:30888"}),
+        (
+            vst_module.get_timeline,
+            {"stream_id": "stream-1", "vst_internal_url": "http://vst:30888"},
+        ),
+    ],
+)
+async def test_vst_helpers_wrap_retry_exhausted_transport_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    helper: Any,
+    kwargs: dict[str, Any],
+) -> None:
+    attempts: list[int] = []
+    monkeypatch.setattr(vst_module.aiohttp, "ClientSession", lambda **_kwargs: _FailingSession(attempts))
+    monkeypatch.setattr(
+        vst_module,
+        "create_retry_strategy",
+        lambda retries, exceptions: create_retry_strategy(retries, delay=0, exceptions=exceptions),
+    )
+
+    with pytest.raises(VSTError) as excinfo:
+        await helper(**kwargs)
+
+    assert len(attempts) == 3
+    assert isinstance(excinfo.value.__cause__, aiohttp.ClientConnectionError)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("helper", "kwargs"),
+    [
+        (
+            vst_module.get_video_clip_url,
+            {
+                "stream_id": "stream-1",
+                "start_time": "2026-01-01T00:00:00Z",
+                "end_time": "2026-01-01T00:00:10Z",
+                "vst_internal_url": "http://vst:30888",
+            },
+        ),
+        (vst_module.get_name_to_stream_id_map, {"vst_internal_url": "http://vst:30888"}),
+        (vst_module.get_streams_info, {"vst_internal_url": "http://vst:30888"}),
+        (
+            vst_module.get_timeline,
+            {"stream_id": "stream-1", "vst_internal_url": "http://vst:30888"},
+        ),
+    ],
+)
+async def test_vst_helpers_wrap_retry_exhausted_payload_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    helper: Any,
+    kwargs: dict[str, Any],
+) -> None:
+    attempts: list[int] = []
+    monkeypatch.setattr(
+        vst_module.aiohttp,
+        "ClientSession",
+        lambda **_kwargs: _PayloadFailingSession(attempts),
+    )
+    monkeypatch.setattr(
+        vst_module,
+        "create_retry_strategy",
+        lambda retries, exceptions: create_retry_strategy(retries, delay=0, exceptions=exceptions),
+    )
+
+    with pytest.raises(VSTError) as excinfo:
+        await helper(**kwargs)
+
+    assert len(attempts) == 3
+    assert isinstance(excinfo.value.__cause__, aiohttp.ClientPayloadError)

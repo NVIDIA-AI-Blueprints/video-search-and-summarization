@@ -5,11 +5,15 @@ endpoint and it does not need a shell inside a container or pod.
 
 ## Docker
 
-Use `--deployment docker --profile <profile>`. The profile must have a runtime
-`generated.env`, created by `dev-profile.sh`. The command reads it with the
-checked-out profile config and maps private Compose service addresses to their
-loopback-published ports. A checked-in `.env` is only a default template and
-is not an acceptable runtime source.
+Use `--deployment docker --profile <profile>`. The profile must have both its
+checked-in `.env` and a runtime `generated.env` created by `dev-profile.sh`.
+The command first reads the shared VST/RTVI service defaults used by the search
+profile, then reads `.env` and overlays `generated.env`, matching Docker Compose
+precedence. It expands that effective environment with the checked-out profile
+config and maps private Compose service addresses to their loopback-published
+ports. The checked-in `.env` supplies stable values, but it is not sufficient
+by itself because `generated.env` proves deployment initialization and supplies
+mutable overrides.
 
 ## Kubernetes
 

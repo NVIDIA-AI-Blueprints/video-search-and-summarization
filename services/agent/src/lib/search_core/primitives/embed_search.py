@@ -31,13 +31,17 @@ failures onto the library error hierarchy:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 import logging
 from typing import TYPE_CHECKING
 from typing import Any
 
+from pydantic import ValidationError
+
 from lib._foundation.sanitize import scrub_log
 
 from .._internal.time_measure import TimeMeasure
+from ..errors import BackendUnreachableError
 from ..models.embed_search import EmbedSearchInput
 from ..models.embed_search import EmbedSearchOutput
 from ..models.embed_search import EmbedSearchResultItem
@@ -70,6 +74,8 @@ class EmbedSearch:
         video_embed_index: str,
         video_embed_index_wildcard: str = "mdx-embed-filtered-*",
         default_max_results: int = 10,
+        owns_es: bool = False,
+        owns_embed: bool = False,
     ) -> None:
         self._es = es
         self._embed = embed
@@ -77,6 +83,8 @@ class EmbedSearch:
         self._index = video_embed_index
         self._index_wildcard = video_embed_index_wildcard
         self._default_k = default_max_results
+        self._owns_es = owns_es
+        self._owns_embed = owns_embed
 
     # -------------------------------------------------------------------- Run
 
@@ -104,7 +112,14 @@ class EmbedSearch:
             response = await self._search(search_index, search_query)
 
         with TimeMeasure("embed_search: process search hits"):
-            hits = response["hits"]["hits"]
+            response_data = response.body if isinstance(getattr(response, "body", None), Mapping) else response
+            response_hits = response_data.get("hits") if isinstance(response_data, Mapping) else None
+            hits = response_hits.get("hits") if isinstance(response_hits, Mapping) else None
+            if not isinstance(hits, list):
+                raise BackendUnreachableError(
+                    "elasticsearch",
+                    "search response did not contain a list at hits.hits",
+                )
             results = self._process_hits(hits, inp)
 
         if inp.top_k is not None:
@@ -141,7 +156,7 @@ class EmbedSearch:
         for hit in hits:
             try:
                 item = self._hit_to_item(hit, inp)
-            except Exception:
+            except (AttributeError, KeyError, TypeError, ValueError, ValidationError):
                 logger.warning(f"Skipping unprocessable search hit {scrub_log(_safe_hit_id(hit))}", exc_info=True)
                 continue
             if item is not None:
@@ -193,23 +208,32 @@ class EmbedSearch:
         from ..clients.cosmos_embed import CosmosEmbedClient  # local — avoid cycle
         from ..clients.elastic import ElasticClient
 
+        owns_es = es is None
+        owns_embed = embed is None
         return cls(
-            es=es or ElasticClient.from_runtime(rt),
-            embed=embed or CosmosEmbedClient.from_runtime(rt),
+            es=es if es is not None else ElasticClient.from_runtime(rt),
+            embed=embed if embed is not None else CosmosEmbedClient.from_runtime(rt),
             vst=vst
-            or VSTClient(
-                internal_url=rt.vst_internal_url,
-                external_url=rt.vst_external_url,
+            if vst is not None
+            else VSTClient(
+                # Embed search only builds externally consumable screenshot
+                # URLs; the internal VST route is not contacted.
+                internal_url=rt.vst_internal_url or "",
+                external_url=rt.require("vst_external_url"),
                 timeout_seconds=rt.request_timeout_seconds,
             ),
             video_embed_index=rt.video_embed_index,
             video_embed_index_wildcard=rt.video_embed_index_wildcard,
             default_max_results=rt.default_max_results,
+            owns_es=owns_es,
+            owns_embed=owns_embed,
         )
 
     async def aclose(self) -> None:
-        await asyncio.gather(
-            self._es.aclose(),
-            self._embed.aclose(),
-            return_exceptions=True,
-        )
+        coros = []
+        if self._owns_es:
+            coros.append(self._es.aclose())
+        if self._owns_embed:
+            coros.append(self._embed.aclose())
+        if coros:
+            await asyncio.gather(*coros, return_exceptions=True)

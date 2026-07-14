@@ -17,6 +17,40 @@ class _VST:
         return "https://vst.example/clip.mp4"
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    (
+        ({"base_url": " ", "model": "model"}, "base_url"),
+        ({"base_url": "https://vlm.example/v1", "model": " "}, "model"),
+        ({"base_url": "https://vlm.example/v1", "model": "model", "timeout_seconds": 0}, "timeout_seconds"),
+        ({"base_url": "https://vlm.example/v1", "model": "model", "media_mode": "invalid"}, "media_mode"),
+        ({"base_url": "https://vlm.example/v1", "model": "model", "video_url_scope": "invalid"}, "video_url_scope"),
+    ),
+)
+def test_invalid_vlm_configuration_is_rejected(kwargs: dict[str, object], message: str) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        OpenAIVLMAnalyzer(vst=_VST(), **kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_empty_vlm_content_is_backend_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": "  "}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(base_url="https://vlm.example/v1", model="model", vst=_VST())  # type: ignore[arg-type]
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(BackendUnreachableError, match="no text content"):
+            await analyzer.analyze(
+                sensor_id="sensor-1",
+                start_timestamp="2025-01-01T00:00:00Z",
+                end_timestamp="2025-01-01T00:00:05Z",
+                prompt="is there a forklift?",
+            )
+    finally:
+        await analyzer.aclose()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", (400, 401, 403, 404))
 async def test_nonretryable_vlm_4xx_is_fatal_configuration_error(status: int) -> None:

@@ -22,7 +22,7 @@ Two layers cooperate here:
     embed/attribute/behavior-ES adapters to those pure helpers and yields
     progress chunks then a final :class:`SearchOutput`.
 
-Error policy is hybrid: systemic failures (any :class:`SearchError` —
+Error policy is hybrid: systemic failures (any :class:`LibraryError` —
 ``IndexNotFoundError`` / ``BackendUnreachableError`` / ``InvalidInputError``)
 propagate so callers get precise errors and exit codes; only genuinely
 best-effort work degrades softly (a single video's attribute lookup during fusion).
@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Protocol
 
+from lib._foundation.errors import LibraryError
 from lib._foundation.sanitize import scrub_log
 from lib._foundation.time import datetime_to_iso8601
 from lib._foundation.time import safe_iso8601_to_datetime
@@ -53,7 +54,6 @@ from ..clients.elastic import ElasticClient
 from ..errors import BackendUnreachableError
 from ..errors import ConfigurationError
 from ..errors import NoFinalResultError
-from ..errors import SearchError
 from ..models.attribute_search import AttributeSearchResult
 from ..models.embed_search import EmbedSearchOutput
 from ..models.search import SearchInput
@@ -165,7 +165,7 @@ async def _run_attribute_only_search(
             search_results.sort(key=lambda x: x.similarity, reverse=True)
 
         return search_results
-    except SearchError:
+    except LibraryError:
         # Surface real failures (missing index, backend unreachable, invalid
         # input) on the primary attribute-only path so callers get precise
         # errors/exit codes instead of a misleading empty result.
@@ -284,7 +284,7 @@ async def fusion_search_rerank(
 
     Per-video attribute lookups are best-effort: an unexpected failure (or an
     unparseable clip timestamp) degrades that single video to its embed-only
-    score. Systemic failures (any :class:`SearchError`) propagate and abort the
+    score. Systemic failures (any :class:`LibraryError`) propagate and abort the
     whole rerank, so callers get a precise error instead of silently-degraded
     results. The assembled candidates are handed to :mod:`._fusion` for the
     chosen fusion method (an unknown method raises :class:`InvalidInputError`).
@@ -339,7 +339,7 @@ async def fusion_search_rerank(
             }
             attribute_results = await attribute_search_fn.ainvoke(attr_params)
             return embed_result, attribute_results
-        except SearchError:
+        except LibraryError:
             # Systemic failure (missing index, backend unreachable, invalid input)
             # affects every video equally — propagate rather than degrade.
             raise
@@ -350,7 +350,7 @@ async def fusion_search_rerank(
             )
             return embed_result, None
 
-    # No return_exceptions: a systemic SearchError from any video propagates.
+    # No return_exceptions: a systemic LibraryError from any video propagates.
     results_list = await asyncio.gather(*[_get_attribute_results(er) for er in embed_results])
 
     candidates = _fusion.build_fusion_candidates(list(results_list), len(attributes))
@@ -427,7 +427,7 @@ async def execute_core_search(
                     timestamp_end=search_input.timestamp_end,
                     source_type=search_input.source_type,
                 )
-            except SearchError:
+            except LibraryError:
                 # Any systemic library error (missing index, backend unreachable,
                 # invalid input) affects every object equally — propagate it so the
                 # caller gets a precise error/exit code, matching the hybrid policy
@@ -563,7 +563,7 @@ async def execute_core_search(
             try:
                 with TimeMeasure("search: embed search"):
                     embed_search_output = await embed_search.ainvoke(query_input_json)
-            except SearchError as e:
+            except LibraryError as e:
                 # Already a library error (InvalidInputError, IndexNotFoundError,
                 # BackendUnreachableError, ...). Surface it without re-wrapping so
                 # CLI exit codes and caller handling stay precise (e.g. invalid
@@ -598,11 +598,11 @@ async def execute_core_search(
             )
 
             # Embed confidence fallback / fusion
-            if search_results and attribute_list and getattr(config, "attribute_search_tool", None):
+            if attribute_list and getattr(config, "attribute_search_tool", None):
                 max_embed_score = max((r.similarity for r in search_results), default=0.0)
-                if max_embed_score < config.embed_confidence_threshold:
+                if not search_results or max_embed_score < config.embed_confidence_threshold:
                     logger.info(
-                        f"Embed confidence low (max={max_embed_score:.3f} < "
+                        f"Embed candidates absent or confidence low (max={max_embed_score:.3f}, "
                         f"threshold={config.embed_confidence_threshold:.3f}). Falling back to attribute-only."
                     )
                     yield AgentMessageChunk(
@@ -664,7 +664,7 @@ async def execute_core_search(
                             type=AgentMessageChunkType.THOUGHT,
                             content="Fusion reranking complete",
                         )
-                    except SearchError as e:
+                    except LibraryError as e:
                         # Hybrid policy: a systemic fusion failure is fatal.
                         # Per-video attribute degradation is handled inside
                         # fusion_search_rerank and never reaches here.

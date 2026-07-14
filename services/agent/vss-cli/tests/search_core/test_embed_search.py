@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from lib.search_core import EmbedSearch
+from lib.search_core.errors import BackendUnreachableError
 from lib.search_core.errors import IndexNotFoundError
 from lib.search_core.errors import InvalidInputError
 from lib.search_core.models.embed_search import EmbedSearchInput
@@ -242,6 +243,17 @@ class TestEmbedSearchContract:
         e, _es, _embed, _vst = make_search(hits=bad_hits)
         out = await e.run(EmbedSearchInput(query="q", source_type="video_file"))
         assert out.results == []
+
+    @pytest.mark.asyncio
+    async def test_malformed_search_envelope_is_backend_error(self, make_search):
+        e, es, _embed, _vst = make_search()
+
+        async def _malformed(**_kwargs: Any) -> Any:
+            return {"hits": {}}
+
+        es.search = _malformed  # type: ignore[method-assign]
+        with pytest.raises(BackendUnreachableError, match=r"hits\.hits"):
+            await e.run(EmbedSearchInput(query="q", source_type="video_file"))
 
     @pytest.mark.asyncio
     async def test_one_corrupt_hit_does_not_fail_whole_search(self, make_search):

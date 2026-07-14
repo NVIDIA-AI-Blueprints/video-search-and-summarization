@@ -278,10 +278,11 @@ jobs:
       - name: Build and test standalone package
         run: |
           uv sync --group dev --frozen
-          uv run --no-sync ruff check src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst tests
-          uv run --no-sync ruff format --check src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst tests
-          uv run --no-sync mypy src/lib/_foundation src/lib/cli src/lib/search_core src/lib/vlm src/lib/vst
-          uv run --no-sync pytest -W error::RuntimeWarning -W error::ResourceWarning --cov=src/lib --cov-report=xml:coverage.xml -m "not slow and not integration"
+          uv run --no-sync ruff check src/lib/_foundation src/lib/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst tests
+          uv run --no-sync ruff format --check src/lib/_foundation src/lib/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst tests
+          uv run --no-sync mypy src/lib/_foundation src/lib/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst
+          uv run --no-sync pytest -W error::RuntimeWarning -W error::ResourceWarning --cov=src/lib --cov-fail-under=80 --cov-report=xml:coverage.xml -m "not slow and not integration"
+          uv run --no-sync python ../../../.github/scripts/test_license_diff_csv.py
           rm -rf dist
           uv build
 
@@ -298,6 +299,7 @@ jobs:
           from importlib import metadata
 
           import lib
+          import lib.critic
           import lib.search_core
           import lib.vlm
           import lib.vst
@@ -308,7 +310,7 @@ jobs:
           assert importlib.util.find_spec("torch") is None
           assert importlib.util.find_spec("vss_agents") is None
           assert importlib.util.find_spec("lib.knowledge") is None
-          assert lib is not None and lib.search_core is not None and lib.vlm is not None and lib.vst is not None
+          assert lib is not None and lib.critic is not None and lib.search_core is not None and lib.vlm is not None and lib.vst is not None
           PY
           .wheel-smoke/bin/vss-cli --help >/dev/null
 

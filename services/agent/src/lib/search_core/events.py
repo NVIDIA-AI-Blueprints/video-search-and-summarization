@@ -66,10 +66,10 @@ class FinalResultEvent(BaseModel):
 class ErrorEvent(BaseModel):
     """Stream terminator on failure.
 
-    ``error_code`` is ``type(exc).__name__`` for the raised ``SearchError``
+    ``error_code`` is ``type(exc).__name__`` for the raised ``LibraryError``
     subclass (e.g. ``BackendUnreachableError``, ``IndexNotFoundError``,
     ``ConfigurationError``, ``InvalidInputError``), or one of the stream's own
-    sentinels — ``"UnexpectedError"`` for a non-``SearchError`` escape and
+    sentinels — ``"UnexpectedError"`` for a non-``LibraryError`` escape and
     ``"NoFinalResult"`` when the stream ends without a terminator. ``message`` is
     the human-readable text from ``str(exc)``.
     """
