@@ -24,7 +24,7 @@ component_services:
   # Alert Microservice engine — always present when this microservice is selected.
   - key: alert-bridge
     file: services/alert/compose.yml
-    role: VLM-as-verifier — consumes candidate incidents/alerts from Kafka, retrieves the clip from VIOS/VST, runs VLM verification, sinks verified records to Elasticsearch (mdx-vlm-incidents / mdx-vlm-alerts) and optionally Kafka.
+    role: VLM-as-verifier. In cv-verification — consumes candidate incidents/alerts from Kafka, retrieves the clip from VIOS/VST, runs VLM verification, and sinks verified records to Elasticsearch (mdx-vlm-incidents / mdx-vlm-alerts) and optionally Kafka. In vlm-realtime — manages realtime rules and drives RT-VLM directly; it does NOT write incidents to ES itself (RT-VLM emits them to Kafka mdx-vlm-incidents -> Logstash -> ES, and alert-bridge reads them back via GET /api/v1/realtime/incidents). See integrate-alerts.md § Outputs scoping note.
     required: true
     # Peers the Alert Microservice needs but that are owned by OTHER component sets:
     #   - kafka, redis, elasticsearch, kafka-topic-init-container  -> ELK (integrate-elk.md)
