@@ -134,7 +134,7 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | DGX-SPARK, H100, RTXPRO6000BW | **0.4** |
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | RTXPRO4500BW | **0.8** |
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | OTHER | **0.7** |
-| RT-VLM on its own GPU (`VLM_MODE=local`) | L40S, RTXPRO4500BW | **0.8** (RTX 4500 also needs `RTVI_VLM_MAX_MODEL_LEN=20480` — see [§ RTX 4500](#rtx-4500-32-gb)) |
+| RT-VLM on its own GPU (`VLM_MODE=local`) | L40S, RTXPRO4500BW | **0.8** (RTX 4500 also needs `RTVI_VLM_MAX_MODEL_LEN=18000` — see [§ RTX 4500](#rtx-4500-32-gb)) |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | H100, RTXPRO6000BW, OTHER | **0.7** |
 | RT-VLM on edge (`IGX-THOR` / `AGX-THOR`) | unified memory | passthrough from env (unset → empty; function skipped) |
 
@@ -174,7 +174,7 @@ HARDWARE_PROFILE=RTX4500
 LLM_MODE=remote
 VLM_MODE=local
 # RT-VLM sizing: cap context + lift utilization to fit on 32 GB.
-RTVI_VLM_MAX_MODEL_LEN=20480
+RTVI_VLM_MAX_MODEL_LEN=18000
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 # Keep the default source-backed Cosmos Reason3 Nano BF16 checkpoint.
 # VLM_NAME must match the basename rtvi-vlm advertises at /v1/models, or
