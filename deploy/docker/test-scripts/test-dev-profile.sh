@@ -1376,22 +1376,22 @@ else
 fi
 
 # --- Brev: HAProxy + VSS_PUBLIC_HOST in generated.env (agent_ui uses HAPROXY_* / VSS_PUBLIC_HOST only; no BREV_* compose vars) ---
-# Brev writes template literals ${PROXY_PORT:-7777} and ${BREV_ENV_ID} for docker compose to expand at runtime.
-BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST" "base" \
+# Brev resolves secure-link vars at generation time. Pin BREV_LINK_DOMAIN so this test is deterministic on hosts with NetBird/Skybridge configured.
+BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST" "base" \
  -i 127.0.0.1 -d -- \
-  "HAPROXY_PORT" '${PROXY_PORT:-7777}' \
+  "HAPROXY_PORT" "7777" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
+  "VSS_PUBLIC_HOST" "7777-test-env.brevlab.com" \
   "VSS_PUBLIC_PORT" "443"
 
-# Brev with custom PROXY_PORT in env: same literals in generated.env (compose expands using env)
-BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT (templates unchanged)" "base" \
+# Brev with custom PROXY_PORT in env: generated.env records the resolved proxy port and secure-link host.
+BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT" "base" \
  -i 127.0.0.1 -d -- \
-  "HAPROXY_PORT" '${PROXY_PORT:-7777}' \
+  "HAPROXY_PORT" "8080" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
+  "VSS_PUBLIC_HOST" "8080-test-env.brevlab.com" \
   "VSS_PUBLIC_PORT" "443"
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
