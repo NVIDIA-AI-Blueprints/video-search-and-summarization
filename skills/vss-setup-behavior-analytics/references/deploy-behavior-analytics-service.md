@@ -3,7 +3,7 @@
 Deploy **just** `vss-behavior-analytics` (no agent, no perception, no UI) — useful when you want to:
 
 - Run a behavior-analytics pipeline against an existing broker (or no broker at all).
-- Pick a different entrypoint (analytics 2D / 3D, dev_example, fusion_search) without modifying the image.
+- Pick a different entrypoint (analytics 2D / 3D, search_and_alerts) without modifying the image.
 
 Required host runtime: **Docker Engine 28.3.3** with **Docker Compose plugin v2.39.1+**.
 
@@ -33,8 +33,7 @@ Set the first half of `command:` to one of the following:
 |---|---|---|
 | `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` | 2D spatial pipeline — operates on **(X, Y) world-plane coordinates** lifted from the image plane via per-sensor homography. Two parallel processors: **behavior creation** (object tracking → behavior + ROI / tripwire / proximity events, plus map-matching) and **frame enhancement** (calibration transform → per-frame state → FOV-count / restricted-area / confined-area incidents). **The default.** |
 | `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` | Operates on **full (X, Y, Z) 3D world coordinates** — fed from upstream multi-view 3D tracking (mv3dt) that produces 3D bounding boxes. Same two processors as 2D (with the 3D calibration class), plus a third **space-analyzer** processor that estimates space utilization per region on a periodic interval. Use this for 3D warehouse / multi-view 3D tracking (mv3dt). |
-| `apps/dev_example/main_dev_example_app.py` | `DevExampleApp` | Smaller app that focuses on **FOV-count violation** and **restricted-area violation** detection. No behavior creation, no map-matching. Good starting point for new incident types — also the entrypoint used by `dev-profile-alerts`. |
-| `apps/fusion_search/main_fusion_search_analytics_app.py` | `FusionSearchAnalyticsApp` | Two-path app: (a) behavior creation from raw frames, like 2D but without the FOV-count / ROI / tripwire events; (b) **video-embedding downsampling** — reads chunked video embeddings, optionally downsamples them (SDT / fixed-window), writes filtered embeddings. Use this with the VSS search profile. |
+| `apps/search_and_alerts/main_search_and_alerts_app.py` | `SearchAndAlertsApp` | Three-processor app combining search and alerts: (1) **incident generation** — calibration transform → per-frame state → FOV-count / restricted-area / confined-area incidents (writes enhanced frames + incidents); (2) **behavior creation** from raw frames (like 2D, without ROI / tripwire events); (3) **video-embedding downsampling** — reads chunked video embeddings, optionally downsamples (SDT / fixed-window), writes filtered embeddings. Runs in **three modes**, selected purely by the `numWorkersFor*` knobs in the config (a processor with `0` workers is not registered): **search + alerts** — all three processors on (the full pipeline); **search only** — `numWorkersForIncidentGeneration=0` → behaviors + embeddings (used by `dev-profile-search`); **alerts only** — `numWorkersForBehaviorCreation=0` + `numWorkersForEmbedFiltering=0` → incidents (used by `dev-profile-alerts`). |
 
 **mv3dt** uses `main_analytics_3d_app.py` (the multi-view 3D tracker is a perception-side variant — the analytics pipeline is the same as 3D). There is no separate `main_mv3dt_app.py`.
 
@@ -55,8 +54,9 @@ Recommended pairings (entrypoint → existing config):
 | `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_dev_example_app.py` | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_fusion_search_analytics_app.py` | the search profile's own config (lives outside `behavior-analytics/`) |
+| `main_search_and_alerts_app.py` (search + alerts) | No single profile ships this — **build it by merging** the two single-mode configs below: union their `kafka.topics` so all of `raw` / `frames` / `incidents` / `behavior` / `embed` / `embedFiltered` are mapped, union their `app[]` params (behavior + embed knobs from the search config, incident toggles from the alerts config), and set all three `numWorkersFor*` non-zero so every processor runs. Mount the merged file the same way as any custom config (Option B). |
+| `main_search_and_alerts_app.py` (alerts only) | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` (behavior + embed workers set to `0`) |
+| `main_search_and_alerts_app.py` (search only) | `developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-<stream>-config.json` (incident-generation workers set to `0`) |
 
 Compose change:
 
@@ -124,7 +124,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
   | `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<dataset>/calibration.json` |
-  | `main_dev_example_app.py` | the dev profile may not need one. |
+  | `main_search_and_alerts_app.py` | the search / alerts profiles may not need one. |
 - **Bring your own.** Any absolute host path that conforms to the calibration JSON schema. If you're hand-rolling one, start from the `"cartesian"` type — that's the path the rest of the pipeline is tuned for.
 
   Compose change:
