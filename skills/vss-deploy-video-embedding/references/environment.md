@@ -8,7 +8,7 @@ This reference lists every variable the Compose service consumes and how host-le
 |---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | Compose uses `${RTVI_EMBED_PORT?}`, so a missing value fails `docker compose config`. |
 | `VSS_DATA_DIR` | Host root for VSS shared data. | `${VSS_DATA_DIR}/data_log/vst/clip_storage` is bind-mounted to the container clip-storage reader path declared in `rtvi-embed-docker-compose.yml`. |
-| `HOST_IP` | Host IP used to construct Kafka bootstrap servers. | Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). Setting `KAFKA_ENABLED` directly on the host has no effect. |
+| `HOST_IP` | Host IP used when overriding `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` for standalone/external Kafka. Default bootstrap is `kafka:29092`; `HOST_IP` is only needed when you override to `${HOST_IP}:9092`. | Conditional (standalone/external Kafka only). Setting `KAFKA_ENABLED` directly on the host has no effect; use `RTVI_EMBED_KAFKA_ENABLED`. |
 | `NGC_API_KEY` | NGC API key for asset downloads. | Required for first-boot model fetches from NGC. |
 | `HF_TOKEN` | Hugging Face token. | Optional. Recommended to avoid Hugging Face 429 rate-limit errors during the first-boot Cosmos-Embed1 weights download. |
 
@@ -62,7 +62,7 @@ Several host-side variables map to differently named container variables. The Co
 | `ASSET_DOWNLOAD_TOTAL_TIMEOUT` | Maximum seconds for a URL asset download. | `300` |
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Connection timeout for asset downloads. | `10` |
 | `ENABLE_REQUEST_PROFILING` | Per-request profiling. | `false` |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list (constructed by Compose as `${HOST_IP}:9092`). | derived |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list (defaults to `kafka:29092` via `${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`; override with `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` for external Kafka). | `kafka:29092` |
 
 ## Secret-Sensitive Variables
 

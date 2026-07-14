@@ -18,8 +18,10 @@ Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode 
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
 In this compose, rtvi-vlm is wired by default to call a **sibling NIM**
 (`cosmos-reason1-7b`, `cosmos-reason2-8b`, or `qwen3-vl-8b-instruct`) over
-OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
-host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
+OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). Kafka bootstrap
+defaults to `kafka:29092` via `${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`;
+override with `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` only for
+standalone or external Kafka deployments.
 
 ## 2. Related Skill
 
@@ -39,7 +41,7 @@ live-authoritative schema — see §16.
   (`docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` must succeed)
 - **Git LFS** (HF-backed models)
 - **≥ 50 GB disk** for image + 20–80 GB for model weights on first run
-- **Kafka on host** reachable at `${HOST_IP}:9092` (compose does NOT bundle Kafka)
+- **Kafka** — In-profile default is `kafka:29092` (compose-network DNS); for standalone or external Kafka, override with `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`
 - **Sibling NIM compose** providing the VLM backend: rtvi-vlm `depends_on`
   `cosmos-reason1-7b` / `cosmos-reason2-8b` / `qwen3-vl-8b-instruct`, all
   `required: false`. Launch one of those first.
@@ -163,7 +165,7 @@ sudo -n chown 1001:1001 ./rtvi-logs || {
 | Host var | Required | Compose default | Notes |
 |---|---|---|---|
 | `RTVI_VLM_PORT` | **YES** (`${RTVI_VLM_PORT?}` strict) | — | Host REST API port |
-| `HOST_IP` | **YES (effectively)** | — | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback |
+| `HOST_IP` | Conditional | — | Required only when overriding `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` for standalone/external Kafka (default is `kafka:29092`) |
 | `VSS_DATA_DIR` | **YES (effectively)** | — | Interpolated into VST clip-storage bind mount; no fallback |
 | `NGC_CLI_API_KEY` | **YES for documented pull / local NGC model path** | — | `docker login nvcr.io`, image pull, and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` | optional / backend-dependent | `${NGC_CLI_API_KEY}` fallback in compose | RT-VLM bearer auth or non-NGC backend auth; does not replace `NGC_CLI_API_KEY` for registry pulls |
@@ -641,7 +643,7 @@ once the service is up):
 |---|---|---|
 | `docker compose up` starts nothing | `--profile` not specified | Add `--profile bp_developer_alerts_2d_vlm` (§12) |
 | `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `.env` |
-| Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
+| Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | Default is `kafka:29092`; if the in-profile Kafka service is not reachable at that address, or you are using an external broker without overriding `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | For in-profile: ensure the `kafka` service is running on the same Compose network. For standalone/external: set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo -n chown` reports that a password is required or fails in an agent session | Host path ownership requires user privileges and passwordless sudo is unavailable | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `sudo -n docker ...` reports that a password is required | Docker requires elevated privileges, but the agent cannot satisfy an interactive sudo prompt | Prefer adding the user to the docker group, enable passwordless sudo for Docker, or have the host owner run the printed Docker command manually. Do not retry with interactive sudo. |
@@ -727,8 +729,10 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
   `docker_cmd` wrapper and pipe secrets through
   stdin (`printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login ...`). Never let
   `sudo` prompt interactively in an agent session.
-- **External Kafka required**: `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` — if
-  `HOST_IP` isn't set, the container tries `:9092` and fails.
+- **Kafka default is `kafka:29092`** (compose-network DNS via
+  `${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`). For standalone or external
+  Kafka, override with `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; if
+  `HOST_IP` isn't set in that case, the container tries `:9092` and fails.
   `host.docker.internal` is wired via `extra_hosts` as an alternative value.
 - **`VSS_DATA_DIR` required**: no default on the bind mount. Without it the
   mount spec expands to garbage.

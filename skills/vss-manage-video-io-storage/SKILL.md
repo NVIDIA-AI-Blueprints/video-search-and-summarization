@@ -79,7 +79,7 @@ This skill is primarily an API client and assumes VIOS is already up and reachab
 `GET /vst/api/v1/sensor/list` and `GET /vst/api/v1/sensor/<sensorId>/streams`
 can return **HTTP 502 Bad Gateway** or stale results when leftover `*-smc`
 VST containers from an earlier deploy survive teardown and win the
-`network_mode: host` port-bind race on `:30000` / `:30888`. **Remediation:
+bridge-networking published-port collision on `:30000` / `:30888` (Docker's "port already allocated" error on the `ports:` mapping). **Remediation:
 re-run `/vss-deploy-profile`** — its Step 0 teardown grep clears the full
 `sensor-ms-*` / `vst-ingress-*` / `sdr-*` / `sdrc-*` / `rtspserver-ms-*` set.
 Other paths (`storage/file/*` upload, `*/picture/url` snapshot, `*/url` clip

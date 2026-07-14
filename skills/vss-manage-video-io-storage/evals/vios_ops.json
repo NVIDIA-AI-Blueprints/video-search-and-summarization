@@ -71,7 +71,7 @@
         "GET /vst/api/v1/storage/file/list returns a JSON object keyed by sensorId; the uploaded sensor's id appears as a key",
         "The entry for the uploaded sensor contains `mediaFilePath`, `metadataFilePath`, and a `metadata` object with `id`, `sensorId`, and `timestamp`",
         "GET /vst/api/v1/storage/file/mediainfo?sensorId=<sensorId> returns a JSON object whose `Codec` (string) contains `h264` or `H264`",
-        "The mediainfo response's `Width` and `Height` are numbers greater than 0",
+        "The mediainfo response contains resolution data — either separate `Width`/`Height` numeric fields both greater than 0, or a `Resolution` string matching the pattern `<W>x<H>` (e.g. `1920x1080`)",
         "The mediainfo response's `Duration` is a number greater than 0"
       ]
     },

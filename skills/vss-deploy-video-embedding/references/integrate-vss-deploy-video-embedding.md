@@ -8,7 +8,7 @@ The Video Embedding microservice (legacy name: RT-Embed) generates dense vector 
 
 - **Hugging Face / NGC reachability** — Required at first boot to download `nvidia/Cosmos-Embed1-448p` and any NGC assets. After the model is cached in the persistent volumes, restarts do not need outbound access.
 - **Redis** — Optional. Only required when error-message publishing is enabled (`ENABLE_REDIS_ERROR_MESSAGES=true`). Configure via `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, and `REDIS_PASSWORD`.
-- **Apache Kafka** — Optional. Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). The service publishes embedding messages to the topic named by `RTVI_EMBED_KAFKA_TOPIC` (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose builds this from `${HOST_IP}:9092`).
+- **Apache Kafka** — Optional. Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). The service publishes embedding messages to the topic named by `RTVI_EMBED_KAFKA_TOPIC` (injected as `KAFKA_TOPIC`; default `vision-embed-messages`) and errors to `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (injected as `ERROR_MESSAGE_TOPIC`; default `vision-embed-errors`) using `KAFKA_BOOTSTRAP_SERVERS` (Compose defaults to `kafka:29092` via `${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`; override with `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` for external Kafka).
 - **OpenTelemetry collector** — Optional. Only required when `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` is set on the host (Compose injects this as `ENABLE_OTEL_MONITORING` inside the container). The service exports OTLP traces and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (default `http://otel-collector:4318`).
 - **Upstream video source (VST or compatible clip writer)** — Optional. When you want to embed clips written by VST, bind `${VSS_DATA_DIR}/data_log/vst/clip_storage` to the container clip-storage reader mount declared in `rtvi-embed-docker-compose.yml` so the service can read clip files locally.
 
@@ -95,7 +95,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `RTVI_EMBED_KAFKA_ENABLED` | Maps to `KAFKA_ENABLED`. | `false` | No |
 | `RTVI_EMBED_KAFKA_TOPIC` | Maps to `KAFKA_TOPIC`. | `vision-embed-messages` | No |
 | `RTVI_EMBED_ERROR_MESSAGE_TOPIC` | Maps to `ERROR_MESSAGE_TOPIC`. | `vision-embed-errors` | No |
-| `HOST_IP` | Used to build `KAFKA_BOOTSTRAP_SERVERS` as `${HOST_IP}:9092`. | (unset) | Yes when Kafka is enabled |
+| `HOST_IP` | Required only when overriding `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS` for standalone/external Kafka (default is `kafka:29092`). | (unset) | Conditional (standalone/external Kafka only) |
 | `ENABLE_REDIS_ERROR_MESSAGES` | Publish error messages to Redis. | `false` | No |
 | `REDIS_HOST` | Redis host. | `redis` | Yes when Redis error messages are enabled |
 | `REDIS_PORT` | Redis port. | `6379` | No |
@@ -116,7 +116,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 - **Ports exposed** — `${RTVI_EMBED_PORT}:8000/tcp`.
 - **Inbound traffic** — REST clients (other VSS microservices or operator tooling) calling the `/v1/*` endpoints.
 - **Outbound traffic** — Hugging Face (`huggingface.co`) and NGC (`nvcr.io`) at first boot; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
-- **DNS / hostname assumptions** — Uses `${HOST_IP}:9092` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
+- **DNS / hostname assumptions** — Kafka defaults to `kafka:29092` via compose-network DNS (`${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`); override with `RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` for standalone/external Kafka. Redis defaults `REDIS_HOST=redis`. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
 - **`network_mode`** — Default bridge (no `network_mode` override in the Compose service).
 
 ## Known Integration Constraints
@@ -170,7 +170,7 @@ services:
       NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
       LOG_LEVEL: "${RTVI_EMBED_LOG_LEVEL:-INFO}"
       KAFKA_ENABLED: "${RTVI_EMBED_KAFKA_ENABLED:-false}"
-      KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
+      KAFKA_BOOTSTRAP_SERVERS: "${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
       REDIS_PORT: "${REDIS_PORT:-6379}"
     volumes:

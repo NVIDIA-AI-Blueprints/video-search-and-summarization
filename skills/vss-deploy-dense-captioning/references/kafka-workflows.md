@@ -114,10 +114,11 @@ done
 
 ### Standalone Kafka Listener Setup
 
-The RT-VLM compose does not bundle Kafka. For standalone tests, start an
-equivalent broker before starting RT-VLM. The critical requirement is that the
-broker advertises the same `${HOST_IP}:9092` value that RT-VLM uses for
-`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`.
+The RT-VLM compose does not bundle Kafka. In-profile deployments default to
+`kafka:29092` via `${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}`. For
+standalone tests without the in-profile Kafka service, override with
+`RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` and start an equivalent
+broker that advertises the same `${HOST_IP}:9092` listener.
 
 First choose how Kafka should be provided:
 
@@ -297,10 +298,12 @@ for T in "$CAPTION_TOPIC" "$INCIDENT_TOPIC" "$ERROR_TOPIC"; do
 done
 ```
 
-The standalone RT-VLM compose sets `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; a
-`.env` value named `KAFKA_BOOTSTRAP_SERVERS` is ignored unless you edit the
-compose. If Kafka was not reachable when RT-VLM started, or if you changed the
-broker advertised listener, restart/recreate RT-VLM before checking offsets:
+The compose reads `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` and defaults to
+`kafka:29092`. For standalone/external Kafka, override with
+`RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` in the `.env`; a `.env` value
+named `KAFKA_BOOTSTRAP_SERVERS` directly is ignored unless you edit the compose.
+If Kafka was not reachable when RT-VLM started, or if you changed the broker
+advertised listener, restart/recreate RT-VLM before checking offsets:
 
 ```bash
 docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \

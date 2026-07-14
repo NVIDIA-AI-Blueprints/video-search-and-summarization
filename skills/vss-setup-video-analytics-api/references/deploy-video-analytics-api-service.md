@@ -50,7 +50,7 @@ The base compose already mounts the config from the services directory:
 services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
 ```
 
-This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when you have a local Kafka broker running. If Kafka is absent, the server can still start once Elasticsearch is healthy, but Kafka-dependent endpoints will fail until a broker becomes reachable. Use Option A or a custom config with `kafka.brokers: []` for a quiet broker-less deployment.
+This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["kafka:29092"]`). This is the right choice when you have Kafka running as a compose service. If Kafka is absent, the server can still start once Elasticsearch is healthy, but Kafka-dependent endpoints will fail until a broker becomes reachable. Use Option A or a custom config with `kafka.brokers: []` for a quiet broker-less deployment.
 
 No compose change needed — this is the default:
 
@@ -111,7 +111,7 @@ If you don't need image upload endpoints, you can drop this mount — the contai
 
 The server pings Elasticsearch on startup. If ES is unreachable, the server logs `[APP ERROR] Server initialization failed` and exits. The `restart: always` policy in the base compose brings it back, so `docker ps` may show a `Restarting (N)` loop until ES is reachable.
 
-Make sure the `elasticsearch.node` in your config matches the running ES instance. With `network_mode: "host"`, ES must also be on the host network.
+Make sure the `elasticsearch.node` in your config matches the running ES instance. Compose uses bridge networking; the API server reaches Elasticsearch at `elasticsearch:9200` and Kafka at `kafka:29092` via compose DNS. No `network_mode: host` path exists.
 
 If you need to bring up Elasticsearch too, use the infra compose:
 

@@ -307,6 +307,7 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            "RTSP_SAMPLE_URL",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -947,6 +948,11 @@ def _claude_task_scratch_cleanup_command() -> str:
     return (
         "UID_NUM=$(id -u); "
         'BASE="/tmp/claude-${UID_NUM}"; '
+        # A stale file at $BASE or a project subpath blocks the Bash tool (ENOTDIR).
+        'if [ -e "$BASE" ] && [ ! -d "$BASE" ]; then rm -f "$BASE"; fi; '
+        'for p in "$BASE"/-*; do '
+        '  [ -e "$p" ] && [ ! -d "$p" ] && rm -f "$p"; '
+        'done 2>/dev/null; '
         'if [ -d "$BASE" ]; then '
         '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
         # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must

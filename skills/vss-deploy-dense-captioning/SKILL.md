@@ -128,7 +128,7 @@ Minimum standalone `.env` values:
 | `NGC_CLI_API_KEY` | Standalone deploy path | NGC registry image pull and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` or `NGC_CLI_API_KEY` | Authenticated API calls | RT-VLM bearer auth after the service is running |
 | `RTVI_VLM_PORT` | Always | Host API port mapped to container `8000` |
-| `HOST_IP` | Always | Kafka bootstrap host (`${HOST_IP}:9092`) |
+| `HOST_IP` | Conditional | Required only when overriding `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` for standalone/external Kafka (default is `kafka:29092`) |
 | `VSS_DATA_DIR` | Always | Required clip-storage bind mount |
 | `RTVI_VLM_MODEL_TO_USE` | Always for standalone | Backend selector; use `cosmos-reason3` for the default local model or `openai-compat` for a remote/sibling endpoint |
 | `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason3 Nano BF16 path: `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |

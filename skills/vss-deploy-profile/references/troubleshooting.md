@@ -119,10 +119,12 @@ fi
 logs. The VLM `/v1/models` probe passes — the NIM is healthy; it just can't
 **download the clip** from VST.
 
-**Cause.** The VLM/LLM NIMs run on the `mdx_default` bridge while VST runs in
-`network_mode: host`; an active `ufw` blocks the bridge subnet from reaching the
-host's VST port, so the fetch times out. This is the **firewall prerequisite** —
-if you skipped it, you hit this.
+**Cause.** VST now runs on bridge networking like the other services, but the
+firewall issue persists when containers use `${HOST_IP}` published ports — the
+traffic hairpins through the host network stack, and an active `ufw` blocks it.
+The symptom (fetch timeout) is the same; the cause is the host firewall blocking
+the hairpin path rather than a bridge→host-network boundary. This is the
+**firewall prerequisite** — if you skipped it, you hit this.
 
 **Diagnose** (no sudo) — host reaches its own VST port but the container can't:
 

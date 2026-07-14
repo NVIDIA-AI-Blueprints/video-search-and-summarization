@@ -235,7 +235,7 @@ ss -tlnp | grep ':1883'                         # port collision check
 docker logs --tail 50 mosquitto 2>&1 | tail
 ```
 
-**Fix:** Set `MQTT_HOST=localhost`, `MQTT_PORT=1883` (mosquitto uses `network_mode: host`). If another process has 1883, stop it (or pick a different `MQTT_PORT` and redeploy).
+**Fix:** Set `MQTT_HOST=mosquitto` (compose DNS), `MQTT_PORT=1883`. Mosquitto runs on bridge networking with published port `${MQTT_HOST_PORT:-1883}:${MQTT_PORT:-1883}`. If another process has 1883, stop it (or pick a different `MQTT_PORT` and redeploy).
 
 ### BEV out of sync — frames look stale or duplicated
 

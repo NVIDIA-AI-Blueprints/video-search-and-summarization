@@ -91,7 +91,7 @@ Video summarization service values:
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker address from the video summarization container. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker address from the video summarization container. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary publish topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` in dev-profile-lvs | Merge duplicate or overlapping events with the LLM. |
 
@@ -136,12 +136,11 @@ embedding endpoint. `rtvi-embed` is profile-gated for Search and exposes RTVI
 embedding APIs such as `/v1/generate_text_embeddings`; the graph backend
 expects the text embedding interface used by the video summarization embedding adapter.
 
-The current VSS Docker `lvs-server` uses host networking. When adding Neo4j or
-ArangoDB as open-source sidecar containers, expose their ports on the host and
-point the video summarization service at `127.0.0.1` or `${HOST_IP}` via a
-compose override. Do not rely on Docker DNS names like `graph-db` or `arango-db`
-from inside the host-networked `lvs-server` unless the deployment has explicitly
-provided those names.
+The current VSS Docker `lvs-server` uses bridge networking with compose DNS.
+When adding Neo4j or ArangoDB as sidecar containers in the same compose
+project, `lvs-server` can reach them via service names (`graph-db` or
+`arango-db`). For an external DB not in the same compose project, set the
+DB host env to a host-reachable address (`${HOST_IP}`) via a compose override.
 
 Example Neo4j override:
 
@@ -163,7 +162,7 @@ services:
   lvs-server:
     environment:
       LVS_DATABASE_BACKEND: graph_db
-      GRAPH_DB_HOST: 127.0.0.1
+      GRAPH_DB_HOST: graph-db
       GRAPH_DB_USERNAME: ${GRAPH_DB_USERNAME:-neo4j}
       GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD:?GRAPH_DB_PASSWORD_required}
       GRAPH_DB_HTTP_PORT: ${GRAPH_DB_HTTP_PORT:-7474}
@@ -195,7 +194,7 @@ services:
   lvs-server:
     environment:
       LVS_DATABASE_BACKEND: graph_db_arango
-      ARANGO_DB_HOST: 127.0.0.1
+      ARANGO_DB_HOST: arango-db
       ARANGO_DB_USERNAME: ${ARANGO_DB_USERNAME:-root}
       ARANGO_DB_PASSWORD: ${ARANGO_DB_PASSWORD:?ARANGO_DB_PASSWORD_required}
       ARANGO_DB_PORT: ${ARANGO_DB_PORT:-8529}
@@ -248,8 +247,8 @@ RT-VLM values:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing RT-VLM URL. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing RT-VLM URL. |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | Compose-internal RT-VLM URL. Host-shell probes use published port `${HOST_IP}:8018`. |
+| `RTVI_VLM_URL` | `http://rtvi-vlm:8000` | video summarization-facing RT-VLM URL (compose-internal). |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | RT-VLM backend selector for default integrated mode. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default integrated checkpoint. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw captions to Kafka. |

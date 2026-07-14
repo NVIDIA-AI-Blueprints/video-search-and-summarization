@@ -54,15 +54,15 @@ RT-VLM:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `RTVI_VLM_IMAGE_TAG` | `3.2.1` for x86 / Jetson Thor; `3.2.1-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1` and `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa`. |
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | Compose-internal base URL (container-to-container). Host-shell probes use published port `${HOST_IP}:8018`. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
+| `RTVI_VLM_URL` | `http://rtvi-vlm:8000` | video summarization-facing URL (compose-internal). |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default checkpoint. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw caption events. |
 | `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw caption topic. |
-| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker URL from RT-VLM. |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from RT-VLM. |
 
 Video summarization service:
 
@@ -77,7 +77,7 @@ Video summarization service:
 | `LVS_EMB_MODEL_NAME` | unset | Text embedding model id for graph backends, copied from the embedding endpoint's `/models` response. Current LVS graph-RAG examples use `nvidia/llama-3.2-nv-embedqa-1b-v2`. |
 | `LVS_EMB_BASE_URL` | unset | OpenAI/NVIDIA-compatible text embedding endpoint for graph backends; include `/v1`, for example `https://integrate.api.nvidia.com/v1` or `http://127.0.0.1:9232/v1`. |
 | `KAFKA_ENABLED` | `true` | video summarization Kafka integration. |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker URL from the video summarization service. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from the video summarization service. Override with `${HOST_IP}:<port>` for an external broker. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` | Merge duplicate/overlapping events. |
 
@@ -97,16 +97,16 @@ It maps profile env into container env. Important container env names:
 | `BACKEND_PORT` | `${BACKEND_PORT:-38111}` |
 | `LVS_MCP_PORT` | `${LVS_MCP_PORT:-38112}` |
 | `LVS_LLM_MODEL_NAME` | `${LVS_LLM_MODEL_NAME}` |
-| `LVS_LLM_BASE_URL` | `${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1` |
+| `LVS_LLM_BASE_URL` | `${LLM_BASE_URL:-http://vss-llm-nim:8000}/v1` |
 | `LVS_LLM_API_KEY` | `${OPENAI_API_KEY:-${NVIDIA_API_KEY}}` |
-| `VIA_VLM_ENDPOINT` | `${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/` |
+| `VIA_VLM_ENDPOINT` | `${VLM_BASE_URL:-http://rtvi-vlm:8000}/v1/` |
 | `LVS_EMB_ENABLE` | `${LVS_EMB_ENABLE}` |
 | `LVS_DATABASE_BACKEND` | `${LVS_DATABASE_BACKEND:-elasticsearch_db}` |
 | `ES_HOST`, `ES_PORT` | Elasticsearch connection. |
 | `GRAPH_DB_HOST`, `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD`, `GRAPH_DB_HTTP_PORT`, `GRAPH_DB_BOLT_PORT` | Neo4j graph backend connection. |
 | `ARANGO_DB_HOST`, `ARANGO_DB_USERNAME`, `ARANGO_DB_PASSWORD`, `ARANGO_DB_PORT` | ArangoDB graph backend connection. |
 | `KAFKA_ENABLED` | `${KAFKA_ENABLED:-false}` |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}` |
 | `RTVI_VLM_URL` | `${RTVI_VLM_URL:-}` |
 | `ENABLE_AUDIO` | `${ENABLE_AUDIO:-false}` |
@@ -142,7 +142,7 @@ Neo4j graph backend with the open-source `neo4j:5.26.4` container:
 
 ```bash
 LVS_DATABASE_BACKEND=graph_db
-GRAPH_DB_HOST=127.0.0.1          # or ${HOST_IP}; avoid graph-db with host-networked lvs-server
+GRAPH_DB_HOST=127.0.0.1          # or ${HOST_IP} for an external DB; use graph-db for a compose-internal sidecar
 GRAPH_DB_USERNAME=neo4j
 GRAPH_DB_PASSWORD=<neo4j-password>
 GRAPH_DB_HTTP_PORT=7474
@@ -158,7 +158,7 @@ container:
 
 ```bash
 LVS_DATABASE_BACKEND=graph_db_arango
-ARANGO_DB_HOST=127.0.0.1         # or ${HOST_IP}; avoid arango-db with host-networked lvs-server
+ARANGO_DB_HOST=127.0.0.1         # or ${HOST_IP} for an external DB; use arango-db for a compose-internal sidecar
 ARANGO_DB_USERNAME=root
 ARANGO_DB_PASSWORD=<arango-password>
 ARANGO_DB_PORT=8529
@@ -178,11 +178,11 @@ embedding endpoint and copy it into `LVS_EMB_MODEL_NAME`:
 curl -fsS "${LVS_EMB_BASE_URL%/}/models" | jq -r '.data[].id'
 ```
 
-The current Docker `lvs-server` runs with host networking, while the checked-in
-video summarization compose uses `graph-db` / `arango-db` as default service
-hostnames. If you deploy the DB containers from a Compose override, override
-the corresponding DB host env to a host-reachable address (`127.0.0.1` or
-`${HOST_IP}`) in the resolved deployment.
+The current Docker `lvs-server` runs on bridge networking with compose DNS. If
+you add the DB containers in a Compose override (same project), `lvs-server` can
+reach them via compose DNS (`graph-db` or `arango-db`). For an external DB not
+in the same compose project, set the corresponding DB host env to a
+host-reachable address (`${HOST_IP}`) in the resolved deployment.
 
 ## Runtime Rules
 
