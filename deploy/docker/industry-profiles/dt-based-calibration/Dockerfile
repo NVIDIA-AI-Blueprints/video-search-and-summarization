@@ -15,12 +15,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Import official additional maps. The URL is intentionally supplied by the
-# deploy notebook/env instead of being committed here.
-RUN if [ -z "${ADDITIONAL_MAP_LINK}" ]; then echo "ADDITIONAL_MAP_LINK build arg is required" >&2; exit 1; fi \
-    && curl -fL --retry 3 "${ADDITIONAL_MAP_LINK}" --output AdditionalMaps_0.9.16.tar.gz \
-    && tar -xvzf AdditionalMaps_0.9.16.tar.gz \
-    && rm AdditionalMaps_0.9.16.tar.gz
+# Optionally import official additional maps. Leave ADDITIONAL_MAP_LINK empty to
+# skip this long download during image build.
+RUN if [ -n "${ADDITIONAL_MAP_LINK}" ]; then \
+        curl -fL --retry 3 "${ADDITIONAL_MAP_LINK}" --output AdditionalMaps_0.9.16.tar.gz \
+        && tar -xvzf AdditionalMaps_0.9.16.tar.gz \
+        && rm AdditionalMaps_0.9.16.tar.gz; \
+    else \
+        echo "ADDITIONAL_MAP_LINK not set; skipping CARLA additional maps import."; \
+    fi
 
 # Import a custom map
 # COPY Montague.tar.gz .
