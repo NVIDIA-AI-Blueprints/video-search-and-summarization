@@ -22,6 +22,8 @@
 #include "health_probes.h"
 
 #include <future>
+#include <exception>
+#include <chrono>
 #include <vector>
 #include <algorithm>
 
@@ -751,7 +753,9 @@ VmsErrorCode SensorManagementApis::getAllSensorTimelines(const Json::Value& req_
             }
         }
 
-        struct TimelineResult { string sensorId; Json::Value json; int ret; };
+        // ret defaults to a non-zero failure so any worker that throws before it
+        // records a result is treated as an error in the merge, not a silent success.
+        struct TimelineResult { string sensorId; Json::Value json; int ret = -1; };
         std::vector<TimelineResult> results(validSensors.size());
 
         // Bound concurrency so we don't overwhelm the VMS with too many
@@ -768,13 +772,44 @@ VmsErrorCode SensorManagementApis::getAllSensorTimelines(const Json::Value& req_
                     [i, &validSensors, &results, &sensorControl]()
                     {
                         results[i].sensorId = validSensors[i]->id;
-                        results[i].ret = sensorControl->getRecordingTimelines(
-                            validSensors[i]->id, results[i].json);
+                        // Contain any exception inside the worker so it cannot
+                        // propagate out of f.get() and take down the server.
+                        try
+                        {
+                            results[i].ret = sensorControl->getRecordingTimelines(
+                                validSensors[i]->id, results[i].json);
+                        }
+                        catch (const std::exception& e)
+                        {
+                            results[i].ret = -1;
+                            LOG(error) << "Exception fetching timelines for sensor "
+                                       << validSensors[i]->id << ": " << e.what() << endl;
+                        }
+                        catch (...)
+                        {
+                            results[i].ret = -1;
+                            LOG(error) << "Unknown exception fetching timelines for sensor "
+                                       << validSensors[i]->id << endl;
+                        }
                     }));
             }
             for (auto& f : futures)
             {
-                f.get();
+                // The worker contains its own exceptions, but guard f.get() too:
+                // std::async can still surface a broken-promise/bad_alloc here, and
+                // one failed worker must not abort the whole request.
+                try
+                {
+                    f.get();
+                }
+                catch (const std::exception& e)
+                {
+                    LOG(error) << "Timeline worker join failed: " << e.what() << endl;
+                }
+                catch (...)
+                {
+                    LOG(error) << "Timeline worker join failed with unknown exception" << endl;
+                }
             }
         }
 
