@@ -3,7 +3,7 @@ name: vss-summarize-video
 description: Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for report generation or live RTSP captioning.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.2.1"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
