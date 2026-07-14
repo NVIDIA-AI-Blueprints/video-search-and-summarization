@@ -70,8 +70,8 @@ from schemas.pluggable_parser_runtime import (
     PLUGGABLE_PARSER_OK_STATUS,
     apply_pluggable_parser_error as _apply_pluggable_parser_error,
     apply_pluggable_parser_output as _apply_pluggable_parser_output,
-    ERROR_SOURCE_PLUGGABLE_PARSER, 
-    safe_json_dumps_parser_output as _safe_json_dumps_parser_output,  
+    ERROR_SOURCE_PLUGGABLE_PARSER,
+    safe_json_dumps_parser_output as _safe_json_dumps_parser_output,
 )
 if TYPE_CHECKING:
     from webhook import OpenClawNotifier, WebhookKafkaForwarder
@@ -342,9 +342,9 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         self._vlm_rate_limit_enabled = bool(self.config.get('vlm_rate_limit_enabled', False))
         self.include_latency_info = self.config.get('alert_agent', {}).get('include_latency_info', False)
         self.url_transform_enabled = self.config.get('alert_agent', {}).get('url_transform', {}).get('enabled', True)
-        
+
         self.vlm_media_source_using_base64 = self.config.get('vlm', {}).get('vlm_media_source_using_base64', False)
-        
+
         # Initialize DirectMediaHandler for Mode 3
         self.direct_media_handler = DirectMediaHandler(
             vlm_client=self.vlm_client,
@@ -391,7 +391,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 "PromptManager did not expose an alert_config_store; "
                 "hot-path per-alert-type overrides will fall back to static config"
             )
-       
+
         self._openclaw_notifier: "OpenClawNotifier | None" = None
         self._webhook_forwarder: "WebhookKafkaForwarder | None" = None
         _oc_cfg = (self.config.get("webhook") or {}).get("openclaw") or {}
@@ -1020,9 +1020,9 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
     def _process_media_passthrough(self, worker_id: int, messages: List[Dict[str, Any]]) -> None:
         """
         Extended pass-through mode with support for:
-        - Mode 2: Local file (info.video_path) 
-        - Mode 3: Direct media URL (info.media_url) 
-        
+        - Mode 2: Local file (info.video_path)
+        - Mode 3: Direct media URL (info.media_url)
+
         Routing priority: media_url > video_path > skip
         """
         for message in messages:
@@ -1033,7 +1033,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                     "message_id": message.get('id')
                 })
                 continue
-            
+
             try:
                 user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
 
@@ -1043,7 +1043,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 info_block = message.get('info') or {}
                 category = message.get('category', '')
                 merged_vlm = self._get_merged_vlm_config(category)
-                
+
                 # ROUTING: Check for direct media URLs
                 # Handle both list and JSON string
                 media_urls = info_block.get('media_urls')
@@ -1052,7 +1052,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         media_urls = json.loads(media_urls)
                     except json.JSONDecodeError:
                         media_urls = None
-                
+
                 if media_urls and isinstance(media_urls, list) and len(media_urls) > 0 and self.direct_media_handler.enabled:
                     logger.info("Mode 3: Direct media URLs detected (%d), bypassing VST", len(media_urls), extra={
                         "worker_id": worker_id,
@@ -1067,7 +1067,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         config_overrides=merged_vlm,
                     )
                     continue
-                
+
                 # Local file path
                 video_path = info_block.get('video_path') or message.get('videoPath')
                 if video_path:
@@ -1080,13 +1080,13 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                         config_overrides=merged_vlm,
                     )
                     continue
-                
+
                 # No media source found
                 logger.warning("Pass-through mode: no media source found (media_urls or video_path)", extra={
                     "worker_id": worker_id,
                     "message_id": message.get('id')
                 })
-                
+
             except Exception as err:
                 logger.error("Pass-through mode: failed to process message", extra={
                     "worker_id": worker_id,

@@ -252,7 +252,7 @@ workflow:
       -> "person assaulting wearing a white shirt"; + "camera 5" -> "...on camera 5";
       + "night shifts" -> "...during night shifts"). Never pass the bare follow-up
       phrase (e.g. query="camera 5") alone.
-    
+
     Important: When unsure whether a needed item is in the previous results, prefer Path C.
     Also use Path C when search_source_type or use_critic differs from
     previous_request_options.
