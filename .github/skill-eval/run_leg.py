@@ -3,10 +3,23 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run one skills-eval leg under a process-held Brev box lock.
 
-The LLM selects a vss-eval-* instance, but this wrapper owns the
-per-instance flock and keeps the lock file descriptor open while Harbor
-runs. That makes the mutex a real kernel lock instead of a shell-FD
+This wrapper owns BOTH fleet selection and the per-instance flock: it
+reads the task's hardware requirements from the dataset's task.toml,
+snapshots `brev ls --json`, and walks the eligible `vss-eval-*`
+candidates with NON-BLOCKING lock attempts — claiming the first box it
+can actually lock. The lock file descriptor stays open while Harbor
+runs, so the mutex is a real kernel lock instead of a shell-FD
 convention spread across multiple agent tool calls.
+
+Why selection lives here and not in the agent: two legs that snapshot
+the fleet at the same moment both see the same "best" lock-free box
+(neither has acquired yet — check-then-act TOCTOU) and converge on it,
+serialising for hours while other eligible boxes idle (observed:
+run 29373239241, both lvs legs picked vss-eval-rtx-1g-2 and the second
+waited 16 min with rtx-1g-3 free). Try-lock-in-order makes the pick and
+the reservation one atomic step.
+
+`--instance` remains as an explicit operator override (pinned box).
 """
 from __future__ import annotations
 
@@ -193,36 +206,170 @@ def harbor_env(instance: str) -> dict[str, str]:
     return env
 
 
+def _read_dataset_metadata(dataset_root: Path) -> dict:
+    """[metadata] of the first task.toml under the dataset (all steps of a
+    leg share one platform, so any task.toml carries the leg's hardware
+    requirements)."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python < 3.11 on the coordinator
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    task_toml = next(iter(sorted(dataset_root.rglob("task.toml"))), None)
+    if task_toml is None:
+        return {}
+    return tomllib.loads(task_toml.read_text()).get("metadata", {}) or {}
+
+
+def _parse_brev_json(raw: str | None) -> list[dict]:
+    """Strip trailing walkthrough text and parse JSON array from brev CLI
+    (same contract as envs.brev_env._parse_brev_json)."""
+    import json
+
+    if not raw:
+        return []
+    bracket = raw.rfind("]")
+    if bracket < 0:
+        return []
+    try:
+        return json.loads(raw[: bracket + 1])
+    except json.JSONDecodeError:
+        return []
+
+
+def _list_brev_instances() -> list[dict]:
+    """Snapshot `brev ls --json` with retries for transient RPC flakes.
+    An org with zero managed instances prints `null` — authoritative-empty."""
+    for attempt in range(4):
+        try:
+            proc = subprocess.run(
+                ["brev", "ls", "--json"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            print(f"[run-leg] brev ls failed (attempt {attempt + 1}): {exc}", flush=True)
+            time.sleep(5)
+            continue
+        raw = (proc.stdout or "").strip()
+        if raw.startswith("null"):
+            return []
+        if raw and raw.rfind("]") >= 0:
+            return _parse_brev_json(raw)
+        print(f"[run-leg] brev ls returned empty stdout (attempt {attempt + 1})", flush=True)
+        time.sleep(5)
+    return []
+
+
+def _loose_gpu_match(want: str, have: str) -> bool:
+    """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` — all tokens of `want` must
+    appear in `have` (substring fallback for dashed variants). Mirrors
+    envs.brev_env._check_instance_matches."""
+    want_tokens = set(want.replace("-", " ").split())
+    have_tokens = set(have.replace("-", " ").split())
+    return want_tokens.issubset(have_tokens) or want in have
+
+
+def _name_gpu_count_hint(name: str) -> int | None:
+    """Fleet-naming gpu_count hint: `*-1g*` → 1, `*-2g*` → 2 (AGENTS.md
+    pool convention). None when the name encodes nothing."""
+    match = re.search(r"-(\d)g(?:-|$)", name)
+    return int(match.group(1)) if match else None
+
+
+def pool_candidates(metadata: dict) -> list[str]:
+    """Eligible `vss-eval-*` boxes for this leg, best-first.
+
+    Hardware-hard, software-free (AGENTS.md § 5a): RUNNING + gpu_type
+    token match. Exact name-hinted gpu_count matches sort first so the
+    pool stays partitioned (don't tie up a 2-GPU box with 1-GPU work);
+    over-provisioned boxes remain as fallback — brev_env validates the
+    final pick with `gpu_count >=` and the box is reset either way.
+    gpu_count == 0 (remote-all / GPU-independent) accepts any RUNNING box.
+    """
+    required_type = (metadata.get("gpu_type") or "").upper()
+    required_count = int(metadata.get("gpu_count", 1) or 0)
+
+    names: list[str] = []
+    for inst in _list_brev_instances():
+        name = inst.get("name") or ""
+        if not name.startswith("vss-eval-"):
+            continue
+        if (inst.get("status") or "").upper() != "RUNNING":
+            continue
+        if required_count > 0 and required_type:
+            gpu = (inst.get("gpu") or "").upper()
+            itype = (inst.get("instance_type") or "").upper()
+            # Accept via instance_type when `gpu` is a transient "-"/"" flake
+            # (brev catalog refresh) — same soft-fail brev_env applies.
+            if not (_loose_gpu_match(required_type, gpu)
+                    or _loose_gpu_match(required_type, itype)):
+                continue
+        names.append(name)
+
+    def sort_key(name: str) -> tuple[int, str]:
+        hint = _name_gpu_count_hint(name)
+        exact = 0 if (required_count > 0 and hint == required_count) else 1
+        return (exact, name)
+
+    return sorted(names, key=sort_key)
+
+
 @contextlib.contextmanager
-def hold_box_lock(lock_dir: Path, instance: str, timeout_sec: int):
-    if "/" in instance or instance in {"", ".", ".."}:
-        raise ValueError(f"invalid Brev instance name for lock file: {instance!r}")
+def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
+    """Claim the first candidate whose flock succeeds NON-BLOCKINGLY.
+
+    Selection and reservation are one atomic step: a busy box fails the
+    try-lock and we move to the next candidate, so concurrent legs fan
+    out across the pool instead of herding onto one "best" box. When
+    every candidate is held (or none is eligible), re-snapshot the fleet
+    and retry every 60s until `timeout_sec` — the pool is operator-managed
+    and a box may come online mid-run.
+
+    Yields the claimed instance name; the lock FD stays open until exit.
+    """
     lock_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = lock_dir / f"{instance}.lock"
     deadline = time.monotonic() + timeout_sec
-    with lock_path.open("a+") as fp:
-        while True:
+    chosen: str | None = None
+    fp = None
+    while True:
+        names = candidates_fn()
+        for name in names:
+            if "/" in name or name in {"", ".", ".."}:
+                raise ValueError(f"invalid Brev instance name for lock file: {name!r}")
+            lock_path = lock_dir / f"{name}.lock"
+            candidate_fp = lock_path.open("a+")
             try:
-                fcntl.flock(fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                print(f"[run-leg] lock acquired: {lock_path}", flush=True)
-                break
+                fcntl.flock(candidate_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError as exc:
+                candidate_fp.close()
                 if exc.errno not in (errno.EACCES, errno.EAGAIN):
                     raise
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise LockTimeoutError(f"lock timeout on {instance}") from exc
-                print(
-                    f"[run-leg] waiting for lock {lock_path} "
-                    f"({int(remaining)}s remaining)",
-                    flush=True,
-                )
-                time.sleep(min(60, remaining))
-        try:
-            yield lock_path
-        finally:
-            fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
-            print(f"[run-leg] lock released: {lock_path}", flush=True)
+                continue
+            chosen, fp = name, candidate_fp
+            print(f"[run-leg] selected instance: {name} (lock acquired: {lock_path})",
+                  flush=True)
+            break
+        if chosen:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise LockTimeoutError(
+                f"no eligible pool box became free before timeout "
+                f"(last candidates: {', '.join(names) or 'none'})"
+            )
+        print(
+            f"[run-leg] all candidates busy or none eligible "
+            f"({', '.join(names) or 'no RUNNING hardware match'}); "
+            f"retrying in 60s ({int(remaining)}s remaining)",
+            flush=True,
+        )
+        time.sleep(min(60, remaining))
+    try:
+        yield chosen
+    finally:
+        fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+        fp.close()
+        print(f"[run-leg] lock released: {chosen}", flush=True)
 
 
 def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
@@ -374,7 +521,12 @@ def run_invocations(
 def parse_args(argv: list[str]) -> argparse.Namespace:
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--instance", required=True, help="Selected vss-eval-* Brev instance")
+    parser.add_argument(
+        "--instance",
+        default=os.environ.get("BREV_INSTANCE") or None,
+        help="Operator override: pin the leg to this Brev instance instead "
+             "of pool selection (still lock-guarded; waits if held)",
+    )
     parser.add_argument("--dataset-root", required=True, type=Path, help="Per-leg generated dataset root")
     parser.add_argument("--results-root", required=True, type=Path, help="Per-leg Harbor results root")
     parser.add_argument(
@@ -402,10 +554,22 @@ def main(argv: list[str] | None = None) -> int:
                 f"--include-task-name {invocation.include_task_name}",
                 flush=True,
             )
-        with hold_box_lock(args.lock_dir, args.instance, args.lock_timeout_sec):
+        metadata = _read_dataset_metadata(args.dataset_root)
+        # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
+        # > task.toml brev_instance > pool selection.
+        pinned = args.instance or metadata.get("brev_instance") or None
+        if pinned:
+            print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
+                  flush=True)
+            candidates_fn = lambda: [pinned]  # noqa: E731
+        else:
+            candidates_fn = lambda: pool_candidates(metadata)  # noqa: E731
+        with hold_pool_lock(
+            candidates_fn, args.lock_dir, args.lock_timeout_sec
+        ) as instance:
             return run_invocations(
                 invocations,
-                args.instance,
+                instance,
                 args.results_root,
                 args.scratch,
                 args.spec_stem,
@@ -413,7 +577,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.harbor_timeout_sec,
             )
     except LockTimeoutError:
-        print(f"BLOCKED: lock timeout on {args.instance}", flush=True)
+        target = args.instance or f"pool ({args.platform or 'platform'})"
+        print(f"BLOCKED: lock timeout on {target}", flush=True)
         return 75
     except Exception as exc:  # noqa: BLE001
         print(f"FATAL: run_leg failed: {exc!r}", file=sys.stderr)

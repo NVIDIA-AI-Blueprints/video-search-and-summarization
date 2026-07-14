@@ -308,78 +308,49 @@ The canonical harbor command is in § Harbor invocation.
    mirror sync. If every changed skill is parked, you exit BLOCKED
    without reaching step 5.
 
-5. **Pick a fleet member, lock it, and run harbor trials.** For each
-   target platform:
+5. **Run harbor trials via the leg wrapper — it picks and locks the
+   fleet box itself.** For each target platform:
 
-   a. **Select an instance from the `vss-eval-*` fleet for this
-      platform.** The harness is a worker-pool: one skill-eval agent =
-      one serial worker. Concurrency comes from multiple workflow runs
-      each grabbing a different box. Don't hardcode `vss-eval-l40s` —
-      score and pick:
+   a. **Do NOT select an instance and do NOT export `BREV_INSTANCE`.**
+      `run_leg.py` owns fleet selection: it reads the leg's hardware
+      requirements from the dataset's `task.toml` `[metadata]`
+      (`gpu_type`, `gpu_count`), snapshots `brev ls --json`, filters to
+      RUNNING `vss-eval-*` boxes whose GPU matches, and walks the
+      candidates best-first with **non-blocking** `flock` attempts —
+      claiming the first box it can actually lock. Selection and
+      reservation are one atomic step inside the wrapper, so two
+      concurrent legs fan out to different boxes instead of both
+      "choosing" the same lock-free-looking one and serialising
+      (check-then-act TOCTOU — the failure mode that motivated this).
 
-      ```bash
-      # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu_type matches
-      # the trial AND whose gpu_count >= the spec's required count.
-      # (envs/brev_env.py validates the pick post-selection; this step
-      # just narrows the field.)
-      brev ls --json > "/tmp/skill-eval/brev-snapshot-${LEG}.json"
-      # Score (PREFER an exact gpu_count match so the pool stays partitioned
-      # — don't tie up a 2-GPU box with 1-GPU work):
-      #   1. exact gpu_count match               (prefer over over-provisioned)
-      #   2. lock appears free (advisory try flock -n)  (free)
-      #   3. instance name asc                   (tiebreak)
-      # Pick the best-scoring candidate whose advisory flock -n succeeds.
-      # This is only a scoring hint; run_leg.py below is the only code that
-      # actually reserves the box. Use an
-      # OVER-provisioned box (more GPUs than required) only as a fallback,
-      # when no exact-count match is lock-free/reachable — brev_env accepts
-      # it (>= check) and start() wipes it clean before the trial. If none
-      # free, hand the best candidate to run_leg.py and let its structural
-      # lock wait arbitrate.
-      INSTANCE_NAME=<picked>
-      ```
+      Ordering inside the wrapper preserves pool partitioning: exact
+      name-hinted `gpu_count` matches (`*-1g*` → 1, `*-2g*` → 2) sort
+      before over-provisioned boxes; `envs/brev_env.py` still validates
+      the final pick (`gpu_count >=` required) and `start()` wipes the
+      box before the trial, so an over-provisioned fallback stays safe.
+      `gpu_count = 0` specs (remote-all / GPU-independent) accept any
+      RUNNING pool box.
 
-      Resolving a candidate's gpu_count for the exact-match preference:
-      `brev ls --json` does **not** carry `gpu_count` (only `name`, `gpu`,
-      `instance_type`, `status`), so cross-reference each candidate's
-      `instance_type` against `brev search gpu --json` — the same catalog
-      `brev_env._get_instance_gpu_count_from_catalog` validates against. The
-      `vss-eval-*` fleet naming is a fallback hint (`*-1g` → 1 GPU; bare or
-      `*-2` → 2 GPU). If you can't resolve a count, just pick any
-      `gpu_type`-matching box and let `brev_env` enforce `gpu_count >=
-      required` post-selection — exact-match is a partitioning *optimisation*,
-      not a correctness gate (the box is reset either way).
+      When every candidate is held — or none is eligible — the wrapper
+      re-snapshots the fleet and retries every 60s up to its 21000s
+      budget (the pool is operator-managed; a box may come online
+      mid-run), then exits 75 with `BLOCKED: lock timeout`. You do not
+      implement any of this; you just invoke the wrapper and read its
+      `[run-leg] selected instance: <name>` line for reporting.
 
-      With fleet=1, this collapses to today's behaviour — the single
-      `vss-eval-<short>` candidate is picked and locked. With fleet>1
-      (operator manually `brev create`s `vss-eval-l40s-2`, etc.), two
-      concurrent CI runs land on different boxes naturally; the wrapper-held
-      per-box lock arbitrates within-fleet contention.
-
-      Selection priority is **hardware-hard, software-free**: the
-      candidate's `gpu_type` MUST match the platform (hard); the box's
-      deployment state is irrelevant — the trial deploys what it needs
-      in its first agent turn, so a previously-warm box and a freshly-
-      booted one are equivalent from the trial's perspective.
-
-      If no hardware-matching candidate exists, **wait** for one — the
-      pool is operator-managed and a box may come online mid-run.
-      Re-snapshot `brev ls --json` every 5 min up to the 21000s budget,
-      rescoring each time; only after the full budget elapses with zero
-      matches do you emit `BLOCKED: pool exhausted for <platform>`. This
-      pool-wait is allowed (it waits on a resource that may not yet
-      exist, bounded by the budget); it is NOT the trial-supervision
-      polling forbidden in § "No polling", which watches in-flight work
-      the synchronous harbor call already blocks on.
+      Operator override: `--instance <name>` (or an inherited
+      `BREV_INSTANCE` env var, or `brev_instance` in `task.toml`
+      `[metadata]`) pins the leg to one box, skipping pool selection but
+      keeping the lock guard. Use this only for manual debugging runs.
 
    b. **Run the structural leg wrapper**. Do not acquire or release
-      `flock` manually in a separate Bash call. `run_leg.py` opens
-      `/tmp/brev/$INSTANCE_NAME.lock`, holds that file descriptor for
-      the entire Harbor run (including all step-1..N invocations), and
-      releases it only when the wrapper exits or dies:
+      `flock` manually in a separate Bash call, and do not pass
+      `--instance` in CI. `run_leg.py` opens `/tmp/brev/<chosen>.lock`,
+      holds that file descriptor for the entire Harbor run (including
+      all step-1..N invocations), and releases it only when the wrapper
+      exits or dies:
       ```bash
       python3 .github/skill-eval/run_leg.py \
-        --instance "$INSTANCE_NAME" \
         --dataset-root "$DS" \
         --results-root "$RES" \
         --scratch "$SCRATCH" \
@@ -387,14 +358,11 @@ The canonical harbor command is in § Harbor invocation.
         --platform "$EVAL_PLATFORM"
       ```
 
-      The wrapper's flock wait (21000s ≈ 5.8 h) sits just under the per-leg job
-      timeout (`skills-eval.yml` `timeout-minutes: 360` = 6 h), so the
-      agent always reaches the `BLOCKED: lock timeout` line before the
-      job-killer fires (the old 12 h / 43200s budget was for the
-      retired single-job sweep and would have been silently killed
-      mid-wait). If another worker holds the lock past that window,
-      fall back to step 5a and rescore — another box may have come
-      free. Final fallback: emit `BLOCKED: lock timeout` and exit.
+      The wrapper's selection/lock budget (21000s ≈ 5.8 h) sits just under
+      the per-leg job timeout (`skills-eval.yml` `timeout-minutes: 360` =
+      6 h), so the agent always reaches the `BLOCKED: lock timeout` line
+      before the job-killer fires. Do not wrap the call in retry loops —
+      the pool-wait and candidate rescan live inside the wrapper.
    c. The wrapper drives Harbor one trial at a time (they share GPU/ports
       on the host), exports `BREV_INSTANCE`, discovers single-step vs
       multi-step task layouts, and uses the canonical flags in
@@ -496,9 +464,10 @@ The canonical harbor command is in § Harbor invocation.
   turn, not by anything you run from this agent), and invoking
   `run_leg.py` for the structurally locked Harbor run.
   If no hardware-matching pool member exists for the trial's
-  platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
-  poll, 21000s budget, then `BLOCKED: pool exhausted for
-  <platform>`) — provisioning is the operator's job.
+  platform, `run_leg.py` waits internally (60s fleet rescan, 21000s
+  budget) and exits 75 with `BLOCKED: lock timeout`; relay that as
+  `BLOCKED: pool exhausted for <platform>` — provisioning is the
+  operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -524,23 +493,24 @@ The canonical harbor command is in § Harbor invocation.
 
 Pool naming is operator-managed; the actual fleet is whatever
 `brev ls` reports matching the prefix. Don't hardcode a specific
-instance name — the fleet-selection algorithm in § 5a picks the
-candidate. **Lifecycle is the operator's job**; you only acquire
-the per-box lock through `run_leg.py` and run trials — see Hard
-rules about `brev create / start / stop / delete / reset`.
+instance name — `run_leg.py`'s pool selection (§ 5a) picks the
+candidate. **Lifecycle is the operator's job**; the box lock and the
+trials both live inside `run_leg.py` — see Hard rules about
+`brev create / start / stop / delete / reset`.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** One matrix leg = one serial
-worker; concurrency comes from sibling legs each grabbing a different
-box. Pick per § 5a, then run `run_leg.py` (§ Harbor invocation). The
-wrapper exports `BREV_INSTANCE` before Harbor starts; that export is
-mandatory because BrevEnvironment no longer auto-provisions, so without
-it (or `task.toml [metadata].brev_instance`) `start()` raises before
-Harbor runs. The pool is operator-managed: never `brev create / start /
-stop / reset / delete` a member; if none matches the platform, wait per
-§ 5a and only then `BLOCKED: pool exhausted for <platform>`.
+worker; concurrency comes from sibling legs each claiming a different
+box via `run_leg.py`'s try-lock cascade (§ 5a). Just run `run_leg.py`
+(§ Harbor invocation) — it selects the box, exports `BREV_INSTANCE`
+for the claimed instance before Harbor starts (mandatory because
+BrevEnvironment no longer auto-provisions), and holds the per-box lock
+for the whole run. The pool is operator-managed: never `brev create /
+start / stop / reset / delete` a member; if none matches the platform,
+the wrapper waits out its budget and exits 75 — relay that as
+`BLOCKED: pool exhausted for <platform>`.
 
 **Name prefix is an anchored match, not a substring.** Only instances
 whose name starts with `vss-eval-` are eligible. Ignore everything else
@@ -561,26 +531,27 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
   exactly.** The check is a
   token-subset — `L4` does NOT satisfy an `L40S` task, the trial
   errors out before the agent starts with `gpu_type: want tokens
-  of 'L40S' in 'L4'`. Treat the candidate as not eligible and wait
-  for a hardware-matching pool member per § 5a — the operator
+  of 'L40S' in 'L4'`. `run_leg.py` applies the same token match at
+  selection time, so such a box is never claimed — the operator
   provisions matching capacity, not the agent.
 - **gpu_count is `>=`, not exact.** `_check_instance_matches` accepts any
   box with **at least** the spec's `gpu_count` — a 1-GPU spec runs fine on
   a 2-GPU box (2nd GPU idles); only an *under*-provisioned box is rejected.
-  **Prefer** an exact match at selection time (§ 5a scoring) so the pool
-  stays partitioned, but an over-provisioned box is a valid fallback when
-  no exact match is free/reachable. Because the `>=` check passes (rather
+  **Prefer** an exact match at selection time (`run_leg.py` orders
+  exact name-hinted counts first) so the pool stays partitioned, but an
+  over-provisioned box is a valid fallback when no exact match is
+  free/reachable. Because the `>=` check passes (rather
   than raising), `start()` runs `_reset_docker_runtime` on the fallback
   box, so it never inherits a prior trial's containers.
 
 ## Harbor invocation
 
 The command that drives a trial is the wrapper from § 5b. Copy this
-shape, substituting only the selected `$INSTANCE_NAME`:
+shape verbatim — no instance argument; the wrapper selects and locks
+the box itself:
 
 ```bash
 python3 .github/skill-eval/run_leg.py \
-  --instance "$INSTANCE_NAME" \
   --dataset-root "$DS" \
   --results-root "$RES" \
   --scratch "$SCRATCH" \
@@ -589,7 +560,8 @@ python3 .github/skill-eval/run_leg.py \
 ```
 
 Do **not** run `uvx harbor run` directly from the agent. The wrapper
-does that inside the same process that holds `/tmp/brev/$INSTANCE_NAME.lock`.
+does that inside the same process that selected the box and holds
+`/tmp/brev/<chosen>.lock`.
 It exports `PATH`, `PYTHONPATH`, `BREV_INSTANCE`, and
 `CLAUDE_CODE_DISABLE_THINKING=1`; discovers whether `$DS` contains a
 single-step task or ordered `step-1..N` tasks; dispatches one Harbor
@@ -885,9 +857,9 @@ separate; don't conflate the two.
   `NonZeroAgentExitCodeError` in the comment. The verifier may still
   have run; include the reward if present.
 - **Pool exhausted for the trial's platform.** `brev ls` shows zero
-  RUNNING+READY `^vss-eval-*` boxes whose `gpu_type` matches. Wait
-  per § 5a (5-min `brev ls` poll, up to 21000s budget). If no
-  matching candidate appears within the window, emit
+  RUNNING `^vss-eval-*` boxes whose `gpu_type` matches. `run_leg.py`
+  waits internally (60s fleet rescan, up to its 21000s budget) and
+  exits 75 with `BLOCKED: lock timeout`; relay that as
   `BLOCKED: pool exhausted for <platform>` and exit. Do NOT
   `brev create`, `brev start`, or `brev reset` — the operator
   provisions capacity, not the agent.
