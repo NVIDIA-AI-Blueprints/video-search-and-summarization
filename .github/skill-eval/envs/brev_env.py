@@ -400,7 +400,17 @@ class BrevEnvironment(BaseEnvironment):
         # only syncs on the *gold-solution* path; the trial's agent invokes
         # `/vss-deploy-profile` directly against `$REPO`, so without this step the
         # PR_HEAD_SHA forwarded above never actually lands on disk.
+        #
+        # DIAGNOSTIC (non-fatal): probe the VIOS bind mounts immediately
+        # before and after the sync. On step-2+ of a multi-step spec the
+        # step-1 deployment is still running, so if the sync's `git clean`
+        # deletes `deploy/docker/data-dir/` the after-sync probe flips from
+        # `healthy` to `stale`/`absent-source` — the direct, logged proof of
+        # the lvs_profile_summarize step-2 mount-deletion failure. Wraps its
+        # own exceptions; a probe fault never affects the trial.
+        await self._probe_bind_mount(f"{task_dir_name}:before-sync")
         await self._sync_repo_to_pr_head()
+        await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible
@@ -644,6 +654,36 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             "Repo sync on %s: %s",
             self._instance_name, (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
+
+    async def _probe_bind_mount(self, label: str) -> None:
+        """Non-fatal diagnostic: log the liveness of every discovered VIOS
+        bind mount on the box. Used to prove/disprove the step-2
+        data-dir deletion (see the call sites around _sync_repo_to_pr_head).
+        Emits `[mount-probe]` log lines; NEVER raises — a probe fault must
+        not perturb the trial it is only observing."""
+        try:
+            try:
+                from envs import mount_probe  # normal harbor import path
+            except ImportError:
+                import mount_probe  # PYTHONPATH=.github/skill-eval fallback
+            result = await _run_brev_exec(
+                self._instance_name, mount_probe.build_probe_command(label),
+                timeout=90,
+            )
+            lines = mount_probe.parse_probe_lines(result.stdout or "")
+            if not lines:
+                logger.warning(
+                    "[mount-probe] %s: no MOUNTPROBE output (rc=%s) stderr=%s",
+                    label, result.return_code, (result.stderr or "")[-200:],
+                )
+                return
+            for d in lines:
+                logger.info(
+                    "[mount-probe] %s",
+                    " ".join(f"{k}={v}" for k, v in d.items()),
+                )
+        except Exception as exc:  # noqa: BLE001 — diagnostic must never fail the trial
+            logger.warning("[mount-probe] %s failed (non-fatal): %r", label, exc)
 
     async def stop(self, delete: bool) -> None:
         """No-op — the instance stays running for reuse."""
