@@ -120,7 +120,10 @@ async def _remove_from_rtvi_cv(
     logger.info(f"Removing from RTVI-CV: POST {url}")
 
     try:
-        response = await client.post(url, json=payload)
+        # `x-stream-id` is the consistent-hash routing key for multi-replica
+        # RTVI-CV deployments — it must match the header sent on /stream/add
+        # so the remove lands on the pod that owns the stream.
+        response = await client.post(url, json=payload, headers={"x-stream-id": sensor_id})
         if response.status_code in (200, 201, 204):
             logger.info("RTVI-CV stream removed: %s", scrub_log(sensor_id))
             return True, "OK"
