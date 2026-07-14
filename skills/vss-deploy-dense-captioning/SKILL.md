@@ -3,7 +3,7 @@ name: vss-deploy-dense-captioning
 description: Use this skill when deploying standalone RT-VLM dense captioning or calling its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.2.1"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
