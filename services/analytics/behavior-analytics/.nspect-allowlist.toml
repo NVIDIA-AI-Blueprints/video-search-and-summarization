@@ -3,21 +3,5 @@ version = "1.0.0"
 [oss.excluded]
 
 [[oss.excluded.directories]]
-paths = [
-  'services/agent/',
-  'services/alert/',
-  'services/analytics/video-analytics-api/',
-  'services/rtvi/',
-  'services/ui/',
-  'services/video-summarization/',
-  'services/vios/',
-  'deploy/',
-  'libs/',
-  'tools/',
-  'skills/',
-  'assets/',
-  '.github/',
-  '.openclaw/',
-  '.cursor/'
-]
+paths = ['services/agent/', 'services/alert/', 'services/analytics/video-analytics-api/', 'services/rtvi/', 'services/ui/', 'services/video-summarization/', 'services/vios/', 'deploy/', 'libs/', 'tools/', 'skills/', 'assets/', '.github/', '.openclaw/', '.cursor/']
 comment = 'Only include Behavior Analytics microservice'
