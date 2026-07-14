@@ -32,25 +32,11 @@
 {{- $subVn := trim (default "" .Values.vlmName) }}
 {{- $globVn := trim (default "" (index $g "vlmName")) }}
 {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos3-nano-reasoner" }}
-{{- /* VST URLs embedded in VLM video requests must be reachable from the VLM process. In-cluster VLM resolves <release>-vss-vios-ingress; remote global.vlmBaseUrl does not — use global.external* like vss-agent VST_EXTERNAL_URL when both are set. */}}
-{{- $eh := index $g "externalHost" | default "" | trim }}
-{{- $es := index $g "externalScheme" | default "http" }}
-{{- $ep := index $g "externalPort" | default "" | trim }}
-{{- $globalVstCandidate := "" }}
-{{- if ne $eh "" }}
-{{- $globalVstCandidate = ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "") }}
-{{- end }}
 {{- $internalVst := printf "http://%s" $vstIngHost }}
-{{- /* vstBaseUrl: optional {{…}} via tpl; "" and static URLs unchanged. */}}
+{{- /* vstBaseUrl: optional explicit override via tpl; when empty, always use in-cluster VST (Docker parity: ${VST_INTERNAL_URL}). Public URLs for remote VLM are handled by url_transform + EXTERNAL_IP/INTERNAL_IP, not by flipping vst_config.base_url (nvbugs 6453133). */}}
 {{- $rawVst := .Values.vstBaseUrl | default "" | toString }}
 {{- $subVst := trim (tpl $rawVst .) }}
-{{- /* Remote VLM: URLs in Kafka incidents (streamprocessing) and vst_config must use a host the VLM can resolve — not only global.vlmBaseUrl; subchart vlmBaseUrl alone must also flip defaults. */}}
-{{- $remoteVlmConfigured := or (ne (trim (default "" (index $g "vlmBaseUrl"))) "") (ne (trim (default "" .Values.vlmBaseUrl)) "") }}
-{{- $vstBaseDefault := $internalVst }}
-{{- if and $remoteVlmConfigured (ne $globalVstCandidate "") }}
-{{- $vstBaseDefault = $globalVstCandidate }}
-{{- end }}
-{{- $vstBase := $subVst | default $vstBaseDefault }}
+{{- $vstBase := $subVst | default $internalVst }}
 # Helm-templated config for vss-alert-bridge (replaces env-substitute at runtime)
 # Base directory for media used during alert review (optional)
 ALERT_REVIEW_MEDIA_BASE_DIR: {{ .Values.alertReviewMediaBaseDir | default "" | quote }}
