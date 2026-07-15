@@ -65,8 +65,10 @@ def classify_mount(
         return "stale"
     if host_inode and host_inode.strip() != container_inode.strip():
         return "stale"
-    if not writable:
-        return "stale"
+    # NOT-writable is deliberately NOT treated as stale: some VIOS mounts are
+    # read-only by design (e.g. the RT-VLM's clip_storage), and the deletion we
+    # hunt is already caught by links==0 / missing-or-mismatched host_inode
+    # above. `writable` is reported on the line for context only.
     return "healthy"
 
 
@@ -107,7 +109,6 @@ for cid in $(docker ps -q 2>/dev/null); do
     [ -z "$ci" ] && v=stale
     [ "$cl" = "0" ] && v=stale
     [ -n "$hi" ] && [ -n "$ci" ] && [ "$hi" != "$ci" ] && v=stale
-    [ "$w" = 0 ] && [ "$v" = healthy ] && v=stale
     echo "{_MARKER} $LABEL verdict=$v container=$cname source=$src dest=$dst host_inode=$hi container_inode=$ci links=$cl writable=$w"
   done
 done

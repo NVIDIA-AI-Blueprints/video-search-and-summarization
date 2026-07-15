@@ -43,12 +43,14 @@ class ClassifyTest(unittest.TestCase):
             host_inode="12345", container_inode="12345",
             container_links="0", writable=True), "stale")
 
-    def test_stale_when_not_writable(self):
-        # Docker recreated the path root:root → RO for the container uid.
+    def test_ro_mount_is_healthy_not_stale(self):
+        # Read-only-by-design mounts (e.g. the RT-VLM's clip_storage) must NOT
+        # be flagged stale just for writable=0 — the delete we hunt shows up as
+        # links==0 / host-inode mismatch, which this row does not have.
         self.assertEqual(mp.classify_mount(
             container_exists=True, source_exists=True,
             host_inode="12345", container_inode="12345",
-            container_links="4", writable=False), "stale")
+            container_links="4", writable=False), "healthy")
 
     def test_stale_when_container_inode_unreadable(self):
         self.assertEqual(mp.classify_mount(
