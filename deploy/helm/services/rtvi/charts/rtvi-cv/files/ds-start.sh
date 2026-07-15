@@ -64,7 +64,7 @@ stage_mounted_configs_if_present() {
 
     if [[ "$has_files" == "true" ]]; then
         mkdir -p "$DS_CONFIG_DIR"
-        cp -rL "${DS_MOUNTED_CONFIGS_DIR}/." "${DS_CONFIG_DIR}/"
+        cp -rL --no-preserve=all "${DS_MOUNTED_CONFIGS_DIR}/." "${DS_CONFIG_DIR}/"
         echo "##### Staged profile configs from ${DS_MOUNTED_CONFIGS_DIR} -> ${DS_CONFIG_DIR} #####"
     fi
 }
