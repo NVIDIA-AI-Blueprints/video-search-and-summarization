@@ -41,7 +41,11 @@ _SERVICE_ROOT = Path(__file__).resolve().parents[2]
 if str(_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(_SERVICE_ROOT))
 
-from ci.utils.lvs_paths import LVS_SERVICE_PREFIX, is_under_service, strip_service_prefix
+from ci.utils.lvs_paths import (  # noqa: E402
+    LVS_SERVICE_PREFIX,
+    is_under_service,
+    strip_service_prefix,
+)
 
 # Paths under the service root that do NOT require rebuilding the LVS image.
 APP_ONLY_PREFIXES = (

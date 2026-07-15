@@ -56,7 +56,9 @@ def parse_gpu_list(gpu_indices: str | None) -> list[str]:
     return [idx.strip() for idx in str(gpu_indices).split(",") if idx.strip()]
 
 
-def infer_total_gpu_count(compose_path: str | None, vlm_gpus: list[str], llm_gpus: list[str]) -> int:
+def infer_total_gpu_count(
+    compose_path: str | None, vlm_gpus: list[str], llm_gpus: list[str]
+) -> int:
     """Infer total GPU count from compose filename, fallback to distinct configured GPUs."""
     match = re.search(r"_(\d+)gpu(?:_|\.|$)", compose_path or "")
     if match:

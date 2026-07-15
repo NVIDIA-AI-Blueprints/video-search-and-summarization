@@ -97,7 +97,12 @@ def regenerate_ids(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Regenerate id fields in ci/perf-configs.yaml")
-    parser.add_argument("path", type=Path, nargs="?", default=Path("services/video-summarization/ci/perf-configs.yaml"))
+    parser.add_argument(
+        "path",
+        type=Path,
+        nargs="?",
+        default=Path("services/video-summarization/ci/perf-configs.yaml"),
+    )
     parser.add_argument(
         "--default-vision-input-tokens",
         default="9k",

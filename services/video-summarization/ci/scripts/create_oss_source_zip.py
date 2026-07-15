@@ -34,7 +34,6 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-
 PYPI_JSON = "https://pypi.org/pypi/{name}/{version}/json"
 USER_AGENT = "vss-summarization-oss-source-ci/1.0"
 
@@ -209,12 +208,18 @@ def pypi_sdist_candidate(package: PackageRecord) -> SourceCandidate | None:
     if not sdists:
         return None
 
-    sdists.sort(key=lambda item: (not item.get("filename", "").endswith(".tar.gz"), item.get("filename", "")))
+    sdists.sort(
+        key=lambda item: (
+            not item.get("filename", "").endswith(".tar.gz"),
+            item.get("filename", ""),
+        )
+    )
     selected = sdists[0]
     return SourceCandidate(
         url=selected["url"],
         source_type="pypi_sdist",
-        original_filename=selected.get("filename") or Path(urllib.parse.urlparse(selected["url"]).path).name,
+        original_filename=selected.get("filename")
+        or Path(urllib.parse.urlparse(selected["url"]).path).name,
     )
 
 
@@ -323,7 +328,10 @@ def main() -> int:
     records = parse_package_lists(args.package_lists)
     missing: list[dict[str, str]] = []
 
-    with download_log.open("w", newline="") as downloads, skipped_log.open("w", newline="") as skipped:
+    with (
+        download_log.open("w", newline="") as downloads,
+        skipped_log.open("w", newline="") as skipped,
+    ):
         download_writer = csv.DictWriter(
             downloads,
             fieldnames=[
@@ -412,7 +420,10 @@ def main() -> int:
         writer.writerows(missing)
 
     if missing and not args.allow_missing:
-        print(f"Failed to resolve {len(missing)} source package(s). See {missing_log}.", file=sys.stderr)
+        print(
+            f"Failed to resolve {len(missing)} source package(s). See {missing_log}.",
+            file=sys.stderr,
+        )
         return 1
 
     archive_count = create_zip(archive_dir, args.zip_file)
