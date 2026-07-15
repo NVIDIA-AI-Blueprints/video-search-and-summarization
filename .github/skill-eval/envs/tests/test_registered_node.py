@@ -51,7 +51,7 @@ class RtspSampleUrlResolution(unittest.TestCase):
         with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": ""}):
             self.assertEqual(
                 brev_env._resolve_rtsp_sample_url(),
-                brev_env.DEFAULT_RTSP_SAMPLE_URL,
+                "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03",
             )
 
     def test_preserves_operator_override(self):
