@@ -325,12 +325,13 @@ void NvFileServerMediaSubsession
                 if (GET_CONFIG().nv_streamer_sync_file_count > 0)
                 {
                     RtspSyncPlayback *syncPlaybackInstance = RtspSyncPlayback::getInstance();
-                    if (GET_CONFIG().nv_streamer_sync_file_count > 0)
+                    syncPlaybackInstance->insertMediaSource(m_mediaSource);
+                    if (!syncPlaybackInstance->isSyncPlaybackStarted())
                     {
-                        RtspSyncPlayback::getInstance()->insertMediaSource(m_mediaSource);
-                    }
-                    if (syncPlaybackInstance && !syncPlaybackInstance->isSyncPlaybackStarted())
-                    {
+                        /* Initial synchronized start: park this source until the
+                         * quorum (nv_streamer_sync_file_count streams) have
+                         * requested PLAY, then release them all together at
+                         * frame 0 on a shared clock. */
                         if (syncPlaybackInstance->getMediaSourceListSize() >= (size_t)GET_CONFIG().nv_streamer_sync_file_count)
                         {
                             syncPlaybackInstance->startPlayingAllSources();
@@ -338,7 +339,11 @@ void NvFileServerMediaSubsession
                     }
                     else
                     {
-                        m_mediaSource->play();
+                        /* Group already running: this is a late joiner (e.g. a
+                         * 5th RTSP client) or a reconnecting stream. Align it to
+                         * the group's current loop position instead of
+                         * restarting from frame 0. */
+                        joinRunningSyncGroup();
                     }
                 }
                 else
@@ -715,6 +720,37 @@ void NvFileServerMediaSubsession::seekStreamByGlobalFrameId(H264ByteStreamSource
     }
 }
 
+void NvFileServerMediaSubsession::joinRunningSyncGroup()
+{
+    RtspSyncPlayback* sync = RtspSyncPlayback::getInstance();
+
+    /* Bind this source's demux to the group's shared clock/base time so its
+     * pacing stays locked to the running group (must happen before the seek,
+     * which reapplies the clock while flushing to the target position). */
+    sync->bindSourceToGroupClock(m_mediaSource);
+
+    /* Seek to the group's current loop position, snapped forward to the next
+     * IDR boundary. The demux seek uses GST_SEEK_FLAG_KEY_UNIT, so it always
+     * lands on a keyframe and decoding starts cleanly. */
+    int64_t targetFrame = sync->getGlobalFrameId() + sync->framesToWait();
+    m_syncSourceToGlobalFrameId = targetFrame;
+    LOG(info) << "Joining running sync group, streamName:" << m_streamName
+              << ", targetFrame:" << targetFrame
+              << ", m_sessionId:" << m_sessionId << endl;
+
+    if (m_mediaType == MediaTypeVideo && m_videoStreamSource)
+    {
+        seekStreamByGlobalFrameId(m_videoStreamSource);
+    }
+    else
+    {
+        /* Audio-only subsession, or the video source is not built yet: play
+         * bound to the shared clock. Audio realignment then rides on the
+         * AV-loop-sync coordinator at the next loop boundary. */
+        m_mediaSource->play();
+    }
+}
+
 FramedSource* NvFileServerMediaSubsession
 ::createNewStreamSource(unsigned /*clientSessionId*/, unsigned& estBitrate)
 {
@@ -770,6 +806,22 @@ FramedSource* NvFileServerMediaSubsession
             (GET_CONFIG().nv_streamer_sync_file_count > 0 && RtspSyncPlayback::getInstance()->isSyncPlaybackStarted())) &&
             m_syncSourceToGlobalFrameId > 0)
         {
+            /* Late joiner / reconnecting stream into a running group. Register
+             * with the group and bind to its shared clock/base time BEFORE the
+             * seek below. The seek reapplies the clock (gstdemux::seek), so this
+             * keeps the joiner frame-locked to the group rather than free-running
+             * from the seek point, and insertMediaSource() makes it participate
+             * in the group's loop-restart barrier. Guarded on sync_file_count so
+             * the legacy nv_streamer_sync_playback path is untouched. This is the
+             * effective join point: seekStreamByGlobalFrameId() sets PlayState,
+             * so startStream()'s join branch is intentionally skipped. */
+            if (GET_CONFIG().nv_streamer_sync_file_count > 0)
+            {
+                RtspSyncPlayback::getInstance()->insertMediaSource(m_mediaSource);
+                RtspSyncPlayback::getInstance()->bindSourceToGroupClock(m_mediaSource);
+                LOG(info) << "Late-join into running sync group, streamName:" << m_streamName
+                          << ", m_sessionId:" << m_sessionId << endl;
+            }
             int timeInDescribeAndPlay = abs(m_syncSourceToGlobalFrameId - RtspSyncPlayback::getInstance()->getGlobalFrameId());
             LOG(info) << "Time (frames) between describe and play:" << timeInDescribeAndPlay << endl;
             if (timeInDescribeAndPlay > 5)
