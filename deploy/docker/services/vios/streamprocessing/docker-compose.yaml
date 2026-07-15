@@ -83,6 +83,7 @@ services:
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
+      - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
@@ -132,6 +133,7 @@ services:
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
+      - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
@@ -183,6 +185,7 @@ services:
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
+      - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
