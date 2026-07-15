@@ -192,6 +192,33 @@ class BrevEnvironment(BaseEnvironment):
         # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
+        # Reap stray on-box agent processes left by a previous trial whose
+        # runner-side job was cancelled or SIGKILLed. Cancellation kills the
+        # runner-side harbor tree (releasing the box's flock, which dies with
+        # run_leg.py), but the agent launched *on the box* over SSH — and the
+        # Bash-tool children in its process groups — can survive and keep
+        # driving `docker compose up` / model pulls. The docker reset below
+        # removes containers, not host processes, so an unreaped orphan
+        # contends with this trial and can resurrect containers after the
+        # wipe (suspected in PR #1281's base/search legs losing SSH
+        # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
+        # legs died there). Must run before the /logs wipe and docker reset.
+        reap_result = await _run_brev_exec(
+            self._instance_name,
+            _stray_agent_reap_command(),
+            timeout=30,
+        )
+        if reap_result.return_code != 0:
+            tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"stray-agent reap failed on {self._instance_name}: "
+                f"exit {reap_result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Stray-agent reap on %s: %s",
+            self._instance_name, (reap_result.stdout or "").strip(),
+        )
+
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
         #
@@ -934,6 +961,44 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 def _which(cmd: str) -> bool:
     import shutil
     return shutil.which(cmd) is not None
+
+
+def _stray_agent_reap_command() -> str:
+    """SIGKILL leftover trial-agent processes from a prior session.
+
+    Matches the exact on-box trial invocation (`claude --verbose
+    --output-format=stream-json …`); the `[n]` bracket keeps this probe's
+    own argv — which contains the pattern text — from matching itself.
+    Kills each match's whole process group so detached Bash-tool children
+    (compose waiters, log tails) die with it, falling back to a plain kill
+    when the group lookup fails. Pids in this shell's own process group are
+    skipped — belt-and-suspenders so a caller whose argv somehow contains
+    the unbracketed pattern can never reap itself. Exits 0 whether or not
+    anything matched; a non-zero exit means the reap itself broke and the
+    caller fails loud.
+    """
+    return (
+        "PAT='claude --verbose --output-format=stream-jso[n]'; "
+        'SELF_PGID=$(ps -o pgid= -p $$ | tr -d " "); '
+        'PIDS=$(pgrep -f "$PAT" || true); '
+        "KILLED=''; "
+        'if [ -n "$PIDS" ]; then '
+        "  for pid in $PIDS; do "
+        '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d " " || true); '
+        '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then continue; fi; '
+        '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then '
+        '      kill -9 -- "-$PGID" 2>/dev/null || true; '
+        "    fi; "
+        '    kill -9 "$pid" 2>/dev/null || true; '
+        '    KILLED="$KILLED $pid"; '
+        "  done; "
+        "fi; "
+        'if [ -n "$KILLED" ]; then '
+        '  echo "[stray-agent-reap] killed pids:$KILLED"; '
+        "else "
+        '  echo "[stray-agent-reap] none"; '
+        "fi"
+    )
 
 
 def _claude_task_scratch_cleanup_command() -> str:
