@@ -27,9 +27,7 @@ DS_TRACKER_REID="${DS_TRACKER_REID:-false}"
 DS_SHOW_SENSOR_ID="${DS_SHOW_SENSOR_ID:-false}"
 DS_VISION_ENCODER="${DS_VISION_ENCODER:-false}"
 
-# DS_APP_DIR defaults to the in-image app path; overridable so the staging/patching
-# transform can be exercised against a temp tree in tests (default is unchanged at runtime).
-DS_APP_DIR="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app"
+DS_APP_DIR="${DS_APP_DIR:-/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app}"
 DS_CONFIG_DIR="${DS_APP_DIR}/configs"
 DS_MOUNTED_CONFIGS_DIR="${DS_APP_DIR}/mounted-configs"
 
