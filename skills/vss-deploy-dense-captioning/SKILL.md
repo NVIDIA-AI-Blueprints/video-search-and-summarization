@@ -41,7 +41,7 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
   existing RT-VLM service reachable from the caller.
 - NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
 - Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
-- Keep `NGC_CLI_API_KEY`, `RTVI_VLM_API_KEY`, and `.env` files out of git and out of logs; do not echo credential values or include them in final responses.
+- Keep `NGC_CLI_API_KEY`, `RTVI_VLM_API_KEY`, and `rtvi-vlm.env` files out of git and out of logs; do not echo credential values or include them in final responses.
 - Docker group access and `sudo` are effectively root-level privileges. Use the non-interactive `sudo -n` guard in the deploy reference and stop for host-owner action when passwordless sudo is unavailable.
 
 ## Troubleshooting
@@ -84,11 +84,11 @@ Always follow this sequence. Never skip the dry-run.
 #    into any writable standalone working directory.
 # 2. Derive RTVI_VLM_IMAGE_TAG from that compose copy.
 # 3. Strip the standalone-only dangling depends_on block from the copy.
-# 4. Create a gitignored .env with the required RT-VLM values.
+# 4. Create a gitignored rtvi-vlm.env with the required RT-VLM values.
 # 5. Prepare host bind paths such as $VSS_DATA_DIR/data_log/vst/clip_storage.
 #    Use `sudo -n` for ownership fixes; if passwordless sudo is unavailable,
 #    stop and ask the host owner to run the printed command manually.
-# 6. docker compose --env-file .env -f rtvi-vlm-docker-compose.yml config --quiet
+# 6. docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml config --quiet
 # 7. docker pull the exact RT-VLM image tag.
 # 8. docker compose ... up -d rtvi-vlm, wait for ready, then smoke test.
 ```
@@ -121,7 +121,7 @@ If `docker pull` fails with a containerd snapshotter/unpack error on Docker 28+,
 apply the `/etc/docker/daemon.json` `containerd-snapshotter=false` fix in the
 standalone reference before retrying.
 
-Minimum standalone `.env` values:
+Minimum standalone `rtvi-vlm.env` values:
 
 | Host env var | Required when | Purpose |
 |---|---|---|
