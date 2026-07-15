@@ -109,19 +109,19 @@ sudo -n systemctl restart docker || {
 
 ## 5. Security / Credential Handling
 
-All values are `${VAR:-}` placeholders; keep secrets in a gitignored `.env`.
+All values are `${VAR:-}` placeholders; keep secrets in a gitignored `rtvi-vlm.env`.
 Host-side vars in this compose use the `RTVI_VLM_*` / `RTVI_VLLM_*` prefix and
 rewrite to canonical container-side names at the compose boundary. See §7 for
 the authoritative variable table and required/conditional fields.
 
 For agent-driven validation, provision `NGC_CLI_API_KEY` through the agent
-process environment, a secret manager, or the local `.env` file with mode
+process environment, a secret manager, or the local `rtvi-vlm.env` file with mode
 `0600`. Do not paste the key into chat or command history. Before pulling,
 verify the agent can see the key with `test -n "$NGC_CLI_API_KEY"` and perform
-`docker login nvcr.io`; if the key only exists in `.env`, load that file into
+`docker login nvcr.io`; if the key only exists in `rtvi-vlm.env`, load that file into
 the shell before the login step.
 
-Use the `.env` block in §12 as the starting point.
+Use the `rtvi-vlm.env` block in §12 as the starting point.
 
 ## 6. Required Volume Mounts
 
@@ -145,14 +145,14 @@ sudo -n chown 1001:1001 ./rtvi-assets || {
   echo "Ask the host owner to run: sudo chown 1001:1001 $(pwd)/rtvi-assets" >&2
   exit 1
 }
-# .env: ASSET_STORAGE_DIR=$(pwd)/rtvi-assets
+# rtvi-vlm.env: ASSET_STORAGE_DIR=$(pwd)/rtvi-assets
 
 mkdir -p ./rtvi-logs
 sudo -n chown 1001:1001 ./rtvi-logs || {
   echo "Ask the host owner to run: sudo chown 1001:1001 $(pwd)/rtvi-logs" >&2
   exit 1
 }
-# .env: RTVI_VLM_LOG_DIR=$(pwd)/rtvi-logs
+# rtvi-vlm.env: RTVI_VLM_LOG_DIR=$(pwd)/rtvi-logs
 ```
 
 > ⚠ `docker compose down -v` wipes `rtvi-hf-cache` + `rtvi-ngc-model-cache` →
@@ -227,16 +227,16 @@ concurrent — cap at ≤2 streams or drop input resolution.
 
 | Container port | Host port | Collision risk |
 |---|---|---|
-| `8000` | `${RTVI_VLM_PORT}` | Many NVIDIA NIMs also bind 8000 — pick an unused port in `.env` |
+| `8000` | `${RTVI_VLM_PORT}` | Many NVIDIA NIMs also bind 8000 — pick an unused port in `rtvi-vlm.env` |
 
 Kafka and Redis are **not bundled** — expected on host or in a sibling compose.
 
 ## 11. Models Used & Swap Guide
 
-Set `RTVI_VLM_MODEL_TO_USE` in `.env` to select the backend. After any change:
+Set `RTVI_VLM_MODEL_TO_USE` in `rtvi-vlm.env` to select the backend. After any change:
 
 ```bash
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
 ```
 
@@ -257,7 +257,7 @@ Point rtvi-vlm at an already-running NIM (sibling container, remote host, or
 NVIDIA API Catalog):
 
 ```bash
-# .env:
+# rtvi-vlm.env:
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_ENDPOINT=http://nim-host.example.com:8000/v1
 VLM_NAME=cosmos-reason2-8b   # model name the NIM exposes
@@ -269,7 +269,7 @@ RTVI_VLM_API_KEY=${RTVI_VLM_API_KEY}
 ### Option B — OpenAI / Azure OpenAI
 
 ```bash
-# .env:
+# rtvi-vlm.env:
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_ENDPOINT=https://api.openai.com/v1           # or Azure endpoint
 VLM_NAME=gpt-4o          # or Azure deployment name
@@ -287,12 +287,12 @@ Model is downloaded and served by vLLM inside the container. Requires ~16–20 G
 VRAM for the 8B models.
 
 ```bash
-# .env for Cosmos Reason3 Nano BF16 (source-backed default used by VSS alerts/LVS):
+# rtvi-vlm.env for Cosmos Reason3 Nano BF16 (source-backed default used by VSS alerts/LVS):
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 
-# .env for cosmos-reason1:
+# rtvi-vlm.env for cosmos-reason1:
 # Confirm the release-supported reason1 tag from VSS release notes or
 # deploy/docker/services/nim/cosmos-reason1-7b/compose.yml before use; do not
 # reuse the cosmos-reason2 hf-1208 tag.
@@ -310,7 +310,7 @@ locally-served vLLM-compatible model. Reference:
 https://docs.nvidia.com/vss/latest/real-time-vlm.html#hugging-face-models-locally
 
 ```bash
-# .env — authenticate via HF_TOKEN env var:
+# rtvi-vlm.env — authenticate via HF_TOKEN env var:
 RTVI_VLM_MODEL_TO_USE=vllm-compatible
 RTVI_VLM_MODEL_PATH=git:https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct
 HF_TOKEN=hf_...
@@ -338,7 +338,7 @@ For a local directory containing a vLLM-compatible model, use `vllm-compatible`
 and mount the host path into the container:
 
 ```bash
-# .env:
+# rtvi-vlm.env:
 RTVI_VLM_MODEL_TO_USE=vllm-compatible
 RTVI_VLM_MODEL_PATH=/opt/models/my-vlm          # path inside the container
 ```
@@ -357,7 +357,7 @@ volumes:
 ## 12. Deployment Flow
 
 This mirrors the compose-centric workflow used by the VSS deploy-profile skill:
-work from a local copy, build a deploy-specific `.env`, dry-run, review, deploy, and
+work from a local copy, build a deploy-specific `rtvi-vlm.env`, dry-run, review, deploy, and
 wait for health. Always follow this sequence. Never skip the dry-run.
 
 This compose declares **6 blueprint profiles**. Service will NOT start under
@@ -452,7 +452,7 @@ fi
 
 # Step 1. Config — set model vars per §11 (Options A–E)
 #
-# SECURITY NOTE: Writing API keys to `.env` via the shell (`cat > .env`)
+# SECURITY NOTE: Writing API keys to `rtvi-vlm.env` via the shell (`cat > rtvi-vlm.env`)
 # puts the secret into the shell process for the duration of the heredoc.
 # To minimise exposure, prefer ONE of:
 #
@@ -461,20 +461,20 @@ fi
 #       command-line and never echoed.
 #   (b) Render the file from a templated source with an external secret
 #       manager (HashiCorp Vault, AWS Secrets Manager, sealed-secrets).
-#   (c) Manage `.env` with `chmod 600` and `chown $(id -u):$(id -g)`
+#   (c) Manage `rtvi-vlm.env` with `chmod 600` and `chown $(id -u):$(id -g)`
 #       immediately after writing it. If this working directory is inside a
-#       git repo, add `.env` to `.gitignore`; otherwise keep it outside any repo
+#       git repo, add `rtvi-vlm.env` to `.gitignore`; otherwise keep it outside any repo
 #       and do not commit or archive it.
 #
-# In all cases, NEVER commit `.env` to a repository, NEVER leave it in
+# In all cases, NEVER commit `rtvi-vlm.env` to a repository, NEVER leave it in
 # `/tmp`, NEVER paste the value into chat history, and clear the shell
 # history for the writing shell (`history -c && history -w`) before
 # leaving the host. Rotate `NGC_CLI_API_KEY` if it ever leaves this
 # host's trust boundary.
 umask 077  # ensure the file is created mode 0600
-: "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before writing .env}"
+: "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before writing rtvi-vlm.env}"
 : "${HOST_IP:?Set HOST_IP to an address reachable from the RT-VLM container}"
-cat > .env <<EOF
+cat > rtvi-vlm.env <<EOF
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 RTVI_VLM_PORT=8018
 HOST_IP=${HOST_IP}
@@ -485,8 +485,8 @@ RT_VLM_DEVICE_ID=0
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 EOF
-chmod 600 .env
-grep -qxF .env .gitignore 2>/dev/null || printf '.env\n' >> .gitignore
+chmod 600 rtvi-vlm.env
+grep -qxF rtvi-vlm.env .gitignore 2>/dev/null || printf 'rtvi-vlm.env\n' >> .gitignore
 
 # Step 1b. Select Docker command without interactive sudo.
 # Prefer direct Docker access. If the host requires sudo, use `sudo -n` so
@@ -506,15 +506,18 @@ fi
 # host bind path exists or is writable by the container user.
 CLIP_STORAGE_DIR="$VSS_DATA_DIR/data_log/vst/clip_storage"
 mkdir -p "$CLIP_STORAGE_DIR"
+# The compose bind-mounts this path into the container, whose service user
+# runs as UID/GID 1001. The ownership change is scoped to this single VST clip
+# directory; `sudo -n` fails fast instead of prompting in an agent session.
 if ! sudo -n chown -R 1001:1001 "$CLIP_STORAGE_DIR"; then
-  echo "ERROR: passwordless sudo is unavailable for host-path ownership." >&2
-  echo "Ask the host owner to run: sudo chown -R 1001:1001 \"$CLIP_STORAGE_DIR\"" >&2
+  echo "ERROR: cannot adjust ownership of $CLIP_STORAGE_DIR (passwordless sudo unavailable)." >&2
+  echo "Ask the host owner to grant UID/GID 1001:1001 ownership of that directory (recursively)." >&2
   echo "Do not work around this with chmod 777 or world-writable permissions." >&2
   exit 1
 fi
 
 # Step 3. Validate the standalone compose before creating containers.
-docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm config --quiet
 
 # Step 4. NGC auth. Pipe the key from the user shell; do not rely on sudo
@@ -526,13 +529,13 @@ printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login nvcr.io -u '$oauthtoken' --pas
 docker_cmd pull "nvcr.io/nvidia/vss-core/vss-rt-vlm:${VLM_TAG}"
 
 # Step 6. Bring up — plain `up` (no profile) starts nothing
-docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up -d
 
 # Step 7. Wait for healthy — start_period is 1200s (20 MIN) on first boot.
 #         Model weight download + vLLM warmup can take the full window.
 #         Do NOT kill as "stuck" before 20 minutes have elapsed.
-until [ "$(docker_cmd compose --env-file .env -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
+until [ "$(docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml ps --format json rtvi-vlm \
   | jq -r 'if length > 0 then ([.[].Health] | all(. == "healthy")) else false end')" = "true" ]; do
   echo "waiting for rtvi-vlm… (up to 20 minutes on first run)"
   sleep 15
@@ -552,19 +555,19 @@ the full VSS/met-blueprints multi-file project where sibling services exist.
 cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}"
 
 # Resolved compose (audit; --no-interpolate keeps ${VAR} literal — no secrets leaked)
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm config --no-interpolate
 
 # Validation only
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm config --quiet && echo "compose valid"
 
 # Create containers + pull + volumes, but don't start
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
   --profile bp_developer_alerts_2d_vlm up --no-start
 
 # Cleanup
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down
 ```
 
 > Note: compose uses `${VAR:+:path}` conditional-bind on `ASSET_STORAGE_DIR` and
@@ -595,14 +598,14 @@ Healthy log signatures (`docker logs vss-rtvi-vlm`):
 ## 15. Logs & Status
 
 ```bash
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml ps
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml ps
 
 # By container name (compose sets container_name: vss-rtvi-vlm)
 docker logs -f vss-rtvi-vlm
 
 # Or by service via compose
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml logs -f rtvi-vlm
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml logs --tail 200 --since 10m rtvi-vlm
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml logs -f rtvi-vlm
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml logs --tail 200 --since 10m rtvi-vlm
 
 docker stats vss-rtvi-vlm
 nvidia-smi dmon -s u
@@ -640,7 +643,7 @@ once the service is up):
 | Symptom | Root cause | Fix |
 |---|---|---|
 | `docker compose up` starts nothing | `--profile` not specified | Add `--profile bp_developer_alerts_2d_vlm` (§12) |
-| `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `.env` |
+| `Exited (1)` immediately, logs mention `RTVI_VLM_PORT` | Strict sentinel fired | Set `RTVI_VLM_PORT` in `rtvi-vlm.env` |
 | Container starts but Kafka errors `:9092 connection refused` or offsets stay at 0 | `HOST_IP` unset, or no broker is reachable at `${HOST_IP}:9092` when RT-VLM starts | Set `HOST_IP` to an address reachable from the container, start Kafka with that advertised listener, then restart/recreate `rtvi-vlm`. Non-fatal for API/inference, but Kafka publishing is broken until fixed. |
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo -n chown` reports that a password is required or fails in an agent session | Host path ownership requires user privileges and passwordless sudo is unavailable | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
@@ -660,17 +663,17 @@ once the service is up):
 
 **Forward**:
 ```bash
-# .env: RTVI_VLM_IMAGE_TAG=<new-tag>
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
+# rtvi-vlm.env: RTVI_VLM_IMAGE_TAG=<new-tag>
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
 ```
 
 **Rollback**:
 ```bash
-# Record current tag first: `docker compose --env-file .env -f ... images rtvi-vlm`
-# .env: RTVI_VLM_IMAGE_TAG=<prior-tag>
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
+# Record current tag first: `docker compose --env-file rtvi-vlm.env -f ... images rtvi-vlm`
+# rtvi-vlm.env: RTVI_VLM_IMAGE_TAG=<prior-tag>
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile <p> pull rtvi-vlm
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile <p> up -d --force-recreate rtvi-vlm
 ```
 
 Named volumes survive both. Re-download only if `MODEL_PATH` changes.
@@ -681,13 +684,13 @@ Named volumes survive both. Re-download only if `MODEL_PATH` changes.
 cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}"
 
 # Keep named volumes (model caches preserved)
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down
 
 # WIPES model caches (20–80 GB re-download)
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down -v
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm down -v
 
 # Remove locally-pulled image
-docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
+docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down --rmi local
 
 # Optional host-side (do NOT rm $VSS_DATA_DIR — shared with other services)
 # rm -rf ./rtvi-assets ./rtvi-logs
@@ -735,7 +738,7 @@ docker compose --env-file .env -f rtvi-vlm-docker-compose.yml down --rmi local
 - **Kafka startup order matters for validation**: when `RTVI_VLM_KAFKA_ENABLED=true`,
   start Kafka with an advertised `${HOST_IP}:9092` listener before RT-VLM. If the
   broker was missing or its listener changed after RT-VLM started, run
-  `docker compose --env-file .env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm`.
+  `docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm`.
 - **Host-var rewrite convention**: most host-side vars use `RTVI_VLM_*` or
   `RTVI_VLLM_*` and rewrite to canonical names inside the container.
 - **`VLM_MODEL_TO_USE=openai-compat` by default**: this stack expects a sibling
