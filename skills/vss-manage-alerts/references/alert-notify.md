@@ -16,7 +16,7 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 - "Stop the alert Slack webhook"
 - "What's the status of the Slack notification service?"
 
-**Not this skill** (handled by parent Workflow D or B instead):
+**Not this skill** (handled by parent Workflow D instead):
 - "Notify me when someone enters the zone" — alert creation, not Slack setup
 - "Alert and notify on incidents" — no Slack/webhook keyword, ambiguous destination
 
