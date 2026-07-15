@@ -193,30 +193,70 @@ def find_image_refs(compose_file: Path, expected_image_name: str | Iterable[str]
 
 
 def resolve_compose_vars(text: str, env: dict[str, str]) -> tuple[str, tuple[str, ...]]:
-    missing: list[str] = []
+    """Resolve Compose substitutions, including nested default expressions."""
+    missing: set[str] = set()
 
-    def replace(match: re.Match[str]) -> str:
-        name = match.group("name")
-        op = match.group("op")
-        fallback = match.group("value") or ""
-        value = env.get(name)
+    def resolve(value: str) -> str:
+        result: list[str] = []
+        index = 0
+        while index < len(value):
+            match = re.match(
+                r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<op>:?[-?])?",
+                value[index:],
+            )
+            if not match:
+                result.append(value[index])
+                index += 1
+                continue
 
-        if op == ":-":
-            return value if value else fallback
-        if op == "-":
-            return value if value is not None else fallback
-        if op in (":?", "?"):
-            if value:
-                return value
-            missing.append(name)
-            return match.group(0)
-        if value is None:
-            missing.append(name)
-            return match.group(0)
-        return value
+            start = index
+            name = match.group("name")
+            op = match.group("op")
+            cursor = index + match.end()
+            if op is None:
+                if cursor < len(value) and value[cursor] == "}":
+                    env_value = env.get(name)
+                    if env_value is None:
+                        missing.add(name)
+                        result.append(value[start : cursor + 1])
+                    else:
+                        result.append(env_value)
+                    index = cursor + 1
+                    continue
+                result.append(value[index])
+                index += 1
+                continue
 
-    resolved = COMPOSE_VAR_RE.sub(replace, text)
-    return resolved, tuple(sorted(set(missing)))
+            depth = 1
+            end = cursor
+            while end < len(value) and depth:
+                if value.startswith("${", end):
+                    depth += 1
+                    end += 2
+                elif value[end] == "}":
+                    depth -= 1
+                    end += 1
+                else:
+                    end += 1
+            if depth:
+                result.append(value[index])
+                index += 1
+                continue
+
+            fallback = value[cursor : end - 1]
+            env_value = env.get(name)
+            use_fallback = env_value is None or (op.startswith(":") and env_value == "")
+            if op.endswith("?") and use_fallback:
+                missing.add(name)
+                result.append(value[start:end])
+            elif use_fallback:
+                result.append(resolve(fallback))
+            else:
+                result.append(env_value)
+            index = end
+        return "".join(result)
+
+    return resolve(text), tuple(sorted(missing))
 
 
 def resolve_commit(repo: Path, prefix: str) -> str | None:

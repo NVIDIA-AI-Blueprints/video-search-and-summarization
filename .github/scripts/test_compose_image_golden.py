@@ -16,7 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_container_tag_source import image_refs_in_text  # noqa: E402
+from check_container_tag_source import (  # noqa: E402
+    image_refs_in_text,
+    resolve_compose_vars,
+)
 from compose_image_golden import load_containers_env, resolve_nested  # noqa: E402
 
 
@@ -106,6 +109,24 @@ services:
 
     def test_third_party_not_matched(self):
         self.assertEqual(image_refs_in_text(self.COMPOSE, "postgres"), ["postgres:16"])
+
+    def test_nested_global_registry_default_matches(self):
+        ref = (
+            "${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-"
+            "nvcr.io/nvstaging/vss-core}/vss-agent}:${VSS_AGENT_VERSION}"
+        )
+        resolved, missing = resolve_compose_vars(
+            ref,
+            {
+                "VSS_CONTAINER_REGISTRY": "ghcr.io/nvidia-ai-blueprints",
+                "VSS_AGENT_VERSION": "develop-deadbeef",
+            },
+        )
+        self.assertEqual(
+            resolved,
+            "ghcr.io/nvidia-ai-blueprints/vss-agent:develop-deadbeef",
+        )
+        self.assertEqual(missing, ())
 
 
 if __name__ == "__main__":

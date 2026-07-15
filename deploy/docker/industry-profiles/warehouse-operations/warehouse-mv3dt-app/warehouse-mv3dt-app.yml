@@ -51,7 +51,7 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
@@ -128,7 +128,7 @@ services:
         fi
 
   bp-configurator-mv3dt:
-    image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.2.1}
+    image: ${VSS_CONFIGURATOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.2.1}
     container_name: vss-configurator-mv3dt
     networks:
       default:

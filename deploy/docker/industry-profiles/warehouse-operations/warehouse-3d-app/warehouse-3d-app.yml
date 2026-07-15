@@ -52,7 +52,7 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_auto_calib_3d"]
@@ -151,7 +151,7 @@ services:
         fi
 
   bp-configurator-3d:
-    image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.2.1}
+    image: ${VSS_CONFIGURATOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.2.1}
     container_name: vss-configurator
     networks:
       default:
@@ -233,7 +233,7 @@ services:
       start_period: 60s
 
   ds-configurator-3d:
-    image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-3.2.0}
+    image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-3.2.0}
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
     container_name: vss-rtvi-cv-config-adaptor
     user: "0:0"
