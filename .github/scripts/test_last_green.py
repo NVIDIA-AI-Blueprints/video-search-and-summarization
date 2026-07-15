@@ -193,6 +193,10 @@ class AdvanceTest(unittest.TestCase):
         self.assertEqual(action, "advance")
         self.assertEqual(len(lock2["history"]), 1)
         self.assertEqual(lock2["history"][0]["release_set_id"], first["release_set_id"])
+        self.assertEqual(
+            lock2["history"][0]["acceptance"]["evidence_url"],
+            "https://example/evidence",
+        )
 
     def test_history_is_bounded(self):
         lock = lg.empty_lock()
@@ -216,6 +220,10 @@ class RollbackTest(unittest.TestCase):
         restored, problems = lg.rollback_lock(lock)
         self.assertEqual(problems, [])
         self.assertEqual(restored["release_set_id"], first["release_set_id"])
+        self.assertEqual(
+            restored["acceptance"]["pipeline_url"],
+            "https://example/pipeline/1",
+        )
         self.assertEqual(restored["history"], [])
 
     def test_rollback_with_empty_history_fails(self):

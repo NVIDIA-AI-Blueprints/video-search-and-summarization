@@ -179,6 +179,7 @@ def advance_lock(
                     "release_set_id": lock["release_set_id"],
                     "source_commit": lock.get("source_commit"),
                     "advanced_at": lock.get("advanced_at"),
+                    "acceptance": lock.get("acceptance"),
                     "images": lock.get("images", []),
                 }
             ]

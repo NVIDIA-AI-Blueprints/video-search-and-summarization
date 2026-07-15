@@ -709,6 +709,13 @@ jobs:
       - name: Unit-test the build change detection
         run: python3 .github/scripts/test_detect_changed_images.py
 
+      - name: Unit-test the downstream GHCR candidate reporter
+        run: |
+          python3 .github/scripts/test_update_pr_ghcr_candidates.py
+          python3 .github/scripts/test_prepare_downstream_release_set.py
+          python3 .github/scripts/test_prepare_nightly_promotion.py
+          python3 .github/scripts/test_trigger_downstream_pipeline.py
+
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
 
@@ -746,14 +753,16 @@ jobs:
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
     # (+ a small safety buffer).
-    timeout-minutes: 245
+    timeout-minutes: 310
     permissions:
+      actions: read
       contents: read
       # Needed so the trigger script can call the GitHub REST API to
       # resolve the PR's base branch (only present on `pull_request`
       # events, not on the `push` event used for `pull-request/<N>`
       # synthetic refs created by copy-pr-bot).
       pull-requests: read
+      issues: write
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
@@ -778,7 +787,9 @@ jobs:
         id: trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+        run: |
+          python3 .github/scripts/prepare_downstream_release_set.py
+          python3 .github/scripts/trigger-downstream-pipeline.sh
 
       - name: Poll pipeline
         env:
@@ -787,3 +798,9 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+      - name: Update PR with downstream-validated GHCR candidates
+        if: startsWith(github.ref_name, 'pull-request/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/update_pr_ghcr_candidates.py

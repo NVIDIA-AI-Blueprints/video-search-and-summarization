@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Wait for this commit's GHCR release set and pass it to downstream CI."""
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import os
+from pathlib import Path
+
+from release_set import load_inventory, validate_release_set
+from update_pr_ghcr_candidates import GitHubApi, download_release_set
+
+
+def downstream_variables(release_set: dict) -> dict[str, str]:
+    encoded = base64.b64encode(
+        (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
+    ).decode()
+    return {
+        "BUILD_TYPE": "ghcr-acceptance",
+        "VSS_RELEASE_SET_ID": release_set["release_set_id"],
+        "VSS_RELEASE_SET_B64": encoded,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
+    parser.add_argument("--sha", default=os.environ.get("GITHUB_SHA", ""))
+    parser.add_argument("--ref-name", default=os.environ.get("GITHUB_REF_NAME", ""))
+    parser.add_argument("--attempts", type=int, default=240)
+    parser.add_argument("--interval-seconds", type=int, default=15)
+    args = parser.parse_args()
+
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    github_env = os.environ.get("GITHUB_ENV", "").strip()
+    if not token or not args.repository or not args.sha or not github_env:
+        raise SystemExit(
+            "GITHUB_TOKEN, repository, SHA, and GITHUB_ENV are required"
+        )
+
+    release_set = download_release_set(
+        GitHubApi(token),
+        args.repository,
+        args.sha,
+        args.ref_name,
+        args.attempts,
+        args.interval_seconds,
+    )
+    if release_set.get("source", {}).get("commit") != args.sha:
+        raise RuntimeError("release-set source commit does not match downstream SHA")
+    problems = validate_release_set(
+        release_set, load_inventory(Path.cwd())
+    )
+    if problems:
+        raise RuntimeError("invalid release set: " + "; ".join(problems))
+
+    variables = downstream_variables(release_set)
+    with Path(github_env).open("a") as output:
+        output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
+        output.write(json.dumps(variables, separators=(",", ":")) + "\n")
+        output.write("EOF\n")
+    print(
+        f"Prepared release set {release_set['release_set_id']} "
+        f"for downstream acceptance ({len(release_set['images'])} images)."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

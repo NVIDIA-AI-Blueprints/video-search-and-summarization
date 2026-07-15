@@ -1,10 +1,13 @@
 ARG USER_ID=65532
 ARG GROUP_ID=65532
 ARG BUILD_TYPE=prod
+ARG BUILDPLATFORM
 
 
-# Builder phase
-FROM node:22.22.3 AS builder
+# The Next.js bundle is architecture-independent. Build it once on the native
+# GitHub runner instead of repeating npm/turbo under arm64 QEMU; the runner
+# stages below remain target-platform-specific and produce the multiarch image.
+FROM --platform=$BUILDPLATFORM node:22.22.3 AS builder
 ARG USER_ID
 ARG GROUP_ID
 
@@ -13,8 +16,8 @@ WORKDIR /repo
 # Copy source files
 COPY services/ui/ services/ui/
 
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV NEXT_BUILD_TRACES false
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_BUILD_TRACES=false
 
 # `npm ci` and the subsequent `turbo` invocation must run from the UI workspace root,
 # which is where `package.json` and `package-lock.json` live after the COPY above.
@@ -75,10 +78,10 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui
 COPY --from=builder --chown=root:root --chmod=0444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
 
 # Set environment variables
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV PORT 3000
-ENV HOST 0.0.0.0
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOST=0.0.0.0
 
 
 # Create separate stages for prod and dev commands

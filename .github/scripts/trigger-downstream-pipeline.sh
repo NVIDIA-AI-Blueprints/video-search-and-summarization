@@ -346,13 +346,48 @@ def write_output(key: str, value: str) -> None:
         output_file.write(f"{key}={value}\n")
 
 
+def extra_pipeline_variables() -> dict[str, str]:
+    raw = os.environ.get("DOWNSTREAM_EXTRA_VARIABLES_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        emit_error("DOWNSTREAM_EXTRA_VARIABLES_JSON is not valid JSON")
+        raise SystemExit(1) from exc
+    if not isinstance(payload, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in payload.items()
+    ):
+        emit_error("DOWNSTREAM_EXTRA_VARIABLES_JSON must be a string-to-string object")
+        raise SystemExit(1)
+    reserved = {
+        os.environ.get(
+            "DOWNSTREAM_SUBMODULE_HASH_VARIABLE", "VSS_SUBMODULE_HASH"
+        ),
+        "VSS_TARGET_BRANCH",
+        "VSS_COMPARE_BRANCH",
+    }
+    overlap = reserved.intersection(payload)
+    if overlap:
+        emit_error(
+            "extra downstream variables cannot replace reserved keys: "
+            + ", ".join(sorted(overlap))
+        )
+        raise SystemExit(1)
+    return payload
+
+
 def main() -> int:
     try:
         raw_url = require_env("DOWNSTREAM_CI_URL")
         base_url = api_base_url(raw_url)
         token = require_env("DOWNSTREAM_CI_TOKEN")
         project_path = require_env("DOWNSTREAM_PROJECT_PATH")
-        commit_sha = require_env("GITHUB_SHA")
+        commit_sha = (
+            os.environ.get("DOWNSTREAM_COMMIT_SHA", "").strip()
+            or require_env("GITHUB_SHA")
+        )
         ref = os.environ.get("DOWNSTREAM_REF", "main")
         variable_name = os.environ.get("DOWNSTREAM_SUBMODULE_HASH_VARIABLE", "VSS_SUBMODULE_HASH")
 
@@ -365,9 +400,11 @@ def main() -> int:
             add_mask(segment)
 
         target_branch, compare_branch = resolve_branches()
-        extra_variables: dict[str, str] = {}
+        extra_variables = extra_pipeline_variables()
         if launchable_notebook_changed():
             extra_variables[LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE] = "true"
+        for value in extra_variables.values():
+            add_mask(value)
 
         project_id = fetch_project_id(base_url, token, project_path)
         pipeline = trigger_pipeline(
@@ -402,8 +439,8 @@ def main() -> int:
         print(f"  {variable_name}={commit_sha}")
         print(f"  VSS_TARGET_BRANCH={target_branch}")
         print(f"  VSS_COMPARE_BRANCH={compare_branch}")
-        for key, value in extra_variables.items():
-            print(f"  {key}={value}")
+        for key in extra_variables:
+            print(f"  {key}=<provided>")
 
         sha_short = pipeline_sha[:8] if pipeline_sha else ""
         commit_sha_short = commit_sha[:8] if commit_sha else ""
@@ -420,8 +457,8 @@ def main() -> int:
             summary_lines.append(f"- **VSS_TARGET_BRANCH:** `{target_branch}`")
         if compare_branch:
             summary_lines.append(f"- **VSS_COMPARE_BRANCH:** `{compare_branch}`")
-        for key, value in extra_variables.items():
-            summary_lines.append(f"- **{key}:** `{value}`")
+        for key in extra_variables:
+            summary_lines.append(f"- **{key}:** provided")
         if pipeline_created_at:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))

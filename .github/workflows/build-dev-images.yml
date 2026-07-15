@@ -12,8 +12,8 @@
 # Deliberate properties (see docs/proposals/container-dev-and-release-workflow.md):
 #   * NO moving alias is written here. develop-latest/last-green advancement is
 #     a separate gated step that only a verified acceptance PASS may perform.
-#   * NO NGC promotion happens from GitHub. The weekly promotion is owned by
-#     the GitLab ci-vss-oss flow and consumes the same digests.
+#   * NO NGC credentials live in GitHub. The nightly GitHub controller selects
+#     a green release set, then GitLab copies those same digests to NGC.
 #   * The com.nvidia.vss.source_tree_sha label carries the git TREE hash of
 #     the source folder (git rev-parse HEAD:<source_path>) — the exact value
 #     the check-*-container-source gate compares. A post-push verification
@@ -152,6 +152,8 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
           push: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           tags: |
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
           labels: |
@@ -180,10 +182,25 @@ jobs:
       - name: Resolve manifest digest
         id: digest
         run: |
-          DIGEST="$(docker buildx imagetools inspect \
+          MANIFEST="$(docker buildx imagetools inspect \
             "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
-            --format '{{json .Manifest}}' | jq -r '.digest')"
+            --format '{{json .Manifest}}')"
+          DIGEST="$(jq -r '.digest' <<<"$MANIFEST")"
           [[ "$DIGEST" == sha256:* ]] || { echo "no digest resolved"; exit 1; }
+          ACTUAL_PLATFORMS="$(jq -r '
+            .manifests[]?.platform
+            | select(.os != "unknown" and .architecture != "unknown")
+            | "\(.os)/\(.architecture)"
+          ' <<<"$MANIFEST" | sort -u)"
+          IFS=',' read -ra REQUIRED_PLATFORMS <<<"${{ matrix.platforms }}"
+          for platform in "${REQUIRED_PLATFORMS[@]}"; do
+            grep -qx "$platform" <<<"$ACTUAL_PLATFORMS" || {
+              echo "manifest is missing required platform $platform" >&2
+              echo "actual platforms:" >&2
+              printf '%s\n' "$ACTUAL_PLATFORMS" >&2
+              exit 1
+            }
+          done
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Emit release-set fragment

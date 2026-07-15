@@ -5,10 +5,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # Container dev & release workflow — GHCR release sets and the last-green channel
 
-Status: **implementation in progress** (this document describes what this
-repository implements and the cross-repository contract it exposes; the
-GitLab `ci-vss-oss` acceptance mode and the weekly NGC promotion are owned
-outside this repository).
+Status: **implementation in progress**. This repository now emits and hands
+off immutable release sets; the companion `ci-vss-oss` MR consumes those exact
+GHCR digests and owns NGC credentials plus artifacts-promotion integration.
 
 ## One direction
 
@@ -51,6 +50,11 @@ Three rules everything below follows:
   rt-vlm / calibration / video-analytics-ui keep their historical
   `*_IMAGE_TAG` variables. Normalizing them is a rename-only change gated by
   the same golden test.
+* `VSS_CONTAINER_REGISTRY` is the one-knob registry selector. When unset,
+  every image keeps its committed release/staging default. Once a complete set
+  has been copied with the same tags, setting only this root switches between
+  GHCR, NGC dev, and NGC staging. Per-image overrides remain available while
+  the migration is incomplete.
 
 ### 2. Immutable GHCR candidate builds (`build-dev-images.yml`)
 
@@ -76,6 +80,11 @@ Triggered on `push` to `develop` and to repo-local `pull-request/N` branches
   `ghcr_image_guard.py verify` reads the labels back through the same code
   path as the gate immediately after the push, so a contract mismatch fails
   the build, not a later promotion.
+* GitHub Actions cache export/import is enabled per image. The UI's
+  architecture-independent Next.js bundle is built once on the native build
+  platform; only its runtime stages are emitted per target architecture.
+  The workflow also inspects the published index and fails unless every
+  inventory platform is present.
 
 ### 3. The release set (`deploy/docker/release-set.schema.json`)
 
@@ -113,7 +122,27 @@ The controller (all decision logic in the unit-tested `last_green.py`):
 * stays **dormant** (`vars.VSS_LAST_GREEN_ENABLED != 'true'`) until the
   GitLab blocking acceptance mode exists.
 
-## The cross-repository handoff (contract, not implementation)
+### 5. Downstream acceptance and PR reporting
+
+The normal GitHub CI job waits for the same commit's `release-set` artifact,
+passes it to `ci-vss-oss`, and then polls that pipeline. GitLab acceptance
+retags Compose to `image:tag@digest` from the manifest and disables its
+candidate build/publish switches, so a green result proves the exact GHCR
+bytes. After success, GitHub creates or updates a marker comment on the PR with
+the immutable GHCR tags, digests, and release-set ID. No bot commit is used:
+a commit-SHA-derived tag bump would change the SHA and create a rebuild loop.
+
+### 6. Nightly digest-preserving promotion
+
+`nightly-promote-ghcr.yml` selects a successful `develop` GHCR build whose
+same commit also has a successful GitHub CI/downstream run. It sends the
+specific release-set ID, manifest, and immutable tag to the GitLab
+`ghcr-promotion` mode. GitLab uses `skopeo copy --all --preserve-digests` to
+copy GHCR to NGC dev, verifies digest parity, and then opens the existing
+artifacts-promotion MRs that carry the same tag through nSpect to NGC staging.
+No stage rebuilds an accepted image.
+
+## The cross-repository handoff
 
 1. GitHub publishes a complete immutable release set (above).
 2. GitHub triggers GitLab with the **release-set ID and manifest**, not just
@@ -146,7 +175,8 @@ The controller (all decision logic in the unit-tested `last_green.py`):
 ## Still requires owners outside this repository
 
 GHCR public-distribution approval per image (visibility, license, export),
-the GitLab acceptance mode and schedule, the mirror program credentials,
-nSpect thresholds and waiting semantics, artifact-promotion MR restoration,
-and SQA sign-off identity. The inventory and schemas here are written so
-those pieces consume the same contract instead of inventing a second one.
+the mirror program credentials, nSpect thresholds and waiting semantics,
+artifacts-promotion config paths, and SQA sign-off identity. GitLab must be
+configured with GHCR read credentials (if packages are private), NGC dev write
+credentials, and artifacts-promotion MR credentials before the nightly
+workflow is enabled.
