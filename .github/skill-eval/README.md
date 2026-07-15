@@ -18,7 +18,7 @@ The whole thing runs inside the 8-hour GitHub Actions job timeout. The `.github/
 The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill-validator` (a long-running Brev CPU instance in the NVIDIA org). That host needs:
 
 - **[uv](https://github.com/astral-sh/uv)** — harbor is invoked as `uvx harbor`.
-- **[Brev CLI](https://docs.brev.nvidia.com/)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
+- **[Brev CLI](https://docs.nvidia.com/brev/latest/cli/cli-overview)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
 - **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo.
 - **Python 3** — for the adapters.
 - **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file.

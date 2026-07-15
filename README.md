@@ -27,7 +27,7 @@ This repository implements the blueprint and powers the [NVIDIA build experience
 The NVIDIA AI Blueprint for Video Search and Summarization addresses the challenge of deploying visual agents capable of interacting with large volumes of video data, both stored and streamed. This can be used to create vision AI agents, that can be applied to a multitude of use cases such as monitoring smart spaces, warehouse automation, and SOP validation. This is important where quick and accurate video analysis can lead to better decision-making and enhanced operational efficiency.
 
 ## Agent Workflows
-We provide multiple reference [Agent Workflows](https://docs.nvidia.com/vss/latest/adding-workflows.html) which demonstrate how the individual components can be leveraged by an agent:
+We provide multiple reference [Agent Workflows](https://docs.nvidia.com/vss/latest/agent-workflows.html) which demonstrate how the individual components can be leveraged by an agent:
 
 | Workflow | Description |
 |----------|-------------|
@@ -44,7 +44,7 @@ We provide multiple reference [Agent Workflows](https://docs.nvidia.com/vss/late
 
 1. **NIM microservices**: Here are models used in this blueprint:
 
-    - [Cosmos-Reason2-8B](https://build.nvidia.com/nvidia/cosmos-reason2-8b)
+    - [Cosmos3 Nano Reasoner](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner)
     - [NVIDIA Nemotron-Nano-9B-v2](https://build.nvidia.com/nvidia/nvidia-nemotron-nano-9b-v2)
 
 2. **Real-time video intelligence**: The Real-Time Video Intelligence layer extracts rich visual features, semantic embeddings, and contextual understanding from video data in real-time, publishing results to a message broker for downstream analytics and agentic workflows. It provides three core microservices for processing video streams.
