@@ -237,6 +237,26 @@ class ReuseEntriesTest(unittest.TestCase):
         self.assertEqual(entry["image"], "nvcr.io/nvidia/vss-core/vss-configurator")
         self.assertEqual(entry["tag"], "3.2.1")
 
+    def test_profile_env_resolves_required_pinned_tag(self):
+        compose = """services:
+  vss-agent:
+    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(
+                tmp,
+                {"services/agent/compose.yml": compose},
+                [AGENT_ENTRY],
+            )
+            profile_env = root / "deploy/docker/developer-profiles/base/.env"
+            profile_env.parent.mkdir(parents=True)
+            profile_env.write_text("VSS_AGENT_VERSION=3.3.0-deadbeef\n")
+            inventory = rs.load_inventory(root)
+            entries, problems = rs.reuse_entries(root, inventory, set())
+        self.assertEqual(problems, [])
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["tag"], "3.3.0-deadbeef")
+
     def test_ambiguous_coordinates_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(
@@ -371,6 +391,20 @@ class AssembleAndValidateTest(unittest.TestCase):
             inventory = rs.load_inventory(root)
             errors = rs.validate_release_set(release_set, inventory)
             self.assertTrue(any("immutable sha256 digest" in e for e in errors))
+
+    def test_validate_rejects_unresolved_reuse_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.make_full_repo(tmp)
+            fragments_dir = self.write_agent_fragment(root)
+            _, out = self.assemble(root, fragments_dir)
+            release_set = json.loads(out.read_text())
+            for item in release_set["images"]:
+                if item["strategy"] == "reuse-pinned":
+                    item["tag"] = "${VSS_AGENT_VERSION}"
+            release_set["release_set_id"] = rs.compute_release_set_id(release_set)
+            inventory = rs.load_inventory(root)
+            errors = rs.validate_release_set(release_set, inventory)
+            self.assertTrue(any("unresolved variable" in e for e in errors))
 
     def test_validate_rejects_duplicates_and_bad_commit(self):
         with tempfile.TemporaryDirectory() as tmp:

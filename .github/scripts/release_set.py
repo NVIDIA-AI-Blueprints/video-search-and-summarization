@@ -47,10 +47,12 @@ from check_container_tag_source import (  # noqa: E402
     DEPLOY_DIR,
     IMAGE_LINE_RE,
     discover_compose_files,
+    discover_env_files,
     image_name,
+    read_env_file,
     strip_quotes,
 )
-from compose_image_golden import resolve_nested  # noqa: E402
+from compose_image_golden import load_containers_env, resolve_nested  # noqa: E402
 
 INVENTORY_FILE = DEPLOY_DIR / "container-inventory.json"
 
@@ -81,19 +83,39 @@ def inventory_by_compose_name(inventory: dict) -> dict[str, dict]:
 
 def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
     """``(compose_rel_path, resolved_ref)`` for every image ref whose
-    defaults-only resolution lands in a first-party registry root."""
+    committed defaults resolve into a first-party registry root."""
     roots = tuple(inventory["first_party_registry_roots"])
-    refs: list[tuple[str, str]] = []
+    by_compose_name = inventory_by_compose_name(inventory)
+    containers_env_path = repo_root / DEPLOY_DIR / "containers.env"
+    base_env = (
+        load_containers_env(containers_env_path)
+        if containers_env_path.exists()
+        else {}
+    )
+    env_variants = [base_env]
+    env_variants.extend(
+        {**base_env, **read_env_file(path)}
+        for path in discover_env_files(repo_root)
+        if path != containers_env_path
+    )
+    refs: set[tuple[str, str]] = set()
     for compose_file in discover_compose_files(repo_root):
         rel = compose_file.relative_to(repo_root).as_posix()
         for line in compose_file.read_text().splitlines():
             match = IMAGE_LINE_RE.match(line)
             if not match:
                 continue
-            resolved = resolve_nested(strip_quotes(match.group("ref")), {})
-            if resolved.startswith(roots):
-                refs.append((rel, resolved))
-    return refs
+            raw_ref = strip_quotes(match.group("ref"))
+            candidates = {resolve_nested(raw_ref, {})}
+            provisional = resolve_nested(raw_ref, base_env)
+            entry = by_compose_name.get(image_name(provisional))
+            if entry and entry.get("strategy") in IN_SCOPE_STRATEGIES:
+                candidates.update(resolve_nested(raw_ref, env) for env in env_variants)
+            concrete = {ref for ref in candidates if "${" not in ref}
+            for resolved in concrete or candidates:
+                if resolved.startswith(roots):
+                    refs.add((rel, resolved))
+    return sorted(refs)
 
 
 # ---------------------------------------------------------------------------
@@ -341,8 +363,14 @@ def validate_release_set(release_set: dict, inventory: dict) -> list[str]:
             problems.append(f"{name}: not in the inventory")
         if item.get("strategy") not in STRATEGIES:
             problems.append(f"{name}: invalid strategy {item.get('strategy')!r}")
-        if not item.get("tag"):
+        tag = item.get("tag")
+        if not tag:
             problems.append(f"{name}: tag is required")
+        elif "${" in tag:
+            problems.append(f"{name}: tag contains unresolved variable {tag!r}")
+        image = item.get("image") or ""
+        if "${" in image:
+            problems.append(f"{name}: image contains unresolved variable {image!r}")
         digest = item.get("digest")
         if item.get("strategy") in ("build", "mirror"):
             if not DIGEST_RE.match(digest or ""):
