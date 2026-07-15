@@ -1470,6 +1470,8 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
   "VLM_MODE" "remote" "VLM_PORT" "30082" "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
+_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+
 # LVS with local/local_shared VLM: route LVS through RT-VLM and let RT-VLM load the integrated Cosmos checkpoint.
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \
  -i 127.0.0.1 -H OTHER -d -- \
@@ -1477,7 +1479,7 @@ run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM 
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
   "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
-  "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+  "COMPOSE_PROFILES" "${_expected_lvs_compose_profiles}"
 
 # LVS with remote VLM: keep RT-VLM in the stack and point only RT-VLM at the remote OpenAI-compatible endpoint.
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env lvs remote VLM uses RT-VLM proxy to remote endpoint" "lvs" \
@@ -1486,7 +1488,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
   "VLM_BASE_URL" "http://127.0.0.1:9998" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "30082" \
   "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat" \
   "RTVI_VLM_MODEL_PATH" "none" \
-  "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+  "COMPOSE_PROFILES" "${_expected_lvs_compose_profiles}"
 
 # Alerts profile: PERCEPTION_DOCKERFILE_PREFIX and VLM_AS_VERIFIER_CONFIG_FILE_PREFIX (conditional on HARDWARE_PROFILE and VLM_MODE)
 run_dry_run_up_and_check_generated_env "generated.env alerts prefixes non-DGX-SPARK (empty)" "alerts" \

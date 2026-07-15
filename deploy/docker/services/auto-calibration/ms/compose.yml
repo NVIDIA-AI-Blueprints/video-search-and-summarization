@@ -18,7 +18,7 @@ services:
     image: nvcr.io/nvidia/vss-core/vss-auto-calibration:3.2.1
 
     container_name: vss-auto-calibration
-    profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
+    profiles: ["vss-auto-calibration"]
     ports:
       - ${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}:${VSS_AUTO_CALIBRATION_PORT:-8010}
     
