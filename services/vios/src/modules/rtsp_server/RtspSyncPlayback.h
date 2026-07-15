@@ -240,10 +240,99 @@ public:
         return frames_to_wait;
     }
 
+    /*
+     * Group frame rate captured when the synchronized group starts. Used
+     * to convert the shared-clock elapsed time into a frame position.
+     */
+    double groupFrameRate()
+    {
+        double fr = m_groupFrameRate.load();
+        return (fr > 0) ? fr : DEFAULT_FRAMERATE;
+    }
+
+    /*
+     * Duration of one synchronized loop in milliseconds, derived from the
+     * group's least frame count and frame rate. Returns 0 when unknown, in
+     * which case callers skip the modulo (baseGstTime resets every loop, so
+     * the raw elapsed time is already in-loop).
+     */
+    int64_t loopDurationMs()
+    {
+        int maxFrames = getMaxFrameCount();
+        if (maxFrames <= 0)
+        {
+            return 0;
+        }
+        return (int64_t)(maxFrames * (1000.0 / groupFrameRate()));
+    }
+
+    /*
+     * Current position of the running synchronized group within its loop,
+     * in milliseconds. Computed from the shared GstClock so any late joiner
+     * or reconnecting stream can align to where the group actually is right
+     * now. baseGstTime is reset at every loop boundary (addToReplayList), so
+     * (now - base) is the in-loop offset; the modulo is a safety net for the
+     * brief window around a loop restart.
+     */
+    int64_t getCurrentGroupOffsetMs()
+    {
+        if (!m_isSyncPlaybackStarted || m_globalGstClock == nullptr)
+        {
+            return 0;
+        }
+        GstClockTime base = m_baseGstTime.load();
+        if (base == GST_CLOCK_TIME_NONE)
+        {
+            return 0;
+        }
+        GstClockTime now = gst_clock_get_time(m_globalGstClock);
+        if (now <= base)
+        {
+            return 0;
+        }
+        int64_t elapsed_ms = (int64_t)((now - base) / GST_MSECOND);
+        int64_t loop_ms = loopDurationMs();
+        if (loop_ms > 0)
+        {
+            elapsed_ms %= loop_ms;
+        }
+        return elapsed_ms;
+    }
+
+    /*
+     * Global frame id of the running synchronized group. When the group is
+     * live this is DERIVED from the shared clock (single source of truth),
+     * so late joiners/reconnects seek to the group's real position. When no
+     * synchronized group is running it falls back to the legacy member used
+     * by the older nv_streamer_sync_playback path.
+     */
     int64_t getGlobalFrameId()
     {
+        if (m_isSyncPlaybackStarted && m_globalGstClock != nullptr)
+        {
+            return (int64_t)(getCurrentGroupOffsetMs() * groupFrameRate() / 1000.0);
+        }
         std::lock_guard<std::mutex> guard(m_frameIdLock);
         return m_globalFrameId;
+    }
+
+    /*
+     * Bind a single source's demux to the running group's shared clock and
+     * base time. Called for a late joiner / reconnecting stream just before
+     * it is seeked to the group's current position, so its pacing stays
+     * locked to the rest of the group.
+     */
+    void bindSourceToGroupClock(std::shared_ptr<NvMediaSource>& source)
+    {
+        if (!source)
+        {
+            return;
+        }
+        std::lock_guard<std::mutex> guard(m_mediaSourceListLock);
+        if (m_globalGstClock)
+        {
+            source->setClock(m_globalGstClock, m_baseGstTime.load());
+        }
     }
 
     void replay()
@@ -302,10 +391,34 @@ public:
 
     void removeMediaSource(std::shared_ptr<NvMediaSource>& media_source)
     {
-        if (media_source)
+        if (!media_source)
         {
-            std::lock_guard<std::mutex> guard(m_mediaSourceListLock);
-            m_mediaSourceList.erase(std::remove(m_mediaSourceList.begin(), m_mediaSourceList.end(), media_source), m_mediaSourceList.end());
+            return;
+        }
+        std::lock_guard<std::mutex> mguard(m_mediaSourceListLock);
+        m_mediaSourceList.erase(std::remove(m_mediaSourceList.begin(), m_mediaSourceList.end(), media_source), m_mediaSourceList.end());
+
+        if (m_mediaSourceList.empty())
+        {
+            /* Last participant left: tear the group down so a fresh set of
+             * clients re-forms the quorum and starts cleanly at frame 0. */
+            m_isSyncPlaybackStarted = false;
+            std::lock_guard<std::mutex> rguard(m_replayListLock);
+            m_replayList.clear();
+            LOG(info) << "Sync group drained, resetting for a fresh start" << endl;
+            return;
+        }
+
+        /* A source that surviving participants were parked on at the loop
+         * barrier just left. Re-evaluate so the survivors don't stall. */
+        size_t arrived = 0;
+        {
+            std::lock_guard<std::mutex> rguard(m_replayListLock);
+            arrived = m_replayList.size();
+        }
+        if (arrived > 0 && arrived >= m_mediaSourceList.size())
+        {
+            triggerGroupReplayLocked();
         }
     }
 
@@ -319,12 +432,46 @@ public:
     {
         std::lock_guard<std::mutex> guard(m_mediaSourceListLock);
         // Start playing from all the sources
+        if (m_globalGstClock)
+        {
+            gst_object_unref(m_globalGstClock);
+        }
         m_globalGstClock = gst_system_clock_obtain();
-        m_baseGstTime = gst_clock_get_time(m_globalGstClock);
-        LOG(info) << "Starting to play all sources m_baseGstTime:" << m_baseGstTime << endl;
+        GstClockTime baseTime = gst_clock_get_time(m_globalGstClock);
+        m_baseGstTime.store(baseTime);
+
+        /* Capture the group's frame rate and least frame count so the
+         * shared-clock elapsed time can be converted to a frame position
+         * (getGlobalFrameId / loopDurationMs) for late joiners. */
+        int least_framecount = INT_MAX;
         for (auto source : m_mediaSourceList)
         {
-            source->setClock(m_globalGstClock, m_baseGstTime);
+            if (!source)
+            {
+                continue;
+            }
+            double fr = source->getFrameRate();
+            if (fr > 0)
+            {
+                m_groupFrameRate.store(fr);
+            }
+            int fc = source->getFrameCount();
+            if (fc > 0 && fc < least_framecount)
+            {
+                least_framecount = fc;
+            }
+        }
+        if (least_framecount != INT_MAX)
+        {
+            updateMaxFrameCount(least_framecount);
+        }
+
+        LOG(info) << "Starting to play all sources m_baseGstTime:" << baseTime
+                  << ", groupFrameRate:" << m_groupFrameRate.load()
+                  << ", maxFrameCount:" << getMaxFrameCount() << endl;
+        for (auto source : m_mediaSourceList)
+        {
+            source->setClock(m_globalGstClock, baseTime);
         }
         for (auto source : m_mediaSourceList)
         {
@@ -336,22 +483,20 @@ public:
 
     void addToReplayList(const std::string& filename)
     {
-        std::lock_guard<std::mutex> guard(m_replayListLock);
-        m_replayList.push_back(filename);
-        if (m_replayList.size() == m_mediaSourceList.size())
+        std::lock_guard<std::mutex> mguard(m_mediaSourceListLock);
+        size_t arrived = 0;
         {
-            m_globalGstClock = gst_system_clock_obtain();
-            m_baseGstTime = gst_clock_get_time(m_globalGstClock);
-            LOG(info) << "Replaying all sources baseGstTime:" << m_baseGstTime << endl;
-            for (auto source : m_mediaSourceList)
-            {
-                source->setClock(m_globalGstClock, m_baseGstTime);
-            }
-            for (auto source : m_mediaSourceList)
-            {
-                source->seekToStart();
-            }
-            m_replayList.clear();
+            std::lock_guard<std::mutex> rguard(m_replayListLock);
+            m_replayList.push_back(filename);
+            arrived = m_replayList.size();
+        }
+        /* Restart the loop once every currently-registered source has
+         * reached EOS. Using >= (rather than ==) keeps the barrier robust
+         * to membership that shrank after some sources already signalled,
+         * so the group can never deadlock at a loop boundary. */
+        if (!m_mediaSourceList.empty() && arrived >= m_mediaSourceList.size())
+        {
+            triggerGroupReplayLocked();
         }
     }
 
@@ -366,6 +511,41 @@ public:
     }
 
 private:
+    /*
+     * Restart the whole synchronized group at the loop boundary on a fresh
+     * shared clock/base time. Caller MUST hold m_mediaSourceListLock. The
+     * source->setClock()/seekToStart() calls post to per-source event loops
+     * and never block, so it is safe to invoke them under the lock.
+     */
+    void triggerGroupReplayLocked()
+    {
+        if (m_globalGstClock)
+        {
+            gst_object_unref(m_globalGstClock);
+        }
+        m_globalGstClock = gst_system_clock_obtain();
+        GstClockTime baseTime = gst_clock_get_time(m_globalGstClock);
+        m_baseGstTime.store(baseTime);
+        LOG(info) << "Replaying all sources baseGstTime:" << baseTime
+                  << ", count:" << m_mediaSourceList.size() << endl;
+        for (auto source : m_mediaSourceList)
+        {
+            if (source)
+            {
+                source->setClock(m_globalGstClock, baseTime);
+            }
+        }
+        for (auto source : m_mediaSourceList)
+        {
+            if (source)
+            {
+                source->seekToStart();
+            }
+        }
+        std::lock_guard<std::mutex> rguard(m_replayListLock);
+        m_replayList.clear();
+    }
+
     std::atomic<int64_t>    m_globalFrameId{-1};
     shared_ptr<GstDeMux>    m_demux;
     std::mutex              m_fileLock;
@@ -378,7 +558,8 @@ private:
     std::mutex              m_demuxerListLock;
     std::atomic<int>        m_simulationWaitTime {0};
     GstClock*              m_globalGstClock = nullptr;
-    GstClockTime           m_baseGstTime;
+    std::atomic<GstClockTime> m_baseGstTime{GST_CLOCK_TIME_NONE};
+    std::atomic<double>    m_groupFrameRate{DEFAULT_FRAMERATE};
     std::mutex              m_mediaSourceListLock;
     std::vector<std::shared_ptr<NvMediaSource>> m_mediaSourceList;
     std::mutex              m_replayListLock;
