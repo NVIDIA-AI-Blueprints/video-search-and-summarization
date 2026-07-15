@@ -45,8 +45,12 @@ The pipeline lives in a monorepo. For ordinary branch commits it runs only when
 
 - Detection: `ci/scripts/lvs_app_only_changes.py --mode any` via
   `pipeline-helpers.groovy` (`hasLvsServiceChanges` / `evaluateLvsPipelineActive`).
-  When `HEAD^` is unavailable (Jenkins shallow `depth=1` checkout), the script
-  falls back to files touched in `HEAD` only.
+  The script diffs `HEAD^..HEAD`. Jenkins does a shallow (`depth=1`) checkout, so
+  the parent commit object is absent; the script auto-runs `git fetch --deepen=1`
+  (repo is public, no creds needed) to expose `HEAD^` before diffing.
+- Fail-open: if the parent still cannot be resolved, the script assumes changes
+  are present (runs the pipeline / forces an image rebuild) rather than skipping,
+  so a real change is never silently dropped.
 - Stage `check-lvs-changes` performs a lightweight checkout, sets
   `LVS_PIPELINE_ACTIVE`, and skips all downstream stages when there are no
   service changes.

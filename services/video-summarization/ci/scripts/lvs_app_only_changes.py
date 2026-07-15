@@ -75,39 +75,65 @@ def _ref_exists(repo_root: Path, ref: str) -> bool:
     )
 
 
-def _files_in_commit(repo_root: Path, commit: str = "HEAD") -> list[str]:
-    """Return paths touched by a single commit (works when the parent is not fetched)."""
+class UndeterminableChanges(Exception):
+    """Raised when the changed file set cannot be reliably computed.
+
+    Typically happens on a shallow clone (Jenkins default) where the parent
+    commit object is absent and cannot be fetched. Callers should fail open
+    (assume changes are present) rather than silently skipping work.
+    """
+
+
+def _is_shallow(repo_root: Path) -> bool:
     result = subprocess.run(
-        ["git", "show", "--name-only", "--pretty=format:", commit],
-        check=True,
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=repo_root,
         capture_output=True,
         text=True,
-        cwd=repo_root,
     )
-    return [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+    return result.stdout.strip() == "true"
 
 
-def resolve_change_ref(repo_root: Path, ref: str) -> str | None:
-    """Return a ref for ``git diff ref..HEAD``, or None to use single-commit fallback."""
-    # Jenkins/GitLab MR builds often checkout the merge commit; compare vs target branch.
+def _try_deepen(repo_root: Path, *, quiet: bool = False) -> None:
+    """Best-effort: fetch one more commit so HEAD^ resolves in a shallow clone.
+
+    The repo is public, so no credentials are required. Failures are ignored;
+    the caller re-checks whether the parent became available.
+    """
+    for extra in (["--deepen=1"], ["--unshallow"]):
+        if _ref_exists(repo_root, "HEAD^"):
+            return
+        cmd = ["git", "fetch", "--no-tags", "--quiet", *extra]
+        if not quiet:
+            print(f"Shallow clone: attempting `{' '.join(cmd)}` to expose HEAD^", file=sys.stderr)
+        subprocess.run(cmd, cwd=repo_root, capture_output=True)
+
+
+def resolve_change_ref(repo_root: Path, ref: str, *, quiet: bool = False) -> str | None:
+    """Return a ref suitable for ``git diff ref..HEAD``, or None if undeterminable."""
+    # Jenkins/GitLab MR builds often checkout the merge commit; compare vs first parent.
     if _ref_exists(repo_root, "HEAD^2") and _ref_exists(repo_root, "HEAD^1"):
         return "HEAD^1"
     if _ref_exists(repo_root, ref):
         return ref
+    # Shallow clone: the parent object is absent. Try to fetch just enough history.
+    if _is_shallow(repo_root):
+        _try_deepen(repo_root, quiet=quiet)
+        if _ref_exists(repo_root, "HEAD^2") and _ref_exists(repo_root, "HEAD^1"):
+            return "HEAD^1"
+        if _ref_exists(repo_root, ref):
+            return ref
     return None
 
 
 def get_changed_files(ref: str, *, quiet: bool = False) -> list[str]:
     """Return file paths changed between ref and HEAD (relative to the git root)."""
     repo_root = _repo_root()
-    effective_ref = resolve_change_ref(repo_root, ref)
+    effective_ref = resolve_change_ref(repo_root, ref, quiet=quiet)
     if effective_ref is None:
-        if not quiet:
-            print(
-                f"Ref {ref!r} unavailable (shallow clone); using files in HEAD only",
-                file=sys.stderr,
-            )
-        return _files_in_commit(repo_root, "HEAD")
+        raise UndeterminableChanges(
+            f"Ref {ref!r} is unavailable and history could not be deepened (shallow clone)"
+        )
     result = subprocess.run(
         ["git", "diff", "--name-only", f"{effective_ref}..HEAD"],
         check=True,
@@ -153,6 +179,14 @@ def main() -> int:
 
     try:
         changed = get_changed_files(args.ref, quiet=args.quiet)
+    except UndeterminableChanges as exc:
+        # Fail open: on uncertainty, do the work rather than skip it.
+        #   any mode (pipeline gate): treat as "has changes" -> run the pipeline.
+        #   app-only mode (image reuse): treat as "not app-only" -> force a rebuild.
+        if not args.quiet:
+            print(f"{exc}; failing open (assuming changes present)", file=sys.stderr)
+        print("true" if args.mode == "any" else "false")
+        return 0 if args.mode == "any" else 1
     except subprocess.CalledProcessError as exc:
         if not args.quiet:
             print(f"git diff failed: {exc}", file=sys.stderr)

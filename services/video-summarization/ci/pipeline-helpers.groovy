@@ -430,8 +430,9 @@ def canReuseLvsImage(String ref = 'HEAD^') {
         echo "lvs_app_only_changes.py not found at ${scriptPath}, assuming LVS rebuild required"
         return false
     }
+    // Keep stderr on the console for diagnostics; only the last stdout line is the result.
     def result = sh(
-        script: "python3 ${scriptPath} --ref '${ref}' --quiet 2>/dev/null | tail -1",
+        script: "python3 ${scriptPath} --ref '${ref}' | tail -1",
         returnStdout: true
     ).trim()
     def canReuse = (result == 'true')
@@ -442,17 +443,45 @@ def canReuseLvsImage(String ref = 'HEAD^') {
 /**
  * Returns true when any tracked file under services/video-summarization changed
  * between ref and HEAD. Changes elsewhere in the monorepo are ignored.
+ *
+ * Implemented in pure shell/git (no Python) so it can run in minimal agent
+ * containers (e.g. the basics ubuntu image, which has git but not python3).
+ * Handles Jenkins shallow (depth=1) checkouts by deepening one commit, and MR
+ * merge-commit builds by diffing against the first parent. Fails open: if the
+ * comparison base cannot be resolved, assume changes are present.
  */
 def hasLvsServiceChanges(String ref = 'HEAD^') {
-    def scriptPath = lvsPath('ci/scripts/lvs_app_only_changes.py')
-    if (!fileExists(scriptPath)) {
-        echo "lvs_app_only_changes.py not found at ${scriptPath}, assuming service changes exist"
-        return true
-    }
     def result = sh(
-        script: "python3 ${scriptPath} --mode any --ref '${ref}' --quiet 2>/dev/null | tail -1",
-        returnStdout: true
-    ).trim()
+        returnStdout: true,
+        script: """
+            set -e
+            ref='${ref}'
+            # MR merge-commit builds: compare against the target-branch parent.
+            if git rev-parse --verify -q 'HEAD^2^{commit}' >/dev/null && \\
+               git rev-parse --verify -q 'HEAD^1^{commit}' >/dev/null; then
+                ref='HEAD^1'
+            elif ! git rev-parse --verify -q "\${ref}^{commit}" >/dev/null; then
+                # Parent missing (shallow clone). Try to fetch just enough history.
+                if [ "\$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+                    echo "Shallow clone: deepening history to expose \${ref}" >&2
+                    git fetch --no-tags --quiet --deepen=1 >/dev/null 2>&1 || true
+                    if ! git rev-parse --verify -q "\${ref}^{commit}" >/dev/null; then
+                        git fetch --no-tags --quiet --unshallow >/dev/null 2>&1 || true
+                    fi
+                fi
+            fi
+            if ! git rev-parse --verify -q "\${ref}^{commit}" >/dev/null; then
+                echo "Ref \${ref} unavailable and history could not be deepened; failing open (assuming changes)" >&2
+                echo true
+                exit 0
+            fi
+            if git diff --name-only "\${ref}..HEAD" | grep -q '^services/video-summarization/'; then
+                echo true
+            else
+                echo false
+            fi
+        """
+    ).trim().readLines().last().trim()
     def hasChanges = (result == 'true')
     echo "hasLvsServiceChanges(ref=${ref}): ${hasChanges}"
     return hasChanges
