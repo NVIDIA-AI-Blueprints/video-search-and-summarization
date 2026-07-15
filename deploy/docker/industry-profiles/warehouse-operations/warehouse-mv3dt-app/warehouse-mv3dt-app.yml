@@ -151,7 +151,7 @@ services:
       WDM_REDIS_HOST: localhost
       WDM_REDIS_PORT: 6379
       WDM_REDIS_STREAM_NAME: vst.event
-      WDM_REDIS_MSG_KEY: sensor.id
+      WDM_REDIS_MSG_KEY: value
       WDM_KFK_MSG_KEY: vst.event
       WDM_KFK_BOOTSTRAP_URL: localhost:9092
       WDM_KFK_TOPIC: mdx-notification
