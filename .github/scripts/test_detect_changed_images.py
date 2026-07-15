@@ -33,6 +33,7 @@ INVENTORY = {
             "source_path": "services/agent",
             "context": "services",
             "dockerfile": "services/agent/docker/Dockerfile",
+            "lfs_include": "services/agent/3rdparty/ffmpeg/*",
             "platforms": ["linux/amd64", "linux/arm64"],
             "compose_image_names": ["vss-agent"],
         },
@@ -211,6 +212,7 @@ class SelectImagesTest(unittest.TestCase):
                         "name": "vss-agent",
                         "context": "services",
                         "dockerfile": "services/agent/docker/Dockerfile",
+                        "lfs_include": "services/agent/3rdparty/ffmpeg/*",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
                     }

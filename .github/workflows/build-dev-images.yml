@@ -91,6 +91,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Fetch required LFS build assets
+        if: matrix.lfs_include != ''
+        run: |
+          git lfs install --local
+          git lfs pull --include="${{ matrix.lfs_include }}" --exclude=""
+
       - name: Compute immutable candidate coordinates
         id: meta
         run: |

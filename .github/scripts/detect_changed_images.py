@@ -125,6 +125,7 @@ def to_matrix(entries: list[dict]) -> dict:
                 "name": entry["name"],
                 "context": entry["context"],
                 "dockerfile": entry["dockerfile"],
+                "lfs_include": entry.get("lfs_include", ""),
                 "platforms": ",".join(entry["platforms"]),
                 "source_path": entry["source_path"],
             }
