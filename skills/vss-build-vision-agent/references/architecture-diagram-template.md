@@ -15,9 +15,9 @@ One box per **logical layer**, not per service. The Step 4 proposal text already
 The diagram MUST include:
 
 - **One box per logical layer** (ingestion / inference / storage / search / infra). Use the double-line frame (`╔═╗ ║ ╚═╝`) for layers and the single-line frame (`┌─┐ │ └─┘`) for external actors so they read as visually distinct at a glance.
-- **Layer header line** carries the layer name (em-dash separated from a one-line role) and a right-aligned **network mode + GPU annotation** in square brackets: `[network_mode: host]`, `[bridge · GPU 0]`, `[bridge]`.
-- **Service list inside the box.** One service per line where possible, named by its `container_name` (or service-key when no container_name is set). Append `:PORT` for any host-exposed port. Use `·` (or `-` in `--ascii` mode) as the inline separator when two short services share a line.
-- **External actors** (`operator`, `external RTSP source`, `agent UI`) as small single-line-frame boxes above the layered stack. Edges enter the stack from the top. When the **NvStreamer validation harness** is included (sidecar `validation_harness:` key — see `references/validation-harness.md`), render it as a single-line-frame **validation-source** box labeled `NvStreamer (validation source)` with its ports (`:31000` HTTP, `:315xx` RTSP) in place of the real external-camera box; its edge enters the ingestion (VIOS) layer labeled with the registration call `POST /sensor/add (sensorUrl=rtsp://…315xx)`.
+- **Layer header line** carries the layer name (em-dash separated from a one-line role) and a right-aligned **network mode + GPU annotation** in square brackets. Always include both fields, even for non-GPU layers: `[network_mode: host · GPU: none]`, `[network_mode: bridge · GPU: 0]`, `[network_mode: bridge · GPU: none]`. Do not write a bare `[bridge]`, `[host]`, or a header with no GPU value.
+- **Service list inside the box.** List every allow-listed service key, including one-shot init/wait services such as `kafka-topic-init-container` and `elasticsearch-init-container`; do not summarize them as `+ inits`. One service per line where possible, named by its service key and optionally followed by `container_name` in parentheses when they differ. Append `:PORT` for any host-exposed port. Use `·` (or `-` in `--ascii` mode) as the inline separator when two short services share a line.
+- **External actors** (`operator`, `external RTSP source`, `agent UI`) as small single-line-frame boxes above the layered stack. Give each external actor an annotation line such as `[network_mode: external · GPU: none]` so the diagram remains auditable when copied into `MANIFEST.md`. If you group external actors into an `EXTERNAL ACTORS` logical layer instead of separate boxes, that layer header must also include both fields, for example `[network_mode: external/host · GPU: none]`. Edges enter the stack from the top. When the **NvStreamer validation harness** is included (sidecar `validation_harness:` key — see `references/validation-harness.md`), render it as a single-line-frame **validation-source** box labeled `NvStreamer (validation source)` with its ports (`:31000` HTTP, `:315xx` RTSP) in place of the real external-camera box; its edge enters the ingestion (VIOS) layer labeled with the registration call `POST /sensor/add (sensorUrl=rtsp://…315xx)`.
 - **One labeled arrow per inter-layer connection** declared in the integrate refs' `§ Integration Interfaces`. Label format:
   - REST calls: `POST /vst/api/v1/sensor/add` (path only, drop the host)
   - Kafka: two-line label — `Kafka topic: mdx-vlm-captions` on line 1, `schema: nv.VisionLLM (proto)` on line 2
@@ -45,27 +45,34 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
 # deployment_shape: streaming-and-uploaded-dense-captioning
 # flag: bp_developer_in_1
 
-  ┌──────────────┐                ┌──────────────────────────────┐
-  │   operator   │                │  NvStreamer (validation src) │
-  └──────┬───────┘                │  vss-vios-nvstreamer          │
-         │                        │  :31000 HTTP · :315xx RTSP    │
-         │                        └──────────────┬───────────────┘
-         │ PUT /storage/file?ts                  │ POST /sensor/add
-         │ POST /sensor/add                      │ (sensorUrl=rtsp://…315xx)
-         ▼                                       ▼
+  ┌────────────────────────────────────────────┐      ┌────────────────────────────────────────────┐
+  │ operator                                   │      │ NvStreamer (validation src)                │
+  │ [network_mode: external · GPU: none]       │      │ [network_mode: host · GPU: none]           │
+  └─────────────────┬──────────────────────────┘      │ nvstreamer-validation                      │
+                    │                                 │ vss-vios-nvstreamer                        │
+                    │                                 │ :31000 HTTP · :315xx RTSP                  │
+                    │                                 └─────────────────┬──────────────────────────┘
+                 │ PUT /storage/file?ts                  │ POST /sensor/add
+                 │ POST /sensor/add                      │ (sensorUrl=rtsp://…315xx)
+                 ▼                                       ▼
   ╔═══════════════════════════════════════════════════════════╗
-  ║  VIOS — ingestion + storage         [network_mode: host]  ║
+  ║  VIOS [network_mode: host · GPU: none]                    ║
+  ║  ingestion + storage                                      ║
   ║  ───────────────────────────────────────────────────────  ║
   ║  vst-ingress :30888 · sensor-ms :30000                    ║
   ║  stream-processing :30001 :30554 :30564                   ║
-  ║  sdr-controller + 5 inits :10000 :5003                    ║
+  ║  sdr-controller :10000 :5003                               ║
+  ║  sdrc-init-dirs · sdrc-render-config                       ║
+  ║  sdrc-wdm-env-from-config                                  ║
+  ║  sdrc-wait-for-redis · wait-for-docker-workloads           ║
   ║  centralizedb (postgres)                                  ║
   ╚════════════════════════════╤══════════════════════════════╝
                                │ RTSP :30554 (live)
                                │ shared host vol: clip_storage
                                ▼
   ╔═══════════════════════════════════════════════════════════╗
-  ║  RT-VLM — inference                  [bridge · GPU 0]     ║
+  ║  RT-VLM [network_mode: bridge · GPU: 0]                   ║
+  ║  inference                                                ║
   ║  ───────────────────────────────────────────────────────  ║
   ║  rtvi-vlm :8018   (cosmos-reason2, in-process)            ║
   ╚════════════════════════════╤══════════════════════════════╝
@@ -73,10 +80,12 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
                                │ schema: nv.VisionLLM (proto)
                                ▼
   ╔═══════════════════════════════════════════════════════════╗
-  ║  ELK + Kafka — caption pipeline           [bridge]        ║
+  ║  ELK + Kafka [network_mode: bridge · GPU: none]           ║
+  ║  caption pipeline                                         ║
   ║  ───────────────────────────────────────────────────────  ║
-  ║  kafka :9092 → logstash → elasticsearch :9200 →           ║
-  ║                                              kibana :5601 ║
+  ║  kafka :9092 · kafka-topic-init-container                 ║
+  ║  elasticsearch :9200 · elasticsearch-init-container       ║
+  ║  logstash → kibana :5601                                  ║
   ║  redis :6379 · broker-health-check                        ║
   ║  ES index: default_<collection_id>                        ║
   ╚═══════════════════════════════════════════════════════════╝
