@@ -127,11 +127,17 @@ jobs:
           git add deploy/docker/last-green.lock.json
           git commit -s -m "chore(release): advance last-green lock to ${SET_ID}"
           git push origin "$BRANCH"
+          BODY="$(cat <<EOF
+          Automated last-green channel update. Release set: \`${SET_ID}\`.
+          Evidence and pipeline links are recorded in the lock's acceptance block.
+          FAIL results never produce this PR; rollback PRs restore the previous accepted set.
+          EOF
+          )"
           gh pr create \
             --base develop \
             --head "$BRANCH" \
             --title "chore(release): advance last-green lock to ${SHORT}" \
-            --body "Automated last-green channel update. Release set: \`${SET_ID}\`. Evidence and pipeline links are recorded in the lock's acceptance block. FAIL results never produce this PR; rollback PRs restore the previous accepted set."
+            --body "$BODY"
 
       - name: Summarize
         run: |
