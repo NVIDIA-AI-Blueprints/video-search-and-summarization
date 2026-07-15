@@ -13,7 +13,7 @@ GHCR digests and owns NGC credentials plus artifacts-promotion integration.
 
 > GitHub builds a complete immutable candidate in GHCR → GitLab tests that
 > exact candidate nightly → a passing candidate becomes the last-green
-> developer version → Thursday promotes the same digests to NGC → nSpect and
+> developer version → nightly promotes the same digests to NGC → nSpect and
 > SQA approve GA.
 
 Three rules everything below follows:
@@ -50,7 +50,8 @@ Three rules everything below follows:
   rt-vlm / calibration / video-analytics-ui keep their historical
   `*_IMAGE_TAG` variables. Normalizing them is a rename-only change gated by
   the same golden test.
-* `VSS_CONTAINER_REGISTRY` is the one-knob registry selector. When unset,
+* `VSS_CONTAINER_REGISTRY` + `VSS_CONTAINER_TAG` are the one-line complete-set
+  selector. When unset,
   every image keeps its committed release/staging default. Once a complete set
   has been copied with the same tags, setting only this root switches between
   GHCR, NGC dev, and NGC staging. Per-image overrides remain available while
@@ -69,10 +70,10 @@ Triggered on `push` to `develop` and to repo-local `pull-request/N` branches
   * initial pushes, orphaned `before` SHAs (force-push), and changes to the
     build contract itself build **everything** — over-building is safe,
     silently building nothing is not.
-* Tags are **immutable only**: `pr-<N>-<sha12>` / `develop-<sha12>`. No
-  moving alias is ever written by the build. `ghcr_image_guard.py preflight`
-  refuses to overwrite an existing tag with different content (idempotent
-  re-runs no-op; network errors fail closed).
+* Every build publishes an immutable `pr-<N>-<sha12>` /
+  `develop-<sha12>` plus the developer alias `pr-<N>-latest` /
+  `develop-latest`. The immutability guard protects the pinned tag; the alias
+  is advanced only after that manifest passes provenance verification.
 * Images are multiarch (`linux/amd64,linux/arm64` per the inventory) and
   stamped with the OCI labels the container-source gate verifies —
   `com.nvidia.vss.source_tree_sha` is the **git tree hash** of the source
@@ -107,9 +108,9 @@ explicitly `reuse-pinned` at its current committed coordinate.
 ### 4. The last-green developer channel (`last-green-controller.yml`, dormant)
 
 `deploy/docker/last-green.lock.json` is the committed, immutable record of
-the most recent release set that passed the full acceptance matrix. Moving
-aliases are at most a convenience derived from the lock — the lock is
-authoritative because multi-repo tag updates cannot be atomic.
+the most recent release set that passed the full acceptance matrix.
+`develop-latest` intentionally follows continuous `develop`; the lock is the
+separate accepted rollback/promotion authority.
 
 The controller (all decision logic in the unit-tested `last_green.py`):
 
@@ -137,10 +138,13 @@ a commit-SHA-derived tag bump would change the SHA and create a rebuild loop.
 `nightly-promote-ghcr.yml` selects a successful `develop` GHCR build whose
 same commit also has a successful GitHub CI/downstream run. It sends the
 specific release-set ID, manifest, and immutable tag to the GitLab
-`ghcr-promotion` mode. GitLab uses `skopeo copy --all --preserve-digests` to
-copy GHCR to NGC dev, verifies digest parity, and then opens the existing
-artifacts-promotion MRs that carry the same tag through nSpect to NGC staging.
-No stage rebuilds an accepted image.
+`ghcr-nightly` mode. GitLab uses `skopeo copy --all --preserve-digests` to
+ingest GHCR into NGC dev, verifies digest parity, runs the blocking
+docker-compose profile matrix against those NGC-dev manifests, and only then
+opens the existing artifacts-promotion MRs that carry the same tag through
+nSpect to NGC staging. No stage rebuilds an accepted image. Helm,
+multi-hardware, automated NVBug triage, and broader source/mirror coverage
+remain tracked rollout items in `nighthlyplan.md`.
 
 ## The cross-repository handoff
 
@@ -160,17 +164,14 @@ No stage rebuilds an accepted image.
 ## Explicitly dropped from the original PR #1190 design
 
 * **`auto-bump-container-tag.yml` / `bump_container_tag.py`** — a per-PR bot
-  committing tag bumps back to PR branches. Superseded by the release-set +
-  last-green lock: `develop` never advances on merge, only on verified
-  acceptance PASS.
+  committing tag bumps back to PR branches. Replaced by moving developer
+  aliases plus immutable release-set tags; this avoids PAT/DCO churn and
+  commit-trigger loops.
 * **`qa-release-promote.yml` / `release_promote.py`** — NGC promotion from
   GitHub. Promotion is owned by the GitLab weekly flow; its old 13-image
   expectation against a 2-image build matrix would have failed
   unconditionally (review finding), and the digest-preserving copy belongs
   where the NGC credentials and nSpect integration live.
-* **Moving `develop-latest` aliases written at build time** — the build
-  publishes immutable tags only; any alias is derived from the lock after
-  acceptance, never before.
 
 ## Still requires owners outside this repository
 

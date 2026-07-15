@@ -37,6 +37,13 @@ def candidate_entries(release_set: dict[str, Any]) -> list[dict[str, Any]]:
     )
 
 
+def moving_alias(tag: str) -> str:
+    if re.fullmatch(r"develop-[0-9a-f]{7,40}", tag):
+        return "develop-latest"
+    match = re.fullmatch(r"pr-(\d+)-[0-9a-f]{7,40}", tag)
+    return f"pr-{match.group(1)}-latest" if match else ""
+
+
 def render_comment(release_set: dict[str, Any], sha: str) -> str:
     entries = candidate_entries(release_set)
     lines = [
@@ -51,10 +58,14 @@ def render_comment(release_set: dict[str, Any], sha: str) -> str:
         lines.append("No GHCR image was rebuilt for this commit.")
     else:
         lines.append("Immutable candidates:")
-        lines.extend(
-            f"- `{entry['name']}`: `{entry['image']}:{entry['tag']}@{entry['digest']}`"
-            for entry in entries
-        )
+        for entry in entries:
+            lines.append(
+                f"- `{entry['name']}`: "
+                f"`{entry['image']}:{entry['tag']}@{entry['digest']}`"
+            )
+            alias = moving_alias(str(entry["tag"]))
+            if alias:
+                lines.append(f"  - developer alias: `{entry['image']}:{alias}`")
     lines.extend(
         [
             "",

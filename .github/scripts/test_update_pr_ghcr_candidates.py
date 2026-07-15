@@ -49,7 +49,7 @@ class CandidateCommentTest(unittest.TestCase):
                 {
                     "name": "vss-agent",
                     "strategy": "build",
-                    "image": "ghcr.io/nvidia-ai-blueprints/vss-agent",
+                    "image": "ghcr.io/nvidia-ai-blueprints/vss/vss-agent",
                     "tag": "pr-1190-deadbeef",
                     "digest": "sha256:" + "2" * 64,
                 },
@@ -64,9 +64,17 @@ class CandidateCommentTest(unittest.TestCase):
         }
         body = module.render_comment(release_set, "a" * 40)
         self.assertIn(module.MARKER, body)
-        self.assertIn("ghcr.io/nvidia-ai-blueprints/vss-agent", body)
+        self.assertIn("ghcr.io/nvidia-ai-blueprints/vss/vss-agent", body)
+        self.assertIn("pr-1190-latest", body)
         self.assertNotIn("vss-configurator", body)
         self.assertIn("does not rebuild", body)
+
+    def test_moving_alias_derives_from_immutable_tag(self):
+        self.assertEqual(module.moving_alias("develop-deadbeef"), "develop-latest")
+        self.assertEqual(
+            module.moving_alias("pr-1190-deadbeef"), "pr-1190-latest"
+        )
+        self.assertEqual(module.moving_alias("release-3.2.0"), "")
 
 
 if __name__ == "__main__":

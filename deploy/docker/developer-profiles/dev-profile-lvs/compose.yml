@@ -27,7 +27,7 @@ services:
         condition: service_healthy
 
   nvstreamer-lvs:
-    image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-nvstreamer}:${VSS_CONTAINER_TAG:-${NVSTREAMER_IMAGE_TAG}}
     user: "0:0"
     profiles: ["bp_developer_lvs_2d"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]

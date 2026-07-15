@@ -69,7 +69,8 @@ def promotion_variables(
         (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
     ).decode()
     variables = {
-        "BUILD_TYPE": "ghcr-promotion",
+        "BUILD_TYPE": "ghcr-nightly",
+        "VSS_ACCEPTANCE_REGISTRY": "ngc-dev",
         "VSS_RELEASE_SET_B64": encoded,
         "VSS_RELEASE_SET_ID": release_set["release_set_id"],
         "VSS_PROMOTION_TAG": tag,

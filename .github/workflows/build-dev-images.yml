@@ -5,13 +5,14 @@
 #
 # Builds the changed first-party images (per deploy/docker/container-inventory.json,
 # ghcr_build: true) into GHCR under IMMUTABLE tags — pr-<N>-<sha12> for
-# pull-request/N branches, develop-<sha12> for develop — and assembles a
+# pull-request/N branches, develop-<sha12> for develop — updates the matching
+# pr-<N>-latest/develop-latest developer alias, and assembles a
 # release-set manifest (deploy/docker/release-set.schema.json) recording every
 # in-scope image as built or explicitly reused.
 #
 # Deliberate properties (see docs/proposals/container-dev-and-release-workflow.md):
-#   * NO moving alias is written here. develop-latest/last-green advancement is
-#     a separate gated step that only a verified acceptance PASS may perform.
+#   * Moving aliases are developer conveniences only. Release sets and nightly
+#     promotion always use the immutable tag + digest.
 #   * NO NGC credentials live in GitHub. The nightly GitHub controller selects
 #     a green release set, then GitLab copies those same digests to NGC.
 #   * The com.nvidia.vss.source_tree_sha label carries the git TREE hash of
@@ -102,9 +103,18 @@ jobs:
         run: |
           SHORT="$(git rev-parse --short=12 HEAD)"
           case "$GITHUB_REF_NAME" in
-            pull-request/*) TAG="pr-${GITHUB_REF_NAME##*/}-${SHORT}" ;;
-            develop)        TAG="develop-${SHORT}" ;;
-            *)              TAG="${GITHUB_REF_NAME//\//-}-${SHORT}" ;;
+            pull-request/*)
+              TAG="pr-${GITHUB_REF_NAME##*/}-${SHORT}"
+              ALIAS="pr-${GITHUB_REF_NAME##*/}-latest"
+              ;;
+            develop)
+              TAG="develop-${SHORT}"
+              ALIAS="develop-latest"
+              ;;
+            *)
+              TAG="${GITHUB_REF_NAME//\//-}-${SHORT}"
+              ALIAS="${GITHUB_REF_NAME//\//-}-latest"
+              ;;
           esac
           # The TREE hash of the source folder — the value the container-source
           # gate compares. NOT github.sha (a commit SHA): the two never match.
@@ -112,10 +122,11 @@ jobs:
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           {
             echo "tag=$TAG"
+            echo "alias=$ALIAS"
             echo "tree_sha=$TREE_SHA"
-            echo "image=ghcr.io/${OWNER}/${{ matrix.name }}"
+            echo "image=ghcr.io/${OWNER}/vss/${{ matrix.name }}"
           } >> "$GITHUB_OUTPUT"
-          echo "Candidate: ghcr.io/${OWNER}/${{ matrix.name }}:$TAG (tree $TREE_SHA)"
+          echo "Candidate: ghcr.io/${OWNER}/vss/${{ matrix.name }}:$TAG (tree $TREE_SHA)"
 
       - name: Log in to GHCR
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
@@ -179,6 +190,12 @@ jobs:
             --expect-source-path "${{ matrix.source_path }}" \
             --expect-image-name "${{ matrix.name }}"
 
+      - name: Advance developer alias to this immutable manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.alias }}" \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
+
       - name: Resolve manifest digest
         id: digest
         run: |
@@ -187,6 +204,13 @@ jobs:
             --format '{{json .Manifest}}')"
           DIGEST="$(jq -r '.digest' <<<"$MANIFEST")"
           [[ "$DIGEST" == sha256:* ]] || { echo "no digest resolved"; exit 1; }
+          ALIAS_DIGEST="$(docker buildx imagetools inspect \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.alias }}" \
+            --format '{{json .Manifest}}' | jq -r '.digest')"
+          [[ "$ALIAS_DIGEST" == "$DIGEST" ]] || {
+            echo "moving alias digest $ALIAS_DIGEST != immutable digest $DIGEST" >&2
+            exit 1
+          }
           ACTUAL_PLATFORMS="$(jq -r '
             .manifests[]?.platform
             | select(.os != "unknown" and .architecture != "unknown")
@@ -228,6 +252,7 @@ jobs:
           {
             echo "### Built ${{ matrix.name }}"
             echo "- **Image:** \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}\`"
+            echo "- **Developer alias:** \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.alias }}\`"
             echo "- **Digest:** \`${{ steps.digest.outputs.digest }}\`"
             echo "- **Platforms:** \`${{ matrix.platforms }}\`"
             echo "- **source_tree_sha:** \`${{ steps.meta.outputs.tree_sha }}\`"

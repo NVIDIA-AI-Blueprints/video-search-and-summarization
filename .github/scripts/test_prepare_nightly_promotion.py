@@ -24,7 +24,7 @@ def release_set() -> dict:
             {
                 "name": "vss-agent",
                 "strategy": "build",
-                "image": "ghcr.io/nvidia-ai-blueprints/vss-agent",
+                "image": "ghcr.io/nvidia-ai-blueprints/vss/vss-agent",
                 "tag": "develop-deadbeef1234",
                 "digest": "sha256:" + "2" * 64,
             }
@@ -59,7 +59,8 @@ class NightlyPromotionTest(unittest.TestCase):
             agent_ui_config="configs/vss-3.2.0/vss-core-agent.yml",
         )
         self.assertEqual(tag, "develop-deadbeef1234")
-        self.assertEqual(variables["BUILD_TYPE"], "ghcr-promotion")
+        self.assertEqual(variables["BUILD_TYPE"], "ghcr-nightly")
+        self.assertEqual(variables["VSS_ACCEPTANCE_REGISTRY"], "ngc-dev")
         self.assertEqual(
             json.loads(base64.b64decode(variables["VSS_RELEASE_SET_B64"])),
             payload,

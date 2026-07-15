@@ -83,9 +83,9 @@ class ParameterizedNameMatchingTest(unittest.TestCase):
     COMPOSE = """
 services:
   vss-agent:
-    image: ${VSS_AGENT_IMAGE:-nvcr.io/nvstaging/vss-core/vss-agent}:${VSS_AGENT_VERSION}
+    image: ${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvstaging/vss-core}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION}}
   vss-ui:
-    image: ${VSS_AGENT_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-agent-ui}:${VSS_AGENT_UI_TAG:-3.2.1}
+    image: ${VSS_AGENT_UI_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvstaging/vss-core}/vss-agent-ui}:${VSS_CONTAINER_TAG:-${VSS_AGENT_UI_TAG:-3.2.1}}
   literal:
     image: nvcr.io/nvidia/vss-core/vss-agent:1.0
   other:
@@ -97,8 +97,9 @@ services:
         self.assertEqual(
             refs,
             [
-                "${VSS_AGENT_IMAGE:-nvcr.io/nvstaging/vss-core/vss-agent}"
-                ":${VSS_AGENT_VERSION}",
+                "${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-"
+                "nvcr.io/nvstaging/vss-core}/vss-agent}"
+                ":${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION}}",
                 "nvcr.io/nvidia/vss-core/vss-agent:1.0",
             ],
         )
@@ -113,18 +114,20 @@ services:
     def test_nested_global_registry_default_matches(self):
         ref = (
             "${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-"
-            "nvcr.io/nvstaging/vss-core}/vss-agent}:${VSS_AGENT_VERSION}"
+            "nvcr.io/nvstaging/vss-core}/vss-agent}:"
+            "${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION}}"
         )
         resolved, missing = resolve_compose_vars(
             ref,
             {
-                "VSS_CONTAINER_REGISTRY": "ghcr.io/nvidia-ai-blueprints",
-                "VSS_AGENT_VERSION": "develop-deadbeef",
+                "VSS_CONTAINER_REGISTRY": "ghcr.io/nvidia-ai-blueprints/vss",
+                "VSS_CONTAINER_TAG": "develop-deadbeef",
+                "VSS_AGENT_VERSION": "ignored",
             },
         )
         self.assertEqual(
             resolved,
-            "ghcr.io/nvidia-ai-blueprints/vss-agent:develop-deadbeef",
+            "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-deadbeef",
         )
         self.assertEqual(missing, ())
 

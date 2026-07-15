@@ -15,7 +15,7 @@
 
 services:
   alert-bridge:
-    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvstaging/vss-core}/vss-alert-ms}:${VSS_ALERT_TAG:-3.3.0-26.07.10-e4c886ba00e5}
+    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvstaging/vss-core}/vss-alert-ms}:${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-3.3.0-26.07.10-e4c886ba00e5}}
     container_name: vss-alert-bridge
     profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     restart: unless-stopped

@@ -23,7 +23,7 @@
     "nvcr.io/nvidia/vss-core",
     "nvcr.io/nvstaging/vss-core",
     "nvcr.io/nv-metropolis-dev/met-moe-agents",
-    "ghcr.io/nvidia-ai-blueprints"
+    "ghcr.io/nvidia-ai-blueprints/vss"
   ],
   "images": [
     {

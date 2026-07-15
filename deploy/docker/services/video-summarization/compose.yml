@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-video-summarization:3.2.1}
+    image: ${CONTAINER_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-video-summarization:${VSS_CONTAINER_TAG:-3.2.1}}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
