@@ -92,6 +92,11 @@ Evaluation protocol:
 1. Truncate to the first ``num_frames_to_eval`` frames per scene
    (matches the validation server's default of 9000).
 2. Split GT / pred into ``<scene>/<class>/`` MOT-format text files.
+   Evaluation is scoped to the frames the GT annotates: prediction rows
+   on frames absent from the GT for that scene are dropped (not scored as
+   false positives), so a full submission evaluated against a truncated /
+   partial GT is judged only on the annotated frames.  This is a no-op
+   when the GT spans every frame in the window.
 3. For each (scene, class) pair that has *both* GT and pred rows, run
    TrackEval's HOTA metric on ``MTMCChallenge3DBBox`` (3D IoU matching,
    the official metric) or ``MTMCChallenge3DLocation`` (centre
@@ -199,6 +204,8 @@ def split_aicity_mtmc_per_scene_per_class(
     is_pred: bool,
     class_id_to_name: Optional[Dict[int, str]] = None,
     frame_start: int = 0,
+    record_frames_by_scene: Optional[Dict[str, set]] = None,
+    allowed_frames_by_scene: Optional[Dict[str, set]] = None,
 ) -> Dict[str, Dict[str, int]]:
     """Stream-split an AICity MTMC file into per-(scene, class) MOT files.
 
@@ -252,6 +259,16 @@ def split_aicity_mtmc_per_scene_per_class(
         table are warned-and-skipped for GT and rejected for
         predictions; the class names from this table are used verbatim
         as the per-class output directory names.
+    :param record_frames_by_scene: Optional mutable dict populated in
+        place (on the GT pass) with ``{scene_id: {frame_ids}}`` — the set
+        of frames the GT actually annotates per scene, accumulated over
+        every written row.
+    :param allowed_frames_by_scene: Optional ``{scene_id: {frame_ids}}``
+        (on the prediction pass).  When given, a prediction row whose
+        frame id is not in its scene's set is dropped instead of being
+        scored, so a full submission evaluated against a truncated /
+        partial GT is not penalised with false positives on frames the GT
+        never annotates.  A no-op when the GT already spans every frame.
     :return: ``{scene_name: {class_name: number_of_rows_written}}``
         — used both for the per-scene weight and as a sanity log.
     :raises ValueError: If ``frame_start`` is negative or not strictly
@@ -351,6 +368,21 @@ def split_aicity_mtmc_per_scene_per_class(
                     continue
 
                 if frame_id_0based < frame_start or frame_id_0based >= num_frames_to_eval:
+                    continue
+
+                # Scope evaluation to the frames the GT annotates: the GT
+                # pass records its frames per scene; the prediction pass
+                # drops rows on frames the GT never covers (so they are not
+                # scored as false positives).  No-op when the GT spans every
+                # frame in the window.
+                if record_frames_by_scene is not None:
+                    record_frames_by_scene.setdefault(
+                        scene_id_str, set()).add(frame_id_0based)
+                if (
+                    allowed_frames_by_scene is not None
+                    and frame_id_0based
+                    not in allowed_frames_by_scene.get(scene_id_str, ())
+                ):
                     continue
 
                 scene_name = scenes_str_to_name[scene_id_str]
@@ -592,17 +624,24 @@ def run_aicity_mtmc_evaluation(
             "MOT files under %s ...",
             ground_truth_file, prediction_file, split_root,
         )
+        # Scope evaluation to the frames the GT annotates: record the GT's
+        # per-scene frame set, then drop prediction rows on frames the GT
+        # never covers so they are not scored as false positives (a no-op
+        # when the GT spans every frame; matters for truncated / partial GTs).
+        gt_frames_by_scene: Dict[str, set] = {}
         gt_counts = split_aicity_mtmc_per_scene_per_class(
             ground_truth_file, split_root, "gt.txt",
             scene_id_to_name, num_frames_to_eval, is_pred=False,
             class_id_to_name=class_id_to_name,
             frame_start=frame_start,
+            record_frames_by_scene=gt_frames_by_scene,
         )
         pred_counts = split_aicity_mtmc_per_scene_per_class(
             prediction_file, split_root, "pred.txt",
             scene_id_to_name, num_frames_to_eval, is_pred=True,
             class_id_to_name=class_id_to_name,
             frame_start=frame_start,
+            allowed_frames_by_scene=gt_frames_by_scene,
         )
 
         scene_object_counts: Dict[str, int] = {
