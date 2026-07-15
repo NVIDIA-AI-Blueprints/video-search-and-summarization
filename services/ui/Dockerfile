@@ -1,13 +1,11 @@
 ARG USER_ID=65532
 ARG GROUP_ID=65532
 ARG BUILD_TYPE=prod
-ARG BUILDPLATFORM
 
 
-# The Next.js bundle is architecture-independent. Build it once on the native
-# GitHub runner instead of repeating npm/turbo under arm64 QEMU; the runner
-# stages below remain target-platform-specific and produce the multiarch image.
-FROM --platform=$BUILDPLATFORM node:22.22.3 AS builder
+# Builder phase. This remains target-platform-specific because the dependency
+# graph includes native SWC/Sharp/Turbo packages.
+FROM node:22.22.3 AS builder
 ARG USER_ID
 ARG GROUP_ID
 

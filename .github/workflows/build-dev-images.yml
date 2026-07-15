@@ -216,15 +216,14 @@ jobs:
             | select(.os != "unknown" and .architecture != "unknown")
             | "\(.os)/\(.architecture)"
           ' <<<"$MANIFEST" | sort -u)"
-          IFS=',' read -ra REQUIRED_PLATFORMS <<<"${{ matrix.platforms }}"
-          for platform in "${REQUIRED_PLATFORMS[@]}"; do
-            grep -qx "$platform" <<<"$ACTUAL_PLATFORMS" || {
-              echo "manifest is missing required platform $platform" >&2
-              echo "actual platforms:" >&2
-              printf '%s\n' "$ACTUAL_PLATFORMS" >&2
-              exit 1
-            }
-          done
+          EXPECTED_PLATFORMS="$(tr ',' '\n' <<<"${{ matrix.platforms }}" | sort -u)"
+          [[ "$ACTUAL_PLATFORMS" == "$EXPECTED_PLATFORMS" ]] || {
+            echo "manifest platform set does not match the inventory" >&2
+            diff -u \
+              <(printf '%s\n' "$EXPECTED_PLATFORMS") \
+              <(printf '%s\n' "$ACTUAL_PLATFORMS") >&2 || true
+            exit 1
+          }
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Emit release-set fragment

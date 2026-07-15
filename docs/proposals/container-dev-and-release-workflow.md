@@ -82,10 +82,10 @@ Triggered on `push` to `develop` and to repo-local `pull-request/N` branches
   path as the gate immediately after the push, so a contract mismatch fails
   the build, not a later promotion.
 * GitHub Actions cache export/import is enabled per image. The UI's
-  architecture-independent Next.js bundle is built once on the native build
-  platform; only its runtime stages are emitted per target architecture.
-  The workflow also inspects the published index and fails unless every
-  inventory platform is present.
+  native Node dependencies make QEMU arm64 builds much slower; native
+  per-architecture fan-out is the preferred follow-up once the arm64 runner
+  class is agreed. The workflow inspects the published index and fails unless
+  every inventory platform is present.
 
 ### 3. The release set (`deploy/docker/release-set.schema.json`)
 
