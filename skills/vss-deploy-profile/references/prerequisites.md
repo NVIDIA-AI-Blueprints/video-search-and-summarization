@@ -1,12 +1,7 @@
----
-name: vss-prerequisites
-description: Check VSS system prerequisites — GPU driver, Docker, NVIDIA Container Toolkit, and NGC access. Use when troubleshooting a deploy failure, after a system change, or to verify the system is ready for VSS.
----
-
 # VSS Prerequisites Check
 <a id="preflight"></a>
 
-Verifies system readiness for any VSS developer profile. For NGC CLI setup specifically, use the `ngc` skill.
+Verifies system readiness for any VSS developer profile. For NGC CLI setup specifically, see [`ngc.md`](ngc.md).
 
 ## Preflight — quick reference
 
@@ -60,7 +55,7 @@ fi
 
 ## When to Use
 
-Use this skill when:
+Use this reference when:
 
 - A VSS deploy failed and you need to diagnose why
 - User asks to verify GPU, Docker, or system setup

@@ -1,15 +1,10 @@
----
-name: ngc
-description: Install, configure, or verify NVIDIA NGC CLI and API key access. Use when NGC CLI is missing, the NGC API key needs to be set or tested, or NGC resource access fails.
----
-
 # NGC CLI — Install, Configure, Verify
 
 Manages NVIDIA NGC CLI setup and API key access. Required before deploying any VSS profile.
 
 ## When to Use
 
-Use this skill when:
+Use this reference when:
 
 - NGC CLI is not installed (`ngc: command not found`)
 - NGC API key is missing or needs to be verified
