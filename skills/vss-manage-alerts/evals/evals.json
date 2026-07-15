@@ -48,10 +48,10 @@
     "id": "alerts-incident-query-routing",
     "question": "What alerts have been triggered today for Camera_02?",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes this as Workflow C, a historical incident query. It asks the VSS Agent /generate endpoint for incidents rather than listing active Alert Bridge subscription rules.",
+    "ground_truth": "The agent routes this as Workflow C, a historical incident query. It queries the Alert Bridge incidents endpoint (GET /api/v1/realtime/incidents) directly rather than listing active subscription rules, and never uses the VSS Agent /generate endpoint.",
     "expected_behavior": [
       "Loads vss-manage-alerts and recognizes 'triggered today' as a past-incident query.",
-      "Uses the active VSS Agent endpoint and sends a natural-language incident query through POST $AGENT/generate.",
+      "Queries Alert Bridge directly with GET http://localhost:9080/api/v1/realtime/incidents (resolving Camera_02 to its sensorId via VIOS when scoping) — it does not use the VSS Agent POST /generate.",
       "Scopes the query to Camera_02 and today's time window when forming the request.",
       "Summarizes returned incidents with readable details such as timestamp, sensor, category, verdict, or description.",
       "Does not call Alert Bridge GET /api/v1/realtime because that endpoint lists active rules, not historical alerts.",
