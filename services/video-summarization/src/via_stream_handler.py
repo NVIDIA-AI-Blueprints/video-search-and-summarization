@@ -383,6 +383,63 @@ class ViaStreamHandler:
                 "vlm_latency_seconds_latest", "Latest VLM processing latency in seconds"
             )
 
+            # ── CA-RAG per-stage metrics (dense-caption retrieval + the 3 CA-RAG LLM calls) ──
+            # Populated from the ctx-rag SummaryMetrics returned in state['metadata'].
+            # The Kafka->ES store-back is intentionally not metered here (async).
+            self.dense_captions_retrieval_latency = prom.Histogram(
+                "dense_captions_retrieval_latency_seconds",
+                "CA-RAG dense-caption ES retrieval latency in seconds",
+                buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 3.0, 10.0],
+            )
+            self.dense_captions_retrieval_latency_latest = prom.Gauge(
+                "dense_captions_retrieval_latency_seconds_latest",
+                "Latest CA-RAG dense-caption ES retrieval latency in seconds",
+            )
+
+            self.ca_rag_aggregation_latency = prom.Histogram(
+                "ca_rag_aggregation_latency_seconds",
+                "CA-RAG LLM aggregation (summary) latency in seconds",
+                buckets=[0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0, 60.0, 120.0],
+            )
+            self.ca_rag_aggregation_latency_latest = prom.Gauge(
+                "ca_rag_aggregation_latency_seconds_latest",
+                "Latest CA-RAG LLM aggregation latency in seconds",
+            )
+            self.ca_rag_aggregation_tokens = prom.Gauge(
+                "ca_rag_aggregation_tokens",
+                "Latest total tokens for the CA-RAG LLM aggregation call",
+            )
+
+            self.ca_rag_llm_merge_latency = prom.Histogram(
+                "ca_rag_llm_merge_latency_seconds",
+                "CA-RAG LLM event-description merge latency in seconds "
+                "(only when enable_llm_merging=true)",
+                buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0],
+            )
+            self.ca_rag_llm_merge_latency_latest = prom.Gauge(
+                "ca_rag_llm_merge_latency_seconds_latest",
+                "Latest CA-RAG LLM event-merge latency in seconds "
+                "(only when enable_llm_merging=true)",
+            )
+            self.ca_rag_llm_merge_tokens = prom.Gauge(
+                "ca_rag_llm_merge_tokens",
+                "Latest total tokens for the CA-RAG LLM event-merge call(s)",
+            )
+
+            self.ca_rag_infer_event_type_latency = prom.Histogram(
+                "ca_rag_infer_event_type_latency_seconds",
+                "CA-RAG LLM event-type inference latency in seconds",
+                buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0],
+            )
+            self.ca_rag_infer_event_type_latency_latest = prom.Gauge(
+                "ca_rag_infer_event_type_latency_seconds_latest",
+                "Latest CA-RAG LLM event-type inference latency in seconds",
+            )
+            self.ca_rag_infer_event_type_tokens = prom.Gauge(
+                "ca_rag_infer_event_type_tokens",
+                "Latest total tokens for the CA-RAG LLM event-type inference call(s)",
+            )
+
         def unregister(self):
             prom.REGISTRY.unregister(self.queries_processed)
             prom.REGISTRY.unregister(self.queries_pending)
@@ -399,6 +456,17 @@ class ViaStreamHandler:
             prom.REGISTRY.unregister(self.ca_rag_latency_latest)
             prom.REGISTRY.unregister(self.e2e_latency_latest)
             prom.REGISTRY.unregister(self.vlm_pipeline_latency_latest)
+            prom.REGISTRY.unregister(self.dense_captions_retrieval_latency)
+            prom.REGISTRY.unregister(self.dense_captions_retrieval_latency_latest)
+            prom.REGISTRY.unregister(self.ca_rag_aggregation_latency)
+            prom.REGISTRY.unregister(self.ca_rag_aggregation_latency_latest)
+            prom.REGISTRY.unregister(self.ca_rag_aggregation_tokens)
+            prom.REGISTRY.unregister(self.ca_rag_llm_merge_latency)
+            prom.REGISTRY.unregister(self.ca_rag_llm_merge_latency_latest)
+            prom.REGISTRY.unregister(self.ca_rag_llm_merge_tokens)
+            prom.REGISTRY.unregister(self.ca_rag_infer_event_type_latency)
+            prom.REGISTRY.unregister(self.ca_rag_infer_event_type_latency_latest)
+            prom.REGISTRY.unregister(self.ca_rag_infer_event_type_tokens)
 
     def __init__(self, args) -> None:
         """Initialize the VIA Stream Handler"""
@@ -465,13 +533,13 @@ class ViaStreamHandler:
                 logger.error("Failed to initialize via-engine Kafka producer: %s", ex)
                 self._kafka_producer = None
 
-        self._caption_source = os.environ.get("LVS_CAPTION_SOURCE", "db").lower()
+        self._caption_source = os.environ.get("LVS_CAPTION_SOURCE", "sse").lower()
         if self._caption_source not in ("sse", "db"):
             logger.warning(
-                "Invalid LVS_CAPTION_SOURCE=%r, falling back to 'db'",
+                "Invalid LVS_CAPTION_SOURCE=%r, falling back to 'sse'",
                 self._caption_source,
             )
-            self._caption_source = "db"
+            self._caption_source = "sse"
         if self._kafka_enabled:
             logger.info(
                 "Kafka file-path caption source: LVS_CAPTION_SOURCE=%s "
@@ -2035,6 +2103,7 @@ class ViaStreamHandler:
                 raw_result = sub.get("result", "")
                 metadata = sub.get("metadata", {}) or {}
                 req_info.usage = RequestInfo.Usage(**metadata)
+                self._update_ca_rag_stage_metrics(metadata)
 
                 raw_result = self._convert_event_timestamps_to_iso(raw_result)
 
@@ -2841,6 +2910,65 @@ This is very important and you must follow this strictly.
             {formatted_constraints}\n\n\
             {formatted_structured_output}\n"
 
+    def _update_ca_rag_stage_metrics(self, metadata: dict) -> None:
+        """Emit per-stage CA-RAG Prometheus metrics from the ctx-rag metadata.
+
+        *metadata* is the ``SummaryMetrics.dump_dict()`` payload returned by the
+        via-ctx-rag subprocess in ``state['metadata']``. Covers (dense-caption
+        retrieval) and the 3 CA-RAG LLM calls (aggregation, event-merge, event-type
+        inference). Aggregation is the single summary LLM call, so the
+        benchmark maps it to the aggregation metrics.
+
+        The event-merge metric is emitted only when ``llm_merge_latency`` is present in
+        *metadata* — via-ctx-rag populates it only when ``enable_llm_merging`` is
+        true, and via-engine has no visibility into that flag.
+        """
+        if not metadata:
+            return
+        m = self._metrics
+
+        def _emit(value, hist, gauge):
+            if value is None:
+                return
+            try:
+                v = float(value)
+            except (TypeError, ValueError):
+                return
+            if hist is not None:
+                hist.observe(v)
+            if gauge is not None:
+                gauge.set(v)
+
+        #dense-caption ES retrieval
+        _emit(
+            metadata.get("dense_captions_retrieval_latency"),
+            m.dense_captions_retrieval_latency,
+            m.dense_captions_retrieval_latency_latest,
+        )
+
+        #LLM aggregation is the single summary call;
+        agg_latency = metadata.get("aggregation_latency")
+        _emit(agg_latency, m.ca_rag_aggregation_latency, m.ca_rag_aggregation_latency_latest)
+        agg_tokens = metadata.get("aggregation_tokens")
+        _emit(agg_tokens, None, m.ca_rag_aggregation_tokens)
+
+        # Event-type inference
+        _emit(
+            metadata.get("event_type_infer_latency"),
+            m.ca_rag_infer_event_type_latency,
+            m.ca_rag_infer_event_type_latency_latest,
+        )
+        _emit(metadata.get("event_type_infer_tokens"), None, m.ca_rag_infer_event_type_tokens)
+
+        # LLM event-merge — only when it actually ran (llm_merge_latency present)
+        if metadata.get("llm_merge_latency") is not None:
+            _emit(
+                metadata.get("llm_merge_latency"),
+                m.ca_rag_llm_merge_latency,
+                m.ca_rag_llm_merge_latency_latest,
+            )
+            _emit(metadata.get("llm_merge_tokens"), None, m.ca_rag_llm_merge_tokens)
+
     def _update_completion_metrics(self, req_info, chunk_responses: list[VlmChunkResponse]):
         def find_extreme(responses, func, value):
             values = []
@@ -3440,6 +3568,7 @@ This is very important and you must follow this strictly.
                             )
                             agg_response = agg_response.get("summarization", {}).get("result", "")
                             req_info.usage = RequestInfo.Usage(**result_metadata)
+                            self._update_ca_rag_stage_metrics(result_metadata)
                             # File-path Kafka mode: mirror the live-stream
                             # summarize_stream extraction and publish
                             # structured_events + aggregated_summary back
@@ -3835,7 +3964,7 @@ This is very important and you must follow this strictly.
             aggregation completes.
 
         The caption source for aggregation is controlled by
-        ``LVS_CAPTION_SOURCE`` (default ``db``):
+        ``LVS_CAPTION_SOURCE`` (default ``sse``):
           * ``sse`` — aggregation uses the in-process captions received
             via SSE (``start_index / end_index``).
           * ``db`` — aggregation retrieves captions from Elastic DB

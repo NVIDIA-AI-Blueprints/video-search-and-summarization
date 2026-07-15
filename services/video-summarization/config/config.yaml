@@ -81,6 +81,7 @@ functions:
       max_events_per_batch: 50
       kafka_enabled: !ENV ${KAFKA_ENABLED:false}
       enable_llm_merging: !ENV ${LVS_ENABLE_LLM_MERGING:false}
+      caption_source: !ENV ${LVS_CAPTION_SOURCE:sse}
     tools:
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
       llm: nvidia_llm
