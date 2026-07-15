@@ -215,10 +215,17 @@ docker exec vss-auto-calibration sh -c \
 If the write test does not succeed (the common case on a fresh host — see above), grant the container user access with a narrow ACL (ask the user before changing host permissions). This adds write access for UID 1000 only and leaves existing ownership intact:
 
 ```bash
-setfacl -m u:1000:rwx "$PROJECTS_DIR"     # prefix with sudo if the directory is root-owned
+if setfacl -m u:1000:rwx "$PROJECTS_DIR" 2>/dev/null; then
+  echo "projects directory ACL updated"
+elif sudo -n true 2>/dev/null; then
+  sudo setfacl -m u:1000:rwx "$PROJECTS_DIR" && echo "projects directory ACL updated"
+else
+  echo "Sudo requires a password on this host. Please run the command below in your shell, then re-run the write test:"
+  echo "  sudo setfacl -m u:1000:rwx \"$PROJECTS_DIR\""
+fi
 ```
 
-Re-run the write test to confirm, then continue. Prefer this scoped ACL over a broad `chmod -R 777`.
+When the command is handed back to the user, resume only after they confirm it ran. Re-run the write test to confirm, then continue. Prefer this scoped ACL over a broad `chmod -R 777` or `chown`.
 
 ## Success criteria
 
@@ -246,7 +253,7 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |
 | VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy a warehouse calibration profile (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`) so VST is present, or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
 | Container exits immediately | `docker ps` shows `vss-auto-calibration` as `Exited` | Check logs: `docker logs vss-auto-calibration`. Often a GPU device-ID mismatch or VGGT path typo. |
-| `create_project` returns `[Errno 13] Permission denied` | First `POST /v1/create_project` after a fresh deploy fails writing `projects/project_<id>` | The host `services/auto-calibration/projects` directory isn't writable by the container user (UID 1000). Run the Step 5 write test, then grant access with `setfacl -m u:1000:rwx ${VSS_APPS_DIR}/services/auto-calibration/projects` and retry. |
+| `create_project` returns `[Errno 13] Permission denied` | First `POST /v1/create_project` after a fresh deploy fails writing `projects/project_<id>` | The host `services/auto-calibration/projects` directory isn't writable by the container user (UID 1000). Run the Step 5 write test, then use the guarded scoped-ACL block there and retry. |
 
 ## Stopping the services
 
