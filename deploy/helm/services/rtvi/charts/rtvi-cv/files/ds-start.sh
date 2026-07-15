@@ -163,10 +163,12 @@ start_rtdetr_gdino()
         if [[ -f "$RTDETR_INFER_CONFIG" ]]; then
             sed -i "/^\[property\]/,/^\[/{s|^model-engine-file=.*|model-engine-file=${ENGINES_DIR}/rtdetr-its/model_epoch_035.fp16.onnx_b${NUM_SENSORS}_gpu0_fp16.engine|;}" "$RTDETR_INFER_CONFIG"
             sed -i "/^\[property\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$RTDETR_INFER_CONFIG"
+            echo "##### RT-DETR nvinfer config updated successfully... #####"
+            echo "##### Contents of $RTDETR_INFER_CONFIG: #####"
+            cat "$RTDETR_INFER_CONFIG"
+        else
+            echo "Warning: RT-DETR infer config $RTDETR_INFER_CONFIG not found, skipping..."
         fi
-        echo "##### RT-DETR nvinfer config updated successfully... #####"
-        echo "##### Contents of $RTDETR_INFER_CONFIG: #####"
-        cat "$RTDETR_INFER_CONFIG"
     fi
 
     sed -i "/^\[source-list\]/,/^\[/{s/^max-batch-size=.*/max-batch-size=${NUM_SENSORS}/;}" "$config_file"
