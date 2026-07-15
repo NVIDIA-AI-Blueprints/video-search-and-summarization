@@ -253,18 +253,11 @@ void DynamicRTSPServer
         return;
     }
 
-    if (GET_CONFIG().nv_streamer_sync_file_count > 0)
-    {
-        if (RtspSyncPlayback::getInstance()->getMediaSourceListSize() >= (size_t)GET_CONFIG().nv_streamer_sync_file_count)
-        {
-            LOG(info) << "RTSP lookup: Exceeded sync file count, ignoring the request" << std::endl;
-            if (completionFunc != nullptr)
-            {
-                (*completionFunc)(completionClientData, sms);
-            }
-            return;
-        }
-    }
+    /* nv_streamer_sync_file_count is the initial quorum for a clean
+     * frame-0 start, NOT a hard cap. Late joiners (e.g. a 5th RTSP client)
+     * and reconnecting streams are allowed through here and are aligned to
+     * the group's current loop position in NvFileServerMediaSubsession::
+     * startStream() -> joinRunningSyncGroup(). */
 
     // First, check whether the specified "streamName" exists as a local file:
     string token = string(NV_STREAMER);

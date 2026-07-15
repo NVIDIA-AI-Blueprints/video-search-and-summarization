@@ -101,6 +101,7 @@ class NvMediaSource : public IMediaDataConsumer
         int64_t getStartTime();
         int64_t getActualStartTime();
         double getFrameRate();
+        int getFrameCount() { return m_demux ? m_demux->getFrameCount() : 0; }
         string getVideoCodec();
         string getAudioCodec();
         int getSampleRate();

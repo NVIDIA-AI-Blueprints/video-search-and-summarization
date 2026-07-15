@@ -1873,6 +1873,19 @@ void GstDeMux::seek (int64_t seek_pos , uint64_t end_time, float rate /*1*/)
             m_callbackData.m_index = 0;
             m_isEOS = false;
 
+            /* Keep a late joiner / reconnecting stream locked to the group's
+             * shared clock across the seek. seek() otherwise leaves the
+             * pipeline on whatever clock it had, so a source that is seeked
+             * to the group's current position would free-run and drift.
+             * No-op when this demux is not part of a synchronized group
+             * (m_globalGstClock is null). */
+            if (m_globalGstClock)
+            {
+                gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), m_globalGstClock);
+                gst_element_set_base_time(m_pipeline, m_baseGstTime);
+                gst_element_set_start_time(m_pipeline, GST_CLOCK_TIME_NONE);
+            }
+
             if (rate > 0)
             {
                 if (!gst_element_seek_simple (m_pipeline, GST_FORMAT_TIME,
