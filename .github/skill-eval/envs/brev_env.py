@@ -53,11 +53,11 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
 
-# Public NVIDIA sample used by the RT-VLM test suite. Operators can override it
-# for isolated environments, but the eval remains runnable without extra CI
+# Public relay used by the RT-VLM test suite. Operators can override it for
+# isolated environments, but the eval remains runnable without extra CI
 # configuration.
 DEFAULT_RTSP_SAMPLE_URL = (
-    "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/sample_1080p_h264.mp4"
+    "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
 )
 
 
