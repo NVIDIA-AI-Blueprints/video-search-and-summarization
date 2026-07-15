@@ -405,15 +405,28 @@ class BrevEnvironment(BaseEnvironment):
         # actual head SHA before any deploy/agent step reads it.
         #
         # Gated to the FIRST trial only. `_sync_repo_to_pr_head`'s
-        # `git clean -fdx -e data/ -e .env` removes every untracked path
-        # except `data/` and `.env` — which includes `deploy/docker/data-dir/`,
+        # `git clean -fdx -e data/ -e .env` removes every untracked path not
+        # matched by its excludes. NOTE `-e data/` is a gitignore-style pattern
+        # with no leading slash, so it spares a directory named `data` at ANY
+        # depth (including `deploy/docker/data/`) — but NOT
+        # `deploy/docker/data-dir/`, whose name does not match. `data-dir/` is
         # the host source of the LVS/VIOS bind mounts (clip_storage, vst_data,
-        # vst/temp_files, ...). On `step-2+` the step-1 containers are still
-        # running and bind-mounted onto those dirs; cleaning them mid-chain
-        # deletes the host inode out from under the containers (they keep a
-        # handle to the now-unlinked inode while new writes hit a fresh
-        # root-owned dir), and uploads fail with "Failed to open output file:
-        # No such file or directory" (PR #1227 / lvs_profile_summarize step-2).
+        # vst/temp_files, ...) whenever a deploy roots VSS_DATA_DIR there
+        # (dev-profile.sh's default). On `step-2+` the step-1 containers are
+        # still running and bind-mounted onto those dirs; cleaning them
+        # mid-chain unlinks the host inode out from under the containers —
+        # confirmed by the mount probe below: host inode gone, container still
+        # pinned to it, link count 0 — and uploads then fail with "Failed to
+        # open output file: No such file or directory" (PR #1227 /
+        # lvs_profile_summarize step-2, the reported symptom).
+        #
+        # That name dependency IS the non-determinism this bug showed: a deploy
+        # rooted at `deploy/docker/data/` survives the clean (spared by
+        # `-e data/`) so summarize works, while one rooted at `.../data-dir/`
+        # is deleted and breaks — same clean, opposite outcome, purely by
+        # folder name. Gating removes the lottery: no clean runs on step-2+,
+        # so neither root is ever touched.
+        #
         # The re-sync is also redundant on later steps: the box is held by one
         # `run_leg.py` flock across the whole chain and nothing mutates $REPO
         # between steps, so it is already at PR_HEAD_SHA from step-1.
