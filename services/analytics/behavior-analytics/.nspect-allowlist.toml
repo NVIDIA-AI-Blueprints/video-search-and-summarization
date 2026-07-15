@@ -5,3 +5,4 @@ version = "1.0.0"
 [[oss.excluded.directories]]
 paths = ['services/agent/', 'services/alert/', 'services/analytics/video-analytics-api/', 'services/rtvi/', 'services/ui/', 'services/video-summarization/', 'services/vios/', 'deploy/', 'libs/', 'tools/', 'skills/', 'assets/', '.github/', '.openclaw/', '.cursor/']
 comment = 'Only include Behavior Analytics microservice'
+nspect_ids = ['NSPECT-GPW2-30MV']
