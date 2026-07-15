@@ -45,6 +45,7 @@ RUN apt-get update && \
 	libopencv-dev \
 	python3 \
 	python3-pip \
+	npm \
 	ca-certificates \
 	gnupg \
 	lsb-release \

@@ -625,6 +625,36 @@ ensure_base_image() {
     build_base_image 0  # 0 = don't push during auto-build
 }
 
+# Build vios-ui with npm from the compile toolchain image, so the host does
+# not need Node.js or npm and those tools stay out of public runtime images.
+# Run as the invoking user to keep generated files writable outside Docker.
+build_vios_ui() {
+    local build_root="$1"
+    local ui_dir="$build_root/ui/vios-ui"
+    local toolchain_image_name
+    toolchain_image_name=$(get_toolchain_image_name)
+
+    echo "Building vios-ui in $ui_dir using $toolchain_image_name ..."
+    if ! docker run --rm --network=host \
+        --entrypoint /bin/bash \
+        --user "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -e NPM_CONFIG_CACHE=/tmp/.npm \
+        -e NPM_CONFIG_PREFIX=/tmp/.npm-global \
+        -v "$build_root:/workspace" \
+        -w /workspace/ui/vios-ui \
+        "$toolchain_image_name" \
+        -c 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"; npm run install:link && npm run build'; then
+        echo "[ERROR] vios-ui build failed in toolchain image: $toolchain_image_name"
+        return 1
+    fi
+
+    if [[ ! -d "$ui_dir/dist" ]]; then
+        echo "[ERROR] vios-ui dist directory not found after build"
+        return 1
+    fi
+}
+
 # Function to build the vios-ui and stage its dist output into the webroot dir
 # (used when building the nvstreamer container; webroot is packaged into the image).
 build_vios_ui_webroot() {
@@ -633,21 +663,12 @@ build_vios_ui_webroot() {
     local ui_dir="$build_root/ui/vios-ui"
     local webroot_dir="$build_root/webroot"
 
-    echo "Building vios-ui in $ui_dir ..."
-    cd "$ui_dir" || { echo "[ERROR] Cannot find vios-ui directory: $ui_dir"; exit 1; }
-    npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-    npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-    if [[ ! -d "dist" ]]; then
-        echo "[ERROR] vios-ui dist directory not found after build"
-        exit 1
-    fi
+    build_vios_ui "$build_root" || exit 1
 
     echo "Staging vios-ui dist into $webroot_dir ..."
     # Remove only the VST UI static files; leave other webroot files intact.
     rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html"
-    cp -rf dist/. "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
-    cd "$build_root" || exit 1
+    cp -rf "$ui_dir/dist/." "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
 }
 
 # Function to build a module
@@ -1412,20 +1433,11 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
             UI_DIR="$INGRESS_BUILD_ROOT/ui/vios-ui"
             VST_UI_DIR="$INGRESS_BUILD_ROOT/deployment/scaling/ingress/vst-ui"
 
-            echo "Building vios-ui in $UI_DIR ..."
-            cd "$UI_DIR" || { echo "[ERROR] Cannot find vios-ui directory: $UI_DIR"; exit 1; }
-            npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-            npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-            if [[ ! -d "dist" ]]; then
-                echo "[ERROR] vios-ui dist directory not found after build"
-                exit 1
-            fi
+            build_vios_ui "$INGRESS_BUILD_ROOT" || exit 1
 
             echo "Staging vios-ui dist into $VST_UI_DIR ..."
             find "$VST_UI_DIR" -mindepth 1 -not -name '.gitkeep' -delete
-            cp -rf dist/. "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
-            cd "$INGRESS_BUILD_ROOT" || exit 1
+            cp -rf "$UI_DIR/dist/." "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
 
             cd deployment/scaling/ingress/ || exit 1
             echo "Building Docker image: $imagename"
