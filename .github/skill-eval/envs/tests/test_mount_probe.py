@@ -82,6 +82,11 @@ class CommandAndParseTest(unittest.TestCase):
         # Discovers by source pattern rather than a hardcoded container.
         self.assertIn("data_log/vst", cmd)
         self.assertIn("clip_storage", cmd)
+        # Durable sink: brev_env logging is swallowed by harbor, so output
+        # must be tee'd to a collected file (overridable for the self-test).
+        self.assertIn("MOUNTPROBE_SINK", cmd)
+        self.assertIn("/logs/artifacts/mount-probe.log", cmd)
+        self.assertIn("tee -a", cmd)
 
     def test_parse_lines_returns_all_including_scan_marker(self):
         out = ("brev spinner noise\n"

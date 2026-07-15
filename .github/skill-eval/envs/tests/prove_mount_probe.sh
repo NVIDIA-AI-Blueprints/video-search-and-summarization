@@ -30,6 +30,10 @@ trap cleanup EXIT
 command -v docker >/dev/null 2>&1 || { echo "SKIP: docker not available"; exit 0; }
 docker info >/dev/null 2>&1 || { echo "SKIP: docker daemon not reachable"; exit 0; }
 
+# Redirect the probe's durable sink away from /logs/artifacts (box-only path)
+# to a local temp file so the self-test runs anywhere.
+export MOUNTPROBE_SINK="$SRCROOT/mount-probe.log"
+
 probe_cmd() {
   PYTHONPATH="$SKILL_EVAL_ROOT" python3 - "$1" <<'PY'
 import sys

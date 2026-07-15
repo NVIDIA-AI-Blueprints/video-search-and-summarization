@@ -75,10 +75,21 @@ def build_probe_command(label: str) -> str:
     <label> verdict=... ` line per discovered VIOS bind mount, plus a
     trailing `MOUNTPROBE <label> scan=complete` line (fail-loud: the
     trailing line always prints, so 'no output' is distinguishable from
-    'no VIOS mounts found'). Never exits non-zero."""
+    'no VIOS mounts found'). Never exits non-zero.
+
+    Output is tee'd to BOTH stdout and a durable sink. brev_env's Python
+    `logging` is swallowed by harbor (never reaches the CI job log or the
+    collected artifact), so the sink is the only reliable channel: the
+    default `/logs/artifacts/mount-probe.log` is collected by harbor into
+    `<trial>/artifacts/logs/artifacts/mount-probe.log` in the downloadable
+    results tarball. Override via $MOUNTPROBE_SINK (the local Docker
+    self-test points it at a tmp path; use /dev/null to disable)."""
     lbl = shlex.quote(label)
     return f"""set +e
+SINK="${{MOUNTPROBE_SINK:-/logs/artifacts/mount-probe.log}}"
+mkdir -p "$(dirname "$SINK")" 2>/dev/null
 LABEL={lbl}
+{{
 for cid in $(docker ps -q 2>/dev/null); do
   cname=$(docker inspect -f '{{{{.Name}}}}' "$cid" 2>/dev/null | sed 's#^/##')
   docker inspect -f '{{{{range .Mounts}}}}{{{{if eq .Type "bind"}}}}{{{{.Source}}}}|{{{{.Destination}}}}{{{{"\\n"}}}}{{{{end}}}}{{{{end}}}}' "$cid" 2>/dev/null | while IFS='|' read -r src dst; do
@@ -101,6 +112,7 @@ for cid in $(docker ps -q 2>/dev/null); do
   done
 done
 echo "{_MARKER} $LABEL scan=complete"
+}} 2>&1 | tee -a "$SINK"
 """
 
 
