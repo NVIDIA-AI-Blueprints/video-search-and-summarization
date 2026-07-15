@@ -166,6 +166,9 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
+          # the public relay for RTSP-dependent skill checks.
+          export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
           fi
