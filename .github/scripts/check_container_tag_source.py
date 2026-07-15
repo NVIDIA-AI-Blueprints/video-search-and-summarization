@@ -4,7 +4,7 @@
 """Check that a deploy image tag points at the current source subtree.
 
 For every ``vss-agent`` / ``vss-agent-ui`` image referenced from ``deploy/docker``
-compose + ``.env`` files, fetch the image's OCI index annotations from the
+compose + env files, fetch the image's OCI index annotations from the
 registry and compare ``com.nvidia.vss.source_tree_sha`` to the current
 checkout's tree SHA for the corresponding source folder.
 
@@ -651,7 +651,12 @@ def discover_compose_files(repo_root: Path) -> list[Path]:
 
 def discover_env_files(repo_root: Path) -> list[Path]:
     deploy = repo_root / DEPLOY_DIR
-    return sorted(p for p in deploy.glob("**/.env") if p.is_file())
+    files: set[Path] = set()
+    for pattern in ("**/.env", "**/*.env"):
+        for path in deploy.glob(pattern):
+            if path.is_file():
+                files.add(path)
+    return sorted(files)
 
 
 @dataclass(frozen=True)
@@ -904,7 +909,7 @@ def verify(repo_root: Path, config: ImageConfig) -> int:
     compose_files = discover_compose_files(repo_root)
     env_files = discover_env_files(repo_root)
     print(
-        f"Scanned {len(compose_files)} compose file(s) and {len(env_files)} .env file(s) "
+        f"Scanned {len(compose_files)} compose file(s) and {len(env_files)} env file(s) "
         f"under {DEPLOY_DIR.as_posix()}/."
     )
     print()
