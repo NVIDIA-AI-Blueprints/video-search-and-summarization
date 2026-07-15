@@ -10,6 +10,7 @@ fails the required gate it powers.
 """
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -67,6 +68,26 @@ class TestIsNonbuild(unittest.TestCase):
         self.assertFalse(self.nb("vss-alert-ms", "src/enhance_alert_with_vlm.py"))
         self.assertFalse(self.nb("vss-alert-ms", "requirements.txt"))
         self.assertFalse(self.nb("vss-alert-ms", "Dockerfile"))
+
+
+class TestDiscoverEnvFiles(unittest.TestCase):
+    def test_discovers_include_level_env_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            profile_env = repo / "deploy/docker/developer-profiles/dev-profile-base/.env"
+            service_env = repo / "deploy/docker/services/agent/agent.env"
+            profile_env.parent.mkdir(parents=True)
+            service_env.parent.mkdir(parents=True)
+            profile_env.write_text("HOST_IP=127.0.0.1\n")
+            service_env.write_text("VSS_AGENT_VERSION=1.2.3\n")
+
+            env_files = {
+                path.relative_to(repo).as_posix()
+                for path in chk.discover_env_files(repo)
+            }
+
+        self.assertIn("deploy/docker/developer-profiles/dev-profile-base/.env", env_files)
+        self.assertIn("deploy/docker/services/agent/agent.env", env_files)
 
 
 class TestResolveServiceRefs(unittest.TestCase):
