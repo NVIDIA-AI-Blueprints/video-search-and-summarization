@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and DevOps engineers use this skill to operate and manage the VSS video alert pipeline — configuring real-time monitoring rules, Alert-Bridge subscriptions, Slack notifications, incident queries, and camera onboarding on NVIDIA Video Search and Summarization deployments. <br>
+Developers and operations engineers use this skill to manage VSS alert pipelines — setting up real-time video monitoring, creating alert subscriptions, configuring Slack notifications, and querying detected incidents across camera sensors. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,16 +25,16 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
-- [Alert Notify Reference](references/alert-notify.md) <br>
-- [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [alert-notify.md](references/alert-notify.md) <br>
+- [alert-subscriptions.md](references/alert-subscriptions.md) <br>
+- [cv-verifier-prompts.md](references/cv-verifier-prompts.md) <br>
+- [NVIDIA AI Blueprints: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
-**Output Format:** [Markdown with inline bash code blocks and JSON responses] <br>
+**Output Type(s):** [API Calls, Shell commands, Configuration instructions] <br>
+**Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
@@ -45,7 +45,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 7 internal evaluation tasks (6 positive skill-activation, 1 negative) in NVSkills-Eval `external` profile on `astra-sandbox` environment. <br>
+7 evaluation tasks (6 positive skill-activation, 1 negative) via NVSkills-Eval external profile in astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -70,10 +70,10 @@ Underlying evaluation signals used in this run: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
 | Security | 7 | 100% (+0%) | 57% (-43%) |
-| Correctness | 7 | 84% (+53%) | 78% (+42%) |
-| Discoverability | 7 | 98% (+56%) | 84% (+33%) |
-| Effectiveness | 7 | 58% (+38%) | 56% (+34%) |
-| Efficiency | 7 | 91% (+49%) | 82% (+28%) |
+| Correctness | 7 | 93% (+64%) | 89% (+54%) |
+| Discoverability | 7 | 97% (+56%) | 95% (+41%) |
+| Effectiveness | 7 | 68% (+49%) | 67% (+44%) |
+| Efficiency | 7 | 88% (+49%) | 89% (+30%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
