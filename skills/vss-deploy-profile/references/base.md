@@ -111,7 +111,7 @@ The GPU-mem fraction knob is a fraction (0.0–1.0) of **total GPU VRAM** the NI
 > - **VLM NIM, current gen** (`nim_inference_sdk`: `cosmos3-reasoner`) — `NIM_GPU_MEMORY_UTILIZATION=<v>` **only** (container default 0.90; an explicit value also overrides the NIM's built-in per-GPU auto-tuning). The container ignores `NIM_KVCACHE_PERCENT`.
 > - **VLM NIM, `cosmos-reason2-*`** — the container is the same `nim_inference_sdk` stack and reads `NIM_GPU_MEMORY_UTILIZATION`, but the in-tree CR2 deploy files are intentionally left on the legacy keys. For Docker you can set `NIM_GPU_MEMORY_UTILIZATION` in the CR2 `hw-*.env` (`env_file` passes every key through); for Helm the `cosmos-reason2-8b` chart's `envConfigMapKeys` does **not** include it, so the value will not reach the container.
 > - **VLM NIM, legacy** (`nim_llm_sdk`: `cosmos-reason1-7b`) — `NIM_KVCACHE_PERCENT=<v>` (maps to vLLM `gpu_memory_utilization` internally).
-> - `NIM_PASSTHROUGH_ARGS` is consumed by **no** cosmos VLM container (CR1/CR2/CR3 all ignore it) — do not set it.
+> - `NIM_PASSTHROUGH_ARGS` is consumed by **no** cosmos VLM container (CR1/CR2/CR3 all ignore it) — do not set it in new configs. The in-tree CR1/CR2 files still carry it; it is inert there and intentionally left untouched.
 >
 > The rest of this doc uses `NIM_KVCACHE_PERCENT` for brevity; write the value into the stack's effective knob per the table above.
 
@@ -306,7 +306,7 @@ Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-b
 
 For shared mode, compute it via the formula. As sanity-check defaults / in-tree precedents:
 
-| Co-residency | LLM `--gpu-memory-utilization` | VLM `NIM_KVCACHE_PERCENT` | Source |
+| Co-residency | LLM `--gpu-memory-utilization` | VLM GPU-mem fraction (effective knob per the [stack table](#nim_kvcache_percent--gb-on-common-gpus)) | Source |
 |---|---|---|---|
 | Nano 9B v2 + Cosmos3 Reasoner Nano BF16 (shared) | 0.40 | 0.40 | Cosmos3 `*-shared.env` |
 | DGX Spark Nano 9B NIM + Cosmos3 Reasoner Nano BF16 on DGX Spark | 0.40 | 0.40 | `edge.md` standalone NIM recipe |
