@@ -431,7 +431,7 @@ def canReuseLvsImage(String ref = 'HEAD^') {
         return false
     }
     def result = sh(
-        script: "python3 ${scriptPath} --ref '${ref}' --quiet 2>/dev/null || echo 'false'",
+        script: "python3 ${scriptPath} --ref '${ref}' --quiet 2>/dev/null | tail -1",
         returnStdout: true
     ).trim()
     def canReuse = (result == 'true')
@@ -450,7 +450,7 @@ def hasLvsServiceChanges(String ref = 'HEAD^') {
         return true
     }
     def result = sh(
-        script: "python3 ${scriptPath} --mode any --ref '${ref}' --quiet 2>/dev/null || echo 'false'",
+        script: "python3 ${scriptPath} --mode any --ref '${ref}' --quiet 2>/dev/null | tail -1",
         returnStdout: true
     ).trim()
     def hasChanges = (result == 'true')

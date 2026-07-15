@@ -53,9 +53,8 @@ APP_ONLY_PREFIXES = (
 )
 
 
-def get_changed_files(ref: str) -> list[str]:
-    """Return file paths changed between ref and HEAD (relative to the git root)."""
-    repo_root = Path(
+def _repo_root() -> Path:
+    return Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             check=True,
@@ -63,8 +62,54 @@ def get_changed_files(ref: str) -> list[str]:
             text=True,
         ).stdout.strip()
     )
+
+
+def _ref_exists(repo_root: Path, ref: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            cwd=repo_root,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
+def _files_in_commit(repo_root: Path, commit: str = "HEAD") -> list[str]:
+    """Return paths touched by a single commit (works when the parent is not fetched)."""
     result = subprocess.run(
-        ["git", "diff", "--name-only", f"{ref}..HEAD"],
+        ["git", "show", "--name-only", "--pretty=format:", commit],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    return [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+
+
+def resolve_change_ref(repo_root: Path, ref: str) -> str | None:
+    """Return a ref for ``git diff ref..HEAD``, or None to use single-commit fallback."""
+    # Jenkins/GitLab MR builds often checkout the merge commit; compare vs target branch.
+    if _ref_exists(repo_root, "HEAD^2") and _ref_exists(repo_root, "HEAD^1"):
+        return "HEAD^1"
+    if _ref_exists(repo_root, ref):
+        return ref
+    return None
+
+
+def get_changed_files(ref: str, *, quiet: bool = False) -> list[str]:
+    """Return file paths changed between ref and HEAD (relative to the git root)."""
+    repo_root = _repo_root()
+    effective_ref = resolve_change_ref(repo_root, ref)
+    if effective_ref is None:
+        if not quiet:
+            print(
+                f"Ref {ref!r} unavailable (shallow clone); using files in HEAD only",
+                file=sys.stderr,
+            )
+        return _files_in_commit(repo_root, "HEAD")
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"{effective_ref}..HEAD"],
         check=True,
         capture_output=True,
         text=True,
@@ -107,7 +152,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        changed = get_changed_files(args.ref)
+        changed = get_changed_files(args.ref, quiet=args.quiet)
     except subprocess.CalledProcessError as exc:
         if not args.quiet:
             print(f"git diff failed: {exc}", file=sys.stderr)

@@ -134,7 +134,11 @@ pipeline {
 
     environment {
         VERSION_SUFFIX = "${BUILD_TYPE}${env.BUILD_NUMBER}"
-        LVS_PIPELINE_ACTIVE = 'true'
+        // NOTE: LVS_PIPELINE_ACTIVE is intentionally NOT declared here. Top-level
+        // environment{} values are re-injected at every stage, which would clobber
+        // the value set by the check-lvs-changes stage before later stages evaluate
+        // their `when` guards. It is set once in evaluateLvsPipelineActive() and read
+        // via shouldRunLvsPipeline() (unset == run).
         NVOC_SSH_PRIVATE_KEY_FILE_NAME = 'nvoc_rsa'
         NVOC_SSH_PUBLIC_KEY_FILE_NAME = 'nvoc_rsa.pub'
         ARCH = 'amd64'
