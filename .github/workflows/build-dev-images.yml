@@ -122,6 +122,9 @@ jobs:
       # on identical content skips; anything else refuses to overwrite.
       - name: Preflight — refuse to overwrite an existing candidate
         id: preflight
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .github/scripts/ghcr_image_guard.py preflight \
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
@@ -158,6 +161,9 @@ jobs:
       # SAME code path check-*-container-source uses and require the tree hash,
       # source path, and image name to match what we just built.
       - name: Verify pushed labels satisfy the container-source gate
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .github/scripts/ghcr_image_guard.py verify \
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \

@@ -426,13 +426,18 @@ def _parse_image_ref(image_ref: str) -> tuple[str, str, str] | None:
 
 
 def _fetch_bearer_token(
-    registry: str, name: str, ngc_key: str | None
+    registry: str,
+    name: str,
+    ngc_key: str | None,
+    registry_username: str | None = None,
+    registry_password: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Resolve a registry pull token via the ``WWW-Authenticate`` challenge flow.
 
     Some registries (Docker Hub, GHCR) accept anonymous tokens for public
-    repos; nvcr.io requires Basic-auth with ``$oauthtoken`` + the NGC API key.
-    Returns ``(token, None)`` or ``(None, error_message)``.
+    repos. Private GHCR packages require the workflow actor and GitHub token;
+    nvcr.io requires ``$oauthtoken`` plus the NGC API key. Returns
+    ``(token, None)`` or ``(None, error_message)``.
     """
     import base64
     import urllib.error
@@ -472,6 +477,11 @@ def _fetch_bearer_token(
     req = urllib.request.Request(token_url)
     if ngc_key:
         basic = base64.b64encode(f"$oauthtoken:{ngc_key}".encode()).decode()
+        req.add_header("Authorization", f"Basic {basic}")
+    elif registry_username and registry_password:
+        basic = base64.b64encode(
+            f"{registry_username}:{registry_password}".encode()
+        ).decode()
         req.add_header("Authorization", f"Basic {basic}")
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
@@ -583,7 +593,15 @@ def read_image_manifest_labels(
     registry, name, reference = parsed
 
     ngc_key = os.environ.get("NGC_CLI_API_KEY") or os.environ.get("NGC_API_KEY")
-    token, token_err = _fetch_bearer_token(registry, name, ngc_key)
+    ghcr_username = os.environ.get("GHCR_USERNAME") if registry == "ghcr.io" else None
+    ghcr_token = os.environ.get("GHCR_TOKEN") if registry == "ghcr.io" else None
+    token, token_err = _fetch_bearer_token(
+        registry,
+        name,
+        ngc_key,
+        registry_username=ghcr_username,
+        registry_password=ghcr_token,
+    )
     if token_err:
         return None, token_err, False
 

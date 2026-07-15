@@ -37,6 +37,8 @@ def preflight_decision(
     labels: ImageManifestLabels | None,
     reason: str | None,
     expected_tree_sha: str,
+    *,
+    can_fallback: bool = False,
 ) -> tuple[str, str]:
     """Return ``(action, message)`` where action is ``build`` | ``skip`` |
     ``fail``. Pure function so the collision policy is unit-testable.
@@ -45,13 +47,14 @@ def preflight_decision(
     free. A network/auth error means we cannot prove immutability, and an
     existing-but-unlabelled tag is foreign content — both refuse the build.
     """
-    if labels is None and reason and "index fetch failed" in reason:
-        if "returned 404" in reason:
+    if labels is None and reason:
+        if "index fetch failed" in reason and "returned 404" in reason:
             return "build", "tag does not exist yet; building"
-        return (
-            "fail",
-            f"cannot prove the tag is free ({reason}); refusing to build blind",
-        )
+        if not can_fallback:
+            return (
+                "fail",
+                f"cannot prove the tag is free ({reason}); refusing to build blind",
+            )
     if labels and labels.source_tree_sha == expected_tree_sha:
         return (
             "skip",
@@ -106,8 +109,13 @@ def _emit_output(key: str, value: str) -> None:
 
 
 def cmd_preflight(args: argparse.Namespace) -> int:
-    labels, reason, _ = read_image_manifest_labels(args.ref)
-    action, message = preflight_decision(labels, reason, args.expect_tree_sha)
+    labels, reason, can_fallback = read_image_manifest_labels(args.ref)
+    action, message = preflight_decision(
+        labels,
+        reason,
+        args.expect_tree_sha,
+        can_fallback=can_fallback,
+    )
     print(f"{args.ref}: {message}")
     _emit_output("skip", "true" if action == "skip" else "false")
     return 1 if action == "fail" else 0

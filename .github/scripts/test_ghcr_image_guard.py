@@ -10,13 +10,20 @@ own gate). Run directly:
 
 from __future__ import annotations
 
+import base64
 import sys
 import unittest
+from email.message import Message
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_container_tag_source import ImageManifestLabels  # noqa: E402
+from check_container_tag_source import (  # noqa: E402
+    ImageManifestLabels,
+    _fetch_bearer_token,
+)
 from ghcr_image_guard import preflight_decision, verify_decision  # noqa: E402
 
 TREE = "a" * 40
@@ -41,6 +48,14 @@ class PreflightTest(unittest.TestCase):
         self.assertEqual(action, "fail")
         self.assertIn("cannot prove", message)
 
+    def test_auth_error_is_not_reported_as_collision(self):
+        action, message = preflight_decision(
+            None, "token endpoint returned 403: Forbidden", TREE
+        )
+        self.assertEqual(action, "fail")
+        self.assertIn("cannot prove", message)
+        self.assertNotIn("DIFFERENT content", message)
+
     def test_same_content_rerun_skips(self):
         action, _ = preflight_decision(labels(), None, TREE)
         self.assertEqual(action, "skip")
@@ -52,9 +67,51 @@ class PreflightTest(unittest.TestCase):
 
     def test_existing_unlabelled_tag_fails(self):
         action, _ = preflight_decision(
-            None, "image config has no com.nvidia.vss.source_tree_sha label", TREE
+            None,
+            "image config has no com.nvidia.vss.source_tree_sha label",
+            TREE,
+            can_fallback=True,
         )
         self.assertEqual(action, "fail")
+
+
+class BearerTokenTest(unittest.TestCase):
+    def test_ghcr_credentials_authenticate_token_request(self):
+        headers = Message()
+        headers["WWW-Authenticate"] = (
+            'Bearer realm="https://ghcr.io/token",service="ghcr.io"'
+        )
+        challenge = HTTPError(
+            "https://ghcr.io/v2/",
+            401,
+            "Unauthorized",
+            headers,
+            None,
+        )
+        token_response = MagicMock()
+        token_response.__enter__.return_value = token_response
+        token_response.read.return_value = b'{"token":"registry-token"}'
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[challenge, token_response],
+        ) as urlopen:
+            token, error = _fetch_bearer_token(
+                "ghcr.io",
+                "nvidia-ai-blueprints/vss-agent",
+                None,
+                registry_username="workflow-actor",
+                registry_password="github-token",
+            )
+
+        self.assertEqual(token, "registry-token")
+        self.assertIsNone(error)
+        token_request = urlopen.call_args_list[1].args[0]
+        expected = base64.b64encode(b"workflow-actor:github-token").decode()
+        self.assertEqual(
+            token_request.get_header("Authorization"),
+            f"Basic {expected}",
+        )
 
 
 class VerifyTest(unittest.TestCase):
