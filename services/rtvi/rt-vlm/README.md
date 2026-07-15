@@ -5,7 +5,7 @@ The video is segmented into chunks as per requested chunk duration and overlap i
 Frames are sampled and sent for VLM inference. Text output is generated at the end of inference.
 If Yes/No questions are asked, it also generates incidents based on set prompts.
 
-Default Docker Compose model: Cosmos Reason3 Nano BF16 with `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` (configurable; see [Model Configuration](#model-configuration)).
+Default Docker Compose model: Cosmos3 Nano Reasoner BF16 with `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` (configurable; see [Supported Models](#supported-models)).
 
 ## Prerequisites
 - **NGC API key** to download the base container and any NGC-hosted model.
@@ -220,16 +220,15 @@ Common service variables and chart values are listed in [Docker Compose and Helm
 
 RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remote OpenAI-compatible endpoints. Use `MODEL_PATH=git:<Hugging Face URL>` for Hugging Face checkpoints, `MODEL_PATH=ngc:<org>/<team>/<model>:<version>` for NGC model artifacts, or `VLM_MODEL_TO_USE=openai-compat` with `VIA_VLM_ENDPOINT` for a remote endpoint.
 
-### Cosmos Reason2 Family (Default)
+### Cosmos Reason2 Family
 
 | Model or checkpoint | Example selector |
 |---------------------|------------------|
-| Cosmos Reason3 Nano BF16, `bf16-final` | `VLM_MODEL_TO_USE=cosmos-reason3`, `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | Cosmos Reason2 8B, `0303-fp8-dynamic-kv8` | `VLM_MODEL_TO_USE=cosmos-reason2`, `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
 | [Cosmos Reason2 8B, hf-0303](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=hf-0303) | `VLM_MODEL_TO_USE=cosmos-reason2`, `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-0303` |
 | [Cosmos Reason2 8B, 0303-fp4-dynamic-kv8](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp4-dynamic-kv8) | `VLM_MODEL_TO_USE=cosmos-reason2`, `MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp4-dynamic-kv8`. Do not use this FP4/NVFP4 variant on GB200. |
 
-### Cosmos3 Family
+### Cosmos3 Family (Default)
 
 | Model or checkpoint | Example selector |
 |---------------------|------------------|
@@ -241,7 +240,7 @@ RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remo
 | Model or checkpoint | Example selector |
 |---------------------|------------------|
 | [Nemotron-3-Nano-Omni-30B-A3B-Reasoning](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning) | `VLM_MODEL_TO_USE=vllm-compatible`, `VLM_TRUST_REMOTE_CODE=true`, `VLM_MODEL_SUPPORTS_AUDIO=true` for audio |
-| [Nemotron-Nano-V3-Omni-GA0420-FP8](https://huggingface.co/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8) | `VLM_MODEL_TO_USE=vllm-compatible`, `VLM_TRUST_REMOTE_CODE=true`, `VLM_MODEL_SUPPORTS_AUDIO=true` for audio |
+| [Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8) | `VLM_MODEL_TO_USE=vllm-compatible`, `MODEL_PATH=git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8`, `VLM_TRUST_REMOTE_CODE=true`, `VLM_MODEL_SUPPORTS_AUDIO=true` for audio |
 
 ### Qwen Family
 
