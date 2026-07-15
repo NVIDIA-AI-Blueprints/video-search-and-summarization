@@ -37,7 +37,8 @@ Three rules everything below follows:
   foundation: `docker compose config` output is byte-identical before/after.
 * `deploy/docker/container-inventory.json` — the machine-readable inventory:
   logical name, build strategy (`build` / `mirror` / `external-pin`), source
-  path, Dockerfile, required platforms, accepted compose basenames.
+  path, Docker build context, Dockerfile, required platforms, accepted compose
+  basenames.
 * Guards (run on every PR in the `Container Coordinates Golden` CI job):
   * `.github/scripts/compose_image_golden.py` — golden test pinning every
     resolved image ref, plus a drift check proving `containers.env` and the

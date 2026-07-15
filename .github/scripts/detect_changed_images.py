@@ -123,7 +123,7 @@ def to_matrix(entries: list[dict]) -> dict:
         "include": [
             {
                 "name": entry["name"],
-                "context": entry["source_path"],
+                "context": entry["context"],
                 "dockerfile": entry["dockerfile"],
                 "platforms": ",".join(entry["platforms"]),
                 "source_path": entry["source_path"],

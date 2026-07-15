@@ -31,6 +31,7 @@ INVENTORY = {
             "strategy": "build",
             "ghcr_build": True,
             "source_path": "services/agent",
+            "context": "services",
             "dockerfile": "services/agent/docker/Dockerfile",
             "platforms": ["linux/amd64", "linux/arm64"],
             "compose_image_names": ["vss-agent"],
@@ -40,6 +41,7 @@ INVENTORY = {
             "strategy": "build",
             "ghcr_build": True,
             "source_path": "services/ui",
+            "context": ".",
             "dockerfile": "services/ui/Dockerfile",
             "platforms": ["linux/amd64", "linux/arm64"],
             "compose_image_names": ["vss-agent-ui"],
@@ -49,6 +51,7 @@ INVENTORY = {
             "strategy": "build",
             "ghcr_build": False,
             "source_path": "services/alert",
+            "context": "services/alert",
             "dockerfile": "services/alert/Dockerfile",
             "platforms": ["linux/amd64"],
             "compose_image_names": ["vss-alert-ms"],
@@ -206,7 +209,7 @@ class SelectImagesTest(unittest.TestCase):
                 "include": [
                     {
                         "name": "vss-agent",
-                        "context": "services/agent",
+                        "context": "services",
                         "dockerfile": "services/agent/docker/Dockerfile",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
