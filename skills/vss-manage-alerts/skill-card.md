@@ -7,9 +7,9 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and operations engineers use this skill to manage VSS alert pipelines — setting up real-time video monitoring, creating alert subscriptions, configuring Slack notifications, and querying detected incidents across camera sensors. <br>
+Developers and engineers operating NVIDIA VSS alert pipelines for real-time video monitoring, managing alert subscriptions, configuring Slack notifications, and querying detected incidents. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,15 +25,15 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [alert-notify.md](references/alert-notify.md) <br>
-- [alert-subscriptions.md](references/alert-subscriptions.md) <br>
-- [cv-verifier-prompts.md](references/cv-verifier-prompts.md) <br>
-- [NVIDIA AI Blueprints: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
+- [Alert Notify Reference](references/alert-notify.md) <br>
+- [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [API Calls, Shell commands, Configuration instructions] <br>
+**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
@@ -69,11 +69,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 7 | 100% (+0%) | 57% (-43%) |
-| Correctness | 7 | 93% (+64%) | 89% (+54%) |
-| Discoverability | 7 | 97% (+56%) | 95% (+41%) |
-| Effectiveness | 7 | 68% (+49%) | 67% (+44%) |
-| Efficiency | 7 | 88% (+49%) | 89% (+30%) |
+| Security | 7 | 100% (+0%) | 71% (-29%) |
+| Correctness | 7 | 83% (+52%) | 89% (+55%) |
+| Discoverability | 7 | 98% (+55%) | 87% (+34%) |
+| Effectiveness | 7 | 60% (+40%) | 69% (+46%) |
+| Efficiency | 7 | 90% (+47%) | 81% (+23%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>
