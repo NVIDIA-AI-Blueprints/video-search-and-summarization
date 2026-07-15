@@ -154,7 +154,7 @@ services:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     container_name: vss-elasticsearch-init
     environment:
-      - BP_PROFILE=${BP_PROFILE}
+      - ELASTICSEARCH_ENABLE_EMBEDDINGS=${ELASTICSEARCH_ENABLE_EMBEDDINGS:-false}
       - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS=${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}
       - ELASTICSEARCH_ILM_MIN_AGE=${ELASTICSEARCH_ILM_MIN_AGE:-4h}
