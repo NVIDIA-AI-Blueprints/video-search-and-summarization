@@ -29,12 +29,12 @@ In the streaming-only architecture, RTVI-VLM publishes raw VLM events
 directly to Kafka instead of streaming SSE chunks back to via-engine.
 via-engine adds structured event batches and the aggregated narrative
 summary to a second Kafka topic. Logstash is the sole writer to
-Elasticsearch; the previous Python `services/kafka_consumer/` is retired.
+Elasticsearch.
 
 ## How it runs
 
 There is **no custom Dockerfile**. The sidecar uses the stock
-`docker.elastic.co/logstash/logstash:8.15.3` image and installs the
+`docker.elastic.co/logstash/logstash:9.3.3` image and installs the
 `logstash-codec-protobuf` plugin on first container boot, caching the
 gem tree in a Docker named volume so subsequent recreates skip the
 install. All configuration (`config/logstash.yml`,
@@ -49,7 +49,7 @@ reloads the pipeline inside the running container — no rebuild and no
 ### Running as part of the LVS stack (common case)
 
 ```bash
-cd long-video-summarization/compose/BlueprintBuilderGenerated
+cd video-search-and-summarization/services/video-summarization/docker/deploy
 docker compose --profile rtvi --profile kafka up -d
 ```
 
@@ -65,7 +65,7 @@ compose broker + a managed ES endpoint), use the standalone file in
 this directory:
 
 ```bash
-cd long-video-summarization/docker/logstash
+cd video-search-and-summarization/services/video-summarization/docker/logstash
 KAFKA_BOOTSTRAP_SERVERS=host.docker.internal:9094 \
   ES_HOST=host.docker.internal ES_PORT=9200 \
   docker compose -f logstash-compose.yml up -d
@@ -83,16 +83,10 @@ definitions used by the protobuf codec:
 
 ```bash
 protoc \
-  --proto_path=long-video-summarization/src/protos \
-  --ruby_out=long-video-summarization/docker/logstash/pb_definitions \
-  long-video-summarization/src/protos/nv.proto
-
-python3 long-video-summarization/ci/utils/add_generated_protobuf_headers.py
+  --proto_path=video-search-and-summarization/services/video-summarization/src/protos \
+  --ruby_out=video-search-and-summarization/services/video-summarization/docker/logstash/pb_definitions \
+  video-search-and-summarization/services/video-summarization/src/protos/nv.proto
 ```
-
-The helper uses the current year for a newly-created generated file and
-preserves the original year as a range when an existing generated file
-is refreshed in a later year.
 
 Then restart the logstash container so the new `.rb` file loads
 (`docker compose restart logstash`). No image rebuild is involved.
@@ -100,7 +94,7 @@ Then restart the logstash container so the new `.rb` file loads
 ## Gotcha 1: the two service definitions must stay in sync
 
 The logstash service is defined in **both**
-[`compose/BlueprintBuilderGenerated/docker-compose.yml`](../../compose/BlueprintBuilderGenerated/docker-compose.yml)
+[`docker/deploy/compose.yaml`](../deploy/compose.yaml)
 (inline, for the LVS stack) and in
 [`docker/logstash/logstash-compose.yml`](logstash-compose.yml)
 (standalone). Changes to image, startup `command`, plugin version, env
@@ -109,11 +103,10 @@ vars, healthcheck, or bind-mount layout must be applied to both.
 Audit with:
 
 ```bash
-cd long-video-summarization
+cd video-search-and-summarization/services/video-summarization
 diff \
   <(COMPOSE_PROFILES=rtvi,kafka docker compose \
-      -f compose/BlueprintBuilderGenerated/docker-compose.yml \
-      --env-file compose/BlueprintBuilderGenerated/.env \
+      -f docker/deploy/compose.yaml \
       config --format json 2>/dev/null | \
     jq '.services.logstash | del(.environment,.volumes,.labels)') \
   <(docker compose -f docker/logstash/logstash-compose.yml \
@@ -130,7 +123,7 @@ Expected differences only:
 | `networks` | `app-network` | `default` |
 | `profiles` | `[kafka]` | (absent) |
 
-Bind-mount path roots also differ (`../../docker/logstash/...` in the
+Bind-mount path roots also differ (`../logstash/...` in the
 main file, `./...` in the standalone file) and `environment` default
 values are slightly different (standalone exposes `ES_PORT` as
 env-overridable). Those do not show up in the `jq` diff because the
@@ -150,16 +143,16 @@ Fix by removing the volume so the plugin re-installs on next boot:
 
 ```bash
 # Main stack
-docker compose -f compose/BlueprintBuilderGenerated/docker-compose.yml \
+docker compose -f docker/deploy/compose.yaml \
   --profile rtvi --profile kafka down
-docker volume rm h100-integrated-cr2-nemotron-9b-8gpu_logstash-plugins
+docker volume rm video-summarization_logstash-plugins
 
 # Standalone
 docker compose -f docker/logstash/logstash-compose.yml down
 docker volume rm lvs-logstash-standalone_logstash-plugins
 ```
 
-The project name prefix (`h100-...` / `lvs-logstash-standalone`) comes
+The project name prefix (`video-summarization` / `lvs-logstash-standalone`) comes
 from each file's top-level `name:` field. If you use a non-default
 project name, `docker volume ls --format '{{.Name}}' | grep logstash-plugins`
 lists the candidates.
@@ -228,11 +221,11 @@ field names collide with Ruby reserved words AT THE SYMBOL LEVEL
 
 ```bash
 grep -nE '\b(end|class|extend|module|def|begin)\b\s*=\s*[0-9]+' \
-  long-video-summarization/src/protos/nv.proto
-# 661:  google.protobuf.Timestamp end = 3;
+  video-search-and-summarization/services/video-summarization/src/protos/nv.proto
+# 676:  google.protobuf.Timestamp end = 3;
 ```
 
-The single hit is `VisionLLM.end` on line 661. This **does not** break
+The single hit is `VisionLLM.end` on line 676. This **does not** break
 the codec's load step because `protoc --ruby_out` emits field names as
 **Ruby symbols inside a DSL block** (`optional :end, :message, 3, ...`)
 and accessors via `define_method`, neither of which collides with the
@@ -243,7 +236,7 @@ Re-run this audit any time `nv.proto` is updated:
 
 ```bash
 grep -nE '\b(end|class|extend|module|def|begin|alias|do|for|while|if|return|rescue|ensure|case|when|then|self|nil|true|false|in|next|not|or|and|redo|retry|undef|unless|until|yield|BEGIN|END|__LINE__|__FILE__|__ENCODING__)\b\s*=\s*[0-9]+' \
-  long-video-summarization/src/protos/nv.proto
+  video-search-and-summarization/services/video-summarization/src/protos/nv.proto
 ```
 
 Any new field whose name appears in the list and which the codec
