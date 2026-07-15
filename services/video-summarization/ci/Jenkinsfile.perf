@@ -1,0 +1,375 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/**
+ * LVS CI Performance Tests Pipeline
+ *
+ * Consumer pipeline that runs performance benchmarks against a pre-built LVS
+ * Docker image produced by Jenkinsfile.develop.multiarch.
+ *
+ * This pipeline does NOT build or push images. It accepts an image tag as input
+ * and runs benchmarks directly against the image pulled from NGC.
+ *
+ * Pipeline Flow:
+ * 1. Perf Tests:  Reserve bare metal GPU node, deploy via Docker Compose,
+ *                 run vss_perf_benchmark.py, archive results
+ *
+ * Typical Usage Scenarios:
+ * A) Run perf benchmarks against a specific image:  LVS_IMAGE_TAG=<full-tag>
+ * B) Run perf benchmarks against the current commit: LVS_IMAGE_TAG=auto
+ *
+ * Benchmark results are written to perf/benchmark/vss-perf-report/ on the bare
+ * metal node and archived as pipeline artifacts. Upload to MinIO is optional.
+ */
+@Library(['jenkins-shared-library', 'vss-ds-ci-jenkins-shared-library']) _
+
+import groovy.transform.Field
+
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+@Field String K8S_CLOUD = "blsm-prod-cloud"
+@Field String LVS_ROOT = "services/video-summarization"
+
+// Stash name for transferring pipeline helpers to the bare metal Jenkins agent
+@Field String HELPERS_STASH_NAME = 'perf-pipeline-helpers'
+
+// Pipeline helpers - loaded once per agent context and reused across stages
+@Field def helpers
+
+/**
+ * Pulls Git LFS objects using the same GitLab credential used for checkout.
+ * Shell commands do not automatically inherit checkout-step credentials.
+ */
+def gitLfsPullWithCheckoutCreds() {
+    withCredentials([usernamePassword(
+        credentialsId: 'cicd-cloudbee-vss-lvs-docker-build-pat',
+        usernameVariable: 'GIT_HTTP_USERNAME',
+        passwordVariable: 'GIT_HTTP_PASSWORD'
+    )]) {
+        sh '''
+        ASKPASS_SCRIPT="$(mktemp)"
+        cat > "${ASKPASS_SCRIPT}" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) echo "$GIT_HTTP_USERNAME" ;;
+  *Password*) echo "$GIT_HTTP_PASSWORD" ;;
+  *) echo "" ;;
+esac
+EOF
+        chmod 700 "${ASKPASS_SCRIPT}"
+        GIT_ASKPASS="${ASKPASS_SCRIPT}" git lfs pull
+        rm -f "${ASKPASS_SCRIPT}"
+        '''
+    }
+}
+
+// ============================================================================
+// Declarative Pipeline
+// ============================================================================
+
+pipeline {
+    agent none
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds(abortPrevious: true)
+    }
+
+    environment {
+        NVOC_SSH_PRIVATE_KEY_FILE_NAME = 'nvoc_rsa'
+        NVOC_SSH_PUBLIC_KEY_FILE_NAME = 'nvoc_rsa.pub'
+    }
+
+    parameters {
+        // ----------------------------------------------------------------
+        // Image Selection
+        // ----------------------------------------------------------------
+        string(name: 'LVS_IMAGE_TAG', defaultValue: '3.1.0-rc3.6b8de38',
+               description: 'LVS image to benchmark. Provide an explicit tag suffix ' +
+                            '(e.g., "3.1.0-rc1.06fde10") or a full image URL ' +
+                            '(e.g., nvcr.io/nv-metropolis-dev/.../vss-video-summarization:v1.2.3-abc1234). ' +
+                            '"auto" computes the tag from the current git commit ' +
+                            '(assumes the image was already pushed to NGC by the main build pipeline).')
+
+        // ----------------------------------------------------------------
+        // Perf Test Configuration
+        // ----------------------------------------------------------------
+        string(name: 'PERF_CONFIG_IDS', defaultValue: 'all',
+               description: 'Which configs from ci/perf-configs.yaml to run. ' +
+                            '"all" runs every entry. ' +
+                            'Provide a comma-separated list of config ids to run a subset, e.g. ' +
+                            '"h100_1_1x1_cosmos-reason2-8b-integrated_nemotron-nano-9b-v2_9k". ' +
+                            'Config ids are the "id" field in ci/perf-configs.yaml.')
+        extendedChoice(
+            name: 'PERF_SCENARIO',
+            type: 'PT_CHECKBOX',
+            value: 'all,quick_test,single_file_test,file_burst_test',
+            defaultValue: 'quick_test',
+            description: 'Benchmark scenario(s) to run. Select one or more. ' +
+                         '"all" runs every scenario defined in the benchmark config (overrides other ticks).'
+        )
+        choice(name: 'NODE_LABEL_FILTER', choices: ['all', 'H100-SXM', 'L40S', 'RTXPRO6000BW-SE', 'DGX-SPARK'],
+               description: 'Only run configs whose nodeLabel matches this value. "all" runs every enabled config. ' +
+                            'Applies to reservable pool nodes only — use CUSTOM_NODE_LABEL_* params to target a specific pre-provisioned node.')
+        choice(name: 'UPLOAD_TO_MINIO', choices: ['false', 'true'],
+               description: 'Upload benchmark result JSON files to MinIO for dashboarding')
+        choice(name: 'PERF_USE_RUN_BENCHMARK_SCRIPT', choices: ['true', 'false'],
+               description: 'Use compose/run_benchmark.sh for deploy+benchmark+teardown (true). ' +
+                           'Use false for the original Groovy path (runBareMetalDockerComposeWorkflow + runPerfBenchmark).')
+        string(name: 'DEPLOYMENT_TIMEOUT_MINUTES', defaultValue: '30',
+               description: 'Docker Compose health-check timeout in minutes. ' +
+                            'Increase for first-run model downloads (NIM cache miss).')
+        string(name: 'DOCKER_PULL_TIMEOUT_MINUTES', defaultValue: '25',
+               description: 'Docker Compose image pull timeout in minutes. ' +
+                            'Increase for cold nodes or large image/cache pulls.')
+
+        // ----------------------------------------------------------------
+        // Custom node (per GPU type): use a pre-provisioned node instead of shared pool.
+        // When non-empty (and not "null"), replace that GPU type's nodeLabel with this value
+        // for getNode(). AAAI-718 temporarily treats all lockable nodes as pre-provisioned.
+        // When empty or "null", use exactly the nodeLabel from perf-configs.yaml (shared pool).
+        // ----------------------------------------------------------------
+        string(name: 'CUSTOM_NODE_LABEL_H100', defaultValue: '',
+            description: 'Custom H100 node label (e.g. a4u8g-0141_H100). Empty or "null" = use shared pool H100 from perf-configs.yaml.')
+        string(name: 'CUSTOM_NODE_LABEL_RTXPRO6000BW', defaultValue: '',
+            description: 'Custom RTXPRO6000BW-SE node label. Empty or "null" = use shared pool from perf-configs.yaml.')
+    }
+
+    stages {
+        // ====================================================================
+        // Perf Tests: Reserve a bare metal GPU node and run benchmarks
+        //
+        // Orchestration runs in a K8s pod (bare-metal-test-pod). The actual
+        // benchmark work runs on the reserved bare metal Jenkins agent via a
+        // node(env.jen_node) block, which:
+        //   1. Checks out the repository on the pod (checkout-source), then either
+        //      shallow-checkout on the BM or (OCI BM) gitCheckoutShallow on pod + tar-over-ssh sync +
+        //      perf media: wget on pod (Artifactory) + populate via-media-data on BM before node() — see runPerfConfigsParallel
+        //   2. Verifies GPU hardware
+        //   3. Deploys LVS via Docker Compose (pulls image from NGC)
+        //   4. Runs vss_perf_benchmark.py against the live service
+        //   5. Archives result JSON files
+        //   6. (OCI BM + UPLOAD_TO_MINIO) MinIO upload runs on this K8s pod after node(bm) — BM cannot reach internal MinIO
+        //
+        // The bare metal node lock is always released in post { always { ... } }.
+        // ====================================================================
+        stage('perf-tests') {
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'perf-node-test'
+                    defaultContainer 'ubuntu-22-04'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/bare-metal-test-pod.yaml"
+                }
+            }
+            stages {
+                stage('checkout-source') {
+                    steps {
+                        gitlabCommitStatus(name: 'checkout-source', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                withEnv(['GIT_LFS_SKIP_SMUDGE=1']) {
+                                    // depth: 1 causes "reference is not a tree" when the branch
+                                    // advances between job queue time and execution — the target
+                                    // commit is no longer the tip and isn't included in the fetch.
+                                    // depth: 10 gives enough history to cover typical queue lag.
+                                    retry(3) {
+                                        checkout([
+                                            $class: 'GitSCM',
+                                            branches: scm.branches,
+                                            extensions: [[$class: 'CloneOption', shallow: true, depth: 1, noTags: true, timeout: 30]],
+                                            userRemoteConfigs: scm.userRemoteConfigs
+                                        ])
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stage('install-infra-prereqs') {
+                    steps {
+                        gitlabCommitStatus(name: 'install-infra-prereqs', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                // Keep the existing stage/status name while AAAI-718 is evaluated.
+                                // AAAI-718: lockable resources are now pre-provisioned with the
+                                // NVIDIA driver, Docker, and NVIDIA Container Toolkit. Keep only
+                                // the lightweight tools used by the perf orchestrator.
+                                sh """
+                                apt-get update
+                                apt-get install --no-install-recommends -y wget curl jq
+                                """
+
+                                // Temporarily disabled for AAAI-718. Retain this block so it can
+                                // be restored quickly if lockable resources stop being pre-provisioned.
+                                // helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                                // def overrides = helpers.buildCustomNodeOverridesFromParams(params)
+                                // def perfCfg = readYaml(file: "${env.WORKSPACE}/ci/perf-configs.yaml")
+                                // def nodeLabelFilter = params.NODE_LABEL_FILTER?.trim() ?: 'all'
+                                // def allConfigs = (perfCfg?.perf_configs ?: []).findAll { nodeLabelFilter == 'all' || it.nodeLabel == nodeLabelFilter }
+                                // def selectedIds = params.PERF_CONFIG_IDS?.trim() ?: 'all'
+                                // def (effectiveConfigs, customLabelsInUse) = helpers.getPerfConfigsWithCustomNodeOverrides(allConfigs, selectedIds, overrides)
+                                // def nodeLabels = effectiveConfigs.collect { it.nodeLabel }.unique()
+                                // def customSet = customLabelsInUse as Set
+                                // if (nodeLabels && nodeLabels.every { customSet.contains(it) }) {
+                                //     echo "All selected configs use custom node labels only (${nodeLabels}); skipping nv-one-click prereqs (still installing wget/curl/jq for pod steps)."
+                                //     return
+                                // }
+                                // sh """
+                                // cd nv-one-click
+                                // chmod u+x helper-scripts/install-pre-requisites.sh
+                                // helper-scripts/install-pre-requisites.sh -y
+                                // pip3 install PyYAML argparse
+                                // make
+                                // """
+                            }
+                        }
+                    }
+                }
+
+                stage('get-vault-credentials-perf') {
+                    steps {
+                        withCredentials([string(credentialsId: 'NGC_API_KEY_LVS', variable: 'NGC_API_KEY_LVS')]) {
+                            gitlabCommitStatus(name: 'get-vault-credentials-perf', connection: gitLabConnection('gitlab-vss-lvs')) {
+                                script {
+                                    helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                                    helpers.configureGit()
+                                    // Stash helpers so they can be bootstrapped on the bare metal node
+                                    // (the node block runs on a different Jenkins agent with an empty workspace)
+                                    stash name: HELPERS_STASH_NAME, includes: "${LVS_ROOT}/ci/pipeline-helpers.groovy"
+                                    helpers.fetchCredsFromVault()
+
+                                    // Write SSH keys required by getNodeIp() for bare metal reservation
+                                    sh """
+                                    touch '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}' '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+                                    chmod 666 '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}' '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+                                    echo "\${SSH_PRIVATE_KEY}" > '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}'
+                                    echo "\${SSH_PUBLIC_KEY}" > '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+                                    chmod 600 '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}' '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+                                    """
+                                    env.NVOC_SSH_PRIVATE_KEY_FILE = "${env.WORKSPACE}/${NVOC_SSH_PRIVATE_KEY_FILE_NAME}"
+                                    env.NVOC_SSH_PUBLIC_KEY_FILE  = "${env.WORKSPACE}/${NVOC_SSH_PUBLIC_KEY_FILE_NAME}"
+
+                                    // Align perf NGC auth with develop.multiarch bare-metal stage.
+                                    // Keep other API keys sourced from Vault.
+                                    // TODO: revert to env.NGC_API_KEY_LVS once the NGC_API_KEY_LVS
+                                    // Jenkins credential is updated with a valid key. The current
+                                    // NGC_API_KEY_LVS value (nvapi-*) is rejected by nvcr.io;
+                                    // the Vault-fetched NGC_API_KEY (set by fetchCredsFromVault above)
+                                    // is the working credential in the interim.
+                                    env.NGC_API_KEY_PERF    = env.NGC_API_KEY
+                                    env.NVIDIA_API_KEY_PERF = env.NVIDIA_API_KEY
+                                    env.HF_TOKEN_PERF       = env.HF_TOKEN
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stage('run-perf-benchmarks') {
+                    steps {
+                        // Timeout covers all node groups running in parallel.
+                        // Each group: GPU verify + (deploy + benchmark) × N configs.
+                        // Increase if running many configs or if NIM cache is cold.
+                        timeout(time: 1440, unit: 'MINUTES') {
+                            gitlabCommitStatus(name: 'run-perf-benchmarks', connection: gitLabConnection('gitlab-vss-lvs')) {
+                                script {
+                                    def rawTag = params.LVS_IMAGE_TAG?.trim()
+                                    def imageTag = (rawTag && rawTag.toLowerCase() != 'auto') ? rawTag : null
+
+                                    env.DEPLOYMENT_TIMEOUT_MINUTES = params.DEPLOYMENT_TIMEOUT_MINUTES
+                                    env.DOCKER_PULL_TIMEOUT_MINUTES = params.DOCKER_PULL_TIMEOUT_MINUTES
+
+                                    def perfCfg = readYaml(file: "${env.WORKSPACE}/${LVS_ROOT}/ci/perf-configs.yaml")
+                                    def nodeLabelFilter = params.NODE_LABEL_FILTER?.trim() ?: 'all'
+                                    def filteredConfigs = (perfCfg.perf_configs ?: []).findAll { nodeLabelFilter == 'all' || it.nodeLabel == nodeLabelFilter }
+                                    def customNodeOverrides = helpers.buildCustomNodeOverridesFromParams(params)
+                                    withCredentials([
+                                        usernamePassword(
+                                            credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN',
+                                            usernameVariable: 'ARTIFACTORY_USER',
+                                            passwordVariable: 'ARTIFACTORY_TOKEN'
+                                        )
+                                    ]) {
+                                        helpers.runPerfConfigsParallel([
+                                            allConfigs:         filteredConfigs,
+                                            selectedIds:        params.PERF_CONFIG_IDS ?: 'all',
+                                            imageTag:           imageTag,
+                                            scenarioName:       (params.PERF_SCENARIO ?: 'quick_test').replace(',', ' '),
+                                            credentials: [
+                                                ngcApiKey:        env.NGC_API_KEY_PERF,
+                                                nvidiaApiKey:     env.NVIDIA_API_KEY_PERF,
+                                                hfToken:          env.HF_TOKEN_PERF ?: '',
+                                                artifactoryUser:  env.ARTIFACTORY_USER,
+                                                artifactoryToken: env.ARTIFACTORY_TOKEN
+                                            ],
+                                            sshPublicKey:       env.SSH_PUBLIC_KEY.trim(),
+                                            helpersStashName:   HELPERS_STASH_NAME,
+                                            uploadToMinio:      params.UPLOAD_TO_MINIO == 'true',
+                                            customNodeOverrides: customNodeOverrides
+                                        ])
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            post {
+                always {
+                    container('jenkins-shared-lib-base') {
+                        script {
+                            // Safety-net: release any lock that may still be held if the
+                            // helper threw before its own finally block could run.
+                            if (env.jen_node) {
+                                try {
+                                    releaseLock()
+                                } catch (Exception e) {
+                                    echo "Warning: safety-net releaseLock failed: ${e.getMessage()}"
+                                }
+                            }
+
+                            // Remove SSH key files from the orchestrator pod workspace
+                            sh """
+                            rm -f '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}' '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}' || true
+                            """
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                echo "Pipeline completed with status: ${currentBuild.result ?: 'SUCCESS'}"
+            }
+        }
+        failure {
+            script {
+                echo "Pipeline failed! Check logs for details."
+            }
+        }
+        success {
+            script {
+                echo "Pipeline completed successfully!"
+            }
+        }
+    }
+}

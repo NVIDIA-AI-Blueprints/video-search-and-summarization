@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Pod
+metadata:
+spec:
+  serviceAccountName: met-vss-sa
+  imagePullSecrets:
+  - name: svc-a3i-blsm-infra-ngc-creds
+  - name: gitlab-image-pull-ro
+  containers:
+  - name: docker
+    image: docker:23.0.6
+    command:
+    - sleep
+    args:
+    - 1d
+    tty: true
+    env:
+      - name: DOCKER_HOST
+        value: tcp://localhost:2375
+  - name: docker-daemon
+    image: docker:23.0.6-dind
+    resources:
+      requests:
+        memory: 32Gi
+      limits:
+        memory: 32Gi
+    securityContext:
+      privileged: true
+    env:
+      - name: DOCKER_TLS_CERTDIR
+        value: ""
+  - name: pulse-cli
+    image: gitlab-master.nvidia.com:5005/pstooling/pulse-group/pulse-container-scanner:stable
+    command:
+    - sleep
+    args:
+    - 1d
+    tty: true
+    workingDir: /home/jenkins/agent
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+    env:
+      - name: HOME
+        value: /tmp
+  - name: jenkins-shared-lib-base
+    image: nvcr.io/metropolis/a3ieng/msv:0.0.4
+    imagePullPolicy: "Always"
+    command:
+    - sleep
+    args:
+    - 1d
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64

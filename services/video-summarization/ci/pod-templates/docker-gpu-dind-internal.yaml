@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Pod
+metadata:
+spec:
+  serviceAccountName: met-vss-sa
+  imagePullSecrets:
+  - name: svc-a3i-blsm-infra-ngc-creds
+  containers:
+  # Main container - Docker CLI for running pipeline commands
+  - name: docker
+    image: urm.nvidia.com/sw-embedded-metropolis-a3ieng-docker/pipeline-util:0.0.5
+    command:
+    - sleep
+    args:
+    - 99d
+    env:
+      - name: DOCKER_HOST
+        value: tcp://localhost:2375
+  
+  # DinD container with GPU support - uses internal NVIDIA image
+  # This image has been tested and verified to work with GPU passthrough
+  - name: docker-daemon
+    image: urm.nvidia.com/sw-embedded-metropolis-a3ieng-docker/pipeline-util-dind:0.0.1
+    command:
+    - /bin/sh
+    - -c
+    args:
+    - |
+      dockerd --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 --storage-driver=overlay2 &
+      timeout 30 sh -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
+      echo "Docker daemon ready on tcp://0.0.0.0:2375"
+      wait
+    securityContext:
+      privileged: true
+    env:
+      - name: DOCKER_TLS_CERTDIR
+        value: ""
+      - name: NVIDIA_VISIBLE_DEVICES
+        value: all
+      - name: NVIDIA_DRIVER_CAPABILITIES
+        value: all
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+    volumeMounts:
+      - name: docker-storage
+        mountPath: /var/lib/docker
+      - name: cgroup
+        mountPath: /sys/fs/cgroup
+  
+  # Jenkins shared library base - required for vault credential fetching
+  - name: jenkins-shared-lib-base
+    image: nvcr.io/metropolis/a3ieng/msv:0.0.4
+    imagePullPolicy: Always
+    command:
+    - sleep
+    args:
+    - 1d
+  
+  volumes:
+  - name: docker-storage
+    emptyDir: {}
+  - name: cgroup
+    hostPath:
+      path: /sys/fs/cgroup
+      type: Directory
+  
+  nodeSelector:
+    kubernetes.io/os: linux
+    nvidia.com/node_type: gpu_tester__GPU_TYPE_PLACEHOLDER__

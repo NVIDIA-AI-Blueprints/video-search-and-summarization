@@ -1,0 +1,183 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/**
+ * LVS Nightly Multi-Architecture CI Orchestrator
+ *
+ * Triggers the multiarch pipeline on a nightly schedule with a fixed
+ * full-coverage parameter profile. All stage logic lives in the multiarch pipeline
+ * (services/video-summarization/ci/Jenkinsfile.develop.multiarch); this job only orchestrates the trigger.
+ *
+ * Jenkins setup (Multibranch Pipeline):
+ *   1. Create job "lvs-multibranch-nightly" as a Multibranch Pipeline,
+ *      Script Path: services/video-summarization/ci/Jenkinsfile.nightly.multiarch.
+ *   2. Create (or reuse) job "lvs-multibranch" as a Multibranch Pipeline,
+ *      Script Path: services/video-summarization/ci/Jenkinsfile.develop.multiarch.
+ *   3. LVS_NIGHTLY_PIPELINE_JOB is optional — if left empty the downstream
+ *      path is auto-derived as lvs-multibranch/<branch>.
+ *      Set it explicitly to override (e.g. lvs-multibranch/main).
+ *
+ * WARNING: Do not point both jobs at the same Jenkins job — "build job" calling itself
+ * causes infinite recursion.
+ *
+ * Nightly-only parameters (not forwarded to the downstream job directly):
+ *   LVS_NIGHTLY_PIPELINE_JOB   — path of the downstream multiarch job to trigger
+ *   NIGHTLY_RUN_BARE_METAL     — gate for capacity-heavy bare-metal GPU test
+ *   NIGHTLY_DASHBOARD_API_URL  — forwarded as DASHBOARD_API_URL
+ *   NIGHTLY_PERF_JOB_NAME      — forwarded as PERF_DOWNSTREAM_JOB_NAME
+ *
+ * To add or rename a parameter: update downstreamParams below AND update
+ * ci/Jenkinsfile.develop.multiarch parameters { } to match.
+ */
+pipeline {
+    agent {
+        kubernetes {
+            cloud 'blsm-prod-cloud'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: met-vss-sa
+  imagePullSecrets:
+  - name: svc-a3i-blsm-infra-ngc-creds
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+"""
+        }
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds(abortPrevious: true)
+        // The nightly orchestrator only calls 'build job' — no workspace files needed.
+        skipDefaultCheckout(true)
+    }
+
+    triggers {
+        // Scheduled nightly on main only. Feature branches are manual-trigger only.
+        // 'H 2 * * *' = ~2 AM UTC; 'H' spreads load across the hour.
+        cron(env.BRANCH_NAME == 'main' ? 'H 2 * * *' : '')
+    }
+
+    parameters {
+        string(
+            name: 'LVS_NIGHTLY_PIPELINE_JOB',
+            defaultValue: '',
+            description: 'Full Jenkins job path for the multiarch pipeline ' +
+                         '(services/video-summarization/ci/Jenkinsfile.develop.multiarch). ' +
+                         'If empty, auto-derived as lvs-multibranch/<branch>. ' +
+                         'Example: lvs-multibranch/main.'
+        )
+        booleanParam(
+            name: 'NIGHTLY_RUN_BARE_METAL',
+            defaultValue: false,
+            description: 'When true, passes RUN_NODE_TEST=true to the downstream job, reserving a ' +
+                         'bare-metal GPU node for post-build validation. Capacity-heavy — keep false ' +
+                         'unless the nightly environment has a dedicated node.'
+        )
+        string(
+            name: 'NIGHTLY_DASHBOARD_API_URL',
+            defaultValue: 'http://10.111.53.164:8000',
+            description: 'Dev Dashboard API URL for test result reporting. ' +
+                         'Forwarded as DASHBOARD_API_URL to the downstream job.'
+        )
+        string(
+            name: 'NIGHTLY_PERF_JOB_NAME',
+            defaultValue: 'lvs-performance-testing',
+            description: 'Jenkins job name for performance testing. ' +
+                         'Forwarded as PERF_DOWNSTREAM_JOB_NAME to the downstream job. ' +
+                         'Set to empty string to skip performance testing.'
+        )
+    }
+
+    stages {
+        stage('trigger-nightly-multiarch') {
+            steps {
+                script {
+                    // Use explicit parameter if set, otherwise derive from current branch.
+                    // This works for both main and feature branches when using Multibranch Pipeline.
+                    def downstream = params.LVS_NIGHTLY_PIPELINE_JOB?.trim()
+                    if (!downstream) {
+                        downstream = "lvs-multibranch/${env.BRANCH_NAME}"
+                    }
+
+                    echo "Nightly: triggering downstream job '${downstream}' with full-coverage parameters."
+
+                    // Full-coverage parameter profile for nightly runs.
+                    // Keep in sync with parameters { } in ci/Jenkinsfile.develop.multiarch.
+                    def downstreamParams = [
+
+                        // --- Build ---
+                        string(name: 'EXAMPLES_TO_BUILD',            value: 'BM-Docker'),
+                        string(name: 'BASE_IMAGE',                    value: 'ubuntu-22-04'),
+                        string(name: 'RUN_BUILD',                     value: 'true'),
+                        string(name: 'BUILD_ARCHS',                   value: 'all'),
+                        booleanParam(name: 'FORCE_REBUILD',           value: true),
+                        string(name: 'USE_NGC_CACHE',                 value: 'true'),
+
+                        // --- Static analysis ---
+                        string(name: 'RUN_LINT',                      value: 'true'),
+                        string(name: 'RUN_SONARQUBE',                 value: 'true'),
+
+                        // --- Tests ---
+                        string(name: 'RUN_UNIT_TESTS',                value: 'true'),
+                        string(name: 'RUN_FUNCTIONAL_TESTS',          value: 'true'),
+                        string(name: 'RUN_INTEGRATION_TESTS',         value: 'true'),
+                        string(name: 'RUN_KAFKA_E2E',                 value: 'true'),
+                        string(name: 'SKIP_ES_SHARD_LIMIT',           value: 'false'),
+                        string(name: 'RUN_SECURITY_SCAN',             value: 'true'),
+
+                        // --- Test debug logging ---
+                        string(name: 'FUNCTIONAL_TESTS_DEBUG',        value: 'true'),
+                        string(name: 'INTEGRATION_DEBUG',             value: 'true'),
+                        string(name: 'INTEGRATION_USE_COMPOSE_IMAGE', value: 'false'),
+                        string(name: 'DEPLOYMENT_TIMEOUT_MINUTES',    value: '20'),
+                        string(name: 'GPU_TESTER_GPU_TYPE',           value: ''),
+
+                        // --- Bare metal ---
+                        string(name: 'RUN_NODE_TEST',                 value: params.NIGHTLY_RUN_BARE_METAL ? 'true' : 'false'),
+                        string(name: 'BM_NODE_LABEL',                 value: 'H100'),
+
+                        // --- Publish & reporting ---
+                        string(name: 'DASHBOARD_API_URL',             value: params.NIGHTLY_DASHBOARD_API_URL),
+                        booleanParam(name: 'PUSH_TEST_RESULTS_EOS',   value: true),
+                        string(name: 'PERF_DOWNSTREAM_JOB_NAME',      value: params.NIGHTLY_PERF_JOB_NAME),
+
+                        // --- Release guards (off for nightly) ---
+                        booleanParam(name: 'USE_VERSION_FILE_TAG',    value: false),
+                        booleanParam(name: 'PUBLISH_DISPOSABLE_TAGS', value: false),
+                    ]
+
+                    build job: downstream, parameters: downstreamParams, propagate: true, wait: true
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                echo "Nightly orchestrator finished with status: ${currentBuild.result ?: 'SUCCESS'}"
+            }
+        }
+        failure {
+            script {
+                echo "Nightly build FAILED. Check the downstream multiarch pipeline job for details."
+            }
+        }
+    }
+}

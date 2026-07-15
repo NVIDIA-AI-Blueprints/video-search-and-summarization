@@ -1,0 +1,209 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/**
+ * Nightly GPU Test Pipeline with Docker-in-Docker
+ *
+ * Standalone pipeline for testing LVS images on GPU nodes using DinD.
+ * Tests either user-specified image or computes from current git commit.
+ *
+ * Uses internal NVIDIA DinD images with verified GPU support:
+ * - pipeline-util:0.0.5 (Docker CLI)
+ * - pipeline-util-dind:0.0.1 (DinD daemon with GPU)
+ */
+
+@Library('jenkins-shared-library') _
+
+import groovy.transform.Field
+
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+@Field String BUILD_TYPE = "dev"
+@Field String LVS_ROOT = "services/video-summarization"
+@Field String IMAGE_NAME = "nvcr.io/nv-metropolis-dev/vss-summarization/vss-video-summarization"
+@Field String K8S_CLOUD = "blsm-prod-cloud"
+@Field String NSPECT_ID = "NSPECT-MZI5-0FE7"
+
+// Pipeline helpers - loaded once per agent context
+@Field def helpers
+
+// ============================================================================
+// Declarative Pipeline
+// ============================================================================
+
+pipeline {
+    agent none
+    options {
+        // Keep only the last 30 builds
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    parameters {
+        string(
+            name: 'LVS_IMAGE',
+            defaultValue: 'nvcr.io/nv-metropolis-dev/vss-summarization/vss-video-summarization:c06ddd9-amd64',
+            description: 'LVS image to test. Use "auto" to compute from current git commit, or specify full image URL (e.g., nvcr.io/.../vss-video-summarization:abc1234)'
+        )
+        string(
+            name: 'GPU_TYPE',
+            defaultValue: '',
+            description: 'Optional: Specific GPU type to request (e.g., A100_PCIE_40GB, H100). Leave empty to use any available GPU on the node.'
+        )
+    }
+
+    stages {
+        // Main stage: Test LVS with GPU using DinD
+        stage('integration-testing') {
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'integration-testing'
+                    defaultContainer 'docker'
+                    yaml readTrusted("${LVS_ROOT}/ci/pod-templates/docker-gpu-dind-internal.yaml")
+                        .replace('__GPU_TYPE_PLACEHOLDER__',
+                            (params.GPU_TYPE && params.GPU_TYPE.trim() != '')
+                                ? "\n    nvidia.com/gpu_type: ${params.GPU_TYPE}"
+                                : '')
+                }
+            }
+            stages {
+                // Stage 1: Verify GPU and log configuration
+                stage('gpu-info') {
+                    steps {
+                        script {
+                            echo "=========================================="
+                            echo "GPU Test Configuration"
+                            echo "=========================================="
+                            echo "LVS Image: ${params.LVS_IMAGE}"
+                            echo "GPU Type: ${params.GPU_TYPE ?: '(any available)'}"
+                            echo "=========================================="
+
+                            // Wait for Docker daemon
+                            helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                            helpers.waitForDockerd()
+
+                            // Verify GPU access in DinD and capture details
+                            echo "Verifying GPU access..."
+                            def gpuInfo = helpers.verifyGpuAccessInDocker()
+
+                            // Store GPU info in environment for later use
+                            env.GPU_AVAILABLE = gpuInfo.available.toString()
+                            env.GPU_NAME = gpuInfo.name
+                            env.GPU_DRIVER_VERSION = gpuInfo.driver_version
+
+                            if (!gpuInfo.available) {
+                                echo "⚠️  WARNING: GPU verification failed, but continuing..."
+                            } else {
+                                echo "=========================================="
+                                echo "GPU Details:"
+                                echo "  Name: ${env.GPU_NAME}"
+                                echo "  Driver: ${env.GPU_DRIVER_VERSION}"
+                                echo "=========================================="
+                            }
+                        }
+                    }
+                }
+
+                // Stage 2: Setup and run GPU tests
+                stage('setup-and-test') {
+                    steps {
+                        script {
+                            echo "=========================================="
+                            echo "Setup and Run GPU Tests"
+                            echo "=========================================="
+
+                            // Checkout repo (needed for docker-compose.yml)
+                            helpers.gitCheckout()
+
+                            // Determine which image to test
+                            env.LVS_IMAGE = helpers.getLatestImage(params.LVS_IMAGE)
+                            echo "LVS Image to Test: ${env.LVS_IMAGE}"
+                        }
+
+                        // Fetch credentials from Vault
+                        container('jenkins-shared-lib-base') {
+                            script {
+                                helpers.fetchCredsFromVault()
+                            }
+                        }
+
+                        // Run GPU tests with docker compose (no sudo in DinD)
+                        timeout(time: 15, unit: 'MINUTES') {
+                            script {
+                                wrap([$class: 'MaskPasswordsBuildWrapper', varPasswordPairs: [
+                                    [var: 'NGC_API_KEY', password: env.NGC_API_KEY],
+                                    [var: 'NVIDIA_API_KEY', password: env.NVIDIA_API_KEY],
+                                    [var: 'OPENAI_API_KEY', password: env.OPENAI_API_KEY]
+                                ]]) {
+                                    // Reuse bare metal test workflow, but without sudo (DinD context)
+                                    helpers.runBareMetalDockerComposeTest([
+                                        ngcApiKey: env.NGC_API_KEY,
+                                        nvidiaApiKey: env.NVIDIA_API_KEY,
+                                        openaiApiKey: env.OPENAI_API_KEY,
+                                        builtImageTag: env.LVS_IMAGE,
+                                        useSudo: false,  // ← No sudo in DinD
+                                        runAllIntegrationTests: true,
+                                        composeFilePath: "${env.WORKSPACE}/${LVS_ROOT}/compose/BlueprintBuilderGenerated/docker-compose.yml"
+                                    ])
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        // Note: Cleanup is already handled by runBareMetalDockerComposeTest() in its finally block
+                        echo "Docker Compose test workflow complete (cleanup handled by helper)"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                // Summary (cleanup is handled by runBareMetalDockerComposeTest)
+                echo "=========================================="
+                echo "DinD GPU Test Complete"
+                echo "=========================================="
+                echo "Image tested: ${env.LVS_IMAGE ?: params.LVS_IMAGE}"
+                echo "GPU Requested: ${params.GPU_TYPE ?: '(any available)'}"
+                if (env.GPU_AVAILABLE == 'true') {
+                    echo "GPU Detected: ${env.GPU_NAME}"
+                    echo "GPU Driver: ${env.GPU_DRIVER_VERSION}"
+                } else {
+                    echo "GPU Status: Not detected/accessible"
+                }
+                echo "Build Status: ${currentBuild.result ?: 'SUCCESS'}"
+                echo "=========================================="
+            }
+        }
+        success {
+            script {
+                echo "✓ All DinD GPU tests passed successfully!"
+            }
+        }
+        failure {
+            script {
+                echo "✗ DinD GPU tests failed - check logs above"
+            }
+        }
+    }
+}

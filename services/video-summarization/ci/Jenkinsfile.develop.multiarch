@@ -1,0 +1,1009 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/**
+ * Multi-Architecture Docker Build Pipeline (Declarative)
+ *
+ * This Jenkins pipeline builds Docker images for multiple CPU architectures
+ * (AMD64 and ARM64 with platform variants) in parallel, runs tests on the built images,
+ * and then publishes both individual arch images and multi-architecture manifests to NVCR.
+ *
+ * Pipeline Flow:
+ * 0. Check LVS changes: skip pipeline when commit only touches paths outside services/video-summarization
+ * 1. Basics: Checkout, linting, and security scanning
+ * 2. Build Multi-Arch Images (parallel):
+ *    - Build base image → Push to NVCR
+ *    - Build main image locally (--load)
+ *    - Run unit tests on local image
+ *    - Push to NVCR (only if tests pass)
+ * 3. Merge: Create multi-arch manifest from pushed images
+ * 4. Node Bare Metal Test: Post-deployment GPU validation (optional)
+ *
+ * Key Features:
+ * - Images are built locally and tested BEFORE pushing to registry
+ * - Failed tests prevent publishing (quality gate)
+ * - All build/test/push happens in same pod (efficient, no rebuild)
+ * - Multi-arch manifest created from registry images
+ *
+ * Output Images (VERSION = [git_tag-]commit_sha[-arch]):
+ * - {IMAGE_NAME}:{VERSION}-amd64              (AMD64 specific, e.g., v1.2.3-abc1234-amd64 or abc1234-amd64)
+ * - {IMAGE_NAME}:{VERSION}-arm64-sbsa         (ARM64 SBSA, e.g., v1.2.3-abc1234-arm64-sbsa or abc1234-arm64-sbsa)
+ * - {IMAGE_NAME}:{VERSION}-arm64-igpu         (ARM64 iGPU, e.g., v1.2.3-abc1234-arm64-igpu or abc1234-arm64-igpu)
+ * - {IMAGE_NAME}:{VERSION}-{BUILD_SUFFIX}     (Multi-arch with build number, e.g., v1.2.3-abc1234-dev123)
+ * - {IMAGE_NAME}:{VERSION}                    (Multi-arch latest, e.g., v1.2.3-abc1234 or abc1234)
+ *
+ * Requirements:
+ * - Kubernetes cluster with AMD64 and ARM64 nodes
+ * - Jenkins Shared Library ('jenkins-shared-library')
+ * - Vault access for NGC, API credentials, and SSH keys
+ * - GitLab integration for status reporting
+ * - Lockable bare metal nodes for GPU testing (optional)
+ */
+@Library(['jenkins-shared-library', 'vss-ds-ci-jenkins-shared-library', 'ci-automation']) _
+
+import groovy.transform.Field
+
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+@Field String BUILD_TYPE = "dev"
+@Field String LVS_ROOT = "services/video-summarization"
+@Field String IMAGE_NAME = "nvcr.io/nv-metropolis-dev/vss-summarization/vss-video-summarization"
+@Field String K8S_CLOUD = "blsm-prod-cloud"
+@Field String NSPECT_ID = "NSPECT-MZI5-0FE7"
+@Field def SEMVER_TAG_PATTERN = ~/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/
+
+// Stash names for artifact transfer between stages
+@Field String COVERAGE_STASH_NAME = "coverage-xml-report"
+
+// Pipeline helpers - loaded once per agent context and reused across stages
+// This reduces load time by avoiding repeated file reads within the same agent
+@Field def helpers
+
+String getEffectiveTagName() {
+    return (env.EFFECTIVE_TAG_NAME ?: env.TAG_NAME ?: '').trim()
+}
+
+boolean isDisposableTagBuild() {
+    def effectiveTag = getEffectiveTagName()
+    return effectiveTag && !(effectiveTag ==~ SEMVER_TAG_PATTERN)
+}
+
+boolean shouldPublishDisposableAware() {
+    return (params.PUBLISH_DISPOSABLE_TAGS == true) || !isDisposableTagBuild()
+}
+
+boolean isTagBuild() {
+    return getEffectiveTagName() != ''
+}
+
+boolean shouldRunBuild() {
+    return isTagBuild() || params.RUN_BUILD == 'true'
+}
+
+// On any tag build, always build all architectures regardless of BUILD_ARCHS param.
+// Disposable tags: all arches built, NGC push skipped (no partial publish).
+// Real SemVer tags: all arches built and pushed to NGC.
+String effectiveBuildArchs() {
+    return isTagBuild() ? 'all' : params.BUILD_ARCHS
+}
+
+boolean shouldRunUnitTests() {
+    return isTagBuild() || params.RUN_UNIT_TESTS == 'true'
+}
+
+boolean shouldUseComposeImageOnly() {
+    return params.INTEGRATION_USE_COMPOSE_IMAGE == 'true' && !isTagBuild()
+}
+
+// Returns true when TEST_IMAGE_TAG is provided, enabling standalone test mode.
+// In standalone mode, all build stages are skipped and tests run against the provided image tag.
+boolean isStandaloneTestMode() {
+    return params.TEST_IMAGE_TAG != null && params.TEST_IMAGE_TAG.toString().trim() != ''
+}
+
+boolean shouldRunLvsPipeline() {
+    return env.LVS_PIPELINE_ACTIVE != 'false'
+}
+
+// ============================================================================
+// Declarative Pipeline
+// ============================================================================
+
+pipeline {
+    agent none
+    options {
+        // Keep only the last 30 builds
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds(abortPrevious: true)
+    }
+
+    environment {
+        VERSION_SUFFIX = "${BUILD_TYPE}${env.BUILD_NUMBER}"
+        LVS_PIPELINE_ACTIVE = 'true'
+        NVOC_SSH_PRIVATE_KEY_FILE_NAME = 'nvoc_rsa'
+        NVOC_SSH_PUBLIC_KEY_FILE_NAME = 'nvoc_rsa.pub'
+        ARCH = 'amd64'
+    }
+
+    parameters {
+        // ── Mode ────────────────────────────────────────────────────────────
+        string(name: 'TEST_IMAGE_TAG', defaultValue: '',
+               description: 'When non-empty, skip all build stages and run standalone tests against this ' +
+                            'registry image tag and its ARM64-SBSA sibling. RUN_BUILD is ignored when this is set. ' +
+                            'Example: nvcr.io/nv-metropolis-dev/vss-summarization/vss-video-summarization:v1.2.3-abc1234-amd64')
+        string(name: 'STANDALONE_SBSA_NODE_LABEL', defaultValue: 'DGX-SPARK',
+               description: 'Lockable Jenkins node label used for ARM64-SBSA standalone image tests when TEST_IMAGE_TAG is set.')
+        choice(name: 'RUN_BUILD', choices: ['true', 'false'], description: 'Build and push Docker images to NGC. Tag builds build regardless of this parameter.')
+        choice(name: 'BUILD_ARCHS', choices: ['amd64', 'all', 'arm64-sbsa', 'arm64-igpu'], description: 'Which architectures to build (all = amd64 + arm64-sbsa + arm64-igpu)')
+
+        // ── Test Controls ───────────────────────────────────────────────────
+        choice(name: 'RUN_UNIT_TESTS', choices: ['true', 'false'], description: 'Run unit tests. Tag builds run unit tests regardless of this parameter.')
+        choice(name: 'RUN_FUNCTIONAL_TESTS', choices: ['true', 'false'], description: 'Run functional tests (API endpoint tests against a running VIA service, amd64 only). Tag builds run functional tests regardless of this parameter.')
+        choice(name: 'RUN_INTEGRATION_TESTS', choices: ['true', 'false'], description: 'Run integration tests (Docker Compose + API tests on built image, amd64 only). Tag builds run integration tests regardless of this parameter.')
+        choice(name: 'INTEGRATION_USE_COMPOSE_IMAGE', choices: ['false', 'true'], description: 'When true: use LVS image from docker-compose.yml as-is (no replace with built image). Ignored on tag builds so release tags test the built image.')
+        choice(name: 'FUNCTIONAL_TESTS_DEBUG', choices: ['false', 'true'], description: 'When true: capture LVS container logs before/during/after functional tests and archive for debugging')
+        choice(name: 'INTEGRATION_DEBUG', choices: ['false', 'true'], description: 'When true: capture LVS container logs before/during/after API tests and archive for debugging connection or service issues')
+        choice(name: 'RUN_KAFKA_E2E', choices: ['false', 'true'], description: 'Run the streaming RTVI -> Kafka -> Logstash -> ES end-to-end test suite (test_kafka_logstash_e2e.py). Requires RUN_INTEGRATION_TESTS=true; tears down and rebuilds the compose stack with rtvi+kafka profiles. Off by default to keep integration stage runtime predictable.')
+        string(name: 'UNIT_TEST_TIMEOUT_MINUTES', defaultValue: '15', description: 'Unit test stage timeout in minutes (includes pytest run + coverage reporting)')
+        string(name: 'DEPLOYMENT_TIMEOUT_MINUTES', defaultValue: '20', description: 'Docker Compose deployment timeout in minutes for bare-metal/perf workflow')
+        string(name: 'SKIP_ES_SHARD_LIMIT', defaultValue: 'false', description: 'Emergency escape hatch: set to true to skip the ES shard limit regression test. Runs by default on every amd64 pipeline.')
+        // ── Code Quality ────────────────────────────────────────────────────
+        choice(name: 'RUN_LINT', choices: ['true', 'false'], description: 'Run Python linting with flake8')
+        choice(name: 'RUN_SONARQUBE', choices: ['true', 'false'], description: 'Run SonarQube SAST analysis')
+        choice(name: 'RUN_SECURITY_SCAN', choices: ['false', 'true'], description: 'Run security/secret scanning on images')
+
+        // ── Build Options ───────────────────────────────────────────────────
+        booleanParam(name: 'FORCE_REBUILD', defaultValue: false,
+                     description: 'When true: disable LVS image reuse and always build base + LVS image (same as release build). ' +
+                                  'Use for manual runs when you want a fresh image from this commit. Post-merge (merge commit) builds skip reuse automatically.')
+        choice(name: 'USE_NGC_CACHE', choices: ['true', 'false'], description: 'Use NGC registry layer cache to speed up builds')
+        booleanParam(name: 'PUBLISH_DISPOSABLE_TAGS', defaultValue: false,
+                     description: 'When false (default), skip NGC publish/merge/security-scan for non-SemVer tags (e.g., ci-test tags).')
+        booleanParam(name: 'USE_VERSION_FILE_TAG', defaultValue: false,
+                     description: '[LAST RESORT] Use the version tag from the VERSION file instead of requiring an exact git tag on HEAD. ' +
+                                  'Prefer force-retagging the intended commit so git history accurately reflects what was built. ' +
+                                  'Only use this when retagging is not feasible (e.g. transient CI failure with commits pushed on top of the ' +
+                                  'tagged commit that cannot be reverted).')
+
+        // ── Infrastructure / Advanced ───────────────────────────────────────
+        string(name: 'GPU_TESTER_GPU_TYPE', defaultValue: '', description: 'Optional: GPU type for amd64 build/integration pod (e.g., A100_PCIE_40GB, H100). Leave empty for any available GPU.')
+        string(name: 'DASHBOARD_API_URL', defaultValue: 'http://10.111.53.164:8000',
+               description: 'Dev Dashboard API URL for pushing unit/integration test results after each run.')
+        booleanParam(name: 'PUSH_TEST_RESULTS_EOS', defaultValue: false,
+                     description: '[EOS] Push test results to NGC and Dev Dashboard. ' +
+                                  'Tag builds upload automatically once test CSVs are produced; check manually to force upload on any non-tag branch.')
+        choice(name: 'RUN_NODE_TEST', choices: ['false', 'true'], description: 'Run bare metal GPU node test after builds')
+        choice(name: 'BM_NODE_LABEL', choices: ['H100', 'RTX6000PROBW', 'RTX6000PROBW-SE', 'RTX-A6000'], description: 'Bare metal node label for GPU testing (H100, RTX6000PROBW, RTX6000PROBW-SE)')
+        string(name: 'PERF_DOWNSTREAM_JOB_NAME', defaultValue: 'lvs-performance-testing',
+               description: 'Jenkins job name that runs Jenkinsfile.perf. Triggered on release when image was pushed. Empty = do not trigger.')
+        choice(name: 'EXAMPLES_TO_BUILD', choices: ['BM-Docker'], description: 'Select which example to run')
+        choice(name: 'BASE_IMAGE', choices: ['ubuntu-22-04', 'ubuntu-24-04'], description: 'Name of the base image')
+    }
+
+    stages {
+        // ====================================================================
+        // Monorepo gate: skip the pipeline when this commit only touches paths
+        // outside services/video-summarization (tag builds and standalone test
+        // mode always run).
+        // ====================================================================
+        stage('check-lvs-changes') {
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'lvs-change-check'
+                    defaultContainer 'ubuntu-22-04'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/basics-pod.yaml"
+                }
+            }
+            steps {
+                gitlabCommitStatus(name: 'check-lvs-changes', connection: gitLabConnection('gitlab-vss-lvs')) {
+                    script {
+                        helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                        helpers.gitCheckout()
+                        helpers.evaluateLvsPipelineActive(
+                            forceActive: isTagBuild() || isStandaloneTestMode()
+                        )
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // Basics: Checkout, Linting, and Security Scanning
+        // These stages must pass before proceeding to image builds
+        // ====================================================================
+        stage('basics') {
+            when {
+                beforeAgent true
+                expression { shouldRunLvsPipeline() }
+            }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'basics'
+                    defaultContainer 'ubuntu-22-04'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/basics-pod.yaml"
+                }
+            }
+            stages {
+                stage('checkout-source-for-basics') {
+                    steps {
+                        gitlabCommitStatus(name: 'checkout-source-for-basics', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                // Load helpers once for this agent - reused in subsequent stages
+                                helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                                helpers.gitCheckout()
+                            }
+                        }
+                    }
+                }
+
+                stage('get-vault-credentials') {
+                    steps {
+                        gitlabCommitStatus(name: 'get-vault-credentials', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                helpers.fetchCredsFromVault()
+                                // Export credentials so parallel build stages can access them
+                                env.NGC_API_KEY_FOR_BUILDS = env.NGC_API_KEY
+                                env.HF_TOKEN_FOR_BUILDS = env.HF_TOKEN
+                                env.OPENAI_API_KEY_FOR_BUILDS = env.OPENAI_API_KEY
+                                env.NVIDIA_API_KEY_FOR_BUILDS = env.NVIDIA_API_KEY
+                                echo "Vault credentials fetched and exported for parallel builds"
+                            }
+                        }
+                    }
+                }
+
+                stage('lint') {
+                    when {
+                        allOf {
+                            expression { params.RUN_LINT == 'true' }
+                            expression { !isStandaloneTestMode() }
+                        }
+                    }
+                    steps {
+                        gitlabCommitStatus(name: 'lint', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            container('flake8') {
+                                echo "Starting Python linting with flake8..."
+                                sh 'pip install flake8==7.1.1 flake8-black==0.3.6 flake8-isort==6.1.1 black==25.1.0'
+                                echo "Running flake8 checks..."
+                                dir(LVS_ROOT) {
+                                    sh 'flake8'
+                                }
+                                echo "Linting completed successfully!"
+                            }
+                        }
+                    }
+                }
+
+                stage('security-scan') {
+                    when {
+                        allOf {
+                            expression { params.RUN_SECURITY_SCAN == 'true' }
+                            expression { !isStandaloneTestMode() }
+                        }
+                    }
+                    steps {
+                        gitlabCommitStatus(name: 'security-scan', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                echo "Security scan placeholder - need to use NGC Pulse scanner"
+                                // TODO: Implement NGC Pulse scanner for secret detection
+                            }
+                        }
+                    }
+                }
+
+                stage('resolve-test-image-tag') {
+                    steps {
+                        script {
+                            if (isStandaloneTestMode()) {
+                                env.RESOLVED_TEST_IMAGE_TAG = helpers.resolveImageTagForArch(params.TEST_IMAGE_TAG.trim(), 'amd64')
+                                env.RESOLVED_SBSA_TEST_IMAGE_TAG = helpers.resolveImageTagForArch(params.TEST_IMAGE_TAG.trim(), 'arm64-sbsa')
+                                echo "Standalone test mode: will test amd64 image ${env.RESOLVED_TEST_IMAGE_TAG} (build skipped)"
+                                echo "Standalone test mode: will test ARM64-SBSA image ${env.RESOLVED_SBSA_TEST_IMAGE_TAG} (build skipped)"
+                            } else {
+                                env.RESOLVED_TEST_IMAGE_TAG = helpers.getImageTag('amd64')
+                                echo "Build mode: will test image ${env.RESOLVED_TEST_IMAGE_TAG} after build completes"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // Build & Push: Multi-Architecture Image Builds
+        // These stages build and push images to NGC only after Basics pass
+        // ====================================================================
+        stage('build-multi-arch-images') {
+            when {
+                beforeAgent true
+                allOf {
+                    expression { shouldRunLvsPipeline() }
+                    expression { shouldRunBuild() }
+                    expression { !isStandaloneTestMode() }
+                }
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'ARCH'
+                        values 'amd64', 'arm64-sbsa', 'arm64-igpu'
+                    }
+                }
+                when {
+                    beforeAgent true
+                    anyOf {
+                        expression { effectiveBuildArchs() == 'all' }
+                        expression { effectiveBuildArchs() == ARCH }
+                    }
+                }
+                agent {
+                    kubernetes {
+                        cloud "${K8S_CLOUD}"
+                        defaultContainer 'docker'
+                        yamlFile "${LVS_ROOT}/ci/pod-templates/docker-build-${ARCH.split('-')[0]}-pod.yaml"
+                    }
+                }
+                stages {
+                    stage('build-matrix-stages') {
+                        steps {
+                            script {
+                                def canReuseBaseForArch = false
+                                def canReuseLvsForArch = false
+                                def reusableLvsImageForArch = null
+                                def baseImageForArch = params.BASE_IMAGE ?: 'N/A'
+                                def lvsImageReusedForArch = false
+                                def gpuTypeForArch = 'N/A'
+                                def gpuDriverVersionForArch = 'N/A'
+
+                                stage("checkout-source-for-build-${ARCH}") {
+                                    echo "=========================================="
+                                    echo "ARCHITECTURE: ${ARCH}"
+                                    echo "STAGE: checkout-source-for-build"
+                                    echo "=========================================="
+                                    gitlabCommitStatus(name: "checkout-source-for-build-${ARCH}", connection: gitLabConnection('gitlab-vss-lvs')) {
+                                        helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                                        helpers.gitCheckout()
+                                    }
+                                }
+
+                                stage("wait-for-dockerd-${ARCH}") {
+                                    helpers.echoStageBanner(ARCH, 'wait-for-dockerd')
+                                    gitlabCommitStatus(name: "wait-for-dockerd-${ARCH}", connection: gitLabConnection('gitlab-vss-lvs')) {
+                                        def gpuInfo = helpers.runWaitForDockerd(ARCH)
+                                        gpuTypeForArch = gpuInfo?.gpuType ?: 'N/A'
+                                        gpuDriverVersionForArch = gpuInfo?.gpuDriverVersion ?: 'N/A'
+                                    }
+                                }
+
+                                if (!shouldUseComposeImageOnly()) {
+                                    // Collect both booleans; then we branch on the 4 cases for readability and maintenance.
+                                    // (canReuseBase, canReuseLvs) -> (true,true)=reuse LVS only; (true,false)=pull base, build LVS; (false,true)=build base, build LVS; (false,false)=build both.
+                                    stage("check-reuse-${ARCH}") {
+                                        helpers.echoStageBanner(ARCH, 'check-reuse')
+                                        gitlabCommitStatus(name: "check-reuse-${ARCH}", connection: gitLabConnection('gitlab-vss-lvs')) {
+                                            wrap([$class: 'MaskPasswordsBuildWrapper', varPasswordPairs: [
+                                                [var: 'NGC_API_KEY_FOR_BUILDS', password: env.NGC_API_KEY_FOR_BUILDS]
+                                            ]]) {
+                                                def isRelease = isTagBuild()
+                                                def forceRebuild = (params.FORCE_REBUILD == true)
+                                                def isMergeCommit = helpers.isMergeCommit()
+                                                def skipReuse = isRelease || forceRebuild || isMergeCommit
+                                                canReuseBaseForArch = skipReuse ? false : helpers.checkBaseImageExists(ARCH, env.NGC_API_KEY_FOR_BUILDS)
+                                                reusableLvsImageForArch = skipReuse ? null : helpers.findReusableLvsImage(ARCH, env.NGC_API_KEY_FOR_BUILDS)
+                                                canReuseLvsForArch = reusableLvsImageForArch != null
+                                                if (skipReuse) {
+                                                    echo "Skipping reuse: " + (isRelease ? "release build (TAG_NAME set)" : (forceRebuild ? "FORCE_REBUILD=true" : "merge commit (post-MR)")) + " -> will build with current commit"
+                                                }
+                                                echo "canReuseBase=${canReuseBaseForArch}, canReuseLvs=${canReuseLvsForArch} -> " + (canReuseBaseForArch && canReuseLvsForArch ? "reuse LVS (skip base)" : "need base and/or build LVS")
+                                            }
+                                        }
+                                    }
+
+                                    // Base stage: run when we will build LVS, i.e. when !(canReuseBase && canReuseLvs).
+                                    if (!canReuseBaseForArch || !canReuseLvsForArch) {
+                                        stage("build-base-image-${ARCH}") {
+                                            helpers.echoStageBanner(ARCH, 'build-base-image')
+                                            gitlabCommitStatus(name: "build-base-image-${ARCH}", connection: gitLabConnection('gitlab-vss-lvs')) {
+                                                wrap([$class: 'MaskPasswordsBuildWrapper', varPasswordPairs: [
+                                                    [var: 'NGC_API_KEY_FOR_BUILDS', password: env.NGC_API_KEY_FOR_BUILDS]
+                                                ]]) {
+                                                    docker.withRegistry('https://gitlab-master.nvidia.com:5005', 'cicd-cloudbee-vss-lvs-docker-build-pat') {
+                                                        baseImageForArch = helpers.runBaseImageBuild(ARCH, env.NGC_API_KEY_FOR_BUILDS)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        baseImageForArch = 'N/A (skipped - reuse LVS path)'
+                                    }
+
+                                    // LVS stage: reuse path calls runLvsImageReuse(); build path calls runBaseImageBuild() then runLvsImageBuild() (see four-case matrix in pipeline-helpers).
+                                    stage("build-lvs-image-${ARCH}") {
+                                        helpers.echoStageBanner(ARCH, 'build-lvs-image')
+                                        gitlabCommitStatus(name: "build-lvs-image-${ARCH}", connection: gitLabConnection('gitlab-vss-lvs')) {
+                                            wrap([$class: 'MaskPasswordsBuildWrapper', varPasswordPairs: [
+                                                [var: 'NGC_API_KEY_FOR_BUILDS', password: env.NGC_API_KEY_FOR_BUILDS]
+                                            ]]) {
+                                                if (canReuseBaseForArch && canReuseLvsForArch) {
+                                                    helpers.runLvsImageReuse(ARCH, reusableLvsImageForArch, env.NGC_API_KEY_FOR_BUILDS)
+                                                    lvsImageReusedForArch = true
+                                                } else {
+                                                    lvsImageReusedForArch = false
+                                                    helpers.runLvsImageBuild(ARCH, baseImageForArch, env.NGC_API_KEY_FOR_BUILDS)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                helpers.runTestStages(ARCH, helpers.getImageTag(ARCH), [
+                                    openaiApiKey: env.OPENAI_API_KEY_FOR_BUILDS,
+                                    ngcApiKey: env.NGC_API_KEY_FOR_BUILDS,
+                                    nvidiaApiKey: env.NVIDIA_API_KEY_FOR_BUILDS,
+                                    hfToken: env.HF_TOKEN_FOR_BUILDS,
+                                ])
+
+                                if (!shouldUseComposeImageOnly()) {
+                                    if (shouldPublishDisposableAware()) {
+                                        stage("push-image-${ARCH}") {
+                                            gitlabCommitStatus(name: "push-image-${ARCH}", connection: gitLabConnection('gitlab-vss-lvs')) {
+                                                helpers.runPushImage(ARCH, env.NGC_API_KEY_FOR_BUILDS, lvsImageReusedForArch)
+                                            }
+                                        }
+                                    } else {
+                                        echo "Skipping push-image-${ARCH}: disposable non-SemVer tag detected (${getEffectiveTagName()}) and PUBLISH_DISPOSABLE_TAGS=false"
+                                    }
+                                }
+
+                                stage("archive-build-metadata-${ARCH}") {
+                                    helpers.echoStageBanner(ARCH, 'archive-build-metadata')
+                                    gitlabCommitStatus(name: "archive-build-metadata-${ARCH}", connection: gitLabConnection('gitlab-vss-lvs')) {
+                                        helpers.writeAndArchiveBuildMetadata(ARCH, baseImageForArch, gpuTypeForArch, gpuDriverVersionForArch)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // Tests: Standalone mode — run tests against a provided registry image tag.
+        // In normal build mode, tests run inside build-multi-arch-images on the local image.
+        // ====================================================================
+        stage('standalone-image-tests') {
+            when {
+                beforeAgent true
+                expression { isStandaloneTestMode() }
+            }
+            parallel {
+                stage('standalone-amd64-image-tests') {
+                    when {
+                        beforeAgent true
+                        expression { shouldRunUnitTests() }
+                    }
+                    agent {
+                        kubernetes {
+                            cloud "${K8S_CLOUD}"
+                            defaultContainer 'docker'
+                            yamlFile "${LVS_ROOT}/ci/pod-templates/docker-build-amd64-pod.yaml"
+                        }
+                    }
+                    steps {
+                        script {
+                            helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                            helpers.runStandaloneAmd64ImageTests([
+                                imageTag: env.RESOLVED_TEST_IMAGE_TAG,
+                                imageName: IMAGE_NAME,
+                                dashboardApiUrl: params.DASHBOARD_API_URL,
+                                unitTimeoutMinutes: params.UNIT_TEST_TIMEOUT_MINUTES,
+                            ])
+                        }
+                    }
+                }
+                stage('standalone-arm64-sbsa-image-tests') {
+                    when {
+                        beforeAgent true
+                        expression { shouldRunUnitTests() }
+                    }
+                    agent {
+                        kubernetes {
+                            cloud "${K8S_CLOUD}"
+                            label 'standalone-sbsa-orchestrator'
+                            defaultContainer 'ubuntu-22-04'
+                            yamlFile "${LVS_ROOT}/ci/pod-templates/bare-metal-test-pod.yaml"
+                        }
+                    }
+                    steps {
+                        script {
+                            helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                            helpers.runStandaloneSbsaImageTests([
+                                imageTag: env.RESOLVED_SBSA_TEST_IMAGE_TAG,
+                                imageName: IMAGE_NAME,
+                                nodeLabel: params.STANDALONE_SBSA_NODE_LABEL,
+                                dashboardApiUrl: params.DASHBOARD_API_URL,
+                                unitTimeoutMinutes: params.UNIT_TEST_TIMEOUT_MINUTES,
+                            ])
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // SonarQube Analysis with Coverage
+        // Runs after unit tests complete to include coverage reports
+        // ====================================================================
+        stage('sonarqube-with-coverage') {
+            when {
+                beforeAgent true
+                allOf {
+                    expression { shouldRunLvsPipeline() }
+                    expression { params.RUN_SONARQUBE == 'true' }
+                    expression { shouldRunUnitTests() }
+                    expression { !isStandaloneTestMode() }
+                }
+            }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'sonarqube-scanner'
+                    defaultContainer 'ubuntu-22-04'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/basics-pod.yaml"
+                }
+            }
+            stages {
+                stage('checkout-source-for-sonarqube') {
+                    steps {
+                        gitlabCommitStatus(name: 'checkout-source-for-sonarqube', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                // First checkout the code so helpers file becomes available
+                                checkout scm
+                                // Then load helpers for subsequent use
+                                helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                            }
+                        }
+                    }
+                }
+
+                stage('run-sonarqube-analysis') {
+                    steps {
+                        gitlabCommitStatus(name: 'sonarqube-analysis-with-coverage', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            container('ubuntu-22-04') {
+                                script {
+                                    def sonarParams = []
+                                    echo "Starting SonarQube SAST analysis with coverage..."
+
+                                    // Retrieve coverage report from unit tests stage using stash/unstash
+                                    try {
+                                        unstash COVERAGE_STASH_NAME
+                                        if (fileExists("${LVS_ROOT}/coverage_reports/coverage.xml")) {
+                                            sonarParams.add("-Dsonar.python.coverage.reportPaths=${LVS_ROOT}/coverage_reports/coverage.xml")
+                                            echo "✓ Coverage file verified: ${LVS_ROOT}/coverage_reports/coverage.xml (will be included in analysis)"
+                                        } else {
+                                            echo "⚠ Warning: Unstash succeeded but coverage file not found"
+                                            echo "⚠ Running SonarQube analysis without coverage data"
+                                        }
+                                    } catch (Exception e) {
+                                        echo "⚠ Could not retrieve coverage report: ${e.message}"
+                                        echo "⚠ Running SonarQube analysis without coverage data"
+                                    }
+
+                                    // Install Java (required by SonarQube Scanner)
+                                    echo "Installing Java Runtime Environment..."
+                                    sh '''
+                                        apt-get update -qq
+                                        apt-get install -y -qq default-jre > /dev/null 2>&1
+                                        java -version
+                                    '''
+
+                                    // Run SonarQube analysis
+                                    def scannerHome = tool 'LVS_Sonar'
+                                    def branchName = env.BRANCH_NAME ?: 'unknown'
+                                    echo "Analyzing branch: ${branchName}"
+                                    echo "Scanner location: ${scannerHome}"
+
+                                    def scannerArgs = sonarParams.join(' ')
+                                    withSonarQubeEnv() {
+                                        dir(LVS_ROOT) {
+                                            sh "${scannerHome}/bin/sonar-scanner -Dsonar.branch.name=${branchName} ${scannerArgs}"
+                                        }
+                                    }
+
+                                    echo "✓ SonarQube analysis completed successfully!"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // Merge Multi-Arch Manifests Stage
+        // Creates multi-arch manifest from pushed images in registry.
+        // Skipped when no image was pushed (e.g. all arches took LVS reuse path).
+        // ====================================================================
+        stage('merge-multi-arch-manifests') {
+            when {
+                beforeAgent true
+                allOf {
+                    expression { shouldRunLvsPipeline() }
+                    expression { shouldRunBuild() }
+                    expression { !shouldUseComposeImageOnly() }
+                    expression { shouldPublishDisposableAware() }
+                    expression { env.ANY_LVS_IMAGE_PUSHED == 'true' }
+                }
+            }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'manifest-merger'
+                    defaultContainer 'docker'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/manifest-merger-pod.yaml"
+                }
+            }
+            stages {
+                stage('checkout-source-for-merge') {
+                    steps {
+                        gitlabCommitStatus(name: 'checkout-source-for-merge', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                // Load helpers once for manifest-merger agent - reused in subsequent stages
+                                helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                                helpers.gitCheckout()
+
+                                // Compute image version from git (tag or commit SHA)
+                                env.IMAGE_VERSION = helpers.computeImageVersion()
+                                echo "IMAGE_VERSION set to: ${env.IMAGE_VERSION}"
+                            }
+                        }
+                    }
+                }
+
+                stage('get-vault-credentials-merge') {
+                    steps {
+                        script {
+                            helpers.fetchCredsFromVault()
+                        }
+                    }
+                }
+
+                stage('wait-for-dockerd-merge') {
+                    steps {
+                        container('docker') {
+                            gitlabCommitStatus(name: 'wait-for-dockerd-merge', connection: gitLabConnection('gitlab-vss-lvs')) {
+                                script {
+                                    helpers.waitForDockerd()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                    stage('verify-images') {
+                        steps {
+                            container('docker') {
+                                gitlabCommitStatus(name: 'verify-images', connection: gitLabConnection('gitlab-vss-lvs')) {
+                                    script {
+                                        helpers.verifyArchImages(effectiveBuildArchs(), env.NGC_API_KEY)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    stage('merge-images') {
+                        when {
+                            expression { effectiveBuildArchs() == 'all' }
+                        }
+                        steps {
+                            container('docker') {
+                                gitlabCommitStatus(name: 'merge-images', connection: gitLabConnection('gitlab-vss-lvs')) {
+                                    script {
+                                        helpers.mergeArchImages(env.IMAGE_VERSION, env.VERSION_SUFFIX, env.NGC_API_KEY)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    stage('print-images') {
+                        steps {
+                            container('docker') {
+                                gitlabCommitStatus(name: 'print-images', connection: gitLabConnection('gitlab-vss-lvs')) {
+                                    script {
+                                        helpers.printBuiltImages(effectiveBuildArchs(), env.IMAGE_VERSION, env.VERSION_SUFFIX)
+                                    }
+                                }
+                            }
+                        }
+                    }
+            }
+        }
+
+        // ====================================================================
+        // Security Scan Stage
+        // Runs NGC Pulse security scans on the built images
+        // ====================================================================
+        stage('security-scan') {
+            when {
+                beforeAgent true
+                allOf {
+                    expression { shouldRunLvsPipeline() }
+                    expression { params.RUN_SECURITY_SCAN == 'true' }
+                    expression { shouldRunBuild() }
+                    expression { !shouldUseComposeImageOnly() }
+                    expression { !isStandaloneTestMode() }
+                    expression { shouldPublishDisposableAware() }
+                }
+            }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'security-scanner'
+                    defaultContainer 'docker'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/security-scan-pod.yaml"
+                }
+            }
+            stages {
+                stage('get-credentials-security') {
+                    steps {
+                        gitlabCommitStatus(name: 'security-credentials', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            checkout scm
+                            script {
+                                // Load helpers once for security-scanner agent - reused in subsequent stages
+                                helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                                helpers.fetchCredsFromVault()
+                                helpers.fetchSSACredsFromVault()
+                            }
+                        }
+                    }
+                }
+
+                stage('wait-dockerd-security') {
+                    steps {
+                        container('docker') {
+                            gitlabCommitStatus(name: 'security-dockerd', connection: gitLabConnection('gitlab-vss-lvs')) {
+                                script {
+                                    helpers.waitForDockerd()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stage('scan-images') {
+                    steps {
+                        gitlabCommitStatus(name: 'scan-images', connection: gitLabConnection('gitlab-vss-lvs')) {
+                            script {
+                                helpers.runSecurityScansForAllArchs(effectiveBuildArchs(), IMAGE_NAME, NSPECT_ID)
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    sh 'rm -f image-amd64.tar image-arm64-sbsa.tar image-arm64-igpu.tar || true'
+                }
+            }
+        }
+
+        // ====================================================================
+        // Trigger Perf Pipeline (release builds only)
+        // When TAG_NAME set and image was pushed; tag from getImageTag('amd64') in helper.
+        // ====================================================================
+        stage('trigger-perf-on-release') {
+            when {
+                beforeAgent true
+                expression {
+                    def hasPerfJob = (params.PERF_DOWNSTREAM_JOB_NAME != null && params.PERF_DOWNSTREAM_JOB_NAME.toString().trim() != '')
+                    def hasTag = isTagBuild()
+                    def imageWasPushed = (env.ANY_LVS_IMAGE_PUSHED == 'true')
+                    return hasTag && hasPerfJob && imageWasPushed
+                }
+            }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    label 'perf-trigger'
+                    defaultContainer 'ubuntu-22-04'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/basics-pod.yaml"
+                }
+            }
+            steps {
+                script {
+                    helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                    helpers.triggerPerfPipeline([jobName: params.PERF_DOWNSTREAM_JOB_NAME])
+                }
+            }
+        }
+
+        // // ====================================================================
+        // // Node Bare Metal Test Stage
+        // // Validates GPU infrastructure on bare metal hardware after publishing
+        // // ====================================================================
+        // stage('bare-metal-test') {
+        //     when {
+        //         beforeAgent true
+        //         allOf {
+        //             expression { params.RUN_NODE_TEST == 'true' }
+        //             expression { params.INTEGRATION_USE_COMPOSE_IMAGE != 'true' }
+        //         }
+        //     }
+        //     agent {
+        //         kubernetes {
+        //             cloud "${K8S_CLOUD}"
+        //             label 'node-test'
+        //             defaultContainer 'ubuntu-22-04'
+        //             yamlFile 'ci/pod-templates/bare-metal-test-pod.yaml'
+        //         }
+        //     }
+        //     stages {
+        //         stage('checkout-source-for-bare-metal-test') {
+        //             steps {
+        //                 gitlabCommitStatus(name: 'checkout-source-for-bare-metal-test', connection: gitLabConnection('gitlab-vss-lvs')) {
+        //                     script {
+        //                         // Load helpers once for node-test agent - reused in subsequent stages
+        //                         helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+        //                         helpers.gitCheckout()
+        //                     }
+        //                 }
+        //             }
+        //         }
+
+        //         stage('get-vault-credentials-bare-metal') {
+        //             steps {
+        //                 container('jenkins-shared-lib-base') {
+        //                     script {
+        //                         helpers.fetchCredsFromVault()
+
+        //                         // Write SSH keys to files following the shared_nodepool.groovy pattern
+        //                         sh """
+        //                         #!/bin/bash
+        //                         touch '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}'
+        //                         touch '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+        //                         chmod 666 '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}'
+        //                         chmod 666 '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+        //                         echo "\${SSH_PRIVATE_KEY}" > '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}'
+        //                         echo "\${SSH_PUBLIC_KEY}" > '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+        //                         chmod 600 '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}'
+        //                         chmod 600 '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}'
+        //                         echo "SSH keys written to workspace: ${WORKSPACE}"
+        //                         """
+
+        //                         // Set environment variables with full paths for use in subsequent stages
+        //                         env.NVOC_SSH_PRIVATE_KEY_FILE = "${WORKSPACE}/${NVOC_SSH_PRIVATE_KEY_FILE_NAME}"
+        //                         env.NVOC_SSH_PUBLIC_KEY_FILE = "${WORKSPACE}/${NVOC_SSH_PUBLIC_KEY_FILE_NAME}"
+        //                         echo "Set NVOC_SSH_PRIVATE_KEY_FILE=${env.NVOC_SSH_PRIVATE_KEY_FILE}"
+        //                         echo "Set NVOC_SSH_PUBLIC_KEY_FILE=${env.NVOC_SSH_PUBLIC_KEY_FILE}"
+        //                     }
+        //                 }
+        //             }
+        //         }
+
+        //         // Install prerequisites (make, git, jq, rsync, terraform/tofu, python3, etc.) before reserving
+        //         // the bare metal node. This ensures the Jenkins agent container has all required tools needed by
+        //         // envbuild.sh and subsequent infrastructure installation steps.
+        //         // Runs in the default container (ubuntu-22-04) as specified in the pod definition.
+        //         stage('install-prerequisites-bare-metal') {
+        //             steps {
+        //                 gitlabCommitStatus(name: 'install-prerequisites-bare-metal', connection: gitLabConnection('gitlab-vss-lvs')) {
+        //                     script {
+        //                         echo "Installing prerequisites..."
+        //                         sh """
+        //                         apt-get update
+        //                         apt-get install --no-install-recommends -y wget curl
+        //                         cd nv-one-click
+        //                         chmod u+x helper-scripts/install-pre-requisites.sh
+        //                         helper-scripts/install-pre-requisites.sh -y
+        //                         pip3 install PyYAML argparse
+        //                         """
+        //                     }
+        //                 }
+        //             }
+        //         }
+
+        //         // Reserve a lockable bare metal node and set up SSH access by copying the CI SSH public key
+        //         // to the node's authorized_keys. Returns a map with nodeName, nodeHost, and nodeUser.
+        //         stage('reserve-bare-metal-node') {
+        //             steps {
+        //                 gitlabCommitStatus(name: 'reserve-bare-metal-node', connection: gitLabConnection('gitlab-vss-lvs')) {
+        //                     script {
+        //                         if (env.SSH_PUBLIC_KEY == null || env.SSH_PUBLIC_KEY.trim().isEmpty()) {
+        //                             error("SSH_PUBLIC_KEY environment variable is not set")
+        //                         }
+        //                         // Trim leading/trailing whitespace but preserve internal structure
+        //                         def sshKey = env.SSH_PUBLIC_KEY.trim()
+        //                         echo "DEBUG: SSH public key length: ${sshKey.length()}"
+        //                         echo "DEBUG: SSH public key starts with: ${sshKey.take(50)}"
+        //                         echo "DEBUG: SSH public key ends with: ${sshKey.substring(Math.max(0, sshKey.length() - 50))}"
+        //                         echo "DEBUG: Regex test: ${sshKey.matches(/^(ssh-(rsa|dss|ed25519)|ecdsa-sha2-|sk-ecdsa-sha2-|sk-ssh-ed25519@openssh\\.com)/)}"
+        //                         echo "Requesting bare metal node with label: ${params.BM_NODE_LABEL}"
+        //                         def nodeInfo = helpers.getNodeIp("${params.BM_NODE_LABEL}", sshKey)
+        //                         echo "BM_SSH_HOST: ${nodeInfo.nodeHost}"
+        //                         echo "BM_SSH_USER: ${nodeInfo.nodeUser}"
+        //                         sh """
+        //                         cd nv-one-click
+        //                         make
+        //                         """
+        //                     }
+        //                 }
+        //             }
+        //         }
+
+        //         stage('Build_Examples') {
+        //             steps {
+        //                 script {
+        //                     helpers.runBuildExamplesStage(params.EXAMPLES_TO_BUILD, params.BASE_IMAGE, helpers)
+        //                 }
+        //             }
+        //         }
+        //     }
+        //     post {
+        //         always {
+        //             // Archive logs from nv-one-click
+        //             echo "Archiving nv-one-click logs..."
+        //             archiveArtifacts artifacts: 'nv-one-click/logs/*.log, nv-one-click/helper-scripts/logs/*.log', allowEmptyArchive: true, fingerprint: true
+
+        //             container('jenkins-shared-lib-base') {
+        //                 script {
+        //                     if (env.jen_node) {
+        //                         echo "Releasing bare metal node lock..."
+        //                         try {
+        //                             // Note: jenkins-shared-lib-base image should have curl and jq pre-installed
+        //                             releaseLock()
+        //                             echo "Bare metal node lock released"
+        //                         } catch (Exception e) {
+        //                             echo "Warning: Failed to release lock: ${e.getMessage()}"
+        //                         }
+        //                     }
+
+        //                     // Clean up SSH key files for security
+        //                     echo "Cleaning up SSH key files..."
+        //                     sh """
+        //                     rm -f '${NVOC_SSH_PRIVATE_KEY_FILE_NAME}' '${NVOC_SSH_PUBLIC_KEY_FILE_NAME}' || true
+        //                     """
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+    }
+
+    post {
+        always {
+            script {
+                echo "Pipeline completed with status: ${currentBuild.result ?: 'SUCCESS'}"
+            }
+        }
+        failure {
+            script {
+                echo "Pipeline failed! Check logs for details."
+            }
+        }
+        success {
+            script {
+                echo "Pipeline completed successfully!"
+            }
+        }
+    }
+}

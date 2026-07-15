@@ -1,0 +1,399 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/**
+ * Standalone OSS source-code bundle pipeline.
+ *
+ * This job accepts already-built VSS image tags, collects Python package inventories
+ * from the requested architectures, creates a zip containing source archives, and
+ * uploads that zip to the NGC resource under nv-metropolis-dev/vss-summarization.
+ *
+ * It intentionally does not build images, run tests, run scanners, or merge manifests.
+ */
+@Library(['jenkins-shared-library', 'vss-ds-ci-jenkins-shared-library', 'ci-automation']) _
+
+import groovy.transform.Field
+
+@Field String K8S_CLOUD = "blsm-prod-cloud"
+@Field String LVS_ROOT = "services/video-summarization"
+@Field String TARGET_ORG = "nv-metropolis-dev"
+@Field String TARGET_TEAM = "vss-summarization"
+@Field String DEFAULT_RESOURCE_NAME = "vss_summarization_oss_source_code"
+@Field String DEFAULT_ZIP_NAME = "vss_summarization_oss_source_code.zip"
+@Field String NGC_CLI_VERSION = "4.15.0"
+@Field String NGC_CLI_LINUX_SHA256 = "0fa460729154ffa17404cb7ea3acadd9b438d05f4711da32379fc524e9e93638"
+@Field def helpers
+
+List<String> selectedArchs() {
+    def raw = (params.ARCHS ?: 'amd64').toString().trim().toLowerCase()
+    if (!raw || raw == 'amd64') {
+        return ['amd64']
+    }
+    error "Only amd64 is currently supported for OSS source publishing. Received ARCHS=${raw}."
+}
+
+boolean archEnabled(String arch) {
+    return selectedArchs().contains(arch)
+}
+
+String imageForArch(String arch) {
+    if (arch == 'amd64') {
+        return (params.AMD64_IMAGE?.trim()) ?: params.MULTIARCH_IMAGE?.trim()
+    }
+    if (arch == 'arm64') {
+        return (params.ARM64_IMAGE?.trim()) ?: params.MULTIARCH_IMAGE?.trim()
+    }
+    if (arch == 'sbsa') {
+        return params.SBSA_IMAGE?.trim()
+    }
+    error "Unsupported architecture: ${arch}"
+}
+
+String platformForArch(String arch) {
+    return arch == 'amd64' ? 'linux/amd64' : 'linux/arm64'
+}
+
+String podYamlForArch(String arch) {
+    return arch == 'amd64' ? "${LVS_ROOT}/ci/pod-templates/docker-build-amd64-pod.yaml" : "${LVS_ROOT}/ci/pod-templates/docker-build-arm64-pod.yaml"
+}
+
+void validateInputs() {
+    def resourceName = params.RESOURCE_NAME?.trim() ?: DEFAULT_RESOURCE_NAME
+    if (!(resourceName ==~ /^[a-z][a-z0-9._-]*$/)) {
+        error "RESOURCE_NAME must match ^[a-z][a-z0-9._-]*\$"
+    }
+    def zipName = params.ZIP_NAME?.trim() ?: DEFAULT_ZIP_NAME
+    if (!(zipName ==~ /^[A-Za-z0-9._-]+\.zip$/)) {
+        error 'ZIP_NAME must be a simple .zip filename using letters, numbers, dots, underscores, or dashes.'
+    }
+    selectedArchs().each { arch ->
+        if (!imageForArch(arch)) {
+            if (arch == 'sbsa') {
+                error "SBSA_IMAGE is required when sbsa is selected."
+            }
+            error "${arch.toUpperCase()}_IMAGE or MULTIARCH_IMAGE is required when ${arch} is selected."
+        }
+    }
+}
+
+String resourceVersion() {
+    def explicit = params.RESOURCE_VERSION?.trim()
+    if (explicit) {
+        return explicit
+    }
+    def firstImage = selectedArchs()
+        .collect { imageForArch(it)?.trim() }
+        .find { it }
+    if (!firstImage || firstImage.contains('@sha256:') || !firstImage.contains(':')) {
+        error "RESOURCE_VERSION is required when the image tag cannot be inferred."
+    }
+    def tag = firstImage.substring(firstImage.lastIndexOf(':') + 1)
+    return tag.replaceAll(/-(amd64|arm64|arm64-sbsa|sbsa)$/, '')
+}
+
+void collectPackageInventory(String arch) {
+    def image = imageForArch(arch)
+    if (!image) {
+        error "No image was provided for ${arch}. Set ${arch.toUpperCase()}_IMAGE or MULTIARCH_IMAGE where applicable."
+    }
+
+    withEnv([
+        "SOURCE_ARCH=${arch}",
+        "SOURCE_PLATFORM=${platformForArch(arch)}",
+        "SOURCE_IMAGE=${image}",
+    ]) {
+        wrap([$class: 'MaskPasswordsBuildWrapper', varPasswordPairs: [
+            [var: 'NGC_API_KEY_FOR_SOURCE', password: env.NGC_API_KEY_FOR_SOURCE ?: '']
+        ]]) {
+            sh '''#!/bin/bash
+                set -euo pipefail
+                mkdir -p source-manifests
+                attempts=0
+                until docker info >/dev/null 2>&1; do
+                    attempts=$((attempts + 1))
+                    if [ "${attempts}" -ge 60 ]; then
+                        echo "Docker daemon did not become ready in time." >&2
+                        exit 1
+                    fi
+                    sleep 5
+                done
+                docker info >/dev/null
+                docker logout nvcr.io || true
+                echo "${NGC_API_KEY_FOR_SOURCE}" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+                docker pull --platform "${SOURCE_PLATFORM}" "${SOURCE_IMAGE}"
+                docker run --rm -i \
+                    --platform "${SOURCE_PLATFORM}" \
+                    -e SOURCE_ARCH \
+                    -e SOURCE_IMAGE \
+                    --entrypoint python3 \
+                    "${SOURCE_IMAGE}" - > "source-manifests/packages-${SOURCE_ARCH}.csv" <<'PY'
+import csv
+import importlib.metadata as metadata
+import os
+import sys
+
+rows = []
+seen = set()
+for dist in metadata.distributions():
+    name = (dist.metadata.get("Name") or "").strip()
+    version = (dist.version or "").strip()
+    if not name or not version:
+        continue
+    key = (name.lower().replace("_", "-"), version)
+    if key in seen:
+        continue
+    seen.add(key)
+    rows.append((os.environ["SOURCE_ARCH"], os.environ["SOURCE_IMAGE"], name, version))
+
+writer = csv.writer(sys.stdout)
+writer.writerow(["arch", "image", "name", "version"])
+writer.writerows(sorted(rows, key=lambda row: (row[2].lower(), row[3])))
+PY
+                test -s "source-manifests/packages-${SOURCE_ARCH}.csv"
+                wc -l "source-manifests/packages-${SOURCE_ARCH}.csv"
+            '''
+        }
+    }
+    archiveArtifacts artifacts: "source-manifests/packages-${arch}.csv", fingerprint: true
+    stash name: "oss-source-packages-${arch}", includes: "source-manifests/packages-${arch}.csv"
+}
+
+pipeline {
+    agent none
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds(abortPrevious: false)
+    }
+
+    parameters {
+        choice(name: 'ARCHS', choices: ['amd64'],
+               description: 'Architecture to process. Only amd64 is enabled for now.')
+        string(name: 'MULTIARCH_IMAGE', defaultValue: '',
+               description: 'Image tag to use for amd64 unless AMD64_IMAGE is supplied.')
+        string(name: 'AMD64_IMAGE', defaultValue: '',
+               description: 'Optional amd64-specific image. Defaults to MULTIARCH_IMAGE.')
+        string(name: 'RESOURCE_VERSION', defaultValue: '',
+               description: 'NGC resource version. If empty, inferred from the first image tag by removing an arch suffix.')
+        string(name: 'RESOURCE_NAME', defaultValue: 'vss_summarization_oss_source_code',
+               description: 'NGC resource name. Must be lowercase and match ^[a-z][a-z0-9._-]*$.')
+        string(name: 'ZIP_NAME', defaultValue: 'vss_summarization_oss_source_code.zip',
+               description: 'Generated source zip filename, for example vss_summarization_oss_source_code.zip.')
+        booleanParam(name: 'ALLOW_MISSING_SOURCES', defaultValue: false,
+                     description: 'When false, fail if any non-skipped Python package source cannot be resolved.')
+        booleanParam(name: 'OVERWRITE_RESOURCE_VERSION', defaultValue: false,
+                     description: 'When true, remove an existing NGC resource version before upload.')
+    }
+
+    stages {
+        stage('checkout-and-fetch-credentials') {
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    defaultContainer 'ubuntu-22-04'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/basics-pod.yaml"
+                }
+            }
+            steps {
+                gitlabCommitStatus(name: 'oss-source-checkout-and-credentials', connection: gitLabConnection('gitlab-vss-lvs')) {
+                    script {
+                        helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                        helpers.gitCheckout()
+                        helpers.fetchCredsFromVault()
+                        env.NGC_API_KEY_FOR_SOURCE = env.NGC_API_KEY
+                        validateInputs()
+                        env.RESOLVED_RESOURCE_VERSION = resourceVersion()
+                        env.RESOLVED_RESOURCE_NAME = params.RESOURCE_NAME?.trim() ?: DEFAULT_RESOURCE_NAME
+                        env.RESOLVED_ZIP_NAME = params.ZIP_NAME?.trim() ?: DEFAULT_ZIP_NAME
+                        echo "Target NGC resource: ${TARGET_ORG}/${TARGET_TEAM}/${env.RESOLVED_RESOURCE_NAME}:${env.RESOLVED_RESOURCE_VERSION}"
+                    }
+                }
+            }
+        }
+
+        stage('collect-amd64-package-inventory') {
+            when { beforeAgent true; expression { archEnabled('amd64') } }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    defaultContainer 'docker'
+                    yamlFile "${podYamlForArch('amd64')}"
+                }
+            }
+            steps {
+                gitlabCommitStatus(name: 'oss-source-collect-amd64', connection: gitLabConnection('gitlab-vss-lvs')) {
+                    script {
+                        collectPackageInventory('amd64')
+                    }
+                }
+            }
+        }
+
+        stage('collect-arm64-package-inventory') {
+            when { beforeAgent true; expression { archEnabled('arm64') } }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    defaultContainer 'docker'
+                    yamlFile "${podYamlForArch('arm64')}"
+                }
+            }
+            steps {
+                gitlabCommitStatus(name: 'oss-source-collect-arm64', connection: gitLabConnection('gitlab-vss-lvs')) {
+                    script {
+                        collectPackageInventory('arm64')
+                    }
+                }
+            }
+        }
+
+        stage('collect-sbsa-package-inventory') {
+            when { beforeAgent true; expression { archEnabled('sbsa') } }
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    defaultContainer 'docker'
+                    yamlFile "${podYamlForArch('sbsa')}"
+                }
+            }
+            steps {
+                gitlabCommitStatus(name: 'oss-source-collect-sbsa', connection: gitLabConnection('gitlab-vss-lvs')) {
+                    script {
+                        collectPackageInventory('sbsa')
+                    }
+                }
+            }
+        }
+
+        stage('create-zip-and-upload-ngc-resource') {
+            agent {
+                kubernetes {
+                    cloud "${K8S_CLOUD}"
+                    defaultContainer 'ubuntu-22-04'
+                    yamlFile "${LVS_ROOT}/ci/pod-templates/basics-pod.yaml"
+                }
+            }
+            steps {
+                timeout(time: 240, unit: 'MINUTES') {
+                    gitlabCommitStatus(name: 'oss-source-create-zip-and-upload', connection: gitLabConnection('gitlab-vss-lvs')) {
+                        script {
+                            helpers = load("${env.WORKSPACE}/${LVS_ROOT}/ci/pipeline-helpers.groovy")
+                            helpers.gitCheckout()
+                            helpers.fetchCredsFromVault()
+                            env.NGC_API_KEY_FOR_SOURCE = env.NGC_API_KEY
+
+                            selectedArchs().each { arch ->
+                                unstash "oss-source-packages-${arch}"
+                            }
+
+                            container('ubuntu-22-04') {
+                                sh '''#!/bin/bash
+                                    set -euo pipefail
+                                    if ! command -v python3 >/dev/null 2>&1; then
+                                        apt-get update
+                                        apt-get install --no-install-recommends -y python3 ca-certificates
+                                    fi
+                                    mkdir -p source-code
+                                '''
+
+                                def allowMissingArg = params.ALLOW_MISSING_SOURCES ? '--allow-missing' : ''
+                                sh """#!/bin/bash
+                                    set -euo pipefail
+                                    python3 ${LVS_ROOT}/ci/scripts/create_oss_source_zip.py \
+                                        --output-dir "source-code/oss-source-code" \
+                                        --zip-file "source-code/${env.RESOLVED_ZIP_NAME}" \
+                                        ${allowMissingArg} \
+                                        source-manifests/packages-*.csv
+                                """
+
+                                wrap([$class: 'MaskPasswordsBuildWrapper', varPasswordPairs: [
+                                    [var: 'NGC_API_KEY_FOR_SOURCE', password: env.NGC_API_KEY_FOR_SOURCE ?: '']
+                                ]]) {
+                                    withEnv([
+                                        "NGC_CLI_API_KEY=${env.NGC_API_KEY_FOR_SOURCE}",
+                                        "NGC_CLI_ORG=${TARGET_ORG}",
+                                        "NGC_CLI_TEAM=${TARGET_TEAM}",
+                                        "NGC_CLI_FORMAT_TYPE=ascii",
+                                        "NGC_CLI_VERSION=${NGC_CLI_VERSION}",
+                                        "NGC_CLI_LINUX_SHA256=${NGC_CLI_LINUX_SHA256}",
+                                        "TARGET_RESOURCE=${TARGET_ORG}/${TARGET_TEAM}/${env.RESOLVED_RESOURCE_NAME}:${env.RESOLVED_RESOURCE_VERSION}",
+                                        "TARGET_RESOURCE_ROOT=${TARGET_ORG}/${TARGET_TEAM}/${env.RESOLVED_RESOURCE_NAME}",
+                                        "SOURCE_ZIP=source-code/${env.RESOLVED_ZIP_NAME}",
+                                        "OVERWRITE_RESOURCE_VERSION=${params.OVERWRITE_RESOURCE_VERSION ? 'true' : 'false'}",
+                                    ]) {
+                                        sh '''#!/bin/bash
+                                            set -euo pipefail
+                                            if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
+                                                apt-get update
+                                                apt-get install --no-install-recommends -y curl unzip ca-certificates
+                                            fi
+                                            if ! command -v ngc >/dev/null 2>&1; then
+                                                tmp_dir="$(mktemp -d)"
+                                                trap 'rm -rf "${tmp_dir}"' EXIT
+                                                ngc_zip="${tmp_dir}/ngccli_linux.zip"
+                                                curl -fsSL "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/${NGC_CLI_VERSION}/files/ngccli_linux.zip" -o "${ngc_zip}"
+                                                actual_sha256="$(sha256sum "${ngc_zip}" | awk '{print $1}')"
+                                                if [ "${actual_sha256}" != "${NGC_CLI_LINUX_SHA256}" ]; then
+                                                    echo "NGC CLI checksum mismatch: expected ${NGC_CLI_LINUX_SHA256}, got ${actual_sha256}" >&2
+                                                    exit 1
+                                                fi
+                                                unzip -q "${ngc_zip}" -d "${tmp_dir}"
+                                                export PATH="${tmp_dir}/ngc-cli:${PATH}"
+                                            fi
+
+                                            ngc config set --org "${NGC_CLI_ORG}" --team "${NGC_CLI_TEAM}" --format_type ascii
+                                            if ngc registry resource info --format_type ascii "${TARGET_RESOURCE_ROOT}" >/dev/null 2>&1; then
+                                                echo "NGC resource already exists: ${TARGET_RESOURCE_ROOT}"
+                                            else
+                                                ngc registry resource create "${TARGET_RESOURCE_ROOT}" \
+                                                    --application OTHER \
+                                                    --display-name "VSS Summarization OSS source code" \
+                                                    --framework Other \
+                                                    --format zip \
+                                                    --precision OTHER \
+                                                    --short-desc "VSS Summarization OSS source code"
+                                            fi
+
+                                            if ngc registry resource info --format_type ascii "${TARGET_RESOURCE}" >/dev/null 2>&1; then
+                                                if [ "${OVERWRITE_RESOURCE_VERSION}" = "true" ]; then
+                                                    ngc registry resource remove -y "${TARGET_RESOURCE}"
+                                                else
+                                                    echo "NGC resource version already exists: ${TARGET_RESOURCE}" >&2
+                                                    echo "Re-run with OVERWRITE_RESOURCE_VERSION=true to replace it." >&2
+                                                    exit 1
+                                                fi
+                                            fi
+
+                                            ngc registry resource upload-version \
+                                                "${TARGET_RESOURCE}" \
+                                                --format_type ascii \
+                                                --source "${SOURCE_ZIP}"
+                                            ngc registry resource info --format_type ascii "${TARGET_RESOURCE}"
+                                        '''
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'source-code/**/*, source-manifests/*.csv', allowEmptyArchive: true, fingerprint: true
+                }
+            }
+        }
+    }
+}

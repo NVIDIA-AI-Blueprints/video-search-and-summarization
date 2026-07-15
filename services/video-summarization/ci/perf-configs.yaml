@@ -1,0 +1,273 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ci/perf-configs.yaml
+#
+# Performance benchmark configurations for the VIA Engine CI pipeline.
+#
+# Each entry defines one Docker Compose variant to benchmark on a bare metal GPU node.
+# Configs that share the same 'nodeLabel' are batched: the node is reserved once, all
+# configs for that label run sequentially on it, then the node is released before moving
+# to the next node label. This avoids redundant node reservation / release cycles.
+#
+# Fields:
+#   id          - Unique identifier used as PERF_CONFIG_ID in Metropolis JSON results.
+#                 Also used as a subdirectory name when archiving results, so keep it
+#                 filesystem-safe (no spaces, slashes, or special characters).
+#   composePath - Path to the docker-compose file, relative to services/video-summarization/.
+#   nodeLabel   - Jenkins lockable-resource label for the bare metal GPU node.
+#                 Valid values: H100-SXM, RTXPRO6000BW-SE, L40S, DGX-SPARK, JETSON-THOR
+#   imageArch   - LVS image architecture tag to use for this config.
+#                 Valid values: amd64, arm64-sbsa, arm64-igpu.
+#   enabled     - Set to false to skip this config entirely (default: true).
+#                 Use this to temporarily disable configs without deleting them.
+#   description - Human-readable one-liner shown in pipeline logs (optional).
+#   vlmModel    - VLM model name; passed to the benchmark script as metadata.
+#   llmModel    - LLM model name; passed to the benchmark script as metadata.
+#   vlmGpus     - Comma-separated GPU indices for the VLM workload.
+#                 Informational: reflects the device_ids in the compose file.
+#   llmGpus     - Comma-separated GPU indices for the LLM workload.
+#                 Informational: reflects the device_ids in the compose file.
+#   vision_input_tokens - Vision input token budget used for config metadata and id suffix.
+#                 Use values like "9k", "18k".
+#
+# NOTE: GPU bindings are controlled by device_ids in the compose file itself.
+#       vlmGpus/llmGpus here are metadata passed to vss_perf_benchmark.py and
+#       used for dashboarding; they do NOT override the compose file's GPU config.
+#
+# To add a new configuration: append an entry below. No Jenkinsfile changes are needed.
+# To run specific configs:    set PERF_CONFIG_IDS to a comma-separated list of ids.
+# To run all configs:         set PERF_CONFIG_IDS to "all" (the default).
+
+perf_configs:
+
+  # ---------------------------------------------------------------------------
+  # H100 configurations — 1 GPU
+  # Node: H100-SXM
+  # All services share GPU 0 on the same physical card.
+  # ---------------------------------------------------------------------------
+
+  - id: "h100-1-1-cr2-8b-rtvi-nemonano9b-9k"
+    composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: true
+    description: "H100 1-GPU: CR2 VLM (RTVI, GPU 0) + Nemotron-Nano-9B-v2 LLM (GPU 0, dense)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # ---------------------------------------------------------------------------
+  # H100 configurations — multi-GPU
+  # Node: H100-SXM
+  # Note: these configs require NVLink between GPUs. The current H100 nodes
+  # lack NVLink, causing vLLM V1 to hit a NCCL multi-GPU initialization deadlock
+  # during PCIe peer-to-peer setup.
+  # Slack: https://nvidia.slack.com/archives/C069G4UQKT8/p1771038053384279
+  # Only H100-SXM has NVLink between GPUs, but it's an OCI node that is fragile in availability.
+  # ---------------------------------------------------------------------------
+
+  - id: "h100-2-1x1-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: true
+    description: "H100 2-GPU: CR2 VLM (RTVI, GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0"
+    llmGpus: "1"
+    vision_input_tokens: "9k"
+
+  - id: "h100-4-2x2-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_4gpu.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: true
+    description: "H100 4-GPU: CR2 VLM (RTVI, GPUs 0,1) + Nemotron-3-Nano LLM (GPUs 2,3)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1"
+    llmGpus: "2,3"
+    vision_input_tokens: "9k"
+
+  - id: "h100-8-4x4-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_8gpu.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: true
+    description: "H100 8-GPU: CR2 VLM (RTVI, GPUs 0,1,2,3) + Nemotron-3-Nano LLM (GPUs 4,5,6,7)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1,2,3"
+    llmGpus: "4,5,6,7"
+    vision_input_tokens: "9k"
+
+  # Disabled: duplicates the topology of `h100-4-2x2-cr2-8b-rtvi-nemo3nano-9k`
+  # above; the only difference is that CR2 runs as a separate NIM container that
+  # rtvi-vlm proxies via openai-compat. NIM VLM is P1 — re-enable when it
+  # becomes a priority again.
+  - id: "h100-4-2x2-cr2-8b-nim-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nim-nemo3-nano_4gpu.yaml"
+    nodeLabel: "H100-SXM"
+    imageArch: "amd64"
+    enabled: false
+    description: "H100 4-GPU: CR2 VLM (RTVI, GPUs 0,1) + Nemotron-3-Nano LLM (GPUs 2,3)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1"
+    llmGpus: "2,3"
+    vision_input_tokens: "9k"
+
+  # ---------------------------------------------------------------------------
+  # RTX Pro configurations — 1 GPU
+  # Node: RTXPRO6000BW-SE
+  # All services share GPU 0 on the same physical card.
+  # ---------------------------------------------------------------------------
+
+  - id: "rtx-1-1-cr2-8b-rtvi-nemonano9b-9k"
+    composePath: "compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml"
+    nodeLabel: "RTXPRO6000BW-SE"
+    imageArch: "amd64"
+    enabled: true
+    description: "RTX Pro 1-GPU: CR2 VLM (RTVI, GPU 0) + Nemotron-Nano-9B-v2 LLM (GPU 0)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # ---------------------------------------------------------------------------
+  # RTX Pro configurations — 4-8 GPU
+  # Node: RTXPRO6000BW-SE
+  # Disabled: these configs require 4-8 GPUs; re-enable when a multi-GPU node
+  # is available in the pool.
+  # ---------------------------------------------------------------------------
+
+  - id: "rtx-2-1x1-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
+    nodeLabel: "RTXPRO6000BW-SE"
+    imageArch: "amd64"
+    enabled: true
+    description: "RTX Pro 2-GPU: CR2 VLM (RTVI, GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0"
+    llmGpus: "1"
+    vision_input_tokens: "9k"
+
+  - id: "rtx-4-2x2-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_4gpu.yaml"
+    nodeLabel: "RTXPRO6000BW-SE"
+    imageArch: "amd64"
+    enabled: true
+    description: "RTX Pro 4-GPU: CR2 VLM (RTVI, GPUs 0,1) + Nemotron-3-Nano LLM (GPUs 2,3)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1"
+    llmGpus: "2,3"
+    vision_input_tokens: "9k"
+
+  - id: "rtx-8-4x4-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_8gpu.yaml"
+    nodeLabel: "RTXPRO6000BW-SE"
+    imageArch: "amd64"
+    enabled: false
+    description: "RTX Pro 8-GPU: CR2 VLM (RTVI, GPUs 0,1,2,3) + Nemotron-3-Nano LLM (GPUs 4,5,6,7)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1,2,3"
+    llmGpus: "4,5,6,7"
+    vision_input_tokens: "9k"
+
+  # ---------------------------------------------------------------------------
+  # L40s configurations
+  # Node: L40S
+  # Disabled: no L40s node currently in the pool; enable when available.
+  # ---------------------------------------------------------------------------
+
+  - id: "l40s-2-1x1-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml"
+    nodeLabel: "L40S"
+    imageArch: "amd64"
+    enabled: true
+    description: "L40s 2-GPU: CR2 VLM (RTVI, GPU 0) + Nemotron-3-Nano LLM (GPU 1)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0"
+    llmGpus: "1"
+    vision_input_tokens: "9k"
+
+  - id: "l40s-4-2x2-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_4gpu.yaml"
+    nodeLabel: "L40S"
+    imageArch: "amd64"
+    enabled: true
+    description: "L40s 4-GPU: CR2 VLM (RTVI, GPUs 0,1) + Nemotron-3-Nano LLM (GPUs 2,3)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1"
+    llmGpus: "2,3"
+    vision_input_tokens: "9k"
+
+  - id: "l40s-8-4x4-cr2-8b-rtvi-nemo3nano-9k"
+    composePath: "compose/x86-rtvi-cr-nemo3-nano_8gpu.yaml"
+    nodeLabel: "L40S"
+    imageArch: "amd64"
+    enabled: false
+    description: "L40s 8-GPU: CR2 VLM (RTVI, GPUs 0,1,2,3) + Nemotron-3-Nano LLM (GPUs 4,5,6,7)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-3-nano"
+    vlmGpus: "0,1,2,3"
+    llmGpus: "4,5,6,7"
+    vision_input_tokens: "9k"
+
+  # ---------------------------------------------------------------------------
+  # Spark (DGX Spark) configurations — 1 GPU
+  # Node: DGX-SPARK
+  # ARM64 SBSA image; VLM and LLM share GPU 0.
+  # ---------------------------------------------------------------------------
+
+  - id: "spark-1-1-cr2-8b-rtvi-nemonano9b-9k"
+    composePath: "compose/spark-rtvi-cr-nemotron-9b.yaml"
+    nodeLabel: "DGX-SPARK"
+    imageArch: "arm64-sbsa"
+    enabled: true
+    description: "Spark 1-GPU: CR2 VLM (RTVI, GPU 0) + Nemotron-Nano-9B-v2 LLM (GPU 0)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
+
+  # ---------------------------------------------------------------------------
+  # Thor (Jetson AGX/IGX Thor) configurations — 1 iGPU
+  # Node: JETSON-THOR
+  # ARM64 iGPU image; VLM and LLM share GPU 0.
+  # ---------------------------------------------------------------------------
+
+  - id: "thor-1-1-cr2-8b-rtvi-nemonano9b-9k"
+    composePath: "compose/thor-rtvi-cr-nemotron-9b.yaml"
+    nodeLabel: "JETSON-THOR"
+    imageArch: "arm64-igpu"
+    enabled: true
+    description: "Thor 1-iGPU: CR2 VLM (RTVI, GPU 0) + Nemotron-Nano-9B-v2 LLM (GPU 0)"
+    vlmModel: "cosmos-reason2-8b"
+    llmModel: "nemotron-nano-9b-v2"
+    vlmGpus: "0"
+    llmGpus: "0"
+    vision_input_tokens: "9k"
