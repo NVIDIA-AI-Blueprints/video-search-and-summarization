@@ -458,6 +458,18 @@ int GstNvAudioDecoder::create (bool blocking)
     {
         LOG (error) << "Gstreamer element creation failed (isAac=" << isAac
                     << ", aacparse/decodebin available?) for uri = " << m_uri << endl;
+        /* None of these are parented to the bin yet (gst_bin_add_many runs
+        ** below), so destroy() -- which only unrefs m_pipeline -- would leak
+        ** every other created element. Unref the ones that got made here. */
+        for (GstElement** e : { &m_pipeline, &m_source, &m_decoder, &m_parser,
+                                &m_audioconvert, &m_capsfilter, &m_sink })
+        {
+            if (*e)
+            {
+                gst_object_unref (*e);
+                *e = nullptr;
+            }
+        }
         return -1;
     }
 
