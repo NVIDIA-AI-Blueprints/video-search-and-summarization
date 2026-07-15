@@ -17,7 +17,7 @@
 
 services:
   vss-va-mcp:
-    image: nvcr.io/nv-metropolis-dev/met-moe-agents/vss-agent:${VSS_AGENT_VERSION}
+    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-va-mcp
     profiles:
     - bp_wh_2d
@@ -61,9 +61,8 @@ services:
     restart: unless-stopped
 
   vss-agent:
-    # Version pinned via VSS_AGENT_VERSION (see the profile .env files). For the
-    # public release, switch the registry from nv-metropolis-dev to nvidia.
-    image: nvcr.io/nv-metropolis-dev/met-moe-agents/vss-agent:${VSS_AGENT_VERSION}
+    # Version pinned via VSS_AGENT_VERSION (see the profile .env files).
+    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-agent
     profiles:
     - bp_wh_2d
