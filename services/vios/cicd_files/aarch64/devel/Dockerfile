@@ -62,6 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         make \
         cmake \
         pkg-config \
+        npm \
         binutils \
         crossbuild-essential-arm64 \
         protobuf-compiler-grpc \
