@@ -34,6 +34,7 @@ the spec does not declare `requires_deployed_vss = true`.
         skills/vss-manage-video-io-storage/   (bundled — skill invokes VIOS API after deploy)
         skills/vss-deploy-dense-captioning/   (bundled for dense-captioning checks)
         skills/vss-deploy-detection-tracking-2d/ (bundled for RT-CV checks)
+        skills/vss-deploy-video-embedding/   (bundled for RT-Embed checks)
         environment/Dockerfile           (FROM scratch; BrevEnvironment takes over)
 
 Usage from the repository root:
@@ -43,6 +44,7 @@ Usage from the repository root:
         --vios-skill-dir skills/vss-manage-video-io-storage \\
         --rtvi-skill-dir skills/vss-deploy-dense-captioning \\
         --rtcv-skill-dir skills/vss-deploy-detection-tracking-2d \\
+        --rtembed-skill-dir skills/vss-deploy-video-embedding \\
         --spec skills/vss-build-vision-agent/eval/profile_in_1_streaming_dense_captions.json
 """
 from __future__ import annotations
@@ -190,6 +192,7 @@ def generate_task(
     vios_skill_dir: Path | None,
     rtvi_skill_dir: Path | None,
     rtcv_skill_dir: Path | None,
+    rtembed_skill_dir: Path | None,
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'].
     Multi-step specs produce step-N/ subdirs; single-step specs are flat."""
@@ -323,10 +326,24 @@ def generate_task(
                 "tracking metadata",
             )
         )
+        wants_rt_embed = any(
+            token in spec_text
+            for token in (
+                "rt-embed",
+                "rtvi-embed",
+                "video-embedding",
+                "video embedding",
+                "frame embedding",
+                "mdx-embed",
+                "in-3",
+            )
+        )
         if wants_dense_captioning:
             skills_to_copy.append((rtvi_skill_dir, "vss-deploy-dense-captioning"))
         if wants_rt_cv:
             skills_to_copy.append((rtcv_skill_dir, "vss-deploy-detection-tracking-2d"))
+        if wants_rt_embed:
+            skills_to_copy.append((rtembed_skill_dir, "vss-deploy-video-embedding"))
         skills_root = step_dir / "skills"
         if skills_root.exists():
             shutil.rmtree(skills_root)
@@ -367,6 +384,10 @@ def main() -> None:
         help="Path to skills/vss-deploy-detection-tracking-2d (bundled for RT-CV checks)",
     )
     parser.add_argument(
+        "--rtembed-skill-dir", default=None,
+        help="Path to skills/vss-deploy-video-embedding (bundled for RT-Embed checks)",
+    )
+    parser.add_argument(
         "--spec", default=None,
         help="Path to the eval spec JSON (default: <skill-dir>/eval/profile_in_1_streaming_dense_captions.json)",
     )
@@ -386,6 +407,7 @@ def main() -> None:
     vios_skill_dir = Path(args.vios_skill_dir) if args.vios_skill_dir else None
     rtvi_skill_dir = Path(args.rtvi_skill_dir) if args.rtvi_skill_dir else None
     rtcv_skill_dir = Path(args.rtcv_skill_dir) if args.rtcv_skill_dir else None
+    rtembed_skill_dir = Path(args.rtembed_skill_dir) if args.rtembed_skill_dir else None
 
     spec_path = (
         Path(args.spec)
@@ -433,7 +455,7 @@ def main() -> None:
         print(f"  GEN  vss-build-vision-agent/{dataset_group}/{task_id}")
         generate_task(
             platform, spec, output_root, skill_dir,
-            vios_skill_dir, rtvi_skill_dir, rtcv_skill_dir,
+            vios_skill_dir, rtvi_skill_dir, rtcv_skill_dir, rtembed_skill_dir,
         )
 
     print()
