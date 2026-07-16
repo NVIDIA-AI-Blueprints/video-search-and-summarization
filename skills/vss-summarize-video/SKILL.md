@@ -137,6 +137,21 @@ A non-200 LVS readiness result after warmup is the only unavailability signal.
 An empty summary, empty events, missing optional fields, or empty readiness
 stdout must not trigger fallback.
 
+**Sandboxed localhost access:** Run readiness probes and every live VIOS, VLM,
+and LVS call with approved host-network execution. Request
+`sandbox_permissions="require_escalated"` up front with a narrowly scoped
+justification. Do not suggest a reusable `bash -lc` approval prefix. If a
+sandboxed probe was attempted first and returned HTTP `000`, a connection
+error, or a permission error, immediately retry it with host-network
+approval; never interpret that first result as backend unavailability. Only
+apply the routing rules to results from approved host-network execution.
+
+Never search for, open, inspect, or substitute a prior completion, frozen eval
+fixture, workspace memory file, session transcript, quarantine directory, or
+cached `/tmp` LVS request/response while fulfilling a summarization request.
+Files created by live calls in the current turn may be used only to pass that
+turn's response between workflow steps.
+
 ### Stage 2: Prepare the Video Through VIOS
 
 Execute VIOS API operations directly as part of this workflow; do not invoke a
