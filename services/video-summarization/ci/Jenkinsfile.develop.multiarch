@@ -632,16 +632,27 @@ pipeline {
                                         java -version
                                     '''
 
-                                    // Run SonarQube analysis
-                                    def scannerHome = tool 'LVS_Sonar'
+                                    // Run SonarQube analysis (retry tool install + scan; both can fail
+                                    // on transient network issues such as Maven Central HTTP 429).
                                     def branchName = env.BRANCH_NAME ?: 'unknown'
-                                    echo "Analyzing branch: ${branchName}"
-                                    echo "Scanner location: ${scannerHome}"
-
                                     def scannerArgs = sonarParams.join(' ')
-                                    withSonarQubeEnv() {
-                                        dir(LVS_ROOT) {
-                                            sh "${scannerHome}/bin/sonar-scanner -Dsonar.branch.name=${branchName} ${scannerArgs}"
+                                    int sonarAttempt = 0
+                                    retry(3) {
+                                        sonarAttempt += 1
+                                        if (sonarAttempt > 1) {
+                                            def backoffSeconds = 30 * (sonarAttempt - 1)
+                                            echo "SonarQube attempt ${sonarAttempt}/3: waiting ${backoffSeconds}s before retry"
+                                            sleep(time: backoffSeconds, unit: 'SECONDS')
+                                        }
+
+                                        def scannerHome = tool 'LVS_Sonar'
+                                        echo "Analyzing branch: ${branchName}"
+                                        echo "Scanner location: ${scannerHome}"
+
+                                        withSonarQubeEnv() {
+                                            dir(LVS_ROOT) {
+                                                sh "${scannerHome}/bin/sonar-scanner -Dsonar.branch.name=${branchName} ${scannerArgs}"
+                                            }
                                         }
                                     }
 
