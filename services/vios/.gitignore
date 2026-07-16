@@ -2,6 +2,12 @@
 *.o
 *.d
 
+# Build output (release tarballs; may be root-owned from container builds)
+out/
+
+# Per-arch build stamp written by build.sh (drives arch-less `clean`)
+prebuilts/*/.vios-built
+
 # CSV files
 *.csv
 
