@@ -121,7 +121,9 @@ class ResolveDiffBaseTest(unittest.TestCase):
             )
             self.assertEqual(base, before)
             self.assertIn("push range", reason)
-            self.assertEqual(selected_names(repo, base), ["vss-agent"])
+            self.assertEqual(
+                selected_names(repo, base), ["vss-agent", "vss-agent-ui"]
+            )
 
     def test_initial_push_zero_sha_builds_everything(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -154,7 +156,9 @@ class ResolveDiffBaseTest(unittest.TestCase):
             )
             self.assertEqual(base, fork_point)
             self.assertIn("merge-base", reason)
-            self.assertEqual(selected_names(repo, base), ["vss-agent-ui"])
+            self.assertEqual(
+                selected_names(repo, base), ["vss-agent", "vss-agent-ui"]
+            )
 
     def test_non_push_event_builds_everything(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,7 +219,15 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "services/agent/3rdparty/ffmpeg/*",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/agent",
-                    }
+                    },
+                    {
+                        "name": "vss-agent-ui",
+                        "context": ".",
+                        "dockerfile": "services/ui/Dockerfile",
+                        "lfs_include": "",
+                        "platforms": "linux/amd64,linux/arm64",
+                        "source_path": "services/ui",
+                    },
                 ]
             },
         )

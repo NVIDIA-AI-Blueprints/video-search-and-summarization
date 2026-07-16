@@ -110,12 +110,21 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
         for contract in BUILD_CONTRACT_PATHS
     ):
         return buildable, "build contract changed; building all GHCR images"
-    selected = [
+    changed_images = [
         entry
         for entry in buildable
         if any(path.startswith(entry["source_path"] + "/") for path in changed)
     ]
-    return selected, f"{len(selected)} of {len(buildable)} images changed"
+    if changed_images:
+        # The managed agent/UI/alert set shares one VSS_CONTAINER_TAG. Publish
+        # every member under that tag so the tested coordinate commit can switch
+        # the set atomically with one environment variable.
+        names = ", ".join(entry["name"] for entry in changed_images)
+        return (
+            buildable,
+            f"managed image(s) changed ({names}); building complete shared-tag set",
+        )
+    return [], f"0 of {len(buildable)} images changed"
 
 
 def to_matrix(entries: list[dict]) -> dict:

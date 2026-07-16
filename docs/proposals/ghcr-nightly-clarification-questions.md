@@ -124,12 +124,11 @@ are approved for build or mirror.
 
 ### Registry and tag override mechanics
 
-- A complete set is selected with:
+- The initial GitHub-managed set (agent, UI, alert-ms) is selected with:
   - `VSS_CONTAINER_REGISTRY`
   - `VSS_CONTAINER_TAG`
 - Per-image repository overrides remain available for development.
-- The release-set manifest remains necessary while images carry heterogeneous
-tags.
+- Other first-party images retain explicit per-image pins until migrated.
 
 ### Multiarch implementation
 

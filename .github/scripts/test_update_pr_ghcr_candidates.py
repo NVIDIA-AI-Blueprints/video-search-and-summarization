@@ -76,6 +76,27 @@ class CandidateCommentTest(unittest.TestCase):
         )
         self.assertEqual(module.moving_alias("release-3.2.0"), "")
 
+    def test_updates_single_shared_registry_and_tag_defaults(self):
+        original = (
+            'VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-'
+            'ghcr.io/nvidia-ai-blueprints/vss}"\n'
+            'VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"\n'
+            'VSS_AGENT_UI_TAG="${VSS_AGENT_UI_TAG:-3.2.1}"\n'
+        )
+        updated = module.update_container_defaults(
+            original,
+            "ghcr.io/nvidia-ai-blueprints/vss",
+            "pr-1190-deadbeef",
+        )
+        self.assertIn(
+            'VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-pr-1190-deadbeef}"',
+            updated,
+        )
+        self.assertIn(
+            'VSS_AGENT_UI_TAG="${VSS_AGENT_UI_TAG:-3.2.1}"',
+            updated,
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

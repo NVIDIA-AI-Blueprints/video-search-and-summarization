@@ -50,12 +50,10 @@ Three rules everything below follows:
   rt-vlm / calibration / video-analytics-ui keep their historical
   `*_IMAGE_TAG` variables. Normalizing them is a rename-only change gated by
   the same golden test.
-* `VSS_CONTAINER_REGISTRY` + `VSS_CONTAINER_TAG` are the one-line complete-set
-  selector. When unset,
-  every image keeps its committed release/staging default. Once a complete set
-  has been copied with the same tags, setting only this root switches between
-  GHCR, NGC dev, and NGC staging. Per-image overrides remain available while
-  the migration is incomplete.
+* `VSS_CONTAINER_REGISTRY` + `VSS_CONTAINER_TAG` are the one-line selector for
+  the initial GitHub-managed set (agent, UI, and alert-ms). Develop defaults to
+  GHCR; QA overrides the same pair to the promoted NGC staging prefix/tag.
+  Other first-party images retain explicit per-image pins until migrated.
 
 ### 2. Immutable GHCR candidate builds (`build-dev-images.yml`)
 

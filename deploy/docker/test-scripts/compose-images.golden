@@ -17,9 +17,9 @@ deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehou
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:3.2.0
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-deploy/docker/services/agent/compose.yml nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
-deploy/docker/services/agent/compose.yml nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
-deploy/docker/services/alert/compose.yml nvcr.io/nvstaging/vss-core/vss-alert-ms:3.3.0-26.07.10-e4c886ba00e5
+deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
+deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
+deploy/docker/services/alert/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
 deploy/docker/services/analytics/behavior-analytics/compose.yml nvcr.io/nvstaging/vss-core/vss-behavior-analytics:3.2.1-26.07.2
 deploy/docker/services/analytics/video-analytics-api/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-api:3.2.0
 deploy/docker/services/auto-calibration/ms/compose.yml nvcr.io/nvidia/vss-core/vss-auto-calibration:3.2.1
@@ -72,7 +72,7 @@ deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvidia/vs
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1
 deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1
 deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1
-deploy/docker/services/ui/compose.yml nvcr.io/nvstaging/vss-core/vss-agent-ui:3.2.1-26.07.1-dd945777eef9
+deploy/docker/services/ui/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui:develop-latest
 deploy/docker/services/video-summarization/compose.yml nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1
 deploy/docker/services/vios/foundational/docker-compose.yaml ${NGINX_IMAGE}
 deploy/docker/services/vios/foundational/docker-compose.yaml ${POSTGRES_IMAGE}

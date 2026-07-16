@@ -20,7 +20,11 @@ from check_container_tag_source import (  # noqa: E402
     image_refs_in_text,
     resolve_compose_vars,
 )
-from compose_image_golden import load_containers_env, resolve_nested  # noqa: E402
+from compose_image_golden import (  # noqa: E402
+    load_containers_env,
+    resolve_nested,
+    uses_shared_coordinate,
+)
 
 
 class ResolveNestedTest(unittest.TestCase):
@@ -75,6 +79,18 @@ class LoadContainersEnvTest(unittest.TestCase):
         self.assertEqual(values["REG"], "nvcr.io/nvidia/vss-core")
         self.assertEqual(values["IMG"], "nvcr.io/nvidia/vss-core/vss-agent")
         self.assertEqual(values["TAG"], "3.2.1")
+
+    def test_shared_coordinate_refs_allow_single_ssot_tag_updates(self):
+        self.assertTrue(
+            uses_shared_coordinate(
+                "${VSS_CONTAINER_REGISTRY}/vss-agent:${VSS_CONTAINER_TAG}"
+            )
+        )
+        self.assertFalse(
+            uses_shared_coordinate(
+                "nvcr.io/nvidia/vss-core/vss-configurator:${VSS_CONFIGURATOR_TAG}"
+            )
+        )
 
 
 class ParameterizedNameMatchingTest(unittest.TestCase):

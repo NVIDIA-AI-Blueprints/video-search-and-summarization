@@ -52,6 +52,11 @@ GOLDEN_HEADER = """\
 """
 
 _VAR_START_RE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<op>:?[-?])?")
+SHARED_COORDINATE_VARS = ("${VSS_CONTAINER_REGISTRY", "${VSS_CONTAINER_TAG")
+
+
+def uses_shared_coordinate(text: str) -> bool:
+    return any(marker in text for marker in SHARED_COORDINATE_VARS)
 
 
 def resolve_nested(text: str, env: dict[str, str]) -> str:
@@ -148,7 +153,11 @@ def collect_lines(repo_root: Path) -> tuple[list[str], list[str]]:
             defaults_only = resolve_nested(raw, {})
             golden.append(f"{rel} {defaults_only}")
             with_ssot = resolve_nested(raw, containers_env)
-            if with_ssot != defaults_only:
+            # The managed agent/UI/alert set intentionally has one mutable SSOT
+            # tag in containers.env. A tested-coordinate bot updates that single
+            # line without rewriting duplicated inline fallbacks.
+            shared_coordinate = uses_shared_coordinate(raw)
+            if with_ssot != defaults_only and not shared_coordinate:
                 drift.append(
                     f"{rel}: containers.env resolves {raw!r}\n"
                     f"    to   {with_ssot!r}\n"

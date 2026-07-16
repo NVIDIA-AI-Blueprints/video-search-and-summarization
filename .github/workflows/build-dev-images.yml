@@ -66,12 +66,20 @@ jobs:
       # origin/develop...HEAD on a develop push: that range is always empty.
       - name: Resolve changed images
         id: detect
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          python3 .github/scripts/detect_changed_images.py \
-            --event-name "${{ github.event_name }}" \
-            --ref-name "${{ github.ref_name }}" \
-            --before "${{ github.event.before }}" \
-            --base-branch develop > detection.json
+          if [[ "$COMMIT_MESSAGE" == ci:\ pin\ tested\ GHCR\ tag* ]]; then
+            printf '%s\n' \
+              '{"reason":"coordinate-only bot commit; reuse tested images","count":0,"matrix":{"include":[]}}' \
+              > detection.json
+          else
+            python3 .github/scripts/detect_changed_images.py \
+              --event-name "${{ github.event_name }}" \
+              --ref-name "${{ github.ref_name }}" \
+              --before "${{ github.event.before }}" \
+              --base-branch develop > detection.json
+          fi
           cat detection.json
           {
             echo "matrix=$(jq -c '.matrix' detection.json)"
