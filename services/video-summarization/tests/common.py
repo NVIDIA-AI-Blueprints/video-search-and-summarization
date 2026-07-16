@@ -389,7 +389,7 @@ def generate_vlm_captions(t, req_json):
 
 
 MODEL_LIST = {
-    "cosmos-reason2": ("cosmos-reason2", "ngc:nvstaging/nim/cosmos-reason-2-8b:hf-v2"),
+    "cosmos-reason2": ("cosmos-reason2", "git:https://huggingface.co/nvidia/Cosmos-Reason2-8B"),
     "cosmos-reason1": ("cosmos-reason1", "ngc:nim/nvidia/cosmos-reason-1-7b:1.1-fp8-dynamic"),
     # "vila-1.5": ("vila-1.5", "ngc:nim/nvidia/vila-1.5-40b:vila-yi-34b-siglip-stage3_1003_video_v8"),
     # "nvila": ("nvila", "ngc:nvidia/tao/nvila-highres:nvila-lite-15b-highres-lita"),

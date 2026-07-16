@@ -1,0 +1,135 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Downloads video assets from the asset host (ASSET_BASE_URL) using
+# ARTIFACTORY_USER/TOKEN and serves them over HTTP so the lvs container can
+# fetch them without credentials.
+#
+# Included automatically by all lvs compose files via the `include` directive.
+# Update benchmark config URLs to: http://media-server/<filename>
+#
+
+services:
+  downloader:
+    image: alpine:3.20
+    profiles: ["media"]
+    volumes:
+      - media-data:/data
+    environment:
+      ARTIFACTORY_USER: ${ARTIFACTORY_USER:-}
+      ARTIFACTORY_TOKEN: ${ARTIFACTORY_TOKEN:-}
+      ASSET_BASE_URL: ${ASSET_BASE_URL:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        BASE_URL="$$ASSET_BASE_URL"
+        FILES="0.5min.mp4 1min.mp4 2min.mp4 5min.mp4 10min.mp4 30min.mp4 60min.mp4 120min.mp4 720min.mkv"
+        MAX_RETRIES=3
+
+        if [ -z "$$ASSET_BASE_URL" ]; then
+          echo "ERROR: Set ASSET_BASE_URL to the base URL hosting the perf media files."
+          exit 1
+        fi
+
+        if [ -z "$$ARTIFACTORY_USER" ] || [ -z "$$ARTIFACTORY_TOKEN" ]; then
+          echo "ERROR: Missing auth. Set ARTIFACTORY_USER and ARTIFACTORY_TOKEN."
+          exit 1
+        fi
+
+        apk add --no-cache wget
+
+        cd /data
+
+        # Fail fast if the asset host is unreachable from this host:
+        # permissive wget + exit 0 leaves an empty volume; nginx then 404s and LVS returns 500 — hard to diagnose.
+        download() {
+          f=$$1
+          # HEAD to get expected size — catches silent truncation that wget itself misses.
+          # Take the LAST Content-Length: --spider on a basic-auth-protected URL
+          # first hits 401 (challenge body ~91 bytes), then 200 with the real size.
+          REMOTE_SIZE=$$(wget --spider -S --user "$$ARTIFACTORY_USER" --password "$$ARTIFACTORY_TOKEN" "$$BASE_URL/$$f" 2>&1 | awk '/[Cc]ontent-[Ll]ength:/ {last=$$2} END {print last}' | tr -d '\r')
+          if [ -f "$$f" ] && [ -n "$$REMOTE_SIZE" ] && [ "$$(stat -c %s "$$f")" = "$$REMOTE_SIZE" ]; then
+            echo "SKIP (complete): $$f ($$REMOTE_SIZE bytes)"
+            return 0
+          fi
+          # If the asset host is unreachable, HEAD fails and REMOTE_SIZE is empty.
+          # If the volume was pre-hydrated out-of-band, accept the existing file rather than
+          # failing on an unreachable origin.
+          if [ -f "$$f" ] && [ -z "$$REMOTE_SIZE" ]; then
+            echo "SKIP (offline, pre-hydrated): $$f ($$(stat -c %s "$$f") bytes; remote size unavailable)"
+            return 0
+          fi
+          DELAY=5
+          ATTEMPT=1
+          while [ $$ATTEMPT -le $$MAX_RETRIES ]; do
+            echo "Downloading: $$f (attempt $$ATTEMPT/$$MAX_RETRIES)"
+            # -c resumes partial downloads across container restarts (volume persists).
+            if wget -nv -c --user "$$ARTIFACTORY_USER" --password "$$ARTIFACTORY_TOKEN" -O "$$f.part" "$$BASE_URL/$$f"; then
+              LOCAL_SIZE=$$(stat -c %s "$$f.part")
+              if [ -z "$$REMOTE_SIZE" ] || [ "$$LOCAL_SIZE" = "$$REMOTE_SIZE" ]; then
+                mv "$$f.part" "$$f"
+                echo "OK: $$f ($$LOCAL_SIZE bytes)"
+                return 0
+              fi
+              echo "TRUNCATED: $$f (got $$LOCAL_SIZE, expected $$REMOTE_SIZE) — re-fetching"
+              rm -f "$$f.part"
+            fi
+            ATTEMPT=$$((ATTEMPT + 1))
+            if [ $$ATTEMPT -le $$MAX_RETRIES ]; then
+              echo "Retrying $$f in $${DELAY}s..."
+              sleep $$DELAY
+              DELAY=$$((DELAY * 2))
+            fi
+          done
+          echo "FAILED after $$MAX_RETRIES attempts: $$f"
+          return 1
+        }
+
+        # Parallel fetch — wall time is dominated by 720min.mkv; serial waits ~10x longer than needed.
+        pids=""
+        for f in $$FILES; do
+          download "$$f" &
+          pids="$$pids $$!"
+        done
+
+        FAILED=0
+        for pid in $$pids; do
+          wait $$pid || FAILED=1
+        done
+
+        if [ $$FAILED -ne 0 ]; then
+          echo "ERROR: One or more media downloads failed (network, auth, or path). Fix access to the asset host or pre-populate volume via-media-data."
+          exit 1
+        fi
+        echo "All downloads complete."
+    restart: 'no'
+
+  media-server:
+    image: nginx:alpine
+    profiles: ["media"]
+    volumes:
+      - media-data:/usr/share/nginx/html:ro
+      - ./configmaps/media-server-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      downloader:
+        condition: service_completed_successfully
+    networks:
+      - app-network
+    restart: unless-stopped
+
+volumes:
+  media-data:
+    name: via-media-data
+    external: true

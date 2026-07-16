@@ -35,6 +35,19 @@ import com.cloudbees.groovy.cps.NonCPS
 @Field String TEST_RESULTS_NGC_TEAM = "vss-summarization"
 @Field String SHARED_RTVI_COMPOSE_PROJECT = "lvs-ci-shared-rtvi"
 @Field String SHARED_RTVI_PORT = "8420"
+// Jenkins pipeline parameters / job env vars that override compose/BlueprintBuilderGenerated/.env
+@Field List COMPOSE_ENDPOINT_OVERRIDE_KEYS = [
+    'LVS_LLM_HOST',
+    'LVS_LLM_PORT',
+    'LVS_LLM_MODEL_NAME',
+    'VIA_VLM_ENDPOINT',
+    'VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME',
+]
+// Convenience pair: when VIA_VLM_ENDPOINT is unset, http://VIA_VLM_HOST:VIA_VLM_PORT/v1 is synthesized.
+@Field List COMPOSE_ENDPOINT_DERIVED_KEYS = [
+    'VIA_VLM_HOST',
+    'VIA_VLM_PORT',
+]
 // Setting number of frames to match the max frames per prompt supported by the VLM deployed by devops team
 @Field int RTVI_VLM_FRAMES_PER_CHUNK = 5
 
@@ -1551,7 +1564,7 @@ def getLvsDatabaseEnvFromCompose(String composeFilePath) {
     }
     try {
         def composed = parseComposePath(composeFilePath)
-        def envMap = parseEnvFile("${composed.dir}/.env")
+        def envMap = getComposeEnvMap(composed.dir)
         def compose = readYaml file: composeFilePath
         def lvsEnv = compose?.services?.lvs?.environment
         if (lvsEnv != null) {
@@ -1601,6 +1614,79 @@ def buildComposeProfileFlags(String composeProfiles = null) {
 }
 
 /**
+ * Resolves a single compose endpoint override from Jenkins.
+ * Precedence: pipeline parameter (per-run) > job environment variable > unset (use .env).
+ */
+def resolveComposeEndpointOverride(String key) {
+    def fromParam = null
+    try {
+        if (binding?.hasVariable('params')) {
+            fromParam = params?."${key}"
+        }
+    } catch (ignored) {
+        // params may be unavailable outside a pipeline context
+    }
+    if (fromParam != null && fromParam.toString().trim()) {
+        return fromParam.toString().trim()
+    }
+    def fromEnv = env."${key}"
+    if (fromEnv != null && fromEnv.toString().trim()) {
+        return fromEnv.toString().trim()
+    }
+    return null
+}
+
+/**
+ * Endpoint overrides injected into docker compose at runtime (not committed in .env).
+ * @return Map of KEY -> value for non-empty Jenkins parameters / job env vars
+ */
+def getComposeEndpointOverrides() {
+    def overrides = [:]
+    COMPOSE_ENDPOINT_OVERRIDE_KEYS.each { key ->
+        def val = resolveComposeEndpointOverride(key)
+        if (val) {
+            overrides[key] = val
+        }
+    }
+    if (!overrides.VIA_VLM_ENDPOINT) {
+        def host = resolveComposeEndpointOverride('VIA_VLM_HOST')
+        def port = resolveComposeEndpointOverride('VIA_VLM_PORT')
+        if (host && port) {
+            overrides.VIA_VLM_ENDPOINT = "http://${host}:${port}/v1"
+        }
+    }
+    return overrides
+}
+
+/**
+ * Parses a compose .env file and merges Jenkins endpoint overrides on top.
+ * Overrides win over sibling .env values for interpolation and compose export.
+ */
+def getComposeEnvMap(String composeDirOrEnvFilePath) {
+    def envFilePath = (composeDirOrEnvFilePath ?: '').trim()
+    if (!envFilePath) {
+        return getComposeEndpointOverrides()
+    }
+    if (!envFilePath.endsWith('.env')) {
+        envFilePath = "${envFilePath}/.env"
+    }
+    def envMap = parseEnvFile(envFilePath)
+    envMap.putAll(getComposeEndpointOverrides())
+    return envMap
+}
+
+def appendComposeEndpointOverrides(List composeEnv) {
+    def overrides = getComposeEndpointOverrides()
+    if (overrides) {
+        echo "Compose endpoint overrides from Jenkins: ${overrides.keySet().join(', ')}"
+    }
+    overrides.each { key, value ->
+        composeEnv << "${key}=${value}"
+    }
+    return composeEnv
+}
+
+/**
  * Builds the docker compose environment for Jenkins withEnv.
  * Keep values out of command strings so Blue Ocean/xtrace cannot print them.
  */
@@ -1620,6 +1706,7 @@ def buildDockerComposeEnvironment(
         "NGC_API_KEY=${resolvedNgcApiKey}",
         "LOCAL_NIM_CACHE=${nimCacheDir}",
         "VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=${framesPerChunk}",
+        "ASSET_BASE_URL=${env.ASSET_BASE_URL ?: ''}",
     ]
 
     if (nvidiaApiKey != null) {
@@ -1648,6 +1735,7 @@ def buildDockerComposeEnvironment(
         composeEnv << "COMPOSE_PROFILES=${env.COMPOSE_PROFILES}"
     }
 
+    appendComposeEndpointOverrides(composeEnv)
     return composeEnv
 }
 
@@ -2423,7 +2511,7 @@ def runKafkaLogstashE2ETest(boolean useSudo, Map envCredentials, String dockerIm
     //   RTVI_BASE_URL = os.environ.get("RTVI_VLM_URL", f"http://localhost:{RTVI_VLM_PORT}")
     // When .env sets RTVI_VLM_URL to an external host,
     // LVS inside the stack talks to that host; the pytest container must too.
-    def envMap = parseEnvFile("${composeDir}/.env")
+    def envMap = getComposeEnvMap(composeDir)
     def rtviVlmUrl  = (envMap?.get('RTVI_VLM_URL')  ?: '')
     def rtviVlmPort = (envMap?.get('RTVI_VLM_PORT') ?: '8420')
 
@@ -2669,7 +2757,7 @@ def runRtviE2ETest(boolean useSudo, Map envCredentials, String dockerImage,
         """
     }
 
-    def envMap = parseEnvFile("${composeDir}/.env")
+    def envMap = getComposeEnvMap(composeDir)
     def rtviVlmPort = envMap?.get('RTVI_VLM_PORT') ?: '8420'
 
     def dockerRunArgs = [
@@ -3034,20 +3122,21 @@ def runServiceTestSuite(boolean useSudo = true, boolean debugTests = false, Map 
 
         if (!llmBaseUrl || hasUnresolvedComposePlaceholder(llmBaseUrl)) {
             error("Integration tests require a fully-resolved LVS_LLM_BASE_URL but got '${llmBaseUrl}'. " +
-                  "Set LVS_LLM_HOST/LVS_LLM_PORT in ${composeDir}/.env (or set LVS_LLM_BASE_URL directly) " +
-                  "so that ${composeFilePath} interpolates to a real http://host:port/v1 URL.")
+                  "Set LVS_LLM_HOST/LVS_LLM_PORT in ${composeDir}/.env, or set Jenkins job parameters / job environment variables " +
+                  "LVS_LLM_HOST and LVS_LLM_PORT, so that ${composeFilePath} interpolates to a real http://host:port/v1 URL.")
         }
 
         if (!llmModelName || hasUnresolvedComposePlaceholder(llmModelName)) {
             error("Integration tests require a fully-resolved LVS_LLM_MODEL_NAME but got '${llmModelName}'. " +
-                  "Set LVS_LLM_MODEL_NAME in ${composeDir}/.env so ViaTestServer uses a model served by ${llmBaseUrl}.")
+                  "Set LVS_LLM_MODEL_NAME in ${composeDir}/.env or as a Jenkins job parameter / job environment variable " +
+                  "so ViaTestServer uses a model served by ${llmBaseUrl}.")
         }
 
         echo "Integration test config: LVS_DATABASE_BACKEND=${lvsDatabaseBackend}, ES_HOST=${esHost}, ES_PORT=${esPort}, LVS_LLM_BASE_URL=${llmBaseUrl}, LVS_LLM_MODEL_NAME=${llmModelName}"
 
         // Shared RTVI mode points both the compose LVS service and host-network
         // pytest containers at the same long-lived RTVI-VLM endpoint.
-        def envMap = parseEnvFile("${composeDir}/.env")
+        def envMap = getComposeEnvMap(composeDir)
         def rtviVlmPort = envMap?.get('RTVI_VLM_PORT') ?: '8000'
         def rtviVlmUrl = env.SHARED_RTVI_VLM_URL ?: envMap?.get('RTVI_VLM_URL') ?: "http://localhost:${rtviVlmPort}"
         if (env.SHARED_RTVI_VLM_URL) {
@@ -4224,7 +4313,7 @@ echo "=== syncWorkspaceToBareMetal: done (tar over ssh) ==="
  */
 def syncPerfMediaVolumeToBareMetal(String host, String user, String artifactoryUser, String artifactoryToken, String labelSlug, boolean useSudoDocker = true) {
     // Keep MEDIA_BASE_URL and MEDIA_FILES in sync with compose/media-server.yaml (downloader).
-    def mediaBaseUrl = 'https://artifactory.nvidia.com/artifactory/sw-ds-generic-bld-local/via-engine/media/perf/reencode'
+    def mediaBaseUrl = env.ASSET_BASE_URL ?: ''
     def mediaFiles = '0.5min.mp4 1min.mp4 2min.mp4 5min.mp4 10min.mp4 30min.mp4 60min.mp4 120min.mp4 720min.mkv'
     if (!host?.trim()) {
         error('syncPerfMediaVolumeToBareMetal: host is required')
@@ -5321,7 +5410,8 @@ def runComposeTests(String arch, String stageName, boolean debug, boolean useCom
         [var: 'HF_TOKEN_FOR_BUILDS', password: credentials.hfToken],
     ]]) {
         withCredentials([
-            usernamePassword(credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_TOKEN')
+            usernamePassword(credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_TOKEN'),
+            string(credentialsId: 'artifactory_path', variable: 'ASSET_BASE_URL')
         ]) {
             runBareMetalDockerComposeTest([
                 ngcApiKey: credentials.ngcApiKey,
@@ -5397,7 +5487,8 @@ def runIntegrationTests(String arch, boolean debug = false, boolean useComposeIm
             timeout(time: 60, unit: 'MINUTES') {
                 gitlabCommitStatus(name: "rtvi-e2e-${arch}", connection: gitLabConnection('gitlab-vss-lvs')) {
                     withCredentials([
-                        usernamePassword(credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_TOKEN')
+                        usernamePassword(credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_TOKEN'),
+                        string(credentialsId: 'artifactory_path', variable: 'ASSET_BASE_URL')
                     ]) {
                         def envCredentials = [
                             openaiApiKey: credentials.openaiApiKey,
@@ -5444,7 +5535,8 @@ def runIntegrationTests(String arch, boolean debug = false, boolean useComposeIm
             timeout(time: 60, unit: 'MINUTES') {
                 gitlabCommitStatus(name: "es-shard-limit-${arch}", connection: gitLabConnection('gitlab-vss-lvs')) {
                     withCredentials([
-                        usernamePassword(credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_TOKEN')
+                        usernamePassword(credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN', usernameVariable: 'ARTIFACTORY_USER', passwordVariable: 'ARTIFACTORY_TOKEN'),
+                        string(credentialsId: 'artifactory_path', variable: 'ASSET_BASE_URL')
                     ]) {
                         def envCredentials = [
                             openaiApiKey: credentials.openaiApiKey,
@@ -5888,7 +5980,7 @@ def executeBareMetalNodeTests(Map config = [:]) {
                 [var: 'HF_TOKEN', password: env.HF_TOKEN ?: '']
             ]]) {
                 def builtImageTag = resolveBuiltImageTag(runBuild)
-                def composeFilePath = "${serviceWorkspacePath()}/compose/BlueprintBuilderGenerated/LVS_Integrated-CR2_GptOss20B_3gpu/docker-compose.yml"
+                def composeFilePath = "${serviceWorkspacePath()}/compose/BlueprintBuilderGenerated/docker-compose.yml"
                 def perfConfigId = "3xH100-1x2-cr2-8b-gptoss-30b"
 
                 runBareMetalDockerComposePerfTest([

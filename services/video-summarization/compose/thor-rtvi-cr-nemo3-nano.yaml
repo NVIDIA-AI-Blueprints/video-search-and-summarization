@@ -1,0 +1,294 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: thor-rtvi-cr-nemo3-nano
+
+include:
+  - media-server.yaml
+  - sys-cache-cleaner.yaml
+
+services:
+  # ── GPU pre-check ──
+  gpu-precheck:
+    extends:
+      file: gpu-precheck.yaml
+      service: gpu-precheck
+    environment:
+      GPU_IDS_TO_CHECK: "${RTVI_GPU_0:-0},${LLM_GPU_0:-0}"
+
+  # ── Health check sidecars ──────────────────────────────────
+  wait-for-rtvi:
+    image: curlimages/curl:latest
+    command:
+      - sh
+      - -c
+      - >-
+        until curl -f http://rtvi-vlm:8000/v1/health/ready; do
+          echo 'Waiting for rtvi-vlm...'; sleep 2;
+        done; echo 'rtvi-vlm is ready!'
+    networks: [app-network]
+    restart: "no"
+
+  wait-for-llm:
+    image: curlimages/curl:latest
+    command:
+      - sh
+      - -c
+      - >-
+        until curl -fs http://nemotron-3-nano:9233/health; do
+          echo 'Waiting for nemotron-3-nano vLLM...'; sleep 5;
+        done; echo 'nemotron-3-nano vLLM is ready!'
+    networks: [app-network]
+    restart: "no"
+
+  wait-for-elasticsearch:
+    image: curlimages/curl:latest
+    command:
+      - sh
+      - -c
+      - >-
+        until nc -z elasticsearch 9300; do
+          echo 'Waiting for elasticsearch...'; sleep 2;
+        done; echo 'elasticsearch is ready!'
+    networks: [app-network]
+    restart: "no"
+
+  # ── LVS (VIA Engine, ARM64 iGPU build for Thor) ───────────
+  lvs:
+    image: ${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1}
+    environment:
+      # API keys
+      NGC_API_KEY: ${NGC_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+
+      # Server
+      BACKEND_PORT: "38111"
+      LVS_MCP_PORT: "38112"
+      VIA_DEV_API: "true"
+
+      # RTVI-VLM backend
+      RTVI_VLM_URL: http://rtvi-vlm:8000
+
+      # CA-RAG config
+      CA_RAG_CONFIG: /opt/nvidia/via/config/default_config.yaml
+      DISABLE_CA_RAG: ${DISABLE_CA_RAG:-false}
+      FORCE_CA_RAG_RESET: ${FORCE_CA_RAG_RESET:-}
+
+      # LLM (Nemotron-3-Nano-30B-A3B, served via vanilla vLLM — see nemotron-3-nano svc)
+      LVS_LLM_ENABLE: "true"
+      LVS_LLM_BASE_URL: http://nemotron-3-nano:9233/v1
+      LVS_LLM_MODEL_NAME: nvidia/nemotron-3-nano
+      LVS_EMB_ENABLE: "false"
+
+      # Database
+      LVS_DATABASE_BACKEND: elasticsearch_db
+      ES_HOST: elasticsearch
+      ES_PORT: "9200"
+      ES_TRANSPORT_PORT: "9300"
+
+      # Audio
+      ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
+
+      # OTEL (optional)
+      VIA_ENABLE_OTEL: ${VIA_ENABLE_OTEL:-false}
+      VIA_OTEL_ENDPOINT: ${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}
+      VIA_OTEL_EXPORTER: ${VIA_OTEL_EXPORTER:-console}
+      VIA_CTX_RAG_ENABLE_OTEL: ${VIA_CTX_RAG_ENABLE_OTEL:-false}
+      VIA_CTX_RAG_EXPORTER: ${VIA_OTEL_EXPORTER:-console}
+      VIA_CTX_RAG_OTEL_ENDPOINT: ${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}
+
+      # Logging
+      VSS_LOG_LEVEL: ${VSS_LOG_LEVEL:-INFO}
+
+    ports:
+      - ${LVS_BACKEND_PORT:-38111}:38111
+      - "38112"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ${VIA_LOG_DIR:-/dummy}${VIA_LOG_DIR:+:/tmp/via-logs}
+      - ${VIA_SRC_DIR:-/dummy}${VIA_SRC_DIR:+:/opt/nvidia/via:ro}
+      - ${EXAMPLE_STREAMS_DIR:-/dummy}${EXAMPLE_STREAMS_DIR:+:/opt/nvidia/via/streams:ro}
+      - ./configmaps/config.yaml:/opt/nvidia/via/config/default_config.yaml:ro
+      - via-hf-cache:/tmp/huggingface
+    depends_on:
+      rtvi-vlm:
+        condition: service_healthy
+      nemotron-3-nano:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+      wait-for-rtvi:
+        condition: service_completed_successfully
+      wait-for-llm:
+        condition: service_completed_successfully
+      wait-for-elasticsearch:
+        condition: service_completed_successfully
+      media-server:
+        condition: service_started
+        required: false  # gated by `media` profile
+    networks: [app-network]
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:38111/v1/ready"]
+      interval: 10s
+      timeout: 1s
+      retries: 100
+
+  # ── RTVI-VLM (Cosmos3-Nano-Reasoner, shares Thor iGPU) ────────
+  rtvi-vlm:
+    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1}
+    user: "1001:1001"
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      BACKEND_PORT: "8000"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-32}"
+      VLM_MODEL_TO_USE: ${VLM_MODEL_TO_USE:-cosmos-reason3}
+      VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.30}
+      VLLM_DISABLE_MM_PREPROCESSOR_CACHE: "${VLLM_DISABLE_MM_PREPROCESSOR_CACHE:-true}"
+      VLLM_ENABLE_PREFIX_CACHING: "${VLLM_ENABLE_PREFIX_CACHING:-false}"
+      MODEL_PATH: ${MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix}
+      ASSET_DOWNLOAD_AUTH_TOKENS: ${ASSET_DOWNLOAD_AUTH_TOKENS:-}
+      ASSET_DOWNLOAD_MAX_FILE_SIZE_GB: "${ASSET_DOWNLOAD_MAX_FILE_SIZE_GB:-12}"
+      ASSET_TMPFS_SIZE: "${ASSET_TMPFS_SIZE:-12g}"
+      MAX_ASSET_STORAGE_SIZE_GB: "${MAX_ASSET_STORAGE_SIZE_GB:-12}"
+      RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS: true
+    ports:
+      - "${RTVI_PORT:-8000}:8000"
+    volumes:
+      - rtvi-hf-cache:/tmp/huggingface
+    depends_on:
+      gpu-precheck:
+        condition: service_completed_successfully
+    networks: [app-network]
+    restart: "no"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              driver: nvidia
+              device_ids: ["${RTVI_GPU_0:-0}"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+      interval: 10s
+      timeout: 10s
+      retries: 100
+      start_period: 60s
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      stack: 67108864
+      nofile: { soft: 65535, hard: 65535 }
+    runtime: nvidia
+    shm_size: 16g
+    ipc: host
+
+  # ── LLM vLLM (Nemotron-3-Nano-30B-A3B-NVFP4, shares Thor iGPU) ──
+  nemotron-3-nano:
+    image: ${LLM_NIM_IMAGE:-nvcr.io/nvidia/vllm:25.12.post1-py3}
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HUB_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /opt/hf-cache
+      VLLM_CACHE_ROOT: /opt/hf-cache/vllm-cache
+      TRITON_CACHE_DIR: /opt/hf-cache/triton-cache
+      VLLM_USE_FLASHINFER_MOE_FP4: "1"
+      VLLM_FLASHINFER_MOE_BACKEND: throughput
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        PARSER=/opt/hf-cache/nano_v3_reasoning_parser.py
+        if [ ! -f "$$PARSER" ]; then
+          echo "Downloading nano_v3_reasoning_parser.py to $$PARSER"
+          mkdir -p /opt/hf-cache
+          curl -fL -o "$$PARSER" https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4/resolve/main/nano_v3_reasoning_parser.py
+        fi
+        cd /opt/hf-cache
+        exec vllm serve ${VLLM_MODEL_NAME:-nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4} \
+          --served-model-name nvidia/nemotron-3-nano \
+          --host 0.0.0.0 \
+          --port 9233 \
+          --tensor-parallel-size 1 \
+          --max-num-seqs ${VLLM_MAX_NUM_SEQS:-4} \
+          --max-model-len ${VLLM_MAX_MODEL_LEN:-32768} \
+          --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION_LLM:-0.30} \
+          --kv-cache-dtype fp8 \
+          --async-scheduling \
+          --trust-remote-code \
+          --enable-auto-tool-choice \
+          --tool-call-parser qwen3_coder \
+          --reasoning-parser-plugin /opt/hf-cache/nano_v3_reasoning_parser.py \
+          --reasoning-parser nano_v3
+    ports:
+      - "9233"
+    volumes:
+      - ${LOCAL_NIM_CACHE:-/tmp/nim-cache}:/opt/hf-cache
+    ipc: host
+    depends_on:
+      gpu-precheck:
+        condition: service_completed_successfully
+      rtvi-vlm:
+        condition: service_healthy
+    networks: [app-network]
+    restart: "no"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              driver: nvidia
+              device_ids: ["${LLM_GPU_0:-0}"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9233/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 200
+      start_period: 60s
+    runtime: nvidia
+    shm_size: 16g
+
+  # ── Elasticsearch ──────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:9.1.2
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      cluster.max_shards_per_node: ${ES_MAX_SHARDS_PER_NODE:-2000}
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms4g -Xmx4g}
+    ports:
+      - "9200"
+      - "9300"
+    networks: [app-network]
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_MEM_LIMIT:-6g}
+
+volumes:
+  via-hf-cache:
+  rtvi-hf-cache:
+  gpu-precheck-state:
+
+networks:
+  app-network:
+    driver: bridge

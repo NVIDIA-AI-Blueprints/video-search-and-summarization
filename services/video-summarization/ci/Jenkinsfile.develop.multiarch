@@ -166,6 +166,25 @@ pipeline {
         string(name: 'UNIT_TEST_TIMEOUT_MINUTES', defaultValue: '15', description: 'Unit test stage timeout in minutes (includes pytest run + coverage reporting)')
         string(name: 'DEPLOYMENT_TIMEOUT_MINUTES', defaultValue: '20', description: 'Docker Compose deployment timeout in minutes for bare-metal/perf workflow')
         string(name: 'SKIP_ES_SHARD_LIMIT', defaultValue: 'false', description: 'Emergency escape hatch: set to true to skip the ES shard limit regression test. Runs by default on every amd64 pipeline.')
+
+        // ── External LLM / VLM endpoints (compose integration tests) ────────
+        // Empty = use compose/BlueprintBuilderGenerated/.env. Same names may be
+        // set as job-level environment variables on the Jenkins job (persistent).
+        string(name: 'LVS_LLM_HOST', defaultValue: '',
+               description: 'External summarization LLM host/IP for compose tests (overrides .env). Job env var LVS_LLM_HOST also accepted.')
+        string(name: 'LVS_LLM_PORT', defaultValue: '',
+               description: 'External summarization LLM port, e.g. 31081 (overrides .env). Job env var LVS_LLM_PORT also accepted.')
+        string(name: 'LVS_LLM_MODEL_NAME', defaultValue: '',
+               description: 'LLM model id served by LVS_LLM_HOST:LVS_LLM_PORT (overrides .env).')
+        string(name: 'VIA_VLM_ENDPOINT', defaultValue: '',
+               description: 'Full OpenAI-compat VLM base URL for rtvi-vlm, e.g. http://10.x.x.x:31082/v1 (overrides .env).')
+        string(name: 'VIA_VLM_HOST', defaultValue: '',
+               description: 'VLM host when VIA_VLM_ENDPOINT is unset; combined with VIA_VLM_PORT to form http://host:port/v1.')
+        string(name: 'VIA_VLM_PORT', defaultValue: '',
+               description: 'VLM port when using VIA_VLM_HOST instead of VIA_VLM_ENDPOINT.')
+        string(name: 'VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME', defaultValue: '',
+               description: 'openai-compat model deployment name for the RTVI VLM backend (overrides .env).')
+
         // ── Code Quality ────────────────────────────────────────────────────
         choice(name: 'RUN_LINT', choices: ['true', 'false'], description: 'Run Python linting with flake8')
         choice(name: 'RUN_SONARQUBE', choices: ['true', 'false'], description: 'Run SonarQube SAST analysis')

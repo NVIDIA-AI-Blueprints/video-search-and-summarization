@@ -303,6 +303,10 @@ pipeline {
                                             credentialsId: 'ARTIFACTORY_DS_GENERIC_BLD_TOKEN',
                                             usernameVariable: 'ARTIFACTORY_USER',
                                             passwordVariable: 'ARTIFACTORY_TOKEN'
+                                        ),
+                                        string(
+                                            credentialsId: 'artifactory_path',
+                                            variable: 'ASSET_BASE_URL'
                                         )
                                     ]) {
                                         helpers.runPerfConfigsParallel([

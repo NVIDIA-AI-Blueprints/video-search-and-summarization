@@ -63,6 +63,20 @@ pipeline {
             defaultValue: '',
             description: 'Optional: Specific GPU type to request (e.g., A100_PCIE_40GB, H100). Leave empty to use any available GPU on the node.'
         )
+        string(name: 'LVS_LLM_HOST', defaultValue: '',
+               description: 'External summarization LLM host/IP for compose tests (overrides .env). Job env var LVS_LLM_HOST also accepted.')
+        string(name: 'LVS_LLM_PORT', defaultValue: '',
+               description: 'External summarization LLM port, e.g. 31081 (overrides .env).')
+        string(name: 'LVS_LLM_MODEL_NAME', defaultValue: '',
+               description: 'LLM model id served by LVS_LLM_HOST:LVS_LLM_PORT (overrides .env).')
+        string(name: 'VIA_VLM_ENDPOINT', defaultValue: '',
+               description: 'Full OpenAI-compat VLM base URL for rtvi-vlm, e.g. http://10.x.x.x:31082/v1 (overrides .env).')
+        string(name: 'VIA_VLM_HOST', defaultValue: '',
+               description: 'VLM host when VIA_VLM_ENDPOINT is unset; combined with VIA_VLM_PORT.')
+        string(name: 'VIA_VLM_PORT', defaultValue: '',
+               description: 'VLM port when using VIA_VLM_HOST instead of VIA_VLM_ENDPOINT.')
+        string(name: 'VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME', defaultValue: '',
+               description: 'openai-compat model deployment name for the RTVI VLM backend (overrides .env).')
     }
 
     stages {
