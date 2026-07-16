@@ -6,3 +6,6 @@ utils/venv/
 
 # BEV visualizer offline output.
 bev-output/
+
+# Saved perception videos (SAVE_VIDEO=1).
+video-output/

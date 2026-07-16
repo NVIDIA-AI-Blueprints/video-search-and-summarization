@@ -15,10 +15,15 @@
 #   - kafka sink conn-str = KAFKA_BOOTSTRAP host;port;RAW_TOPIC
 #   - [sink0] on-screen display: enabled with OSD=1 (needs an X display), else off
 #   - RT-DETR model-engine-file batch suffix = NUM_CAMS
+#   - INPUT_MODE=file: static [source-list] of file:///videos/<cam>.mp4 + SEI/sync
+#     off (plays local clips once; no add-streams.sh registration)
+#   - SAVE_VIDEO=1 (needs INPUT_MODE=file): enable the [sink2] tiled grid file
+#     sink → video-output/grid-view.mkv (the whole annotated camera grid; see README)
 #
-# Usage:  [OSD=0|1] [TRACKER_CONFIG=/path/to/tracker.yml] ./scripts/stage-configs.sh
-# Reads NUM_CAMS / DS_HTTP_PORT / KAFKA_BOOTSTRAP / RAW_TOPIC from docker/.env
-# (already-exported environment values take precedence).
+# Usage:  [OSD=0|1] [INPUT_MODE=stream|file] [SAVE_VIDEO=0|1]
+#         [TRACKER_CONFIG=/path/to/tracker.yml] ./scripts/stage-configs.sh
+# Reads NUM_CAMS / DS_HTTP_PORT / KAFKA_BOOTSTRAP / RAW_TOPIC / INPUT_MODE /
+# VIDEO_DIR / SAVE_VIDEO from docker/.env (already-exported env values win).
 #   TRACKER_CONFIG  base tracker config to stage (default:
 #                   configs/ds-mv3dt-tracker-config.yml). Point this at your
 #                   own tracker config to use it instead of the sample.
@@ -39,6 +44,16 @@ DS_HTTP_PORT="${DS_HTTP_PORT:-9000}"
 KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-localhost:9092}"
 RAW_TOPIC="${RAW_TOPIC:-mdx-raw}"
 OSD="${OSD:-0}"
+INPUT_MODE="${INPUT_MODE:-stream}"
+SAVE_VIDEO="${SAVE_VIDEO:-0}"
+
+# Saving requires file input: the encoded grid video finalizes cleanly only at
+# end-of-stream, which local clips reach but live RTSP streams never do.
+if [ "$SAVE_VIDEO" = "1" ] && [ "$INPUT_MODE" != "file" ]; then
+  echo "ERROR: SAVE_VIDEO=1 requires INPUT_MODE=file (saved videos finalize only at" >&2
+  echo "       end-of-stream, which live streams don't reach). Set INPUT_MODE=file." >&2
+  exit 1
+fi
 TRACKER_CONFIG="${TRACKER_CONFIG:-$ROOT/configs/ds-mv3dt-tracker-config.yml}"
 [ -f "$TRACKER_CONFIG" ] || { echo "ERROR: tracker config not found: $TRACKER_CONFIG" >&2; exit 1; }
 
@@ -48,11 +63,28 @@ KAFKA_PORT_ONLY="${KAFKA_BOOTSTRAP##*:}"
 STAGE="$ROOT/generated/configs"
 GEN="$ROOT/generated"
 
+# Camera names (sorted, C locale to match the tracker rewrite's Python sorted()).
+# Used to build the file-mode source-list (uri/id per camera, in list order).
+CAMS=()
+if ls "$GEN/camInfo"/*.yml >/dev/null 2>&1; then
+  mapfile -t CAMS < <(cd "$GEN/camInfo" && LC_ALL=C ls -1 *.yml | sed 's/\.yml$//')
+fi
+
+# file-mode source URIs / sensor ids (file:///videos/<cam>.mp4), built from CAMS.
+URIS=""; IDS=""
+if [ "$INPUT_MODE" = "file" ]; then
+  if [ ${#CAMS[@]} -eq 0 ]; then
+    echo "ERROR: INPUT_MODE=file needs camInfo — run scripts/generate-configs.sh first" >&2; exit 1
+  fi
+  [ -n "${VIDEO_DIR:-}" ] || echo "   ⚠ INPUT_MODE=file but VIDEO_DIR is unset — set it in docker/.env to your <sensor_id>.mp4 dir" >&2
+  for cam in "${CAMS[@]}"; do URIS+="file:///videos/${cam}.mp4;"; IDS+="${cam};"; done
+fi
+
 # Adaptive tiled-display grid: rows = floor(sqrt(b)), cols = ceil(b/rows) — a
 # landscape rectangle that fits all sources with the fewest empty tiles.
 read -r ROWS COLS < <(python3 -c "import math,sys;b=max(1,int(sys.argv[1]));r=max(1,math.isqrt(b));print(r, -(-b//r))" "$NUM_CAMS")
 
-echo "── Staging configs → $STAGE  (NUM_CAMS=$NUM_CAMS grid=${ROWS}x${COLS} port=$DS_HTTP_PORT kafka=$KAFKA_HOST:$KAFKA_PORT_ONLY OSD=$OSD)"
+echo "── Staging configs → $STAGE  (NUM_CAMS=$NUM_CAMS grid=${ROWS}x${COLS} port=$DS_HTTP_PORT kafka=$KAFKA_HOST:$KAFKA_PORT_ONLY OSD=$OSD INPUT_MODE=$INPUT_MODE SAVE_VIDEO=$SAVE_VIDEO)"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 cp "$ROOT"/configs/* "$STAGE/"
 rm -f "$STAGE/mosquitto.conf"   # broker conf, not a DeepStream config
@@ -69,38 +101,15 @@ if [ ! -d "$ROOT/generated/camInfo" ] || ! ls "$ROOT/generated/camInfo"/*.yml >/
   echo "   ⚠ no camInfo at generated/camInfo — run scripts/generate-configs.sh first" >&2
 else
   # Stage the tracker config (TRACKER_CONFIG or the bundled sample) with its
-  # cameraModelFilepath map rewritten to the generated cameras (the sample
-  # hardcodes the 4-cam warehouse names).
-  echo "   staging tracker config: $TRACKER_CONFIG (cameraModelFilepath → generated/camInfo)"
-  python3 - "$TRACKER_CONFIG" "$ROOT/generated/camInfo" "$STAGE/ds-mv3dt-tracker-config.yml" <<'PY'
-import re, sys
-from pathlib import Path
-
-base, caminfo_dir, out = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
-cams = sorted(p.stem for p in caminfo_dir.glob("*.yml"))
-assert cams, f"no camInfo files in {caminfo_dir}"
-
-lines = base.read_text().splitlines(keepends=True)
-result, i = [], 0
-while i < len(lines):
-    line = lines[i]
-    result.append(line)
-    m = re.match(r"^(\s*)cameraModelFilepath:\s*$", line)
-    i += 1
-    if not m:
-        continue
-    indent = m.group(1)
-    # skip the existing (more-indented) map entries
-    while i < len(lines) and (lines[i].strip() == "" or
-                              (len(lines[i]) - len(lines[i].lstrip())) > len(indent)):
-        if lines[i].strip() == "" :
-            break
-        i += 1
-    for cam in cams:
-        result.append(f"{indent}  {cam}: /tmp/camInfo/{cam}.yml\n")
-out.write_text("".join(result))
-print(f"   {len(cams)} cameras: {', '.join(cams[:6])}{' ...' if len(cams) > 6 else ''}")
-PY
+  # ObjectModelProjection.cameraModelFilepath map rewritten to the generated cameras
+  # (the sample hardcodes the 4-cam warehouse names).
+  echo "   staging tracker config: $TRACKER_CONFIG (${#CAMS[@]} cameras)"
+  entries=$(for cam in "${CAMS[@]}"; do printf '    %s: /tmp/camInfo/%s.yml\n' "$cam" "$cam"; done)
+  awk -v entries="$entries" '
+    /^[[:space:]]+cameraModelFilepath:[[:space:]]*$/ { print; print entries; skip=1; next }
+    skip==1 && /^[[:space:]][[:space:]][[:space:]][[:space:]][^[:space:]]/ { next }  # drop old entries
+    { skip=0; print }
+  ' "$TRACKER_CONFIG" > "$STAGE/ds-mv3dt-tracker-config.yml"
 fi
 
 # RT-DETR engine file name follows the batch size (TensorRT builds it on first
@@ -108,21 +117,57 @@ fi
 ONNX=$(sed -nE 's/^[[:space:]]*onnx-file:[[:space:]]*([^[:space:]]+).*/\1/p' "$STAGE/ds-pgie-config.yml" | head -1)
 [ -n "$ONNX" ] && sed -i -E "s#(model-engine-file:[[:space:]]*).*#\1${ONNX}_b${NUM_CAMS}_gpu0_fp16.engine#" "$STAGE/ds-pgie-config.yml"
 
-# Edit the staged main config in place (section-aware: both sinks use "enable=").
+# Edit the staged main config in place, one key at a time.
 MAIN="$STAGE/ds-main-config-mv3dt.txt"
-awk -v rows="$ROWS" -v cols="$COLS" -v b="$NUM_CAMS" -v port="$DS_HTTP_PORT" \
-    -v osd="$OSD" -v khost="$KAFKA_HOST" -v kport="$KAFKA_PORT_ONLY" -v ktopic="$RAW_TOPIC" '
-  /^\[/ { section=$0 }
-  /^rows=/           { print "rows=" rows; next }
-  /^columns=/        { print "columns=" cols; next }
-  /^max-batch-size=/ { print "max-batch-size=" b; next }
-  /^batch-size=/     { print "batch-size=" b; next }
-  /^http-port=/      { print "http-port=" port; next }
-  /^msg-broker-conn-str=/ { print "msg-broker-conn-str=" khost ";" kport ";" ktopic; next }
-  section=="[sink0]" && /^enable=/ { print (osd=="1" ? "enable=1" : "enable=0"); next }
-  section=="[sink1]" && /^enable=/ { print "enable=1"; next }
-  { print }
-' "$MAIN" > "$MAIN.tmp" && mv "$MAIN.tmp" "$MAIN"
+
+# set_ini SECTION KEY VALUE — rewrite an existing "KEY=..." line inside [SECTION] of $MAIN,
+# in place, leaving line order, comments and every other section untouched.
+set_ini() {
+  awk -v sec="[$1]" -v key="$2" -v val="$3" '
+    /^\[/ { in_sec = ($0 == sec) }
+    in_sec && index($0, key "=") == 1 { print key "=" val; next }
+    { print }
+  ' "$MAIN" > "$MAIN.tmp" && mv "$MAIN.tmp" "$MAIN"
+}
+
+set_ini tiled-display rows "$ROWS"
+set_ini tiled-display columns "$COLS"
+set_ini tiled-display enable 1                  # tiler on: on-screen grid + SAVE_VIDEO grid sink
+set_ini source-list  max-batch-size "$NUM_CAMS"
+set_ini source-list  http-port "$DS_HTTP_PORT"
+set_ini streammux    batch-size "$NUM_CAMS"
+set_ini primary-gie  batch-size "$NUM_CAMS"
+set_ini sink1        msg-broker-conn-str "$KAFKA_HOST;$KAFKA_PORT_ONLY;$RAW_TOPIC"
+set_ini sink0 enable "$([ "$OSD" = 1 ] && echo 1 || echo 0)"          # on-screen OSD (needs a display)
+set_ini sink1 enable 1                                                # Kafka metadata sink
+set_ini sink2 enable "$([ "$SAVE_VIDEO" = 1 ] && echo 1 || echo 0)"   # grid file sink (SAVE_VIDEO)
+
+# File input: static file:// [source-list], SEI extraction off, clips play once, and the
+# system clock stamped as NTP so the Kafka/BEV output has per-frame timestamps.
+if [ "$INPUT_MODE" = "file" ]; then
+  set_ini source-list num-source-bins "$NUM_CAMS"
+  set_ini source-list list "$URIS"
+  set_ini source-list sensor-id-list "$IDS"
+  set_ini source-list sensor-name-list "$IDS"
+  set_ini source-list extract-sei-type5-data 0
+  set_ini streammux   extract-sei-sim-time 0
+  set_ini streammux   attach-sys-ts-as-ntp 1
+  set_ini streammux   live-source 0
+  set_ini streammux   drop-backward-sei 0
+  set_ini streammux   sync-inputs-ntp 0
+  set_ini streammux   align-first-buffer 0
+  set_ini streammux   drop-pipeline-eos 0
+fi
+
+# SAVE_VIDEO: the grid file sink ([sink2], enabled above) writes to /video-output;
+# make sure the host dir exists and is writable by the container (possibly
+# non-root). The sink template itself (container/codec/enc-type/output-file) is
+# baked into configs/ds-main-config-mv3dt.txt.
+if [ "$SAVE_VIDEO" = "1" ]; then
+  mkdir -p "$ROOT/video-output"
+  chmod 777 "$ROOT/video-output"   # the container (possibly non-root) writes here
+  echo "   SAVE_VIDEO=1 → grid view into video-output/grid-view.mkv"
+fi
 
 # The container's runtime user must be able to read the bind-mounted configs
 # regardless of the host umask (e.g. 027 leaves them group-only).
@@ -131,3 +176,6 @@ chmod -R o+rX "$ROOT/generated"
 echo "── Staged. Launch from the docker/ directory:"
 echo "   cd docker && COMPOSE_PROFILES=mosquitto,kafka docker compose up -d   # bundled brokers"
 echo "   cd docker && docker compose up -d                                    # own brokers"
+if [ "$INPUT_MODE" = "file" ]; then
+  echo "   INPUT_MODE=file: sources are static (VIDEO_DIR/*.mp4) — no add-streams.sh needed; clips play once."
+fi

@@ -553,10 +553,10 @@ def draw_objects_on_map(frame_data, T_ov2px, map_img, trajectories, object_color
 
 def record_video_headless(dataset_path, output_path, show_ids, expected_sensors, average_multi_cam,
                           verbose=False, timestamp_mode=False, bucket_ms=17.0, flush_delay_ms=100.0,
-                          fps=30):
-    """Headless offline capture for a continuous, manually-stopped stream: open the mp4 up front
-    and write each frame as it arrives — bounded memory, frame-drops under load (28-cam scale),
-    waits for the first message, finalizes the mp4 on Ctrl+C (SIGINT/SIGTERM)."""
+                          fps=30, exit_on_idle=15.0):
+    """Headless offline capture: write every completed frame to the mp4 as it drains (lossless).
+    Finalize on Ctrl+C, or once the stream has started, after `exit_on_idle` seconds with no new
+    message (a file source plays once then stops; exit_on_idle<=0 disables the auto-exit)."""
     map_img, T_ov2px = load_map_and_transforms(dataset_path)
     map_img_resized, scale_matrix, new_width, new_height = setup_map_scaling(map_img, allow_headless=True)
     T_ov2px_scaled = np.dot(scale_matrix, T_ov2px)
@@ -583,13 +583,16 @@ def record_video_headless(dataset_path, output_path, show_ids, expected_sensors,
     written = 0
     last_frame_id = None
     waiting_logged = False
+    last_msg_time = None   # for the idle auto-exit
     try:
         # live tail, fresh group: capture from subscribe onward (no stale backlog)
         consumer = create_kafka_consumer(f'mv3dt_bev_rec_{os.getpid()}', consumer_timeout_ms=50,
                                          auto_offset_reset='latest')
-        print(f"Recording BEV → {video_path}  (Ctrl+C to stop recording) ...", flush=True)
+        idle_note = f", auto-stop after {exit_on_idle:.0f}s idle" if exit_on_idle > 0 else ""
+        print(f"Recording BEV → {video_path}  (Ctrl+C to stop{idle_note}) ...", flush=True)
 
         while not stop["flag"]:
+            got = False
             try:
                 batch = consumer.poll(timeout_ms=50)
                 for _, messages in batch.items():
@@ -600,13 +603,16 @@ def record_video_headless(dataset_path, output_path, show_ids, expected_sensors,
                             frame_dict = _frame_to_dict(frame)
                             frame_buffer.add_frame(frame_dict.get('id', 'unknown'),
                                                    frame_dict.get('sensorId', 'unknown'), frame_dict)
+                            got = True
                         except Exception:
                             continue
             except Exception:
                 pass
+            if got:
+                last_msg_time = time.time()
 
-            # drain ready frames; timestamp mode keeps only the newest bucket (frame-drop)
-            pending_ts = None
+            # Write every ready frame (offline recording is lossless — the live window keeps
+            # only the newest bucket to stay real-time). Buckets drain in ascending order.
             while True:
                 frame_id, frame_data = frame_buffer.get_complete_frame()
                 if not frame_data:
@@ -615,7 +621,12 @@ def record_video_headless(dataset_path, output_path, show_ids, expected_sensors,
                     if last_frame_id is not None and frame_id <= last_frame_id:
                         continue
                     last_frame_id = frame_id
-                    pending_ts = (frame_id, frame_data)
+                    vis_img, frame_history = draw_objects_on_map(
+                        frame_data, T_ov2px_scaled, map_img_resized, trajectories, object_colors,
+                        frame_id, frame_history, show_ids, average_multi_cam)
+                    # timestamp mode: sequential counter + readable timestamp (bucket key is meaningless)
+                    draw_overlay(vis_img, written + 1, _readable_timestamp(frame_data))
+                    video_writer.write(vis_img); written += 1
                 else:
                     if last_frame_id is not None and 0 < last_frame_id - frame_id < 30:
                         continue
@@ -625,23 +636,18 @@ def record_video_headless(dataset_path, output_path, show_ids, expected_sensors,
                         frame_id, frame_history, show_ids, average_multi_cam)
                     draw_overlay(vis_img, frame_id)   # frame-id mode: raw frame id
                     video_writer.write(vis_img); written += 1
-                    if written % 300 == 0:   # ~10 s at 30 FPS: show recording is alive
-                        print(f"  recorded {written} frames ...", flush=True)
-
-            if timestamp_mode and pending_ts is not None:
-                frame_id, frame_data = pending_ts
-                vis_img, frame_history = draw_objects_on_map(
-                    frame_data, T_ov2px_scaled, map_img_resized, trajectories, object_colors,
-                    frame_id, frame_history, show_ids, average_multi_cam)
-                # timestamp mode: sequential counter + readable timestamp (bucket key is meaningless)
-                draw_overlay(vis_img, written + 1, _readable_timestamp(frame_data))
-                video_writer.write(vis_img); written += 1
                 if written % 300 == 0:   # ~10 s at 30 FPS: show recording is alive
                     print(f"  recorded {written} frames ...", flush=True)
 
             if written == 0 and not waiting_logged:
                 print("Waiting for first message ...", flush=True)
                 waiting_logged = True
+
+            # stream ended once no new message has arrived for exit_on_idle seconds
+            if (exit_on_idle > 0 and last_msg_time is not None
+                    and (time.time() - last_msg_time) > exit_on_idle):
+                print(f"\nNo messages for {exit_on_idle:.0f}s — stream ended, finalizing.", flush=True)
+                break
     finally:
         # finalize the mp4 first, then hard-exit (consumer.close() can block on a torn-down broker)
         video_writer.release()
@@ -872,6 +878,9 @@ def parse_args():
                             'time-skewed multi-container messages for an instant land first and '
                             'the live-edge bucket is not stalled for the full timeout. Should '
                             'exceed the cross-container timestamp skew (~2 frame periods).')
+    parser.add_argument('--exit-on-idle', type=float, default=15.0,
+                       help='Offline mode: finalize and exit after this many seconds with no new '
+                            'message once the stream started (default 15; 0 disables).')
 
     return parser.parse_args()
 
@@ -882,11 +891,13 @@ def main():
     if args.timestamp_buffer:
         print(f"Buffering by timestamp bucket ({args.bucket_ms} ms)")
     if args.offline:
-        # Incremental headless capture (continuous stream → mp4, finalized on Ctrl+C).
+        # Incremental headless capture (continuous stream → mp4). Finalizes on Ctrl+C or,
+        # once the stream ends, after --exit-on-idle seconds of silence.
         record_video_headless(args.dataset_path, args.output_path, args.show_ids, expected_sensors,
                               args.average_multi_cam, args.verbose,
                               timestamp_mode=args.timestamp_buffer, bucket_ms=args.bucket_ms,
-                              flush_delay_ms=args.timestamp_buffer_delay_ms)
+                              flush_delay_ms=args.timestamp_buffer_delay_ms,
+                              exit_on_idle=args.exit_on_idle)
     else:
         real_time_visualization(args.dataset_path, args.output_path, args.show_ids, expected_sensors, args.average_multi_cam, args.verbose,
                                 timestamp_mode=args.timestamp_buffer, bucket_ms=args.bucket_ms,

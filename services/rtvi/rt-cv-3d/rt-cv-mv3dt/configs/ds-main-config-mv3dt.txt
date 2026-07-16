@@ -110,14 +110,16 @@ qos=0
 nvdslogger=1
 
 [sink2]
+# Grid-view (tiled) file sink
 enable=0
 type=3
-container=1
-codec=3
+container=2
+codec=1
+enc-type=0
 sync=1
-bitrate=2000000
-output-file=out.mp4
+profile=0
 source-id=0
+output-file=/video-output/grid-view.mkv
 
 [sink3]
 enable=0
@@ -144,6 +146,7 @@ subscribe-topic-list=<topic1>;<topic2>;<topicN>
 [osd]
 enable=1
 gpu-id=0
+display-text=1
 border-width=1
 text-size=15
 text-color=1;1;1;1;

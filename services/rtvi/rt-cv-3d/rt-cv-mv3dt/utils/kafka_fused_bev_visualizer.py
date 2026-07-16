@@ -14,7 +14,7 @@
 # factory (with its BEV_KAFKA_BROKER / BEV_KAFKA_TOPIC env overrides) from
 # kafka_bev_visualizer.py; that module is imported, not modified.
 
-import os, argparse, signal
+import os, argparse, signal, time
 from datetime import datetime
 from collections import defaultdict
 
@@ -133,9 +133,11 @@ def real_time_visualization(dataset_path, output_path, show_ids, verbose=False):
         cv2.destroyAllWindows()
 
 
-def record_video_headless(dataset_path, output_path, show_ids, verbose=False, fps=30):
-    """Headless capture: write each fused frame to an mp4 as it arrives; finalize
-    on Ctrl+C (SIGINT/SIGTERM)."""
+def record_video_headless(dataset_path, output_path, show_ids, verbose=False, fps=30,
+                          exit_on_idle=15.0):
+    """Headless capture: write each fused frame to an mp4 as it arrives. Finalize on Ctrl+C, or
+    once the stream has started, after `exit_on_idle` seconds with no new message (a file source
+    plays once then stops; exit_on_idle<=0 disables the auto-exit)."""
     map_img, T_ov2px = load_map_and_transforms(dataset_path)
     map_img_resized, scale_matrix, new_width, new_height = setup_map_scaling(
         map_img, allow_headless=True)
@@ -161,18 +163,22 @@ def record_video_headless(dataset_path, output_path, show_ids, verbose=False, fp
     written = 0
     last_bucket = None
     waiting_logged = False
+    last_msg_time = None   # for the idle auto-exit
     try:
         consumer = create_kafka_consumer(f"mv3dt_fused_rec_{os.getpid()}",
                                          consumer_timeout_ms=50, auto_offset_reset="latest")
-        print(f"Recording fused BEV → {video_path}  (Ctrl+C to stop recording) ...",
+        idle_note = f", auto-stop after {exit_on_idle:.0f}s idle" if exit_on_idle > 0 else ""
+        print(f"Recording fused BEV → {video_path}  (Ctrl+C to stop{idle_note}) ...",
               flush=True)
         while not stop["flag"]:
             try:
                 batch = consumer.poll(timeout_ms=50)
             except Exception:
                 batch = {}
+            got = False
             for _, messages in batch.items():
                 for msg in messages:
+                    got = True
                     frame_dict, last_bucket = _parse_fused(msg.value, last_bucket, verbose)
                     if frame_dict is None:
                         continue
@@ -184,9 +190,17 @@ def record_video_headless(dataset_path, output_path, show_ids, verbose=False, fp
                     video_writer.write(vis_img)
                     if written % 300 == 0:   # ~10 s at 30 FPS: show recording is alive
                         print(f"  recorded {written} frames ...", flush=True)
+            if got:
+                last_msg_time = time.time()
             if written == 0 and not waiting_logged:
                 print("Waiting for first fused message ...", flush=True)
                 waiting_logged = True
+            # stream ended once no new message has arrived for exit_on_idle seconds
+            if (exit_on_idle > 0 and last_msg_time is not None
+                    and (time.time() - last_msg_time) > exit_on_idle):
+                print(f"\nNo fused messages for {exit_on_idle:.0f}s — stream ended, finalizing.",
+                      flush=True)
+                break
     finally:
         # finalize the mp4 first, then hard-exit (consumer.close() can block on a
         # torn-down broker)
@@ -213,6 +227,9 @@ def parse_args():
                         help="Show object IDs near trajectory heads")
     parser.add_argument("--verbose", action="store_true",
                         help="Print warnings and diagnostic messages")
+    parser.add_argument("--exit-on-idle", type=float, default=15.0,
+                        help="Offline mode: finalize and exit after this many seconds with no new "
+                             "message once the stream started (default 15; 0 disables).")
     return parser.parse_args()
 
 
@@ -220,7 +237,7 @@ def main():
     args = parse_args()
     if args.offline:
         record_video_headless(args.dataset_path, args.output_path, args.show_ids,
-                              args.verbose)
+                              args.verbose, exit_on_idle=args.exit_on_idle)
     else:
         real_time_visualization(args.dataset_path, args.output_path, args.show_ids,
                                 args.verbose)

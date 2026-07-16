@@ -45,6 +45,11 @@ services:
       - ./init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh:ro
       # X11 socket for the optional on-screen display (OSD=1 staging); harmless headless.
       - /tmp/.X11-unix:/tmp/.X11-unix
+      # Local video files for INPUT_MODE=file (read-only). Harmless '.' default when
+      # unused (stream mode); set VIDEO_DIR in .env to your <sensor_id>.mp4 directory.
+      - ${VIDEO_DIR:-.}:/videos:ro
+      # Saved perception videos for SAVE_VIDEO=1 (grid-view + per-camera mp4s).
+      - ../video-output:/video-output
     command: ["bash", "-c", "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh"]
     # Wait for the bundled brokers when their profiles are enabled (the MV3DT
     # tracker fails at startup if MQTT is unreachable; the kafka sink needs the

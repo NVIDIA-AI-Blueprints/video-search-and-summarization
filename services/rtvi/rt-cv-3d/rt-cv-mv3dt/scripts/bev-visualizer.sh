@@ -95,6 +95,9 @@ if [[ ${#mode[@]} -eq 0 ]] && ! "$VENV_PY" -c "import cv2,re,sys; sys.exit(0 if 
   echo "   ⚠ OpenCV has no GUI support (headless build) — falling back to --offline mp4"
   mode=(--offline)
 fi
+# offline recording auto-finalizes when the stream ends (no message for N seconds, default 15);
+# BEV_EXIT_ON_IDLE=0 disables it (stop with Ctrl+C). Ignored for the live window.
+[[ "${mode[*]}" == *--offline* ]] && mode+=(--exit-on-idle "${BEV_EXIT_ON_IDLE:-15}")
 
 # 5. object IDs near trajectory heads — on by default; BEV_SHOW_IDS=0 to disable
 ids=()
