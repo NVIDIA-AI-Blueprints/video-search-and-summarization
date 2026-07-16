@@ -129,6 +129,11 @@ For IN-1 specifically:
 - "Stored in Elasticsearch" → ELK (carries `caption-storage`, `kafka-ingestion`)
 - "Video source" (RTSP and uploaded files) → VIOS (carries `rtsp-ingestion`, `video-upload`)
 
+For realtime-alert profiles (AT-1 / `alert_source=vlm-realtime`):
+- "Realtime alerts", "continuous VLM monitoring", "POST /api/v1/realtime" → Alert Microservice (`patch-alerts.md`, `alert_source=vlm-realtime`)
+- **Required peers:** VIOS (sensor registration + `live_stream_url`), RT-VLM (driven by Alert Bridge), ELK (Kafka + ES sink)
+- **Canonical media path:** NvStreamer or external RTSP → **VIOS** → **Alert Bridge** → RT-VLM → Kafka `mdx-vlm-incidents` → ES. Never skip VIOS in the Step 4 diagram or smoke test — see `references/validation-harness.md § 4b` and `references/architecture-diagram-template.md` AT-1 example.
+
 ### Step 2 — Read the Integration Contract + Patch Reference for Each Candidate
 
 For each selected microservice, read two sources: (a) its **integration contract** — `integrate-<microservice>.md` from `skills/<skill-folder>/references/` (peers, inputs/outputs, env vars, constraints); and (b) its **`component_services:` block + patch specifics** from build-vision-agent's own per-service **patch reference** — `references/patch-vios.md` (VIOS), `references/patch-rt-vlm.md` (RT-VLM), or `references/integrate-elk.md` (ELK, co-located). The catalog (`references/microservice-catalog.md`) names the patch reference per microservice. Extract:
@@ -270,7 +275,10 @@ The generated SKILL.md must include:
 - **Bring-up command** — the exact `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> up -d` invocation.
 - **Health-check loop** — poll each service's healthcheck endpoint until pass or per-service `start_period` timeout; fail loudly with the specific service name when a check times out.
 - **Tear-down command** — `docker compose --env-file build-output/.env -f build-output/compose.yml --profile <profile-name> down -v` (note: `-v` removes named volumes; warn the operator inline).
-- **Post-deploy smoke test** — one curl or kafka-console-consumer command per "Outputs" section in the bundled microservice skills' `integrate-<microservice>.md`, so the operator can confirm the wiring actually works. **When the NvStreamer validation harness is included** (sidecar `validation_harness:` key), also emit the streaming-path smoke sequence from `references/validation-harness.md § 4`: verify NvStreamer up (`GET :31000/vst/api/v1/sensor/version` → `type=="streamer"`), the sample auto-discovered (`/sensor/list`), read the RTSP URL from `/sensor/<stem>/streams` (NEVER construct the 315xx port), register it with VIOS `POST :30888/vst/api/v1/sensor/add` (field `sensorUrl`), feed the VIOS proxy `rtsp://${HOST_IP}:30554/live/<sensorId>` (use `${HOST_IP}`, not localhost) to RT-VLM `POST :8018/v1/streams/add`, and assert `mdx-vlm-captions` offset advance + ES `default_<id>` doc count FROM THE LIVE PATH (distinct from the VOD/upload check). This validates the streaming half.
+- **Post-deploy smoke test** — one curl or kafka-console-consumer command per "Outputs" section in the bundled microservice skills' `integrate-<microservice>.md`, so the operator can confirm the wiring actually works. **When the NvStreamer validation harness is included** (sidecar `validation_harness:` key), emit the streaming-path smoke sequence that matches the profile:
+  - **IN-1 / dense captioning** (RT-VLM in allow-list, no `alert-bridge`): `references/validation-harness.md § 4` — NvStreamer → VIOS → RT-VLM `POST /v1/streams/add` + captions + Kafka/ES assert.
+  - **AT / realtime alerts** (`alert-bridge` in allow-list, `alert_source=vlm-realtime`): `references/validation-harness.md § 4b` — NvStreamer → VIOS → Alert Bridge `POST /api/v1/realtime` (with VIOS-resolved `sensor_id` + `live_stream_url`); do **NOT** call RT-VLM directly. Assert rule carries `rtsp://` and incidents reach `mdx-vlm-incidents`.
+  - **cv-verification** with harness: reuse § 4 steps 0–3 only (NvStreamer → VIOS registration); CV path continues via perception + BA separately.
 
 If a deploy skill already exists at `build-output/skills/deploy-<profile-name>/SKILL.md` (the user is regenerating the same profile), **overwrite it** with the new values. Do not append — stale GPU assignments or stale env paths from a prior run would silently misdirect deploy.
 
@@ -434,7 +442,7 @@ rm -rf ./build-output/
 - `references/architecture-diagram-template.md` — Step 4 ASCII diagram requirements + canonical IN-1 example
 - `references/allow-list-sidecar.md` — Step 4 sidecar schema, IN-1 example, union rules
 - `references/standalone-compose-patches.md` — Step 6.5 Patch 0/1/2/3/4 pseudocode and per-service IN-1 notes
-- `references/validation-harness.md` — NvStreamer synthetic-RTSP validation harness: inclusion rule (Step 4), service block + sample-video staging + config materialization (Step 6 / Step 6.5), NvStreamer → VIOS → RT-VLM smoke sequence
+- `references/validation-harness.md` — NvStreamer synthetic-RTSP validation harness: inclusion rule (Step 4), service block + sample-video staging + config materialization (Step 6 / Step 6.5), smoke sequences — **§ 4** NvStreamer → VIOS → RT-VLM (IN-1 captioning), **§ 4b** NvStreamer → VIOS → Alert Bridge (AT realtime alerts)
 - `references/example-walkthroughs.md` — worked end-to-end walkthroughs (currently: IN-1 streaming-dense-captioning)
 - Per-deployment deploy skills are generated by Step 6 at `build-output/skills/deploy-<profile-name>/SKILL.md` — no shared `/deploy` skill exists.
 - VSS docs: <https://docs.nvidia.com/vss/latest/>
