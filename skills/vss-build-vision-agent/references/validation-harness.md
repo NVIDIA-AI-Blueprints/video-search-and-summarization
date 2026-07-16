@@ -35,7 +35,7 @@ Emit the following service **directly into the build-output compose** (i.e. into
 
 ```yaml
   nvstreamer-validation:
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     profiles: ["<invented-flag>"]            # e.g. bp_developer_in_1 — inserted by Step 6.5 Patch 1
     entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst" ]

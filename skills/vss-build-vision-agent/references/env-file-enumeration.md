@@ -65,6 +65,47 @@ Two defenses, apply both:
 
 After folding, the Step 7 dry-run (`docker compose --env-file .env -f compose.yml config`) must show zero **real** unexpanded `${...}` tokens — a missing `HOST_IP` / `VSS_APPS_DIR` in the resolved output is the tell-tale signature of this truncation bug.
 
+## Required additions for VIOS (from `services/vios/vst.env` — not in any profile `.env`)
+
+When `sensor-ms`, `streamprocessing-ms`, `centralizedb`, or `vst-ingress` is in the allow-list (i.e. VIOS is selected), the following variables from `deploy/docker/services/vios/vst.env` MUST be folded into the generated `.env`. They are not present in any developer-profile `.env` file and are not surfaced by a scan of just `dev-profile-*/.env`. Omitting them causes dry-run to fail immediately with `invalid spec: :/var/run/postgresql: empty section between colons` (the `centralizedb` service's volume mount for postgres socket collapses when `POSTGRES_IMAGE` is blank). Surfaced live 2026-07-16, IN-3 ingestion+detection+embeddings eval.
+
+| Variable | Value from `vst.env` | Why needed |
+|---|---|---|
+| `POSTGRES_IMAGE` | `postgres:17.9-alpine` | `centralizedb` image reference |
+| `CENTRALIZE_DB_NAME` | `nvcentralizedb` | postgres DB name used by centralizedb + streamprocessing-ms |
+| `CENTRALIZE_DB_USERNAME` | `vst` | postgres username |
+| `VST_DATA_PATH` | `${VSS_DATA_DIR}/data_log/vst/vst_data` | bind-mount source for vst_data volume |
+| `VST_VIDEO_STORAGE_PATH` | `${VSS_DATA_DIR}/data_log/vst/vst_video` | bind-mount source for vst_video volume |
+| `VST_TEMP_FILES_PATH` | `${VSS_DATA_DIR}/data_log/vst/temp_files` | bind-mount source for temp files |
+| `VST_LOGS` | `${VSS_DATA_DIR}/data_log/vst/vst_data/logs` | log directory inside vst_data |
+| `CLIP_STORAGE_PATH` | `${VSS_DATA_DIR}/data_log/vst/clip_storage` | shared clip storage (VIOS ↔ RT-VLM) |
+| `VST_VOLUME` | `${VSS_DATA_DIR}/data_log/vst` | parent bind-mount for VST |
+| `NGINX_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-vios-ingress:${VST_INGRESS_IMAGE_TAG}` | vst-ingress image reference |
+| `VST_SENSOR_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-vios-sensor:${VST_SENSOR_IMAGE_TAG}` | sensor-ms image reference |
+| `VST_STREAM_PROCESSOR_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing:${VST_STREAM_PROCESSOR_IMAGE_TAG}` | streamprocessing-ms image reference |
+| `SENSOR_HTTP_PORT` | `30000` | sensor-ms internal HTTP port |
+| `STREAM_PROCESSOR_HTTP_PORT` | `30001` | streamprocessing-ms internal HTTP port |
+| `REDIS_HOSTADDR` | `redis` | Redis hostname for VST services |
+| `REDIS_PORT` | `6379` | Redis port |
+| `KAFKA_BOOTSTRAP_URL` | `kafka:29092` | Kafka bootstrap URL for VST |
+| `VST_ADAPTOR` | `vst_rtsp` | VIOS stream adaptor |
+| `VST_VIDEO_STORAGE_SIZE_MB` | `100000` | max video storage in MB |
+| `SENSOR_MODULE_ENDPOINT` | `http://vss-vios-sensor:30000` | sensor-ms HTTP endpoint for streamprocessing |
+| `VST_INSTALL_ADDITIONAL_PACKAGES` | `true` | enable libav codec probing (required for file upload) |
+| `RTSP_SERVER_PORT` | `30554` | RTSP server port for streamprocessing |
+
+Also fold these empty-default vars from `services/vios/compose-defaults.env` to suppress compose warnings:
+
+| Variable | Default |
+|---|---|
+| `VST_CONFIG_PATH` | *(empty)* |
+| `VST_STATIC_TURNURL_LIST` | *(empty)* |
+| `BP_CONFIGURATOR_READYZ_URL` | *(empty)* |
+| `SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC` | `300` |
+| `SENSOR_BP_WAIT_STORAGE_MAX_SEC` | `300` |
+| `VSS_VA_MCP_PORT` | *(empty)* |
+| `VSS_VA_MCP_CONFIG_FILE` | *(empty)* |
+
 ## Required additions for IN-1 (not in any upstream `.env`)
 
 The following variables have no upstream `.env` source — they must be added explicitly to the generated `.env.template` (and populated in `.env`) for every IN-1 deployment:
