@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-name: Nightly validate GHCR set
+name: Nightly validate and promote GHCR set
 
 on:
   schedule:
@@ -12,6 +12,12 @@ on:
         required: false
       promotion_tag:
         description: "Optional immutable tag assertion"
+        required: false
+      agent_ui_artifacts_config:
+        description: "Optional agent/UI artifacts-promotion config path"
+        required: false
+      alert_artifacts_config:
+        description: "Optional alert artifacts-promotion config path"
         required: false
 concurrency:
   group: nightly-validate-ghcr
@@ -27,7 +33,7 @@ defaults:
     shell: bash
 
 jobs:
-  validate:
+  release:
     runs-on: [self-hosted, downstream-pipeline]
     timeout-minutes: 185
     env:
@@ -37,6 +43,8 @@ jobs:
       DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
       DOWNSTREAM_REF: ${{ vars.DOWNSTREAM_TEST_REF || vars.DOWNSTREAM_PROMOTION_REF || 'main' }}
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
+      AGENT_UI_CONFIG: ${{ inputs.agent_ui_artifacts_config || vars.VSS_AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH }}
+      ALERT_CONFIG: ${{ inputs.alert_artifacts_config || vars.VSS_ALERT_ARTIFACTS_PROMOTION_CONFIG_PATH }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -67,6 +75,25 @@ jobs:
           MAX_POLL_DURATION_SECONDS: "10800"
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
+      - name: Prepare promotion-only handoff
+        run: |
+          python3 .github/scripts/prepare_promotion_trigger.py \
+            --test-pipeline-id "${{ steps.trigger.outputs.pipeline_id }}" \
+            --agent-ui-config "$AGENT_UI_CONFIG" \
+            --alert-config "$ALERT_CONFIG"
+
+      - name: Trigger GitLab promotion pipeline
+        id: promotion-trigger
+        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+
+      - name: Poll promotion pipeline
+        env:
+          DOWNSTREAM_PIPELINE_ID: ${{ steps.promotion-trigger.outputs.pipeline_id }}
+          DOWNSTREAM_PROJECT_ID: ${{ steps.promotion-trigger.outputs.project_id }}
+          POLL_INTERVAL_SECONDS: "60"
+          MAX_POLL_DURATION_SECONDS: "10800"
+        run: python3 .github/scripts/poll-downstream-pipeline.py
+
       - name: Set up Buildx for validated alias
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
 
@@ -91,4 +118,5 @@ jobs:
             echo "- immutable tag: \`${{ steps.selected.outputs.promotion_tag }}\`"
             echo "- release set: \`${{ steps.selected.outputs.release_set_id }}\`"
             echo "- GitLab test pipeline: \`#${{ steps.trigger.outputs.pipeline_iid }}\`"
+            echo "- GitLab promotion pipeline: \`#${{ steps.promotion-trigger.outputs.pipeline_iid }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
