@@ -8,6 +8,7 @@ import argparse
 import base64
 import json
 import os
+import sys
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -117,6 +118,7 @@ def main() -> int:
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--requested-sha", default="")
     parser.add_argument("--requested-tag", default="")
+    parser.add_argument("--release-set", type=Path)
     parser.add_argument(
         "--release-set-output",
         type=Path,
@@ -127,34 +129,42 @@ def main() -> int:
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     github_env = os.environ.get("GITHUB_ENV", "").strip()
     github_output = os.environ.get("GITHUB_OUTPUT", "").strip()
-    if not token or not args.repository or not github_env or not github_output:
+    if not github_env or not github_output:
         raise SystemExit(
-            "GITHUB_TOKEN, repository, GITHUB_ENV, and GITHUB_OUTPUT are required"
+            "GITHUB_ENV and GITHUB_OUTPUT are required"
         )
-    api = GitHubApi(token)
-    selected = select_build_release_set(
-        api,
-        args.repository,
-        requested_sha=args.requested_sha,
-    )
-    if selected is None:
-        raise RuntimeError(
-            "no successful develop GHCR build run with candidate images matched"
+    if args.release_set:
+        release_set = json.loads(args.release_set.read_text())
+        source_sha = str(release_set.get("source", {}).get("commit") or "")
+    else:
+        if not token or not args.repository:
+            raise SystemExit(
+                "GITHUB_TOKEN and repository are required without --release-set"
+            )
+        api = GitHubApi(token)
+        selected = select_build_release_set(
+            api,
+            args.repository,
+            requested_sha=args.requested_sha,
         )
-    run, release_set = selected
-    source_sha = str(run["head_sha"])
+        if selected is None:
+            raise RuntimeError(
+                "no successful develop GHCR build run with candidate images matched"
+            )
+        run, release_set = selected
+        source_sha = str(run["head_sha"])
 
-    ci_query = urllib.parse.urlencode(
-        {"head_sha": source_sha, "status": "success", "per_page": 20}
-    )
-    ci_runs = api.request(
-        "GET",
-        f"/repos/{args.repository}/actions/workflows/ci.yml/runs?{ci_query}",
-    ).get("workflow_runs", [])
-    if not any(item.get("conclusion") == "success" for item in ci_runs):
-        raise RuntimeError(
-            f"commit {source_sha} has no successful GitHub CI/downstream run"
+        ci_query = urllib.parse.urlencode(
+            {"head_sha": source_sha, "status": "success", "per_page": 20}
         )
+        ci_runs = api.request(
+            "GET",
+            f"/repos/{args.repository}/actions/workflows/ci.yml/runs?{ci_query}",
+        ).get("workflow_runs", [])
+        if not any(item.get("conclusion") == "success" for item in ci_runs):
+            raise RuntimeError(
+                f"commit {source_sha} has no successful GitHub CI/downstream run"
+            )
 
     if release_set.get("source", {}).get("commit") != source_sha:
         raise RuntimeError("release-set source commit does not match selected run")
@@ -187,4 +197,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(
+            f"[nightly-release-set] ERROR {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        raise

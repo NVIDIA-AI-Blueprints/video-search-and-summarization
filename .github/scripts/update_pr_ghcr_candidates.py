@@ -9,11 +9,13 @@ import io
 import json
 import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from pathlib import Path
 from typing import Any
 
 MARKER = "<!-- vss-ghcr-candidates -->"
@@ -76,7 +78,8 @@ def render_comment(release_set: dict[str, Any], sha: str) -> str:
 
 
 class GitHubApi:
-    def __init__(self, token: str):
+    def __init__(self, token: str, open_func: Any = urllib.request.urlopen):
+        self.open_func = open_func
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -98,7 +101,7 @@ class GitHubApi:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with self.open_func(request, timeout=60) as response:
                 body = response.read()
         except urllib.error.HTTPError as exc:
             raise RuntimeError(
@@ -224,6 +227,8 @@ def main() -> int:
     parser.add_argument("--ref-name", default=os.environ.get("GITHUB_REF_NAME", ""))
     parser.add_argument("--attempts", type=int, default=20)
     parser.add_argument("--interval-seconds", type=int, default=15)
+    parser.add_argument("--release-set", type=Path)
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     number = pr_number(args.ref_name)
@@ -231,23 +236,39 @@ def main() -> int:
         print(f"{args.ref_name!r} is not a synthetic PR ref; nothing to update.")
         return 0
     token = os.environ.get("GITHUB_TOKEN", "").strip()
-    if not token or not args.repository or not args.sha:
-        raise SystemExit("GITHUB_TOKEN, repository, and SHA are required")
-
-    api = GitHubApi(token)
-    release_set = download_release_set(
-        api,
-        args.repository,
-        args.sha,
-        args.ref_name,
-        args.attempts,
-        args.interval_seconds,
-    )
+    api = GitHubApi(token) if token else None
+    if args.release_set:
+        release_set = json.loads(args.release_set.read_text())
+    else:
+        if api is None or not args.repository or not args.sha:
+            raise SystemExit("GITHUB_TOKEN, repository, and SHA are required")
+        release_set = download_release_set(
+            api,
+            args.repository,
+            args.sha,
+            args.ref_name,
+            args.attempts,
+            args.interval_seconds,
+        )
     if release_set.get("source", {}).get("commit") != args.sha:
         raise RuntimeError("release-set source commit does not match downstream SHA")
-    upsert_comment(api, args.repository, number, render_comment(release_set, args.sha))
+    body = render_comment(release_set, args.sha)
+    if args.dry_run:
+        print("[ghcr-candidate-reporter] DRY RUN comment body:")
+        print(body)
+        return 0
+    if api is None:
+        raise SystemExit("GITHUB_TOKEN is required unless --dry-run is used")
+    upsert_comment(api, args.repository, number, body)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(
+            f"[ghcr-candidate-reporter] ERROR {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        raise

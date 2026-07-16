@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPT = Path(__file__).with_name("update_pr_ghcr_candidates.py")
 SPEC = importlib.util.spec_from_file_location("update_pr_ghcr_candidates", SCRIPT)
@@ -75,6 +79,62 @@ class CandidateCommentTest(unittest.TestCase):
             module.moving_alias("pr-1190-deadbeef"), "pr-1190-latest"
         )
         self.assertEqual(module.moving_alias("release-3.2.0"), "")
+
+    def test_github_network_adapter_is_injected(self):
+        requests = []
+
+        class Headers:
+            @staticmethod
+            def get_content_type():
+                return "application/json"
+
+        class Response:
+            headers = Headers()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            @staticmethod
+            def read():
+                return json.dumps({"ok": True}).encode()
+
+        def open_func(request, timeout):
+            requests.append((request.full_url, timeout))
+            return Response()
+
+        api = module.GitHubApi("redacted", open_func=open_func)
+        self.assertEqual(api.request("GET", "/example"), {"ok": True})
+        self.assertEqual(requests, [("https://api.github.com/example", 60)])
+
+    def test_main_dry_run_needs_no_network(self):
+        sha = "a" * 40
+        release_set = {
+            "release_set_id": "sha256:" + "1" * 64,
+            "source": {"commit": sha},
+            "images": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "release-set.json"
+            path.write_text(json.dumps(release_set))
+            argv = [
+                "update_pr_ghcr_candidates.py",
+                "--repository",
+                "org/repo",
+                "--sha",
+                sha,
+                "--ref-name",
+                "pull-request/1190",
+                "--release-set",
+                str(path),
+                "--dry-run",
+            ]
+            with mock.patch("sys.argv", argv), mock.patch.dict(
+                os.environ, {}, clear=True
+            ):
+                self.assertEqual(module.main(), 0)
 
     def test_upsert_comment_finds_marker_after_first_page(self):
         class FakeApi:

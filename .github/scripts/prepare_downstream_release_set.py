@@ -8,6 +8,7 @@ import argparse
 import base64
 import json
 import os
+import sys
 from pathlib import Path
 
 from release_set import load_inventory, validate_release_set
@@ -32,23 +33,31 @@ def main() -> int:
     parser.add_argument("--ref-name", default=os.environ.get("GITHUB_REF_NAME", ""))
     parser.add_argument("--attempts", type=int, default=240)
     parser.add_argument("--interval-seconds", type=int, default=15)
+    parser.add_argument("--release-set", type=Path)
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     github_env = os.environ.get("GITHUB_ENV", "").strip()
-    if not token or not args.repository or not args.sha or not github_env:
+    if not args.sha or not github_env:
         raise SystemExit(
-            "GITHUB_TOKEN, repository, SHA, and GITHUB_ENV are required"
+            "SHA and GITHUB_ENV are required"
         )
 
-    release_set = download_release_set(
-        GitHubApi(token),
-        args.repository,
-        args.sha,
-        args.ref_name,
-        args.attempts,
-        args.interval_seconds,
-    )
+    if args.release_set:
+        release_set = json.loads(args.release_set.read_text())
+    else:
+        if not token or not args.repository:
+            raise SystemExit(
+                "GITHUB_TOKEN and repository are required without --release-set"
+            )
+        release_set = download_release_set(
+            GitHubApi(token),
+            args.repository,
+            args.sha,
+            args.ref_name,
+            args.attempts,
+            args.interval_seconds,
+        )
     if release_set.get("source", {}).get("commit") != args.sha:
         raise RuntimeError("release-set source commit does not match downstream SHA")
     problems = validate_release_set(
@@ -70,4 +79,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(
+            f"[downstream-release-set] ERROR {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        raise

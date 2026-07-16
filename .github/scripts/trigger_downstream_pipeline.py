@@ -11,6 +11,7 @@ from urllib.error import ContentTooShortError
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.parse import quote
+from urllib.parse import parse_qs
 from urllib.parse import urlencode
 from urllib.request import Request
 from urllib.request import urlopen
@@ -86,6 +87,7 @@ def request_json(
     token: str,
     data: bytes | None = None,
     headers: dict[str, str] | None = None,
+    open_func: Any = urlopen,
 ) -> dict[str, Any]:
     if headers is None:
         headers = {
@@ -97,7 +99,7 @@ def request_json(
 
     request = Request(url, data=data, headers=headers)
     try:
-        with urlopen(request) as response:
+        with open_func(request) as response:
             payload = response.read().decode("utf-8")
     except HTTPError as exc:
         # Extract just the "message" / "error" field from the JSON body
@@ -156,6 +158,26 @@ def trigger_pipeline(
     compare_branch: str,
     extra_variables: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    payload = pipeline_request_data(
+        ref=ref,
+        variable_name=variable_name,
+        commit_sha=commit_sha,
+        target_branch=target_branch,
+        compare_branch=compare_branch,
+        extra_variables=extra_variables,
+    )
+    return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
+
+
+def pipeline_request_data(
+    *,
+    ref: str,
+    variable_name: str,
+    commit_sha: str,
+    target_branch: str,
+    compare_branch: str,
+    extra_variables: dict[str, str] | None = None,
+) -> bytes:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
         ("variables[][key]", variable_name),
@@ -172,8 +194,7 @@ def trigger_pipeline(
                 ("variables[][value]", value),
             ]
         )
-    payload = urlencode(payload_pairs).encode("utf-8")
-    return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
+    return urlencode(payload_pairs).encode("utf-8")
 
 
 def fetch_pr_base_ref(repo: str, pr_number: int, token: str) -> str:
@@ -380,9 +401,18 @@ def extra_pipeline_variables() -> dict[str, str]:
 
 def main() -> int:
     try:
-        raw_url = require_env("DOWNSTREAM_CI_URL")
+        dry_run = os.environ.get("DOWNSTREAM_DRY_RUN", "").lower() == "true"
+        raw_url = (
+            os.environ.get("DOWNSTREAM_CI_URL", "https://gitlab.invalid")
+            if dry_run
+            else require_env("DOWNSTREAM_CI_URL")
+        )
         base_url = api_base_url(raw_url)
-        token = require_env("DOWNSTREAM_CI_TOKEN")
+        token = (
+            os.environ.get("DOWNSTREAM_CI_TOKEN", "dry-run")
+            if dry_run
+            else require_env("DOWNSTREAM_CI_TOKEN")
+        )
         project_path = require_env("DOWNSTREAM_PROJECT_PATH")
         commit_sha = (
             os.environ.get("DOWNSTREAM_COMMIT_SHA", "").strip()
@@ -405,6 +435,25 @@ def main() -> int:
             extra_variables[LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE] = "true"
         for value in extra_variables.values():
             add_mask(value)
+
+        if dry_run:
+            payload = pipeline_request_data(
+                ref=ref,
+                variable_name=variable_name,
+                commit_sha=commit_sha,
+                target_branch=target_branch,
+                compare_branch=compare_branch,
+                extra_variables=extra_variables,
+            )
+            keys = parse_qs(payload.decode()).get("variables[][key]", [])
+            print(
+                "[downstream-trigger] DRY RUN "
+                f"project={project_path} ref={ref} variable_keys={keys}"
+            )
+            write_output("pipeline_iid", "0")
+            write_output("pipeline_id", "0")
+            write_output("project_id", "0")
+            return 0
 
         project_id = fetch_project_id(base_url, token, project_path)
         pipeline = trigger_pipeline(
@@ -475,8 +524,10 @@ def main() -> int:
     except SystemExit:
         raise
     except Exception as exc:
-        _ = exc
-        emit_error("Unexpected failure while triggering the downstream pipeline")
+        emit_error(
+            "Unexpected failure while triggering the downstream pipeline "
+            f"({type(exc).__name__})"
+        )
         return 1
 
 

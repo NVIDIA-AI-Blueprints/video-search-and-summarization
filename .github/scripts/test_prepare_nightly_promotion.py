@@ -5,13 +5,17 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import prepare_nightly_promotion as module  # noqa: E402
 from prepare_nightly_promotion import (  # noqa: E402
     promotion_variables,
     select_build_release_set,
@@ -120,6 +124,37 @@ class NightlyPromotionTest(unittest.TestCase):
         self.assertNotIn(
             "AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH", variables
         )
+
+    def test_main_with_release_set_file_performs_no_network(self):
+        payload = release_set()
+        payload["source"] = {"commit": "a" * 40}
+        payload["release_set_id"] = "sha256:" + "1" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.json"
+            env_path = Path(tmp) / "github.env"
+            output_path = Path(tmp) / "github.output"
+            selected_path = Path(tmp) / "selected.json"
+            source.write_text(json.dumps(payload))
+            argv = [
+                "prepare_nightly_promotion.py",
+                "--release-set",
+                str(source),
+                "--release-set-output",
+                str(selected_path),
+            ]
+            with mock.patch("sys.argv", argv), mock.patch.dict(
+                os.environ,
+                {
+                    "GITHUB_ENV": str(env_path),
+                    "GITHUB_OUTPUT": str(output_path),
+                },
+                clear=True,
+            ), mock.patch.object(
+                module, "validate_release_set", return_value=[]
+            ), mock.patch.object(module, "select_build_release_set") as select:
+                self.assertEqual(module.main(), 0)
+                select.assert_not_called()
+            self.assertTrue(selected_path.exists())
 
 
 if __name__ == "__main__":

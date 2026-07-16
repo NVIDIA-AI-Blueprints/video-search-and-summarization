@@ -707,7 +707,9 @@ jobs:
         run: python3 .github/scripts/test_release_set.py
 
       - name: Unit-test the build change detection
-        run: python3 .github/scripts/test_detect_changed_images.py
+        run: |
+          python3 .github/scripts/test_detect_changed_images.py
+          python3 .github/scripts/test_container_build_plan.py
 
       - name: Unit-test the downstream GHCR candidate reporter
         run: |
@@ -794,7 +796,7 @@ jobs:
         id: trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+        run: python3 .github/scripts/trigger_downstream_pipeline.py
 
       - name: Poll pipeline
         env:

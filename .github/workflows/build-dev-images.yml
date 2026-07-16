@@ -103,28 +103,13 @@ jobs:
       - name: Compute immutable candidate coordinates
         id: meta
         run: |
-          SHORT="$(git rev-parse --short=12 HEAD)"
-          case "$GITHUB_REF_NAME" in
-            pull-request/*)
-              TAG="pr-${GITHUB_REF_NAME##*/}-${SHORT}"
-              ;;
-            develop)
-              TAG="develop-${SHORT}"
-              ;;
-            *)
-              TAG="${GITHUB_REF_NAME//\//-}-${SHORT}"
-              ;;
-          esac
-          # The TREE hash of the source folder — the value the container-source
-          # gate compares. NOT github.sha (a commit SHA): the two never match.
-          TREE_SHA="$(git rev-parse "HEAD:${{ matrix.source_path }}")"
-          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-          {
-            echo "tag=$TAG"
-            echo "tree_sha=$TREE_SHA"
-            echo "image=ghcr.io/${OWNER}/vss/${{ matrix.name }}"
-          } >> "$GITHUB_OUTPUT"
-          echo "Candidate: ghcr.io/${OWNER}/vss/${{ matrix.name }}:$TAG (tree $TREE_SHA)"
+          python3 .github/scripts/container_build_plan.py metadata \
+            --ref-name "$GITHUB_REF_NAME" \
+            --commit-sha "$GITHUB_SHA" \
+            --owner "$GITHUB_REPOSITORY_OWNER" \
+            --image-name "${{ matrix.name }}" \
+            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
@@ -191,25 +176,10 @@ jobs:
       - name: Resolve manifest digest
         id: digest
         run: |
-          MANIFEST="$(docker buildx imagetools inspect \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
-            --format '{{json .Manifest}}')"
-          DIGEST="$(jq -r '.digest' <<<"$MANIFEST")"
-          [[ "$DIGEST" == sha256:* ]] || { echo "no digest resolved"; exit 1; }
-          ACTUAL_PLATFORMS="$(jq -r '
-            .manifests[]?.platform
-            | select(.os != "unknown" and .architecture != "unknown")
-            | "\(.os)/\(.architecture)"
-          ' <<<"$MANIFEST" | sort -u)"
-          EXPECTED_PLATFORMS="$(tr ',' '\n' <<<"${{ matrix.platforms }}" | sort -u)"
-          [[ "$ACTUAL_PLATFORMS" == "$EXPECTED_PLATFORMS" ]] || {
-            echo "manifest platform set does not match the inventory" >&2
-            diff -u \
-              <(printf '%s\n' "$EXPECTED_PLATFORMS") \
-              <(printf '%s\n' "$ACTUAL_PLATFORMS") >&2 || true
-            exit 1
-          }
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/container_build_plan.py verify-manifest \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            --platforms "${{ matrix.platforms }}" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Emit release-set fragment
         run: |

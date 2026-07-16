@@ -8,6 +8,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -112,4 +113,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(
+            f"[ghcr-alias] ERROR {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        raise

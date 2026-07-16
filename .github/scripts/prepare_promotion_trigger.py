@@ -8,6 +8,7 @@ import argparse
 import base64
 import json
 import os
+import sys
 from pathlib import Path
 
 
@@ -79,4 +80,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(
+            f"[promotion-trigger] ERROR {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        raise

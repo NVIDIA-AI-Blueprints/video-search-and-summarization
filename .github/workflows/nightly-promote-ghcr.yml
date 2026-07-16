@@ -66,7 +66,7 @@ jobs:
 
       - name: Trigger GitLab test pipeline
         id: trigger
-        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+        run: python3 .github/scripts/trigger_downstream_pipeline.py
 
       - name: Poll test pipeline
         env:
@@ -85,7 +85,7 @@ jobs:
 
       - name: Trigger GitLab promotion pipeline
         id: promotion-trigger
-        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+        run: python3 .github/scripts/trigger_downstream_pipeline.py
 
       - name: Poll promotion pipeline
         env:
