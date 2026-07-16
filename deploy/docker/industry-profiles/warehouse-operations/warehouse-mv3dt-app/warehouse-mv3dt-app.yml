@@ -16,7 +16,6 @@
 include:
 
 services:
-
   vss-behavior-analytics-mv3dt:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
