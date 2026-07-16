@@ -283,6 +283,7 @@ class OrchestratorRuntimeSettings(BaseSettings):
     rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
     llm_device_id: str = Field(default="", validation_alias="LLM_DEVICE_ID")
     vlm_device_id: str = Field(default="", validation_alias="VLM_DEVICE_ID")
+    profile_env_override_file: str = Field(default="", validation_alias="PROFILE_ENV_OVERRIDE_FILE")
 
     @field_validator(
         "ngc_cli_api_key",
@@ -301,6 +302,7 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "rtvi_vllm_gpu_memory_utilization",
         "llm_device_id",
         "vlm_device_id",
+        "profile_env_override_file",
     )
     @classmethod
     def _strip_value(cls, value: str) -> str:
@@ -1171,6 +1173,7 @@ async def vss_orchestrator(
                     profile_mode_to_env_modes=_config.profile_mode_to_env_modes,
                     source_compose_yaml=_config.source_compose_yaml,
                     source_env=_config.source_env,
+                    profile_env_override_file=runtime_settings.profile_env_override_file,
                 )
                 resolved_env, env_path, compose_path = generate_dry_run_artifacts(dry_run_recipe)
                 ensure_data_directories(

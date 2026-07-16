@@ -54,6 +54,7 @@ def _make_recipe(
     edge_allowed_profiles: frozenset[str] | None = None,
     edge_device_ids: dict[str, str] | None = None,
     hardware_profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] | None = None,
+    overrides_env_text: str | None = None,
 ) -> dcu.DryRunRecipe:
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
@@ -61,6 +62,10 @@ def _make_recipe(
     mdx_data_dir.mkdir()
     source_env_file = tmp_path / "profile.env"
     source_env_file.write_text(env_text.strip() + "\n")
+    profile_env_override_file: Path | None = None
+    if overrides_env_text is not None:
+        profile_env_override_file = tmp_path / "overrides.env"
+        profile_env_override_file.write_text(overrides_env_text.strip() + "\n")
 
     if edge_allowed_profiles is None:
         edge_allowed_profiles = frozenset({dcu.PROFILE_ALERTS, dcu.PROFILE_SEARCH})
@@ -91,6 +96,7 @@ def _make_recipe(
         mdx_data_dir=mdx_data_dir,
         compose_file=tmp_path / "compose.yml",
         source_env_file=source_env_file,
+        profile_env_override_file=profile_env_override_file,
         supported_hardware_profiles=supported_hardware_profiles,
         edge_hardware_profiles=edge_hardware_profiles,
         edge_allowed_profiles=edge_allowed_profiles,
@@ -546,7 +552,7 @@ class TestBuildResolvedEnv:
             hardware_profile="thor",
         )
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
 
@@ -577,7 +583,7 @@ class TestBuildResolvedEnv:
             hardware_profile="thor",
         )
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
 
@@ -613,7 +619,7 @@ class TestBuildResolvedEnv:
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: pytest.fail("env EXTERNAL_IP should be used"))
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
 
@@ -655,7 +661,7 @@ class TestBuildResolvedEnv:
             nvidia_api_key="from-recipe-nvidia",  # pragma: allowlist secret
         )
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
 
@@ -690,7 +696,7 @@ class TestBuildResolvedEnv:
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
 
@@ -734,7 +740,7 @@ class TestBuildResolvedEnv:
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
 
@@ -779,7 +785,7 @@ class TestBuildResolvedEnv:
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.8")
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
 
@@ -814,13 +820,150 @@ def _patch_network(monkeypatch: pytest.MonkeyPatch, ip: str = "10.0.0.1") -> Non
     monkeypatch.setattr(dcu, "detect_internal_ip", lambda: ip)
     monkeypatch.setattr(dcu, "detect_external_ip", lambda: ip)
     monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-    monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+    monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
+
+
+class TestOverridesEnvLayering:
+    """overrides.env (dev-profile.sh runtime values) layers on top of .env.
+
+    dev-profile.sh writes LLM/VLM mode, model names + slugs, and device ids into
+    overrides.env; the orchestrator must layer it so COMPOSE_PROFILES resolves for
+    local profiles without per-call env_overrides.
+    """
+
+    def test_overrides_env_supplies_missing_required_keys(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        # .env lacks the model slugs (they live in overrides.env, like dev-profile-search).
+        dotenv = _env_text(
+            "MODE=2d",
+            "BP_PROFILE=bp_developer_search",
+            "PROXY_MODE=direct",
+            "HARDWARE_PROFILE=thor",
+            "HOST_IP=10.0.0.1",
+            "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+            "VSS_APPS_DIR=/path/to/deploy/docker",
+        )
+        overrides = _env_text(
+            "LLM_MODE=local_shared",
+            "LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2",
+            "LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2",
+            "VLM_MODE=local",
+            "VLM_NAME=nvidia/cosmos3-nano-reasoner",
+            "VLM_NAME_SLUG=cosmos3-reasoner",
+        )
+        recipe = _make_recipe(
+            tmp_path,
+            dotenv,
+            profile=dcu.PROFILE_SEARCH,
+            hardware_profile="thor",
+            overrides_env_text=overrides,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_NAME_SLUG"] == "nvidia-nemotron-nano-9b-v2"
+        assert resolved["VLM_NAME_SLUG"] == "cosmos3-reasoner"
+        assert resolved["COMPOSE_PROFILES"] == (
+            "bp_developer_search_2d,llm_local_shared_nvidia-nemotron-nano-9b-v2,vlm_local_cosmos3-reasoner"
+        )
+
+    def test_overrides_env_wins_over_dotenv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        dotenv = _env_text(*_base_env("thor", "LLM_NAME_SLUG=from-dotenv"))
+        overrides = _env_text("LLM_NAME_SLUG=from-overrides")
+        recipe = _make_recipe(tmp_path, dotenv, hardware_profile="thor", overrides_env_text=overrides)
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_NAME_SLUG"] == "from-overrides"
+
+    def test_env_overrides_wins_over_overrides_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        dotenv = _env_text(*_base_env("thor"))
+        overrides = _env_text("LLM_NAME_SLUG=from-overrides")
+        recipe = _make_recipe(
+            tmp_path,
+            dotenv,
+            hardware_profile="thor",
+            overrides_env_text=overrides,
+            env_overrides={"LLM_NAME_SLUG": "from-env-overrides"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_NAME_SLUG"] == "from-env-overrides"
+
+    def test_missing_overrides_env_is_noop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(tmp_path, _env_text(*_base_env("thor")), hardware_profile="thor")
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert recipe.profile_env_override_file is None
+        assert resolved["LLM_NAME_SLUG"] == "llm-a-slug"
+
+
+class TestCreateDryRunRecipeOverridesEnv:
+    """create_dry_run_recipe resolves the profile env override file from the caller-supplied
+    profile_env_override_file (env passed in from the notebook), not a hardcoded name."""
+
+    @staticmethod
+    def _make(tmp_path: Path, profile_env_override_file: str | None, *, overrides_name: str | None = None):
+        """Build a recipe; optionally pre-create an override env file named overrides_name
+        next to the profile .env, and pass profile_env_override_file through to the factory."""
+        profile_dir = tmp_path / "dev-profile-search"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / ".env").write_text("MODE=2d\n")
+        (tmp_path / "compose.yml").write_text("services: {}\n")
+        if overrides_name is not None:
+            (profile_dir / overrides_name).write_text("LLM_NAME_SLUG=slug\n")
+        kwargs = {
+            "profile": "search",
+            "env_overrides": {},
+            "model_resolution": {
+                "hardware": {
+                    "edge_profiles": [],
+                    "edge_allowed_profiles": [],
+                    "edge_device_ids": {"llm": "0", "vlm": "0", "rt_vlm": "0", "rt_cv": "0"},
+                    "hardware_profiles": {"H100": {}},
+                }
+            },
+            "output_env_file": str(tmp_path / "generated.env"),
+            "output_compose_file": str(tmp_path / "compose.generated.yml"),
+            "deployments_dir": str(tmp_path),
+            "mdx_data_dir": str(tmp_path / "mdx"),
+            "profile_mode_to_env_modes": None,
+            "source_compose_yaml": str(tmp_path / "compose.yml"),
+            "source_env": str(profile_dir / ".env"),
+        }
+        if profile_env_override_file is not None:
+            kwargs["profile_env_override_file"] = profile_env_override_file
+        return profile_dir, dcu.create_dry_run_recipe(**kwargs)
+
+    def test_relative_name_resolves_against_profile_env_dir(self, tmp_path: Path):
+        profile_dir, recipe = self._make(tmp_path, "overrides.env", overrides_name="overrides.env")
+        assert recipe.profile_env_override_file == (profile_dir / "overrides.env").resolve()
+
+    def test_absolute_path_is_used_as_is(self, tmp_path: Path):
+        profile_dir, _ = self._make(tmp_path, None, overrides_name="overrides.env")
+        abs_path = profile_dir / "overrides.env"
+        _, recipe = self._make(tmp_path / "other", str(abs_path))
+        assert recipe.profile_env_override_file == abs_path.resolve()
+
+    def test_missing_file_resolves_to_none(self, tmp_path: Path):
+        _, recipe = self._make(tmp_path, "overrides.env")
+        assert recipe.profile_env_override_file is None
+
+    def test_absent_profile_env_override_file_resolves_to_none(self, tmp_path: Path):
+        # Not passing profile_env_override_file means no override env file is layered, even if one exists.
+        _, recipe = self._make(tmp_path, None, overrides_name="overrides.env")
+        assert recipe.profile_env_override_file is None
 
 
 class TestPrecedence:
     """Layered precedence for env values (low -> high):
 
-    profile .env  <  yml hardware_profiles[HW]  <  notebook named recipe param  <  per-call env_overrides
+    profile .env  <  profile overrides.env  <  yml hardware_profiles[HW]  <  notebook named recipe param  <  per-call env_overrides
 
     Tests use a non-edge HW (thor) to isolate the layered-precedence logic from
     edge-specific code paths (edge_device_ids, VLM_BASE_URL synthesis).
@@ -1494,7 +1637,7 @@ class TestGenerateDryRunArtifacts:
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
-        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
         monkeypatch.setattr(dcu, "resolve_compose", lambda _config: "services: {}\n")
 
         resolved_env, env_path, compose_path = dcu.generate_dry_run_artifacts(recipe)
