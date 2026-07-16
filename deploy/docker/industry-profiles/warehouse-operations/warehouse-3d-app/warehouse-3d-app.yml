@@ -16,9 +16,6 @@
 include:
 
 services:
-  # Warehouse models are delivered via the pre-extracted VSS_DATA_DIR app-data bundle
-  # (see deploy/docker/README.md); no model-download
-  # init service is used here.
   vss-behavior-analytics-3d:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
