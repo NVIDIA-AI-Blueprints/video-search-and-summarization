@@ -140,6 +140,16 @@ other than 200 after the warmup retries, ask the user:
 
 Use env vars when set (strip trailing `/v1` from the VLM base — the skill appends it). Otherwise use the defaults. If neither works, ask the user — do not scan ports or read config files to guess.
 
+**Sandboxed localhost access:** Run readiness probes and every live VIOS, VLM, and LVS call with approved host-network
+execution. Request `sandbox_permissions="require_escalated"` up front with a narrowly scoped justification. Do not
+suggest a reusable `bash -lc` approval prefix. If a sandboxed probe was attempted first and returned HTTP `000`, a
+connection error, or a permission error, immediately retry it with host-network approval; never interpret that first
+result as backend unavailability. Only apply the routing rules below to results from approved host-network execution.
+
+Never search for, open, inspect, or substitute a prior completion, frozen eval fixture, workspace memory file, session
+transcript, quarantine directory, or cached `/tmp` LVS request/response while fulfilling a summarization request. Files
+created by live calls in the current turn may be used only to pass that turn's response between workflow steps.
+
 **Model name:** read `${VLM_NAME}` (default
 `nim_nvidia_cosmos3-nano-reasoner_bf16-final`). It must match the id RT-VLM
 `/v1/models` advertises; do not substitute the friendly
