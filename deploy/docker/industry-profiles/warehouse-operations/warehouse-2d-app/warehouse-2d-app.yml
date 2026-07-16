@@ -16,6 +16,7 @@
 include:
 
 services:
+
   vss-behavior-analytics-2d:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
