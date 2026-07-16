@@ -182,6 +182,22 @@ llms:
     temperature: 0.0
     max_tokens: 4096
 
+  # VLM served locally by rtvi-vlm (FastAPI-wrapped vLLM); used by both the critic and
+  # video_understanding. Selected when VLM_MODEL_TYPE=rtvi. Must be _type: openai — the
+  # langchain-nvidia NIM client leaks verify_ssl into the request body, which rtvi-vlm
+  # rejects with 422.
+  rtvi_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${RTVI_VLM_BASE_URL}/v1
+    temperature: 0.0
+    model_kwargs:
+      extra_body:
+        num_frames_per_second_or_fixed_frames_chunk: 20
+        use_fps_for_chunking: false
+        vlm_input_width: 1280
+        vlm_input_height: 720
+
 workflow:
   _type: top_agent
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm

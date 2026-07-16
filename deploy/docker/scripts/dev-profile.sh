@@ -1398,6 +1398,34 @@ function state_up() {
       set_env_var "VLM_NAME_SLUG" "none"
     else
       set_env_var "ENABLE_CRITIC" "true"
+      # Critic enabled: serve the VLM locally through rtvi-vlm (RT-VLM). rtvi-vlm
+      # starts with the main bp_developer_search_2d compose profile, so no dedicated
+      # vlm_ profile is needed. Mirrors the alerts/LVS RT-VLM wiring below.
+      set_env_var "VLM_NAME_SLUG" "none"
+      if [[ "${vlm_mode}" != "remote" ]]; then
+        set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
+        if [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
+          set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+          local _search_rtvi_vlm_max_model_len
+          _search_rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+          if [[ -n "${_search_rtvi_vlm_max_model_len}" ]]; then
+            set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_search_rtvi_vlm_max_model_len}"
+          fi
+          # RT_VLM_DEVICE_ID mirrors the NIM device_ids pattern: local_shared follows
+          # the shared VLM device, local uses the VLM device.
+          if [[ "${vlm_mode}" == "local_shared" ]]; then
+            local _search_shared_rt_dev_id
+            _search_shared_rt_dev_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_source_env}" "${_overrides_env}")"
+            set_env_var "RT_VLM_DEVICE_ID" "${_search_shared_rt_dev_id:-${vlm_device_id}}"
+          else
+            set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
+          fi
+        fi
+        if [[ "${hardware_profile}" == "RTXPRO4500BW" ]]; then
+          set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+          set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+        fi
+      fi
     fi
   fi
 
