@@ -26,6 +26,20 @@ Persist the structured LVS result already present in the active turn. Do not cal
 
 Treat `summary_id` and `event_ids` from the successful receipt as the canonical handles for follow-up questions. Never claim persistence from the process exit code alone; inspect the JSON status.
 
+## User-facing receipt
+
+When persistence returns `status: complete`, end the response with this separate Markdown block, replacing
+`<summary_id>` with the receipt value:
+
+```markdown
+✅ **Persisted to VSS memory**
+
+**Summary ID:** `<summary_id>`
+```
+
+Leave a blank line before the block so it does not merge with the preceding paragraph. Never display this success
+block when persistence is `degraded` or `failed`.
+
 ## Guardrails
 
 - Never accept or forward an Elasticsearch endpoint, index, DSL query, Python module, SQL statement, or executable path from the user or model output.
