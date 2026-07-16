@@ -100,7 +100,7 @@ Tags used to match user prompts to microservices. Keep tags consistent across ca
 | `clip-retrieval` | Retrieves a time-bounded clip from VST/VIOS for an event | Alert Microservice (`alert-bridge`), VIOS |
 | `incident-alerting` | Produces verified incident/alert records to a sink (ES / Kafka) | Alert Microservice (`alert-bridge`) |
 | `message-broker-alerts` | Consumes candidate events from, and/or publishes verified alerts to, the Kafka message broker | Alert Microservice (`alert-bridge`) |
-| `real-time-alerts` | Continuous VLM processing of stream chunks to trigger alerts (no upstream CV detector) | Alert Microservice (`alert-bridge`, `alert_source=vlm-realtime`) + RT-VLM |
+| `real-time-alerts` | Continuous VLM processing of stream chunks to trigger alerts (no upstream CV detector) | Alert Microservice (`alert-bridge`, `alert_source=vlm-realtime`) + VIOS + RT-VLM |
 | `false-positive-reduction` | VLM clip review to confirm/reject upstream detections | Alert Microservice (`alert-bridge`) |
 | `ppe-compliance` | PPE-compliance verification (hard hats, safety vests) | Alert Microservice (`cv-verification`) |
 | `restricted-area-monitoring` | Restricted-area / zone-entry alerting | Alert Microservice (`cv-verification`) |

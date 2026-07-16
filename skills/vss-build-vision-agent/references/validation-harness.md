@@ -89,9 +89,9 @@ These are upstream-byte-identical — do NOT hand-edit. Add a `PATCHES.md` row f
 
 ---
 
-## 4. The smoke sequence — NvStreamer → VIOS → RT-VLM (Step 6 deploy skill / Step 8)
+## 4. The smoke sequence — NvStreamer → VIOS → RT-VLM (IN-1 / dense captioning)
 
-This is the canonical streaming-path validation. It is emitted into the generated `deploy-<flag-slug>` skill's post-deploy smoke test and is the basis for the eval's live-path checks. All endpoints below assume `network_mode: host`, so use `${HOST_IP}` (NOT `localhost`) anywhere a URL is handed to *another container* (VIOS Finding 12 — VIOS-proxied RTSP fed to RT-VLM must use `${HOST_IP}`).
+This is the canonical streaming-path validation for **IN-1 dense-captioning** profiles. It is emitted into the generated `deploy-<flag-slug>` skill's post-deploy smoke test when the allow-list includes RT-VLM for captioning but **not** Alert Bridge. For **realtime-alert** profiles (`alert_source=vlm-realtime`, Alert Bridge in the allow-list), use **§ 4b** instead — the handoff after VIOS registration goes to Alert Bridge, not directly to RT-VLM.
 
 Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **VIOS 30888** (ingress) / **30554** (live RTSP proxy), **RT-VLM 8018**.
 
@@ -199,6 +199,50 @@ curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /
   ```
 
   Replace `<filename>` with the actual upload filename (e.g. `warehouse_safety_0001.mp4`). For a full clean slate, `sudo rm -rf ${VSS_DATA_DIR}/data_log/vst/clip_storage/` then `sudo mkdir -p ... && sudo chmod -R 777 ...` to recreate. Surfaced live 2026-06-18, IN-1 expanded eval.
+
+---
+
+## 4b. The smoke sequence — NvStreamer → VIOS → Alert Bridge (AT / realtime alerts)
+
+Use this path when the generated profile includes **Alert Bridge** with `alert_source=vlm-realtime` (real-time VLM alerts). The ingestion chain is **NvStreamer (or external RTSP) → VIOS → Alert Bridge**; Alert Bridge then drives RT-VLM internally. Do **NOT** call RT-VLM `/v1/streams/add` directly in the smoke test — that bypasses the Alert Microservice contract.
+
+Reuse **§ 4 steps 0–3** (NvStreamer up → resolve NvStreamer RTSP URL → `POST $VIOS/sensor/add` with `{"sensorUrl": "..."}`) and the same gotchas (dynamic VIOS proxy port, `${HOST_IP}` not `localhost`, stale-sensor cleanup). Then continue:
+
+```bash
+AB=http://${HOST_IP}:9080/api/v1          # Alert Bridge (Alert MS)
+VIOS=http://${HOST_IP}:30888/vst/api/v1    # VIOS ingress (same as § 4)
+
+# 4. Resolve sensor_id, sensor_name, and live_stream_url FROM VIOS (not NvStreamer).
+#    alert-subscriptions.md § Step 2: GET /sensor/list -> match by name -> GET /sensor/{id}/streams
+#    -> main stream .url becomes live_stream_url in the Alert Bridge payload.
+SNAME=$(curl -sf "$VIOS/sensor/list" | jq -r --arg id "$SID" '.[] | select(.sensorId==$id) | .name')
+LIVE_URL=$(curl -sf "$VIOS/sensor/$SID/streams" | jq -r '.[] | select(.isMain==true) | .url')
+# LIVE_URL is the VIOS-proxied RTSP URL Alert Bridge expects — NOT the raw NvStreamer 315xx URL.
+
+# 5. Confirm Alert Bridge is healthy (NOT /api/v1/health — that 404s).
+curl -sf --connect-timeout 5 "http://${HOST_IP}:9080/health"
+
+# 6. Create a realtime rule on Alert Bridge. sensor_id must be the VIOS UUID from step 3/4.
+curl -sf -X POST "$AB/realtime" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"sensor_id\": \"$SID\",
+    \"sensor_name\": \"$SNAME\",
+    \"live_stream_url\": \"$LIVE_URL\",
+    \"alert_type\": \"harness_smoke_test\",
+    \"prompt\": \"Is there any person visible? Answer Yes or No.\",
+    \"system_prompt\": \"You are a helpful assistant.\",
+    \"chunk_duration\": 30
+  }"
+
+# 7. Assert the rule exists and carries a real rtsp:// live_stream_url (from VIOS).
+curl -sf --max-time 15 "$AB/realtime" | jq -e '[.[] | select(.live_stream_url | test("^rtsp://"))] | length > 0'
+
+# 8. After ~60–120 s of processing, assert incidents land in ES (RT-VLM -> Kafka -> Logstash).
+curl -sf "http://${HOST_IP}:9200/mdx-vlm-incidents/_count" | jq -e '.count >= 0'
+```
+
+Emit § 4b (not § 4 steps 4–7) into the generated deploy skill when `alert-bridge` is in the allow-list and `alert_source=vlm-realtime`. For `cv-verification` profiles, the live harness still ends at VIOS registration (steps 0–3); CV perception + BA consume the VIOS-proxied stream separately — see `patch-alerts.md § cv-verification host-prep`.
 
 ---
 
