@@ -4249,6 +4249,53 @@ StorageManagement::generateFullFileUrl(const FullFileMatch& match,
     return VmsErrorCode::NoError;
 }
 
+std::string StorageManagement::generateUploadedFullFileUrl(const std::string& sensorId)
+{
+    if (sensorId.empty() || !m_deviceManager)
+    {
+        LOG(error) << "[FULL_FILE] Cannot generate uploaded-file URL without a sensor ID and device manager" << endl;
+        return EMPTY_STRING;
+    }
+
+    const std::shared_ptr<SensorInfo> sensor = m_deviceManager->getSensorInfo(sensorId);
+    if (!sensor || sensor->location.empty())
+    {
+        LOG(error) << "[FULL_FILE] Uploaded file path is unavailable for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    if (!::isFileExist(sensor->location))
+    {
+        LOG(error) << "[FULL_FILE] Uploaded file is missing for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    const std::string extension = getFileExtension(sensor->location);
+    if (extension.empty() || extension == ".")
+    {
+        LOG(error) << "[FULL_FILE] Uploaded file has no container extension for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    FullFileMatch match;
+    match.eligible = true;
+    match.filePath = sensor->location;
+    match.container = extension.front() == '.' ? extension.substr(1) : extension;
+
+    VideoGenerationParam params;
+    params.streamId = sensorId;
+
+    Json::Value response;
+    const VmsErrorCode result = generateFullFileUrl(match, params, response);
+    if (result != VmsErrorCode::NoError)
+    {
+        LOG(error) << "[FULL_FILE] Failed to generate uploaded-file URL for sensor: " << sensorId << endl;
+        return EMPTY_STRING;
+    }
+
+    return response.get("videoUrl", EMPTY_STRING).asString();
+}
+
 void StorageManagement::cleanupExpiredFile(const std::string& filePath)
 {
     // Try to delete the file
