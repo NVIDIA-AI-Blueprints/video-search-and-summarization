@@ -89,6 +89,11 @@ def main() -> int:
     parser.add_argument("--requested-tag", default="")
     parser.add_argument("--agent-ui-config", default="")
     parser.add_argument("--alert-config", default="")
+    parser.add_argument(
+        "--release-set-output",
+        type=Path,
+        default=Path(".promotion/release-set.json"),
+    )
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -137,6 +142,10 @@ def main() -> int:
         requested_tag=args.requested_tag,
         agent_ui_config=args.agent_ui_config,
         alert_config=args.alert_config,
+    )
+    args.release_set_output.parent.mkdir(parents=True, exist_ok=True)
+    args.release_set_output.write_text(
+        json.dumps(release_set, indent=2, sort_keys=True) + "\n"
     )
 
     with Path(github_env).open("a") as output:

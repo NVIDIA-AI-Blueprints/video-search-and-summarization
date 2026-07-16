@@ -52,13 +52,14 @@
     {
       "name": "vss-alert-ms",
       "strategy": "build",
-      "ghcr_build": false,
+      "ghcr_build": true,
       "source_path": "services/alert",
+      "context": "services/alert",
       "dockerfile": "services/alert/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-alert-ms", "vss-alert-verification"],
       "tag_variables": ["VSS_ALERT_TAG"],
-      "notes": "Built by ci-vss-oss today; GHCR native build is a follow-up."
+      "notes": "Built by GitHub with agent/UI; GitLab consumes the exact GHCR digest."
     },
     {
       "name": "vss-video-analytics-api",

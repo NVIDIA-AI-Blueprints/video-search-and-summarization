@@ -27,6 +27,7 @@ concurrency:
 permissions:
   actions: read
   contents: read
+  packages: write
 
 defaults:
   run:
@@ -76,6 +77,22 @@ jobs:
           POLL_INTERVAL_SECONDS: "60"
           MAX_POLL_DURATION_SECONDS: "10800"
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+      - name: Set up Buildx for validated alias
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Advance develop-validated
+        run: |
+          python3 .github/scripts/advance_ghcr_alias.py \
+            --release-set .promotion/release-set.json \
+            --alias develop-validated
 
       - name: Summarize promotion
         run: |
