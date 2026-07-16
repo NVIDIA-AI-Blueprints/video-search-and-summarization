@@ -226,7 +226,21 @@ Before the result, include:
 If the VLM cannot fetch the VIOS URL, report that blocker instead of sending
 an inference request.
 
-### Stage 5: Present the Result
+### Stage 5: Persist Memory, Then Present the Result
+
+After a successful structured LVS response, retain the saved completion envelope,
+parsed content, and stable VIOS/VST source handles from Stage 2 until the turn
+ends. The workspace `AGENTS.md` requires `vss-persist-memory` before the final
+answer. Its persistence input uses:
+
+- `completion_id` from the completion envelope `id`
+- `video_id` from the completion envelope `video_id`
+- `created` and `model` from the same response
+- stable `source`, `stream_id`, and media name from the VIOS lookup
+- `content` from the parsed `choices[0].message.content` JSON
+
+Do not derive IDs or embeddings here, and do not replace the stable source
+handle with the temporary clip URL. Skip persistence for VLM fallback results.
 
 Start with exactly one header:
 
@@ -270,6 +284,9 @@ or service logs, prefer `vss-deploy-profile` and use the deployment reference.
 - `vss-deploy-profile`: deploy the `lvs` profile.
 - `vss-manage-video-io-storage`: general VIOS administration outside this
   ordered workflow.
+- `vss-persist-memory`: persist a successful structured LVS summary before
+  answering.
+- `vss-recall-memory`: recall prior summaries and events from unified memory.
 - `vss-search-archive`: search archived video.
 - `vss-query-analytics`: query stored incidents and events.
 

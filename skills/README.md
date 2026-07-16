@@ -80,6 +80,8 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](vss-summarize-video/SKILL.md) |
+| Persist a completed structured video summary before answering | [`vss-persist-memory`](vss-persist-memory/SKILL.md) |
+| Recall a prior video summary or its events | [`vss-recall-memory`](vss-recall-memory/SKILL.md) |
 | Ask a one-off visual question about a clip | [`vss-ask-video`](vss-ask-video/SKILL.md) |
 | Produce a formatted analysis report | [`vss-generate-video-report`](vss-generate-video-report/SKILL.md) |
 | Produce a report using the frag / Enterprise-RAG pipeline | [`vss-generate-video-report-rag`](vss-generate-video-report-rag/SKILL.md) |
@@ -132,6 +134,8 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 |---|---|
 | [vss-search-archive](vss-search-archive/SKILL.md) | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
 | [vss-summarize-video](vss-summarize-video/SKILL.md) | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
+| [vss-persist-memory](vss-persist-memory/SKILL.md) | Persist a completed structured LVS summary and all timestamped events to unified Elasticsearch memory before the agent answers. |
+| [vss-recall-memory](vss-recall-memory/SKILL.md) | Recall stored VSS summaries and events by stable ID, filters, full text, or semantic similarity. |
 | [vss-ask-video](vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip via the VSS agent's `video_understanding` (VLM) tool. |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
 | [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
