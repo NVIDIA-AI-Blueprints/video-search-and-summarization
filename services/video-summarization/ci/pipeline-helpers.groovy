@@ -1628,6 +1628,13 @@ def buildComposeProfileFlags(String composeProfiles = null) {
 /**
  * Resolves a single compose endpoint override from Jenkins.
  * Precedence: pipeline parameter (per-run) > job environment variable > unset (use .env).
+ *
+ * NOTE: The endpoint keys (LVS_LLM_HOST/PORT/MODEL_NAME, VIA_VLM_*) are no longer
+ * declared as build parameters in the pipelines. They are provided as job-level
+ * environment variables so the job-defined value always wins. Declaring them as
+ * both a parameter (empty default) and a job env var makes Jenkins refuse to
+ * reconcile the two providers ("Refusing to consider conflicting values ..."),
+ * so the parameter path here is retained only as a defensive fallback.
  */
 def resolveComposeEndpointOverride(String key) {
     def fromParam = null
