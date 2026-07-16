@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Calibration file path
+calib_file_path: /opt/data/vss-rt-config-adaptor/calibration.json
+bev_group_name: bev-sensor-1
+
+# ONNX model path
+onnx_model_path: /root/sparse4d/sparse4d_ov_011725_iter_4215.onnx
+
+# Model labels file path
+model_labels_path: /root/sparse4d/labels.txt
+
+# Batch size of the sparse4d model
+batch_size: 1
+
+# Frames need to skip before inference
+frame_offset: 0
+
+# Transformation properties
+aug_configs:
+  resize: 0.734375
+  resize_dims: [1408, 793]
+  crop: [0, 140, 1408, 652]
+  flip: False
+  rotate: 0
+  rotate_3d: 0
+
+# Prediction Bbox dims (x, y, z, w, l, h, sin(yaw), cos(yaw), vx, vy, vz)
+bbox_dims: 11
+
+# BBox parser(Decoder) properties
+num_output: 300
+score_threshold: null  # Use 'null' for None in YAML
+
+# Instance Bank properties
+num_anchor: 900
+embed_dims: 256
+anchor: /root/sparse4d/_aic24_kmeans900_sample100.npy
+anchor_handler: SparseBox3DKeyPointsGenerator
+num_temp_instances: 600
+confidence_decay: 0.6
+feat_grad: False
+
+# Filtering properties
+cls_threshold: 0.2
+
+# Feedback
+feedback: True
+
+# Projection from World Coordinate to Camera Coordinate
+# Generate bbox for each camera which is further used by custom DS-libs to construct 3D bbox
+generate_bbox: False
+
+# Evaluation properties
+dump_output: False # Dump Model output for evaluation
+evaluate_frames: 450 # No. frames to be evaluated
+
+# Debugging properties
+display_tensor_info: False # Display Tensor info
+display_perf_info: False # Display Perf of components
+display_timestamps_info: False # Display Sensors Timestamps
+dump_input_image: False # Save the input image send by DS
+floor_map_image_path: /root/assets/map.png
+dump_floor_map_image: False # Save the floor map image
+dump_bbox_image: False  # Save the image with bbox
+dump_floor_map_and_bbox_image: False # Save the image with bbox along with floor map image
+use_fixed_images_input: False # Use the fixed sample image instead of DS input frames
