@@ -1,16 +1,16 @@
 # `vss-cli search run` reference
 
-Run the `vss-cli` console executable from the independently distributed
-`nvidia-vss-cli` project in the checkout:
+Run the `vss-cli` console executable from the `vss` project in the checkout
+(`--no-dev` keeps the sync runtime-only — no NAT or dev tooling):
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml" || {
+test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
   exit 1
 }
 cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
   vss-cli search run [options]
 ```
 
@@ -18,7 +18,7 @@ The executable is provided by that project and need not exist globally. Do not
 use `which vss-cli`; verify the supported entry point directly:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
   vss-cli search run --help
 ```
 

@@ -21,7 +21,7 @@ def _search_handler(argv: list[str]) -> int:
             "Normal archive search: vss-cli search run --help\n"
             "Lower-level primitives: vss-cli search <embed|attribute> --help\n"
             "From the checkout: set VSS_REPO_ROOT, then run\n"
-            '  uv run --project "$VSS_REPO_ROOT/services/agent/vss-cli" vss-cli search run ...\n'
+            '  uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev vss-cli search run ...\n'
         )
         return 0
     operation = argv[0]

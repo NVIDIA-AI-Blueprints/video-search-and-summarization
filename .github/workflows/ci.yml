@@ -176,7 +176,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --extra agent --frozen
 
       - name: mypy
         run: uv run mypy src/vss_agents/
@@ -223,7 +223,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --extra agent --frozen
 
       - name: pytest
         timeout-minutes: 10
@@ -242,7 +242,9 @@ jobs:
           path: services/agent/coverage.xml
 
   # ---------------------------------------------------------------------------
-  # Job 4: Standalone vss-cli build and tests
+  # Job 4: NAT-free base distribution (lib + vss-cli) build and tests.
+  # Installs only the base `vss` dependencies + the cli-dev tool group, so this
+  # lane proves the host CLI surface never grows a NAT/torch dependency.
   # ---------------------------------------------------------------------------
   vss-cli-test:
     name: Test (vss-cli)
@@ -251,7 +253,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: services/agent/vss-cli
+        working-directory: services/agent
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -275,14 +277,13 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Build and test standalone package
+      - name: Build and test NAT-free base distribution
         run: |
-          uv sync --group dev --frozen
-          uv run --no-sync ruff check src/lib/_foundation src/lib/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst tests
-          uv run --no-sync ruff format --check src/lib/_foundation src/lib/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst tests
+          uv sync --frozen --no-dev --group cli-dev
           uv run --no-sync mypy src/lib/_foundation src/lib/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst
-          uv run --no-sync pytest -W error::RuntimeWarning -W error::ResourceWarning --cov=src/lib --cov-fail-under=80 --cov-report=xml:coverage.xml -m "not slow and not integration"
-          uv run --no-sync python ../../../.github/scripts/test_license_diff_csv.py
+          uv run --no-sync pytest tests/unit_test/lib -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=src/lib --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
           rm -rf dist
           uv build
 
@@ -290,7 +291,7 @@ jobs:
         run: |
           rm -rf .wheel-smoke
           uv venv --python 3.13 .wheel-smoke
-          set -- dist/nvidia_vss_cli-*.whl
+          set -- dist/vss-*.whl
           test "$#" -eq 1 && test -f "$1"
           uv pip install --python .wheel-smoke/bin/python --no-cache "$1"
           uv pip check --python .wheel-smoke/bin/python
@@ -306,20 +307,21 @@ jobs:
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
           assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
+          # vss_agents and lib.knowledge ship in the wheel, but the base
+          # install must never pull their NAT/torch dependency stack.
+          assert installed.isdisjoint({"nvidia-nat", "nvidia-nat-core", "torch", "langchain-core"})
           assert importlib.util.find_spec("nat") is None
           assert importlib.util.find_spec("torch") is None
-          assert importlib.util.find_spec("vss_agents") is None
-          assert importlib.util.find_spec("lib.knowledge") is None
           assert lib is not None and lib.critic is not None and lib.search_core is not None and lib.vlm is not None and lib.vst is not None
           PY
           .wheel-smoke/bin/vss-cli --help >/dev/null
 
-      - name: Upload vss-cli coverage report
+      - name: Upload lib coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
           name: vss-cli-coverage-report
-          path: services/agent/vss-cli/coverage.xml
+          path: services/agent/coverage-lib.xml
 
   # ---------------------------------------------------------------------------
   # Job 5: Security scanning (detect-secrets)

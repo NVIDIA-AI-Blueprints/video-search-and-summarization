@@ -59,7 +59,7 @@ RUN python3 /vss-agent/verify_ffmpeg_tarball.py
 RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=private \
     uv venv --seed .venv && \
     . .venv/bin/activate && \
-    uv sync --frozen --no-dev --no-editable --link-mode copy
+    uv sync --frozen --no-dev --no-editable --extra agent --link-mode copy
 
 RUN uv pip uninstall setuptools
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/setuptools
