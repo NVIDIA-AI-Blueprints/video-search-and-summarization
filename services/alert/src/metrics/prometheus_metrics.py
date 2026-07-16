@@ -306,6 +306,31 @@ ASYNC_SINK_IN_FLIGHT = Gauge(
     multiprocess_mode='livesum',
 )
 
+# In-flight dispatched messages (thread_bridge executor tasks or event_loop
+# coroutines), i.e. the live occupancy of the backpressure semaphore.
+DISPATCH_IN_FLIGHT = Gauge(
+    'alert_bridge_dispatch_in_flight',
+    'Current number of in-flight dispatched messages',
+    multiprocess_mode='livesum',
+)
+
+# Time a message spent between dispatch submission and the moment its task
+# started executing (event_loop mode: taskDispatchedAt -> taskStartedAt).
+DISPATCH_WAIT_DURATION = Histogram(
+    'alert_bridge_dispatch_wait_seconds',
+    'Wait between dispatch submission and task execution start',
+    buckets=WORKER_QUEUE_WAIT_BUCKETS,
+)
+
+# Time a task spent waiting on a per-service concurrency capacity slot
+# (event_loop mode semaphores), kept separate from processing duration.
+CAPACITY_WAIT_DURATION = Histogram(
+    'alert_bridge_capacity_wait_seconds',
+    'Wait for a per-service concurrency slot before issuing the call',
+    ['service'],
+    buckets=WORKER_QUEUE_WAIT_BUCKETS,
+)
+
 # ---------------------------------------------------------------------------
 # Realtime alert rule metrics
 # ---------------------------------------------------------------------------
