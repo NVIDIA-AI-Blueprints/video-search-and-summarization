@@ -41,6 +41,48 @@ def build_entries(release_set: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def select_build_release_set(
+    api: GitHubApi,
+    repository: str,
+    *,
+    requested_sha: str = "",
+    per_page: int = 100,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Find the latest successful develop run that produced GHCR build entries."""
+    page = 1
+    while True:
+        query: dict[str, str | int] = {
+            "branch": "develop",
+            "status": "success",
+            "per_page": per_page,
+            "page": page,
+        }
+        if requested_sha:
+            query["head_sha"] = requested_sha
+        payload = api.request(
+            "GET",
+            f"/repos/{repository}/actions/workflows/build-dev-images.yml/runs?"
+            + urllib.parse.urlencode(query),
+        )
+        runs = payload.get("workflow_runs", [])
+        for run in runs:
+            if select_build_run([run], requested_sha) is None:
+                continue
+            try:
+                release_set = download_release_set_artifact(
+                    api,
+                    repository,
+                    int(run["id"]),
+                )
+            except RuntimeError:
+                continue
+            if build_entries(release_set):
+                return run, release_set
+        if len(runs) < per_page:
+            return None
+        page += 1
+
+
 def promotion_variables(
     release_set: dict[str, Any],
     *,
@@ -90,17 +132,16 @@ def main() -> int:
             "GITHUB_TOKEN, repository, GITHUB_ENV, and GITHUB_OUTPUT are required"
         )
     api = GitHubApi(token)
-    query = {"branch": "develop", "status": "success", "per_page": 50}
-    if args.requested_sha:
-        query["head_sha"] = args.requested_sha
-    payload = api.request(
-        "GET",
-        f"/repos/{args.repository}/actions/workflows/build-dev-images.yml/runs?"
-        + urllib.parse.urlencode(query),
+    selected = select_build_release_set(
+        api,
+        args.repository,
+        requested_sha=args.requested_sha,
     )
-    run = select_build_run(payload.get("workflow_runs", []), args.requested_sha)
-    if run is None:
-        raise RuntimeError("no successful develop GHCR build run matched")
+    if selected is None:
+        raise RuntimeError(
+            "no successful develop GHCR build run with candidate images matched"
+        )
+    run, release_set = selected
     source_sha = str(run["head_sha"])
 
     ci_query = urllib.parse.urlencode(
@@ -115,9 +156,6 @@ def main() -> int:
             f"commit {source_sha} has no successful GitHub CI/downstream run"
         )
 
-    release_set = download_release_set_artifact(
-        api, args.repository, int(run["id"])
-    )
     if release_set.get("source", {}).get("commit") != source_sha:
         raise RuntimeError("release-set source commit does not match selected run")
     problems = validate_release_set(release_set, load_inventory(Path.cwd()))

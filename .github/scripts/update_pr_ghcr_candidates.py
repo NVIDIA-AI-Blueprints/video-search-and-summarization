@@ -183,13 +183,24 @@ def download_release_set_artifact(
 def upsert_comment(
     api: GitHubApi, repository: str, number: int, body: str
 ) -> None:
-    comments = api.request(
-        "GET", f"/repos/{repository}/issues/{number}/comments?per_page=100"
-    )
-    existing = next(
-        (comment for comment in comments if MARKER in str(comment.get("body", ""))),
-        None,
-    )
+    existing: dict[str, Any] | None = None
+    page = 1
+    while existing is None:
+        comments = api.request(
+            "GET",
+            f"/repos/{repository}/issues/{number}/comments?per_page=100&page={page}",
+        )
+        existing = next(
+            (
+                comment
+                for comment in comments
+                if MARKER in str(comment.get("body", ""))
+            ),
+            None,
+        )
+        if existing is not None or len(comments) < 100:
+            break
+        page += 1
     if existing:
         api.request(
             "PATCH",

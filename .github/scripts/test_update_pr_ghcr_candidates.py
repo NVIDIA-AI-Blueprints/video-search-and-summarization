@@ -76,6 +76,31 @@ class CandidateCommentTest(unittest.TestCase):
         )
         self.assertEqual(module.moving_alias("release-3.2.0"), "")
 
+    def test_upsert_comment_finds_marker_after_first_page(self):
+        class FakeApi:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, method, path, payload=None):
+                self.calls.append((method, path, payload))
+                if method == "GET" and path.endswith("&page=1"):
+                    return [{"id": index, "body": "other"} for index in range(100)]
+                if method == "GET" and path.endswith("&page=2"):
+                    return [{"id": 999, "body": module.MARKER}]
+                return {}
+
+        api = FakeApi()
+        module.upsert_comment(api, "org/repo", 1190, "updated")
+        self.assertIn(
+            (
+                "PATCH",
+                "/repos/org/repo/issues/comments/999",
+                {"body": "updated"},
+            ),
+            api.calls,
+        )
+        self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

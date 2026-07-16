@@ -8,11 +8,13 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from prepare_nightly_promotion import (  # noqa: E402
     promotion_variables,
+    select_build_release_set,
     select_build_run,
 )
 
@@ -50,6 +52,54 @@ class NightlyPromotionTest(unittest.TestCase):
         ]
         self.assertEqual(select_build_run(runs)["id"], 2)
         self.assertIsNone(select_build_run(runs, "c" * 40))
+
+    def test_skips_reuse_only_runs_and_paginates(self):
+        pages = {
+            1: [
+                {
+                    "id": 1,
+                    "head_branch": "develop",
+                    "head_sha": "a" * 40,
+                    "conclusion": "success",
+                },
+                {
+                    "id": 2,
+                    "head_branch": "develop",
+                    "head_sha": "b" * 40,
+                    "conclusion": "success",
+                },
+            ],
+            2: [
+                {
+                    "id": 3,
+                    "head_branch": "develop",
+                    "head_sha": "c" * 40,
+                    "conclusion": "success",
+                }
+            ],
+        }
+
+        class FakeApi:
+            def request(self, method, url):
+                self.method = method
+                page = int(url.split("page=")[-1])
+                return {"workflow_runs": pages.get(page, [])}
+
+        reuse_only = {"images": [{"strategy": "reuse-pinned"}]}
+        release_sets = {1: reuse_only, 2: reuse_only, 3: release_set()}
+        with patch(
+            "prepare_nightly_promotion.download_release_set_artifact",
+            side_effect=lambda api, repository, run_id: release_sets[run_id],
+        ):
+            selected = select_build_release_set(
+                FakeApi(),
+                "org/repo",
+                per_page=2,
+            )
+        self.assertIsNotNone(selected)
+        run, payload = selected
+        self.assertEqual(run["id"], 3)
+        self.assertEqual(payload, release_set())
 
     def test_promotion_variables_preserve_tag_and_manifest(self):
         payload = release_set()
