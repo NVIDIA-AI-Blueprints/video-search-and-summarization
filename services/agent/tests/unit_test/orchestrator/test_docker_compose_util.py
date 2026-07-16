@@ -356,6 +356,46 @@ class TestResolveComposeProfiles:
         )
 
 
+class TestExpandEnvValueReferences:
+    def test_expands_nested_path_reference(self):
+        env = {
+            "VSS_APPS_DIR": "/opt/vss/deploy/docker",
+            "MODE": "2d",
+            "SDR_CONTROLLER_CONFIG_PATH": "${VSS_APPS_DIR}/developer-profiles/dev-profile-search/sdrc/${MODE}",
+        }
+        dcu.expand_env_value_references(env)
+        assert (
+            env["SDR_CONTROLLER_CONFIG_PATH"] == "/opt/vss/deploy/docker/developer-profiles/dev-profile-search/sdrc/2d"
+        )
+
+    def test_expands_bare_and_suffixed_reference(self):
+        env = {"HOST_IP": "10.0.0.5", "REACT_APP_API_ENDPOINT_BASE_URL": "$HOST_IP:8081"}
+        dcu.expand_env_value_references(env)
+        assert env["REACT_APP_API_ENDPOINT_BASE_URL"] == "10.0.0.5:8081"
+
+    def test_resolves_chained_references(self):
+        env = {
+            "VST_EXTERNAL_URL": "https://example.test",
+            "VST_BASE_URL": "${VST_EXTERNAL_URL}",
+            "VST_DERIVED": "${VST_BASE_URL}/api",
+        }
+        dcu.expand_env_value_references(env)
+        assert env["VST_BASE_URL"] == "https://example.test"
+        assert env["VST_DERIVED"] == "https://example.test/api"
+
+    def test_unknown_reference_left_intact(self):
+        env = {"SOME_KEY": "${UNDEFINED_VAR}/tail", "OTHER": "literal$dollar"}
+        dcu.expand_env_value_references(env)
+        assert env["SOME_KEY"] == "${UNDEFINED_VAR}/tail"
+        assert env["OTHER"] == "literal$dollar"
+
+    def test_cycle_does_not_hang(self):
+        env = {"A": "${B}", "B": "${A}"}
+        dcu.expand_env_value_references(env)
+        # Values remain referential (unresolved) but the call terminates.
+        assert set(env) == {"A", "B"}
+
+
 class TestSanitizeResolvedCompose:
     def test_sanitize_resolved_compose_removes_dangling_depends_on(self):
         compose_text = """

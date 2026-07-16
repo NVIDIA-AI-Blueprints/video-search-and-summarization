@@ -402,6 +402,35 @@ def resolve_env_interpolation(value: str, env: Mapping[str, str]) -> str:
     return ENV_VAR_INTERPOLATION_PATTERN.sub(_replace, value)
 
 
+def expand_env_value_references(env: dict[str, str]) -> None:
+    """Expand ``${VAR}``/``$VAR`` references in env values using other env values, in place.
+
+    Only references to keys present in ``env`` are substituted; unknown references are left
+    intact (so literal ``$`` and runtime-only vars survive). Chained references (A -> ${B},
+    B -> ${C}) are resolved with a bounded fixed-point iteration; any remaining references
+    after the cap (e.g. cycles) are left as-is.
+    """
+
+    def _sub_known(value: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            key = match.group("braced") or match.group("bare")
+            return env[key] if key in env else match.group(0)
+
+        return ENV_VAR_INTERPOLATION_PATTERN.sub(_replace, value)
+
+    for _ in range(len(env) + 1):
+        changed = False
+        for key, value in env.items():
+            if "$" not in value:
+                continue
+            expanded = _sub_known(value)
+            if expanded != value:
+                env[key] = expanded
+                changed = True
+        if not changed:
+            break
+
+
 def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfile) -> str:
     """Resolve COMPOSE_PROFILES from the profile env template, with a legacy fallback."""
 
@@ -662,6 +691,10 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
     merged["COMPOSE_PROFILES"] = resolve_compose_profiles(merged, config.profile)
+    # Resolve nested ${VAR} references (e.g. SDR_CONTROLLER_CONFIG_PATH, VST_CONFIG_PATH,
+    # REACT_APP_API_ENDPOINT_BASE_URL) so the generated .env holds self-contained values;
+    # docker compose does not interpolate env-file values against each other.
+    expand_env_value_references(merged)
     return merged
 
 
