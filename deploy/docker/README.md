@@ -65,7 +65,7 @@ Each profile may also ship a **`.env`** under **`developer-profiles/<profile>/`*
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
 - **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search) is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.yaml` manifests. **Warehouse profiles do not use `models-download-*`** — they obtain models (and other app data) from the pre-extracted `VSS_DATA_DIR` bundle (see the warehouse section below).
+- Model acquisition for **developer profiles** (alerts, search) is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.json` manifests. **Warehouse profiles do not use `models-download-*`** — they obtain models (and other app data) from the pre-extracted `VSS_DATA_DIR` bundle (see the warehouse section below).
 
 ### Direct Compose data directories
 

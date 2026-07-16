@@ -22,7 +22,7 @@ services:
     container_name: vss-rtvi-cv-init
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.yaml:/opt/config/models-download.yaml:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.json:/opt/config/models-download.json:ro
 
 
   vss-behavior-analytics-alerts:

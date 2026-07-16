@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-MODELS_MANIFEST_PATH="${MODELS_MANIFEST_PATH:-/opt/config/models-download.yaml}"
+MODELS_MANIFEST_PATH="${MODELS_MANIFEST_PATH:-/opt/config/models-download.json}"
 MODELS_DEST_ROOT="${MODELS_DEST_ROOT:-/opt/storage}"
 STORAGE_UID="${STORAGE_UID:-1001}"
 STORAGE_GID="${STORAGE_GID:-1001}"
