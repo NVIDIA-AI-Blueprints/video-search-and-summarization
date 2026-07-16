@@ -1,0 +1,40 @@
+[
+  {
+    "record_type": "video_event",
+    "id": "event:11111111-1111-4111-8111-111111111111:0001",
+    "event_id": "event:11111111-1111-4111-8111-111111111111:0001",
+    "summary_id": "summary:11111111-1111-4111-8111-111111111111",
+    "ordinal": 1,
+    "event_type": "near miss",
+    "description": "A forklift passed close to a pedestrian in the aisle.",
+    "source": "vst",
+    "video_id": "22222222-2222-4222-8222-222222222222",
+    "stream_id": "camera-warehouse-07",
+    "media_name": "warehouse-shift.mp4",
+    "created_at": "2026-07-15T02:40:00+00:00",
+    "start_seconds": 12.0,
+    "end_seconds": 18.5,
+    "embedding_model": null,
+    "chunking_version": null,
+    "event_chunks": []
+  },
+  {
+    "record_type": "video_event",
+    "id": "event:11111111-1111-4111-8111-111111111111:0002",
+    "event_id": "event:11111111-1111-4111-8111-111111111111:0002",
+    "summary_id": "summary:11111111-1111-4111-8111-111111111111",
+    "ordinal": 2,
+    "event_type": "forklift stop",
+    "description": "The forklift stopped after the pedestrian cleared the aisle.",
+    "source": "vst",
+    "video_id": "22222222-2222-4222-8222-222222222222",
+    "stream_id": "camera-warehouse-07",
+    "media_name": "warehouse-shift.mp4",
+    "created_at": "2026-07-15T02:40:00+00:00",
+    "start_seconds": 22.0,
+    "end_seconds": 25.0,
+    "embedding_model": null,
+    "chunking_version": null,
+    "event_chunks": []
+  }
+]

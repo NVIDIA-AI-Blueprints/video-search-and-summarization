@@ -1,0 +1,1 @@
+"""Summary chunking adapters."""
