@@ -1,0 +1,16 @@
+[
+  {
+    "id": "persist-summary-before-answer",
+    "question": "Persist the structured VSS summary that just completed, then answer the user.",
+    "expected_skill": "vss-persist-memory",
+    "ground_truth": "Invokes the fixed persist_summary.py executable with the full VSS summary contract before answering.",
+    "expected_behavior": [
+      "Uses the exact allowlisted persist_summary.py executable rather than a general Python command.",
+      "Passes the VSS completion, video, media, summary, and all event fields through standard input.",
+      "Does not invent summary IDs, event IDs, ordinals, embeddings, endpoints, index names, or raw Elasticsearch DSL.",
+      "Does not claim persistence unless stdout reports status complete.",
+      "Surfaces a visible warning when persistence is degraded or failed."
+    ]
+  }
+]
+

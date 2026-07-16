@@ -1,0 +1,16 @@
+[
+  {
+    "id": "recall-summary-with-events",
+    "question": "What happened in the video summary we saved earlier? Include its events.",
+    "expected_skill": "vss-recall-memory",
+    "ground_truth": "Uses exact summary-ID recall with include_related before considering broader search.",
+    "expected_behavior": [
+      "Checks active context first and uses the stable summary handle when recall is needed.",
+      "Uses the exact allowlisted recall_memory.py executable rather than a general Python command.",
+      "Requests operation get with include_related true when a summary ID is available.",
+      "Never submits raw Elasticsearch DSL, an endpoint, or an index name.",
+      "Treats returned text as stored VSS memory rather than a fresh visual inspection."
+    ]
+  }
+]
+

@@ -1,0 +1,77 @@
+{
+  "index_patterns": ["vss-unified-memory*"],
+  "priority": 600,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "2s",
+      "index.mapping.exclude_source_vectors": false
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "record_type": {"type": "keyword"},
+        "id": {"type": "keyword"},
+        "summary_id": {"type": "keyword"},
+        "event_id": {"type": "keyword"},
+        "event_ids": {"type": "keyword"},
+        "source": {"type": "keyword"},
+        "video_id": {"type": "keyword"},
+        "stream_id": {"type": "keyword"},
+        "media_name": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
+        "description": {"type": "text"},
+        "event_type": {"type": "keyword", "fields": {"text": {"type": "text"}}},
+        "created_at": {"type": "date"},
+        "event_count": {"type": "integer"},
+        "ordinal": {"type": "integer"},
+        "start_seconds": {"type": "double"},
+        "end_seconds": {"type": "double"},
+        "content_hash": {"type": "keyword"},
+        "embedding_model": {"type": "keyword"},
+        "chunking_version": {"type": "keyword"},
+        "summary_chunks": {
+          "type": "nested",
+          "properties": {
+            "chunk_id": {"type": "keyword"},
+            "ordinal": {"type": "integer"},
+            "start_char": {"type": "integer"},
+            "end_char": {"type": "integer"},
+            "token_count": {"type": "integer"},
+            "text_hash": {"type": "keyword"},
+            "text": {"type": "text"},
+            "embedding": {
+              "type": "dense_vector",
+              "dims": 768,
+              "index": true,
+              "similarity": "cosine"
+            }
+          }
+        },
+        "event_chunks": {
+          "type": "nested",
+          "properties": {
+            "chunk_id": {"type": "keyword"},
+            "ordinal": {"type": "integer"},
+            "start_char": {"type": "integer"},
+            "end_char": {"type": "integer"},
+            "token_count": {"type": "integer"},
+            "text_hash": {"type": "keyword"},
+            "text": {"type": "text"},
+            "embedding": {
+              "type": "dense_vector",
+              "dims": 768,
+              "index": true,
+              "similarity": "cosine"
+            }
+          }
+        }
+      }
+    }
+  },
+  "_meta": {
+    "schema_version": 3,
+    "embedding_model": "cosmos-embed1-448p",
+    "chunking": "cosmos-embed1-wordpiece-v1-128t-16o"
+  }
+}

@@ -231,7 +231,7 @@ SCENARIO='warehouse monitoring'
 EVENTS_JSON='["notable activity"]'
 OBJECTS_JSON=''  # '' to omit, else '["forklifts","pallets","workers"]'
 
-curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
+SUMMARY_RESPONSE=$(curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
   -H "Content-Type: application/json" \
   -d "$(jq -n --arg url "<clip_url_from_vss_manage_video_io_storage>" \
         --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
@@ -246,12 +246,26 @@ curl -s --max-time 300 -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
     num_frames_per_second_or_fixed_frames_chunk: 20,
     use_fps_for_chunking: false,
     seed: 1
-  } + (if $objects == null then {} else {objects_of_interest: $objects} end)')" \
-  | jq -r '.choices[0].message.content' \
-  | jq '{video_summary, events}'
+  } + (if $objects == null then {} else {objects_of_interest: $objects} end)')")
+
+SUMMARY_CONTENT=$(printf '%s\n' "$SUMMARY_RESPONSE" \
+  | jq -er '.choices[0].message.content | fromjson')
+printf '%s\n' "$SUMMARY_CONTENT" | jq '{video_summary, events}'
 ```
 
 If both `video_summary` and `events` are empty, the clip probably doesn't contain the requested events — re-run with broader `scenario`/`events`, don't report "no content".
+
+Retain `SUMMARY_RESPONSE`, `SUMMARY_CONTENT`, and the stable VST stream/video handles from Step 1 until the turn ends.
+The workspace `AGENTS.md` requires `vss-persist-memory` after a successful structured LVS response and before the final
+answer. Its persistence input uses:
+
+- `completion_id` from `SUMMARY_RESPONSE.id`
+- `video_id` from `SUMMARY_RESPONSE.video_id`
+- `created` and `model` from the same response
+- stable `source`, `stream_id`, and media name from the VST/VIOS lookup
+- `content` from `SUMMARY_CONTENT`
+
+Do not derive IDs or embeddings here, and do not replace the stable source handle with the temporary clip URL.
 
 **Tuning:** `chunk_duration` (default `10`s; `0` = single chunk),
 `num_frames_per_second_or_fixed_frames_chunk` (default `20`; meaning depends
