@@ -93,7 +93,7 @@ services:
     container_name: vss-rtvi-cv-init
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/models-download.yaml:/opt/config/models-download.yaml:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/models-download.json:/opt/config/models-download.json:ro
     environment:
       VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
       VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
