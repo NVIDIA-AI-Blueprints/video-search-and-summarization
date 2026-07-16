@@ -192,6 +192,33 @@ class BrevEnvironment(BaseEnvironment):
         # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
+        # Reap stray on-box agent processes left by a previous trial whose
+        # runner-side job was cancelled or SIGKILLed. Cancellation kills the
+        # runner-side harbor tree (releasing the box's flock, which dies with
+        # run_leg.py), but the agent launched *on the box* over SSH — and the
+        # Bash-tool children in its process groups — can survive and keep
+        # driving `docker compose up` / model pulls. The docker reset below
+        # removes containers, not host processes, so an unreaped orphan
+        # contends with this trial and can resurrect containers after the
+        # wipe (suspected in PR #1281's base/search legs losing SSH
+        # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
+        # legs died there). Must run before the /logs wipe and docker reset.
+        reap_result = await _run_brev_exec(
+            self._instance_name,
+            _stray_agent_reap_command(),
+            timeout=30,
+        )
+        if reap_result.return_code != 0:
+            tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"stray-agent reap failed on {self._instance_name}: "
+                f"exit {reap_result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Stray-agent reap on %s: %s",
+            self._instance_name, (reap_result.stdout or "").strip(),
+        )
+
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
         #
@@ -373,34 +400,86 @@ class BrevEnvironment(BaseEnvironment):
         # deploy/docker/data-dir/) and written root-owned files there. Without
         # stopping them first, `git clean` in the repo sync step fails with
         # "Permission denied" on those root-owned files/dirs.
+        # A spec's first trial (a single-step spec, or `step-1` of a
+        # multi-step chain) gets a clean slate; `step-2+` must PRESERVE the
+        # environment step-1 established. This one predicate gates every
+        # destructive box-prep action below — docker reset, host-data purge,
+        # AND the repo sync — because each of them tears down state the later
+        # step under test depends on. (`environment_dir.parent` is the task
+        # dir — named `step-N` for multi-step, the platform for single-step.)
         task_dir_name = self.environment_dir.parent.name
-        if task_dir_name.startswith("step-") and task_dir_name != "step-1":
-            logger.info(
-                "Skipping docker runtime reset on %s — %s of a multi-step spec "
-                "must preserve step-1's deployment state",
-                self._instance_name, task_dir_name,
-            )
-        else:
+        is_first_trial = not (
+            task_dir_name.startswith("step-") and task_dir_name != "step-1"
+        )
+        if is_first_trial:
             await self._reset_docker_runtime()
             # Host bind-mount purge runs AFTER the docker reset so every
             # container that writes into these dirs is already gone —
             # purging first would race the writers and the dirs would be
             # dirty again by the time the trial starts.
             await self._purge_host_data_dirs()
+        else:
+            logger.info(
+                "Skipping docker reset, host purge, and repo sync on %s — %s "
+                "of a multi-step spec must preserve step-1's deployment state "
+                "and its live bind-mount host dirs (e.g. deploy/docker/data-dir/, "
+                "whose clip_storage/vst_data are bind-mounted into the still-"
+                "running VIOS containers)",
+                self._instance_name, task_dir_name,
+            )
 
         # Sync ~/video-search-and-summarization on the box to the PR's
         # actual head SHA before any deploy/agent step reads it.
         #
-        # Without this, every trial runs against whatever happened to be
-        # checked out on the box from a prior session — often a stale
-        # tarball-style checkout (no `.git`) with an obsolete directory
+        # Gated to the FIRST trial only. `_sync_repo_to_pr_head`'s
+        # `git clean -fdx -e data/ -e .env` removes every untracked path not
+        # matched by its excludes. NOTE `-e data/` is a gitignore-style pattern
+        # with no leading slash, so it spares a directory named `data` at ANY
+        # depth (including `deploy/docker/data/`) — but NOT
+        # `deploy/docker/data-dir/`, whose name does not match. `data-dir/` is
+        # the host source of the LVS/VIOS bind mounts (clip_storage, vst_data,
+        # vst/temp_files, ...) whenever a deploy roots VSS_DATA_DIR there
+        # (dev-profile.sh's default). On `step-2+` the step-1 containers are
+        # still running and bind-mounted onto those dirs; cleaning them
+        # mid-chain unlinks the host inode out from under the containers —
+        # confirmed by the mount probe below: host inode gone, container still
+        # pinned to it, link count 0 — and uploads then fail with "Failed to
+        # open output file: No such file or directory" (PR #1227 /
+        # lvs_profile_summarize step-2, the reported symptom).
+        #
+        # That name dependency IS the non-determinism this bug showed: a deploy
+        # rooted at `deploy/docker/data/` survives the clean (spared by
+        # `-e data/`) so summarize works, while one rooted at `.../data-dir/`
+        # is deleted and breaks — same clean, opposite outcome, purely by
+        # folder name. Gating removes the lottery: no clean runs on step-2+,
+        # so neither root is ever touched.
+        #
+        # The re-sync is also redundant on later steps: the box is held by one
+        # `run_leg.py` flock across the whole chain and nothing mutates $REPO
+        # between steps, so it is already at PR_HEAD_SHA from step-1.
+        #
+        # Without this on the first trial, every trial runs against whatever
+        # happened to be checked out on the box from a prior session — often a
+        # stale tarball-style checkout (no `.git`) with an obsolete directory
         # layout (`deployments/` instead of `deploy/docker/`) and the
-        # pre-rename container names. The pre-deploy script generated
-        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+        # pre-rename container names. The pre-deploy script generated by
+        # `adapters/vss-deploy-profile/generate.py::generate_solve_script`
         # only syncs on the *gold-solution* path; the trial's agent invokes
-        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
-        # PR_HEAD_SHA forwarded above never actually lands on disk.
-        await self._sync_repo_to_pr_head()
+        # `/vss-deploy-profile` directly against `$REPO`, so without this step
+        # the PR_HEAD_SHA forwarded above never actually lands on disk.
+        # Permanent guardrail (non-fatal): probe the VIOS bind mounts right
+        # before and after the sync decision. The probes run on EVERY step,
+        # regardless of gating, so the log records the truth on both paths:
+        #   - step-2+ WITH this fix   -> before=healthy, after=healthy (sync
+        #     skipped, mounts preserved) — the fix, proven per run.
+        #   - step-2+ WITHOUT the fix -> before=healthy, after=stale (the
+        #     `git clean` deleted the data-dir root out from under the
+        #     containers) — the regression, caught loudly.
+        # Output lands in <trial>/artifacts/logs/artifacts/mount-probe.log.
+        await self._probe_bind_mount(f"{task_dir_name}:before-sync")
+        if is_first_trial:
+            await self._sync_repo_to_pr_head()
+        await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible
@@ -644,6 +723,39 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             "Repo sync on %s: %s",
             self._instance_name, (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
+
+    async def _probe_bind_mount(self, label: str) -> None:
+        """Non-fatal guardrail: record the liveness of every discovered VIOS
+        bind mount on the box. Proves/guards against the step-2 data-dir
+        deletion (see the call sites around _sync_repo_to_pr_head). The
+        box-side probe tees its `MOUNTPROBE` lines to
+        /logs/artifacts/mount-probe.log (collected into the trial artifact) —
+        brev_env's Python logging is swallowed by harbor, so that file is the
+        reliable channel. NEVER raises: a probe fault must not perturb the
+        trial it only observes."""
+        try:
+            try:
+                from envs import mount_probe  # normal harbor import path
+            except ImportError:
+                import mount_probe  # PYTHONPATH=.github/skill-eval fallback
+            result = await _run_brev_exec(
+                self._instance_name, mount_probe.build_probe_command(label),
+                timeout=90,
+            )
+            lines = mount_probe.parse_probe_lines(result.stdout or "")
+            if not lines:
+                logger.warning(
+                    "[mount-probe] %s: no MOUNTPROBE output (rc=%s) stderr=%s",
+                    label, result.return_code, (result.stderr or "")[-200:],
+                )
+                return
+            for d in lines:
+                logger.info(
+                    "[mount-probe] %s",
+                    " ".join(f"{k}={v}" for k, v in d.items()),
+                )
+        except Exception as exc:  # noqa: BLE001 — diagnostic must never fail the trial
+            logger.warning("[mount-probe] %s failed (non-fatal): %r", label, exc)
 
     async def stop(self, delete: bool) -> None:
         """No-op — the instance stays running for reuse."""
@@ -934,6 +1046,44 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 def _which(cmd: str) -> bool:
     import shutil
     return shutil.which(cmd) is not None
+
+
+def _stray_agent_reap_command() -> str:
+    """SIGKILL leftover trial-agent processes from a prior session.
+
+    Matches the exact on-box trial invocation (`claude --verbose
+    --output-format=stream-json …`); the `[n]` bracket keeps this probe's
+    own argv — which contains the pattern text — from matching itself.
+    Kills each match's whole process group so detached Bash-tool children
+    (compose waiters, log tails) die with it, falling back to a plain kill
+    when the group lookup fails. Pids in this shell's own process group are
+    skipped — belt-and-suspenders so a caller whose argv somehow contains
+    the unbracketed pattern can never reap itself. Exits 0 whether or not
+    anything matched; a non-zero exit means the reap itself broke and the
+    caller fails loud.
+    """
+    return (
+        "PAT='claude --verbose --output-format=stream-jso[n]'; "
+        'SELF_PGID=$(ps -o pgid= -p $$ | tr -d " "); '
+        'PIDS=$(pgrep -f "$PAT" || true); '
+        "KILLED=''; "
+        'if [ -n "$PIDS" ]; then '
+        "  for pid in $PIDS; do "
+        '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d " " || true); '
+        '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then continue; fi; '
+        '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then '
+        '      kill -9 -- "-$PGID" 2>/dev/null || true; '
+        "    fi; "
+        '    kill -9 "$pid" 2>/dev/null || true; '
+        '    KILLED="$KILLED $pid"; '
+        "  done; "
+        "fi; "
+        'if [ -n "$KILLED" ]; then '
+        '  echo "[stray-agent-reap] killed pids:$KILLED"; '
+        "else "
+        '  echo "[stray-agent-reap] none"; '
+        "fi"
+    )
 
 
 def _claude_task_scratch_cleanup_command() -> str:

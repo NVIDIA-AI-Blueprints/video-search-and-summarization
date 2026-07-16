@@ -37,7 +37,6 @@ services:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
       NIM_MODEL_NAME: "${VLM_NIM_MODEL_NAME:-${VLM_CUSTOM_WEIGHTS:-}}"
       NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
-      VLM_NIM_KVCACHE_PERCENT: "${VLM_NIM_KVCACHE_PERCENT}"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}.env
       - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}

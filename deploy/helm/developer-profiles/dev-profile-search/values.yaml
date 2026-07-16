@@ -734,6 +734,13 @@ vss-agent-ui:
 nims:
   enabled: true
   gpuType: H100
+  # Cap cosmos3 at 0.75 of the VLM GPU (device 1, co-hosted with other GPU
+  # services in this profile) — overrides the umbrella H100 profile's 0.9.
+  # Merged per-key into the rendered <cosmos3-fullname>-nim-env ConfigMap.
+  gpuProfiles:
+    H100:
+      cosmos3:
+        NIM_GPU_MEMORY_UTILIZATION: '0.75'
   global:
     # Must differ from chart root docker pull Secret name (`global.imagePullSecrets` → ngc-docker-reg-secret from templates/secrets.yaml).
     # Reusing ngc-docker-reg-secret here duplicates the same Secret in the nims subchart and breaks installs/upgrades (Helm SSA / original object errors).
@@ -795,8 +802,8 @@ nims:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
+    # The cosmos3-reasoner subchart does not consume this env map — runtime env
+    # comes from the gpuProfiles.<gpuType>.cosmos3 ConfigMap (see the
+    # nims.gpuProfiles.H100.cosmos3 override above).
     env:
       CUDA_VISIBLE_DEVICES: '1'
-      NIM_KVCACHE_PERCENT: '0.75'
-      NIM_DISABLE_MM_PREPROCESSOR_CACHE: '1'
-      NIM_DELETE_LAST_FRAMES: '1'

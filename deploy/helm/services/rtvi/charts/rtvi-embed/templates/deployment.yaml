@@ -220,6 +220,8 @@ spec:
               value: "10"
             - name: ASSET_DOWNLOAD_TOTAL_TIMEOUT
               value: "300"
+            - name: ASSET_DOWNLOAD_MAX_FILE_SIZE_GB
+              value: {{ .Values.assetDownloadMaxFileSizeGb | default 8 | quote }}
             - name: ERROR_MESSAGE_TOPIC
               value: "vision-embed-errors"
           startupProbe:
