@@ -1,0 +1,20 @@
+# Build context: repo root (docker build -f docker/Dockerfile .)
+
+.venv
+docker/.venv
+venv
+env
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.pytest_cache
+docker/.pytest_cache
+.coverage
+htmlcov
+tests/
+
+**/*.log
+docker/build/
+docker/*.egg-info/
+docker/Untitled
+.DS_Store
