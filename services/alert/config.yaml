@@ -212,13 +212,24 @@ alert_agent:
     # additional Prometheus series per histogram — only enable for deployments
     # with a bounded sensor fleet and a known series budget (~10k per target).
     per_sensor_labels: false
+  # Pipeline execution mode: sync | thread_bridge | event_loop.
+  # Unset -> derived from async_io.enabled (false=sync, true=thread_bridge).
+  # event_loop runs one coroutine per message on a persistent event loop:
+  # concurrency is bounded by async_dispatch_max_in_flight plus the
+  # per-service caps below instead of by thread count, so Kafka consumption
+  # stays decoupled from VLM latency.
+  # pipeline_mode: event_loop
   async_io:
     enabled: false                               # guardrail: keep sync behavior by default
-    vst_enabled: false                           # Guardrail: async-submit VST lookup path
-    elastic_enabled: false                       # Guardrail: async-submit Elastic sink publishing path
-    dedup_enabled: false                         # Guardrail: async-submit in-process dedup/state operations
+    vst_enabled: false                           # Guardrail: async-submit VST lookup path (thread_bridge only)
+    elastic_enabled: false                       # Guardrail: async-submit Elastic sink publishing path (thread_bridge only)
+    dedup_enabled: false                         # Guardrail: async-submit in-process dedup/state operations (thread_bridge only)
     external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
     sink_warn_in_flight: 20                      # Warning threshold for in-flight async sink operations
+    # event_loop per-service concurrency caps (default: async_dispatch_workers,
+    # which keeps downstream pressure identical to the thread_bridge profile).
+    # max_vlm_concurrent: 8
+    # max_vst_concurrent: 8
 
   # URL Transformation - transforms internal IPs to external for VLM/UI access
   url_transform:
