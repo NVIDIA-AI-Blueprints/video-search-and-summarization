@@ -20,13 +20,19 @@ Before `docker compose up -d` is invoked, the generated deploy skill must run a 
   - `${VSS_DATA_DIR}/data_log/redis/log` (Redis bind-mounts `$VSS_DATA_DIR/data_log/redis/log:/log` and its `redis.conf` writes there; if the host dir does not pre-exist, Docker auto-creates it `root:root 0755` and Redis fails fatally with `Can't open the log file: Permission denied`, crash-looping. A crash-looping Redis cascades: `sdr-controller` cannot create its Redis consumer group and the VIOS storage/cluster path returns `upstream-cluster required` while the live RTSP proxy on :30554 silently does not serve. Surfaced live 2026-06-02, IN-1 expanded eval.)
   - `${MDX_DATA_DIR}/data_log/vst/clip_storage` (for VIOS / RT-VLM shared video)
   - `${VSS_DATA_DIR}/videos/<build-name>` and `${VSS_DATA_DIR}/data_log/nvstreamer/vst_data` (when the NvStreamer validation harness is included — see `references/validation-harness.md § 3`)
-- **Delete stale Redis log files before `up`.** After `sudo chmod -R 777 ${VSS_DATA_DIR}/data_log/redis/log`, a `redis.log` file left by a prior run and owned by a different UID (e.g. `dnsmasq:bootstrap 0600`) can still block Redis ? `chmod` succeeds on the directory but not the file when not running as that owner. Redis then fails to open the log file and crash-loops with the same cascade described above. Fix: delete any leftover log files via the bind-mount BEFORE `up`:
+- **Delete stale Redis log files AND pre-create `redis.log` with open permissions before `up`.** Two distinct failure modes must both be handled (surfaced live 2026-06-18 IN-1 eval and 2026-07-16 IN-3 eval):
+
+  1. A `redis.log` left by a prior run and owned by a different UID (e.g. `dnsmasq:bootstrap 0600`) blocks Redis even after `sudo chmod -R 777` on the parent directory — `chmod` only succeeds on the directory itself, not on files owned by a foreign UID. Delete any leftover log files first.
+  2. Even after the directory is clean, Redis creates a **new** `redis.log` on first write with mode `0600` owned by the container's UID. On subsequent container restarts (e.g. Docker restart policy `unless-stopped`), the same UID mismatch recurs and Redis crash-loops with `Can't open the log file: Permission denied`. Fix: **pre-create `redis.log` as an empty world-writable file** so Redis opens the existing file (inheriting its permissions) rather than creating a fresh one.
+
+  Run both steps via the bind-mount BEFORE `docker compose up`:
 
   ```bash
-  docker run --rm -v "${VSS_DATA_DIR}/data_log/redis/log:/d" busybox sh -c "rm -f /d/*.log"
+  docker run --rm -v "${VSS_DATA_DIR}/data_log/redis/log:/d" busybox sh -c \
+    "rm -f /d/*.log && touch /d/redis.log && chmod 666 /d/redis.log"
   ```
 
-  Safe to run on a clean directory (no-op when empty). Surfaced live 2026-06-18, IN-1 expanded eval.
+  Safe to run on a clean directory. Idempotent: re-running after `up` does nothing harmful (Redis holds the file open; `rm -f` silently fails; the next `touch` recreates it). Surfaced live 2026-06-18 IN-1 eval + 2026-07-16 IN-3 eval.
 
 - **Pre-chmod named Docker volumes before first `up`.** Docker creates named volumes with root:root 0755 on their first use. Services running as non-root (Kafka writes `/tmp/kafka-data/cluster_id`; Elasticsearch UID 1000 writes `gc.log` to `path.logs = /tmp/elastic/logs`) fail immediately with `Permission denied` and crash-loop. Fix: run one-shot busybox containers to chmod 777 **before** the first `docker compose up`. The project name (`PROJ`) is the value passed as `-p` to `docker compose` (in all generated IN-N deployments this is **`mdx`** ? NOT `basename "$BUILD_DIR"`, which would give e.g. `in-1` and produce volumes like `in-1_mdx-kafka` that do not exist).
 
@@ -56,6 +62,7 @@ Before `docker compose up -d` is invoked, the generated deploy skill must run a 
   chmod 0644 "${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"   # world-readable; container uid 1001 reads as "other" (matches download-vision-encoder.sh's 0644 o+r convention)
   ```
   Notes: (a) `--file`-only download does NOT work — the resource is a single opaque tarball, so the whole 2.16 GB must be pulled then extracted. (b) No `chown` needed: the models dir is `0777` and files at `0644` are world-readable, exactly how `download-vision-encoder.sh` stages the encoder for container UID 1001. (c) RT-CV builds the TRT engine from this ONNX on first boot (several min; TRT 10.x may log a `kFP16` retry that succeeds via strongly-typed network mode — benign). (d) The label file `ds-detector-labels.txt` is a relative path inside the already-mounted `deepstream/configs/` dir — no staging needed. The generated `deploy-<flag>` skill MUST emit this staging step ahead of its bring-up command.
+
 - **Verify the chosen profile flag isn't already in use** by any project on the host (`docker compose ls`). If `mdx` (or whichever project name) is already deployed, surface the conflict; teardown requires explicit user authorization.
 
 ## Patch 1 — Insert the new gating flag (allow-list-driven)
@@ -86,11 +93,31 @@ for key, rel_file in allow_entries:
     patched = Path("build-output/patched") / rel_file
     # locate the service block; handle both inline and block-style profiles:
     services = parse_compose_services(patched)   # returns {key: (start_line, end_line)}
-    start, end = services[key]
+    if key not in services:
+        raise KeyError(f"allow-listed service '{key}' not found in {rel_file}")
+    start, end = services[key]          # span of THIS service block ONLY
     patch_profiles_in_service(patched, start, end, flag)
+    # STOP — do not iterate over sibling services in the same file
 ```
 
 Both inline (`profiles: [a, b]`) and block-style (`profiles:\n  - a\n  - b`) lists must be handled — upstream uses both freely (e.g., `streamprocessing-ms` is inline; `sensor-ms` is block-style). Insert the new flag preserving the file's existing format.
+
+> **CRITICAL — multi-variant compose files.** Several upstream composes contain multiple *sibling* service variants in a single file where only one variant is allow-listed. The canonical cases (surfaced live 2026-07-16, IN-3 eval):
+>
+> | File | Allow-listed key | Sibling keys (NOT allow-listed) |
+> |---|---|---|
+> | `services/vios/initiator/docker-compose.yaml` | `sensor-ms` | `sensor-ms-2d`, `sensor-ms-3d`, `sensor-ms-mv3dt` |
+> | `services/vios/streamprocessing/docker-compose.yaml` | `streamprocessing-ms` | `streamprocessing-ms-2d`, `streamprocessing-ms-3d`, `streamprocessing-ms-mv3dt` |
+> | `developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml` | `perception-2d-init`, `perception-2d-fusion`, `vss-search-analytics-2d-fusion` | `nvstreamer-2d-fusion`, `vss-video-analytics-api-fusion` |
+>
+> Patch 1 MUST target only the **exact key named in the allow-list** within its line span `(start, end)`. The patch must NOT scan the whole file for anything that contains the flag name or similar name prefixes. Patching the sibling variants causes:
+>
+> - `streamprocessing-ms-2d/3d/mv3dt` → activated by the profile flag, but they declare `depends_on: turnserver-init` which is not in the allow-listed include graph → Compose rejects the project with `service "streamprocessing-ms-2d" depends on undefined service "turnserver-init": invalid compose project`
+> - `nvstreamer-2d-fusion` → shares `container_name: vss-vios-nvstreamer` with the build's own `nvstreamer-validation` harness service → Compose rejects with `container name "vss-vios-nvstreamer" is already in use`
+> - `vss-video-analytics-api-fusion` → not requested; activating it pulls in the video-analytics API service unnecessarily
+> - `sensor-ms-2d/3d/mv3dt` → same pattern: activated but not needed; they also share `container_name: vss-vios-sensor` with the allow-listed `sensor-ms`, which would cause a container-name collision
+>
+> The `parse_compose_services` function must return exact line spans per service key and Patch 1 must only modify lines within `services[key]`'s `(start, end)` range. Never do a file-wide string substitution on the profile list.
 
 ## Patch 2 — Strip undefined `depends_on` entries
 
@@ -187,12 +214,18 @@ SDRC's `render-config` init container mounts an **env-var-resolved** host direct
 
 1. Resolve a build-output-local `SDR_CONTROLLER_CONFIG_PATH` (default: `<BUILD_DIR>/sdrc/configs`).
 2. Create `<BUILD_DIR>/sdrc/configs/configs/` (note: the SDRC compose mounts `${SDR_CONTROLLER_CONFIG_PATH}/configs` — so the templates live in a *nested* `configs/` directory).
-3. Copy two templates from upstream:
-   - `deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/config.yml.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/config.yml.tmpl`
-   - `deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/docker_cluster_config-streamprocessing.json.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/docker_cluster_config-streamprocessing.json.tmpl`
+3. Copy templates from upstream based on which workloads are in the allow-list:
+   - **When RT-CV (`perception-2d-fusion`) is NOT in the allow-list** — single-workload form (streamprocessing only); copy two templates from `dev-profile-alerts/sdrc/2d_vlm/configs/`:
+     - `config.yml.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/config.yml.tmpl`
+     - `docker_cluster_config-streamprocessing.json.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/docker_cluster_config-streamprocessing.json.tmpl`
+   - **When RT-CV (`perception-2d-fusion`) IS in the allow-list** — dual-workload form (streamprocessing + rtvi-cv); copy three templates from `dev-profile-alerts/sdrc/2d_cv/configs/`:
+     - `config.yml.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/config.yml.tmpl`
+     - `docker_cluster_config-streamprocessing.json.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/docker_cluster_config-streamprocessing.json.tmpl`
+     - `docker_cluster_config-rtvi-cv.json.tmpl` → `<BUILD_DIR>/sdrc/configs/configs/docker_cluster_config-rtvi-cv.json.tmpl`
+     Also set `MODE=2d_cv` in `.env` (SDRC uses this to select the template set).
 4. Write `SDR_CONTROLLER_CONFIG_PATH=<BUILD_DIR>/sdrc/configs` (absolute path) into `<BUILD_DIR>/.env` so the SDRC compose's bind mount resolves correctly.
 
-These templates model the **single-workload SDRC form** (one `streamprocessing-ms` workload — no `rtvi-cv` sibling). They are upstream-byte-identical — do NOT hand-edit; `render-config` substitutes the runtime values from the build-output `.env`.
+These templates are upstream-byte-identical — do NOT hand-edit; `render-config` substitutes the runtime values from the build-output `.env`. The template-set selection is driven by which SDRC workloads are active — using the `2d_vlm` (single-workload) set when RT-CV is present causes SDRC to skip the RT-CV cluster config and the detection stream never registers with the SDRC Envoy listener. Surfaced live 2026-07-16, IN-3 eval (RT-CV in allow-list required the `2d_cv` three-template set).
 
 Without this materialization, `sdrc-render-config` exits with `render-config: no *.tmpl files found in /tmpl`, the whole SDRC chain stalls, `sdr-controller` never boots, and `POST /sensor/add` fails with `InvalidParameterError: Invalid Parameters` because the SDRC-rendered Envoy listener on `localhost:10000` is absent. Source: live verification, IN-1 SDRC rebase 2026-05-26.
 

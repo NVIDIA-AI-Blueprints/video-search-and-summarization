@@ -435,7 +435,7 @@ For Topology B (NvStreamer file-driven), use this service shape instead of `vss-
 
 ```yaml
   vss-vios-nvstreamer:         # developer-profiles/dev-profile-alerts/compose.yml § nvstreamer-alerts
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     profiles: [..., <your-profile-flag>]
     network_mode: host
     environment:
