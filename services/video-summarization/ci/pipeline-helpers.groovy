@@ -89,6 +89,18 @@ String serviceWorkspacePath(String relPath = '') {
     return "${base}/${rel}"
 }
 
+/**
+ * Workspace-relative path for LVS test artifacts (archiveArtifacts, publishHTML, fileExists).
+ * In monorepo layout artifacts live under services/video-summarization/; legacy layout uses repo root.
+ */
+String lvsArtifactPath(String relPath = '') {
+    def rel = relPath?.trim()
+    if (fileExists('docker/Dockerfile')) {
+        return rel ?: '.'
+    }
+    return lvsPath(rel)
+}
+
 String resolveHelpersGroovyPath() {
     return fileExists('docker/Dockerfile')
         ? "${env.WORKSPACE}/ci/pipeline-helpers.groovy"
@@ -3193,30 +3205,30 @@ def runServiceTestSuite(boolean useSudo = true, boolean debugTests = false, Map 
     }
 
     // Archive shared coverage XML/JSON reports (produced by whichever tests ran)
-    archiveArtifacts artifacts: 'coverage_reports/**', allowEmptyArchive: true
+    archiveArtifacts artifacts: "${lvsArtifactPath('coverage_reports')}/**", allowEmptyArchive: true
 
     if (runFunctional) {
-        archiveArtifacts artifacts: 'pytest-report.api-tests.xml', allowEmptyArchive: true
-        archiveArtifacts artifacts: 'functional-test-results.csv', allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('pytest-report.api-tests.xml'), allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('functional-test-results.csv'), allowEmptyArchive: true
     }
     if (runIntegration) {
-        archiveArtifacts artifacts: 'test_ca_rag_integration-report.xml', allowEmptyArchive: true
-        archiveArtifacts artifacts: 'integration-test-results.csv', allowEmptyArchive: true
-        archiveArtifacts artifacts: 'htmlcov-integ/**', allowEmptyArchive: true
-        archiveArtifacts artifacts: '.coverage.integ', allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('test_ca_rag_integration-report.xml'), allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('integration-test-results.csv'), allowEmptyArchive: true
+        archiveArtifacts artifacts: "${lvsArtifactPath('htmlcov-integ')}/**", allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('.coverage.integ'), allowEmptyArchive: true
         publishHTML(target: [
-            reportDir: 'htmlcov-integ',
+            reportDir: lvsArtifactPath('htmlcov-integ'),
             reportFiles: 'index.html',
             reportName: 'Integration Test Coverage Report',
             keepAll: true,
             alwaysLinkToLastBuild: true
         ])
-        archiveArtifacts artifacts: 'test_rtvi_integration-report.xml', allowEmptyArchive: true
-        archiveArtifacts artifacts: 'rtvi-integration-test-results.csv', allowEmptyArchive: true
-        archiveArtifacts artifacts: 'htmlcov-rtvi-integ/**', allowEmptyArchive: true
-        archiveArtifacts artifacts: '.coverage.rtvi-integ', allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('test_rtvi_integration-report.xml'), allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('rtvi-integration-test-results.csv'), allowEmptyArchive: true
+        archiveArtifacts artifacts: "${lvsArtifactPath('htmlcov-rtvi-integ')}/**", allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('.coverage.rtvi-integ'), allowEmptyArchive: true
         publishHTML(target: [
-            reportDir: 'htmlcov-rtvi-integ',
+            reportDir: lvsArtifactPath('htmlcov-rtvi-integ'),
             reportFiles: 'index.html',
             reportName: 'RTVI Integration Test Coverage Report',
             keepAll: true,
@@ -3224,9 +3236,9 @@ def runServiceTestSuite(boolean useSudo = true, boolean debugTests = false, Map 
         ])
     }
     if (debugTests) {
-        archiveArtifacts artifacts: 'lvs-logs-before-tests.log', allowEmptyArchive: true
-        archiveArtifacts artifacts: 'lvs-logs-during-tests.log', allowEmptyArchive: true
-        archiveArtifacts artifacts: 'lvs-logs-after-tests.log', allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('lvs-logs-before-tests.log'), allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('lvs-logs-during-tests.log'), allowEmptyArchive: true
+        archiveArtifacts artifacts: lvsArtifactPath('lvs-logs-after-tests.log'), allowEmptyArchive: true
     }
 }
 
@@ -4885,16 +4897,16 @@ def runUnitTests(String arch, String imageTag, Map credentials) {
     }
 
     // Archive test artifacts
-    archiveArtifacts artifacts: "${lvsPath(unitResultsCsv)}", allowEmptyArchive: true
-    archiveArtifacts artifacts: "${lvsPath(pytestReport)}", allowEmptyArchive: true
+    archiveArtifacts artifacts: "${lvsArtifactPath(unitResultsCsv)}", allowEmptyArchive: true
+    archiveArtifacts artifacts: "${lvsArtifactPath(pytestReport)}", allowEmptyArchive: true
 
     // Archive coverage artifacts
-    archiveArtifacts artifacts: "${lvsPath("${htmlCovDir}/**")}", allowEmptyArchive: true
-    archiveArtifacts artifacts: "${lvsPath(coverageDataFile)}", allowEmptyArchive: true
+    archiveArtifacts artifacts: "${lvsArtifactPath("${htmlCovDir}/**")}", allowEmptyArchive: true
+    archiveArtifacts artifacts: lvsArtifactPath(coverageDataFile), allowEmptyArchive: true
 
     // Publish coverage reports
     publishHTML(target: [
-        reportDir: lvsPath(htmlCovDir),
+        reportDir: lvsArtifactPath(htmlCovDir),
         reportFiles: 'index.html',
         reportName: isStandalone ? "Unit Test Coverage Report (${archSlug})" : 'Unit Test Coverage Report',
         keepAll: true,
@@ -4902,7 +4914,7 @@ def runUnitTests(String arch, String imageTag, Map credentials) {
     ])
 
     // Parse and display coverage summary
-    def coverageSummary = readFile("${lvsPath("${coverageReportsDir}/coverage-summary.txt")}").trim()
+    def coverageSummary = readFile(lvsArtifactPath("${coverageReportsDir}/coverage-summary.txt")).trim()
     echo "=========================================="
     echo "COVERAGE SUMMARY"
     echo "=========================================="
@@ -4934,6 +4946,7 @@ def runUnitTests(String arch, String imageTag, Map credentials) {
  * @param coverageFiles List of workspace-relative coverage data paths (e.g. ['.coverage.unit', '.coverage.integ'])
  */
 def generateCombinedCoverageReport(String imageTag, List<String> coverageFiles) {
+    inLvsDir {
     def existing = coverageFiles.findAll { fileExists(it) }
     if (existing.isEmpty()) {
         echo "generateCombinedCoverageReport: no coverage files found from ${coverageFiles}; skipping combined report"
@@ -4958,11 +4971,11 @@ def generateCombinedCoverageReport(String imageTag, List<String> coverageFiles) 
                 coverage report > /workspace/coverage_reports/coverage-summary.txt"
     """
 
-    archiveArtifacts artifacts: 'coverage_reports/**', allowEmptyArchive: true
-    archiveArtifacts artifacts: 'htmlcov-combined/**', allowEmptyArchive: true
-    stash name: COVERAGE_STASH_NAME, includes: 'coverage_reports/coverage.xml', allowEmpty: true
+    archiveArtifacts artifacts: "${lvsArtifactPath('coverage_reports')}/**", allowEmptyArchive: true
+    archiveArtifacts artifacts: "${lvsArtifactPath('htmlcov-combined')}/**", allowEmptyArchive: true
+    stash name: COVERAGE_STASH_NAME, includes: "${lvsArtifactPath('coverage_reports/coverage.xml')}", allowEmpty: true
     publishHTML(target: [
-        reportDir: 'htmlcov-combined',
+        reportDir: lvsArtifactPath('htmlcov-combined'),
         reportFiles: 'index.html',
         reportName: 'Combined Coverage Report',
         keepAll: true,
@@ -4974,6 +4987,7 @@ def generateCombinedCoverageReport(String imageTag, List<String> coverageFiles) 
     echo "=========================================="
     echo summary
     echo "=========================================="
+    }
 }
 
 
@@ -5153,29 +5167,30 @@ def mergeAndUploadTestResults(String ngcApiKey, String imageName, String arch = 
     def inputs = []
     def isStandalone = params.TEST_IMAGE_TAG?.trim()
     def archSlug = (arch?.trim() ?: 'amd64').replaceAll(/[^A-Za-z0-9_.-]+/, '-')
-    def standaloneUnitResults = "test-results/${archSlug}/unit-tests-results.csv"
+    def standaloneUnitResults = lvsArtifactPath("test-results/${archSlug}/unit-tests-results.csv")
     if (isStandalone) {
         if (fileExists(standaloneUnitResults)) inputs << standaloneUnitResults
     } else {
-        if (fileExists('unit-tests-results.csv')) inputs << 'unit-tests-results.csv'
-        if (fileExists('functional-test-results.csv')) inputs << 'functional-test-results.csv'
-        if (fileExists('integration-test-results.csv')) inputs << 'integration-test-results.csv'
+        if (fileExists(lvsArtifactPath('unit-tests-results.csv'))) inputs << lvsArtifactPath('unit-tests-results.csv')
+        if (fileExists(lvsArtifactPath('functional-test-results.csv'))) inputs << lvsArtifactPath('functional-test-results.csv')
+        if (fileExists(lvsArtifactPath('integration-test-results.csv'))) inputs << lvsArtifactPath('integration-test-results.csv')
     }
     if (inputs.isEmpty()) error('No test result CSVs found (unit, functional, and/or integration) to upload')
     def imageTagForCsv = imageTagOverride?.trim() ?: (isStandalone ? params.TEST_IMAGE_TAG.trim() : getImageTag())
     def csvFileName = "${imageTagForCsv.tokenize('/').last().replace(':', '-')}.csv"
-    mergeTestResultCsvs(inputs, csvFileName)
-    archiveArtifacts artifacts: csvFileName, allowEmptyArchive: false
+    def mergedCsvPath = lvsArtifactPath(csvFileName)
+    mergeTestResultCsvs(inputs, mergedCsvPath)
+    archiveArtifacts artifacts: mergedCsvPath, allowEmptyArchive: false
     def testedCommitHash = isStandalone
-        ? (fileExists('standalone-test-commit.txt')
-            ? readFile('standalone-test-commit.txt').trim()
+        ? (fileExists(lvsArtifactPath('standalone-test-commit.txt'))
+            ? readFile(lvsArtifactPath('standalone-test-commit.txt')).trim()
             : sh(script: 'git rev-parse HEAD 2>/dev/null || true', returnStdout: true).trim())
         : ''
 
     def shouldUploadExternally = isTagBuild() || (params.PUSH_TEST_RESULTS_EOS == true) || (params.TEST_IMAGE_TAG?.trim())
     if (shouldUploadExternally) {
-        uploadTestResultsToDashboard("${lvsWorkspace()}/${csvFileName}", dashboardApiUrl, arch, nvidiaDriverVersion, testedCommitHash)
-        uploadTestResultsToNgc(csvFileName, ngcApiKey, imageName, arch, imageTagForCsv)
+        uploadTestResultsToDashboard("${env.WORKSPACE}/${mergedCsvPath}", dashboardApiUrl, arch, nvidiaDriverVersion, testedCommitHash)
+        uploadTestResultsToNgc("${env.WORKSPACE}/${mergedCsvPath}", ngcApiKey, imageName, arch, imageTagForCsv)
     } else {
         echo "Skipping dashboard/NGC upload (requires git tag, TEST_IMAGE_TAG, or PUSH_TEST_RESULTS_EOS=true); merged CSV archived in Jenkins."
     }
@@ -5193,7 +5208,7 @@ def standaloneTestCredentialsFromEnv() {
 def checkoutStandaloneTestSource(String imageTag) {
     gitCheckout()
     checkoutForStandaloneTest(imageTag)
-    sh 'git rev-parse HEAD > standalone-test-commit.txt'
+    sh "git rev-parse HEAD > ${lvsArtifactPath('standalone-test-commit.txt')}"
 }
 
 def resolveStandaloneUnitTimeoutMinutes(Map config) {
@@ -5275,7 +5290,7 @@ def runStandaloneSbsaImageTests(Map config = [:]) {
             gitlabCommitStatus(name: 'standalone-sbsa-checkout', connection: gitLabConnection('gitlab-vss-lvs')) {
                 checkoutStandaloneTestSource(imageTag)
                 stash name: standaloneSbsaInputStash,
-                    includes: "${lvsPath('ci/utils/**')},${lvsPath('tests/**')},standalone-test-commit.txt"
+                    includes: "${lvsPath('ci/utils/**')},${lvsPath('tests/**')},${lvsArtifactPath('standalone-test-commit.txt')}"
             }
         }
 
@@ -5319,7 +5334,7 @@ def runStandaloneSbsaImageTests(Map config = [:]) {
                                 runUnitTests('arm64-sbsa', imageTag, standaloneTestCredentialsFromEnv())
                             }
                             stash name: standaloneSbsaResultsStash,
-                                includes: 'test-results/arm64-sbsa/**',
+                                includes: "${lvsArtifactPath("test-results/arm64-sbsa/**")}",
                                 allowEmpty: false
                         } finally {
                             try {
@@ -5458,14 +5473,14 @@ def runIntegrationTests(String arch, boolean debug = false, boolean useComposeIm
                     def resolvedTag = imageTag ?: getImageTag()
                     runKafkaLogstashE2ETest(false, envCredentials, resolvedTag)
 
-                    archiveArtifacts artifacts: 'test_kafka_logstash_e2e-report.xml', allowEmptyArchive: true
-                    archiveArtifacts artifacts: 'kafka-e2e-test-results.csv', allowEmptyArchive: true
-                    archiveArtifacts artifacts: 'coverage_reports/coverage-kafka-e2e.xml', allowEmptyArchive: true
-                    archiveArtifacts artifacts: 'coverage_reports/coverage-kafka-e2e-summary.txt', allowEmptyArchive: true
-                    archiveArtifacts artifacts: 'htmlcov-kafka-e2e/**', allowEmptyArchive: true
-                    archiveArtifacts artifacts: '.coverage.kafka-e2e', allowEmptyArchive: true
+                    archiveArtifacts artifacts: lvsArtifactPath('test_kafka_logstash_e2e-report.xml'), allowEmptyArchive: true
+                    archiveArtifacts artifacts: lvsArtifactPath('kafka-e2e-test-results.csv'), allowEmptyArchive: true
+                    archiveArtifacts artifacts: lvsArtifactPath('coverage_reports/coverage-kafka-e2e.xml'), allowEmptyArchive: true
+                    archiveArtifacts artifacts: lvsArtifactPath('coverage_reports/coverage-kafka-e2e-summary.txt'), allowEmptyArchive: true
+                    archiveArtifacts artifacts: "${lvsArtifactPath('htmlcov-kafka-e2e')}/**", allowEmptyArchive: true
+                    archiveArtifacts artifacts: lvsArtifactPath('.coverage.kafka-e2e'), allowEmptyArchive: true
                     publishHTML(target: [
-                        reportDir: 'htmlcov-kafka-e2e',
+                        reportDir: lvsArtifactPath('htmlcov-kafka-e2e'),
                         reportFiles: 'index.html',
                         reportName: 'Kafka E2E Test Coverage Report',
                         keepAll: true,
@@ -5501,14 +5516,14 @@ def runIntegrationTests(String arch, boolean debug = false, boolean useComposeIm
                         def resolvedTag = imageTag ?: getImageTag(arch)
                         def rtviE2ERC = runRtviE2ETest(false, envCredentials, resolvedTag)
 
-                        archiveArtifacts artifacts: 'test_rtvi_e2e-report.xml', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'rtvi-e2e-test-results.csv', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'coverage_reports/coverage-rtvi-e2e.xml', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'coverage_reports/coverage-rtvi-e2e-summary.txt', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'htmlcov-rtvi-e2e/**', allowEmptyArchive: true
-                        archiveArtifacts artifacts: '.coverage.rtvi-e2e', allowEmptyArchive: true
+                        archiveArtifacts artifacts: lvsArtifactPath('test_rtvi_e2e-report.xml'), allowEmptyArchive: true
+                        archiveArtifacts artifacts: lvsArtifactPath('rtvi-e2e-test-results.csv'), allowEmptyArchive: true
+                        archiveArtifacts artifacts: lvsArtifactPath('coverage_reports/coverage-rtvi-e2e.xml'), allowEmptyArchive: true
+                        archiveArtifacts artifacts: lvsArtifactPath('coverage_reports/coverage-rtvi-e2e-summary.txt'), allowEmptyArchive: true
+                        archiveArtifacts artifacts: "${lvsArtifactPath('htmlcov-rtvi-e2e')}/**", allowEmptyArchive: true
+                        archiveArtifacts artifacts: lvsArtifactPath('.coverage.rtvi-e2e'), allowEmptyArchive: true
                         publishHTML(target: [
-                            reportDir: 'htmlcov-rtvi-e2e',
+                            reportDir: lvsArtifactPath('htmlcov-rtvi-e2e'),
                             reportFiles: 'index.html',
                             reportName: 'RTVI E2E Test Coverage Report',
                             keepAll: true,
@@ -5552,21 +5567,21 @@ def runIntegrationTests(String arch, boolean debug = false, boolean useComposeIm
                             error("[ES-SHARD-LIMIT] One or more phases failed (accumulated exit code ${esShardRC}). Check test reports for details.")
                         }
 
-                        archiveArtifacts artifacts: 'test_es_shard_limit-*-report.xml', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'es-shard-limit-*-test-results.csv', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'coverage_reports/coverage-es-shard-limit-*.xml', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'coverage_reports/coverage-es-shard-limit-*-summary.txt', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'htmlcov-es-shard-limit-*/**', allowEmptyArchive: true
-                        archiveArtifacts artifacts: '.coverage.es-shard-limit-*', allowEmptyArchive: true
+                        archiveArtifacts artifacts: "${lvsArtifactPath('test_es_shard_limit-*-report.xml')}", allowEmptyArchive: true
+                        archiveArtifacts artifacts: "${lvsArtifactPath('es-shard-limit-*-test-results.csv')}", allowEmptyArchive: true
+                        archiveArtifacts artifacts: "${lvsArtifactPath('coverage_reports/coverage-es-shard-limit-*.xml')}", allowEmptyArchive: true
+                        archiveArtifacts artifacts: "${lvsArtifactPath('coverage_reports/coverage-es-shard-limit-*-summary.txt')}", allowEmptyArchive: true
+                        archiveArtifacts artifacts: "${lvsArtifactPath('htmlcov-es-shard-limit-*')}/**", allowEmptyArchive: true
+                        archiveArtifacts artifacts: lvsArtifactPath('.coverage.es-shard-limit-*'), allowEmptyArchive: true
                         publishHTML(target: [
-                            reportDir: 'htmlcov-es-shard-limit-retain',
+                            reportDir: lvsArtifactPath('htmlcov-es-shard-limit-retain'),
                             reportFiles: 'index.html',
                             reportName: 'ES Shard Limit (retain mode) Coverage Report',
                             keepAll: true,
                             alwaysLinkToLastBuild: true
                         ])
                         publishHTML(target: [
-                            reportDir: 'htmlcov-es-shard-limit-drop',
+                            reportDir: lvsArtifactPath('htmlcov-es-shard-limit-drop'),
                             reportFiles: 'index.html',
                             reportName: 'ES Shard Limit (drop mode) Coverage Report',
                             keepAll: true,
