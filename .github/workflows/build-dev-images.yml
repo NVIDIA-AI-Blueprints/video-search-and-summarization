@@ -277,6 +277,9 @@ jobs:
       (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -314,3 +317,9 @@ jobs:
           name: release-set
           path: release-set.json
           retention-days: 90
+
+      - name: Restore develop channel defaults
+        if: github.ref_name == 'develop'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/normalize_develop_coordinates.py
