@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import io
 import json
 import os
@@ -43,30 +42,6 @@ def moving_alias(tag: str) -> str:
         return "develop-latest"
     match = re.fullmatch(r"pr-(\d+)-[0-9a-f]{7,40}", tag)
     return f"pr-{match.group(1)}-latest" if match else ""
-
-
-def update_container_defaults(text: str, registry: str, tag: str) -> str:
-    registry_pattern = re.compile(
-        r'^VSS_CONTAINER_REGISTRY="\$\{VSS_CONTAINER_REGISTRY:-[^}]*\}"$',
-        re.MULTILINE,
-    )
-    tag_pattern = re.compile(
-        r'^VSS_CONTAINER_TAG="\$\{VSS_CONTAINER_TAG:-[^}]*\}"$',
-        re.MULTILINE,
-    )
-    updated, registry_count = registry_pattern.subn(
-        f'VSS_CONTAINER_REGISTRY="${{VSS_CONTAINER_REGISTRY:-{registry}}}"',
-        text,
-    )
-    updated, tag_count = tag_pattern.subn(
-        f'VSS_CONTAINER_TAG="${{VSS_CONTAINER_TAG:-{tag}}}"',
-        updated,
-    )
-    if registry_count != 1 or tag_count != 1:
-        raise ValueError(
-            "containers.env must contain exactly one shared registry and tag default"
-        )
-    return updated
 
 
 def render_comment(release_set: dict[str, Any], sha: str) -> str:
@@ -231,60 +206,6 @@ def upsert_comment(
         print(f"Created GHCR candidate comment on PR #{number}.")
 
 
-def commit_tested_coordinates(
-    api: GitHubApi,
-    repository: str,
-    number: int,
-    release_set: dict[str, Any],
-) -> None:
-    entries = candidate_entries(release_set)
-    if not entries:
-        print("No GHCR image was rebuilt; no coordinate commit needed.")
-        return
-    registries = {str(entry["image"]).rsplit("/", 1)[0] for entry in entries}
-    tags = {str(entry["tag"]) for entry in entries}
-    if len(registries) != 1 or len(tags) != 1:
-        raise RuntimeError("built candidates do not share one registry and tag")
-    registry = next(iter(registries))
-    tag = next(iter(tags))
-
-    pull = api.request("GET", f"/repos/{repository}/pulls/{number}")
-    head = pull.get("head") or {}
-    head_repository = (head.get("repo") or {}).get("full_name")
-    branch = str(head.get("ref") or "")
-    if head_repository != repository or not branch:
-        raise RuntimeError(
-            "automatic coordinate commits require a branch in the upstream repository"
-        )
-
-    path = "deploy/docker/containers.env"
-    encoded_path = urllib.parse.quote(path, safe="/")
-    query = urllib.parse.urlencode({"ref": branch})
-    current = api.request(
-        "GET", f"/repos/{repository}/contents/{encoded_path}?{query}"
-    )
-    original = base64.b64decode(current["content"]).decode()
-    updated = update_container_defaults(original, registry, tag)
-    if updated == original:
-        print(f"{path} already points at {registry}:{tag}; no commit needed.")
-        return
-    api.request(
-        "PUT",
-        f"/repos/{repository}/contents/{encoded_path}",
-        {
-            "message": (
-                f"ci: pin tested GHCR tag {tag}\n\n"
-                "This coordinate-only commit reuses the already-built and "
-                "downstream-tested image digests."
-            ),
-            "content": base64.b64encode(updated.encode()).decode(),
-            "sha": current["sha"],
-            "branch": branch,
-        },
-    )
-    print(f"Committed tested coordinates {registry}:{tag} to {branch}.")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
@@ -299,11 +220,8 @@ def main() -> int:
         print(f"{args.ref_name!r} is not a synthetic PR ref; nothing to update.")
         return 0
     token = os.environ.get("GITHUB_TOKEN", "").strip()
-    tag_bump_token = os.environ.get("TAG_BUMP_TOKEN", "").strip()
-    if not token or not tag_bump_token or not args.repository or not args.sha:
-        raise SystemExit(
-            "GITHUB_TOKEN, TAG_BUMP_TOKEN, repository, and SHA are required"
-        )
+    if not token or not args.repository or not args.sha:
+        raise SystemExit("GITHUB_TOKEN, repository, and SHA are required")
 
     api = GitHubApi(token)
     release_set = download_release_set(
@@ -317,9 +235,6 @@ def main() -> int:
     if release_set.get("source", {}).get("commit") != args.sha:
         raise RuntimeError("release-set source commit does not match downstream SHA")
     upsert_comment(api, args.repository, number, render_comment(release_set, args.sha))
-    commit_tested_coordinates(
-        GitHubApi(tag_bump_token), args.repository, number, release_set
-    )
     return 0
 
 

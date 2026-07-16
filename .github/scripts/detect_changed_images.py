@@ -117,8 +117,8 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
     ]
     if changed_images:
         # The managed agent/UI/alert set shares one VSS_CONTAINER_TAG. Publish
-        # every member under that tag so the tested coordinate commit can switch
-        # the set atomically with one environment variable.
+        # every member under that tag so the shared develop/QA coordinate can
+        # switch the managed set with one environment variable.
         names = ", ".join(entry["name"] for entry in changed_images)
         return (
             buildable,

@@ -36,7 +36,9 @@ on:
 
 concurrency:
   group: build-dev-images-${{ github.ref }}
-  cancel-in-progress: true
+  # Develop publication is a serialized post-merge operation. PR rebuilds may
+  # still cancel stale in-flight work, but develop must never race/cancel.
+  cancel-in-progress: ${{ github.ref_name != 'develop' }}
 
 defaults:
   run:
@@ -66,20 +68,12 @@ jobs:
       # origin/develop...HEAD on a develop push: that range is always empty.
       - name: Resolve changed images
         id: detect
-        env:
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          if [[ "$COMMIT_MESSAGE" == ci:\ pin\ tested\ GHCR\ tag* ]]; then
-            printf '%s\n' \
-              '{"reason":"coordinate-only bot commit; reuse tested images","count":0,"matrix":{"include":[]}}' \
-              > detection.json
-          else
-            python3 .github/scripts/detect_changed_images.py \
-              --event-name "${{ github.event_name }}" \
-              --ref-name "${{ github.ref_name }}" \
-              --before "${{ github.event.before }}" \
-              --base-branch develop > detection.json
-          fi
+          python3 .github/scripts/detect_changed_images.py \
+            --event-name "${{ github.event_name }}" \
+            --ref-name "${{ github.ref_name }}" \
+            --before "${{ github.event.before }}" \
+            --base-branch develop > detection.json
           cat detection.json
           {
             echo "matrix=$(jq -c '.matrix' detection.json)"
@@ -113,15 +107,12 @@ jobs:
           case "$GITHUB_REF_NAME" in
             pull-request/*)
               TAG="pr-${GITHUB_REF_NAME##*/}-${SHORT}"
-              ALIAS="pr-${GITHUB_REF_NAME##*/}-latest"
               ;;
             develop)
               TAG="develop-${SHORT}"
-              ALIAS="develop-latest"
               ;;
             *)
               TAG="${GITHUB_REF_NAME//\//-}-${SHORT}"
-              ALIAS="${GITHUB_REF_NAME//\//-}-latest"
               ;;
           esac
           # The TREE hash of the source folder — the value the container-source
@@ -130,7 +121,6 @@ jobs:
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           {
             echo "tag=$TAG"
-            echo "alias=$ALIAS"
             echo "tree_sha=$TREE_SHA"
             echo "image=ghcr.io/${OWNER}/vss/${{ matrix.name }}"
           } >> "$GITHUB_OUTPUT"
@@ -198,12 +188,6 @@ jobs:
             --expect-source-path "${{ matrix.source_path }}" \
             --expect-image-name "${{ matrix.name }}"
 
-      - name: Advance developer alias to this immutable manifest
-        run: |
-          docker buildx imagetools create \
-            --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.alias }}" \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
-
       - name: Resolve manifest digest
         id: digest
         run: |
@@ -212,13 +196,6 @@ jobs:
             --format '{{json .Manifest}}')"
           DIGEST="$(jq -r '.digest' <<<"$MANIFEST")"
           [[ "$DIGEST" == sha256:* ]] || { echo "no digest resolved"; exit 1; }
-          ALIAS_DIGEST="$(docker buildx imagetools inspect \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.alias }}" \
-            --format '{{json .Manifest}}' | jq -r '.digest')"
-          [[ "$ALIAS_DIGEST" == "$DIGEST" ]] || {
-            echo "moving alias digest $ALIAS_DIGEST != immutable digest $DIGEST" >&2
-            exit 1
-          }
           ACTUAL_PLATFORMS="$(jq -r '
             .manifests[]?.platform
             | select(.os != "unknown" and .architecture != "unknown")
@@ -259,7 +236,6 @@ jobs:
           {
             echo "### Built ${{ matrix.name }}"
             echo "- **Image:** \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}\`"
-            echo "- **Developer alias:** \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.alias }}\`"
             echo "- **Digest:** \`${{ steps.digest.outputs.digest }}\`"
             echo "- **Platforms:** \`${{ matrix.platforms }}\`"
             echo "- **source_tree_sha:** \`${{ steps.meta.outputs.tree_sha }}\`"
@@ -279,7 +255,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: read
-      contents: write
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -318,8 +295,27 @@ jobs:
           path: release-set.json
           retention-days: 90
 
-      - name: Restore develop channel defaults
-        if: github.ref_name == 'develop'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/normalize_develop_coordinates.py
+      - name: Set up Buildx for post-merge alias publication
+        if: >-
+          github.ref_name == 'develop' &&
+          fromJSON(needs.changes.outputs.count) > 0
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      - name: Log in to GHCR for post-merge publication
+        if: >-
+          github.ref_name == 'develop' &&
+          fromJSON(needs.changes.outputs.count) > 0
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Advance develop-latest after complete post-merge build
+        if: >-
+          github.ref_name == 'develop' &&
+          fromJSON(needs.changes.outputs.count) > 0
+        run: |
+          python3 .github/scripts/advance_ghcr_alias.py \
+            --release-set release-set.json \
+            --alias develop-latest

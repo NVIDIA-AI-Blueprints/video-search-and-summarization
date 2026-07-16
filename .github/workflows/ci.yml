@@ -715,7 +715,6 @@ jobs:
           python3 .github/scripts/test_prepare_downstream_release_set.py
           python3 .github/scripts/test_prepare_nightly_promotion.py
           python3 .github/scripts/test_prepare_promotion_trigger.py
-          python3 .github/scripts/test_normalize_develop_coordinates.py
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
 
@@ -786,33 +785,18 @@ jobs:
           mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
           rm -rf .source-artifact
 
-      - name: Detect coordinate-only bot commit
-        id: coordinate-only
-        env:
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-        run: |
-          if [[ "$COMMIT_MESSAGE" == ci:\ pin\ tested\ GHCR\ tag* ]]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Coordinate-only bot commit; reusing the previous downstream result."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Prepare GHCR release-set handoff
-        if: steps.coordinate-only.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 .github/scripts/prepare_downstream_release_set.py
 
       - name: Trigger pipeline
-        if: steps.coordinate-only.outputs.skip != 'true'
         id: trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 .github/scripts/trigger-downstream-pipeline.sh
 
       - name: Poll pipeline
-        if: steps.coordinate-only.outputs.skip != 'true'
         env:
           DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
           DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
@@ -821,10 +805,7 @@ jobs:
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
       - name: Update PR with downstream-validated GHCR candidates
-        if: >-
-          steps.coordinate-only.outputs.skip != 'true' &&
-          startsWith(github.ref_name, 'pull-request/')
+        if: startsWith(github.ref_name, 'pull-request/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_BUMP_TOKEN: ${{ secrets.TAG_BUMP_TOKEN }}
         run: python3 .github/scripts/update_pr_ghcr_candidates.py
