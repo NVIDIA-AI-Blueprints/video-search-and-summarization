@@ -84,6 +84,57 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
 
 In this IN-1 example the streaming input is the **NvStreamer validation harness** (no real camera was supplied), so the top-right external actor is the NvStreamer validation source rather than a physical camera. It registers its auto-discovered sample with VIOS via `POST /sensor/add` (field `sensorUrl`); VIOS then re-publishes the stream on `rtsp://<host>:30554/live/<id>`, which RT-VLM consumes (the VIOS → RT-VLM edge already shown). If the operator HAD supplied a real RTSP camera, swap the validation-source box for an `external RTSP source` box and drop the `validation_harness:` key. The `operator` box's `POST /sensor/add` edge is the manual/VOD path and is independent of the harness.
 
+## Canonical AT-1 example (realtime alerts, `alert_source=vlm-realtime`)
+
+Use as the template when the allow-list includes Alert Bridge + VIOS + RT-VLM with `alert_source=vlm-realtime`. The **media path** is NvStreamer → VIOS → Alert Bridge; Alert Bridge drives RT-VLM internally (do not draw a direct NvStreamer → Alert Bridge or NvStreamer → RT-VLM edge).
+
+```
+# deployment_shape: realtime-vlm-alerts
+# flag: bp_developer_at_1
+# alert_source: vlm-realtime
+
+  ┌──────────────────────────────┐
+  │  NvStreamer (validation src) │
+  │  vss-vios-nvstreamer          │
+  │  :31000 HTTP · :315xx RTSP    │
+  └──────────────┬───────────────┘
+                 │ POST /sensor/add
+                 │ (sensorUrl=rtsp://…315xx)
+                 ▼
+  ╔═══════════════════════════════════════════════════════════╗
+  ║  VIOS — ingestion + storage         [network_mode: host]  ║
+  ║  ───────────────────────────────────────────────────────  ║
+  ║  vst-ingress :30888 · sensor-ms · stream-processing       ║
+  ║  sdr-controller + inits · live RTSP proxy (dynamic port)  ║
+  ╚════════════════════════════╤══════════════════════════════╝
+                               │ GET /sensor/{id}/streams
+                               │ → live_stream_url (VIOS proxy)
+                               ▼
+  ╔═══════════════════════════════════════════════════════════╗
+  ║  Alert MS — realtime rules          [network_mode: host]  ║
+  ║  ───────────────────────────────────────────────────────  ║
+  ║  vss-alert-bridge :9080                                   ║
+  ║  POST /api/v1/realtime (sensor_id + live_stream_url)      ║
+  ╚════════════════════════════╤══════════════════════════════╝
+                               │ /v1/streams/add + generate_captions
+                               ▼
+  ╔═══════════════════════════════════════════════════════════╗
+  ║  RT-VLM — inference                  [bridge · GPU 0]     ║
+  ║  ───────────────────────────────────────────────────────  ║
+  ║  rtvi-vlm :8018                                           ║
+  ╚════════════════════════════╤══════════════════════════════╝
+                               │ Kafka topic: mdx-vlm-incidents
+                               ▼
+  ╔═══════════════════════════════════════════════════════════╗
+  ║  ELK + Kafka — alert pipeline             [bridge]        ║
+  ║  ───────────────────────────────────────────────────────  ║
+  ║  kafka :9092 → logstash → elasticsearch :9200             ║
+  ║  ES index: mdx-vlm-incidents-*                            ║
+  ╚═══════════════════════════════════════════════════════════╝
+```
+
+For `cv-verification` (`alert_source=cv-verification`), insert RT-CV + Behavior Analytics between VIOS and Kafka (`mdx-raw` → `mdx-incidents`), then Alert Bridge consumes from Kafka — see `patch-alerts.md` and the AT-1 eval's cv-verification architecture requirement.
+
 ## What Step 6 must do
 
 Step 6 MUST embed this same diagram verbatim (code fence and all) in `<BUILD_DIR>/MANIFEST.md` under `## Architecture` so the operator (and any future regeneration / re-deploy) has a permanent record. Do NOT regenerate or restyle the diagram in Step 6 — copy the Step 4 output exactly.
