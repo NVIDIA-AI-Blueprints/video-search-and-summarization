@@ -17,7 +17,7 @@ include:
 
 services:
   # Warehouse models are delivered via the pre-extracted VSS_DATA_DIR app-data bundle
-  # (see deploy/docker/README.md and the consolidation ADR, Appendix B); no model-download
+  # (see deploy/docker/README.md); no model-download
   # init service is used here.
   vss-behavior-analytics-mv3dt:
     extends:
