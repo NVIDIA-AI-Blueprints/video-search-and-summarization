@@ -609,11 +609,17 @@ pipeline {
                                     def sonarParams = []
                                     echo "Starting SonarQube SAST analysis with coverage..."
 
-                                    // Retrieve coverage report from unit tests stage using stash/unstash
+                                    // Retrieve coverage report from unit tests stage using stash/unstash.
+                                    // The stash is created inside the LVS dir (generateCombinedCoverageReport),
+                                    // so it stores coverage_reports/coverage.xml without the LVS_ROOT prefix.
+                                    // Unstash into LVS_ROOT so the file lands at its expected monorepo path.
                                     try {
-                                        unstash COVERAGE_STASH_NAME
+                                        dir(LVS_ROOT) {
+                                            unstash COVERAGE_STASH_NAME
+                                        }
                                         if (fileExists("${LVS_ROOT}/coverage_reports/coverage.xml")) {
-                                            sonarParams.add("-Dsonar.python.coverage.reportPaths=${LVS_ROOT}/coverage_reports/coverage.xml")
+                                            // Scanner runs inside dir(LVS_ROOT); path is relative to that dir.
+                                            sonarParams.add("-Dsonar.python.coverage.reportPaths=coverage_reports/coverage.xml")
                                             echo "✓ Coverage file verified: ${LVS_ROOT}/coverage_reports/coverage.xml (will be included in analysis)"
                                         } else {
                                             echo "⚠ Warning: Unstash succeeded but coverage file not found"
