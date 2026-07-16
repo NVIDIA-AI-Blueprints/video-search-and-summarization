@@ -63,12 +63,8 @@ spec:
               echo "[INFO] Installing NGC CLI..."
               apt-get update -qq && apt-get install -y -qq wget unzip > /dev/null
               cd /tmp
-              case "$(uname -m)" in
-                aarch64|arm64) NGC_CLI_ZIP="ngccli_arm64.zip" ;;
-                *)             NGC_CLI_ZIP="ngccli_linux.zip" ;;
-              esac
-              wget -q "https://ngc.nvidia.com/downloads/${NGC_CLI_ZIP}" -O ngccli.zip
-              unzip -q ngccli.zip && chmod +x ngc-cli/ngc
+              wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
+              unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
               export PATH="/tmp/ngc-cli:$PATH"
               ngc --version
               DEST="/data"

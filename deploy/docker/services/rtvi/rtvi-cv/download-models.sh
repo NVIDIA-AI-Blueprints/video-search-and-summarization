@@ -101,9 +101,8 @@ expand_manifest_to_json() {
 }
 
 # Developer profiles acquire individual NGC *model* packages (nvidia/tao/*).
-# Whole-tree NGC *resource* bundles (e.g. vss-warehouse-app-data) are intentionally
-# NOT handled here: warehouse profiles receive them via the pre-extracted VSS_DATA_DIR
-# mount, mirroring Helm's separate job-download-ngc-app-data.
+# Whole-tree NGC *resource* bundles (e.g. vss-warehouse-app-data) are intentionally NOT
+# handled here: warehouse profiles receive them via the pre-extracted VSS_DATA_DIR mount.
 download_package() {
   local package_ref="$1"
   local org="$2"
