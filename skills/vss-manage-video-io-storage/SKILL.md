@@ -141,7 +141,7 @@ If a sensor has only one stream, `sensorId` and `streamId` are equal and can be 
 | File upload / delete | `/vst/api/v1/storage/` | `references/api-reference.md` (PUT v2 + legacy v1 endpoints) + `references/deploy-vios-service.md § Known Deployment Issues` (Finding 9: libav-missing failure mode) |
 | Live streams / snapshot (picture) | `/vst/api/v1/live/` | `references/api-reference.md` |
 | Replay streams / historical snapshot | `/vst/api/v1/replay/` | `references/api-reference.md` (operations) + `references/integrate-vios-service.md § Known Integration Constraints` (Finding 8) |
-| **NvStreamer**: file-to-RTSP republisher (upload, retrieve generated RTSP URL, filesystem scan, frame snapshots) | `http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}/vst/api/v1/` | `references/nvstreamer-api-reference.md` (the streamer endpoint is **separate** from the VIOS gateway — different port, `type: "streamer"` on `/version`) |
+| **NvStreamer**: file-to-RTSP republisher (upload, retrieve generated RTSP URL, filesystem scan, frame snapshots) | `http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}/api/v1/` | `references/nvstreamer-api-reference.md` (the streamer endpoint is **separate** from the VIOS gateway — different port, and NvStreamer has **no `/vst` prefix** (`/api/v1/`, not `/vst/api/v1/`), `type: "streamer"` on `/version`) |
 
 ---
 
