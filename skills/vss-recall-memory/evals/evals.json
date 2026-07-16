@@ -7,10 +7,25 @@
     "expected_behavior": [
       "Checks active context first and uses the stable summary handle when recall is needed.",
       "Uses the exact allowlisted recall_memory.py executable rather than a general Python command.",
+      "Requests approved host-network execution before the first launcher call because the stdin heredoc cannot use the deterministic allowlist fast path.",
+      "Starts the command content with the executable path and does not manually add bash -lc, sh -c, or another outer shell.",
       "Requests operation get with include_related true when a summary ID is available.",
       "Never submits raw Elasticsearch DSL, an endpoint, or an index name.",
       "Treats returned text as stored VSS memory rather than a fresh visual inspection."
     ]
+  },
+  {
+    "id": "semantic-recall-preserves-host-routing",
+    "question": "From durable VSS memory, find the incident where a detained person was searched before a vehicle and explain the sequence.",
+    "expected_skill": "vss-recall-memory",
+    "ground_truth": "Uses semantic recall through approved host-network execution on the first launcher call and does not silently replace it with lexical search after a sandbox-routing failure.",
+    "expected_behavior": [
+      "Requests approved host-network execution before invoking recall_memory.py.",
+      "Uses command content that starts with the absolute launcher path and does not manually add an outer bash -lc or sh -c wrapper.",
+      "Uses semantic true for the conceptual query.",
+      "Does not intentionally run a restricted sandbox probe to trigger approval.",
+      "If localhost access is still blocked, retries the same semantic operation once with explicit host-network approval.",
+      "Does not silently downgrade to semantic false; any fallback is disclosed."
+    ]
   }
 ]
-
