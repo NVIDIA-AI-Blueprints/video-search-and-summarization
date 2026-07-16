@@ -17,14 +17,16 @@ Schema for the `component_services:` block is in `references/component-services-
 
 ## component_services block
 
-The Alert Microservice **owns** the `alert-bridge` service. Its candidate-event source is a Step-4 decision (`alert_source` variant): the `cv-verification` case adds the static CV detector pair (RT-CV perception + Behavior Analytics) that produces incidents on Kafka; the `vlm-realtime` case adds no extra service-keys here (the VLM peer is RT-VLM, contributed by `patch-rt-vlm.md`, and the realtime REST API drives it directly).
+The Alert Microservice **owns** the `alert-bridge` service. Its candidate-event source is a Step-4 decision (`alert_source` variant): the `cv-verification` case adds the static CV detector pair (RT-CV perception + Behavior Analytics) that produces incidents on Kafka; the `vlm-realtime` case adds no extra service-keys here (the VLM peer is RT-VLM, contributed by `patch-rt-vlm.md`).
+
+> **Canonical realtime-alert media path (vlm-realtime).** Live video enters through **NvStreamer or an external RTSP camera → VIOS** (sensor registration via `POST /sensor/add`, live proxy, clip storage) **→ Alert Bridge** (`POST /api/v1/realtime` with `sensor_id`, `sensor_name`, and `live_stream_url` resolved from VIOS). Alert Bridge then drives RT-VLM internally (`/v1/streams/add` + `/v1/generate_captions`). Do **NOT** diagram or smoke-test a shortcut from NvStreamer directly to Alert Bridge or RT-VLM — `live_stream_url` and `sensor_id` always come from VIOS (`skills/vss-manage-alerts/references/alert-subscriptions.md § Step 2`). VIOS is a **required peer** via `patch-vios.md`, not optional for realtime alerts.
 
 ```yaml
 component_services:
   # Alert Microservice engine — always present when this microservice is selected.
   - key: alert-bridge
     file: services/alert/compose.yml
-    role: VLM-as-verifier. In cv-verification — consumes candidate incidents/alerts from Kafka, retrieves the clip from VIOS/VST, runs VLM verification, and sinks verified records to Elasticsearch (mdx-vlm-incidents / mdx-vlm-alerts) and optionally Kafka. In vlm-realtime — manages realtime rules and drives RT-VLM directly; it does NOT write incidents to ES itself (RT-VLM emits them to Kafka mdx-vlm-incidents -> Logstash -> ES, and alert-bridge reads them back via GET /api/v1/realtime/incidents). See integrate-alerts.md § Outputs scoping note.
+    role: VLM-as-verifier. In cv-verification — consumes candidate incidents/alerts from Kafka, retrieves the clip from VIOS/VST, runs VLM verification, and sinks verified records to Elasticsearch (mdx-vlm-incidents / mdx-vlm-alerts) and optionally Kafka. In vlm-realtime — receives realtime rules on POST /api/v1/realtime (with VIOS-resolved sensor_id + live_stream_url), drives RT-VLM for continuous chunk processing, and does NOT write incidents to ES itself (RT-VLM emits them to Kafka mdx-vlm-incidents -> Logstash -> ES; alert-bridge reads them back via GET /api/v1/realtime/incidents). See integrate-alerts.md § Outputs scoping note.
     required: true
     # Peers the Alert Microservice needs but that are owned by OTHER component sets:
     #   - kafka, redis, elasticsearch, kafka-topic-init-container  -> ELK (integrate-elk.md)
@@ -47,9 +49,9 @@ component_services:
           - key: vss-behavior-analytics-alerts
             file: developer-profiles/dev-profile-alerts/compose.yml
             role: Behavior Analytics — turns CV metadata into candidate incidents/alerts on Kafka (mdx-incidents / mdx-alerts) with a `category` that maps to alert_type_config.json.
-        # ALTERNATE — no CV detector; alert-bridge's realtime REST API drives RT-VLM directly.
-        # No extra service-keys here: RT-VLM must be selected as its own microservice
-        # (patch-rt-vlm.md contributes the rtvi-vlm service-key to the union).
+        # ALTERNATE — no CV detector; NvStreamer/external RTSP -> VIOS -> alert-bridge
+        # POST /api/v1/realtime -> RT-VLM. No extra service-keys here: VIOS (patch-vios.md)
+        # and RT-VLM (patch-rt-vlm.md) must be in the candidate set from Step 1.
         vlm-realtime: []
 
   # Agent layer — OPTIONAL. NOT part of the core verification data path (CV → broker →
@@ -99,9 +101,9 @@ component_services:
 
 > **`alert_source` case vocabulary = the two official VLM-alerting approaches.** The two cases map to the two deploy-time modes the `vss-manage-alerts` skill documents and the VSS docs call out:
 > - `cv-verification` ↔ **Alert Verification** ↔ `MODE=2d_cv` / `bp_developer_alerts_2d_cv`. CV detector + Behavior Analytics generate candidate alerts upstream; the VLM is invoked **sporadically** to verify clips → **lower GPU**. The default; matches the canonical "stream → clip retrieval → alerts to broker → verify" description.
-> - `vlm-realtime` ↔ **Real-Time Alerts** ↔ `MODE=2d_vlm` / `bp_developer_alerts_2d_vlm`. No CV detector; the VLM **continuously** processes chunks (alert-bridge realtime API drives RT-VLM) → **higher GPU**.
+> - `vlm-realtime` ↔ **Real-Time Alerts** ↔ `MODE=2d_vlm` / `bp_developer_alerts_2d_vlm`. No CV detector; media path is **NvStreamer/external RTSP → VIOS → Alert Bridge → RT-VLM**; the VLM **continuously** processes chunks → **higher GPU**.
 >
-> Step 4 presents the choice with `cv-verification` as the default. When `vlm-realtime` is chosen, the skill MUST ensure RT-VLM is in the candidate set (Step 1) — otherwise the realtime API has nothing to drive; surface this as a gap rather than silently composing a non-functional verifier.
+> Step 4 presents the choice with `cv-verification` as the default. When `vlm-realtime` is chosen, the skill MUST ensure **VIOS** and **RT-VLM** are both in the candidate set (Step 1) — VIOS supplies `sensor_id` / `live_stream_url` for `POST /api/v1/realtime`, and RT-VLM is what Alert Bridge drives; surface any missing peer as a gap rather than silently composing a non-functional verifier.
 
 > **Agent layer + LLM NIM are OPTIONAL — the core verify path is headless.** Nothing in the verification data path (`alert-bridge`, `perception-alerts`, `vss-behavior-analytics-alerts`) `depends_on` `vss-agent`; verified incidents land in Elasticsearch (`mdx-vlm-incidents`) and are queryable directly (ES `_search`, or the optional `vss-video-analytics-api`). `vss-agent` + `vss-va-mcp` + an LLM NIM add only **natural-language incident query, report generation, and the backing for the web UI**. Step 4 decision rule:
 > - Prompt is pure verification ("verify alerts / reduce false positives / store to ES + broker") → **headless**: omit the agent layer and the `llm_placement` variant entirely.
