@@ -45,8 +45,6 @@ def promotion_variables(
     release_set: dict[str, Any],
     *,
     requested_tag: str = "",
-    agent_ui_config: str = "",
-    alert_config: str = "",
 ) -> tuple[str, dict[str, str]]:
     built = build_entries(release_set)
     if not built:
@@ -59,26 +57,16 @@ def promotion_variables(
         raise ValueError(
             f"requested tag {requested_tag!r} does not match release-set tag {tag!r}"
         )
-    names = {str(image.get("name") or "") for image in built}
-    if names.intersection({"vss-agent", "vss-agent-ui"}) and not agent_ui_config:
-        raise ValueError("agent/UI artifacts-promotion config path is required")
-    if "vss-alert-ms" in names and not alert_config:
-        raise ValueError("alert artifacts-promotion config path is required")
-
     encoded = base64.b64encode(
         (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
     ).decode()
     variables = {
         "BUILD_TYPE": "ghcr-nightly",
-        "VSS_ACCEPTANCE_REGISTRY": "ngc-dev",
+        "VSS_ACCEPTANCE_REGISTRY": "ghcr",
         "VSS_RELEASE_SET_B64": encoded,
         "VSS_RELEASE_SET_ID": release_set["release_set_id"],
         "VSS_PROMOTION_TAG": tag,
     }
-    if agent_ui_config:
-        variables["AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH"] = agent_ui_config
-    if alert_config:
-        variables["ALERT_ARTIFACTS_PROMOTION_CONFIG_PATH"] = alert_config
     return tag, variables
 
 
@@ -87,8 +75,6 @@ def main() -> int:
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--requested-sha", default="")
     parser.add_argument("--requested-tag", default="")
-    parser.add_argument("--agent-ui-config", default="")
-    parser.add_argument("--alert-config", default="")
     parser.add_argument(
         "--release-set-output",
         type=Path,
@@ -140,8 +126,6 @@ def main() -> int:
     tag, variables = promotion_variables(
         release_set,
         requested_tag=args.requested_tag,
-        agent_ui_config=args.agent_ui_config,
-        alert_config=args.alert_config,
     )
     args.release_set_output.parent.mkdir(parents=True, exist_ok=True)
     args.release_set_output.write_text(

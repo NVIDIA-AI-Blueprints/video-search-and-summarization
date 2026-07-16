@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-name: Nightly promote accepted GHCR set
+name: Nightly validate GHCR set
 
 on:
   schedule:
@@ -8,20 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: "Optional develop commit to promote (latest green when empty)"
+        description: "Optional develop commit to validate (latest green when empty)"
         required: false
       promotion_tag:
         description: "Optional immutable tag assertion"
         required: false
-      agent_ui_artifacts_config:
-        description: "Optional agent/UI artifacts-promotion config path"
-        required: false
-      alert_artifacts_config:
-        description: "Optional alert artifacts-promotion config path"
-        required: false
-
 concurrency:
-  group: nightly-promote-ghcr
+  group: nightly-validate-ghcr
   cancel-in-progress: false
 
 permissions:
@@ -34,7 +27,7 @@ defaults:
     shell: bash
 
 jobs:
-  promote:
+  validate:
     runs-on: [self-hosted, downstream-pipeline]
     timeout-minutes: 185
     env:
@@ -42,7 +35,7 @@ jobs:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
       DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
-      DOWNSTREAM_REF: ${{ vars.DOWNSTREAM_PROMOTION_REF || 'main' }}
+      DOWNSTREAM_REF: ${{ vars.DOWNSTREAM_TEST_REF || vars.DOWNSTREAM_PROMOTION_REF || 'main' }}
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -57,20 +50,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUESTED_SHA: ${{ inputs.source_sha }}
           REQUESTED_TAG: ${{ inputs.promotion_tag }}
-          AGENT_UI_CONFIG: ${{ inputs.agent_ui_artifacts_config || vars.VSS_AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH }}
-          ALERT_CONFIG: ${{ inputs.alert_artifacts_config || vars.VSS_ALERT_ARTIFACTS_PROMOTION_CONFIG_PATH }}
         run: |
           python3 .github/scripts/prepare_nightly_promotion.py \
             --requested-sha "$REQUESTED_SHA" \
-            --requested-tag "$REQUESTED_TAG" \
-            --agent-ui-config "$AGENT_UI_CONFIG" \
-            --alert-config "$ALERT_CONFIG"
+            --requested-tag "$REQUESTED_TAG"
 
-      - name: Trigger digest-preserving GitLab promotion
+      - name: Trigger GitLab test pipeline
         id: trigger
         run: python3 .github/scripts/trigger-downstream-pipeline.sh
 
-      - name: Poll promotion pipeline
+      - name: Poll test pipeline
         env:
           DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
           DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
@@ -94,12 +83,12 @@ jobs:
             --release-set .promotion/release-set.json \
             --alias develop-validated
 
-      - name: Summarize promotion
+      - name: Summarize validation
         run: |
           {
-            echo "### GHCR → NGC promotion"
+            echo "### GHCR nightly validation"
             echo "- source commit: \`${{ steps.selected.outputs.source_sha }}\`"
             echo "- immutable tag: \`${{ steps.selected.outputs.promotion_tag }}\`"
             echo "- release set: \`${{ steps.selected.outputs.release_set_id }}\`"
-            echo "- GitLab pipeline: \`#${{ steps.trigger.outputs.pipeline_iid }}\`"
+            echo "- GitLab test pipeline: \`#${{ steps.trigger.outputs.pipeline_iid }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

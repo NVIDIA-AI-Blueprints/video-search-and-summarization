@@ -56,19 +56,20 @@ class NightlyPromotionTest(unittest.TestCase):
         tag, variables = promotion_variables(
             payload,
             requested_tag="develop-deadbeef1234",
-            agent_ui_config="configs/vss-3.2.0/vss-core-agent.yml",
         )
         self.assertEqual(tag, "develop-deadbeef1234")
         self.assertEqual(variables["BUILD_TYPE"], "ghcr-nightly")
-        self.assertEqual(variables["VSS_ACCEPTANCE_REGISTRY"], "ngc-dev")
+        self.assertEqual(variables["VSS_ACCEPTANCE_REGISTRY"], "ghcr")
         self.assertEqual(
             json.loads(base64.b64decode(variables["VSS_RELEASE_SET_B64"])),
             payload,
         )
 
-    def test_agent_config_is_required(self):
-        with self.assertRaisesRegex(ValueError, "config path"):
-            promotion_variables(release_set())
+    def test_artifacts_promotion_config_is_not_sent_to_test_pipeline(self):
+        _, variables = promotion_variables(release_set())
+        self.assertNotIn(
+            "AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH", variables
+        )
 
 
 if __name__ == "__main__":
