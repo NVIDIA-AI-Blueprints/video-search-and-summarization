@@ -19,13 +19,50 @@ MODULE_SPEC.loader.exec_module(license_diff_csv)
 
 
 class ParseUvLockTest(unittest.TestCase):
-    def test_vss_cli_lock_excludes_development_only_packages(self) -> None:
-        lock_path = Path(__file__).parents[2] / "services" / "agent" / "vss-cli" / "uv.lock"
+    def test_agent_lock_excludes_development_only_packages(self) -> None:
+        lock_path = Path(__file__).parents[2] / "services" / "agent" / "uv.lock"
 
         inventory = license_diff_csv.parse_uv_lock(lock_path.read_bytes())
         names = {name for name, _version in inventory}
 
         self.assertTrue(names.isdisjoint({"coverage", "mypy", "pytest", "ruff"}))
+        # The shipping agent stack lives behind the root project's `agent`
+        # extra; following root extras must keep it in the OSRB inventory.
+        self.assertIn("nvidia-nat", names)
+
+    def test_includes_extras_of_the_root_project(self) -> None:
+        lock = b'''version = 1
+
+[[package]]
+name = "light-dependency"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "agent-only-dependency"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "sample-project"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "light-dependency" },
+]
+
+[package.optional-dependencies]
+agent = [
+    { name = "agent-only-dependency" },
+]
+'''
+
+        inventory = license_diff_csv.parse_uv_lock(lock)
+
+        self.assertEqual(
+            {("light-dependency", "1.0.0"), ("agent-only-dependency", "2.0.0")},
+            set(inventory),
+        )
 
     def test_includes_runtime_closure_but_excludes_dev_dependencies_and_root(self) -> None:
         lock = b'''version = 1

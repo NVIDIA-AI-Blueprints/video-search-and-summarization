@@ -35,7 +35,7 @@ jobs:
             project_key: TEGRASW_metropolis_video-search-and-summarization-agent_video-search-and-summarization
             project_name: video-search-and-summarization-agent
             sources: services/agent
-            tests: services/agent/tests,services/agent/vss-cli/tests
+            tests: services/agent/tests
             python_version: "3.13"
           - name: ui
             project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
@@ -85,11 +85,9 @@ jobs:
         run: |
           exclusions="**/node_modules/**,**/.venv/**,**/__pycache__/**,**/.mypy_cache/**,**/.ruff_cache/**,**/dist/**,**/build/**,**/.next/**,**/coverage/**,**/__tests__/**,**/*.test.ts,**/*.test.tsx,**/*.test.js,**/*.test.jsx,**/*.spec.ts,**/*.spec.tsx,**/3rdparty/**"
 
-          # Keep the agent's production and test scopes disjoint. The vss-cli
-          # src/lib symlink points back to services/agent/src/lib, so exclude the
-          # symlink while scanning the real shared-library sources once.
+          # Keep the agent's production and test scopes disjoint.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**,services/agent/tests/**,services/agent/vss-cli/tests/**,services/agent/vss-cli/src/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/tests/**"
           fi
 
           {
@@ -111,7 +109,7 @@ jobs:
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml,services/agent/vss-cli/coverage.xml" >> sonar-project.properties
+            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml,services/agent/coverage-lib.xml" >> sonar-project.properties
             # Keep in sync with [tool.coverage.run] omit in
             # services/agent/pyproject.toml. Files omitted there produce no
             # data in coverage.xml, so without a matching exclusion Sonar
@@ -119,6 +117,7 @@ jobs:
             # new-code coverage gate. They are still analyzed for bugs,
             # code smells, and duplication.
             agent_coverage_exclusions=(
+              "**/lib/knowledge/**"
               "**/agents/report_agent_old.py"
               "**/api/custom_fastapi_worker.py"
               "**/sitecustomize.py"
@@ -185,21 +184,20 @@ jobs:
           # The Sonar self-hosted runner cannot install system packages.
           # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
           # instead of requiring cairo headers and pkg-config on the runner.
-          uv sync --group dev --frozen --no-install-package pycairo --no-install-package rlpycairo
+          uv sync --group dev --extra agent --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run --no-sync pytest \
             --cov=src/vss_agents \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
 
-      - name: Generate vss-cli coverage
+      - name: Generate lib coverage (NAT-free surface)
         if: matrix.name == 'agent'
-        working-directory: services/agent/vss-cli
+        working-directory: services/agent
         run: |
-          uv sync --group dev --frozen
-          uv run --no-sync pytest \
+          uv run --no-sync pytest tests/unit_test/lib \
             --cov=src/lib \
-            --cov-report=xml:coverage.xml \
+            --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
 

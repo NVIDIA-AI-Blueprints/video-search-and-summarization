@@ -13,7 +13,7 @@ import pytest
 
 from lib.cli.search import _parse_args
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[6]
 SKILL_ROOT = REPOSITORY_ROOT / "skills" / "vss-search-archive"
 ADAPTER_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "adapters" / "vss-search-archive" / "generate.py"
 REMOVED_FLAGS = (
@@ -49,9 +49,9 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert 'UPLOAD_FILENAME="${UPLOAD_FILENAME:-${SOURCE_FILENAME}}"' in skill_text
     assert "use that same value" in skill_text
     assert 'VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"' in skill_text
-    assert '"${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml"' in skill_text
+    assert '"${VSS_REPO_ROOT}/services/agent/pyproject.toml"' in skill_text
     assert "set VSS_REPO_ROOT explicitly" in skill_text
-    assert "uv run --project services/agent/vss-cli" not in skill_text
+    assert "uv run --project services/agent" not in skill_text
     assert "shared VST/RTVI service defaults" in skill_text
     assert "`.env` followed by `generated.env`" in skill_text
     assert "do not construct a Brev hostname" in skill_text
@@ -122,8 +122,8 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "if the first probe is ready, continue immediately" in expects[0]["query"]
     assert "http://localhost:8000/health" in expects[0]["checks"][0]
     assert "vss-cli search run --help" in expects[0]["checks"][0]
-    assert "${VSS_REPO_ROOT}/services/agent/vss-cli" in contract
-    assert "uv run --project services/agent/vss-cli" not in contract
+    assert "${VSS_REPO_ROOT}/services/agent" in contract
+    assert "uv run --project services/agent" not in contract
     assert "http://localhost:8000/docs" not in contract
     assert "polled `GET http://localhost:30888/vst/api/v1/sensor/list`" not in contract
     assert "http://localhost:30888" not in operation_contract
@@ -263,8 +263,8 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "bounded GET" in first_instruction
     assert first_instruction.index("bounded GET") < first_instruction.index("downloading")
     assert 'VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"' in first_instruction
-    assert "${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml" in first_instruction
-    assert 'uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli"' in first_instruction
+    assert "${VSS_REPO_ROOT}/services/agent/pyproject.toml" in first_instruction
+    assert 'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev' in first_instruction
     assert "http://localhost:8000/docs" not in first_instruction
     assert "single `RUNTIME_JSON` resolver" in first_instruction
     assert "`ELASTIC_SEARCH_INDEX` is only the embedding index" in first_instruction
@@ -288,8 +288,8 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "do not assume it is exported in the shell" in second_instruction
     assert "Do not look for a global executable" in second_instruction
     assert "report its error and stop" in second_instruction
-    assert "${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml" in second_instruction
-    assert 'uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli"' in second_instruction
+    assert "${VSS_REPO_ROOT}/services/agent/pyproject.toml" in second_instruction
+    assert 'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev' in second_instruction
     assert "For a resolved search request" in second_instruction
     assert "For a deletion request, do not run search" in second_instruction
     assert "exact stdout is captured as `SEARCH_JSON`" in second_instruction
@@ -316,9 +316,9 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "/docs" not in solution
     assert "vss-cli search run --help" in solution
     assert 'VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"' in solution
-    assert 'test -f "${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml"' in solution
+    assert 'test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml"' in solution
     assert 'test -f "${PROFILE_DIR}/.env" -a -f "${PROFILE_DIR}/generated.env"' in solution
-    assert 'uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli"' in solution
+    assert 'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev' in solution
 
 
 def test_harbor_adapter_generation_is_deterministic(tmp_path: Path) -> None:

@@ -87,9 +87,12 @@ def parse_uv_lock(data: bytes) -> Inventory:
     A uv lock records every resolved dependency group.  In particular, the
     root editable package's ``package.dev-dependencies`` contains linters and
     test runners, which do not ship in a release artifact and must not expand
-    the OSRB review.  Start from local project packages and follow only each
-    package's regular ``dependencies`` entries; deliberately do not follow
-    ``dev-dependencies``.
+    the OSRB review.  Start from local project packages and follow their
+    regular ``dependencies`` plus every entry of their ``optional-dependencies``
+    (a root project's extras, e.g. the agent stack behind ``vss[agent]``, ship
+    in release artifacts); deliberately do not follow ``dev-dependencies``.
+    Third-party packages only contribute the extras that a runtime dependency
+    actually requests.
     """
     doc = tomllib.loads(data.decode("utf-8"))
     packages = doc.get("package", []) or []
@@ -117,7 +120,10 @@ def parse_uv_lock(data: bytes) -> Inventory:
 
     runtime_package_indexes: set[int] = set()
     expanded_extras: dict[int, set[str]] = {}
-    pending: list[tuple[int, set[str]]] = [(index, set()) for index in roots]
+    pending: list[tuple[int, set[str]]] = [
+        (index, set((packages[index].get("optional-dependencies") or {}).keys()))
+        for index in roots
+    ]
 
     def add_dependency(dependency: dict) -> None:
         """Queue every lock entry selected by one dependency declaration."""
