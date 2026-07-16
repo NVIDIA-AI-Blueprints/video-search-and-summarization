@@ -8,12 +8,19 @@ from typing import Any, cast
 
 from elasticsearch import Elasticsearch, NotFoundError
 from elasticsearch.helpers import bulk
+from pydantic import ValidationError
 
 from vss_unified_memory.adapters.persistence.elasticsearch.mapper import (
-    source_to_entity,
+    read_document_to_domain,
     summary_to_documents,
 )
-from vss_unified_memory.adapters.persistence.elasticsearch.models import ElasticsearchDocument
+from vss_unified_memory.adapters.persistence.elasticsearch.models import (
+    ElasticsearchDocument,
+    ElasticsearchReadDocument,
+    EventReadDocument,
+    SummaryReadDocument,
+    elasticsearch_read_document_parser,
+)
 from vss_unified_memory.application.errors import RepositoryError
 from vss_unified_memory.application.models import (
     MemoryEmbeddings,
@@ -26,7 +33,7 @@ from vss_unified_memory.domain.models import Event, MemoryEntity, RecordType, Su
 
 
 class ElasticsearchMemoryRepository:
-    _SOURCE_EXCLUDES = ["summary_chunks.embedding", "event_chunks.embedding"]
+    _SOURCE_EXCLUDES = ["summary_chunks", "event_chunks"]
 
     def __init__(
         self,
@@ -80,16 +87,15 @@ class ElasticsearchMemoryRepository:
         except Exception as error:
             raise RepositoryError("Elasticsearch read failed") from error
 
-        source: Mapping[str, Any] = response["_source"]
-        actual_type = RecordType(str(source["record_type"]))
+        document = self._parse_read_document(response["_source"])
+        actual_type = document.record_type
         if record_type is not None and actual_type != record_type:
             return None
-        related_sources: tuple[Mapping[str, Any], ...] = ()
+        related_events: tuple[EventReadDocument, ...] | None = None
         if include_related and actual_type == RecordType.VIDEO_SUMMARY:
-            related_sources = self._get_related_events_for_summaries((str(source["summary_id"]),)).get(
-                str(source["summary_id"]), ()
-            )
-        return source_to_entity(source, related_sources)
+            assert isinstance(document, SummaryReadDocument)
+            related_events = self._get_related_events_for_summaries((document.summary_id,)).get(document.summary_id, ())
+        return read_document_to_domain(document, related_events)
 
     def search(self, query: MemoryQuery) -> tuple[MemorySearchResult, ...]:
         filters = self._build_filters(query)
@@ -120,22 +126,22 @@ class ElasticsearchMemoryRepository:
         except Exception as error:
             raise RepositoryError("Elasticsearch search failed") from error
 
-        hits = tuple(response["hits"]["hits"])
-        summary_ids = tuple(
-            str(hit["_source"]["summary_id"])
-            for hit in hits
-            if hit["_source"].get("record_type") == RecordType.VIDEO_SUMMARY.value
+        hits = tuple(
+            (self._parse_read_document(hit["_source"]), self._hit_score(hit)) for hit in response["hits"]["hits"]
         )
+        summary_ids = tuple(document.summary_id for document, _ in hits if isinstance(document, SummaryReadDocument))
         related_by_summary = self._get_related_events_for_summaries(summary_ids)
         return tuple(
             MemorySearchResult(
-                memory=source_to_entity(
-                    hit["_source"],
-                    related_by_summary.get(str(hit["_source"].get("summary_id")), ()),
+                memory=read_document_to_domain(
+                    document,
+                    related_by_summary.get(document.summary_id, ())
+                    if isinstance(document, SummaryReadDocument)
+                    else None,
                 ),
-                score=hit.get("_score"),
+                score=score,
             )
-            for hit in hits
+            for document, score in hits
         )
 
     def _semantic_search(
@@ -145,8 +151,8 @@ class ElasticsearchMemoryRepository:
     ) -> tuple[MemorySearchResult, ...]:
         assert query.query_vector is not None
         candidate_limit = min(100, max(query.limit * 5, query.limit))
-        summary_hits: tuple[Mapping[str, Any], ...] = ()
-        event_hits: tuple[Mapping[str, Any], ...] = ()
+        summary_hits: tuple[tuple[ElasticsearchReadDocument, float | None], ...] = ()
+        event_hits: tuple[tuple[ElasticsearchReadDocument, float | None], ...] = ()
 
         if query.record_type in (None, RecordType.VIDEO_SUMMARY):
             summary_hits = self._knn_hits(
@@ -186,30 +192,30 @@ class ElasticsearchMemoryRepository:
             )
 
         scores: dict[str, float] = {}
-        parent_sources: dict[str, Mapping[str, Any]] = {}
-        for hit in summary_hits:
-            source: Mapping[str, Any] = hit["_source"]
-            summary_id = str(source["summary_id"])
-            parent_sources[summary_id] = source
-            scores[summary_id] = max(scores.get(summary_id, float("-inf")), float(hit.get("_score") or 0.0))
-        for hit in event_hits:
-            source = hit["_source"]
-            summary_id = str(source["summary_id"])
-            scores[summary_id] = max(scores.get(summary_id, float("-inf")), float(hit.get("_score") or 0.0))
+        parent_documents: dict[str, SummaryReadDocument] = {}
+        for document, score in summary_hits:
+            if not isinstance(document, SummaryReadDocument):
+                raise RepositoryError("summary kNN search returned a non-summary document", retryable=False)
+            parent_documents[document.summary_id] = document
+            scores[document.summary_id] = max(scores.get(document.summary_id, float("-inf")), score or 0.0)
+        for document, score in event_hits:
+            if not isinstance(document, EventReadDocument):
+                raise RepositoryError("event kNN search returned a non-event document", retryable=False)
+            scores[document.summary_id] = max(scores.get(document.summary_id, float("-inf")), score or 0.0)
 
         ranked_ids = tuple(
             summary_id for summary_id, _ in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[: query.limit]
         )
-        missing_ids = tuple(summary_id for summary_id in ranked_ids if summary_id not in parent_sources)
-        parent_sources.update(self._get_summaries_by_ids(missing_ids))
+        missing_ids = tuple(summary_id for summary_id in ranked_ids if summary_id not in parent_documents)
+        parent_documents.update(self._get_summaries_by_ids(missing_ids))
         related_by_summary = self._get_related_events_for_summaries(ranked_ids)
         return tuple(
             MemorySearchResult(
-                memory=source_to_entity(parent_sources[summary_id], related_by_summary.get(summary_id, ())),
+                memory=read_document_to_domain(parent_documents[summary_id], related_by_summary.get(summary_id, ())),
                 score=scores[summary_id],
             )
             for summary_id in ranked_ids
-            if summary_id in parent_sources
+            if summary_id in parent_documents
         )
 
     def _knn_hits(
@@ -220,7 +226,7 @@ class ElasticsearchMemoryRepository:
         filters: list[dict[str, Any]],
         limit: int,
         inner_hits: dict[str, Any] | None = None,
-    ) -> tuple[Mapping[str, Any], ...]:
+    ) -> tuple[tuple[ElasticsearchReadDocument, float | None], ...]:
         knn: dict[str, Any] = {
             "field": field,
             "query_vector": list(query_vector),
@@ -236,9 +242,11 @@ class ElasticsearchMemoryRepository:
             size=limit,
             source_excludes=self._SOURCE_EXCLUDES,
         )
-        return tuple(response["hits"]["hits"])
+        return tuple(
+            (self._parse_read_document(hit["_source"]), self._hit_score(hit)) for hit in response["hits"]["hits"]
+        )
 
-    def _get_summaries_by_ids(self, summary_ids: tuple[str, ...]) -> dict[str, Mapping[str, Any]]:
+    def _get_summaries_by_ids(self, summary_ids: tuple[str, ...]) -> dict[str, SummaryReadDocument]:
         if not summary_ids:
             return {}
         try:
@@ -249,16 +257,20 @@ class ElasticsearchMemoryRepository:
             )
         except Exception as error:
             raise RepositoryError("Elasticsearch summary hydration failed") from error
-        return {
-            str(document["_source"]["summary_id"]): cast(Mapping[str, Any], document["_source"])
-            for document in response["docs"]
-            if document.get("found")
-        }
+        summaries: dict[str, SummaryReadDocument] = {}
+        for result in response["docs"]:
+            if not result.get("found"):
+                continue
+            document = self._parse_read_document(result["_source"])
+            if not isinstance(document, SummaryReadDocument):
+                raise RepositoryError("summary hydration returned a non-summary document", retryable=False)
+            summaries[document.summary_id] = document
+        return summaries
 
     def _get_related_events_for_summaries(
         self,
         summary_ids: tuple[str, ...],
-    ) -> dict[str, tuple[Mapping[str, Any], ...]]:
+    ) -> dict[str, tuple[EventReadDocument, ...]]:
         if not summary_ids:
             return {}
         try:
@@ -282,11 +294,27 @@ class ElasticsearchMemoryRepository:
         total = response["hits"]["total"]["value"]
         if total > len(hits):
             raise RepositoryError("related-event result exceeded the 10000-event safety limit", retryable=False)
-        grouped: dict[str, list[Mapping[str, Any]]] = {summary_id: [] for summary_id in summary_ids}
+        grouped: dict[str, list[EventReadDocument]] = {summary_id: [] for summary_id in summary_ids}
         for hit in hits:
-            source: Mapping[str, Any] = hit["_source"]
-            grouped[str(source["summary_id"])].append(source)
+            document = self._parse_read_document(hit["_source"])
+            if not isinstance(document, EventReadDocument):
+                raise RepositoryError("related-event lookup returned a non-event document", retryable=False)
+            if document.summary_id not in grouped:
+                raise RepositoryError("related-event lookup returned an unexpected summary_id", retryable=False)
+            grouped[document.summary_id].append(document)
         return {summary_id: tuple(events) for summary_id, events in grouped.items()}
+
+    @staticmethod
+    def _parse_read_document(source: object) -> ElasticsearchReadDocument:
+        try:
+            return elasticsearch_read_document_parser.validate_python(source)
+        except ValidationError as error:
+            raise RepositoryError("Elasticsearch returned an invalid memory document", retryable=False) from error
+
+    @staticmethod
+    def _hit_score(hit: Mapping[str, Any]) -> float | None:
+        score = hit.get("_score")
+        return None if score is None else float(score)
 
     @staticmethod
     def _build_filters(query: MemoryQuery) -> list[dict[str, Any]]:
@@ -341,7 +369,12 @@ class ElasticsearchMemoryRepository:
         documents: tuple[ElasticsearchDocument, ...],
     ) -> tuple[int, list[dict[str, Any]]]:
         actions = (
-            {"_op_type": "index", "_index": self._index, "_id": document.id, "_source": document.to_source()}
+            {
+                "_op_type": "index",
+                "_index": self._index,
+                "_id": document.id,
+                "_source": document.model_dump(mode="json"),
+            }
             for document in documents
         )
         successful, errors = bulk(

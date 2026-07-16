@@ -5,6 +5,17 @@ summary and event documents through a storage-independent repository interface. 
 searchable summary passages are derived with the exact Cosmos-Embed1 WordPiece vocabulary and stored as nested
 Elasticsearch objects. Elasticsearch is the only durable store in this implementation.
 
+## Model boundaries
+
+Storage-independent domain objects are frozen dataclasses. External CLI and Elasticsearch boundaries are frozen,
+extra-forbidding Pydantic models. The Elasticsearch adapter uses complete `SummaryDocument`, `EventDocument`, and
+`PassageDocument` models on writes, while recall validates the lean `_source` response as `SummaryReadDocument` or
+`EventReadDocument` before mapping it back into the domain. Ordinary reads exclude the complete `summary_chunks` and
+`event_chunks` arrays; indexed vectors remain available to nested kNN search without being returned during hydration.
+
+The read-document union is discriminated by `record_type` and currently exhaustively supports video summaries and
+video events. Alert and search workflow records remain future persistence types.
+
 ## Runtime entrypoints
 
 OpenClaw is allowed to execute only these files:
