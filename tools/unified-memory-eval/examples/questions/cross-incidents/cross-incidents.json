@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "scenario_id": "s1",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_1",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_1_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video starts with a nighttime vehicle stop near fuel pumps and later shows arrests, body searches, vehicle searches, and item removal?",
+        "expected_answer_target": "The video is the nighttime gas-station vehicle stop with later arrest, body-search, vehicle-search, and item-removal activity.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_1"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_1": [1, 12, 17, 30]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s2",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_2",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_2_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video shows a nighttime gas-station arrest with arriving police vehicles, a person in a red jacket, and physical restraint or handcuffing?",
+        "expected_answer_target": "The video is the nighttime gas-station arrest in which police vehicles arrive and people are restrained or handcuffed near vehicles and fuel pumps.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_2"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_2": [3, 4, 6, 14]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s3",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_3",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_3_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video focuses on a nighttime vehicle-interior search involving gloved hands, a center console, papers, and small objects?",
+        "expected_answer_target": "The video is the vehicle-interior search in which officers inspect the driver's seat, dashboard, center console, papers, and small objects.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_3"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_3": [1]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s4",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_4",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_4_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video takes place in a lock-up or detention facility and shows a shirtless man restrained near a tiled wall or bench?",
+        "expected_answer_target": "The video is the lock-up scene in which a shirtless man in blue shorts is restrained in a detention-room setting.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_4"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_4": [1]
+        }
+      },
+      "cross_video_questions": []
+    },
+    {
+      "scenario_id": "s5",
+      "incident_id": "log_1083757",
+      "focal_video_id": "log_1083757_body-cam_video_5",
+      "single_question_source": "../categorized-single/log_1083757_body-cam_video_5_eval.json",
+      "locator": {
+        "question": "Which remembered BWC video shows a shirtless man in blue shorts seated on the floor during a police interview in a detention room?",
+        "expected_answer_target": "The video is the detention-room police interview in which a shirtless man sits on the floor near clothing items.",
+        "expected_video_ids": [
+          "log_1083757_body-cam_video_5"
+        ],
+        "expected_event_ids": {
+          "log_1083757_body-cam_video_5": [1]
+        }
+      },
+      "cross_video_questions": []
+    }
+  ]
+}

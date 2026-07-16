@@ -1,0 +1,8 @@
+.env
+.venv/
+/questions/
+results/
+frozen_summarization_server/data/
+__pycache__/
+*.pyc
+*.log

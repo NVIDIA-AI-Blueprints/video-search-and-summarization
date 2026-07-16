@@ -1,0 +1,12 @@
+[project]
+name = "unified-memory-eval"
+version = "0.1.0"
+description = "VSS/OpenClaw unified memory eval harness"
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[tool.uv]
+package = false
