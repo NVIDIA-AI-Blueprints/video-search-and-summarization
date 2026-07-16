@@ -778,7 +778,8 @@ def _rewrite_deployment_runtime(
             fields = _runtime_fields_for_request(args, payload, runtime)
         else:
             fields.remove("rtvi_cv_endpoint")
-    return deployment.rewrite_runtime(runtime, fields=fields)
+    rewritten: SearchRuntime = deployment.rewrite_runtime(runtime, fields=fields)
+    return rewritten
 
 
 # Keys under which each primitive/search output nests its list of result rows.

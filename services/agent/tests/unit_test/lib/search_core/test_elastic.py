@@ -221,13 +221,29 @@ def test_synchronous_factory_rebinds_across_asyncio_run_loops(monkeypatch: pytes
     client = ElasticClient.from_endpoint("http://es")
     assert not created
 
-    asyncio.run(client.search(index="videos", body={"query": {}}))
+    # Drive two independent loops explicitly instead of relying on
+    # ``asyncio.run`` allocating a fresh loop per call: environments with
+    # nest_asyncio-style patching (e.g. the nvidia-nat test plugin loaded in
+    # the full agent test env) make ``asyncio.run`` reuse one persistent loop,
+    # which would silently skip the cross-loop rebind path under test.
+    loop_a = asyncio.new_event_loop()
+    try:
+        loop_a.run_until_complete(client.search(index="videos", body={"query": {}}))
+    finally:
+        loop_a.close()
     first = created[0]
-    asyncio.run(client.search(index="videos", body={"query": {}}))
 
-    assert len(created) == 2
-    assert first.closed is True
-    asyncio.run(ElasticClient.close_all())
+    loop_b = asyncio.new_event_loop()
+    try:
+        loop_b.run_until_complete(client.search(index="videos", body={"query": {}}))
+        # One extra tick lets the close task scheduled for the stale loop-A
+        # client run to completion.
+        loop_b.run_until_complete(asyncio.sleep(0))
+        assert len(created) == 2
+        assert first.closed is True
+        loop_b.run_until_complete(ElasticClient.close_all())
+    finally:
+        loop_b.close()
 
 
 def test_redact_endpoint_strips_userinfo() -> None:

@@ -1,7 +1,7 @@
 # Search troubleshooting
 
 - **Host CLI entry point fails:** run
-  `uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run --help`
+  `uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run --help`
   after validating `VSS_REPO_ROOT`, and preserve the error. The
   executable is project-local, so `which vss-cli` is not a valid preflight.
   Stop instead of switching search interfaces or calling backends manually.

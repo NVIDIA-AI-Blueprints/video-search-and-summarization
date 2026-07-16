@@ -1,7 +1,7 @@
 # Examples of discovery modes
 
 Run host-side
-`uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run`
+`uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run`
 with one of the deployment selectors from the main `SKILL.md`. Resolve and
 validate `VSS_REPO_ROOT` first. Do not invoke it in a container or pod. The
 snippets below are query/control flags to append after the deployment options.

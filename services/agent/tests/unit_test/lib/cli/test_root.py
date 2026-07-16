@@ -20,7 +20,7 @@ def test_search_help_lists_operations(capsys: pytest.CaptureFixture[str]) -> Non
     assert "{run,embed,attribute}" in help_text
     assert "Normal archive search: vss-cli search run --help" in help_text
     assert "set VSS_REPO_ROOT" in help_text
-    assert 'uv run --project "$VSS_REPO_ROOT/services/agent/vss-cli"' in help_text
+    assert 'uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev' in help_text
 
 
 def test_unknown_root_command_returns_usage_error(capsys: pytest.CaptureFixture[str]) -> None:

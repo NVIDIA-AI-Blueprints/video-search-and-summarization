@@ -12,11 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""VSS libraries.
-
-The base ``vss`` distribution (no extras) supports ``lib.search_core``,
-``lib.critic``, ``lib.vlm``, ``lib.vst``, and the ``vss-cli`` console script
-with explicit runtime configuration. ``lib.knowledge`` belongs to the full
-agent application, may read deployment environment variables, and requires
-the dependencies installed by the ``agent`` extra (``vss[agent]``).
-"""

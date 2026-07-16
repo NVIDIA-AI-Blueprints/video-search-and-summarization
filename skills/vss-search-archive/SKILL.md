@@ -12,14 +12,14 @@ metadata:
 ## Purpose
 
 Run NAT-free archive search from the host machine with `vss-cli`, and retain the
-agent-backed source ingestion and deletion lifecycle. The `nvidia-vss-cli`
-distribution exports `lib.*` for Python callers and provides the `vss-cli`
-console executable. Search uses the checked-out host CLI and performs no internal
-LLM query decomposition.
+agent-backed source ingestion and deletion lifecycle. The base `vss`
+distribution (no extras) exports `lib.*` for Python callers and provides the
+`vss-cli` console executable. Search uses the checked-out host CLI and performs
+no internal LLM query decomposition.
 
 ## Prerequisites
 
-- A running VSS search deployment and a checkout containing `services/agent/vss-cli`.
+- A running VSS search deployment and a checkout containing `services/agent`.
 - Host `uv`, plus Docker access for Docker deployments or `kubectl` access to
   Deployments, ConfigMaps, Services, Endpoints, Ingresses, and port-forwards for Kubernetes.
 - The `vss-manage-video-io-storage` skill for source listing and inspection.
@@ -35,12 +35,12 @@ override Harbor's default, and validate it before the first search:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/vss-cli/pyproject.toml" || {
+test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
   exit 1
 }
 cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
   vss-cli search run --help
 ```
 
@@ -184,7 +184,7 @@ the video embedding index.
 
 ```bash
 PROFILE="${PROFILE:-search}"
-RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
   python -c 'import json,sys; from lib.cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
   "${PROFILE}") || exit 1
 
@@ -321,7 +321,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
    PROFILE="${PROFILE:-search}"
    TOP_K="${TOP_K:-3}"
    SEARCH_COMMAND=(
-     uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli"
+     uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev
      vss-cli search run
      --deployment docker --profile "${PROFILE}"
      --query "${QUERY}" --search-mode "${SEARCH_MODE}"
@@ -361,7 +361,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
 
    ```bash
    PROFILE="${PROFILE:-search}"
-   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
      python -c 'import sys; from lib.cli.deployment import discover_docker; print(discover_docker(sys.argv[1]).env["VST_EXTERNAL_URL"])' \
      "${PROFILE}")
    ```
@@ -372,7 +372,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
    ```bash
    : "${NAMESPACE:?set the selected Kubernetes namespace}"
    : "${RELEASE:?set the selected Kubernetes release}"
-   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
      python -c 'import sys; from lib.cli.deployment import discover_kubernetes; d=discover_kubernetes(namespace=sys.argv[1], release=sys.argv[2], context=sys.argv[3] or None); print(d.env["VST_EXTERNAL_URL"]); d.close()' \
      "${NAMESPACE}" "${RELEASE}" "${KUBE_CONTEXT:-}")
    ```
@@ -409,7 +409,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
        '    if not address.is_global:' \
        '        raise SystemExit("non-global media origin is forbidden")' \
        'print(f"https://{hostname}:{url.port or 443}")') || return 1
-     uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+     uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
        python -c "${URL_ORIGIN_PY}" "$1"
    }
 
@@ -494,10 +494,10 @@ Report every final count. A successful DELETE response alone is not sufficient.
 
 ## Host CLI
 
-Always invoke the checked-out `services/agent/vss-cli` project with `uv run`:
+Always invoke the checked-out `services/agent` project with `uv run`:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
   vss-cli search run [deployment options] [query options]
 ```
 
@@ -522,7 +522,7 @@ The embedding index is resolved from the profile layers; behavior and raw index
 names are resolved from the interpolated agent config.
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
   --deployment docker --profile search \
   --query "find all instances of forklifts" \
   --search-mode embed --source-type video_file --top-k 10 \
@@ -553,7 +553,7 @@ forward whose lifetime extends through result consumption. The CLI rejects an
 in-cluster Service URL in that external field instead of returning dead links.
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
   --deployment kubernetes --namespace <namespace> --release <release> \
   --kube-context <optional-context> \
   --query "person in a white jacket climbing a ladder" \
@@ -593,20 +593,20 @@ through the operator-managed workflow.
 
 ```bash
 # Embed-only search across all ingested files
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
   --deployment docker --profile search \
   --query "red forklift near a loading bay" --search-mode embed \
   --source-type video_file --output json --raw
 
 # Attribute-only search; source must have been resolved first
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
   --deployment kubernetes --namespace vss --release search \
   --query "person wearing a white jacket" \
   --search-mode attribute --attribute "white jacket" \
   --video-source warehouse-camera-3 --output json --raw
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
-uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
   --deployment docker --profile search \
   --query "forklift near a loading bay" --attribute "yellow forklift" \
   --search-mode fusion --allow-embed-only-fallback --output json --raw
@@ -615,7 +615,7 @@ uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run \
 ## Troubleshooting
 
 - **Host CLI preflight fails**: preserve the output from
-  `uv run --project "${VSS_REPO_ROOT}/services/agent/vss-cli" vss-cli search run
+  `uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run
   --help`, verify `VSS_REPO_ROOT` and host `uv`, and stop. Do not switch search
   interfaces.
 
