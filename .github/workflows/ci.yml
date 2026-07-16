@@ -641,6 +641,9 @@ jobs:
     needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
     env:
       NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
     steps:
@@ -664,6 +667,14 @@ jobs:
           grep -qF 'patent-encumbered codec libraries present in image' "$DF" \
             || fail "build-time codec guard missing"
           echo "OK: Dockerfile removes bundled codecs and enforces the build-time guard."
+
+      # The committed deploy coordinate may target GHCR or NGC.
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # NGC_CLI_API_KEY lets us pull the published agent image from nvcr.io.
       - name: Log in to NGC
