@@ -57,6 +57,9 @@ completion envelope, stable VST source handles, `video_summary`, and every retur
   was not fully written.
 - For follow-up questions, use active context first. When the needed result is no longer present, invoke
   `vss-recall-memory`, preferring an exact summary or event ID over search.
+- For VSS video summary or event lookups, never use generic `memory_search`, `memory_get`, or frozen
+  `memory/vss_eval_*.json` fixtures as recall evidence. Durable VSS workflow memory in Elasticsearch is authoritative;
+  invoke `vss-recall-memory` whenever the needed result is absent from active conversation context.
 - Do not copy structured VSS summaries into `memory/*.md` or `MEMORY.md`; unified VSS workflow memory is stored only in
   Elasticsearch.
 

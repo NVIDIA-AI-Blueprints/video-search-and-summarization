@@ -1,21 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Mapping between domain aggregates and Elasticsearch documents."""
+"""Mapping between domain aggregates and typed Elasticsearch documents."""
 
-from collections.abc import Mapping, Sequence
-from datetime import datetime
 from hashlib import sha256
-from typing import Any
+
+from typing_extensions import assert_never
 
 from vss_unified_memory.adapters.persistence.elasticsearch.models import (
+    ElasticsearchReadDocument,
     EventDocument,
+    EventReadDocument,
     PassageDocument,
     SummaryDocument,
+    SummaryReadDocument,
 )
 from vss_unified_memory.application.errors import RepositoryError
 from vss_unified_memory.application.models import EmbeddedRecordPassages, MemoryEmbeddings
-from vss_unified_memory.domain.models import Event, MediaRef, MemoryEntity, RecordType, Summary, TimeRange
+from vss_unified_memory.domain.models import Event, MediaRef, MemoryEntity, Summary, TimeRange
 
 
 def summary_to_documents(
@@ -83,48 +85,86 @@ def _passage_documents(record: EmbeddedRecordPassages | None) -> tuple[PassageDo
     )
 
 
-def source_to_entity(source: Mapping[str, Any], related_sources: Sequence[Mapping[str, Any]] = ()) -> MemoryEntity:
-    try:
-        record_type = RecordType(str(source["record_type"]))
-        if record_type == RecordType.VIDEO_EVENT:
-            return _source_to_event(source)
-        if record_type != RecordType.VIDEO_SUMMARY:
-            raise RepositoryError(f"record type {record_type.value!r} is not implemented", retryable=False)
-        events = sorted(
-            (
-                _source_to_event(item)
-                for item in related_sources
-                if item.get("record_type") == RecordType.VIDEO_EVENT.value
-            ),
-            key=lambda event: event.ordinal,
-        )
-        return Summary(
-            id=str(source["id"]),
-            description=str(source["description"]),
-            media_ref=MediaRef(
-                source=str(source["source"]),
-                video_id=str(source["video_id"]),
-                stream_id=_optional_string(source.get("stream_id")),
-                name=_optional_string(source.get("media_name")),
-            ),
-            created_at=datetime.fromisoformat(str(source["created_at"])),
-            events=tuple(events),
-        )
-    except RepositoryError:
-        raise
-    except (KeyError, TypeError, ValueError) as error:
-        raise RepositoryError("Elasticsearch returned an invalid memory document", retryable=False) from error
+def read_document_to_domain(
+    document: ElasticsearchReadDocument,
+    related_events: tuple[EventReadDocument, ...] | None = None,
+) -> MemoryEntity:
+    """Map a validated read document into a storage-independent domain object."""
+
+    match document:
+        case SummaryReadDocument():
+            return _summary_read_document_to_domain(document, related_events)
+        case EventReadDocument():
+            if related_events is not None:
+                raise RepositoryError("related events can only be attached to a summary", retryable=False)
+            return _event_read_document_to_domain(document)
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
-def _source_to_event(source: Mapping[str, Any]) -> Event:
-    return Event(
-        id=str(source["id"]),
-        ordinal=int(source["ordinal"]),
-        time_range=TimeRange(float(source["start_seconds"]), float(source["end_seconds"])),
-        description=str(source["description"]),
-        event_type=str(source["event_type"]),
+def _summary_read_document_to_domain(
+    document: SummaryReadDocument,
+    related_events: tuple[EventReadDocument, ...] | None,
+) -> Summary:
+    event_documents = () if related_events is None else tuple(sorted(related_events, key=lambda event: event.ordinal))
+    if related_events is not None:
+        _validate_related_events(document, event_documents)
+    return Summary(
+        id=document.id,
+        description=document.description,
+        media_ref=MediaRef(
+            source=document.source,
+            video_id=document.video_id,
+            stream_id=document.stream_id,
+            name=document.media_name,
+        ),
+        created_at=document.created_at,
+        events=tuple(_event_read_document_to_domain(event) for event in event_documents),
     )
 
 
-def _optional_string(value: Any) -> str | None:
-    return None if value is None else str(value)
+def _event_read_document_to_domain(document: EventReadDocument) -> Event:
+    return Event(
+        id=document.id,
+        ordinal=document.ordinal,
+        time_range=TimeRange(document.start_seconds, document.end_seconds),
+        description=document.description,
+        event_type=document.event_type,
+    )
+
+
+def _validate_related_events(
+    summary: SummaryReadDocument,
+    events: tuple[EventReadDocument, ...],
+) -> None:
+    if any(event.summary_id != summary.summary_id for event in events):
+        raise RepositoryError("related event references a different summary", retryable=False)
+    if tuple(event.event_id for event in events) != summary.event_ids:
+        raise RepositoryError("related event IDs do not match the summary", retryable=False)
+    expected_ordinals = tuple(range(1, len(events) + 1))
+    if tuple(event.ordinal for event in events) != expected_ordinals:
+        raise RepositoryError("related event ordinals must be contiguous and one-based", retryable=False)
+    if any(
+        (
+            event.source,
+            event.video_id,
+            event.stream_id,
+            event.media_name,
+            event.created_at,
+        )
+        != (
+            summary.source,
+            summary.video_id,
+            summary.stream_id,
+            summary.media_name,
+            summary.created_at,
+        )
+        for event in events
+    ):
+        raise RepositoryError("related event media metadata does not match the summary", retryable=False)
+    if not events:
+        return
+    if summary.start_seconds != min(event.start_seconds for event in events):
+        raise RepositoryError("related events do not match the summary start time", retryable=False)
+    if summary.end_seconds != max(event.end_seconds for event in events):
+        raise RepositoryError("related events do not match the summary end time", retryable=False)
