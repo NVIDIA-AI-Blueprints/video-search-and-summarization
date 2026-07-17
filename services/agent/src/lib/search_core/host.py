@@ -119,7 +119,7 @@ class VSSSearch:
 
         WARNING (Helm): the /api/v1/runtime/config snapshot returns in-cluster
         DNS URLs that aren't reachable from a developer laptop. Use
-        ``vss-cli search run --deployment kubernetes`` for host-side runtime
+        ``vss search run --deployment kubernetes`` for host-side runtime
         discovery and managed port-forwards instead.
         """
         snap = RuntimeSnapshot.from_remote(agent_url)

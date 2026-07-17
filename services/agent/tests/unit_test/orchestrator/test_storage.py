@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/orchestrator/storage.py."""
+"""Tests for agent/orchestrator/storage.py."""
 
 from pathlib import Path
 
-from vss_agents.orchestrator.storage import ensure_alerts_engine_directories
+from agent.orchestrator.storage import ensure_alerts_engine_directories
 
 
 def test_ensure_alerts_engine_directories_creates_writable_engine_dirs(tmp_path: Path):

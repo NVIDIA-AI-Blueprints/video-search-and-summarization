@@ -12,10 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/markdown_parser.py."""
+"""Tests for agent/utils/markdown_parser.py."""
 
-from vss_agents.utils.markdown_parser import parse_markdown_to_json
-from vss_agents.utils.markdown_parser import parse_table_or_blocktext
+from agent.utils.markdown_parser import parse_markdown_to_json
+from agent.utils.markdown_parser import parse_table_or_blocktext
 
 
 class TestParseTable:

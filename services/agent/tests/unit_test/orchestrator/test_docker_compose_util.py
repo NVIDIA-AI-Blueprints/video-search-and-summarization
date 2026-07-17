@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/orchestrator/docker_compose_util.py."""
+"""Tests for agent/orchestrator/docker_compose_util.py."""
 
 from pathlib import Path
 from typing import ClassVar
@@ -20,8 +20,8 @@ from typing import ClassVar
 import pytest
 import yaml
 
-from vss_agents.orchestrator import docker_compose_util as dcu
-from vss_agents.orchestrator import network_util
+from agent.orchestrator import docker_compose_util as dcu
+from agent.orchestrator import network_util
 
 
 def _env_text(*lines: str) -> str:

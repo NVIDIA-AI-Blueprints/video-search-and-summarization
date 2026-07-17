@@ -179,7 +179,7 @@ jobs:
         run: uv sync --group dev --extra agent --frozen
 
       - name: mypy
-        run: uv run mypy src/vss_agents/
+        run: uv run mypy src/agent/
 
   # ---------------------------------------------------------------------------
   # Job 3: Python tests (pytest + coverage)
@@ -229,7 +229,7 @@ jobs:
         timeout-minutes: 10
         run: |
           uv run pytest \
-            --cov=src/vss_agents \
+            --cov=src/agent \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
@@ -242,7 +242,7 @@ jobs:
           path: services/agent/coverage.xml
 
   # ---------------------------------------------------------------------------
-  # Job 4: NAT-free base distribution (lib + vss-cli) build and tests.
+  # Job 4: NAT-free base distribution (lib + vss) build and tests.
   # Installs only the base `vss` dependencies + the cli-dev tool group, so this
   # lane proves the host CLI surface never grows a NAT/torch dependency.
   # ---------------------------------------------------------------------------
@@ -280,9 +280,9 @@ jobs:
       - name: Build and test NAT-free base distribution
         run: |
           uv sync --frozen --no-dev --group cli-dev
-          uv run --no-sync mypy src/lib/_foundation src/lib/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst
-          uv run --no-sync pytest tests/unit_test/lib -W error::RuntimeWarning -W error::ResourceWarning \
-            --cov=src/lib --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv run --no-sync mypy src/lib/_foundation src/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst
+          uv run --no-sync pytest tests/unit_test/lib tests/unit_test/cli -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=src/lib --cov=src/cli --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
           rm -rf dist
           uv build
@@ -300,6 +300,7 @@ jobs:
           from importlib import metadata
 
           import lib
+          import cli
           import lib.critic
           import lib.search_core
           import lib.vlm
@@ -307,14 +308,14 @@ jobs:
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
           assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
-          # vss_agents and lib.knowledge ship in the wheel, but the base
+          # agent and lib.knowledge ship in the wheel, but the base
           # install must never pull their NAT/torch dependency stack.
           assert installed.isdisjoint({"nvidia-nat", "nvidia-nat-core", "torch", "langchain-core"})
           assert importlib.util.find_spec("nat") is None
           assert importlib.util.find_spec("torch") is None
           assert lib is not None and lib.critic is not None and lib.search_core is not None and lib.vlm is not None and lib.vst is not None
           PY
-          .wheel-smoke/bin/vss-cli --help >/dev/null
+          .wheel-smoke/bin/vss --help >/dev/null
 
       - name: Upload lib coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

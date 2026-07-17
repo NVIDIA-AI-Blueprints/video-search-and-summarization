@@ -6,7 +6,7 @@
 The vss-search-archive skill exercises the host-side NAT-free ``vss`` base
 distribution for fused semantic + attribute search across pre-ingested video
 sources. Search commands run from the repository checkout as ``uv run --project
-"${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run --deployment docker
+"${VSS_REPO_ROOT}/services/agent" --no-dev vss search run --deployment docker
 --profile search ...``; they never run
 through a container/pod shell or a manually selected search endpoint.
 It runs against a **full-remote-deployed VSS search profile** (deploy mode
@@ -95,8 +95,8 @@ SETUP_PREAMBLE = (
     "Do not rewrite media URLs after search to compensate for invalid deployment output. "
     "Before completing "
     "setup, prove the project-local host CLI is available with `cd \"${VSS_REPO_ROOT}\" && "
-    "uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev vss-cli search run --help`. "
-    "If checkout validation fails, report it and stop. Do not look for a global `vss-cli` executable. "
+    "uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run --help`. "
+    "If checkout validation fails, report it and stop. Do not look for a global `vss` executable. "
     "Before readiness or cleanup queries, execute the skill's single `RUNTIME_JSON` resolver, which "
     "uses `discover_docker`, `discover_docker_host_endpoints`, and "
     "`RuntimeSnapshot.from_config_file`. Use its distinct `video_embed_index`, `behavior_index`, "
@@ -132,7 +132,7 @@ OPERATION_PREAMBLE = (
     "pass the decomposed visual query with `--query` (never as a positional argument), select an "
     "explicit supported search mode, and pass its concrete value with `--search-mode`, "
     "and run the host checkout's project-local `cd \"${VSS_REPO_ROOT}\" && uv run --project "
-    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev vss-cli search run` with `--deployment docker "
+    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run` with `--deployment docker "
     "--profile search`, the resolved `--video-source`, `--output json --raw`, and any result "
     "limit stated in the query. Put that fully constructed invocation in a `SEARCH_COMMAND` "
     "bash array and execute it with `if ! SEARCH_JSON=$(\"${SEARCH_COMMAND[@]}\"); then` so only "
@@ -189,7 +189,7 @@ def generate_test_script(step: int, spec_name: str) -> str:
 def generate_solve_script(platform: str) -> str:
     """Gold solution — assumes the search profile is already deployed and
     the sample videos are ingested. The verifier drives the assertions
-    independently against the host-side ``vss-cli`` command and its output."""
+    independently against the host-side ``vss`` command and its output."""
     return (
         "#!/bin/bash\n"
         f"# Gold solution: vss-search-archive on {platform}\n"
@@ -213,7 +213,7 @@ def generate_solve_script(platform: str) -> str:
         "    exit 1\n"
         "}\n"
         'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev '
-        "vss-cli search run --help >/dev/null\n"
+        "vss search run --help >/dev/null\n"
         "echo 'VSS agent and the project-local host CLI are ready.'\n"
     )
 

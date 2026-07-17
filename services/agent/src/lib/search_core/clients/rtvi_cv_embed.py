@@ -14,7 +14,7 @@
 # limitations under the License.
 """RTVI CV embedding client (text-only).
 
-Ported from services/agent/src/vss_agents/embed/rtvi_cv_embed.py with no
+Ported from services/agent/src/agent/embed/rtvi_cv_embed.py with no
 behavior changes. The original had no env reads.
 """
 

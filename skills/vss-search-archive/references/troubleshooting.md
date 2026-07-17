@@ -1,9 +1,9 @@
 # Search troubleshooting
 
 - **Host CLI entry point fails:** run
-  `uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run --help`
+  `uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run --help`
   after validating `VSS_REPO_ROOT`, and preserve the error. The
-  executable is project-local, so `which vss-cli` is not a valid preflight.
+  executable is project-local, so `which vss` is not a valid preflight.
   Stop instead of switching search interfaces or calling backends manually.
 - **Docker profile environment missing:** `.env` and runtime `generated.env`
   are both required. Start the selected profile with
@@ -14,7 +14,7 @@
   command with `kubectl exec`.
 - **Kubernetes rejects `VST_EXTERNAL_URL`:** replace the Service-backed value
   with a host-reachable ingress URL or an operator-managed localhost forward
-  that remains alive after `vss-cli` exits. Managed backend forwards are too
+  that remains alive after `vss` exits. Managed backend forwards are too
   short-lived for result media links.
 - **Named source missing or ambiguous:** stop and ask the user to select or
   ingest a source. Never run an unconstrained substitute query.
@@ -28,4 +28,4 @@
 - **RTVI-CV text embedding absent:** repair RTVI-CV, or use
   `--allow-embed-only-fallback` only when dropping all attributes is intended.
 - **Authenticated visual/media route:** use the operator-managed secret workflow; do not pass
-  API keys through `vss-cli` or copy a Secret to the host.
+  API keys through `vss` or copy a Secret to the host.

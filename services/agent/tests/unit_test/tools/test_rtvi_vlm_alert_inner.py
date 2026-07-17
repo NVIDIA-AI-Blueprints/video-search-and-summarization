@@ -22,10 +22,10 @@ from unittest.mock import patch
 import aiohttp
 import pytest
 
-from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
-from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertInput
-from vss_agents.tools.rtvi_vlm_alert import _sensor_to_alert_rule_id
-from vss_agents.tools.rtvi_vlm_alert import rtvi_vlm_alert
+from agent.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
+from agent.tools.rtvi_vlm_alert import RTVIVLMAlertInput
+from agent.tools.rtvi_vlm_alert import _sensor_to_alert_rule_id
+from agent.tools.rtvi_vlm_alert import rtvi_vlm_alert
 
 
 class TestRTVIVLMAlertInner:
@@ -151,8 +151,8 @@ class TestRTVIVLMAlertInner:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+        with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session):
+            with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config, mock_builder)
                 inp = RTVIVLMAlertInput(action="start", sensor_name="HWY_20")
                 result = await inner_fn(inp)
@@ -179,8 +179,8 @@ class TestRTVIVLMAlertInner:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+        with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config, mock_builder)
                 inp = RTVIVLMAlertInput(action="stop", sensor_name="SENSOR_404")
                 result = await inner_fn(inp)
@@ -208,8 +208,8 @@ class TestRTVIVLMAlertInner:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+        with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config, mock_builder)
                 inp = RTVIVLMAlertInput(action="stop", sensor_name="SENSOR_ERR")
                 result = await inner_fn(inp)
@@ -226,8 +226,8 @@ class TestRTVIVLMAlertInner:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+        with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config, mock_builder)
                 inp = RTVIVLMAlertInput(action="stop", sensor_name="MISSING_SENSOR")
                 result = await inner_fn(inp)
@@ -253,8 +253,8 @@ class TestRTVIVLMAlertInner:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+        with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config, mock_builder)
                 inp = RTVIVLMAlertInput(action="stop", sensor_name="TEST_STOP")
                 result = await inner_fn(inp)
@@ -270,8 +270,8 @@ class TestRTVIVLMAlertInner:
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__ = AsyncMock(side_effect=aiohttp.ClientError("connection refused"))
 
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+        with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config, mock_builder)
                 inp = RTVIVLMAlertInput(action="stop", sensor_name="ERR_SENSOR")
                 result = await inner_fn(inp)
@@ -286,8 +286,8 @@ class TestRTVIVLMAlertInner:
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__ = AsyncMock(side_effect=RuntimeError("something broke"))
 
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
+        with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("agent.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config, mock_builder)
                 inp = RTVIVLMAlertInput(action="stop", sensor_name="GEN_ERR")
                 result = await inner_fn(inp)

@@ -1,4 +1,4 @@
-# Deployment resolution for `vss-cli`
+# Deployment resolution for `vss`
 
 The host CLI owns deployment discovery. It does not call the VSS agent runtime
 endpoint and it does not need a shell inside a container or pod.

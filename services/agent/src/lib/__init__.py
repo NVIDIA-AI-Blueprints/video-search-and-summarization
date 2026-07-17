@@ -15,7 +15,7 @@
 """VSS libraries.
 
 The base ``vss`` distribution (no extras) supports ``lib.search_core``,
-``lib.critic``, ``lib.vlm``, ``lib.vst``, and the ``vss-cli`` console script
+``lib.critic``, ``lib.vlm``, ``lib.vst``, and the ``vss`` console script
 with explicit runtime configuration. ``lib.knowledge`` belongs to the full
 agent application, may read deployment environment variables, and requires
 the dependencies installed by the ``agent`` extra (``vss[agent]``).

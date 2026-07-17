@@ -11,13 +11,13 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 # Two top-level packages ship in the same wheel:
-#   - vss_agents: agent code, tools, NAT plugins (incl. register_knowledge_layers)
+#   - agent: agent code, tools, NAT plugins (incl. register_knowledge_layers)
 #   - lib:        NAT-independent libraries. lib.knowledge holds the BackendAdapter
 #                 ABC, schema, factory, and adapter implementations.
-# The base install carries only the light `lib` dependencies; vss_agents and
+# The base install carries only the light `lib` dependencies; agent and
 # lib.knowledge become importable once the `agent` extra's dependencies are
 # installed (see [project.optional-dependencies]).
-packages = ["src/vss_agents", "src/lib"]
+packages = ["src/agent", "src/cli", "src/lib"]
 
 
 [tool.uv]
@@ -83,7 +83,7 @@ dependencies = [
   # `~=0.1.3.5`.
   #
   # The base install is the NAT-free `lib` libraries (lib.search_core,
-  # lib.critic, lib.vlm, lib.vst, lib.cli). Everything the NAT-based agent
+  # lib.critic, lib.vlm, lib.vst, cli). Everything the NAT-based agent
   # application needs lives in the `agent` extra below.
   # Keep sorted!!!
   "aiohttp~=3.13",
@@ -108,15 +108,15 @@ authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 
 [project.scripts]
-vss-cli = "lib.cli:main"
+vss = "cli:main"
 
 [project.optional-dependencies]
 # Installation profiles, smallest to largest:
 #   vss        -> NAT-free `lib` libraries only
-#   vss[cli]   -> lib + the `vss-cli` console script. The script ships with the
+#   vss[cli]   -> lib + the `vss` console script. The script ships with the
 #                 base wheel already; this extra is the stable name for CLI
 #                 installs and will hold CLI-only dependencies if any appear.
-#   vss[agent] -> the NAT-based agent application (vss_agents, lib.knowledge)
+#   vss[agent] -> the NAT-based agent application (agent, lib.knowledge)
 cli = []
 agent = [
     # Keep sorted!!!
@@ -155,7 +155,7 @@ langchain = [
 ]
 
 [dependency-groups]
-# NAT-free tooling for the lib/vss-cli CI lane and host-side development.
+# NAT-free tooling for the lib/vss CI lane and host-side development.
 cli-dev = [
     "mypy>=1.15.0",
     "pytest>=8.4.1",
@@ -183,14 +183,14 @@ eval = [
 ]
 
 [project.entry-points.'nat.components']
-vss_tools = "vss_agents.tools.register"
-vss_agents = "vss_agents.agents.register"
-vss_api = "vss_agents.api.register"
-vss_va_mcp = "vss_agents.video_analytics.tools"
-vss_orchestrator_mcp = "vss_agents.orchestrator.tools"
-vss_evaluators = "vss_agents.evaluators.register"
-vst_tools = "vss_agents.tools.vst.register"
-vss_knowledge_layer = "vss_agents.register_knowledge_layers"
+vss_tools = "agent.tools.register"
+vss_agents = "agent.agents.register"
+vss_api = "agent.api.register"
+vss_va_mcp = "agent.video_analytics.tools"
+vss_orchestrator_mcp = "agent.orchestrator.tools"
+vss_evaluators = "agent.evaluators.register"
+vst_tools = "agent.tools.vst.register"
+vss_knowledge_layer = "agent.register_knowledge_layers"
 
 
 
@@ -254,7 +254,7 @@ max-doc-length = 120
 force-sort-within-sections = true
 
 # Known first-party modules.
-known-first-party = ["deep_search", "lib", "vss_agents"]
+known-first-party = ["deep_search", "lib", "cli", "agent"]
 
 # Known third-party modules.
 known-third-party = ["langchain", "llama_index", "crewai", "semantic_kernel", "mem0ai", "zep_cloud"]
@@ -281,7 +281,7 @@ force-single-line = true
 default-section = "third-party"
 
 [tool.coverage.run]
-source = ["src/vss_agents"]
+source = ["src/agent"]
 omit = [
     # ============================================================
     # AGENT-EXTRA-ONLY LIBRARY CODE

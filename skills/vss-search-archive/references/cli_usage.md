@@ -1,6 +1,6 @@
-# `vss-cli search run` reference
+# `vss search run` reference
 
-Run the `vss-cli` console executable from the `vss` project in the checkout
+Run the `vss` console executable from the `vss` project in the checkout
 (`--no-dev` keeps the sync runtime-only — no NAT or dev tooling):
 
 ```bash
@@ -11,15 +11,15 @@ test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
 }
 cd "${VSS_REPO_ROOT}" &&
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  vss-cli search run [options]
+  vss search run [options]
 ```
 
 The executable is provided by that project and need not exist globally. Do not
-use `which vss-cli`; verify the supported entry point directly:
+use `which vss`; verify the supported entry point directly:
 
 ```bash
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  vss-cli search run --help
+  vss search run --help
 ```
 
 If this preflight fails, report its error and stop. Do not substitute an agent
@@ -83,5 +83,5 @@ attribute portion removed.
 Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
-`vss-cli search run` is read-only. For upload, registration, deletion, or
+`vss search run` is read-only. For upload, registration, deletion, or
 repair, use the agent-backed mutation workflows in the parent skill.
