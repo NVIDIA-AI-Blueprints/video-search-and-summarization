@@ -331,6 +331,20 @@ CAPACITY_WAIT_DURATION = Histogram(
     buckets=WORKER_QUEUE_WAIT_BUCKETS,
 )
 
+# Live per-service concurrency in event_loop mode (calls currently holding a
+# capacity slot). Bounded by max_vlm_concurrent / max_vst_concurrent.
+EVENT_LOOP_VLM_IN_FLIGHT = Gauge(
+    'alert_bridge_event_loop_vlm_in_flight',
+    'Concurrent VLM calls holding a capacity slot in event_loop mode',
+    multiprocess_mode='livesum',
+)
+
+EVENT_LOOP_VST_IN_FLIGHT = Gauge(
+    'alert_bridge_event_loop_vst_in_flight',
+    'Concurrent VST calls holding a capacity slot in event_loop mode',
+    multiprocess_mode='livesum',
+)
+
 # ---------------------------------------------------------------------------
 # Realtime alert rule metrics
 # ---------------------------------------------------------------------------

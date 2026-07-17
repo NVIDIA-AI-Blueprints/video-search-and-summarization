@@ -183,6 +183,145 @@ class VLMEnhancedElasticSink(VLMEnhancedSink):
             return
         log_enriched_event(self._logger, "Elastic", document.get("id"), document)
 
+    async def publish_success_async(
+        self,
+        message: Dict[str, Any],
+        user_prompt: str,
+        system_prompt: Optional[str],
+        vlm_response: VLMResponsePayload,
+        latency: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        event_kind, enriched = self._prepare_publish(
+            message, user_prompt, system_prompt, vlm_response
+        )
+        await self._store_success_async(event_kind, enriched, vlm_response, user_prompt)
+
+    async def publish_error_async(
+        self,
+        message: Dict[str, Any],
+        user_prompt: str,
+        system_prompt: Optional[str],
+        error_payload: Dict[str, Any],
+        latency: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        event_kind, enriched = self._prepare_publish(
+            message, user_prompt, system_prompt, error_payload
+        )
+        await self._store_error_async(event_kind, enriched, error_payload)
+
+    async def _store_success_async(
+        self,
+        event_kind: str,
+        document: Dict[str, Any],
+        raw_vlm_response: VLMResponsePayload,
+        user_prompt: str,
+    ) -> None:
+        """Async mirror of ``_store_success`` using AsyncElasticsearch."""
+        index = self._alert_index if event_kind == 'alert' else self._incident_index
+        self._logger.info("Publishing to Elastic [sensor=%s category=%s start=%s] index=%s",
+                          document.get('sensorId', 'N/A'), document.get('category', 'N/A'),
+                          document.get('timestamp', 'N/A'), index)
+        try:
+            await self._elastic.write_event_response_async(
+                document,
+                raw_vlm_response,
+                user_prompt,
+                index,
+                category_mapping=self._build_runtime_category_mapping(document),
+                verdict_description_mapping=self._verdict_description_mapping,
+            )
+        except Exception:
+            self._logger.error("Failed to publish to Elastic [sensor=%s category=%s start=%s]",
+                               document.get('sensorId', 'N/A'), document.get('category', 'N/A'),
+                               document.get('timestamp', 'N/A'), exc_info=True)
+            return
+
+        fingerprint = document.get("Id")
+        verdict = (document.get("info", {}).get("verdict") or "").lower()
+        if self._redis_handler and fingerprint and verdict == "confirmed":
+            await self._redis_handler.mark_verdict_confirmed_async(fingerprint)
+
+        log_enriched_event(self._logger, "Elastic", document.get("id"), document)
+
+    async def _store_error_async(
+        self,
+        event_kind: str,
+        document: Dict[str, Any],
+        error_payload: Dict[str, Any],
+    ) -> None:
+        """Async mirror of ``_store_error``."""
+        index = self._alert_index if event_kind == 'alert' else self._incident_index
+        try:
+            await self._elastic.write_event_response_async(
+                document,
+                error_payload,
+                document.get("info", {}).get("user_prompt"),
+                index,
+                category_mapping=self._build_runtime_category_mapping(document),
+                verdict_description_mapping=self._verdict_description_mapping,
+            )
+        except Exception:
+            self._logger.error(
+                "Failed to publish VLM-enhanced event to Elastic",
+                extra={"incident_id": document.get("id")},
+                exc_info=True,
+            )
+            return
+        log_enriched_event(self._logger, "Elastic", document.get("id"), document)
+
+    async def update_enrichment_async(
+        self,
+        document: Dict[str, Any],
+        enrichment_response: EnrichmentResponse,
+    ) -> None:
+        """Async mirror of ``update_enrichment``."""
+        from utils.event_utils import is_alert
+
+        event_kind = 'alert' if is_alert(document) else 'incident'
+        base_index = self._alert_index if event_kind == 'alert' else self._incident_index
+
+        doc_id = document.get("Id")
+        if not doc_id:
+            self._logger.warning("Cannot update enrichment: document has no Id field")
+            return
+
+        timestamp_value = document.get("timestamp", "")
+        if not isinstance(timestamp_value, str):
+            timestamp_value = str(timestamp_value)
+        daily_index = self._elastic.generate_daily_index_name(base_index, timestamp_value)
+
+        partial_doc = {
+            "info": {
+                "enrichment": json.dumps(
+                    enrichment_response.model_dump(), separators=(',', ':'),
+                )
+            }
+        }
+
+        try:
+            await self._elastic.update_document_async(
+                index=daily_index,
+                doc_id=doc_id,
+                partial_doc=partial_doc,
+            )
+            self._logger.info(
+                "Updated document with enrichment [sensor=%s category=%s] index=%s",
+                document.get('sensorId', 'N/A'),
+                document.get('category', 'N/A'),
+                daily_index,
+            )
+        except Exception:
+            self._logger.error(
+                "Failed to update document with enrichment [sensor=%s category=%s]",
+                document.get('sensorId', 'N/A'),
+                document.get('category', 'N/A'),
+                exc_info=True,
+            )
+
+    async def aclose_async(self) -> None:
+        """Close the async Elastic client if it was created."""
+        await self._elastic.aclose_async()
+
     def update_enrichment(
         self,
         document: Dict[str, Any],
