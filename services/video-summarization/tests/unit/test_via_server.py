@@ -403,6 +403,7 @@ class TestSummarizeRoute:
             },
         )
         assert resp.status_code == 409
+
     def test_summarize_invalid_url_format_returns_422(self, test_client, mock_via_server):
         mock_via_server._stream_handler.get_models_info.return_value = self._model_info()
         resp = test_client.post(
