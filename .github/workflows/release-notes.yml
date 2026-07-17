@@ -32,7 +32,10 @@ jobs:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
       DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
-      DOWNSTREAM_REF: main
+      # Standing trigger ref in the downstream project whose pipeline contains
+      # only the notes job — a notes trigger against the default ref would
+      # start the full eval pipeline (its jobs are opt-out gated).
+      DOWNSTREAM_REF: release-notes-trigger
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
