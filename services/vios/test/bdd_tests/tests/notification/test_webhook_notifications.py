@@ -102,6 +102,10 @@ def _validate_event(
             f"streamId={request.header('streamId')!r}",
         ),
         (body.get("alert_type") == "camera_status_change", f"body={body!r}"),
+        (
+            body.get("webhook_id") == notification_test_params["webhook_ids"][change],
+            f"webhook_id={body.get('webhook_id')!r}",
+        ),
         (body.get("source") == "vst", f"source={body.get('source')!r}"),
         (bool(body.get("created_at")), f"created_at={body.get('created_at')!r}"),
         (event.get("change") == change, f"event.change={event.get('change')!r}"),

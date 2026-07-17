@@ -166,9 +166,11 @@ TEST(WebhookNotifierTest, MatchesAlertTypeTriggerAndFilterValue)
     EXPECT_EQ(seen[0].m_method, "POST");
     EXPECT_EQ(seen[0].m_path, "/add");
 
-    // The body must be the event payload itself.
+    // No configured id: webhook_id is empty, the rest matches verbatim.
     Json::Value receivedBody;
     ASSERT_TRUE(Json::Reader().parse(seen[0].m_body, receivedBody));
+    EXPECT_EQ(receivedBody["webhook_id"].asString(), "");
+    receivedBody.removeMember("webhook_id");
     EXPECT_EQ(receivedBody, message);
 
     // An event with a different alert_type matches no webhook at all.
@@ -178,6 +180,44 @@ TEST(WebhookNotifierTest, MatchesAlertTypeTriggerAndFilterValue)
     EXPECT_TRUE(notifier.deliverMessage(serviceEvent));
     std::this_thread::sleep_for(milliseconds(300));
     EXPECT_EQ(server.requests().size(), 1u);
+}
+
+TEST(WebhookNotifierTest, ConfiguredIdIsTaggedIntoDeliveredBody)
+{
+    TinyHttpServer server;
+    ASSERT_TRUE(server.start());
+
+    Json::Value tagged = makeWebhook("camera_status_change", "camera_add",
+                                     {makeRequest(server.url("/tagged"))});
+    tagged["id"] = "wh-001";
+    Json::Value untagged = makeWebhook("camera_status_change", "camera_add",
+                                       {makeRequest(server.url("/untagged"))});
+
+    WebhookNotifier notifier(makeConfig({tagged, untagged}));
+
+    Json::Value message = makeCameraEvent("camera_add");
+    EXPECT_TRUE(notifier.deliverMessage(message));
+
+    ASSERT_TRUE(waitForRequestCount(server, 2));
+    std::this_thread::sleep_for(milliseconds(300));
+
+    const auto seen = server.requests();
+    ASSERT_EQ(seen.size(), 2u);
+    for (const auto& request : seen)
+    {
+        Json::Value body;
+        ASSERT_TRUE(Json::Reader().parse(request.m_body, body));
+        if (request.m_path == "/tagged")
+        {
+            EXPECT_EQ(body["webhook_id"].asString(), "wh-001");
+        }
+        else
+        {
+            EXPECT_EQ(body["webhook_id"].asString(), "");
+            body.removeMember("webhook_id");
+            EXPECT_EQ(body, message);
+        }
+    }
 }
 
 TEST(WebhookNotifierTest, FansOutToAllReceiversWithoutBlocking)
