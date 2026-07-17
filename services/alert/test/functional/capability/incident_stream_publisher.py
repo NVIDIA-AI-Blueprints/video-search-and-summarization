@@ -113,17 +113,34 @@ def main() -> int:
     parser.add_argument('--topic', default='mdx-incidents')
     parser.add_argument('--payload', default=DEFAULT_PAYLOAD, help='Incident JSON template')
     parser.add_argument('--num-sensors', type=int, default=4)
-    parser.add_argument('--rate', type=float, required=True, help='Aggregate messages/sec')
-    parser.add_argument('--duration', type=float, required=True, help='Seconds to run')
+    parser.add_argument('--rate', type=float, help='Aggregate messages/sec')
+    parser.add_argument('--duration', type=float, help='Seconds to run')
     parser.add_argument('--sensor-prefix', default='CAP_SENSOR')
     parser.add_argument('--unique', action='store_true',
                         help='Fresh cohort per message (survivors == rate)')
     parser.add_argument('--recycle-seconds', type=float, default=30.0,
                         help='BA-style mode: incident lifetime before isComplete+recycle')
+    parser.add_argument('--identical-burst', type=int, default=0,
+                        help='Fire N byte-identical messages (same fingerprint) '
+                             'back-to-back and exit — dedup atomicity tests')
     args = parser.parse_args()
 
     with open(args.payload, 'r', encoding='utf-8') as f:
         template = json.load(f)
+
+    if args.identical_burst > 0:
+        sensor = f"{args.sensor_prefix}_001"
+        data = _unique_message(template, sensor, 0)
+        blob = _build_proto(data)
+        producer = Producer({'bootstrap.servers': args.bootstrap, 'linger.ms': 0})
+        for _ in range(args.identical_burst):
+            producer.produce(args.topic, blob, key=sensor.encode())
+        producer.flush(10)
+        print(f"DONE identical_burst={args.identical_burst} sensor={sensor} id={data['id']}", flush=True)
+        return 0
+
+    if args.rate is None or args.duration is None:
+        parser.error("--rate and --duration are required unless --identical-burst is used")
 
     sensors = [f"{args.sensor_prefix}_{i:03d}" for i in range(1, args.num_sensors + 1)]
     states = {
