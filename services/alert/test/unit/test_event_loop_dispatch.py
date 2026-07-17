@@ -17,6 +17,8 @@ import threading
 from concurrent.futures import Future
 from unittest.mock import Mock
 
+import pytest
+
 from handlers.async_dispatch_mixin import (
     AsyncDispatchMixin,
     PIPELINE_MODE_EVENT_LOOP,
@@ -59,9 +61,13 @@ class TestResolvePipelineMode:
         assert resolve_pipeline_mode(None, False) == PIPELINE_MODE_SYNC
         assert resolve_pipeline_mode(None, True) == PIPELINE_MODE_THREAD_BRIDGE
 
-    def test_invalid_mode_falls_back_to_legacy_flag(self):
-        assert resolve_pipeline_mode("warp_drive", True) == PIPELINE_MODE_THREAD_BRIDGE
-        assert resolve_pipeline_mode("warp_drive", False) == PIPELINE_MODE_SYNC
+    def test_invalid_mode_raises_naming_valid_options(self):
+        with pytest.raises(ValueError) as exc_info:
+            resolve_pipeline_mode("turbo", True)
+        message = str(exc_info.value)
+        assert "turbo" in message
+        for valid in ("sync", "thread_bridge", "event_loop"):
+            assert valid in message
 
 
 class TestEffectivePipelineMode:

@@ -86,11 +86,19 @@ def _build_pipeline_stub(runtime, max_in_flight, vlm_cap, vst_cap):
     stub._process_single_message = Mock()
 
     stub._transform_video_urls = lambda url: (url, url)
-    stub._prepare_message_context = lambda message, sensor_id, latency, worker_start_time: ("up", "sp")
-    stub._resolve_video_url = lambda message, sensor_id, latency: (
-        "http://video/clip.mp4", "2026-01-01T00:00:00Z", "2026-01-01T00:00:10Z", None,
-    )
-    stub.validate_video_url = lambda url: True
+
+    async def _prepare_message_context_async(message, sensor_id, latency, worker_start_time):
+        return ("up", "sp")
+
+    async def _resolve_video_url_async(message, sensor_id, latency):
+        return ("http://video/clip.mp4", "2026-01-01T00:00:00Z", "2026-01-01T00:00:10Z", None)
+
+    async def _validate_video_url_async(url):
+        return True
+
+    stub._prepare_message_context_async = _prepare_message_context_async
+    stub._resolve_video_url_async = _resolve_video_url_async
+    stub._validate_video_url_async = _validate_video_url_async
     stub._get_merged_vlm_config = lambda category: {"max_retries": 0}
     stub._apply_vlm_response = (
         lambda message, response_content, merged_vlm, storage_video_url, latency: (True, response_content)
@@ -99,14 +107,13 @@ def _build_pipeline_stub(runtime, max_in_flight, vlm_cap, vst_cap):
     published = []
     publish_lock = threading.Lock()
 
-    def _record_publish(message, user_prompt, system_prompt, response_content,
-                        vlm_failure_reason, worker_start_time, latency):
+    async def _record_publish(message, user_prompt, system_prompt, response_content,
+                              vlm_failure_reason, worker_start_time, latency):
         with publish_lock:
             published.append({"message": message, "latency": latency,
                               "failure_reason": vlm_failure_reason})
-        return None
 
-    stub._publish_outcome_and_complete = _record_publish
+    stub._publish_outcome_and_complete_async = _record_publish
     stub.published = published
 
     async def _no_enrichment(message, video_url, system_prompt, sensor_id, merged_vlm):
@@ -201,6 +208,30 @@ class TestEventLoopConcurrency:
             runtime.stop()
 
 
+class TestCapacitySlotGaugeWiring:
+    def test_capacity_slot_incs_and_decs_service_in_flight(self, monkeypatch):
+        import handlers.event_loop_pipeline_mixin as mixin_mod
+
+        calls = []
+        monkeypatch.setattr(mixin_mod, "inc_capacity_in_flight", lambda service: calls.append(("inc", service)))
+        monkeypatch.setattr(mixin_mod, "dec_capacity_in_flight", lambda service: calls.append(("dec", service)))
+
+        stub = _PipelineStub()
+
+        async def _exercise():
+            sem = asyncio.Semaphore(1)
+            async with stub._capacity_slot(sem, "vlm"):
+                assert calls == [("inc", "vlm")]
+            async with stub._capacity_slot(sem, "vst"):
+                raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(_exercise())
+
+        # dec must fire on both the clean and the exception exit paths
+        assert calls == [("inc", "vlm"), ("dec", "vlm"), ("inc", "vst"), ("dec", "vst")]
+
+
 class TestRuntimeShutdown:
     def test_stop_cancels_pending_tasks_and_joins_thread(self):
         runtime = AsyncVLMRuntime({}, io_workers=4)
@@ -253,7 +284,13 @@ def _build_parity_enhancer(mode, runtime=None, analyze_error=None):
     enhancer.prompt_manager.get_prompts_for_message.return_value = ("user-prompt", "system-prompt")
     enhancer.prompt_manager.alert_config_loader = None
 
-    enhancer._set_message_id_and_should_skip = lambda message, sensor_id: False
+    def _skip_stub(message, sensor_id):
+        fingerprint = AnomalyEnhancer._compute_fingerprint(message)
+        if fingerprint:
+            message["Id"] = fingerprint
+        return False
+
+    enhancer._set_message_id_and_should_skip = _skip_stub
     enhancer._get_video_stream_url_with_mode = lambda sensor_id, start, end, **kwargs: (
         "http://video/clip.mp4", "2026-01-01T00:00:00Z", "2026-01-01T00:00:10Z",
     )
@@ -284,10 +321,32 @@ def _build_parity_enhancer(mode, runtime=None, analyze_error=None):
     enhancer._publish_success_with_mode = _capture_publish
     enhancer._publish_error_with_mode = _capture_publish
 
+    async def _capture_publish_async(message, user_prompt, system_prompt, payload):
+        captured["published"].append(copy.deepcopy(message))
+
+    enhancer.vlm_enhanced_event_sink = SimpleNamespace(
+        publish_success_async=_capture_publish_async,
+        publish_error_async=_capture_publish_async,
+    )
+
     def _capture_complete(publish_future, worker_start_time, message, latency, failure_reason=None):
         captured["completions"].append(failure_reason)
 
     enhancer._complete_event_after_publish = _capture_complete
+
+    # event_loop-mode leaf seams (async transports)
+    enhancer._get_event_loop_http_client = lambda: None
+
+    async def _fake_vst_async(http_client, sensor_id, start, end, **kwargs):
+        return ("http://video/clip.mp4", "2026-01-01T00:00:00Z", "2026-01-01T00:00:10Z")
+
+    enhancer._vst_handler = SimpleNamespace(get_video_stream_url_async=_fake_vst_async)
+
+    async def _validate_async(url, **kwargs):
+        return True
+
+    enhancer._validate_video_url_async = _validate_async
+
     enhancer.captured = captured
     return enhancer
 
