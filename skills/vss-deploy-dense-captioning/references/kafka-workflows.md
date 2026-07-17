@@ -304,7 +304,7 @@ broker advertised listener, restart/recreate RT-VLM before checking offsets:
 
 ```bash
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
+  --profile rtvi-vlm up -d --force-recreate rtvi-vlm
 ```
 
 Then consume bounded, metadata-only samples from all three topics. `--timeout-ms`
