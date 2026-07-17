@@ -20,6 +20,14 @@ Top-level entries are added to the allow-list whenever VIOS is selected; the two
 
 ```yaml
 component_services:
+  # HAProxy ingress — required, single variant. HTTP-only reverse proxy on port 7777;
+  # routes /vst/... → vst-ingress:30888. Must be allow-listed so Patch 1 adds the
+  # invented profile flag — making port 7777 the stable external HTTP entry point for
+  # VIOS API calls from smoke tests. Without this, HAProxy stays on its upstream
+  # profiles only (bp_developer_search_2d etc.) and is absent from generated profiles.
+  - key: vss-haproxy-ingress
+    file: services/infra/haproxy/compose.yml
+    role: HTTP reverse proxy (port 7777) — stable external entry point for all VIOS HTTP API calls. Use http://${HOST_IP}:7777/vst/api/v1 in smoke tests, not the direct vst-ingress port (30888).
   # PostgreSQL — required, single variant
   - key: centralizedb
     file: services/vios/foundational/docker-compose.yaml
@@ -112,7 +120,7 @@ Applied to patched copies under `<BUILD_DIR>/patched/services/{vios,infra/sdrc}/
 
 ### Patch 1 — invented flag (the VIOS + SDRC set must be patched together)
 
-For Topology A (SDRC-routed — the canonical IN-1 path), Patch 1 must append the invented flag (e.g. `bp_developer_in_1`) to the `profiles:` list of **all** of: `sensor-ms*`, `streamprocessing-ms*`, AND every service in `services/infra/sdrc/docker-compose.yaml` (`init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`), plus `centralizedb` + `vst-ingress`. Patching only `streamprocessing-ms` leaves `sensor-ms` unable to reach the SDRC-rendered Envoy listener on `localhost:10000`, so `POST /sensor/add` fails with `Invalid Parameters` and no useful diagnostic. (The legacy `sdr-streamprocessing` + `envoy-streamprocessing` pair is gated to a dead profile in 3.2 — do not contribute it.) For lighter direct-routing instead, set `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001` + `VST_NGINX_MODE=vst-direct` in the build `.env` and skip the SDRC stack entirely.
+For Topology A (SDRC-routed — the canonical IN-1 path), Patch 1 must append the invented flag (e.g. `bp_developer_in_1`) to the `profiles:` list of **all** of: `vss-haproxy-ingress` (in `services/infra/haproxy/compose.yml`), `sensor-ms*`, `streamprocessing-ms*`, AND every service in `services/infra/sdrc/docker-compose.yaml` (`init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`), plus `centralizedb` + `vst-ingress`. Patching only `streamprocessing-ms` leaves `sensor-ms` unable to reach the SDRC-rendered Envoy listener on `localhost:10000`, so `POST /sensor/add` fails with `Invalid Parameters` and no useful diagnostic. (The legacy `sdr-streamprocessing` + `envoy-streamprocessing` pair is gated to a dead profile in 3.2 — do not contribute it.) For lighter direct-routing instead, set `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001` + `VST_NGINX_MODE=vst-direct` in the build `.env` and skip the SDRC stack entirely.
 
 ### Patch 3 — SDRC config-template materialization
 

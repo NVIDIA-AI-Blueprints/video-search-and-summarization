@@ -98,11 +98,11 @@ These are upstream-byte-identical — do NOT hand-edit. Add a `PATCHES.md` row f
 
 This is the canonical streaming-path validation for **IN-1 dense-captioning** profiles. It is emitted into the generated `deploy-<flag-slug>` skill's post-deploy smoke test when the allow-list includes RT-VLM for captioning but **not** Alert Bridge. For **realtime-alert** profiles (`alert_source=vlm-realtime`, Alert Bridge in the allow-list), use **§ 4b** instead — the handoff after VIOS registration goes to Alert Bridge, not directly to RT-VLM.
 
-Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **VIOS 30888** (ingress) / **30554** (live RTSP proxy), **RT-VLM 8018**.
+Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **HAProxy 7777** (VIOS external entry point), **RT-VLM 8018**.
 
 ```bash
 NV=http://${HOST_IP}:31000/vst/api/v1          # NvStreamer
-VIOS=http://${HOST_IP}:30888/vst/api/v1        # VIOS ingress
+VIOS=http://${HOST_IP}:7777/vst/api/v1         # VIOS via HAProxy (vss-haproxy-ingress, always allow-listed with VIOS)
 RTVLM=http://${HOST_IP}:8018                    # RT-VLM
 STEM=<sample-video-filename-without-extension>  # the file STEM; see step 1 — the sensorId may carry a `_N` suffix
 
@@ -192,7 +192,7 @@ CAPTIONS_AFTER=$(docker exec kafka kafka-get-offsets \
   | awk -F: '{sum += $3} END {print sum+0}')
 echo "mdx-vlm-captions post-RT-VLM offset: $CAPTIONS_AFTER"
 test "$CAPTIONS_AFTER" -gt "$CAPTIONS_BEFORE"
-curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /^default_/ && $2+0 > 0'
+curl -sf "http://localhost:${ELASTICSEARCH_HOST_PORT:-9200}/_cat/indices?h=index,docs.count&v" | awk '$1 ~ /^default_/ && $2+0 > 0'
 ```
 
 ### Gotchas (cite when debugging)
@@ -202,7 +202,7 @@ curl -sf 'http://localhost:9200/_cat/indices?h=index,docs.count&v' | awk '$1 ~ /
 - **`sensorUrl`, not `url`.** VIOS `POST /sensor/add` takes `sensorUrl` (`integrate-vios-service.md § API Schema` line ~172 / `api-reference.md § 6`). Using `url` silently fails parameter validation.
 - **`${HOST_IP}`, not `localhost`, for the VIOS proxy URL handed to RT-VLM.** Both run `network_mode: host`, but a `localhost` URL passed into the RT-VLM container resolves to the container's own loopback (VIOS Finding 12). Use `${HOST_IP}`.
 - **Discovery latency.** The streams list and codec metadata populate asynchronously (~5 s for the sensor to appear, ~15–30 s for `metadata.codec`). Retry with backoff (step 1); if you need codec immediately, call `GET $NV/storage/file/mediainfo?sensorId=$STEM`.
-- **No `/sensor/add` on NvStreamer.** Registration with VIOS happens on the VIOS port (30888), not on NvStreamer (31000). NvStreamer has no upstream-camera concept (`nvstreamer-api-reference.md § 3`).
+- **No `/sensor/add` on NvStreamer.** Registration with VIOS happens via HAProxy (port 7777), not on NvStreamer (31000). NvStreamer has no upstream-camera concept (`nvstreamer-api-reference.md § 3`).
 - **Register with VIOS only after the full SDRC/cluster is healthy (Finding F-E, 2026-06-02).** A sensor registered while `sdr-controller` or Redis is still unhealthy reports `state: online` on `/sensor/<id>/status` but its VIOS live proxy (`rtsp://${HOST_IP}:30554/live/<id>`) silently does NOT serve — RT-VLM `/v1/streams/add` then fails with `Could not connect to the RTSP URL or there is no video stream`. Confirm `sdr-controller` logs show `Redis Listener started` (not a `ConnectionRefusedError` crash-loop) before `POST /sensor/add`. If the proxy fails to serve, delete and re-add the sensor once the cluster is healthy — the re-registration produces a working proxy.
 - **Baseline before RT-VLM stream processing is mandatory for runtime proof.** `mdx-vlm-captions` offset `> 0` can be stale from a prior run. Record the baseline before `POST /v1/streams/add` / `/v1/generate_captions`, then assert the post-processing offset is greater.
 - **ES doc count is mandatory** (`feedback_smoke_test_completeness.md`). Kafka offset advance alone misses topic-name misconfigurations — assert `default_<id>` doc count from the live path, distinct from any VOD/upload check.
@@ -268,11 +268,11 @@ Emit § 4b (not § 4 steps 4–7) into the generated deploy skill when `alert-br
 
 Emit this sequence into the generated `deploy-<flag-slug>` skill whenever RT-CV detection/tracking is selected with Kafka + Elasticsearch storage. It proves the live path emits new RT-CV metadata, not merely that the build artifacts were generated.
 
-Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **VIOS 30888** (ingress) / **30554** (live RTSP proxy), **RT-CV 9000**, **Kafka 9092**, **Elasticsearch 9200**.
+Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **HAProxy 7777** (VIOS external entry point), **RT-CV 9000**, **Kafka 9092**, **Elasticsearch `${ELASTICSEARCH_HOST_PORT:-9200}`** (default 9200; Harbor may remap).
 
 ```bash
 NV=http://${HOST_IP}:31000/vst/api/v1          # NvStreamer
-VIOS=http://${HOST_IP}:30888/vst/api/v1        # VIOS ingress
+VIOS=http://${HOST_IP}:7777/vst/api/v1         # VIOS via HAProxy (routes /vst/... → vst-ingress:30888)
 RTCV=http://${HOST_IP}:9000/api/v1              # RT-CV
 STEM=<sample-video-filename-without-extension>  # file STEM from the staged validation video
 CAMERA_ID=rtcv_${STEM}
@@ -305,7 +305,17 @@ SID=$(curl -s -X POST "$VIOS/sensor/add" \
   -H "Content-Type: application/json" \
   --data-raw "{\"sensorUrl\": \"$URL\"}" \
   | jq -r '.sensorId')
-PROXY="rtsp://${HOST_IP}:30554/live/$SID"
+# The VIOS live-proxy RTSP port is assigned dynamically by RtspLoadBalancer (pool 30554–30564).
+# Read the actual assigned URL from streamprocessing logs — do NOT hardcode port 30554.
+PROXY=""
+for i in 1 2 3 4 5 6; do
+  PROXY=$(docker logs vss-vios-streamprocessing 2>&1 \
+    | grep "Live proxy url" | grep "$SID" | tail -1 \
+    | grep -oP 'rtsp://\S+')
+  [ -n "$PROXY" ] && break
+  sleep 5
+done
+[ -z "$PROXY" ] && { echo "ERROR: timed out waiting for VIOS live-proxy URL for SID=$SID"; exit 1; }
 
 # RT-CV /stream/add REQUIRES the {"key":"sensor","value":{...}} ENVELOPE (matches api-reference.md § POST /api/v1/stream/add).
 # A FLAT body ({camera_id,...,change}) is rejected with HTTP 400 "Sensor API change string not supported"
@@ -330,14 +340,14 @@ echo "mdx-raw post-RT-CV offset: $RAW_AFTER"
 test "$RAW_AFTER" -gt "$RAW_BEFORE"
 
 # 6. Query Elasticsearch for indexed bounding-box metadata from the live path.
-curl -sf 'http://localhost:9200/mdx-raw-*/_search?size=5' \
+curl -sf "http://localhost:${ELASTICSEARCH_HOST_PORT:-9200}/mdx-raw-*/_search?size=5" \
   | jq -e '.hits.hits[]?._source | tostring | test("bbox|bounding|track|object|confidence")'
 ```
 
 ### RT-CV runtime gotchas
 
 - **Baseline before `/stream/add` is mandatory.** The runtime proof is `mdx-raw` offset advancement after RT-CV sees the stream. Topic existence, offset `> 0` without a baseline, or Elasticsearch index existence alone is insufficient.
-- **Use the VIOS proxy URL.** RT-CV must consume the same VIOS-registered source as the playback path: `rtsp://${HOST_IP}:30554/live/<sensorId>`.
+- **Use the VIOS proxy URL — read it from logs, do not hardcode the port.** The live-proxy RTSP port is assigned dynamically by RtspLoadBalancer from the pool 30554–30564. Read the actual URL from streamprocessing logs after `/sensor/add`: `docker logs vss-vios-streamprocessing 2>&1 | grep "Live proxy url" | grep "$SID" | tail -1 | grep -oP 'rtsp://\S+'`.
 - **Record the before/after numbers.** The generated deploy skill should print both `RAW_BEFORE` and `RAW_AFTER` so an eval trace can verify the live metadata emission step without inferring it from prose.
 - **Use the exact RT-CV service API base.** Health, stream, and metrics calls go to `http://<host>:9000/api/v1`; do not use the RT-VLM `:8018` path or legacy `/v1/health/ready` paths.
 - **`/stream/add` needs the `{"key":"sensor","value":{...}}` envelope** (see the corrected snippet above). A flat body returns HTTP 400 `Sensor API change string not supported`. On success the response is `{"reason":"STREAM_ADD_SUCCESS",...}`; verify with `GET /stream/get-stream-info` (returns `stream-info.stream-count >= 1`).
@@ -351,7 +361,7 @@ curl -sf 'http://localhost:9200/mdx-raw-*/_search?size=5' \
 Emit this variant **in addition to** the § 5 RTSP smoke whenever the profile supports upload ingestion (`sensor_topology=rtsp-and-uploaded`) — a `rtsp-and-uploaded` deployment must prove BOTH ingestion paths. It is the alternative to the NvStreamer live-RTSP harness (option 1): the operator uploads a video file to VIOS storage, VIOS returns a resolvable HTTP `videoUrl`, and that URL is handed **directly** to RT-CV (`camera_url`) and/or RT-Embed (`url`). No NvStreamer, no live RTSP proxy, no `/sensor/add` for the downstream consumers. The uploaded file becomes a **recorded/VOD asset** (its `/sensor/<id>/status` reports `CameraNotFoundError`/offline and `/streams` is empty — that is expected; it is not a live camera).
 
 ```bash
-VIOS=http://${HOST_IP}:30888/vst/api/v1
+VIOS=http://${HOST_IP}:7777/vst/api/v1     # VIOS via HAProxy (vss-haproxy-ingress, always allow-listed with VIOS)
 FN=<whitespace-free-filename>.mp4          # e.g. upload_person_bicycle_car.mp4
 LOCAL=<path to the video file on host>
 
@@ -376,7 +386,7 @@ curl -sf -X POST "http://${HOST_IP}:9000/api/v1/stream/add" -H 'Content-Type: ap
 ```
 
 **Gotchas (static-video / VIOS-upload path):**
-- **`videoUrl` must be reachable from the consumer containers.** VIOS returns it already host-IP'd (`http://${HOST_IP}:30888/vst/storage/temp_files/...`); confirm `curl` from inside `vss-rtvi-cv` / `vss-rtvi-embed` returns `200 video/mp4` before registering. Some builds double the scheme (`http://http://...`) — strip the leading `http://` (`integrate-vios-service.md` Finding 8).
+- **`videoUrl` must be reachable from the consumer containers.** VIOS constructs `videoUrl` from `VST_BASE_URL` — when HAProxy is in the deployment (as it is for all generated VIOS profiles), set `VST_BASE_URL=http://${HOST_IP}:7777` so the returned URL is `http://${HOST_IP}:7777/vst/storage/...`, which HAProxy routes to `vst-ingress`. This URL is passed verbatim to RT-CV `camera_url` / RT-Embed `url` — it must be reachable from inside those containers, so use `${HOST_IP}`, never `localhost`. confirm `curl` from inside `vss-rtvi-cv` / `vss-rtvi-embed` returns `200 video/mp4` before registering. Some builds double the scheme (`http://http://...`) — strip the leading `http://` (`integrate-vios-service.md` Finding 8).
 - **`VST_INSTALL_ADDITIONAL_PACKAGES=true` is required for upload** — without libav the `PUT /storage/file` fails `InvalidParameterError: Failed to get media information` and the file is deleted (`deploy-vios-service.md` Finding 9).
 - **Fetch the timeline before building the `/url` request** — uploaded-file timelines are anchored at the upload `timestamp` (default `2025-01-01T00:00:00.000Z`), not wall-clock; a mismatched range returns an empty/short clip.
 - **RT-CV exits on EOS for a file source** — the stream will NOT appear in `/stream/get-stream-info` after the ~clip-length window; the proof is the ES doc count under the source's `sensorId`, not a live stream count.
@@ -397,13 +407,13 @@ rtvi-embed --(RTVI_EMBED_KAFKA_TOPIC=mdx-embed)--> Kafka mdx-embed
 
 **Success criterion = all three stages advance: `mdx-embed` (rtvi-embed output) → `mdx-embed-filtered` (BA output) → non-zero `mdx-embed-filtered-<date>` ES docs.** RT-Embed publishes its raw embeddings to **`mdx-embed`** (its own topic; upstream `RTVI_EMBED_KAFKA_TOPIC=mdx-embed` → container `KAFKA_TOPIC`). It does **NOT** publish to `mdx-embed-filtered` directly — **`vss-search-analytics-2d-fusion` (BA)** consumes `mdx-embed` and produces `mdx-embed-filtered`, the only topic ELK indexes. **BA must be in the deployment** or embeddings never reach ES, and `RTVI_EMBED_KAFKA_TOPIC` must stay `mdx-embed` (overriding it to `mdx-embed-filtered` bypasses BA's filter). See `references/patch-rt-embed.md`. See also the § 5 gotcha on the same `mdx-raw` chain for detection.
 
-Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **VIOS 30888** (ingress) / **30554** (live RTSP proxy), **RT-Embed 8017**, **Kafka 9092**, **Elasticsearch 9200**.
+Ports referenced: **NvStreamer 31000** (HTTP) / **31554–31561** (RTSP pool), **HAProxy 7777** (VIOS external entry point), **RT-Embed 8017**, **Kafka 9092**, **Elasticsearch `${ELASTICSEARCH_HOST_PORT:-9200}`** (default 9200; Harbor may remap).
 
 ```bash
 NV=http://${HOST_IP}:31000/vst/api/v1          # NvStreamer
-VIOS=http://${HOST_IP}:30888/vst/api/v1        # VIOS ingress
+VIOS=http://${HOST_IP}:7777/vst/api/v1         # VIOS via HAProxy (routes /vst/... → vst-ingress:30888)
 RTEMB=http://${HOST_IP}:8017                    # RT-Embedding
-ES=http://${HOST_IP}:9200
+ES=http://${HOST_IP}:${ELASTICSEARCH_HOST_PORT:-9200}
 
 # 0. Confirm RT-Embed is ready and resolve the model id (do NOT hardcode).
 curl -sf "$RTEMB/v1/ready"
@@ -424,7 +434,16 @@ STEM=<sample-video-filename-without-extension>
 NVSID=$(curl -sf "$NV/sensor/list" | jq -r --arg s "$STEM" '.[]|select(.name==$s)|.sensorId'|head -1)
 URL=$(curl -s "$NV/sensor/$NVSID/streams" | jq -r '.[0].url')
 SID=$(curl -s -X POST "$VIOS/sensor/add" -H 'Content-Type: application/json' --data-raw "{\"sensorUrl\": \"$URL\"}" | jq -r '.sensorId')
-PROXY="rtsp://${HOST_IP}:30554/live/$SID"
+# Read the actual proxy URL from logs — port is dynamic (RtspLoadBalancer pool 30554–30564).
+PROXY=""
+for i in 1 2 3 4 5 6; do
+  PROXY=$(docker logs vss-vios-streamprocessing 2>&1 \
+    | grep "Live proxy url" | grep "$SID" | tail -1 \
+    | grep -oP 'rtsp://\S+')
+  [ -n "$PROXY" ] && break
+  sleep 5
+done
+[ -z "$PROXY" ] && { echo "ERROR: timed out waiting for VIOS live-proxy URL for SID=$SID"; exit 1; }
 
 # Register the live stream. Body is the {"streams":[{...}]} envelope; id comes back at .results[0].id.
 EMBID=$(curl -fsS -X POST "$RTEMB/v1/streams/add" -H 'Content-Type: application/json' \
