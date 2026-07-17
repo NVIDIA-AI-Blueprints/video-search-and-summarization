@@ -106,6 +106,12 @@ name you provided and can be selected with `--video-source`.
 
 ### File upload — universal three-step flow
 
+This three-step flow is mandatory for every file ingestion performed while
+following this skill. Never call the deprecated single-step
+`PUT /api/v1/videos-for-search/{filename}` route, even if it is available: that
+compatibility route does not provide the separate `/complete` response this
+workflow must validate.
+
 Use the timestamped upload form below. The VSS agent/search profile uses
 `2025-01-01T00:00:00.000Z` as the uploaded `video_file` base timestamp; VIOS
 storage and embeddings must share that timeline, otherwise screenshot URLs and
@@ -226,9 +232,10 @@ each count to become greater than zero within the bounded deadline:
 Print the three resolved index names and final counts. A count from a different
 index or field does not satisfy readiness.
 
-> The deprecated `PUT /api/v1/videos-for-search/{filename}` route is also wired
-> in for legacy callers (single-shot, agent-driven), but its OpenAPI entry is
-> flagged `deprecated`. Prefer the three-step flow above for new work.
+> Compatibility note: `PUT /api/v1/videos-for-search/{filename}` remains wired
+> only for pre-existing external legacy callers. Do not select or invoke it for
+> a workflow performed under this skill; always use and validate the three-step
+> `/api/v1/videos` upload and `/complete` flow above.
 
 ### RTSP stream — single endpoint
 
