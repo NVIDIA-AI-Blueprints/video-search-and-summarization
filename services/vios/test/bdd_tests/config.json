@@ -144,6 +144,11 @@
           "camera_streaming": "/bdd/webhooks/camera/streaming",
           "camera_remove": "/bdd/webhooks/camera/remove"
         },
+        "webhook_ids": {
+          "camera_add": "wh-001",
+          "camera_streaming": "wh-002",
+          "camera_remove": "wh-003"
+        },
         "delivery_timeout_sec": 30,
         "filter_absence_timeout_sec": 2,
         "upload_timeout_sec": 60,

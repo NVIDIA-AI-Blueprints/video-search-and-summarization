@@ -20,6 +20,7 @@
 		[
 			{
 				"enabled": true,
+				"id": "wh-001",
 				"camera_status_change": "camera_add",
 				"request": [
 					{
@@ -79,6 +80,7 @@
 			},
 			{
 				"enabled": true,
+				"id": "wh-002",
 				"camera_status_change": "camera_streaming",
 				"request": [
 					{
@@ -112,6 +114,7 @@
 			},
 			{
 				"enabled": true,
+				"id": "wh-003",
 				"camera_status_change": "camera_remove",
 				"request": [
 					{
