@@ -5105,10 +5105,17 @@ def mergeTestResultCsvs(List<String> inputPaths, String outputPath) {
 }
 
 /**
+ * Resolves Dev Dashboard API URL from the Jenkins job DASHBOARD_API_URL env var.
+ */
+def resolveDashboardApiUrl() {
+    return env.DASHBOARD_API_URL?.trim() ?: ''
+}
+
+/**
  * Pushes test result CSV to the Dev Dashboard (non-blocking).
  *
  * @param csvFilePath Absolute path to the CSV file
- * @param dashboardApiUrl Dev Dashboard API base URL (e.g. http://10.111.53.164:8000)
+ * @param dashboardApiUrl Dev Dashboard API base URL (from DASHBOARD_API_URL job env)
  * @param arch Optional architecture label included in metadata
  * @param nvidiaDriverVersion Optional NVIDIA driver version string to include in metadata
  * @param commitHashOverride Optional tested git commit hash; defaults to Jenkins GIT_COMMIT
@@ -5161,11 +5168,11 @@ def uploadTestResultsToDashboard(String csvFilePath, String dashboardApiUrl, Str
  * @param ngcApiKey NGC API key for NGC upload
  * @param imageName Full image name (e.g. IMAGE_NAME)
  * @param arch Optional architecture label for logs (e.g. ARCH from matrix)
- * @param dashboardApiUrl Dev Dashboard API URL (e.g. http://10.111.53.164:8000)
  * @param nvidiaDriverVersion Optional NVIDIA driver version string to include in dashboard metadata
  * @param imageTagOverride Full image tag represented by the test results; defaults to TEST_IMAGE_TAG or getImageTag()
  */
-def mergeAndUploadTestResults(String ngcApiKey, String imageName, String arch = '', String dashboardApiUrl = '', String nvidiaDriverVersion = 'unknown', String imageTagOverride = null) {
+def mergeAndUploadTestResults(String ngcApiKey, String imageName, String arch = '', String nvidiaDriverVersion = 'unknown', String imageTagOverride = null) {
+    def dashboardApiUrl = resolveDashboardApiUrl()
     echo "=========================================="
     echo "ARCHITECTURE: ${arch}"
     echo "STAGE: upload-test-results"
@@ -5231,7 +5238,6 @@ def runStandaloneAmd64ImageTests(Map config = [:]) {
     if (!imageTag) error('runStandaloneAmd64ImageTests requires imageTag')
 
     def imageName = config.imageName ?: IMAGE_NAME
-    def dashboardApiUrl = config.dashboardApiUrl ?: ''
     def unitTimeoutMinutes = resolveStandaloneUnitTimeoutMinutes(config)
 
     stage('checkout-amd64') {
@@ -5264,7 +5270,7 @@ def runStandaloneAmd64ImageTests(Map config = [:]) {
                 gitlabCommitStatus(name: 'upload-test-results-amd64', connection: gitLabConnection('gitlab-vss-lvs')) {
                     mergeAndUploadTestResults(
                         env.NGC_API_KEY_FOR_BUILDS, imageName, 'amd64',
-                        dashboardApiUrl, env.GPU_DRIVER_VERSION ?: 'unknown',
+                        env.GPU_DRIVER_VERSION ?: 'unknown',
                         imageTag)
                 }
             }
@@ -5281,7 +5287,6 @@ def runStandaloneSbsaImageTests(Map config = [:]) {
     if (!imageTag) error('runStandaloneSbsaImageTests requires imageTag')
 
     def imageName = config.imageName ?: IMAGE_NAME
-    def dashboardApiUrl = config.dashboardApiUrl ?: ''
     def sbsaNodeLabel = config.nodeLabel?.trim() ?: 'DGX-SPARK'
     def unitTimeoutMinutes = resolveStandaloneUnitTimeoutMinutes(config)
     def standaloneSbsaInputStash = 'standalone-sbsa-test-inputs'
@@ -5362,7 +5367,7 @@ def runStandaloneSbsaImageTests(Map config = [:]) {
                     container('jenkins-shared-lib-base') {
                         mergeAndUploadTestResults(
                             env.NGC_API_KEY_FOR_BUILDS, imageName, 'arm64-sbsa',
-                            dashboardApiUrl, sbsaDriverVersion ?: 'unknown',
+                            sbsaDriverVersion ?: 'unknown',
                             imageTag)
                     }
                 }
@@ -5680,7 +5685,7 @@ def runTestStages(String arch, String imageTag, Map credentials) {
                 timeout(time: 5, unit: 'MINUTES') {
                     gitlabCommitStatus(name: "upload-test-results-${arch}", connection: gitLabConnection('gitlab-vss-lvs')) {
                         mergeAndUploadTestResults(credentials.ngcApiKey, IMAGE_NAME, arch,
-                            params.DASHBOARD_API_URL, env.GPU_DRIVER_VERSION ?: 'unknown')
+                            env.GPU_DRIVER_VERSION ?: 'unknown')
                     }
                 }
             }

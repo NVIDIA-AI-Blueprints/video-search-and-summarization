@@ -35,7 +35,6 @@
  * Nightly-only parameters (not forwarded to the downstream job directly):
  *   LVS_NIGHTLY_PIPELINE_JOB   — path of the downstream multiarch job to trigger
  *   NIGHTLY_RUN_BARE_METAL     — gate for capacity-heavy bare-metal GPU test
- *   NIGHTLY_DASHBOARD_API_URL  — forwarded as DASHBOARD_API_URL
  *   NIGHTLY_PERF_JOB_NAME      — forwarded as PERF_DOWNSTREAM_JOB_NAME
  *
  * To add or rename a parameter: update downstreamParams below AND update
@@ -88,12 +87,6 @@ spec:
             description: 'When true, passes RUN_NODE_TEST=true to the downstream job, reserving a ' +
                          'bare-metal GPU node for post-build validation. Capacity-heavy — keep false ' +
                          'unless the nightly environment has a dedicated node.'
-        )
-        string(
-            name: 'NIGHTLY_DASHBOARD_API_URL',
-            defaultValue: 'http://10.111.53.164:8000',
-            description: 'Dev Dashboard API URL for test result reporting. ' +
-                         'Forwarded as DASHBOARD_API_URL to the downstream job.'
         )
         string(
             name: 'NIGHTLY_PERF_JOB_NAME',
@@ -153,7 +146,6 @@ spec:
                         string(name: 'BM_NODE_LABEL',                 value: 'H100'),
 
                         // --- Publish & reporting ---
-                        string(name: 'DASHBOARD_API_URL',             value: params.NIGHTLY_DASHBOARD_API_URL),
                         booleanParam(name: 'PUSH_TEST_RESULTS_EOS',   value: true),
                         string(name: 'PERF_DOWNSTREAM_JOB_NAME',      value: params.NIGHTLY_PERF_JOB_NAME),
 

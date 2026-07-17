@@ -83,9 +83,8 @@ def process_parent_folder(parent_folder_path, file_prefixes):
 
     # Create the LLM instance
     llm = ChatOpenAI(
-        model="nvdev/meta/llama-3.1-70b-instruct",
-        # base_url="http://10.137.217.23:8000/v1",
-        base_url="https://integrate.api.nvidia.com/v1",
+        model=os.getenv("LVS_LLM_MODEL_NAME", "meta/llama-3.1-70b-instruct"),
+        base_url=os.getenv("LVS_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         api_key=os.getenv("NVIDIA_API_KEY"),
     )
 

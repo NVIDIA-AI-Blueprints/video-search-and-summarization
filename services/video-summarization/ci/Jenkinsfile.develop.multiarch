@@ -199,8 +199,6 @@ pipeline {
 
         // ── Infrastructure / Advanced ───────────────────────────────────────
         string(name: 'GPU_TESTER_GPU_TYPE', defaultValue: '', description: 'Optional: GPU type for amd64 build/integration pod (e.g., A100_PCIE_40GB, H100). Leave empty for any available GPU.')
-        string(name: 'DASHBOARD_API_URL', defaultValue: 'http://10.111.53.164:8000',
-               description: 'Dev Dashboard API URL for pushing unit/integration test results after each run.')
         booleanParam(name: 'PUSH_TEST_RESULTS_EOS', defaultValue: false,
                      description: '[EOS] Push test results to NGC and Dev Dashboard. ' +
                                   'Tag builds upload automatically once test CSVs are produced; check manually to force upload on any non-tag branch.')
@@ -530,7 +528,6 @@ pipeline {
                             helpers.runStandaloneAmd64ImageTests([
                                 imageTag: env.RESOLVED_TEST_IMAGE_TAG,
                                 imageName: IMAGE_NAME,
-                                dashboardApiUrl: params.DASHBOARD_API_URL,
                                 unitTimeoutMinutes: params.UNIT_TEST_TIMEOUT_MINUTES,
                             ])
                         }
@@ -556,7 +553,6 @@ pipeline {
                                 imageTag: env.RESOLVED_SBSA_TEST_IMAGE_TAG,
                                 imageName: IMAGE_NAME,
                                 nodeLabel: params.STANDALONE_SBSA_NODE_LABEL,
-                                dashboardApiUrl: params.DASHBOARD_API_URL,
                                 unitTimeoutMinutes: params.UNIT_TEST_TIMEOUT_MINUTES,
                             ])
                         }
