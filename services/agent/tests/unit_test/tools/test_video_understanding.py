@@ -19,6 +19,7 @@ import pytest
 from vss_agents.tools.video_understanding import VideoUnderstandingConfig
 from vss_agents.tools.video_understanding import _build_vlm_messages
 from vss_agents.tools.video_understanding import _effective_system_prompt
+from vss_agents.tools.video_understanding import _frame_budget
 from vss_agents.tools.video_understanding import _is_cosmos_model
 from vss_agents.tools.video_understanding import _is_omni_audio_model
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
@@ -423,3 +424,27 @@ class TestVideoUnderstandingConfig:
 
     def test_remote_vlm_base64_toggle_is_not_exposed(self):
         assert "use_base64_for_remote_vlm" not in VideoUnderstandingConfig.model_fields
+
+
+class TestFrameBudget:
+    """The frame-budget formula is single-sourced and shared by the single-pass path (whole clip)
+    and each dense window; these lock it so the two paths can never drift onto different math."""
+
+    def test_short_clip_scales_with_fps(self):
+        # 30s window at 2 fps = 60 desired, but capped at max_frames.
+        assert _frame_budget(30, max_fps=2, max_frames=30) == 30
+        assert _frame_budget(10, max_fps=2, max_frames=30) == 20
+
+    def test_long_clip_saturates_at_cap(self):
+        # 210s whole clip at 2 fps = 420 desired -> clamped to max_frames (the sparse-sampling cause).
+        assert _frame_budget(210, max_fps=2, max_frames=30) == 30
+
+    def test_at_least_one_frame(self):
+        assert _frame_budget(0, max_fps=2, max_frames=30) == 1
+        assert _frame_budget(0.4, max_fps=2, max_frames=30) == 1
+
+    def test_density_lever_shorter_span_more_fps(self):
+        # Same budget over a shorter span = higher effective fps: the whole point of windowing.
+        whole = _frame_budget(210, max_fps=2, max_frames=30)  # 30 frames / 210s = 0.14 fps
+        window = _frame_budget(30, max_fps=2, max_frames=30)  # 30 frames / 30s  = 1.0 fps
+        assert window / 30 > whole / 210

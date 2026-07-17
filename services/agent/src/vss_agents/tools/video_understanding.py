@@ -45,6 +45,9 @@ try:
 except ImportError:
     _profiler_callback_var = None
 
+from vss_agents.tools._chunked_caption import DENSE_WINDOW_INSTRUCTION
+from vss_agents.tools._chunked_caption import caption_in_windows
+from vss_agents.tools._chunked_caption import divide_into_windows
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.utils.frame_select import frame_select
@@ -197,6 +200,17 @@ def _should_use_video_file_base64(
     )
 
 
+def _frame_budget(span_seconds: float, max_fps: int, max_frames: int) -> int:
+    """Frames to sample over a clip of ``span_seconds``: about ``max_fps`` per second, capped at
+    ``max_frames``, at least 1.
+
+    Single-sourced so the single-pass path (applied to the whole clip) and each dense window (applied
+    to the window) can never drift onto different frame math. This is exactly the density lever: the
+    same budget over a shorter span = more frames per second.
+    """
+    return max(min(int(span_seconds) * max_fps, max_frames), 1)
+
+
 class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
     """Configuration for the Video Understanding tool."""
 
@@ -235,6 +249,30 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
     max_pixels: int = Field(
         345600,
         description="The maximum number of pixels for 2 frames from the video, 28x28=784 will be converted to one video token",
+    )
+    dense_chunk_seconds: int = Field(
+        0,
+        description=(
+            "Dense chunked captioning for long videos. If > 0, videos longer than "
+            "dense_long_video_threshold_seconds are captioned in consecutive windows of this many "
+            "seconds and aggregated, so each window keeps a ~1 fps frame budget instead of starving "
+            "the VLM across the whole clip. 0 (default) keeps the original single-pass behavior."
+        ),
+    )
+    dense_long_video_threshold_seconds: float = Field(
+        60.0,
+        description=(
+            "Only apply dense chunked captioning to videos longer than this many seconds; shorter "
+            "clips already fit a dense frame budget in one pass and stay single-pass. Only consulted "
+            "when dense_chunk_seconds > 0."
+        ),
+    )
+    dense_max_concurrency: int = Field(
+        3,
+        description=(
+            "Maximum concurrent per-window VLM calls when dense chunked captioning is active, to bound "
+            "load on the shared VLM/GPU. Only consulted when dense_chunk_seconds > 0."
+        ),
     )
     reasoning: bool = Field(
         False,
@@ -481,6 +519,8 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         f"enable_audio: {config.enable_audio}, use_base64: {use_video_base64}, "
         f"use_video_file_base64: {use_video_file_base64}"
     )
+    if config.enable_audio and _is_omni_audio_model(model_name):
+        logger.info("VLM audio-in-video enabled (mm_processor_kwargs.use_audio_in_video=true)")
 
     if not config.use_vst:
         s3_client = boto3.client(
@@ -583,112 +623,16 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
             end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         video_length_seconds = (end_dt - start_dt).total_seconds()
-        num_frames = min(int(video_length_seconds) * config.max_fps, config.max_frames)
-        # Ensure at least 1 frame
-        num_frames = max(num_frames, 1)
-        logger.info(
-            f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={config.max_fps}, max_frames={config.max_frames})"
-        )
 
-        # Bind VLM with dynamic num_frames
-        if is_cosmos_model:
-            media_io_kwargs = {"video": {"num_frames": num_frames}}
-            if is_cosmos_reason2:
-                mm_processor_kwargs = {"size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}}
-            else:
-                mm_processor_kwargs = {
-                    "videos_kwargs": {"min_pixels": config.min_pixels, "max_pixels": config.max_pixels}
-                }
-            vlm = base_vlm.bind(
-                mm_processor_kwargs=mm_processor_kwargs,
-                media_io_kwargs=media_io_kwargs,
-            )
-        elif config.enable_audio and _is_omni_audio_model(model_name):
-            # Nemotron Omni: MP4 audio is ignored unless use_audio_in_video is set.
-            # See NVIDIA NIM Omni API docs (mm_processor_kwargs).
-            vlm = base_vlm.bind(mm_processor_kwargs={"use_audio_in_video": True})
-            logger.info("VLM audio-in-video enabled (mm_processor_kwargs.use_audio_in_video=true)")
-        else:
-            vlm = base_vlm
-
-        # Select reasoning mode: default to config.reasoning if not specified in the input
+        # Reasoning mode and prompt template are per-request; the single-pass path and each dense
+        # window below reuse them through _run_vlm so the two never drift.
         use_reasoning = (
             video_understanding_input.vlm_reasoning
             if video_understanding_input.vlm_reasoning is not None
             else config.reasoning
         )
-
         prompt_template = reasoning_prompt_template if use_reasoning else non_reasoning_prompt_template
-
-        vlm_chain = prompt_template | vlm
         logger.info(f"VLM reasoning mode: {use_reasoning}")
-
-        # Step 1: Get the video URL (different paths for S3 vs VST)
-        if not config.use_vst:
-            # get the video URL from S3
-            if not s3_client:
-                raise ValueError("S3 client is not configured correctly")
-            video_url = s3_client.generate_presigned_url(
-                "get_object",
-                Params={
-                    "Bucket": config.bucket_name,
-                    "Key": video_understanding_input.sensor_id + ".mp4",
-                },
-                ExpiresIn=3600,
-            )
-            logger.info(f"Video URL from S3: {video_url}")
-        else:
-            if config.time_format == "iso":
-                # "iso" mode: pass ISO 8601 timestamps directly to the video URL tool.
-                logger.info(
-                    f"Using {config.video_url_tool} to get video URL for file {video_understanding_input.sensor_id} from {video_understanding_input.start_timestamp} to {video_understanding_input.end_timestamp}"
-                )
-
-                video_understanding_input.end_timestamp = extend_timestamp(
-                    str(video_understanding_input.start_timestamp), str(video_understanding_input.end_timestamp)
-                )
-
-                vst_video_url_args: dict[str, Any] = {
-                    "sensor_id": video_understanding_input.sensor_id,
-                    "start_time": video_understanding_input.start_timestamp,
-                    "end_time": video_understanding_input.end_timestamp,
-                }
-
-                if hasattr(video_understanding_input, "object_ids") and video_understanding_input.object_ids:
-                    vst_video_url_args["object_ids"] = video_understanding_input.object_ids
-                    logger.info(f"Passing object IDs to VST video URL: {video_understanding_input.object_ids}")
-
-                logger.debug(f"VST video URL arguments: {vst_video_url_args}")
-
-                vst_video_url_result = await vst_video_url.ainvoke(input=vst_video_url_args)
-
-                video_url = vst_video_url_result.video_url
-            else:
-                # "offset" mode: pass second-based offsets to the video URL tool.
-                vst_video_url_result = await vst_video_url.ainvoke(
-                    input={
-                        "sensor_id": video_understanding_input.sensor_id,
-                        "start_time": video_understanding_input.start_timestamp,
-                        "end_time": video_understanding_input.end_timestamp,
-                    }
-                )
-                video_url = vst_video_url_result.video_url
-                logger.debug(f"Video URL from VST: {video_url}")
-
-            if not config.vst_internal_url:
-                logger.warning("VST internal URL is not configured; using the original VST video URL.")
-            video_url = rewrite_to_internal_vst_url(video_url, config.vst_internal_url)
-
-        if use_video_file_base64:
-            logger.info(
-                f"[Video Understanding] Downloading MP4 for inline base64 payload (audio preserved): {video_url}"
-            )
-        elif use_video_base64:
-            logger.info(f"[Video Understanding] VIDEO URL FOR LOCAL MEDIA DOWNLOAD: {video_url}")
-        elif config.use_vst:
-            logger.info(f"[Video Understanding] INTERNAL VIDEO URL FOR VLM ANALYSIS: {video_url}")
-        else:
-            logger.info(f"[Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
 
         user_prompt = video_understanding_input.user_prompt
         if is_cosmos_reason2 and use_reasoning:
@@ -698,54 +642,221 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                 "Write your final answer immediately after the </think> tag."
             )
 
-        messages = await _build_vlm_messages(
-            video_url,
-            user_prompt,
-            use_base64=use_video_base64,
-            use_video_file_base64=use_video_file_base64,
-            video_length_seconds=video_length_seconds,
-            num_frames=num_frames,
-            max_fps=config.max_fps,
-        )
+        async def _run_vlm(clip_url: str, prompt_text: str, span_seconds: float, frames: int) -> str:
+            """Bind the VLM for one clip (with this clip's frame budget), run it, return the caption.
 
-        # Suppress NAT's profiler for the VLM call — it deep-copies the full
-        # input messages (including base64 video) into the SSE response stream.
-        # ContextVar suppresses the configure hook; empty callbacks overrides
-        # handlers already inherited from ancestor chains.
-        _saved_token = _profiler_callback_var.set(None) if _profiler_callback_var is not None else None
-
-        try:
-            # Retry logic for VLM call — only retry transient errors (connection/timeout/5xx).
-            # Client errors like 400 (e.g. unsupported video format) are not retryable.
-            async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
-                with retry:
-                    try:
-                        response = await vlm_chain.ainvoke(
-                            {"messages": messages},
-                            config={"callbacks": []},
-                        )
-                        logger.debug(f"Response: {response}")
-                        break
-                    except Exception as e:
-                        logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
-                        raise e
-        finally:
-            if _saved_token is not None:
-                _profiler_callback_var.reset(_saved_token)
-
-        content = str(response.content) if response.content is not None else ""
-        # Filter thinking traces
-        if config.filter_thinking:
-            thinking, answer = _parse_thinking_from_content(content)
-            if thinking:
-                logger.info(
-                    f"Filtered out thinking trace ({len(thinking)} chars), returning answer ({len(answer)} chars)"
+            Shared by the single-pass path and each dense window so the two never diverge. ``frames``
+            is bound per call, so a short dense window is sampled densely while a whole-clip single
+            pass keeps today's behavior.
+            """
+            # Bind VLM with this clip's num_frames
+            if is_cosmos_model:
+                media_io_kwargs = {"video": {"num_frames": frames}}
+                if is_cosmos_reason2:
+                    mm_processor_kwargs = {
+                        "size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}
+                    }
+                else:
+                    mm_processor_kwargs = {
+                        "videos_kwargs": {"min_pixels": config.min_pixels, "max_pixels": config.max_pixels}
+                    }
+                vlm = base_vlm.bind(
+                    mm_processor_kwargs=mm_processor_kwargs,
+                    media_io_kwargs=media_io_kwargs,
                 )
-                return answer
+            elif config.enable_audio and _is_omni_audio_model(model_name):
+                # Nemotron Omni: MP4 audio is ignored unless use_audio_in_video is set.
+                # See NVIDIA NIM Omni API docs (mm_processor_kwargs). The one-time "audio
+                # enabled" log is emitted once at setup, not here, to avoid a per-window line.
+                vlm = base_vlm.bind(mm_processor_kwargs={"use_audio_in_video": True})
             else:
-                logger.info("No thinking traces found in response")
+                vlm = base_vlm
 
-        return content
+            vlm_chain = prompt_template | vlm
+
+            messages = await _build_vlm_messages(
+                clip_url,
+                prompt_text,
+                use_base64=use_video_base64,
+                use_video_file_base64=use_video_file_base64,
+                video_length_seconds=span_seconds,
+                num_frames=frames,
+                max_fps=config.max_fps,
+            )
+
+            # Suppress NAT's profiler for the VLM call: it deep-copies the full input messages
+            # (including base64 video) into the SSE response stream. The ContextVar suppresses the
+            # configure hook; the empty callbacks list overrides handlers inherited from ancestor chains.
+            _saved_token = _profiler_callback_var.set(None) if _profiler_callback_var is not None else None
+            try:
+                # Retry only transient errors (connection/timeout/5xx); 4xx like 400 are not retryable.
+                async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
+                    with retry:
+                        try:
+                            response = await vlm_chain.ainvoke(
+                                {"messages": messages},
+                                config={"callbacks": []},
+                            )
+                            logger.debug(f"Response: {response}")
+                            break
+                        except Exception as e:
+                            logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
+                            raise e
+            finally:
+                if _saved_token is not None:
+                    _profiler_callback_var.reset(_saved_token)
+
+            content = str(response.content) if response.content is not None else ""
+            if config.filter_thinking:
+                thinking, answer = _parse_thinking_from_content(content)
+                if thinking:
+                    logger.info(
+                        f"Filtered out thinking trace ({len(thinking)} chars), returning answer ({len(answer)} chars)"
+                    )
+                    return answer
+                logger.info("No thinking traces found in response")
+            return content
+
+        # The request dispatches to one of two branches, defined next; everything they share (timeline,
+        # reasoning/prompt, _run_vlm, _frame_budget) is already set up above.
+
+        async def _caption_single_pass() -> str:
+            """Original behavior: one frame budget across the WHOLE clip, one VLM call.
+
+            The default path, taken whenever dense is off or the clip is short / offset-mode /
+            non-zero-start (see the dispatch gate below).
+            """
+            num_frames = _frame_budget(video_length_seconds, config.max_fps, config.max_frames)
+            logger.info(
+                f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={config.max_fps}, max_frames={config.max_frames})"
+            )
+
+            # Step 1: Get the video URL (different paths for S3 vs VST)
+            if not config.use_vst:
+                # get the video URL from S3
+                if not s3_client:
+                    raise ValueError("S3 client is not configured correctly")
+                video_url = s3_client.generate_presigned_url(
+                    "get_object",
+                    Params={
+                        "Bucket": config.bucket_name,
+                        "Key": video_understanding_input.sensor_id + ".mp4",
+                    },
+                    ExpiresIn=3600,
+                )
+                logger.info(f"Video URL from S3: {video_url}")
+            else:
+                if config.time_format == "iso":
+                    # "iso" mode: pass ISO 8601 timestamps directly to the video URL tool.
+                    logger.info(
+                        f"Using {config.video_url_tool} to get video URL for file {video_understanding_input.sensor_id} from {video_understanding_input.start_timestamp} to {video_understanding_input.end_timestamp}"
+                    )
+
+                    video_understanding_input.end_timestamp = extend_timestamp(
+                        str(video_understanding_input.start_timestamp), str(video_understanding_input.end_timestamp)
+                    )
+
+                    vst_video_url_args: dict[str, Any] = {
+                        "sensor_id": video_understanding_input.sensor_id,
+                        "start_time": video_understanding_input.start_timestamp,
+                        "end_time": video_understanding_input.end_timestamp,
+                    }
+
+                    if hasattr(video_understanding_input, "object_ids") and video_understanding_input.object_ids:
+                        vst_video_url_args["object_ids"] = video_understanding_input.object_ids
+                        logger.info(f"Passing object IDs to VST video URL: {video_understanding_input.object_ids}")
+
+                    logger.debug(f"VST video URL arguments: {vst_video_url_args}")
+
+                    vst_video_url_result = await vst_video_url.ainvoke(input=vst_video_url_args)
+
+                    video_url = vst_video_url_result.video_url
+                else:
+                    # "offset" mode: pass second-based offsets to the video URL tool.
+                    vst_video_url_result = await vst_video_url.ainvoke(
+                        input={
+                            "sensor_id": video_understanding_input.sensor_id,
+                            "start_time": video_understanding_input.start_timestamp,
+                            "end_time": video_understanding_input.end_timestamp,
+                        }
+                    )
+                    video_url = vst_video_url_result.video_url
+                    logger.debug(f"Video URL from VST: {video_url}")
+
+                if not config.vst_internal_url:
+                    logger.warning("VST internal URL is not configured; using the original VST video URL.")
+                video_url = rewrite_to_internal_vst_url(video_url, config.vst_internal_url)
+
+            if use_video_file_base64:
+                logger.info(
+                    f"[Video Understanding] Downloading MP4 for inline base64 payload (audio preserved): {video_url}"
+                )
+            elif use_video_base64:
+                logger.info(f"[Video Understanding] VIDEO URL FOR LOCAL MEDIA DOWNLOAD: {video_url}")
+            elif config.use_vst:
+                logger.info(f"[Video Understanding] INTERNAL VIDEO URL FOR VLM ANALYSIS: {video_url}")
+            else:
+                logger.info(f"[Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
+
+            return await _run_vlm(video_url, user_prompt, video_length_seconds, num_frames)
+
+        async def _caption_densely() -> str:
+            """Dense chunked captioning: tile the whole clip into short windows, caption each densely
+            via a per-window sub-clip URL (each ~window keeps ~1 fps), then aggregate. Fixes the
+            sparse-sampling starvation the single pass hits on long videos.
+            """
+            dense_prompt = user_prompt + DENSE_WINDOW_INSTRUCTION
+            if not config.vst_internal_url:
+                logger.warning("VST internal URL is not configured; dense windows will use the original VST video URL.")
+
+            async def _caption_window(window_start: float, window_end: float) -> str:
+                span_seconds = window_end - window_start
+                frames = _frame_budget(span_seconds, config.max_fps, config.max_frames)
+                vst_result = await vst_video_url.ainvoke(
+                    input={
+                        "sensor_id": video_understanding_input.sensor_id,
+                        "start_time": window_start,
+                        "end_time": window_end,
+                    }
+                )
+                clip_url = rewrite_to_internal_vst_url(vst_result.video_url, config.vst_internal_url)
+                logger.info(
+                    f"[Dense window {window_start:.0f}-{window_end:.0f}s] num_frames={frames} "
+                    f"(~{config.max_fps}fps over {span_seconds:.0f}s), clip_url={clip_url}"
+                )
+                return await _run_vlm(clip_url, dense_prompt, span_seconds, frames)
+
+            windows = divide_into_windows(video_length_seconds, config.dense_chunk_seconds)
+            logger.info(
+                f"Dense chunked captioning: {video_length_seconds:.1f}s > "
+                f"{config.dense_long_video_threshold_seconds:.1f}s threshold -> {len(windows)} windows "
+                f"of {config.dense_chunk_seconds}s (max_concurrency={config.dense_max_concurrency})"
+            )
+            return await caption_in_windows(
+                windows=windows,
+                caption_window=_caption_window,
+                max_concurrency=config.dense_max_concurrency,
+            )
+
+        # Dispatch: use dense chunked captioning only for a long, whole-video (0-based) request on a
+        # VST offset-mode clip when the feature is enabled (dense_chunk_seconds > 0). Every other case
+        # -- the default -- takes the original single pass. Gating on a 0-based span keeps each window's
+        # [start-end s] header equal to absolute video time and avoids fetching past the stream end.
+        dense_enabled = (
+            config.dense_chunk_seconds > 0
+            and config.use_vst
+            and config.time_format != "iso"
+            and vst_video_url is not None
+            and video_length_seconds > config.dense_long_video_threshold_seconds
+            and (
+                video_understanding_input.start_timestamp is None
+                or float(video_understanding_input.start_timestamp) == 0.0
+            )
+        )
+        if dense_enabled:
+            return await _caption_densely()
+        else:
+            return await _caption_single_pass()
 
     # Register the tool with the appropriate input schema based on time_format:
     #   - "offset": accepts float offsets (seconds since start of stream).
