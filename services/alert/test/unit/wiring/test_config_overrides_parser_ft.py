@@ -125,6 +125,7 @@ def _bind_real_stage_helpers(stub):
         '_handle_media_collection_failure', '_handle_url_validation_failure',
         '_apply_vlm_response', '_apply_vlm_parse_failure',
         '_publish_outcome_and_complete', '_handle_vlm_exception',
+        '_apply_vlm_exception', '_log_vlm_exception',
     ):
         setattr(stub, _name, getattr(AnomalyEnhancer, _name).__get__(stub))
     for _name in (
