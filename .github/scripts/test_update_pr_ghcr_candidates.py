@@ -98,7 +98,7 @@ class CandidateCommentTest(unittest.TestCase):
                 return None
 
             @staticmethod
-            def read():
+            def read(_size=-1):
                 return json.dumps({"ok": True}).encode()
 
         def open_func(request, timeout):
@@ -108,6 +108,30 @@ class CandidateCommentTest(unittest.TestCase):
         api = module.GitHubApi("redacted", open_func=open_func)
         self.assertEqual(api.request("GET", "/example"), {"ok": True})
         self.assertEqual(requests, [("https://api.github.com/example", 60)])
+
+    def test_github_network_adapter_rejects_oversized_response(self):
+        class Headers:
+            @staticmethod
+            def get_content_type():
+                return "application/octet-stream"
+
+        class Response:
+            headers = Headers()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            @staticmethod
+            def read(size=-1):
+                return b"x" * size
+
+        api = module.GitHubApi("redacted", open_func=lambda *_args, **_kwargs: Response())
+        with mock.patch.object(module, "MAX_API_RESPONSE_BYTES", 4):
+            with self.assertRaisesRegex(RuntimeError, "exceeded 4 bytes"):
+                api.request("GET", "/example")
 
     def test_main_dry_run_needs_no_network(self):
         sha = "a" * 40
@@ -168,7 +192,11 @@ class CandidateCommentTest(unittest.TestCase):
 
             def request(self, method, path, payload=None):
                 self.calls.append((method, path, payload))
-                return [{"id": index, "body": "other"} for index in range(100)]
+                page = int(path.rsplit("page=", 1)[1])
+                return [
+                    {"id": page * 100 + index, "body": "other"}
+                    for index in range(100)
+                ]
 
         api = FakeApi()
         with mock.patch.object(module, "MAX_COMMENT_PAGES", 3):
@@ -185,6 +213,14 @@ class CandidateCommentTest(unittest.TestCase):
         self.assertFalse(
             any(method in {"POST", "PATCH"} for method, _, _ in api.calls)
         )
+
+    def test_upsert_comment_rejects_repeated_page(self):
+        class FakeApi:
+            def request(self, method, path, payload=None):
+                return [{"id": index, "body": "other"} for index in range(100)]
+
+        with self.assertRaisesRegex(RuntimeError, "repeated a page"):
+            module.upsert_comment(FakeApi(), "org/repo", 1190, "updated")
 
 
 if __name__ == "__main__":

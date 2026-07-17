@@ -22,6 +22,8 @@ MARKER = "<!-- vss-ghcr-candidates -->"
 API_ROOT = "https://api.github.com"
 COMMENT_PAGE_SIZE = 100
 MAX_COMMENT_PAGES = 100
+MAX_API_RESPONSE_BYTES = 64 * 1024 * 1024
+MAX_RELEASE_SET_BYTES = 8 * 1024 * 1024
 
 
 def enforce_memory_ceiling() -> None:
@@ -128,11 +130,15 @@ class GitHubApi:
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with self.open_func(request, timeout=60) as response:
-                body = response.read()
+                body = response.read(MAX_API_RESPONSE_BYTES + 1)
         except urllib.error.HTTPError as exc:
             raise RuntimeError(
                 f"GitHub API {method} failed with status {exc.code}"
             ) from exc
+        if len(body) > MAX_API_RESPONSE_BYTES:
+            raise RuntimeError(
+                f"GitHub API response exceeded {MAX_API_RESPONSE_BYTES} bytes"
+            )
         content_type = response.headers.get_content_type()
         return json.loads(body) if content_type == "application/json" else body
 
@@ -206,6 +212,8 @@ def download_release_set_artifact(
         matches = [name for name in bundle.namelist() if name.endswith("release-set.json")]
         if len(matches) != 1:
             raise RuntimeError("release-set artifact has an unexpected shape")
+        if bundle.getinfo(matches[0]).file_size > MAX_RELEASE_SET_BYTES:
+            raise RuntimeError("release-set artifact is too large")
         return json.loads(bundle.read(matches[0]))
 
 
@@ -213,6 +221,7 @@ def upsert_comment(
     api: GitHubApi, repository: str, number: int, body: str
 ) -> None:
     existing: dict[str, Any] | None = None
+    seen_comment_ids: set[Any] = set()
     for page in range(1, MAX_COMMENT_PAGES + 1):
         comments = api.request(
             "GET",
@@ -221,6 +230,14 @@ def upsert_comment(
         )
         if not isinstance(comments, list):
             raise RuntimeError("GitHub comments response was not a list")
+        page_ids = {
+            comment.get("id")
+            for comment in comments
+            if isinstance(comment, dict) and comment.get("id") is not None
+        }
+        if page_ids and page_ids.issubset(seen_comment_ids):
+            raise RuntimeError("GitHub comment pagination repeated a page")
+        seen_comment_ids.update(page_ids)
         existing = next(
             (
                 comment
