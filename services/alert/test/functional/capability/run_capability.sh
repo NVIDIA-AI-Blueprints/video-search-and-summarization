@@ -141,10 +141,10 @@ restart_vst_sim() {
 # ─── Alert Bridge lifecycle (Prometheus enabled) ─────────────────────────────
 
 build_config() {
-    # build_config OUT MODE NUM_WORKERS ADW MAX_IN_FLIGHT VLM_CAP VST_CAP
-    python3 - "$BASE_CONFIG" "$1" "$2" "$3" "$4" "$5" "$6" "$7" <<'PY'
+    # build_config OUT MODE NUM_WORKERS ADW MAX_IN_FLIGHT VLM_CAP VST_CAP [MAX_POLL]
+    python3 - "$BASE_CONFIG" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "${8:-50}" <<'PY'
 import sys, yaml
-src, dst, mode, nw, adw, mif, vlm_cap, vst_cap = sys.argv[1:9]
+src, dst, mode, nw, adw, mif, vlm_cap, vst_cap, max_poll = sys.argv[1:10]
 with open(src) as f:
     cfg = yaml.safe_load(f)
 aa = cfg.setdefault('alert_agent', {})
@@ -165,7 +165,7 @@ aio['max_vst_concurrent'] = int(vst_cap)
 # Sustained-stream ingest must not be poll-starved (empty second topic).
 k = cfg.setdefault('kafka', {})
 k['poll_timeout'] = 50
-k['max_poll_records'] = 50
+k['max_poll_records'] = int(max_poll)
 vlm = cfg.setdefault('vlm', {})
 vlm['request_timeout'] = 120
 with open(dst, 'w') as f:
@@ -266,7 +266,7 @@ reset_es() {
 }
 
 prepare_run() {
-    # prepare_run MODE NW ADW MIF VLM_CAP VST_CAP NIM_DELAY
+    # prepare_run MODE NW ADW MIF VLM_CAP VST_CAP NIM_DELAY [MAX_POLL]
     local cfg="$PID_DIR/capability_config.yaml"
     stop_ab
     # Committed offsets persist across AB restarts: skip any leftover backlog
@@ -275,7 +275,7 @@ prepare_run() {
         --group "$CONSUMER_GROUP" --reset-offsets --to-latest --all-topics --execute >/dev/null 2>&1 || true
     start_nim_stub "$7"
     reset_es
-    build_config "$cfg" "$1" "$2" "$3" "$4" "$5" "$6"
+    build_config "$cfg" "$1" "$2" "$3" "$4" "$5" "$6" "${8:-50}"
     start_ab "$cfg" || return 1
     # Let the startup VLM warmup request drain before zeroing stub counters,
     # so it cannot leak into the measured concurrency window.
@@ -475,6 +475,125 @@ sys.exit(0 if ok else 1)"; then
     fi
 }
 
+# ─── TS-011: restart sweep across all modes, clean behavior each time ───────
+ts_011() {
+    echo ""; echo "=== TS-011: restart sweep sync→thread_bridge→event_loop→thread_bridge→sync ==="
+    local step=0 failed=0 detail=""
+    for mode in sync thread_bridge event_loop thread_bridge sync; do
+        step=$((step+1))
+        prepare_run "$mode" 2 2 8 8 8 0 || { failed=1; detail="step$step($mode): startup"; break; }
+
+        local expected_line=""
+        case "$mode" in
+            sync)          expected_line="Pipeline mode is sync" ;;
+            thread_bridge) expected_line="Async message dispatch enabled" ;;
+            event_loop)    expected_line="Event-loop message dispatch enabled" ;;
+        esac
+        if ! grep -q "$expected_line" "$PID_DIR/alert_bridge.log"; then
+            failed=1; detail="step$step($mode): missing '$expected_line'"; break
+        fi
+
+        local prefix="TS011S${step}"
+        python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+            --identical-burst 1 --sensor-prefix "$prefix" >> "$RESULTS_DIR/injector_TS011.log" 2>&1
+        if ! poll_es_doc_by_sensor "$ES_HOST" "${prefix}_001" 60 3 >/dev/null; then
+            failed=1; detail="step$step($mode): no ES doc for ${prefix}_001"; break
+        fi
+        if grep -q "Traceback (most recent call last)" "$PID_DIR/alert_bridge.log"; then
+            failed=1; detail="step$step($mode): traceback in log"; break
+        fi
+    done
+    if [ "$failed" -eq 0 ]; then
+        record_result TS-011 PASS "5 restarts, each mode processed E2E with clean logs"
+    else
+        record_result TS-011 FAIL "$detail"
+    fi
+}
+
+# ─── TS-014: offset commit at consume time; kill mid-flight → no reprocess ──
+ts_014() {
+    echo ""; echo "=== TS-014: at-most-once — kill mid-flight, not reprocessed on restart ==="
+    prepare_run event_loop 2 2 8 8 8 15 || { record_result TS-014 FAIL "AB startup"; return; }
+
+    python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+        --identical-burst 1 --sensor-prefix TS014 > "$RESULTS_DIR/injector_TS014.log" 2>&1
+
+    if ! nim_stub_wait_in_flight 1 30; then
+        record_result TS-014 FAIL "message never reached VLM"
+        return
+    fi
+    # Consumed + offset committed + VLM call held by the 15s stub → hard-kill
+    local lag_mid; lag_mid=$(group_lag)
+    kill -9 "$(cat "$PID_DIR/alert_bridge.pid")" 2>/dev/null || true
+    pkill -9 -f "enhance_alert_with_vlm.py" 2>/dev/null || true
+    sleep 2
+    nim_stub_reset
+
+    # Restart with the SAME consumer group; a committed offset must not replay
+    local cfg="$PID_DIR/capability_config.yaml"
+    start_nim_stub 15
+    start_ab "$cfg" || { record_result TS-014 FAIL "AB restart"; return; }
+    nim_stub_reset
+    sleep 20
+
+    local replays lag_end docs
+    replays=$(nim_stub_stat total_requests)
+    lag_end=$(group_lag)
+    docs=$(get_all_es_docs "$ES_HOST" | SENSOR_ID="TS014_001" python3 -c "
+import json, os, sys
+sensor = os.environ['SENSOR_ID']
+docs = json.load(sys.stdin)
+print(sum(1 for d in docs if str(d.get('sensorId','')) == sensor))
+" 2>/dev/null || echo 0)
+
+    local detail="lag_mid_flight=$lag_mid vlm_requests_after_restart=$replays lag_after=$lag_end es_docs=$docs"
+    if [ "$lag_mid" -eq 0 ] && [ "$replays" -eq 0 ] && [ "$lag_end" -eq 0 ] && [ "$docs" -eq 0 ]; then
+        record_result TS-014 PASS "$detail (commit precedes completion; killed in-flight not reprocessed)"
+    else
+        record_result TS-014 FAIL "$detail"
+    fi
+}
+
+# ─── TS-020: dedup check-and-set atomic under real concurrency ──────────────
+ts_020() {
+    echo ""; echo "=== TS-020: concurrent identical-fingerprint burst → exactly 1 survivor ==="
+    # max_poll_records=1 spreads the burst across the 10-worker pool so the
+    # dedup cache is hit from many threads at once.
+    prepare_run event_loop 10 2 40 20 20 1 1 || { record_result TS-020 FAIL "AB startup"; return; }
+
+    python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+        --identical-burst 20 --sensor-prefix TS020 > "$RESULTS_DIR/injector_TS020.log" 2>&1
+
+    # Settle: 20 consumes + 1 VLM call (1s stub)
+    local waited=0
+    while [ $waited -lt 60 ]; do
+        local lag; lag=$(group_lag)
+        [ "${lag:-1}" -eq 0 ] 2>/dev/null && break
+        sleep 2; waited=$((waited+2))
+    done
+    sleep 8
+
+    local after_dedup dropped docs
+    after_dedup=$(prom_value alert_bridge_events_after_dedup_total)
+    dropped=$(curl -s "$METRICS_URL" | awk '/^alert_bridge_events_dropped_total\{/ {sum += $NF} END {print sum+0}')
+    docs=$(get_all_es_docs "$ES_HOST" | SENSOR_ID="TS020_001" python3 -c "
+import json, os, sys
+sensor = os.environ['SENSOR_ID']
+docs = json.load(sys.stdin)
+print(sum(1 for d in docs if str(d.get('sensorId','')) == sensor))
+" 2>/dev/null || echo 0)
+
+    local detail="after_dedup=$after_dedup dropped=$dropped es_docs=$docs (burst=20)"
+    if python3 -c "
+import sys
+after_dedup, dropped, docs = float('$after_dedup'), float('$dropped'), int('$docs')
+sys.exit(0 if (after_dedup == 1 and dropped == 19 and docs == 1) else 1)"; then
+        record_result TS-020 PASS "$detail"
+    else
+        record_result TS-020 FAIL "$detail"
+    fi
+}
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo "=== Event-loop capability suite (no-GPU sim harness) ==="
@@ -486,7 +605,7 @@ if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
     export PATH="$REPO_ROOT/venv/bin:$PATH"
 fi
 
-for ts in ts_001 ts_002 ts_003 ts_004 ts_005 ts_006; do
+for ts in ts_001 ts_002 ts_003 ts_004 ts_005 ts_006 ts_011 ts_014 ts_020; do
     ts_id="TS-${ts#ts_}"
     if [ -n "$ONLY_TEST" ] && [ "$ONLY_TEST" != "$ts_id" ]; then
         continue
