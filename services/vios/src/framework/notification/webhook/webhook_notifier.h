@@ -38,7 +38,8 @@
  * "camera_status_change": "camera_add", and carries a request array: every
  * matching event is posted to all receivers in that array through
  * AsyncHttpClient. A receiver may narrow further with a camera_type list;
- * it then only gets events whose event.camera_type is listed.
+ * it then only gets events whose event.camera_type is listed. An item's "id"
+ * is copied into the delivered body under "webhook_id".
  *
  * deliverMessage() only enqueues HTTP work and returns true immediately: the
  * event-level 5 s retry loop in INotificationInterface is deliberately opted
@@ -93,6 +94,7 @@ private:
     struct WebhookConfig
     {
         std::string m_id;  // synthesized "<alert_type>/<filter value>" for logging
+        std::string m_configId;  // operator-supplied "id", copied to body "webhook_id"
         std::string m_alertType;
         // Event field and value the trigger narrows on, e.g. change == camera_add.
         // An empty field matches every event of the alert type.
