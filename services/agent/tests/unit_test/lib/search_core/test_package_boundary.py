@@ -78,6 +78,7 @@ def test_distribution_is_nvidia_nat_torch_and_langchain_free_by_default() -> Non
     with (package_root / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)["project"]
 
+    assert project["name"] == "nvidia-vss"
     assert {"nvidia-nat", "torch", "langchain", "langchain-core"}.isdisjoint(
         _requirement_names(project["dependencies"])
     )

@@ -16,6 +16,7 @@ from cli.search import _parse_args
 REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 SKILL_ROOT = REPOSITORY_ROOT / "skills" / "vss-search-archive"
 ADAPTER_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "adapters" / "vss-search-archive" / "generate.py"
+GENERIC_JUDGE_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "verifiers" / "generic_judge.py"
 REMOVED_FLAGS = (
     "--use-critic",
     "--no-use-critic",
@@ -58,7 +59,10 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "## Video Search Results" in skill_text
     assert "## Verification Step" in skill_text
     assert "never paste it into the final reply" in skill_text
-    assert '"streamId: ${STREAM_ID}"' in skill_text
+    assert '"streamId: ${STREAM_ID}"' not in skill_text
+    assert "without adding routing headers" in skill_text
+    assert 'curl -sfS --connect-timeout 10 --max-time 300 -X POST "${UPLOAD_URL}"' in skill_text
+    assert '--max-time 300 -X POST "${AGENT_URL}/api/v1/videos/${SENSOR}/complete"' in skill_text
     assert "same, unmodified" in skill_text
     assert "SCREENSHOT_URL` must come only from the CLI hit" in skill_text
     assert "ACTUAL_ORIGIN" in skill_text
@@ -145,8 +149,14 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "search_mode` `fusion`" in fusion_checks
     assert "white jacket" in fusion_checks
     assert "VST_EXTERNAL_URL" in fusion_checks
-    assert "`streamId` header" in " ".join(expects[2]["checks"])
-    assert "`streamId` header" in fusion_checks
+    assert "without adding a `streamId` routing header" in " ".join(expects[2]["checks"])
+    assert "without adding a `streamId` routing header" in fusion_checks
+    assert "http://localhost:30888" not in json.dumps(expects[0]["checks"])
+    assert "RUNTIME_JSON.vst_url" in expects[0]["checks"][2]
+
+    judge_prompt = GENERIC_JUDGE_PATH.read_text(encoding="utf-8")
+    assert "assistant tool calls only" in judge_prompt
+    assert "whole-file grep therefore produces false failures" in judge_prompt
 
     setup_checks = " ".join(expects[0]["checks"])
     assert "authoritative `RUNTIME_JSON` resolver" in setup_checks
@@ -282,7 +292,7 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "never paste raw JSON" in second_instruction
     assert "## Video Search Results" in second_instruction
     assert "## Verification Step" in second_instruction
-    assert "`streamId` header" in second_instruction
+    assert "without adding a VST `streamId` routing header" in second_instruction
     assert "same unmodified returned URL" in second_instruction
     assert "Never substitute `VST_EXTERNAL_URL`, localhost" in second_instruction
     assert "do not assume it is exported in the shell" in second_instruction

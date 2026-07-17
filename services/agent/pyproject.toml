@@ -74,7 +74,7 @@ explicit = true
 
 
 [project]
-name = "vss"
+name = "nvidia-vss"
 dynamic = ["version"]
 dependencies = [
   # Keep package version constraints as open as possible to avoid conflicts with other packages. Always define a minimum
@@ -112,11 +112,11 @@ vss = "cli:main"
 
 [project.optional-dependencies]
 # Installation profiles, smallest to largest:
-#   vss        -> NAT-free `lib` libraries only
-#   vss[cli]   -> lib + the `vss` console script. The script ships with the
+#   nvidia-vss        -> NAT-free `lib` libraries only
+#   nvidia-vss[cli]   -> lib + the `vss` console script. The script ships with the
 #                 base wheel already; this extra is the stable name for CLI
 #                 installs and will hold CLI-only dependencies if any appear.
-#   vss[agent] -> the NAT-based agent application (agent, lib.knowledge)
+#   nvidia-vss[agent] -> the NAT-based agent application (agent, lib.knowledge)
 cli = []
 agent = [
     # Keep sorted!!!

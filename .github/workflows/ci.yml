@@ -242,8 +242,8 @@ jobs:
           path: services/agent/coverage.xml
 
   # ---------------------------------------------------------------------------
-  # Job 4: NAT-free base distribution (lib + vss) build and tests.
-  # Installs only the base `vss` dependencies + the cli-dev tool group, so this
+  # Job 4: NAT-free base distribution (lib + vss CLI) build and tests.
+  # Installs only the base `nvidia-vss` dependencies + the cli-dev tool group, so this
   # lane proves the host CLI surface never grows a NAT/torch dependency.
   # ---------------------------------------------------------------------------
   vss-cli-test:
@@ -291,7 +291,7 @@ jobs:
         run: |
           rm -rf .wheel-smoke
           uv venv --python 3.13 .wheel-smoke
-          set -- dist/vss-*.whl
+          set -- dist/nvidia_vss-*.whl
           test "$#" -eq 1 && test -f "$1"
           uv pip install --python .wheel-smoke/bin/python --no-cache "$1"
           uv pip check --python .wheel-smoke/bin/python
@@ -307,6 +307,7 @@ jobs:
           import lib.vst
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
+          assert "nvidia-vss" in installed
           assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
           # agent and lib.knowledge ship in the wheel, but the base
           # install must never pull their NAT/torch dependency stack.

@@ -71,10 +71,11 @@ uv sync --extra agent
 source .venv/bin/activate
 ```
 
-The project ships three install profiles, smallest to largest: `vss` (the
-NAT-free `lib` libraries), `vss[cli]` (adds the `vss` console script name;
-the script itself ships with the base wheel), and `vss[agent]` (the full
-NAT-based agent application). `uv sync` without `--extra agent` gives the
+The project ships three install profiles, smallest to largest: `nvidia-vss`
+(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `vss` console
+script name; the script itself ships with the base wheel), and
+`nvidia-vss[agent]` (the full NAT-based agent application). `uv sync` without
+`--extra agent` gives the
 NAT-free base environment used by the host CLI:
 
 ```bash

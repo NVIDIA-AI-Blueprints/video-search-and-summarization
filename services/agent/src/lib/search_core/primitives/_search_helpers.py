@@ -600,7 +600,18 @@ async def execute_core_search(
             # Embed confidence fallback / fusion
             if attribute_list and getattr(config, "attribute_search_tool", None):
                 max_embed_score = max((r.similarity for r in search_results), default=0.0)
-                if not search_results or max_embed_score < config.embed_confidence_threshold:
+                if search_input.search_mode == "fusion" and not search_results:
+                    logger.info("Explicit fusion search has no embed candidates; preserving an empty fusion result")
+                    search_messages.append(
+                        "Fusion search found no semantic candidates; attribute-only fallback was not used."
+                    )
+                    yield AgentMessageChunk(
+                        type=AgentMessageChunkType.THOUGHT,
+                        content="Fusion search found no semantic candidates; returning no results",
+                    )
+                elif search_input.search_mode != "fusion" and (
+                    not search_results or max_embed_score < config.embed_confidence_threshold
+                ):
                     logger.info(
                         f"Embed candidates absent or confidence low (max={max_embed_score:.3f}, "
                         f"threshold={config.embed_confidence_threshold:.3f}). Falling back to attribute-only."
@@ -630,11 +641,14 @@ async def execute_core_search(
                         type=AgentMessageChunkType.THOUGHT,
                         content=f"Found {len(search_results)} results from attribute-only search",
                     )
-                elif (
-                    search_input.search_mode == "fusion"
-                    and len(search_results) > 0
-                    and max_embed_score >= config.embed_confidence_threshold
-                ):
+                elif search_input.search_mode == "fusion" and search_results:
+                    if max_embed_score < config.embed_confidence_threshold:
+                        logger.info(
+                            "Explicit fusion search is below the embed confidence threshold "
+                            "(max=%.3f, threshold=%.3f); preserving the requested fusion route",
+                            max_embed_score,
+                            config.embed_confidence_threshold,
+                        )
                     try:
                         logger.info("EXECUTION PATH: Fusion Search")
                         yield AgentMessageChunk(
