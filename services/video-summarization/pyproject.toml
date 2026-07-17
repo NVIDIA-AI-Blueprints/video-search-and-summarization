@@ -138,6 +138,7 @@ output = "coverage.xml"
 [tool.ruff]
 line-length = 100
 src = ["src"]
+extend-exclude = ["src/protos", "**/protos/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
