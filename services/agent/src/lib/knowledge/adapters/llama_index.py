@@ -15,7 +15,7 @@
 """Retrieval-only LlamaIndex adapter over a ChromaDB persist dir.
 
 Ingestion is out of scope; summarization stays at the bridge layer.
-Requires `vss-agents[llama_index]`; imports are deferred.
+Requires `nvidia-vss[llama_index]`; imports are deferred.
 """
 
 from __future__ import annotations
@@ -86,9 +86,9 @@ class LlamaIndexAdapter(BackendAdapter):
             from llama_index.vector_stores.chroma import ChromaVectorStore
         except ImportError as e:
             raise ImportError(
-                "llama_index backend requires the `vss-agents[llama_index]` extra. "
+                "llama_index backend requires the `nvidia-vss[llama_index]` extra. "
                 "Install via:\n"
-                "  pip install 'vss-agents[llama_index]'\n"
+                "  pip install 'nvidia-vss[llama_index]'\n"
                 "Or pick a different backend (`frag_api` / `frag_lib` / `es_caption`)."
             ) from e
 

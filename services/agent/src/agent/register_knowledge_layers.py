@@ -64,11 +64,11 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         description=(
             "Knowledge backend: 'frag_api' = HTTP to a deployed FRAG rag-server; "
             "'frag_lib' = in-process via the `nvidia-rag` library (requires the "
-            "`vss-agents[frag_lib]` extra); "
+            "`nvidia-vss[agent,frag_lib]` extras); "
             "'llama_index' = in-process LlamaIndex over a Chroma-backed vector store "
-            "(requires the `vss-agents[llama_index]` extra); "
+            "(requires the `nvidia-vss[agent,llama_index]` extras); "
             "'langchain' = in-process LangChain over a Chroma-backed vector store "
-            "(requires the `vss-agents[langchain]` extra); "
+            "(requires the `nvidia-vss[agent,langchain]` extras); "
             "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
         ),
     )

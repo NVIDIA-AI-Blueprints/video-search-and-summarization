@@ -132,7 +132,7 @@ UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" \
 # 2. Chunked POST the file to that VST URL (nvstreamer protocol).
 #    The final-chunk response carries sensorId.
 IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
-UPLOAD_RESPONSE=$(curl -sfS -X POST "${UPLOAD_URL}" \
+UPLOAD_RESPONSE=$(curl -sfS --connect-timeout 10 --max-time 300 -X POST "${UPLOAD_URL}" \
   -H "nvstreamer-chunk-number: 1" \
   -H "nvstreamer-total-chunks: 1" \
   -H "nvstreamer-is-last-chunk: true" \
@@ -148,7 +148,7 @@ SENSOR=$(printf '%s' "${UPLOAD_RESPONSE}" \
   || { echo "Upload failed: no sensorId in response: ${UPLOAD_RESPONSE}"; exit 1; }
 COMPLETE_RESPONSE=$(printf '%s' "${UPLOAD_RESPONSE}" \
   | jq --arg filename "${UPLOAD_FILENAME}" '. + {filename: $filename}' \
-  | curl -sfS -X POST "${AGENT_URL}/api/v1/videos/${SENSOR}/complete" \
+  | curl -sfS --connect-timeout 10 --max-time 300 -X POST "${AGENT_URL}/api/v1/videos/${SENSOR}/complete" \
       -H "Content-Type: application/json" \
       -d @-)
 printf '%s' "${COMPLETE_RESPONSE}" \
@@ -346,11 +346,13 @@ Report every final count. A successful DELETE response alone is not sufficient.
    returned `screenshot_url` from `SEARCH_JSON`.
    If the command cannot start or returns a configuration error, report the
    error and stop; never replace it with another search interface.
-5. Validate each returned media URL with a bounded GET using the hit's sensor ID
-   as the required VST `streamId` header. For availability-only validation,
+5. Validate each returned media URL with a bounded GET of the exact URL. The
+   stream identifier is already encoded in the VST replay path; do not add a
+   `streamId` routing header because that can route an otherwise valid public
+   replay URL to an unhealthy upstream. For availability-only validation,
    discard the body; this is not visual inspection:
 
-   For every hit, extract both values from the same result object. Compare the
+   For every hit, extract the URL from the result object. Compare the
    normalized origins (scheme, hostname, and effective port), then issue the GET
    against the **same, unmodified** `SCREENSHOT_URL`:
 
@@ -427,7 +429,6 @@ Report every final count. A successful DELETE response alone is not sufficient.
      HITS_JSONL=$(printf '%s' "${SEARCH_JSON}" | jq -cer '.data[]') || exit 1
      while IFS= read -r HIT; do
        SCREENSHOT_URL=$(printf '%s' "${HIT}" | jq -er '.screenshot_url | select(type == "string" and length > 0)') || exit 1
-       STREAM_ID=$(printf '%s' "${HIT}" | jq -er '.sensor_id | select(type == "string" and length > 0)') || exit 1
        ACTUAL_ORIGIN=$(url_origin "${SCREENSHOT_URL}") || exit 1
        [ "${ACTUAL_ORIGIN}" = "${EXPECTED_ORIGIN}" ] || {
          echo "Media URL origin mismatch: ${ACTUAL_ORIGIN} != ${EXPECTED_ORIGIN}" >&2
@@ -438,7 +439,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
        if [ "${VERIFY_PIXELS}" = "true" ]; then
          OUTPUT_PATH="${INSPECTION_DIR}/hit-${VALIDATED_COUNT}.jpg"
        fi
-       curl -fS --max-time 20 -H "streamId: ${STREAM_ID}" \
+       curl -fS --connect-timeout 10 --max-time 20 \
          "${SCREENSHOT_URL}" -o "${OUTPUT_PATH}" || exit 1
        if [ "${VERIFY_PIXELS}" = "true" ]; then
          [ -s "${OUTPUT_PATH}" ] || { echo "Empty screenshot: ${OUTPUT_PATH}" >&2; exit 1; }
@@ -480,7 +481,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
    Copy every evidence field verbatim from CLI output. Never invent or normalize
    evidence.
 7. Without user opt-in or prior authorization, do not save or inspect media
-   pixels. When authorized, repeat the bounded GET with the `streamId` header,
+   pixels. When authorized, repeat the bounded GET without adding routing headers,
    save each returned screenshot under `/tmp/`, inspect the saved pixels, and
    report a grounded confirmed/rejected/uncertain verdict for each hit under
    `## Verification Step`.

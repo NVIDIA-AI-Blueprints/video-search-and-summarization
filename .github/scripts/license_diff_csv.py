@@ -89,7 +89,7 @@ def parse_uv_lock(data: bytes) -> Inventory:
     test runners, which do not ship in a release artifact and must not expand
     the OSRB review.  Start from local project packages and follow their
     regular ``dependencies`` plus every entry of their ``optional-dependencies``
-    (a root project's extras, e.g. the agent stack behind ``vss[agent]``, ship
+    (a root project's extras, e.g. the agent stack behind ``nvidia-vss[agent]``, ship
     in release artifacts); deliberately do not follow ``dev-dependencies``.
     Third-party packages only contribute the extras that a runtime dependency
     actually requests.

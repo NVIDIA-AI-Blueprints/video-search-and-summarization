@@ -57,6 +57,7 @@ import re
 import sys
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Literal
 from typing import get_args
 
 import httpx
@@ -74,6 +75,10 @@ from .deployment import DeploymentConfig
 from .deployment import PortForwardError
 from .deployment import discover_deployment
 from .search_operations import SEARCH_OPERATIONS
+
+_PREFLIGHT_MAX_ATTEMPTS = 3
+_PREFLIGHT_RETRY_STATUS_CODES = frozenset({429, 502, 503, 504})
+_PREFLIGHT_RETRY_DELAYS_SECONDS = (0.25, 0.5)
 
 if TYPE_CHECKING:
     from lib.search_core.host import VSSSearch
@@ -1030,6 +1035,33 @@ async def _preflight_index(runtime: SearchRuntime, *, source_type: str) -> None:
         raise
 
 
+async def _request_preflight_with_retry(
+    client: httpx.AsyncClient,
+    method: Literal["get", "post"],
+    url: str,
+    **kwargs: Any,
+) -> httpx.Response:
+    """Issue a bounded preflight request, retrying only transient failures."""
+    for attempt in range(_PREFLIGHT_MAX_ATTEMPTS):
+        try:
+            if method == "get":
+                response = await client.get(url, **kwargs)
+            else:
+                response = await client.post(url, **kwargs)
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as error:
+            retryable = error.response.status_code in _PREFLIGHT_RETRY_STATUS_CODES
+            if not retryable or attempt == _PREFLIGHT_MAX_ATTEMPTS - 1:
+                raise
+        except httpx.TransportError:
+            if attempt == _PREFLIGHT_MAX_ATTEMPTS - 1:
+                raise
+        await asyncio.sleep(_PREFLIGHT_RETRY_DELAYS_SECONDS[attempt])
+
+    raise AssertionError("preflight retry loop exhausted without returning or raising")
+
+
 async def _preflight_embed_model(runtime: SearchRuntime) -> None:
     """Verify that the deployed embed service exposes the requested model ID.
 
@@ -1041,8 +1073,7 @@ async def _preflight_embed_model(runtime: SearchRuntime) -> None:
     url = f"{endpoint.rstrip('/')}/v1/models"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+            response = await _request_preflight_with_retry(client, "get", url)
             payload = response.json()
     except httpx.HTTPError as e:
         raise BackendUnreachableError("cosmos_embed", f"model preflight at {url} failed: {e}", e) from e
@@ -1075,8 +1106,12 @@ async def _preflight_rtvi_cv(args: argparse.Namespace, payload: dict[str, Any], 
     url = f"{endpoint.rstrip('/')}/api/v1/generate_text_embeddings"
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=2.0)) as client:
-            response = await client.post(url, json={"text_input": "vss capability probe", "model": ""})
-            response.raise_for_status()
+            response = await _request_preflight_with_retry(
+                client,
+                "post",
+                url,
+                json={"text_input": "vss capability probe", "model": ""},
+            )
             body = response.json()
         if not isinstance(body, dict) or not isinstance(body.get("data"), list) or not body["data"]:
             raise ValueError("response did not contain text embedding data")

@@ -6579,7 +6579,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vss"
+name = "nvidia-vss"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
