@@ -28,6 +28,9 @@ services:
     volumes:
       # Mount config.yaml and set CA_RAG_CONFIG_PATH to this location
       - $VSS_APPS_DIR/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
+      # Normalize RTVI chunk-relative event timestamps before LVS merges events.
+      # Remove once the fix is included in the upstream LVS image.
+      - $VSS_APPS_DIR/services/video-summarization/patches/vlm_structured_base.py:/usr/local/lib/python3.13/site-packages/vss_ctx_rag/functions/summarization/vlm_structured_base.py:ro
       # Optional: Mount model cache directory if MODEL_ROOT_DIR is set
       - ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
 
