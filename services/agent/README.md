@@ -36,7 +36,7 @@ VSS Agent provides composable tools and agents for video understanding:
 
 | Path | Description |
 |------|-------------|
-| `src/vss_agents/` | Core package: tools, agents, APIs, embeddings, evaluators |
+| `src/agent/` | Core package: tools, agents, APIs, embeddings, evaluators |
 | `tests/unit_test/` | Unit tests (mirrors source tree) |
 | `stubs/` | Mypy type stubs for third-party libraries |
 | `docker/` | Dockerfile and build scripts |
@@ -72,13 +72,13 @@ source .venv/bin/activate
 ```
 
 The project ships three install profiles, smallest to largest: `vss` (the
-NAT-free `lib` libraries), `vss[cli]` (adds the `vss-cli` console script name;
+NAT-free `lib` libraries), `vss[cli]` (adds the `vss` console script name;
 the script itself ships with the base wheel), and `vss[agent]` (the full
 NAT-based agent application). `uv sync` without `--extra agent` gives the
 NAT-free base environment used by the host CLI:
 
 ```bash
-uv run --no-dev vss-cli --help
+uv run --no-dev vss --help
 ```
 
 ### Docker
@@ -266,7 +266,7 @@ uv run pytest tests/unit_test/ -v
 With coverage:
 
 ```bash
-uv run pytest tests/unit_test/ --cov=src/vss_agents --cov-report=term-missing -v
+uv run pytest tests/unit_test/ --cov=src/agent --cov-report=term-missing -v
 ```
 
 ## Contributing
@@ -282,7 +282,7 @@ uv run pytest tests/unit_test/ --cov=src/vss_agents --cov-report=term-missing -v
 uv run pytest tests/unit_test/ -v
 uv run ruff check src/
 uv run ruff format --check src/
-uv run mypy src/vss_agents/
+uv run mypy src/agent/
 ```
 
 5. Submit a pull request.

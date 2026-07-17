@@ -15,6 +15,6 @@
 """Private helpers for the search_core library.
 
 NOT part of the public API. Underscore prefix marks these as off-limits to
-external consumers. Ported from vss_agents/utils/ so the library has no
+external consumers. Ported from agent/utils/ so the library has no
 upward dependency on the agent package.
 """

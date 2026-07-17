@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for vss_agents/orchestrator/network_util.py."""
+"""Tests for agent/orchestrator/network_util.py."""
 
-from vss_agents.orchestrator import network_util
-from vss_agents.orchestrator.network_util import apply_brev_proxy_env
+from agent.orchestrator import network_util
+from agent.orchestrator.network_util import apply_brev_proxy_env
 
 
 def test_apply_brev_proxy_env_sets_brev_and_public_ui_routes(monkeypatch):

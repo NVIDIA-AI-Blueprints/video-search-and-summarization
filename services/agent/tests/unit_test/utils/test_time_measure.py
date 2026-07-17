@@ -12,12 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/time_measure.py."""
+"""Tests for agent/utils/time_measure.py."""
 
 import time
 from unittest.mock import patch
 
-from vss_agents.utils.time_measure import TimeMeasure
+from agent.utils.time_measure import TimeMeasure
 
 
 class TestTimeMeasure:
@@ -59,7 +59,7 @@ class TestTimeMeasure:
 
     def test_print_enabled(self):
         """Test that print output works when enabled."""
-        with patch("vss_agents.utils.time_measure.logger") as mock_logger, TimeMeasure("print test", print=True):
+        with patch("agent.utils.time_measure.logger") as mock_logger, TimeMeasure("print test", print=True):
             time.sleep(0.001)
 
         # Verify logger.log was called with PERF level for timing output

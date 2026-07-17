@@ -17,8 +17,8 @@
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.video_skim_caption import VideoSkimCaptionConfig
-from vss_agents.tools.video_skim_caption import VideoSkimCaptionInput
+from agent.tools.video_skim_caption import VideoSkimCaptionConfig
+from agent.tools.video_skim_caption import VideoSkimCaptionInput
 
 
 class TestVideoSkimCaptionConfig:

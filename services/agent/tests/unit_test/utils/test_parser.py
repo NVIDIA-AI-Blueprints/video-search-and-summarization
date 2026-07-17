@@ -12,12 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/parser.py."""
+"""Tests for agent/utils/parser.py."""
 
 import pytest
 
-from vss_agents.utils.parser import ReActOutputParserError
-from vss_agents.utils.parser import parse_function_calls
+from agent.utils.parser import ReActOutputParserError
+from agent.utils.parser import parse_function_calls
 
 
 class TestReActOutputParserError:

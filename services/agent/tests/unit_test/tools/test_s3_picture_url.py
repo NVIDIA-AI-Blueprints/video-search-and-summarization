@@ -17,9 +17,9 @@
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.s3_picture_url import S3PictureURLConfig
-from vss_agents.tools.s3_picture_url import S3PictureURLInput
-from vss_agents.tools.s3_picture_url import S3PictureURLOutput
+from agent.tools.s3_picture_url import S3PictureURLConfig
+from agent.tools.s3_picture_url import S3PictureURLInput
+from agent.tools.s3_picture_url import S3PictureURLOutput
 
 
 class TestS3PictureURLConfig:
