@@ -4281,6 +4281,7 @@ std::string StorageManagement::generateUploadedFullFileUrl(const std::string& se
     match.eligible = true;
     match.filePath = sensor->location;
     match.container = extension.front() == '.' ? extension.substr(1) : extension;
+    match.startTimeMs = getFileTimestamp(sensor->location);
 
     VideoGenerationParam params;
     params.streamId = sensorId;
