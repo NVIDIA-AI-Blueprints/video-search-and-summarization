@@ -234,10 +234,9 @@ class TestExecutionPaths:
         assert len(out.data) == 1
 
     @pytest.mark.asyncio
-    async def test_low_confidence_falls_back_to_attribute_only(self):
-        # Embed score below threshold -> attribute-only fallback, not fusion.
-        embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", similarity=0.05)])])
-        attr = _FakeAttr([_attr_result(object_id="42", sensor_id="camX")])
+    async def test_explicit_fusion_preserves_route_below_confidence_threshold(self):
+        embed = _FakeEmbed([_embed_output([_embed_item(video_name="v1", sensor_id="camA", similarity=0.05)])])
+        attr = _FakeAttr([_attr_result(object_id="42", sensor_id="camA")])
         out = await _run(
             SearchInput(
                 query="q",
@@ -249,10 +248,11 @@ class TestExecutionPaths:
             config=_config(embed_confidence_threshold=0.1),
             attribute_search_fn=attr,
         )
+        assert len(attr.calls) == 1
         assert out.data[0].object_ids == ["42"]
 
     @pytest.mark.asyncio
-    async def test_fusion_without_embed_candidates_falls_back_to_attribute_only(self):
+    async def test_fusion_without_embed_candidates_does_not_drop_action_query(self):
         embed = _FakeEmbed([_embed_output([])])
         attr = _FakeAttr([_attr_result(object_id="42", sensor_id="camX")])
         out = await _run(
@@ -267,8 +267,11 @@ class TestExecutionPaths:
             attribute_search_fn=attr,
         )
         assert len(embed.calls) == 1
-        assert len(attr.calls) == 1
-        assert out.data[0].object_ids == ["42"]
+        assert attr.calls == []
+        assert out.data == []
+        assert out.search_messages == [
+            "Fusion search found no semantic candidates; attribute-only fallback was not used."
+        ]
 
     @pytest.mark.asyncio
     async def test_object_id_path(self):

@@ -34,6 +34,7 @@ from cli.search import _runtime_from_args
 from cli.search import _validate_payload_before_preflight
 from cli.search import _write_search_stream
 from cli.search import run
+from lib._foundation.errors import BackendUnreachableError
 from lib.search_core import SearchRuntime
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import InvalidInputError
@@ -832,6 +833,67 @@ def test_embed_model_preflight_never_auto_selects_an_available_id(monkeypatch: p
         asyncio.run(_preflight_embed_model(_runtime()))
 
 
+def test_embed_model_preflight_retries_transient_statuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    calls = 0
+    delays: list[float] = []
+
+    class FakeClient:
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, url: str) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                return httpx.Response(503, request=httpx.Request("GET", url))
+            return httpx.Response(
+                200,
+                json={"data": [{"id": _runtime().cosmos_embed_model}]},
+                request=httpx.Request("GET", url),
+            )
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("cli.search.httpx.AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr("cli.search.asyncio.sleep", record_sleep)
+
+    asyncio.run(_preflight_embed_model(_runtime()))
+
+    assert calls == 3
+    assert delays == [0.25, 0.5]
+
+
+def test_embed_model_preflight_does_not_retry_semantic_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    calls = 0
+
+    class FakeClient:
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, url: str) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(404, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr("cli.search.httpx.AsyncClient", lambda **_kwargs: FakeClient())
+
+    with pytest.raises(BackendUnreachableError):
+        asyncio.run(_preflight_embed_model(_runtime()))
+
+    assert calls == 1
+
+
 def test_rtsp_index_preflight_uses_runtime_wildcard(monkeypatch: pytest.MonkeyPatch) -> None:
     from lib.search_core.clients.elastic import ElasticClient
 
@@ -986,6 +1048,38 @@ def test_rtvi_cv_fallback_is_only_used_when_explicit(monkeypatch: pytest.MonkeyP
 
     asyncio.run(_preflight_rtvi_cv(args, payload, _runtime()))
     assert payload == {"attributes": [], "search_mode": "embed"}
+
+
+def test_rtvi_cv_preflight_retries_transport_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    calls = 0
+
+    class FakeClient:
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, url: str, **_kwargs: object) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise httpx.ConnectError("service restarting", request=httpx.Request("POST", url))
+            return httpx.Response(200, json={"data": [[0.1, 0.2]]}, request=httpx.Request("POST", url))
+
+    async def no_wait(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr("cli.search.httpx.AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr("cli.search.asyncio.sleep", no_wait)
+    payload = {"attributes": ["white jacket"], "search_mode": "fusion"}
+    args = argparse.Namespace(primitive="search", allow_embed_only_fallback=False)
+
+    asyncio.run(_preflight_rtvi_cv(args, payload, _runtime()))
+
+    assert calls == 2
 
 
 def test_request_runtime_fields_exclude_unused_kubernetes_services() -> None:
