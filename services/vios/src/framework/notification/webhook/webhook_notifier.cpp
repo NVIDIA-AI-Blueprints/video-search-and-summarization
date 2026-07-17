@@ -262,7 +262,12 @@ void WebhookNotifier::loadConfig(const Json::Value& config)
             LOG(error) << "Webhook entry " << entryIndex << " has no supported alert type key, skipping" << endl;
             continue;
         }
+        webhook.m_configId = jsonFieldAsString(entry, "id");
         webhook.m_id = webhook.m_alertType + (filterValue.empty() ? "" : "/" + filterValue);
+        if (!webhook.m_configId.empty())
+        {
+            webhook.m_id += " (" + webhook.m_configId + ")";
+        }
         if (!filterValue.empty())
         {
             if (filterField.empty())
@@ -508,7 +513,6 @@ bool WebhookNotifier::deliverMessage(Json::Value& message)
         LOG(error) << "Webhook HTTP client not running, dropping " << loggingLabel << endl;
         return true;
     }
-    const std::string body = jsonToString(event);
     const std::string cameraType = jsonFieldAsString(event.get("event", Json::nullValue), "camera_type");
 
     size_t matched = 0;
@@ -520,6 +524,10 @@ bool WebhookNotifier::deliverMessage(Json::Value& message)
             continue;
         }
         matched++;
+        // Tag the body with this webhook's id (empty when unconfigured).
+        Json::Value taggedEvent = event;
+        taggedEvent["webhook_id"] = webhook.m_configId;
+        const std::string body = jsonToString(taggedEvent);
         for (size_t r = 0; r < webhook.m_requests.size(); r++)
         {
             const RequestConfig& requestConfig = webhook.m_requests[r];
