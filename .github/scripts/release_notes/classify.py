@@ -16,35 +16,25 @@ a silently dropped fix) and the notes flag the PR as unclassified.
 from __future__ import annotations
 
 import json
+import os
+import re
 from dataclasses import dataclass
 
 from .collect import PullRequest
 
-MODEL = "claude-opus-4-8"
+# Default is the first-party alias; the ci-vss-oss job overrides this to the
+# NVIDIA Inference Hub's routed id (e.g. "azure/anthropic/claude-opus-4-8").
+DEFAULT_MODEL = "claude-opus-4-8"
 
-CLASSIFICATION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "classifications": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string"},
-                    "classification": {
-                        "type": "string",
-                        "enum": ["addressed", "related", "mentioned_only"],
-                    },
-                    "reason": {"type": "string"},
-                },
-                "required": ["key", "classification", "reason"],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["classifications"],
-    "additionalProperties": False,
-}
+# JSON is enforced by prompt, not by output_config.format: the Inference Hub
+# workspace this runs under has structured outputs disabled
+# ("structured_outputs not supported in your workspace").
+JSON_SHAPE = (
+    '{"classifications": [{"key": "<exact key as listed>", '
+    '"classification": "addressed|related|mentioned_only", "reason": "<short>"}]}'
+)
+
+FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 PROMPT = """\
 You are classifying issue-tracker references found on a merged pull request so \
@@ -68,7 +58,12 @@ unrelated context, pasted logs, references to other work.
 
 Titles/branch names referencing an id are almost always addressed. Reviewer \
 comments referencing a different id than the title/branch are usually \
-mentioned_only unless the discussion says the PR handles it.\
+mentioned_only unless the discussion says the PR handles it.
+
+Respond with ONLY a JSON object (no markdown fences, no prose) of the shape:
+{json_shape}
+The "key" field must echo the candidate key EXACTLY as listed above (e.g. \
+"6217188" or "VIA-2035" — without the kind prefix).\
 """
 
 
@@ -104,13 +99,13 @@ def classify_pr(pr: PullRequest, client: "object | None") -> tuple[list[Verdict]
         branch=pr.branch,
         author=pr.author,
         candidates=_candidate_lines(pr),
+        json_shape=JSON_SHAPE,
     )
     try:
         response = client.messages.create(
-            model=MODEL,
+            model=os.environ.get("RELEASE_NOTES_CLAUDE_MODEL", DEFAULT_MODEL),
             max_tokens=16000,
             thinking={"type": "adaptive"},
-            output_config={"format": {"type": "json_schema", "schema": CLASSIFICATION_SCHEMA}},
             messages=[{"role": "user", "content": prompt}],
         )
     except anthropic.APIError as err:
@@ -121,18 +116,25 @@ def classify_pr(pr: PullRequest, client: "object | None") -> tuple[list[Verdict]
         return _fallback(unique, "classification refused"), False
     text = next((block.text for block in response.content if block.type == "text"), "")
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(FENCE_RE.sub("", text).strip())
     except json.JSONDecodeError:
         return _fallback(unique, "unparseable classification output"), False
 
-    by_key = {item["key"]: item for item in parsed.get("classifications", [])}
+    items = [item for item in parsed.get("classifications", []) if isinstance(item, dict)]
     verdicts = []
     for key, kind in unique.items():
-        item = by_key.get(key)
-        if item is None:
+        # Exact key echo is instructed; tolerate a "nvbug 6217188"-style echo.
+        item = next(
+            (i for i in items if i.get("key") == key or key in str(i.get("key", ""))), None
+        )
+        if item is None or item.get("classification") not in (
+            "addressed",
+            "related",
+            "mentioned_only",
+        ):
             verdicts.append(Verdict(kind, key, "related", "not classified by agent"))
         else:
-            verdicts.append(Verdict(kind, key, item["classification"], item["reason"]))
+            verdicts.append(Verdict(kind, key, item["classification"], item.get("reason", "")))
     return verdicts, True
 
 
@@ -141,12 +143,18 @@ def _fallback(unique: dict[str, str], reason: str) -> list[Verdict]:
 
 
 def make_client() -> "object | None":
-    """Anthropic client, or None when no key is configured (fail-open)."""
-    import os
+    """Anthropic client, or None when no key is configured (fail-open).
 
+    The SDK reads ANTHROPIC_BASE_URL from the environment, which is how
+    the ci-vss-oss job points this at the NVIDIA Inference Hub gateway
+    (https://inference-api.nvidia.com) instead of the first-party API.
+    """
     if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
         print("WARNING: ANTHROPIC_API_KEY not set — all candidates default to 'related'")
         return None
     import anthropic
 
+    base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    model = os.environ.get("RELEASE_NOTES_CLAUDE_MODEL", DEFAULT_MODEL)
+    print(f"classifier: {model} via {base}")
     return anthropic.Anthropic()
