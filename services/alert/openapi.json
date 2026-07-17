@@ -275,7 +275,7 @@
                     "realtime"
                 ],
                 "summary": "List incidents from Elasticsearch",
-                "description": "Query incidents from Elasticsearch with optional filtering by sensor_id, category, and time range. Supports pagination via limit and offset.",
+                "description": "Query incidents from Elasticsearch, optionally filtered by sensor_id, category, and time range, with pagination via limit and offset.\n\n**Raw view (default):** with `consolidate` omitted or false, returns raw chunk-level documents (nvschema). `count` is the number of documents on the page; `total` is the raw Elasticsearch match count.\n\n**Consolidated view:** with `consolidate=true`, consecutive positives from the same camera and alert type are grouped into single events (same nvschema, with `info.isConsolidated=\"true\"`, `info.chunkCount` and `info.chunkIdxRange`). This view requires a bounded time window: both `start_time` and `end_time` must be supplied (otherwise 400). Grouping runs over the whole window before pagination, so an event is never split across pages; `count` is the number of events on the page and `total` is the number of events in the window. The raw documents remain available via the default view and are never modified.",
                 "operationId": "list_incidents_api_v1_realtime_incidents_get",
                 "parameters": [
                     {
@@ -328,10 +328,10 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z)",
+                            "description": "Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z). Required when consolidate=true.",
                             "title": "Start Time"
                         },
-                        "description": "Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z)"
+                        "description": "Filter incidents after this ISO-8601 timestamp (e.g. 2024-01-15T10:30:00Z). Required when consolidate=true."
                     },
                     {
                         "name": "end_time",
@@ -347,10 +347,10 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z)",
+                            "description": "Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z). Required when consolidate=true.",
                             "title": "End Time"
                         },
-                        "description": "Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z)"
+                        "description": "Filter incidents before this ISO-8601 timestamp (e.g. 2024-01-15T18:00:00Z). Required when consolidate=true."
                     },
                     {
                         "name": "limit",
@@ -378,6 +378,24 @@
                             "title": "Offset"
                         },
                         "description": "Number of incidents to skip (for pagination)"
+                    },
+                    {
+                        "name": "consolidate",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Group consecutive positives from the same camera and alert type into a single event. Omitted or false returns raw chunk-level documents; true returns the consolidated view and requires both start_time and end_time. When true, count and total count events rather than raw documents.",
+                            "title": "Consolidate"
+                        },
+                        "description": "Group consecutive positives from the same camera and alert type into a single event. Omitted or false returns raw chunk-level documents; true returns the consolidated view and requires both start_time and end_time. When true, count and total count events rather than raw documents."
                     }
                 ],
                 "responses": {
@@ -387,6 +405,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/IncidentListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "consolidate=true without both start_time and end_time",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeAlertErrorResponse"
                                 }
                             }
                         }
@@ -1452,30 +1480,10 @@
                 }
             }
         },
-        "/ws/health": {
-            "get": {
-                "tags": [
-                    "websocket"
-                ],
-                "summary": "Websocket Health",
-                "description": "Health check endpoint for WebSocket service.\n\nReturns:\n    WebSocket service health status and connection count",
-                "operationId": "websocket_health_ws_health_get",
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/health": {
             "get": {
                 "summary": "Health Check",
-                "description": "Basic health check for Alert Bridge.",
+                "description": "Health + readiness check for Alert Bridge.",
                 "operationId": "health_check_health_get",
                 "responses": {
                     "200": {
