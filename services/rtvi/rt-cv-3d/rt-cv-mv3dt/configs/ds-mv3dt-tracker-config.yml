@@ -1,5 +1,3 @@
-%YAML:1.0
-
 BaseConfig:
   minDetectorConfidence: 0.027087304322979212
   useBatchNumForFrameId: 1
