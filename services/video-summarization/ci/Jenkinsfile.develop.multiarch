@@ -606,7 +606,16 @@ pipeline {
                         gitlabCommitStatus(name: 'sonarqube-analysis-with-coverage', connection: gitLabConnection('gitlab-vss-lvs')) {
                             container('ubuntu-22-04') {
                                 script {
-                                    def sonarParams = []
+                                    def sonarProjectKey = env.SONAR_PROJECT_KEY?.trim()
+                                    if (!sonarProjectKey) {
+                                        error('SONAR_PROJECT_KEY must be set in Jenkins folder/job environment')
+                                    }
+                                    def sonarProjectName = env.SONAR_PROJECT_NAME?.trim() ?: 'LVS'
+
+                                    def sonarParams = [
+                                        "-Dsonar.projectKey=${sonarProjectKey}",
+                                        "-Dsonar.projectName=${sonarProjectName}",
+                                    ]
                                     echo "Starting SonarQube SAST analysis with coverage..."
 
                                     // Retrieve coverage report from unit tests stage using stash/unstash.
