@@ -63,6 +63,9 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "without adding routing headers" in skill_text
     assert 'curl -sfS --connect-timeout 10 --max-time 300 -X POST "${UPLOAD_URL}"' in skill_text
     assert '--max-time 300 -X POST "${AGENT_URL}/api/v1/videos/${SENSOR}/complete"' in skill_text
+    assert "mandatory for every file ingestion" in skill_text
+    assert "Never call the deprecated single-step" in skill_text
+    assert "Do not select or invoke it" in skill_text
     assert "same, unmodified" in skill_text
     assert "SCREENSHOT_URL` must come only from the CLI hit" in skill_text
     assert "ACTUAL_ORIGIN" in skill_text
@@ -163,6 +166,7 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "configured in `deploy/docker/developer-profiles/dev-profile-search/generated.env`" not in setup_checks
     assert "`warehouse-ladder`" in setup_checks
     assert "canonical upload filename `warehouse-ladder.mp4`" in setup_checks
+    assert "never invoked the deprecated single-step" in setup_checks
     assert "same canonical source" in setup_checks
     setup_query = expects[0]["query"]
     assert "RUNTIME_JSON" in setup_query
@@ -170,6 +174,10 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "never use `ELASTIC_SEARCH_INDEX` for behavior or raw queries" in setup_query
     assert "Make setup idempotent" in setup_query
     assert "exact or deduplicated remnants" in setup_query
+    assert "agent-backed three-step workflow" in setup_query
+    assert "`POST /api/v1/videos`" in setup_query
+    assert "`POST /api/v1/videos/{sensor}/complete`" in setup_query
+    assert "Never invoke the deprecated single-step" in setup_query
     assert "mdx-embed-filtered-2025-01-01" in setup_checks
     assert "mdx-behavior-2025-01-01" in setup_checks
     assert "mdx-raw-2025-01-01" in setup_checks
@@ -280,6 +288,10 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "`ELASTIC_SEARCH_INDEX` is only the embedding index" in first_instruction
     assert "make setup idempotent on reused hosts" in first_instruction
     assert "exact readiness tuples independently" in first_instruction
+    assert "mandatory three-step file ingestion flow exactly" in first_instruction
+    assert "POST the filename to `${AGENT_URL}/api/v1/videos`" in first_instruction
+    assert "`${AGENT_URL}/api/v1/videos/${SENSOR}/complete`" in first_instruction
+    assert "Never call the deprecated single-step `PUT /api/v1/videos-for-search/{filename}`" in first_instruction
     second_instruction = (second / "instruction.md").read_text()
     assert second_instruction.startswith(adapter.PREAMBLE)
     assert "Do not redeploy" in second_instruction
