@@ -1,11 +1,11 @@
 ---
 name: vss-recall-memory
-description: Recall previously persisted VSS video summaries and events from unified Elasticsearch memory. Use this skill when a follow-up answer is not already available in active context, including lookup by summary ID, event ID, video ID, time range, event type, full text, or semantic similarity.
+description: Recall previously persisted VSS video summaries and events from unified Elasticsearch memory. Use only when the record is not already present in active context; after a successful recall returns a complete summary with related events, do not recall that record again in the same conversation.
 ---
 
 # Recall VSS memory
 
-Check active conversation context first. Use durable recall only when the needed summary or event is absent, incomplete, or explicitly requested from prior memory.
+Invoke durable recall at most once per record per conversation after a successful result. Treat the returned complete summary and related events as working context for every follow-up about that record, including sequence and timestamp questions. Recall the same record again only when the user explicitly requests another lookup.
 
 ## Workflow
 
