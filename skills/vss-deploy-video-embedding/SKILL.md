@@ -33,7 +33,7 @@ Use this skill when you need to:
 - **Container name:** `vss-rtvi-embed`.
 - **Image:** `nvcr.io/nvidia/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
 - **Default tag:** `3.2.1` (override with `RTVI_EMBED_TAG`).
-- **Profile:** `bp_developer_search_2d`.
+- **Profile:** `rtvi-embed`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.
 - **Health endpoint:** `GET /v1/ready`.
@@ -97,7 +97,7 @@ This avoids mounting `/data_log/vst/clip_storage` from filesystem root when `VSS
 ```bash
 # Bring up the service under the required Compose profile.
 docker compose -f rtvi-embed-docker-compose.yml \
-  --profile bp_developer_search_2d up -d rtvi-embed
+  --profile rtvi-embed up -d rtvi-embed
 ```
 
 If Docker requires elevated privileges, use `sudo -n docker compose ...` and fail
@@ -250,7 +250,7 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ## Upgrade And Rollback
 
-Pin `RTVI_EMBED_IMAGE` / `RTVI_EMBED_TAG`, pull, recreate with `--profile bp_developer_search_2d`, and wait for `/v1/ready` before cutover. Named volumes persist across image swaps.
+Pin `RTVI_EMBED_IMAGE` / `RTVI_EMBED_TAG`, pull, recreate with `--profile rtvi-embed`, and wait for `/v1/ready` before cutover. Named volumes persist across image swaps.
 
 Full steps: [Upgrade & Rollback](references/deploy-vss-deploy-video-embedding.md#upgrade--rollback).
 

@@ -1146,6 +1146,78 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# --- COMPOSE_PROFILES service-list integrity ---
+_profile_tags_file="$(mktemp)"
+while IFS= read -r -d '' _compose_file; do
+  sed -nE 's/^[[:space:]]*profiles:[[:space:]]*\["([^"]+)"\].*/\1/p' "${_compose_file}"
+done < <(find "${REPO_ROOT}/deploy/docker" -type f \( -name '*.yml' -o -name '*.yaml' \) ! -path '*/services/nim/*' -print0) | sort -u > "${_profile_tags_file}"
+
+load_compose_env_values() {
+  local env_file="${1}"
+  local line key value
+  _compose_env_values=()
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+    [[ "${line}" =~ ^[[:space:]]*$ ]] && continue
+    if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+      value="${value%$'\r'}"
+      value="${value#\"}"; value="${value%\"}"
+      value="${value#\'}"; value="${value%\'}"
+      _compose_env_values["${key}"]="${value}"
+    fi
+  done < "${env_file}"
+}
+
+resolve_compose_env_value() {
+  local value="${1}"
+  local depth key replacement
+  for ((depth = 0; depth < 10; depth++)); do
+    if [[ "${value}" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; then
+      key="${BASH_REMATCH[1]}"
+      replacement="${_compose_env_values[${key}]:-}"
+      value="${value//\$\{${key}\}/${replacement}}"
+    else
+      break
+    fi
+  done
+  printf '%s' "${value}"
+}
+
+_compose_profiles_failed=0
+for _compose_env_file in \
+  "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/overrides.env \
+  "${REPO_ROOT}"/deploy/docker/industry-profiles/*/overrides.env; do
+  [[ -f "${_compose_env_file}" ]] || continue
+  declare -A _compose_env_values=()
+  load_compose_env_values "${_compose_env_file}"
+  for _var in "${!_compose_env_values[@]}"; do
+    [[ "${_var}" == COMPOSE_PROFILES* ]] || continue
+    _resolved_profiles="$(resolve_compose_env_value "${_compose_env_values[${_var}]}")"
+    IFS=',' read -r -a _profile_tokens <<< "${_resolved_profiles}"
+    for _token in "${_profile_tokens[@]}"; do
+      _token="${_token//[[:space:]]/}"
+      [[ -n "${_token}" ]] || continue
+      case "${_token}" in
+        llm_*|vlm_*) continue ;;
+      esac
+      if ! grep -Fxq "${_token}" "${_profile_tags_file}"; then
+        echo "FAIL: ${_compose_env_file} ${_var} references missing service profile '${_token}'"
+        ((_compose_profiles_failed++)) || true
+      fi
+    done
+  done
+  unset _compose_env_values
+done
+rm -f "${_profile_tags_file}"
+if [[ ${_compose_profiles_failed} -eq 0 ]]; then
+  echo "PASS: COMPOSE_PROFILES service lists reference existing non-NIM compose profiles"
+  ((TESTS_PASSED++)) || true
+else
+  ((TESTS_FAILED++)) || true
+fi
+
 # --- generated.env content: dry-run up still writes/updates the file ---
 # Run up with specific options and assert generated.env contains expected vars, then restore.
 run_dry_run_up_and_check_generated_env "generated.env HOST_IP and HARDWARE_PROFILE from options" "base" \
