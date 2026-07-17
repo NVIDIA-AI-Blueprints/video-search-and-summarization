@@ -280,8 +280,21 @@ class AnomalyEnhancer(
 
         async_io_cfg = self.config.get('alert_agent', {}).get('async_io', {}) or {}
         legacy_async_io_enabled = bool(async_io_cfg.get('enabled', False))
+        # ``pipeline_mode`` is accepted at both alert_agent.pipeline_mode and
+        # alert_agent.async_io.pipeline_mode; conflicting values fail startup.
+        raw_pipeline_mode = self.config.get('alert_agent', {}).get('pipeline_mode')
+        nested_pipeline_mode = async_io_cfg.get('pipeline_mode')
+        if raw_pipeline_mode is not None and nested_pipeline_mode is not None \
+                and str(raw_pipeline_mode).strip().lower() != str(nested_pipeline_mode).strip().lower():
+            raise ValueError(
+                "Conflicting pipeline_mode values: "
+                f"alert_agent.pipeline_mode={raw_pipeline_mode!r} vs "
+                f"alert_agent.async_io.pipeline_mode={nested_pipeline_mode!r}"
+            )
+        if raw_pipeline_mode is None:
+            raw_pipeline_mode = nested_pipeline_mode
         self.pipeline_mode = resolve_pipeline_mode(
-            self.config.get('alert_agent', {}).get('pipeline_mode'),
+            raw_pipeline_mode,
             legacy_async_io_enabled,
         )
         # ``async_io_enabled`` gates the thread_bridge machinery only; the
@@ -897,6 +910,16 @@ class AnomalyEnhancer(
                 self._sink_async_futures.clear()
             if PROMETHEUS_ENABLED:
                 ASYNC_SINK_IN_FLIGHT.set(0)
+            if (
+                self.async_vlm_runtime is not None
+                and self.pipeline_mode == PIPELINE_MODE_EVENT_LOOP
+            ):
+                # Close async clients in order (HTTP -> Elastic) before the
+                # runtime closes the VLM client and stops the loop.
+                try:
+                    self.async_vlm_runtime.run_coroutine(self._aclose_event_loop_clients())
+                except Exception:
+                    logger.exception("Failed closing event-loop clients during shutdown")
             if self.async_vlm_runtime is not None:
                 self.async_vlm_runtime.stop()
             if self._webhook_forwarder is not None:
@@ -1935,17 +1958,16 @@ class AnomalyEnhancer(
         )
         return publish_future
 
-    def _handle_vlm_exception(
+    def _apply_vlm_exception(
         self,
         exc: Exception,
         message: Dict[str, Any],
-        user_prompt: str,
-        system_prompt: Optional[str],
         storage_video_url: Optional[str],
-        worker_start_time: float,
         latency: Dict[str, Any],
-    ) -> None:
-        """Publish the error document and metrics for a failed VLM call."""
+    ) -> tuple:
+        """Classify a failed VLM call and merge the error response into the
+        message. Returns ``(failure_reason, log_label)``. Shared by the sync
+        and event_loop error paths."""
         code, status_prefix, failure_reason, log_label = (
             500, "Video verification could not be completed", "unknown", "VLM analysis failed",
         )
@@ -1967,6 +1989,33 @@ class AnomalyEnhancer(
             latency=latency,
             include_latency=self.include_latency_info,
         )
+        return failure_reason, log_label
+
+    def _log_vlm_exception(
+        self,
+        log_label: str,
+        message: Dict[str, Any],
+        exc: Exception,
+    ) -> None:
+        logger.error("%s [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
+                     log_label, message.get('sensorId'), message.get('category', 'N/A'),
+                     self.vlm_client.model, self.vlm_client.base_url,
+                     message.get('timestamp', 'N/A'), message.get('end', 'N/A'), exc)
+
+    def _handle_vlm_exception(
+        self,
+        exc: Exception,
+        message: Dict[str, Any],
+        user_prompt: str,
+        system_prompt: Optional[str],
+        storage_video_url: Optional[str],
+        worker_start_time: float,
+        latency: Dict[str, Any],
+    ) -> None:
+        """Publish the error document and metrics for a failed VLM call."""
+        failure_reason, log_label = self._apply_vlm_exception(
+            exc, message, storage_video_url, latency
+        )
         publish_future = self._publish_error_with_mode(
             message,
             user_prompt,
@@ -1980,10 +2029,7 @@ class AnomalyEnhancer(
             latency,
             failure_reason=failure_reason,
         )
-        logger.error("%s [sensor=%s category=%s model=%s endpoint=%s start=%s end=%s]: %s",
-                     log_label, message.get('sensorId'), message.get('category', 'N/A'),
-                     self.vlm_client.model, self.vlm_client.base_url,
-                     message.get('timestamp', 'N/A'), message.get('end', 'N/A'), exc)
+        self._log_vlm_exception(log_label, message, exc)
 
     @staticmethod
     def _extract_root_cause(exc: Exception, max_len: int = 150) -> str:
