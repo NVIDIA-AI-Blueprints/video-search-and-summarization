@@ -60,6 +60,8 @@ if PROMETHEUS_ENABLED:
         CAPACITY_WAIT_DURATION,
         DISPATCH_IN_FLIGHT,
         DISPATCH_WAIT_DURATION,
+        EVENT_LOOP_VLM_IN_FLIGHT,
+        EVENT_LOOP_VST_IN_FLIGHT,
         EVENTS_AFTER_DEDUP,
         EVENTS_AFTER_DEDUP_BY_SENSOR,
         EVENTS_DROPPED,
@@ -530,6 +532,26 @@ def observe_capacity_wait(service: str, seconds: float) -> None:
     if not PROMETHEUS_ENABLED:
         return
     CAPACITY_WAIT_DURATION.labels(service=service).observe(max(0.0, seconds))
+
+
+def inc_capacity_in_flight(service: str) -> None:
+    """Increment the per-service in-flight gauge (capacity slot acquired)."""
+    if not PROMETHEUS_ENABLED:
+        return
+    if service == "vlm":
+        EVENT_LOOP_VLM_IN_FLIGHT.inc()
+    elif service == "vst":
+        EVENT_LOOP_VST_IN_FLIGHT.inc()
+
+
+def dec_capacity_in_flight(service: str) -> None:
+    """Decrement the per-service in-flight gauge (capacity slot released)."""
+    if not PROMETHEUS_ENABLED:
+        return
+    if service == "vlm":
+        EVENT_LOOP_VLM_IN_FLIGHT.dec()
+    elif service == "vst":
+        EVENT_LOOP_VST_IN_FLIGHT.dec()
 
 
 def inc_events_skipped_confirmed(message=None) -> None:
