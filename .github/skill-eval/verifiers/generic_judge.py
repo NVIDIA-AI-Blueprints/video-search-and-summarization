@@ -139,7 +139,7 @@ In the recipes below, **substitute `<TRAJ>` with the exact trajectory path print
 
 | Question | One-liner |
 |---|---|
-| Did the agent ever POST to `<URL>`? | `grep -oF 'POST <URL>' <TRAJ> \| wc -l` (returns the actual occurrence count; `grep -c` only counts matching *lines*, which is 0-or-1 for trajectory.json since the whole file is one long line — use `-oF \| wc -l` for the real call count) |
+| Did the agent ever POST to `<URL>`? | `jq -r '.steps[].message \| fromjson \| .message.content[]? \| select(.type=="tool_use" and .name=="Bash") \| .input.command' <TRAJ> \| grep -oF 'POST <URL>' \| wc -l` (searches only commands the assistant actually executed; prompt and tool-result quotations are excluded) |
 | Show the bash commands the agent ran | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Bash") | .input.command' <TRAJ>` |
 | Show distinct tool_use names | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use") | .name' <TRAJ> | sort -u` |
 | Which Skills were invoked? | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Skill") | .input.skill' <TRAJ> | sort -u` |
