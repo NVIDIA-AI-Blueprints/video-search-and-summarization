@@ -187,6 +187,7 @@ Present a structured proposal to the user before generating any output. Required
 - **Shared infrastructure strategy** — single vs. isolated Kafka / Elasticsearch / Redis (default: shared).
 - **Conflicts and proposed resolutions** from Step 3.
 - **Gaps** — required peer services or interfaces that cannot be satisfied (Step 1 result).
+- **Generated artifact strategy** — state the resolved `<BUILD_DIR>`, the compose profile flag, and that generation is self-contained: upstream compose files are copied into `<BUILD_DIR>/patched/`, only those local patched copies are edited, and upstream files under `deploy/docker/` are not modified.
 - **Architecture diagram** — an ASCII flowchart rendering the proposal visually. See the sub-section below.
 
 For any proposal that includes VIOS + RT-VLM and a live/streaming path, the streaming media path must keep VIOS in the loop: external RTSP or NvStreamer validation source → VIOS sensor registration / streamprocessing → VIOS live proxy URL → RT-VLM `/v1/streams/add` / `/v1/generate_captions`. Do not propose direct NvStreamer → RT-VLM or direct external-camera → RT-VLM as the base-profile streaming path when the prompt also requires streamed video to be retrievable through default video IO and storage. The proposal must explicitly mention the VIOS live proxy (dynamic port when applicable) and that RT-VLM consumes the VIOS-proxied stream, while VIOS handles registration, recording/playback, and stream retrieval.
