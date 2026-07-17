@@ -20,6 +20,9 @@ fresh cohort so the survivor rate equals the injection rate exactly.
 | TS-004 | event_loop, cap 5, 10 msg/s overload, 1s sampling | every `event_loop_vlm_in_flight` sample ≤ cap (zero tolerance), max == cap |
 | TS-005 | event_loop, `max_vst_concurrent=4`, delayed VST sim | every `event_loop_vst_in_flight` sample ≤ cap, calls overlap |
 | TS-006 | event_loop, cap 5, sustained overload then drain | `dispatch_in_flight` never exceeds the global bound; produced == after_dedup == events_total == ES docs (zero loss) |
+| TS-011 | restart sweep sync→thread_bridge→event_loop→thread_bridge→sync | each restart lands in the right mode, processes one incident end-to-end, no tracebacks |
+| TS-014 | event_loop, 15s VLM, hard-kill while the call is in flight, restart same group | offset committed at consume (lag 0 mid-flight); killed message NOT reprocessed after restart (at-most-once) |
+| TS-020 | 20 byte-identical messages burst across a 10-worker pool (`max_poll_records=1`) | exactly 1 survivor: after_dedup == 1, dropped == 19, ES docs == 1 |
 
 Notes:
 - Consumer-group offsets are reset to latest between checks (committed offsets
