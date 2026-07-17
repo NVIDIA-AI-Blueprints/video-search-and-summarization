@@ -15,7 +15,7 @@
 """Reusable VST client and helpers.
 
 Includes the VST helpers (get_name_to_stream_id_map, get_stream_id, get_timeline)
-ported from services/agent/src/vss_agents/tools/vst/{utils,timeline}.py with
+ported from services/agent/src/agent/tools/vst/{utils,timeline}.py with
 these adjustments: no env reads (callers must pass internal URL explicitly);
 retries are limited to connection/timeout errors so deterministic 4xx/parse
 failures fail fast; and framework/parse exceptions are wrapped in the library

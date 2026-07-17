@@ -14,7 +14,7 @@
 # limitations under the License.
 """Abstract base for embedding clients.
 
-Ported from services/agent/src/vss_agents/embed/embed.py:21 with no behavior
+Ported from services/agent/src/agent/embed/embed.py:21 with no behavior
 changes. Two implementations: CosmosEmbedClient (full text+image+video) and
 RTVICVEmbedClient (text-only).
 """

@@ -515,7 +515,7 @@ class SearchRuntime:
 
         WARNING: in Helm the agent returns in-cluster DNS URLs that are NOT
         reachable from a developer laptop. Host callers should use
-        ``vss-cli search run --deployment kubernetes`` so it discovers the
+        ``vss search run --deployment kubernetes`` so it discovers the
         live ConfigMap/Deployment and creates managed port-forwards instead.
         """
         return RuntimeSnapshot.from_remote(agent_url, timeout=timeout).runtime

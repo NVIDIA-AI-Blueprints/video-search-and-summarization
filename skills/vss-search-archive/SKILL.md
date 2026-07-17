@@ -11,10 +11,10 @@ metadata:
 
 ## Purpose
 
-Run NAT-free archive search from the host machine with `vss-cli`, and retain the
+Run NAT-free archive search from the host machine with `vss`, and retain the
 agent-backed source ingestion and deletion lifecycle. The base `vss`
 distribution (no extras) exports `lib.*` for Python callers and provides the
-`vss-cli` console executable. Search uses the checked-out host CLI and performs
+`vss` console executable. Search uses the checked-out host CLI and performs
 no internal LLM query decomposition.
 
 ## Prerequisites
@@ -26,10 +26,10 @@ no internal LLM query decomposition.
 - `curl` and `jq`, plus Docker or Kubernetes access appropriate to the deployment,
   for agent-backed source ingestion or deletion. Ordinary search needs no API key.
 
-Do not execute `vss-cli` inside a distroless VSS container or a pod. Do not
+Do not execute `vss` inside a distroless VSS container or a pod. Do not
 wrap it with `docker exec`, `kubectl exec`, or `sh -lc`.
 
-`vss-cli` does not need to be installed globally and `which vss-cli` is not an
+`vss` does not need to be installed globally and `which vss` is not an
 availability check. Resolve the checkout once, allowing the operator to
 override Harbor's default, and validate it before the first search:
 
@@ -41,7 +41,7 @@ test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
 }
 cd "${VSS_REPO_ROOT}" &&
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  vss-cli search run --help
+  vss search run --help
 ```
 
 `$HOME/video-search-and-summarization` is only the Harbor/default workspace;
@@ -100,7 +100,7 @@ RTVI-CV registration + RTVI-Embed pipeline as one transaction; a bare VIOS
 PUT only stores the bytes and never wires them into Elasticsearch.
 
 Confirm the source exists in VIOS first (Mandatory workflow step 2). If it is
-missing, ingest it with one of the recipes below before running `vss-cli search
+missing, ingest it with one of the recipes below before running `vss search
 run`. After ingestion succeeds, the source appears in `sensor/list` under the
 name you provided and can be selected with `--video-source`.
 
@@ -178,14 +178,14 @@ registration is asynchronous, so `/complete` alone does not prove those two
 indexes are ready.
 
 For a deployed Docker profile, resolve the endpoints and all three indexes in
-one operation from the same sources used by `vss-cli`. Do not reuse
+one operation from the same sources used by `vss`. Do not reuse
 `ELASTIC_SEARCH_INDEX` for behavior or raw-data checks: that variable names only
 the video embedding index.
 
 ```bash
 PROFILE="${PROFILE:-search}"
 RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python -c 'import json,sys; from lib.cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
+  python -c 'import json,sys; from cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
   "${PROFILE}") || exit 1
 
 printf '%s' "${RUNTIME_JSON}" | jq -e '
@@ -322,7 +322,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
    TOP_K="${TOP_K:-3}"
    SEARCH_COMMAND=(
      uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev
-     vss-cli search run
+     vss search run
      --deployment docker --profile "${PROFILE}"
      --query "${QUERY}" --search-mode "${SEARCH_MODE}"
      --video-source "${VIDEO_SOURCE}" --top-k "${TOP_K}"
@@ -341,7 +341,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
      }
    ```
 
-   `SEARCH_COMMAND` must invoke the project-local `vss-cli search run`, not a
+   `SEARCH_COMMAND` must invoke the project-local `vss search run`, not a
    shell string or another interface. Media validation must consume each hit's
    returned `screenshot_url` from `SEARCH_JSON`.
    If the command cannot start or returns a configuration error, report the
@@ -362,7 +362,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
    ```bash
    PROFILE="${PROFILE:-search}"
    EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python -c 'import sys; from lib.cli.deployment import discover_docker; print(discover_docker(sys.argv[1]).env["VST_EXTERNAL_URL"])' \
+     python -c 'import sys; from cli.deployment import discover_docker; print(discover_docker(sys.argv[1]).env["VST_EXTERNAL_URL"])' \
      "${PROFILE}")
    ```
 
@@ -373,12 +373,12 @@ Report every final count. A successful DELETE response alone is not sufficient.
    : "${NAMESPACE:?set the selected Kubernetes namespace}"
    : "${RELEASE:?set the selected Kubernetes release}"
    EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python -c 'import sys; from lib.cli.deployment import discover_kubernetes; d=discover_kubernetes(namespace=sys.argv[1], release=sys.argv[2], context=sys.argv[3] or None); print(d.env["VST_EXTERNAL_URL"]); d.close()' \
+     python -c 'import sys; from cli.deployment import discover_kubernetes; d=discover_kubernetes(namespace=sys.argv[1], release=sys.argv[2], context=sys.argv[3] or None); print(d.env["VST_EXTERNAL_URL"]); d.close()' \
      "${NAMESPACE}" "${RELEASE}" "${KUBE_CONTEXT:-}")
    ```
 
    With no deployment selector, set `EXPECTED_VST_EXTERNAL_URL` to the same
-   explicit non-secret `--vst-external-url` value passed to `vss-cli`.
+   explicit non-secret `--vst-external-url` value passed to `vss`.
 
    Then validate the exact returned URLs. A media-bearing external VST origin
    must be public HTTPS: reject HTTP, localhost, single-label/internal hostnames,
@@ -498,11 +498,11 @@ Always invoke the checked-out `services/agent` project with `uv run`:
 
 ```bash
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  vss-cli search run [deployment options] [query options]
+  vss search run [deployment options] [query options]
 ```
 
 The `uv run --project` prefix creates the project-local console entry point;
-do not require or search for a global `vss-cli` executable.
+do not require or search for a global `vss` executable.
 
 Direct low-level invocation remains environment-free. Use explicit runtime
 flags or `--config` with explicit `--config-env KEY=VALUE` values only when a
@@ -522,7 +522,7 @@ The embedding index is resolved from the profile layers; behavior and raw index
 names are resolved from the interpolated agent config.
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   --deployment docker --profile search \
   --query "find all instances of forklifts" \
   --search-mode embed --source-type video_file --top-k 10 \
@@ -553,7 +553,7 @@ forward whose lifetime extends through result consumption. The CLI rejects an
 in-cluster Service URL in that external field instead of returning dead links.
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   --deployment kubernetes --namespace <namespace> --release <release> \
   --kube-context <optional-context> \
   --query "person in a white jacket climbing a ladder" \
@@ -581,9 +581,9 @@ through the operator-managed workflow.
   search. `--allow-embed-only-fallback` is the only opt-in way to remove
   attributes and continue as embed-only search.
 - Result object IDs that are missing or `unknown` are not merged together.
-- `vss-cli search run` performs retrieval only. Visual verification is the
+- `vss search run` performs retrieval only. Visual verification is the
   explicit screenshot-inspection step described above; it is not a CLI flag.
-- `vss-cli search embed` and `vss-cli search attribute` expose the lower-level
+- `vss search embed` and `vss search attribute` expose the lower-level
   primitives for callers that explicitly need one primitive or for focused
   troubleshooting. Normal archive-search requests should use `search run` with
   an explicit mode so they retain unified source validation, routing, and the
@@ -593,20 +593,20 @@ through the operator-managed workflow.
 
 ```bash
 # Embed-only search across all ingested files
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   --deployment docker --profile search \
   --query "red forklift near a loading bay" --search-mode embed \
   --source-type video_file --output json --raw
 
 # Attribute-only search; source must have been resolved first
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   --deployment kubernetes --namespace vss --release search \
   --query "person wearing a white jacket" \
   --search-mode attribute --attribute "white jacket" \
   --video-source warehouse-camera-3 --output json --raw
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   --deployment docker --profile search \
   --query "forklift near a loading bay" --attribute "yellow forklift" \
   --search-mode fusion --allow-embed-only-fallback --output json --raw
@@ -615,7 +615,7 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run \
 ## Troubleshooting
 
 - **Host CLI preflight fails**: preserve the output from
-  `uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run
+  `uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run
   --help`, verify `VSS_REPO_ROOT` and host `uv`, and stop. Do not switch search
   interfaces.
 

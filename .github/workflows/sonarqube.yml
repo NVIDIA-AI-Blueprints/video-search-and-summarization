@@ -186,7 +186,7 @@ jobs:
           # instead of requiring cairo headers and pkg-config on the runner.
           uv sync --group dev --extra agent --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run --no-sync pytest \
-            --cov=src/vss_agents \
+            --cov=src/agent \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"

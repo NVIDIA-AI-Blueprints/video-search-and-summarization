@@ -1,7 +1,7 @@
 # Examples of discovery modes
 
 Run host-side
-`uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss-cli search run`
+`uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run`
 with one of the deployment selectors from the main `SKILL.md`. Resolve and
 validate `VSS_REPO_ROOT` first. Do not invoke it in a container or pod. The
 snippets below are query/control flags to append after the deployment options.
@@ -54,7 +54,7 @@ When false positives are costly, use a lower result count and higher similarity 
 
 ## Attribute and fusion search — make decomposition explicit
 
-`vss-cli search run` does not call NAT query decomposition. If the user request has appearance attributes and actions, pass them explicitly.
+`vss search run` does not call NAT query decomposition. If the user request has appearance attributes and actions, pass them explicitly.
 
 ```bash
 --query "person in a red jacket running" \

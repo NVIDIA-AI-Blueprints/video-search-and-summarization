@@ -17,7 +17,7 @@
 An ElasticIndex-shaped object that primitives can hold by reference. It keeps
 its OWN endpoint-keyed registry of AsyncElasticsearch instances (the ClassVar
 ``_clients`` below) — it does NOT share the NAT-side VSSESClient registry
-(services/agent/src/vss_agents/utils/es_client.py); search_core is deliberately
+(services/agent/src/agent/utils/es_client.py); search_core is deliberately
 decoupled from that module. The two registries therefore open independent
 connection pools per endpoint.
 
@@ -82,7 +82,7 @@ class ElasticClient:
     registry uses dict.setdefault for atomic-insert semantics, which is safe
     against concurrent task interleaving inside a single event loop.
 
-    Mirrors the lifecycle of services/agent/src/vss_agents/utils/es_client.py
+    Mirrors the lifecycle of services/agent/src/agent/utils/es_client.py
     (VSSESClient) but without coupling search_core to it.
     """
 

@@ -22,9 +22,9 @@ Design conventions (not CI-enforced — please respect them in review):
   - No `from nat.*` / `import nat.*` anywhere under this package.
 
 This package lives under the shared ``services/agent/src/lib`` namespace so
-``vss_agents`` code can import it directly. The base ``vss`` distribution
+``agent`` code can import it directly. The base ``vss`` distribution
 (no extras) makes this shared code usable without the NAT stack that the
-``agent`` extra installs. The executable remains ``vss-cli`` and the public
+``agent`` extra installs. The executable remains ``vss`` and the public
 Python namespace remains ``lib.*``; the package must stay independent from
 NAT and agent registration code.
 """

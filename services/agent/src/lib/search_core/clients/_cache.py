@@ -14,7 +14,7 @@
 # limitations under the License.
 """Bounded LRU cache for text embeddings with per-key async locks.
 
-Ported from services/agent/src/vss_agents/embed/embed.py:48 with no behavior
+Ported from services/agent/src/agent/embed/embed.py:48 with no behavior
 changes. Used by CosmosEmbedClient and RTVICVEmbedClient to deduplicate
 concurrent fetches for the same text.
 """

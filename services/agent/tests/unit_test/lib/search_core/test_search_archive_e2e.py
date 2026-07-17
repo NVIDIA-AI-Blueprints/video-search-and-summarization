@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Hermetic end-to-end coverage for search_core and `vss-cli search run`."""
+"""Hermetic end-to-end coverage for search_core and `vss search run`."""
 
 from __future__ import annotations
 
@@ -441,7 +441,7 @@ def test_search_archive_cli_validation_errors_exit_2(
     )
 
     assert result.returncode == 2
-    assert "[vss-cli] invalid input:" in result.stderr
+    assert "[vss] invalid input:" in result.stderr
     assert mock_services.requests == []
 
 
@@ -507,14 +507,14 @@ def _run_search_archive(
 
 
 def _search_archive_command() -> list[str]:
-    # Search is a `vss-cli` domain operation; the standalone search-archive
-    # script was folded into `vss-cli search run`. Invoke the source module so
+    # Search is a `vss` domain operation; the standalone search-archive
+    # script was folded into `vss search run`. Invoke the source module so
     # this hermetic suite does not depend on a potentially stale local console
     # script; package-install coverage exercises the generated script.
     return [
         sys.executable,
         "-c",
-        "from lib.cli import main; raise SystemExit(main())",
+        "from cli import main; raise SystemExit(main())",
         "search",
         "run",
     ]

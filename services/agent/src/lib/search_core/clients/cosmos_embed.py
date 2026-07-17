@@ -14,7 +14,7 @@
 # limitations under the License.
 """Cosmos embed client: text + image + video embeddings.
 
-Ported from services/agent/src/vss_agents/embed/cosmos_embed.py with ONE
+Ported from services/agent/src/agent/embed/cosmos_embed.py with ONE
 behavior change: the embed model name no longer comes from
 `os.getenv("RTVI_EMBED_MODEL", ...)` at module import time — it is passed in
 via the constructor, and SearchRuntime.cosmos_embed_model carries it.

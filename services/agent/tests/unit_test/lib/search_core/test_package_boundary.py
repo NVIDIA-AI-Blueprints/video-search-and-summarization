@@ -27,11 +27,11 @@ assert heavy == [], heavy
     subprocess.run([sys.executable, "-B", "-c", code], check=True, env=env)
 
 
-def test_old_vss_agents_search_core_namespace_is_removed() -> None:
+def test_old_agent_search_core_namespace_is_removed() -> None:
     try:
-        spec = importlib.util.find_spec("vss_agents.search_core")
+        spec = importlib.util.find_spec("agent.search_core")
     except ModuleNotFoundError:
-        # Without the `agent` extra, importing vss_agents itself may fail.
+        # Without the `agent` extra, importing agent itself may fail.
         spec = None
     assert spec is None
 
@@ -81,7 +81,7 @@ def test_distribution_is_nvidia_nat_torch_and_langchain_free_by_default() -> Non
     assert {"nvidia-nat", "torch", "langchain", "langchain-core"}.isdisjoint(
         _requirement_names(project["dependencies"])
     )
-    assert project["scripts"]["vss-cli"] == "lib.cli:main"
+    assert project["scripts"]["vss"] == "cli:main"
 
 
 def test_agent_extra_gates_the_nat_stack() -> None:

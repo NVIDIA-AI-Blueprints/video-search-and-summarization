@@ -12,9 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/evaluators/report_evaluator/data_models.py."""
+"""Tests for agent/evaluators/report_evaluator/data_models.py."""
 
-from vss_agents.evaluators.report_evaluator.data_models import EvaluationScore
+from agent.evaluators.report_evaluator.data_models import EvaluationScore
 
 
 class TestEvaluationScore:
