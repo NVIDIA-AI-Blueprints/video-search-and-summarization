@@ -36,17 +36,18 @@ def resolve_pipeline_mode(raw_mode: Any, async_io_enabled: bool) -> str:
     """
     Resolve the effective pipeline mode.
 
-    An explicit, valid ``pipeline_mode`` wins; otherwise the mode derives from
-    the legacy ``async_io.enabled`` flag so existing deployments keep their
-    current behavior without config changes.
+    An explicit ``pipeline_mode`` must be valid — an invalid value raises so
+    startup fails fast instead of silently running in a different mode. When
+    unset, the mode derives from the legacy ``async_io.enabled`` flag so
+    existing deployments keep their current behavior without config changes.
     """
     if raw_mode is not None:
         normalized = str(raw_mode).strip().lower()
         if normalized in PIPELINE_MODES:
             return normalized
-        logger.warning(
-            "Invalid alert_agent.pipeline_mode %r; falling back to legacy async_io.enabled resolution",
-            raw_mode,
+        raise ValueError(
+            f"Invalid pipeline_mode {raw_mode!r}: must be one of "
+            f"{', '.join(PIPELINE_MODES)}"
         )
     return PIPELINE_MODE_THREAD_BRIDGE if async_io_enabled else PIPELINE_MODE_SYNC
 
