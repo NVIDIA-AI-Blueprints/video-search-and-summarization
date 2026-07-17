@@ -20,6 +20,32 @@ from typing import Any
 
 MARKER = "<!-- vss-ghcr-candidates -->"
 API_ROOT = "https://api.github.com"
+COMMENT_PAGE_SIZE = 100
+MAX_COMMENT_PAGES = 100
+
+
+def enforce_memory_ceiling() -> None:
+    """Keep a broken CI helper from exhausting its runner or developer host."""
+    try:
+        import resource
+    except ImportError:
+        return
+    raw_limit = os.environ.get("GHCR_CANDIDATE_MEMORY_LIMIT_GB", "10").strip()
+    try:
+        limit_gb = float(raw_limit)
+    except ValueError as exc:
+        raise ValueError(
+            "GHCR_CANDIDATE_MEMORY_LIMIT_GB must be numeric"
+        ) from exc
+    if limit_gb <= 0:
+        return
+    requested = int(limit_gb * 1024**3)
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    if soft != resource.RLIM_INFINITY:
+        requested = min(requested, soft)
+    if hard != resource.RLIM_INFINITY:
+        requested = min(requested, hard)
+    resource.setrlimit(resource.RLIMIT_AS, (requested, requested))
 
 
 def pr_number(ref_name: str) -> int | None:
@@ -187,12 +213,14 @@ def upsert_comment(
     api: GitHubApi, repository: str, number: int, body: str
 ) -> None:
     existing: dict[str, Any] | None = None
-    page = 1
-    while existing is None:
+    for page in range(1, MAX_COMMENT_PAGES + 1):
         comments = api.request(
             "GET",
-            f"/repos/{repository}/issues/{number}/comments?per_page=100&page={page}",
+            f"/repos/{repository}/issues/{number}/comments"
+            f"?per_page={COMMENT_PAGE_SIZE}&page={page}",
         )
+        if not isinstance(comments, list):
+            raise RuntimeError("GitHub comments response was not a list")
         existing = next(
             (
                 comment
@@ -201,9 +229,12 @@ def upsert_comment(
             ),
             None,
         )
-        if existing is not None or len(comments) < 100:
+        if existing is not None or len(comments) < COMMENT_PAGE_SIZE:
             break
-        page += 1
+    else:
+        raise RuntimeError(
+            f"GitHub comment pagination exceeded {MAX_COMMENT_PAGES} pages"
+        )
     if existing:
         api.request(
             "PATCH",
@@ -265,6 +296,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
+        enforce_memory_ceiling()
         raise SystemExit(main())
     except Exception as exc:
         print(

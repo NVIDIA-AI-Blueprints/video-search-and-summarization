@@ -161,6 +161,32 @@ class CandidateCommentTest(unittest.TestCase):
         )
         self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
 
+    def test_upsert_comment_stops_repeating_full_pages(self):
+        class FakeApi:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, method, path, payload=None):
+                self.calls.append((method, path, payload))
+                return [{"id": index, "body": "other"} for index in range(100)]
+
+        api = FakeApi()
+        with mock.patch.object(module, "MAX_COMMENT_PAGES", 3):
+            with self.assertRaisesRegex(RuntimeError, "exceeded 3 pages"):
+                module.upsert_comment(api, "org/repo", 1190, "updated")
+        self.assertEqual(
+            [path for method, path, _ in api.calls if method == "GET"],
+            [
+                "/repos/org/repo/issues/1190/comments?per_page=100&page=1",
+                "/repos/org/repo/issues/1190/comments?per_page=100&page=2",
+                "/repos/org/repo/issues/1190/comments?per_page=100&page=3",
+            ],
+        )
+        self.assertFalse(
+            any(method in {"POST", "PATCH"} for method, _, _ in api.calls)
+        )
+
 
 if __name__ == "__main__":
+    module.enforce_memory_ceiling()
     unittest.main(verbosity=2)
