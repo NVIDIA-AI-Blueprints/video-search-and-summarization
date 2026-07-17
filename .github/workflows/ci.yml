@@ -690,8 +690,10 @@ jobs:
       # the docker pull would fail. The always-on unit test + Dockerfile assertion
       # above, plus the Dockerfile build-time guard in the gated publish build,
       # keep enforcing the policy when this scan is skipped.
+      # PR mirrors publish only pr-<N>-* candidates; develop-latest is created
+      # after merge, so the committed deploy coordinate is not pullable yet.
       - name: Scan the deployed agent image for patent-encumbered codecs
-        if: ${{ env.NGC_CLI_API_KEY != '' }}
+        if: ${{ env.NGC_CLI_API_KEY != '' && !startsWith(github.ref_name, 'pull-request/') }}
         run: python3 .github/scripts/check_no_patented_codecs.py --from-deploy vss-agent
 
   # ---------------------------------------------------------------------------
