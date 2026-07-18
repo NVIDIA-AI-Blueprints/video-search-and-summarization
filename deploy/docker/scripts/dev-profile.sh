@@ -1373,6 +1373,14 @@ function state_up() {
   if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
+    # LVS requests defer frame sampling to RT-VLM. Default remote endpoints to
+    # five frames per chunk unless their profile or environment overrides it.
+    if [[ "${profile}" == "lvs" ]]; then
+      local _configured_frame_default
+      _configured_frame_default="$(get_env_value_from_files "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "${_source_env}" "${_overrides_env}")"
+      local _remote_frame_default="${RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK:-${_configured_frame_default}}"
+      set_env_var "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "${_remote_frame_default:-5}"
+    fi
   fi
 
   # Handle custom weights for VLM

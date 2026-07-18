@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for report generation or live RTSP captioning. <br>
+Use to summarize a recorded video via the LVS summarization microservice (HITL-gated). If LVS is unavailable, ask before using the lower-quality VLM fallback. Not for report generation or live RTSP captioning. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to produce narrative summaries of recorded video clips, leveraging the LVS summarization microservice with HITL gating or a VLM fallback. <br>
+Developers and engineers use this skill to produce narrative summaries of recorded video clips via the LVS video summarization microservice with human-in-the-loop gating. A direct VLM fallback is allowed only when LVS is unavailable and the user explicitly approves the lower-quality path. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
