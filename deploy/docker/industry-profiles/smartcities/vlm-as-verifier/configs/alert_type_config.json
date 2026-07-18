@@ -1,31 +1,31 @@
 {
-    "version": "1.0",
-    "alerts": [
-      {
-        "alert_type": "collision",
-        "output_verdict_description": {
-          "confirmed": "Collision detected",
-          "rejected": "No collision detected"
-        },
-        "prompts": {
-          "system": "You are a helpful assistant.",
-          "user": "Focus on vehicles {info.primaryObjectId} and vehicle list {objectIds}. Identify if there is a moment in the video where both vehicles occupy the same space simultaneously, indicating physical contact. Did vehicles {info.primaryObjectId} and vehicle from the list {objectIds} collide? Your final answer should be either Yes or No."
-        }
+  "version": "1.0",
+  "alerts": [
+    {
+      "alert_type": "collision",
+      "output_verdict_description": {
+        "confirmed": "Collision detected",
+        "rejected": "No collision detected"
       },
-      {
-        "alert_type": "Stop Anomaly Module",
-        "prompts": {
-          "system": "You are a helpful assistant.",
-          "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal stopping behavior or a stop anomaly.\n\n- Normal Stop: A worker, vehicle, or machinery stops briefly as part of expected operational behavior.\n- Stop Anomaly: A worker, vehicle, or machinery stops unexpectedly, in an unsafe location, or for an abnormal duration.\n\nIs there a stop anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
-        }
-      },
-      {
-        "alert_type": "Movement Anomaly Module",
-        "prompts": {
-          "system": "You are a helpful assistant.",
-          "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal movement or an abnormal movement anomaly.\n\n- Normal Movement: Movement follows expected speed, direction, and path patterns.\n- Movement Anomaly: Sudden or unusual motion patterns such as abrupt speed spikes, sharp direction changes, or deviations from usual routes.\n\nIs there a movement anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
-        }
+      "prompts": {
+        "system": "You are a smart-cities collision analysis system. Follow the output format requested by the prompt you are given exactly, with no markdown, code fences, or extra text.",
+        "user": "Focus on vehicles {info.primaryObjectId} and vehicle list {objectIds}. Identify if there is a moment in the video where both vehicles occupy the same space simultaneously, indicating physical contact. Did vehicles {info.primaryObjectId} and vehicle from the list {objectIds} collide? Your final answer should be either Yes or No.",
+        "enrichment": "Focus on vehicle {info.primaryObjectId} and related object list {objectIds}. Verify whether the video shows a vehicle collision event involving vehicle {info.primaryObjectId}, then assess collision evidence, traffic or safety impact, and recommended response.\n\nReturn JSON with exactly these fields:\n- event_type: string categorizing the collision event, such as \"vehicle_collision\", \"no_collision_observed\"\n- description: MUST be exactly one templated sentence: \"Confirmed collision between [vehicle color] vehicle [vehicle id] and [vehicle color] vehicle [vehicle id]\" or \"Rejected collision between [vehicle color] vehicle [vehicle id] and [vehicle color] vehicle [vehicle id]\". Use Confirmed for visible collisions and Rejected for no collision. Vehicle color must be white, black, red, orange, yellow, green, blue, purple, or unknown.\n- risk_level: one of [low, medium, high, critical], based on collision severity, blocked lanes, pedestrian exposure, traffic disruption, and emergency-response urgency\n- recommended_action: what should be done next, such as dispatch responders, review additional camera angles, clear blocked lanes, or continue monitoring\n\nDo not use lists, arrays, enum labels outside the allowed risk_level values, markdown, or additional JSON fields. If no collision is visible, set event_type to \"no_collision_observed\" and use the Rejected description template."
       }
-    ]
-  }
-  
+    },
+    {
+      "alert_type": "Stop Anomaly Module",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal stopping behavior or a stop anomaly.\n\n- Normal Stop: A worker, vehicle, or machinery stops briefly as part of expected operational behavior.\n- Stop Anomaly: A worker, vehicle, or machinery stops unexpectedly, in an unsafe location, or for an abnormal duration.\n\nIs there a stop anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
+      }
+    },
+    {
+      "alert_type": "Movement Anomaly Module",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal movement or an abnormal movement anomaly.\n\n- Normal Movement: Movement follows expected speed, direction, and path patterns.\n- Movement Anomaly: Sudden or unusual motion patterns such as abrupt speed spikes, sharp direction changes, or deviations from usual routes.\n\nIs there a movement anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
+      }
+    }
+  ]
+}

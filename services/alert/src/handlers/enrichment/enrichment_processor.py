@@ -278,6 +278,8 @@ class EnrichmentProcessor:
         self,
         message: Dict[str, Any],
         enrichment_response: EnrichmentResponse,
+        *,
+        parsed_enrichment: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Merge enrichment response into message['info']['enrichment'].
@@ -285,7 +287,11 @@ class EnrichmentProcessor:
         Args:
             message: Alert message dict to update in-place
             enrichment_response: Response to merge
+            parsed_enrichment: Structured parser output from the enrichment VLM response
         """
+        enrichment = dict(parsed_enrichment or {})
+        enrichment["responseCode"] = enrichment_response.response_code
+        enrichment["responseStatus"] = enrichment_response.response_status
         message.setdefault('info', {})['enrichment'] = json.dumps(
-            enrichment_response.model_dump(), separators=(',', ':'),
+            enrichment, separators=(',', ':'),
         )

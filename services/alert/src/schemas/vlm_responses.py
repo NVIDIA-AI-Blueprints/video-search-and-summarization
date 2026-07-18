@@ -420,13 +420,13 @@ class VLMResponse(BaseModel):
 
 
 class EnrichmentResponse(BaseModel):
-    """Response from enrichment VLM call."""
+    """Internal transport response from the enrichment VLM call."""
     reasoning: Optional[str] = None  # Free-form enrichment text from VLM
     response_code: int = Field(serialization_alias="responseCode")  # HTTP-style status code
     response_status: str = Field(serialization_alias="responseStatus")  # Human-readable status
 
     def model_dump(self) -> Dict[str, Any]:
-        """Return dict for merging into message['info']['enrichment']."""
+        """Return the transport response with serialized status aliases."""
         data = super().model_dump(by_alias=True)
         return data
 

@@ -93,20 +93,20 @@ vlm:
   # custom_parser_module: "custom_parsers.my_parser"  # dotted Python module path
 
   # Pluggable response parser: external parser class for custom use cases.
-  # When set, it fully replaces the default CR1/CR2 verification parsing.
-  # The class must expose parse(raw_response: str) -> dict; its output is
-  # JSON-stringified into info["vlm_response"] with info["verdict"] = "".
-  # Parser modules live outside the AB repo; AB loads the class at startup.
+  # By default it replaces verification parsing. Set
+  # alert_agent.enrichment.apply_response_parser to parse the second pass
+  # instead while preserving the first-pass verdict and reasoning.
+  # The class must expose parse(raw_response: str) -> dict.
+  # Parser classes may be built in or otherwise importable at startup.
   # IMPORTANT: parser classes MUST be thread-safe — Alert Bridge shares one
   # instance across all worker threads + the async dispatcher.
   #
   # Output-schema contract:
-  #   * When UNSET (default) — output schema is unchanged; VLM free-form
-  #     text lands in info["reasoning"] via the built-in verification path.
-  #   * When SET               — output schema swaps: parser JSON lands in
-  #     info["vlm_response"] instead of info["reasoning"]. This is the only
-  #     way to opt into the new field name; deployments that never set this
-  #     key see zero wire change.
+  #   * With enrichment parsing disabled, the parser replaces verification:
+  #     parser JSON lands in info["vlm_response"] and info["verdict"] is "".
+  #   * With enrichment parsing enabled, verification keeps info["reasoning"]
+  #     and info["verdict"]; parsed second-pass fields plus response status
+  #     are JSON-stringified into info["enrichment"].
   #
   # response_parser: "my_package.parsers.FireClassifier"
 
@@ -236,6 +236,7 @@ alert_agent:
   # Enrichment Processing Configuration
   enrichment:
     enabled: false                               # Master switch for enrichment processing
+    apply_response_parser: false                 # Parse the second-pass response; preserve first-pass verdict parsing
 
   # Always-on VLM alert rules — controls the POST /api/v1/realtime/always-on
   # endpoint. When false (default), the endpoint short-circuits with

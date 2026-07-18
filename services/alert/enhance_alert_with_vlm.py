@@ -368,12 +368,25 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
 
         # Initialize EnrichmentProcessor
         enrichment_config = self.config.get('alert_agent', {}).get('enrichment', {})
+        self._enrichment_apply_response_parser = bool(
+            enrichment_config.get('apply_response_parser', False)
+        )
         self.enrichment_processor = EnrichmentProcessor(
             vlm_client=self.vlm_client,
             async_vlm_client=None,
             prompt_manager=self.prompt_manager,
             enabled=enrichment_config.get('enabled', False),
         )
+        if self._enrichment_apply_response_parser and not enrichment_config.get('enabled', False):
+            logger.warning(
+                "alert_agent.enrichment.apply_response_parser is enabled while enrichment "
+                "processing is disabled; the response parser will not run"
+            )
+        if self._enrichment_apply_response_parser and self._pluggable_parser is None:
+            logger.warning(
+                "alert_agent.enrichment.apply_response_parser is enabled but "
+                "vlm.response_parser is not configured"
+            )
 
         self._global_vlm_config = dict(self.config.get('vlm', {}))
 
@@ -420,9 +433,9 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
     def _load_pluggable_parser(self):
         """Load external pluggable parser from vlm.response_parser config.
 
-        When configured, the parser fully replaces the built-in CR1/CR2
-        verification parsing: its ``parse(raw_response) -> dict`` output
-        is serialized into ``info["vlm_response"]`` with ``info["verdict"] = None``.
+        By default, the parser replaces built-in verification parsing. With
+        ``alert_agent.enrichment.apply_response_parser``, it instead parses the
+        second-pass response while built-in verification computes the verdict.
         """
         dotted_path = self.config.get('vlm', {}).get('response_parser')
         if not dotted_path:
@@ -444,20 +457,23 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
           *replaces* the built-in parser entirely and writes the raw dict
           into ``info["vlm_response"]`` via the pluggable-parser helpers.
 
-        These are **not** redundant — they operate at different layers,
-        so both can be set without one shadowing the other.  However,
-        operators frequently configure both expecting one to "win", and
-        the resulting behaviour is subtle (the pluggable parser bypasses
-        the registry on the default VLM path, but the registry is still
-        consulted anywhere ``VLMResponse.model_validate_text`` is
-        invoked directly — e.g. in custom downstream paths).
+        These are **not** redundant when the pluggable parser targets
+        enrichment: the registry handles verification and the class parser
+        handles the second pass. Without that opt-in, operators frequently
+        configure both expecting one to "win", and the resulting behaviour
+        is subtle because the class parser bypasses the registry.
 
         We surface a single WARN at startup so misconfigurations are
         visible in logs rather than discovered in production.
         """
         module_path = self.config.get('vlm', {}).get('custom_parser_module')
         dotted_path = self.config.get('vlm', {}).get('response_parser')
-        if module_path and dotted_path:
+        apply_to_enrichment = bool(
+            self.config.get('alert_agent', {})
+            .get('enrichment', {})
+            .get('apply_response_parser', False)
+        )
+        if module_path and dotted_path and not apply_to_enrichment:
             logger.warning(
                 "Both vlm.custom_parser_module=%r and vlm.response_parser=%r "
                 "are configured. These mechanisms operate at different layers "
@@ -473,6 +489,49 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 module_path,
                 dotted_path,
             )
+
+    def _merge_enrichment_result(
+        self,
+        message: Dict[str, Any],
+        enrichment_result: Any,
+        *,
+        publish_future: Optional[Future],
+    ) -> None:
+        """Merge a second-pass response and optionally parse its enrichment JSON."""
+        parsed_enrichment = None
+        if (
+            getattr(self, "_enrichment_apply_response_parser", False)
+            and self._pluggable_parser is not None
+            and enrichment_result.reasoning
+        ):
+            try:
+                parsed = self._pluggable_parser.parse(enrichment_result.reasoning)
+                if not isinstance(parsed, dict):
+                    raise TypeError(
+                        f"Pluggable parser returned {type(parsed).__name__}, expected dict"
+                    )
+                parsed_enrichment = parsed
+            except Exception as parser_error:
+                logger.warning(
+                    "Enrichment response parser failed",
+                    extra={
+                        "id": message.get("id"),
+                        "sensorId": message.get("sensorId"),
+                        "error_type": type(parser_error).__name__,
+                        "error": str(parser_error),
+                    },
+                )
+
+        self.enrichment_processor.merge_into_message(
+            message,
+            enrichment_result,
+            parsed_enrichment=parsed_enrichment,
+        )
+        self._update_enrichment_with_mode(
+            message,
+            enrichment_result,
+            publish_future=publish_future,
+        )
 
     @staticmethod
     def load_config(config_file):
@@ -1131,7 +1190,10 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
         if os.getenv('LOG_VERBOSE_VLM_RESPONSE', 'false').lower() in ('1', 'true', 'yes'):
             logger.debug(f"Raw VLM response: {response_content}")
         verification_successful = False
-        if self._pluggable_parser is not None:
+        if (
+            self._pluggable_parser is not None
+            and not getattr(self, "_enrichment_apply_response_parser", False)
+        ):
             try:
                 parsed = self._pluggable_parser.parse(response_content)
                 if not isinstance(parsed, dict):
@@ -1234,8 +1296,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                 config_overrides=self._get_merged_vlm_config(category),
             )
             if enrichment_result:
-                self.enrichment_processor.merge_into_message(message, enrichment_result)
-                self._update_enrichment_with_mode(
+                self._merge_enrichment_result(
                     message,
                     enrichment_result,
                     publish_future=publish_future,
@@ -1574,7 +1635,10 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                     if os.getenv('LOG_VERBOSE_VLM_RESPONSE', 'false').lower() in ('1', 'true', 'yes'):
                         logger.debug(f"Raw VLM response: {response_content}")
 
-                    if self._pluggable_parser is not None:
+                    if (
+                        self._pluggable_parser is not None
+                        and not getattr(self, "_enrichment_apply_response_parser", False)
+                    ):
                         # Pluggable parser errors are deterministic (parser
                         # bug) — no point retrying. We emit an explicit
                         # parser-error event and exit the retry loop.
@@ -1748,8 +1812,7 @@ class AnomalyEnhancer(AsyncDispatchMixin, AsyncExternalIOMixin, AsyncVLMModeMixi
                     config_overrides=merged_vlm,
                 )
                 if enrichment_result:
-                    self.enrichment_processor.merge_into_message(message, enrichment_result)
-                    self._update_enrichment_with_mode(
+                    self._merge_enrichment_result(
                         message,
                         enrichment_result,
                         publish_future=publish_future,

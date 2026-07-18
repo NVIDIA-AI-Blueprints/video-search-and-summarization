@@ -67,12 +67,14 @@ vlm:
   base_url: ${VLM_BASE_URL}/v1
   model: "${VLM_NAME}"
   max_tokens: 4096
+  request_timeout: 120 # increase request timeout to account for boosting pipeline latency
   # Beware that these parameters need to be set in accordance with the VLM max context window
   min_pixels: 1568
   max_pixels: 8388608
   enable_sampling: true
   sampling_fps: 4
   response_format: "cosmos-reason"
+  response_parser: "custom_parsers.scene_enhancer.SceneEnhancer" # parse the second-pass enrichment response
 
 # Event Bridge Configuration - Choose between kafka and redisStream
 event_bridge:
@@ -134,7 +136,10 @@ alert_agent:
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
   chunk_size: 1
   include_latency_info: true
-  
+  enrichment: # flag to enable alert enhancement boosting
+    enabled: true
+    apply_response_parser: true
+
 elastic:
   enabled: true
   hosts:

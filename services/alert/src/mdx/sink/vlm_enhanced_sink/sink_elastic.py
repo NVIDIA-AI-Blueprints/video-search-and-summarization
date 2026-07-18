@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, Optional
 
 from clients.elastic import ElasticClient, ElasticConfig
@@ -193,7 +192,7 @@ class VLMEnhancedElasticSink(VLMEnhancedSink):
         
         Args:
             document: The original document (must have 'Id' and 'timestamp' for index lookup)
-            enrichment_response: The enrichment response to add
+            enrichment_response: The enrichment response associated with the update
         """
         from utils.event_utils import is_alert
         
@@ -205,6 +204,11 @@ class VLMEnhancedElasticSink(VLMEnhancedSink):
         if not doc_id:
             self._logger.warning("Cannot update enrichment: document has no Id field")
             return
+
+        enrichment = (document.get("info") or {}).get("enrichment")
+        if enrichment is None:
+            self._logger.warning("Cannot update enrichment: document has no canonical enrichment")
+            return
         
         # Generate daily index name
         timestamp_value = document.get("timestamp", "")
@@ -212,13 +216,7 @@ class VLMEnhancedElasticSink(VLMEnhancedSink):
             timestamp_value = str(timestamp_value)
         daily_index = self._elastic.generate_daily_index_name(base_index, timestamp_value)
         
-        partial_doc = {
-            "info": {
-                "enrichment": json.dumps(
-                    enrichment_response.model_dump(), separators=(',', ':'),
-                )
-            }
-        }
+        partial_doc = {"info": {"enrichment": enrichment}}
         
         try:
             self._elastic.update_document(
