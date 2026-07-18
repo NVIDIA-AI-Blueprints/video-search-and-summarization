@@ -482,12 +482,15 @@ Report every final count. A successful DELETE response alone is not sufficient.
    Similarity scores are retrieval evidence; they do not visually confirm the requested object or action.
 
    ## Verification Step
-   <offer visual inspection, or report authorized inspection verdicts>
+   <offer visual inspection — do NOT fetch, save, or view screenshots yourself
+   unless the user already opted in; when authorized, report verdicts>
    ```
 
    Copy every evidence field verbatim from CLI output. Never invent or normalize
    evidence.
-7. Without user opt-in or prior authorization, do not save or inspect media
+7. **Never fetch, save, or visually inspect screenshots without explicit user
+   opt-in or prior authorization** — validating that URLs resolve is setup work;
+   *looking at the pixels* is a user decision. Without opt-in, do not save or inspect media
    pixels. When authorized, repeat the bounded GET without adding routing headers,
    save each returned screenshot under `/tmp/`, inspect the saved pixels, and
    report a grounded confirmed/rejected/uncertain verdict for each hit under
