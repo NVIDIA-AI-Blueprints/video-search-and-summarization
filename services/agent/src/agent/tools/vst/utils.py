@@ -250,6 +250,14 @@ async def delete_vst_sensor(vst_url: str, sensor_id: str) -> tuple[bool, str]:
             if response.status in (200, 204):
                 logger.info("VST sensor deleted: %s", scrub_log(sensor_id))
                 return True, "OK"
+            if response.status == 404:
+                # Idempotent delete: VST storage deletion can cascade the
+                # sensor registration away before this paired call runs, so
+                # "not found" means the goal state (absent) is already met.
+                # Counting it as failure downgrades fully-clean deletions to
+                # status "partial" (observed live in the search Harbor eval).
+                logger.info("VST sensor already absent: %s", scrub_log(sensor_id))
+                return True, "already absent"
             text = await response.text()
             return False, f"VST returned {response.status}: {text}"
     except Exception as e:
