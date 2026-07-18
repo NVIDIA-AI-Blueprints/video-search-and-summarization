@@ -465,3 +465,20 @@ functions:
         )
         with pytest.raises(ConfigurationError, match="rrf_k"):
             RuntimeSnapshot.from_config_file(config, env={})
+
+
+def test_raw_index_aliases_frames_index() -> None:
+    """The RUNTIME_JSON contract key is ``raw_index``; the field is ``frames_index``.
+
+    Both attribute names must resolve so an improvised resolver reaching for
+    ``runtime.raw_index`` (as eval agents do) is not an AttributeError trap.
+    """
+    rt = SearchRuntime.from_kwargs(
+        es_endpoint="http://es:9200",
+        cosmos_embed_endpoint="http://embed:8000",
+        vst_external_url="https://vst.example",
+        video_embed_index="mdx-embed-filtered-2025-01-01",
+        frames_index="mdx-raw-2025-01-01",
+    )
+    assert rt.raw_index == "mdx-raw-2025-01-01"
+    assert rt.raw_index == rt.frames_index
