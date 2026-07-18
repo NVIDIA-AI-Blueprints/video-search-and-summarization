@@ -215,11 +215,20 @@ class EmbedSearch:
             timeline = (timelines or {}).get(parsed.sensor_id)
             if timeline:
                 screenshot_ts = map_timestamp_to_timeline(screenshot_ts, timeline[0], timeline[1])
-            screenshot_url = self._vst.build_screenshot_url(
-                sensor_id=parsed.sensor_id,
-                timestamp=screenshot_ts,
-                internal=False,
-            )
+            if timelines and not timeline:
+                # VST reported its replayable streams and this hit's stream is
+                # not among them (stale ES document from a prior registration).
+                # A picture URL for an unknown stream is a guaranteed VST
+                # error; return the hit without a screenshot instead.
+                logger.warning(
+                    f"Stream {scrub_log(parsed.sensor_id)} not in VST timelines; returning hit without screenshot"
+                )
+            else:
+                screenshot_url = self._vst.build_screenshot_url(
+                    sensor_id=parsed.sensor_id,
+                    timestamp=screenshot_ts,
+                    internal=False,
+                )
 
         return EmbedSearchResultItem(
             video_name=parsed.video_name,

@@ -49,3 +49,17 @@ def test_wall_clock_before_timeline_start_is_rebased_not_clamped_blindly() -> No
     # midnight-anchored offsets always rebase, never silently pin to start.
     mapped = map_timestamp_to_timeline("2025-01-01T00:00:30Z", TL_START, TL_END)
     assert mapped == "2026-07-18T04:15:51.640Z"
+
+
+def test_unknown_stream_in_populated_timelines_means_no_url() -> None:
+    """Stale ES docs reference streams VST no longer knows; their picture URLs
+    are guaranteed VMSInternalError 500s (observed: eval run 29637290995,
+    hit-2 referenced a prior deploy registration). With a populated timelines
+    map, an unknown stream must yield no screenshot rather than a dead URL."""
+    from lib.search_core.primitives._attribute_helpers import _map_to_timeline
+
+    timelines = {"known-stream": (TL_START, TL_END)}
+    assert _map_to_timeline("2025-01-01T00:01:00Z", "stale-stream", timelines) is None
+    assert _map_to_timeline("2025-01-01T00:01:00Z", "known-stream", timelines) == "2026-07-18T04:16:21.640Z"
+    # Empty map = timelines unavailable; best-effort identity applies.
+    assert _map_to_timeline("2025-01-01T00:01:00Z", "stale-stream", {}) == "2025-01-01T00:01:00Z"
