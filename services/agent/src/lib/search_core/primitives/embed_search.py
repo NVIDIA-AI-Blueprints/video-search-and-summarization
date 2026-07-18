@@ -39,6 +39,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from lib._foundation.sanitize import scrub_log
+from lib.vst import VSTError
+from lib.vst import map_timestamp_to_timeline
 
 from .._internal.time_measure import TimeMeasure
 from ..errors import BackendUnreachableError
@@ -120,7 +122,8 @@ class EmbedSearch:
                     "elasticsearch",
                     "search response did not contain a list at hits.hits",
                 )
-            results = self._process_hits(hits, inp)
+            timelines = await self._fetch_timelines_best_effort(hits)
+            results = self._process_hits(hits, inp, timelines)
 
         if inp.top_k is not None:
             results = results[: inp.top_k]
@@ -144,7 +147,35 @@ class EmbedSearch:
         """
         return await self._es.search(index=search_index, body=search_query)
 
-    def _process_hits(self, hits: list[dict], inp: EmbedSearchInput) -> list[EmbedSearchResultItem]:
+    async def _fetch_timelines_best_effort(self, hits: list[dict]) -> dict[str, tuple[str, str]]:
+        """Fetch VST replay timelines for screenshot-timestamp mapping.
+
+        File-ingested sources are indexed on a synthetic epoch while VST
+        records at ingest wall-clock; screenshot URLs built from raw ES
+        timestamps point outside the recording and VST returns 500. One
+        timelines call covers every stream. Best-effort: on any failure the
+        search proceeds with unmapped timestamps rather than losing hits.
+        ``getattr`` keeps older VSTSnapshot implementations (without
+        ``get_timelines_map``) working unmapped.
+        """
+        if not hits:
+            return {}
+        fetch = getattr(self._vst, "get_timelines_map", None)
+        if fetch is None:
+            return {}
+        try:
+            timelines: dict[str, tuple[str, str]] = await fetch()
+        except VSTError as e:
+            logger.warning(f"Could not fetch VST timelines; screenshot timestamps left unmapped: {e}")
+            return {}
+        return timelines
+
+    def _process_hits(
+        self,
+        hits: list[dict],
+        inp: EmbedSearchInput,
+        timelines: dict[str, tuple[str, str]] | None = None,
+    ) -> list[EmbedSearchResultItem]:
         """Map raw ES hits to result items, skipping filtered or unprocessable hits.
 
         Mapping is best-effort per document: a single corrupt/unexpected stored
@@ -155,7 +186,7 @@ class EmbedSearch:
         results: list[EmbedSearchResultItem] = []
         for hit in hits:
             try:
-                item = self._hit_to_item(hit, inp)
+                item = self._hit_to_item(hit, inp, timelines)
             except (AttributeError, KeyError, TypeError, ValueError, ValidationError):
                 logger.warning(f"Skipping unprocessable search hit {scrub_log(_safe_hit_id(hit))}", exc_info=True)
                 continue
@@ -163,7 +194,12 @@ class EmbedSearch:
                 results.append(item)
         return results
 
-    def _hit_to_item(self, hit: dict[str, Any], inp: EmbedSearchInput) -> EmbedSearchResultItem | None:
+    def _hit_to_item(
+        self,
+        hit: dict[str, Any],
+        inp: EmbedSearchInput,
+        timelines: dict[str, tuple[str, str]] | None = None,
+    ) -> EmbedSearchResultItem | None:
         """Convert a single ES hit into a result item, or None if it is filtered."""
         parsed = helpers.parse_hit(
             hit,
@@ -175,9 +211,13 @@ class EmbedSearch:
 
         screenshot_url = ""
         if parsed.sensor_id:
+            screenshot_ts = parsed.start_time
+            timeline = (timelines or {}).get(parsed.sensor_id)
+            if timeline:
+                screenshot_ts = map_timestamp_to_timeline(screenshot_ts, timeline[0], timeline[1])
             screenshot_url = self._vst.build_screenshot_url(
                 sensor_id=parsed.sensor_id,
-                timestamp=parsed.start_time,
+                timestamp=screenshot_ts,
                 internal=False,
             )
 

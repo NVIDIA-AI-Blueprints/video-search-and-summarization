@@ -44,9 +44,12 @@ from lib._foundation.time import datetime_to_iso8601
 from lib._foundation.time import iso8601_instants_match
 from lib._foundation.time import iso8601_to_datetime
 from lib._foundation.time import safe_iso8601_to_datetime
+from lib.vst import VSTError
 from lib.vst import build_screenshot_url
 from lib.vst import get_stream_id
 from lib.vst import get_timeline
+from lib.vst import get_timelines_map
+from lib.vst import map_timestamp_to_timeline
 
 from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter
@@ -630,6 +633,9 @@ async def enrich_attribute_results(
     if not resolution_base_url or not screenshot_base_url:
         return
 
+    needs_screenshots = any(r.metadata and r.metadata.sensor_id and not r.screenshot_url for r in results)
+    timelines = await _get_timelines_best_effort(resolution_base_url) if needs_screenshots else {}
+
     async def _enrich(r: AttributeSearchResult) -> None:
         if not (r.metadata and r.metadata.sensor_id and not r.screenshot_url):
             return
@@ -638,12 +644,36 @@ async def enrich_attribute_results(
             stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
             if stream_id:
                 if ts:
+                    ts = _map_to_timeline(ts, stream_id, timelines)
                     r.screenshot_url = build_screenshot_url(screenshot_base_url, stream_id, ts)
                 r.metadata.sensor_id = stream_id
         except Exception as e:
             logger.warning(f"Failed to enrich result for sensor {r.metadata.sensor_id}: {e}")
 
     await asyncio.gather(*(_enrich(r) for r in results))
+
+
+async def _get_timelines_best_effort(vst_base_url: str) -> dict[str, tuple[str, str]]:
+    """Fetch all VST replay timelines for screenshot-timestamp mapping.
+
+    File-ingested sources are indexed on a synthetic epoch while VST records
+    at ingest wall-clock; screenshot URLs built from raw ES timestamps point
+    outside the recording and VST returns 500 (see map_timestamp_to_timeline).
+    Best-effort: enrichment proceeds unmapped when the fetch fails.
+    """
+    try:
+        return await get_timelines_map(vst_base_url, timeout_seconds=5, retries=1)
+    except VSTError as e:
+        logger.warning(f"Could not fetch VST timelines; screenshot timestamps left unmapped: {e}")
+        return {}
+
+
+def _map_to_timeline(ts: str, stream_id: str, timelines: dict[str, tuple[str, str]]) -> str:
+    """Map one ES timestamp onto the stream's VST timeline (identity if unknown)."""
+    timeline = timelines.get(stream_id)
+    if not timeline:
+        return ts
+    return map_timestamp_to_timeline(ts, timeline[0], timeline[1])
 
 
 async def _extend_clip_to_one_second(
@@ -1044,6 +1074,13 @@ async def _attach_screenshots(
     screenshot), matching the parity of :func:`enrich_attribute_results` and the
     fuse path. Every input result is present in the returned list.
     """
+    vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
+    needs_screenshots = any(
+        r.metadata and r.metadata.sensor_id and r.metadata.frame_timestamp and not r.screenshot_url
+        for r in attr_results
+    )
+    timelines = await _get_timelines_best_effort(vst_internal_for_resolution) if needs_screenshots else {}
+
     for result in attr_results:
         if not (result.metadata and result.metadata.sensor_id):
             continue
@@ -1057,14 +1094,12 @@ async def _attach_screenshots(
             )
             continue
         try:
-            vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
             stream_id = await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
             if stream_id:
                 result.metadata.sensor_id = stream_id
                 if not result.screenshot_url:
-                    result.screenshot_url = build_screenshot_url(
-                        vst_external_url, stream_id, result.metadata.frame_timestamp
-                    )
+                    screenshot_ts = _map_to_timeline(result.metadata.frame_timestamp, stream_id, timelines)
+                    result.screenshot_url = build_screenshot_url(vst_external_url, stream_id, screenshot_ts)
         except Exception as e:
             logger.warning(
                 f"Failed to generate screenshot for attribute '{scrub_log(attr_query)}' "
