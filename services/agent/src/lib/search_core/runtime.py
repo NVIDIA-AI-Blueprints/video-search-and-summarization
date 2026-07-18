@@ -264,6 +264,17 @@ class SearchRuntime:
     top_percent_filter: float | None = None
     request_timeout_seconds: int = 30
 
+    @property
+    def raw_index(self) -> str | None:
+        """Alias for :attr:`frames_index`.
+
+        The host-CLI RUNTIME_JSON contract (skills/vss-search-archive) exposes
+        this value under the key ``raw_index`` (the index family is
+        ``mdx-raw-*``), so callers routinely reach for ``runtime.raw_index``.
+        Keep both names valid rather than making one an AttributeError trap.
+        """
+        return self.frames_index
+
     def __post_init__(self) -> None:
         """Reject invalid behavior knobs before they reach backend code."""
         if self.default_max_results < 1:
