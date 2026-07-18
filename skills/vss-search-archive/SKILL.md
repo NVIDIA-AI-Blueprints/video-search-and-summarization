@@ -483,7 +483,9 @@ Report every final count. A successful DELETE response alone is not sufficient.
 
    ## Verification Step
    <offer visual inspection — do NOT fetch, save, or view screenshots yourself
-   unless the user already opted in; when authorized, report verdicts>
+   unless the user already opted in; when authorized, label every inspected
+   hit with exactly one of: confirmed / rejected / uncertain (never
+   MATCH / PARTIAL MATCH / NO MATCH phrasing)>
    ```
 
    Copy every evidence field verbatim from CLI output. Never invent or normalize
