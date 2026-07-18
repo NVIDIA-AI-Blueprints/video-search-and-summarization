@@ -32,6 +32,8 @@ def request(
         "Authorization": f"Bearer {token()}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
+        # GitHub rejects requests without an identifiable User-Agent.
+        "User-Agent": "vss-release-notes",
     }
     if data is not None:
         headers["Content-Type"] = "application/json"
@@ -43,10 +45,23 @@ def request(
                 parsed = json.loads(payload) if payload.strip() else None
                 return parsed, dict(resp.headers)
         except HTTPError as err:
-            if err.code in RETRYABLE_STATUS and attempt < retries:
-                time.sleep(2**attempt)
+            detail = ""
+            try:
+                detail = err.read().decode(errors="replace")[:300]
+            except Exception:
+                pass
+            # Primary/secondary rate limits surface as 403 with a retry-after
+            # or a rate-limit message — treat those as retryable too.
+            rate_limited = err.code == 403 and (
+                "rate limit" in detail.lower() or err.headers.get("Retry-After")
+            )
+            if (err.code in RETRYABLE_STATUS or rate_limited) and attempt < retries:
+                wait = int(err.headers.get("Retry-After") or 2**attempt)
+                print(f"retrying {method} {url} after HTTP {err.code} ({wait}s): {detail[:120]}")
+                time.sleep(min(wait, 120))
                 last_error = err
                 continue
+            print(f"ERROR: {method} {url} -> HTTP {err.code}: {detail}")
             raise
         except URLError as err:
             if attempt < retries:
