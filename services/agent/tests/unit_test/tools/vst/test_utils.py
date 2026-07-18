@@ -522,3 +522,28 @@ class TestValidateVideoUrl:
             await validate_video_url("http://example.com/video.mp4", timeout=60)
             # Verify ClientSession was called
             mock_cls.assert_called_once()
+
+
+class TestDeleteVSTSensorIdempotency:
+    """DELETE of an already-absent sensor must count as success.
+
+    VST storage deletion can cascade the sensor registration away before the
+    paired sensor delete runs; a 404 then means the goal state (absent) is
+    already met. Counting it as failure downgrades fully-clean deletions to
+    status "partial" (observed live in the search Harbor eval, run
+    29638556120 step-6).
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_sensor_404_is_success(self):
+        mock_delete_response = create_mock_response(404, "{}")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_sensor("http://localhost:30888", "gone-already")
+
+        assert success is True
+        assert message == "already absent"
