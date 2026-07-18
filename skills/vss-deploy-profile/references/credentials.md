@@ -47,8 +47,37 @@ one set.
 This token probe is not sufficient for local NIM / RT-VLM deployments. It
 proves the key authenticates, but it does not prove that the key's org/team can
 access the selected `nvcr.io/...` images or `ngc:...` model repositories. After
-`resolved.yml` exists, run `SKILL.md` Step 3c and verify access to every
-selected NGC artifact before starting Compose.
+`resolved.yml` exists, run the artifact probes below before starting Compose.
+
+## Artifact Entitlement Probes
+
+Build the artifact list from the selected deployment:
+
+- `resolved.yml`: every `image:` under `nvcr.io/...` that Compose will pull.
+- `generated.env`: NGC-backed model/resource paths such as
+  `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`. Skip
+  `none`, `git:...`, local paths, and remote endpoint URLs.
+- Profile staging instructions: NGC model/resource downloads such as
+  alerts/search perception models.
+
+Probe each artifact with the normalized NGC key:
+
+- Container images: after `docker login nvcr.io`, run `docker manifest inspect
+  <nvcr.io/...>`, or use `ngc registry image info ...` when it maps cleanly to
+  an NGC image path. A `401` or `403` from a gated repository proves the key
+  lacks the required org/team entitlement.
+- NGC models/resources: run `ngc registry model info ...` or `ngc registry
+  resource info ...` for the exact repository and tag. Do not use `docker
+  manifest inspect` for non-OCI models or a raw `Authorization: Bearer <key>`
+  REST call; their expected failures are false entitlement signals. If the NGC
+  CLI is unavailable, use the selected gated container-image probe as the
+  org/team entitlement signal.
+- Profile-staged TAO/perception models: run the corresponding NGC model or
+  resource probe before downloading them.
+
+On `401`, `403`, permission, membership, or missing repository errors, stop
+and request an NGC key entitled to those artifacts. Do not defer this failure
+to image pull, model download, or NIM cold start.
 
 ## Remote Endpoint Probes
 
@@ -83,8 +112,8 @@ the user for the correct endpoint/model before mutating `generated.env`.
 
 A key reported `invalid` that the chosen mode needs, a `skip` for a key the
 mode requires, conflicting `NGC_CLI_API_KEY` / `NGC_API_KEY` values, selected
-NGC artifact access failure in `SKILL.md` Step 3c, or a selected remote
-endpoint that fails `/v1/models` is a blocker. Prompt the user, re-probe, and
-do not proceed to env mutation until it resolves.
+NGC artifact access failure, or a selected remote endpoint that fails
+`/v1/models` is a blocker. Prompt the user, re-probe, and do not proceed to env
+mutation until it resolves.
 
 A `skip` for a key the mode does not use is fine.
