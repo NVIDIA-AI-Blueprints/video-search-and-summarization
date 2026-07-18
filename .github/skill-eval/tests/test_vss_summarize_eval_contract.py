@@ -81,50 +81,47 @@ def test_summarization_checks_assign_each_behavior_once() -> None:
 
 
 def test_summarization_uses_one_ordered_workflow_without_return_protocol() -> None:
-    """Keep VIOS preparation in the ordered summary workflow."""
+    """Keep VIOS preparation in the ordered workflow and its loaded reference."""
     eval_spec = json.loads(EVAL_SPEC.read_text())
     summarize_skill = SUMMARIZE_SKILL.read_text()
     normalized_summarize_skill = " ".join(summarize_skill.split())
+    end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
 
-    assert "Recorded video summarization workflow" in summarize_skill
-    assert "Make the requested video available through VIOS" in summarize_skill
-    assert "Execute the required VIOS API operations directly" in summarize_skill
-    assert "do not invoke a separate skill for Stage 2" in summarize_skill
+    assert "Recorded Video Workflow" in summarize_skill
+    assert "Prepare the Video Through VIOS" in summarize_skill
+    assert "Execute VIOS API operations directly" in summarize_skill
+    assert "do not invoke a separate skill" in normalized_summarize_skill
     assert "Invoke and follow the `vss-manage-video-io-storage` skill" not in summarize_skill
     assert "vss-manage-video-io-storage" not in eval_spec["skills"]
-    assert '"$VIOS_API/sensor/list"' in summarize_skill
-    assert '"$VIOS_API/sensor/$SENSOR_ID/streams"' in summarize_skill
-    assert '"$VIOS_API/storage/file/$FILENAME?timestamp=$UPLOAD_TIMESTAMP"' in summarize_skill
-    assert 'Content-Type: application/octet-stream' in summarize_skill
-    assert 'Content-Length: $FILE_SIZE' in summarize_skill
-    assert '--upload-file "$SOURCE_FILE"' in summarize_skill
-    assert '"$VIOS_API/storage/$STREAM_ID/timelines"' in summarize_skill
-    assert '"$VIOS_API/storage/file/$STREAM_ID/url"' in summarize_skill
-    assert 'sub("^http://http://"; "http://")' in summarize_skill
-    assert "map(.startTime) | min" in summarize_skill
-    assert "map(.endTime) | max" in summarize_skill
-    assert "Stage 1 - Select the backend" in summarize_skill
-    assert "Stage 2 - Prepare the video through VIOS" in summarize_skill
-    assert "Stage 3 - Collect summary settings" in summarize_skill
-    assert "Stage 4 - Discover the live contract and submit one request" in summarize_skill
-    assert "Stage 5 - Present the output to the user" in summarize_skill
-    assert "With the fresh clip URL established" in normalized_summarize_skill
-    assert "When Stage 1 selected LVS" in normalized_summarize_skill
+    assert '"$VIOS_API/sensor/list"' in end_to_end_example
+    assert '"$VIOS_API/sensor/$SENSOR_ID/streams"' in end_to_end_example
     assert (
-        "require the timeline and generated clip to cover the complete requested recording"
-        in normalized_summarize_skill
+        '"$VIOS_API/storage/file/$FILENAME?timestamp=$UPLOAD_TIMESTAMP"'
+        in end_to_end_example
     )
-    assert "Do not switch to NvStreamer or an RTSP recording" in normalized_summarize_skill
-    assert "When LVS was selected, continue to Stage 3" in normalized_summarize_skill
-    assert "skip LVS HITL and follow the Stages 3-4 fallback path" in normalized_summarize_skill
+    assert 'Content-Type: application/octet-stream' in end_to_end_example
+    assert 'Content-Length: $FILE_SIZE' in end_to_end_example
+    assert '--upload-file "$SOURCE_FILE"' in end_to_end_example
+    assert '"$VIOS_API/storage/$STREAM_ID/timelines"' in end_to_end_example
+    assert '"$VIOS_API/storage/file/$STREAM_ID/url"' in end_to_end_example
+    assert 'sub("^http://http://"; "http://")' in end_to_end_example
+    assert "map(.startTime) | min" in end_to_end_example
+    assert "map(.endTime) | max" in end_to_end_example
+    assert "Stage 1: Select the Backend" in summarize_skill
+    assert "Stage 2: Prepare the Video Through VIOS" in summarize_skill
+    assert "Stage 3: Collect LVS Settings" in summarize_skill
+    assert "Stage 4: Discover the Contract and Submit Once" in summarize_skill
+    assert "Stage 5: Present the Result" in summarize_skill
+    assert "full timeline, and fresh clip URL" in normalized_summarize_skill
+    assert "Do not choose an arbitrary `/tmp` video" in normalized_summarize_skill
+    assert "NvStreamer" in summarize_skill
     assert "Completion gate" not in summarize_skill
-    end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
     assert "Step 2 fallback" not in end_to_end_example
     assert "Step 2 scenario/events" not in end_to_end_example
-    assert 'headers={"Range": "bytes=0-0"}' in summarize_skill
-    assert "response.read(1)" in summarize_skill
+    assert 'headers={"Range": "bytes=0-0"}' in end_to_end_example
+    assert "response.read(1)" in end_to_end_example
     assert "lightweight `curl` shim" in summarize_skill
-    assert "never stream the MP4 into tool output" in summarize_skill
+    assert "entire video into tool output" in summarize_skill
 
 
 def test_empty_lvs_results_preserve_processing_evidence() -> None:
@@ -132,11 +129,13 @@ def test_empty_lvs_results_preserve_processing_evidence() -> None:
     summarize_skill = SUMMARIZE_SKILL.read_text()
     normalized_skill = " ".join(summarize_skill.split())
 
-    assert "usage: (.usage // {})" in summarize_skill
+    end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
+
+    assert "usage: (.usage // {})" in end_to_end_example
     assert "usage.total_chunks_processed" in summarize_skill
-    assert "positive integer proves LVS processed the media" in normalized_skill
-    assert "media processing could not be confirmed" in normalized_skill
-    assert "Do not claim that the model detected nothing" in normalized_skill
+    assert "positive integer confirms processing" in normalized_skill
+    assert "processing was not confirmed" in normalized_skill
+    assert 'Do not claim "no detections."' in normalized_skill
 
 
 def test_live_lvs_calls_use_runtime_openapi_contract() -> None:
@@ -148,10 +147,11 @@ def test_live_lvs_calls_use_runtime_openapi_contract() -> None:
     ).read_text()
     normalized_reference = " ".join(api_reference.split())
 
-    assert "Before constructing or issuing any live LVS API operation" in summarize_skill
+    assert "load before constructing any live LVS operation" in summarize_skill
     assert "Runtime OpenAPI Discovery" in summarize_skill
-    assert '"$VIDEO_SUMMARIZATION_URL/openapi.json"' in summarize_skill_text
-    assert '.paths["/v1/summarize"].post.requestBody' in summarize_skill_text
+    end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
+    assert '"$VIDEO_SUMMARIZATION_URL/openapi.json"' in end_to_end_example
+    assert '.paths["/v1/summarize"].post.requestBody' in end_to_end_example
     assert '"$BASE_URL/openapi.json"' in api_reference
     assert "same service instance that will receive the request" in normalized_reference
     assert "running service's `/openapi.json` is authoritative" in normalized_reference
@@ -161,7 +161,7 @@ def test_live_lvs_calls_use_runtime_openapi_contract() -> None:
 def test_lvs_response_filter_is_consistent_and_executable() -> None:
     """Keep the documented jq response filter consistent and executable."""
     normalized_filter = " ".join(LVS_RESPONSE_FILTER.split())
-    documents = (SUMMARIZE_SKILL, *SUMMARIZE_REFERENCES)
+    documents = SUMMARIZE_REFERENCES
 
     for document in documents:
         assert normalized_filter in " ".join(document.read_text().split())

@@ -19,13 +19,11 @@ MODEL_SELECTOR = """
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SELECTOR_DOCUMENTS = {
-    "skills/vss-summarize-video/SKILL.md": 2,
-    "skills/vss-summarize-video/references/end-to-end-example.md": 1,
+    "skills/vss-summarize-video/references/end-to-end-example.md": 2,
     "skills/vss-summarize-video/references/hitl-prompts.md": 1,
     "skills/vss-summarize-video/references/video-summarization-api.md": 2,
 }
 LVS_DISCOVERY_DOCUMENTS = [
-    "skills/vss-summarize-video/SKILL.md",
     "skills/vss-summarize-video/references/end-to-end-example.md",
     "skills/vss-summarize-video/references/hitl-prompts.md",
     "skills/vss-summarize-video/references/video-summarization-api.md",
@@ -99,6 +97,8 @@ def test_lvs_workflows_use_unversioned_models_route(relative_path: str) -> None:
 
 def test_direct_vlm_fallback_uses_versioned_models_route() -> None:
     """Require direct VLM discovery to use its versioned models route."""
-    content = (REPO_ROOT / "skills/vss-summarize-video/SKILL.md").read_text()
+    content = (
+        REPO_ROOT / "skills/vss-summarize-video/references/end-to-end-example.md"
+    ).read_text()
 
     assert '"$VLM/v1/models"' in content
