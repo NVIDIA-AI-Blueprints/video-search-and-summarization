@@ -92,6 +92,85 @@ def build_screenshot_url(vst_external_url: str, stream_id: str, timestamp: str) 
     return f"{vst_external_url}/vst/api/v1/replay/stream/{stream_seg}/picture?startTime={ts_value}"
 
 
+def map_timestamp_to_timeline(timestamp: str, timeline_start: str, timeline_end: str) -> str:
+    """Map an ES hit timestamp onto a stream's VST replay timeline.
+
+    File-ingested sources are indexed on a synthetic, midnight-anchored epoch
+    (e.g. ``2025-01-01T00:01:00Z`` = 60s into the file) while VST anchors the
+    replay timeline at ingest wall-clock. A raw ES timestamp therefore points
+    outside the recording and VST rejects the picture request
+    (``VMSInternalError: no valid stream found for given timestamps``). Live
+    RTSP sources index real wall-clock, which lands inside the timeline and
+    must pass through unchanged.
+
+    Rules:
+      - timestamp within [start, end]: returned unchanged (live sources)
+      - otherwise: the time-of-day offset from the timestamp's own midnight is
+        re-based onto ``timeline_start``, clamped to ``timeline_end``.
+
+    Any parse failure returns the original timestamp (best-effort — a raw URL
+    that may 404 beats dropping the hit).
+    """
+    try:
+        ts = iso8601_to_datetime(timestamp)
+        start = iso8601_to_datetime(timeline_start)
+        end = iso8601_to_datetime(timeline_end)
+    except (TypeError, ValueError):
+        return timestamp
+    if start <= ts <= end:
+        return timestamp
+    offset = ts - ts.replace(hour=0, minute=0, second=0, microsecond=0)
+    mapped = start + offset
+    if mapped > end:
+        mapped = end
+    elif mapped < start:
+        mapped = start
+    return mapped.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+async def get_timelines_map(
+    vst_internal_url: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+    retries: int = 3,
+) -> dict[str, tuple[str, str]]:
+    """Return {stream_id: (start_iso, end_iso)} for every stream VST knows.
+
+    One call to ``/vst/api/v1/storage/timelines`` covers all streams (unlike
+    :func:`get_timeline`, which filters to one). Streams with several recorded
+    segments are collapsed to their envelope (first start, last end). Raises
+    VSTError on transport/API failure; callers doing best-effort screenshot
+    enrichment should catch it and continue unmapped.
+    """
+    base = vst_internal_url.rstrip("/")
+    if base.endswith("/vst"):
+        base = base[:-4]
+    timelines_url = f"{base}/vst/api/v1/storage/timelines"
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async for retry in create_retry_strategy(retries=retries, exceptions=_VST_RETRYABLE_ERRORS):
+                with retry:
+                    async with session.get(timelines_url) as response:
+                        if response.status != 200:
+                            raise VSTError(f"VST timelines API returned status {response.status}")
+                        payload = json.loads(await response.text())
+                        out: dict[str, tuple[str, str]] = {}
+                        if isinstance(payload, dict):
+                            for stream_id, segments in payload.items():
+                                if not (isinstance(segments, list) and segments):
+                                    continue
+                                starts = [
+                                    str(s["startTime"]) for s in segments if isinstance(s, dict) and s.get("startTime")
+                                ]
+                                ends = [str(s["endTime"]) for s in segments if isinstance(s, dict) and s.get("endTime")]
+                                if starts and ends:
+                                    out[str(stream_id)] = (min(starts), max(ends))
+                        return out
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError("Failed to get timelines map after retrying transport errors", e) from e
+    return {}  # unreachable; satisfies mypy
+
+
 async def get_video_clip_url(
     *,
     stream_id: str,
@@ -428,6 +507,15 @@ class VSTClient:
         """
         base = self._internal_url if internal else self._external_url
         return build_screenshot_url(base, sensor_id, timestamp)
+
+    async def get_timelines_map(self) -> dict[str, tuple[str, str]]:
+        """Return {stream_id: (start_iso, end_iso)} for all streams.
+
+        One call, single attempt: this feeds best-effort screenshot-timestamp
+        mapping, which must not add retry backoff to every search when VST is
+        slow or down.
+        """
+        return await get_timelines_map(self._internal_url, timeout_seconds=self._timeout_seconds, retries=1)
 
     async def get_video_clip_url(
         self,

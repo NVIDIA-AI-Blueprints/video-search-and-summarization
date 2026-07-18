@@ -10,7 +10,9 @@ from .client import get_sensor_id_from_stream_id
 from .client import get_stream_id
 from .client import get_streams_info
 from .client import get_timeline
+from .client import get_timelines_map
 from .client import get_video_clip_url
+from .client import map_timestamp_to_timeline
 from .protocols import VSTSnapshot
 
 __all__ = [
@@ -23,5 +25,7 @@ __all__ = [
     "get_stream_id",
     "get_streams_info",
     "get_timeline",
+    "get_timelines_map",
     "get_video_clip_url",
+    "map_timestamp_to_timeline",
 ]
