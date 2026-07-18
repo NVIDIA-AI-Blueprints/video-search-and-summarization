@@ -477,7 +477,9 @@ Report every final count. A successful DELETE response alone is not sufficient.
 
    ```text
    ## Video Search Results
-   <formatted hits with source, start/end timestamps, similarity, and media URL>
+   <formatted hits with source, start/end timestamps, similarity, and media URL —
+   print each hit COMPLETE screenshot/clip URL exactly as the CLI returned it
+   (never a shortened form, a status code, or an https://... placeholder)>
 
    Similarity scores are retrieval evidence; they do not visually confirm the requested object or action.
 
