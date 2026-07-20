@@ -27,7 +27,7 @@ ALERT_REVIEW_MEDIA_BASE_DIR: ""
 vst_config:
   recording_check_max_attempts: 3
   # Base URL for general VST APIs already used elsewhere in the codebase
-  base_url: "http://localhost:30888"
+  base_url: "http://vst-ingress:30888"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
   add_overlay: true
   segment_anchor: "start"        # use start-anchored window
@@ -42,13 +42,13 @@ vst_config:
 
   # Storage service configuration (separate base URL and endpoint similar to vss_agent)
   storage:
-    base_url: "http://localhost:30888"
+    base_url: "http://vst-ingress:30888"
     # Endpoint to fetch media file path by VST id
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
 
 # General Kafka Configuration - Message Processing
 kafka:
-  bootstrap_servers: "localhost:9092"
+  bootstrap_servers: "kafka:29092"
   group_id: 'kafka-incidents-dumper'
            # Output topic for incidents
   max_poll_records: 10                          # Process one record at a time (immediate processing)
@@ -89,7 +89,7 @@ event_bridge:
 
   # Redis Streams Configuration
   redis_source:
-    host: "localhost"
+    host: "redis"
     port: 6379
     db: 0
     dedup_ttl_seconds: 5
@@ -114,7 +114,7 @@ event_bridge:
       batch_size: 1
 
   redis_sink:
-    host: "localhost"
+    host: "redis"
     port: 6379
     db: 0
     streams:
@@ -143,7 +143,7 @@ alert_agent:
 elastic:
   enabled: true
   hosts:
-    - http://localhost:9200
+    - http://elasticsearch:9200
 
 vlm_enhanced_sink:
   incident:

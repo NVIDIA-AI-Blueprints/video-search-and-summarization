@@ -27,7 +27,7 @@ ALERT_REVIEW_MEDIA_BASE_DIR: ""
 vst_config:
   recording_check_max_attempts: 3
   # Base URL for general VST APIs already used elsewhere in the codebase
-  base_url: ${VST_INTERNAL_URL}
+  base_url: "http://vst-ingress:30888"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
   add_overlay: true
   segment_anchor: "start"        # use start-anchored window
@@ -42,7 +42,7 @@ vst_config:
 
   # Storage service configuration (separate base URL and endpoint similar to vss_agent)
   storage:
-    base_url: ${VST_INTERNAL_URL}
+    base_url: "http://vst-ingress:30888"
     # Endpoint to fetch media file path by VST id
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
 
