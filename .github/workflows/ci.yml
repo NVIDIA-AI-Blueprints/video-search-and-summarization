@@ -714,7 +714,7 @@ jobs:
     # gate the overall workflow conclusion via GitHub's required checks.
     needs:
       - prepare-source
-      #- lint disabled for now since failing on non-lvs changes
+      - lint
       - typecheck
       - security
       - frontend-lint
