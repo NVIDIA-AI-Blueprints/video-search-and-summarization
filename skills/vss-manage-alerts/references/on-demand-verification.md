@@ -39,11 +39,17 @@ A 202 means **accepted, not verified** — never report a verdict, confirmation,
 
 ## Result lifecycle & validation
 
-Background task → VLM call → result published via the same sink as the Kafka pipeline → document in **`mdx-vlm-alerts-*`** (Workflow B's store; no REST query endpoint yet — use the interim ES probe):
+Background task → VLM call → result published via the same sink as the Kafka pipeline. **Which store it lands in depends on the submission's kind** (`is_alert()` checks `notification_type`):
+
+| Submission | Kind | Store | How to query |
+|---|---|---|---|
+| Minimal `{category, info}` (the default) | **incident** | `mdx-vlm-incidents-*` | **`GET $AB/api/v1/realtime/incidents`** — a real REST endpoint (Workflow C's) |
+| Payload carrying `notification_type: "alert"` | alert | `mdx-vlm-alerts-*` | Workflow B's interim ES probe |
 
 ```bash
-# poll for the result document (allow ≥2 minutes for the VLM round-trip)
-curl -sf "http://${HOST_IP}:9200/mdx-vlm-alerts-*/_search?q=\"<correlationId>\"" | jq '.hits.hits[]._source'
+# default case: poll the incident endpoint (allow ≥2 minutes for the VLM round-trip)
+curl -sf "$AB/api/v1/realtime/incidents?limit=50" \
+  | jq '.incidents[] | select(.id=="<correlationId>" or .sensorId=="ondemand")'
 ```
 
 Validation checklist for a landed document (fields live in the `info` block):
