@@ -123,10 +123,13 @@ def classify_pr(pr: PullRequest, client: "object | None") -> tuple[list[Verdict]
     items = [item for item in parsed.get("classifications", []) if isinstance(item, dict)]
     verdicts = []
     for key, kind in unique.items():
-        # Exact key echo is instructed; tolerate a "nvbug 6217188"-style echo.
-        item = next(
-            (i for i in items if i.get("key") == key or key in str(i.get("key", ""))), None
-        )
+        # Exact key echo is instructed; tolerate a "nvbug 6217188"-style echo
+        # via a boundary-aware match (a bare substring test would let a
+        # shorter key claim a longer key's verdict, e.g. 621718 vs 6217188).
+        item = next((i for i in items if i.get("key") == key), None)
+        if item is None:
+            boundary = re.compile(rf"(?<![\w.-]){re.escape(key)}(?![\w.-])", re.IGNORECASE)
+            item = next((i for i in items if boundary.search(str(i.get("key", "")))), None)
         if item is None or item.get("classification") not in (
             "addressed",
             "related",
