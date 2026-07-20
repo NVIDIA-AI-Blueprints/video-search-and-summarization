@@ -1164,16 +1164,23 @@ for _profile in base alerts; do
   run_spark_test_for_profile "${_profile}"
 done
 
-run_dry_run_up_and_check_generated_env "generated.env LLM/VLM slugs and names" "base" \
- -i 127.0.0.1 --llm nvidia/nemotron-3-nano --vlm nvidia/cosmos-reason1-7b -d -- \
-  "LLM_NAME_SLUG" "nemotron-3-nano" "LLM_NAME" "nvidia/nemotron-3-nano" \
-  "VLM_NAME_SLUG" "cosmos-reason1-7b" "VLM_NAME" "nvidia/cosmos-reason1-7b"
+run_dry_run_up_and_check_generated_env "generated.env LLM slugs and names" "base" \
+ -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
+  "LLM_NAME_SLUG" "nemotron-3-nano" "LLM_NAME" "nvidia/nemotron-3-nano"
 
-run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives nano VLM_NAME by default" "base" \
+run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM integrated checkpoint" "base" \
+ -i 127.0.0.1 -H OTHER -d -- \
+  "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
+  "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
+  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
+  "RTVI_VLM_KAFKA_ENABLED" "false"
+
+run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives nano VLM_NAME by default" "search" \
  -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
   "VLM_NAME_SLUG" "cosmos3-reasoner" "VLM_NAME" "nvidia/cosmos3-nano-reasoner"
 
-NIM_MODEL_SIZE=super run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives super VLM_NAME from NIM_MODEL_SIZE" "base" \
+NIM_MODEL_SIZE=super run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives super VLM_NAME from NIM_MODEL_SIZE" "search" \
  -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
   "VLM_NAME_SLUG" "cosmos3-reasoner" "VLM_NAME" "nvidia/cosmos3-super-reasoner"
 
@@ -1532,7 +1539,7 @@ NVIDIA_API_KEY="${special_env_value}" run_dry_run_up_and_check_generated_env "ge
 
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_MODEL_TYPE VLM_MODEL_TYPE from profile defaults when remote" "base" \
  -i 127.0.0.1 --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
-  "LLM_MODEL_TYPE" "nim" "VLM_MODEL_TYPE" "nim"
+  "LLM_MODEL_TYPE" "nim" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "30082" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
 # --- Remote: model name from mock API (Python mock server) ---
 gen_env_mock="$(generated_env_path "base")"
