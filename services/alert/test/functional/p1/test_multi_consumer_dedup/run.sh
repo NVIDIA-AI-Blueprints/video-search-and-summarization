@@ -164,11 +164,18 @@ poll_pub_in_log() {
     done
     echo "$n"
 }
-# Distinct members currently assigned in the consumer group (CONSUMER-ID col).
+# Distinct consumers that currently OWN a partition of the incident topic.
+# NOTE: each Alert MS instance subscribes to BOTH the incident and the alert
+# topic, so it registers TWO consumers (=two members) in the group. Counting all
+# group members therefore yields 2x the instance count (4 for two instances).
+# What this test actually cares about is how many distinct consumers split the
+# incident topic's partitions, so we filter kafka-consumer-groups --describe rows
+# to TOPIC == $TOPIC (column 2) and count distinct CONSUMER-IDs (column 7).
+# Result: 2 while both instances are up (1 partition each), 1 after one is killed.
 group_member_count() {
     docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
         --bootstrap-server localhost:9092 --describe --group "$GROUP_ID" 2>/dev/null \
-        | awk 'NR>1 && NF>=7 && $7 != "-" {print $7}' | sort -u | grep -c . || echo 0
+        | awk -v t="$TOPIC" 'NR>1 && $2==t && NF>=7 && $7 != "-" {print $7}' | sort -u | grep -c . || echo 0
 }
 # Poll until the group has exactly $1 members, or timeout $2s. Echoes final count.
 poll_group_members() {
