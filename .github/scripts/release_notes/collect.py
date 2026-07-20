@@ -3,7 +3,7 @@
 """Collect the Drop Window and the PRs merged inside it.
 
 The Drop Window is tag-to-tag: everything reachable from the new trigger
-tag but not from the *nearest previous* trigger tag (dev-* or v*) in its
+tag but not from the *nearest previous* weekly drop tag in its
 ancestry. Never a fixed time lookback — multiple drops can land in one
 week (hotfix re-tags get small incremental windows) and a lookback would
 double-count or leave gaps.
@@ -21,7 +21,10 @@ from dataclasses import dataclass, field
 from . import github_api
 from .patterns import Reference, scan_surfaces
 
-TRIGGER_TAG_MATCHES = ("dev-*", "v*")
+# Weekly QA drop tags only: dev-YY.MM.N with an optional hotfix suffix
+# (dev-26.07.3, dev-26.06.3-1). Other dev-* tags and v* GA tags neither
+# trigger notes nor act as window boundaries.
+TRIGGER_TAG_RE = re.compile(r"^dev-\d{2}\.\d{2}\.\d+(-\d+)?$")
 PR_NUMBER_RE = re.compile(r"\((?:PR )?#(\d+)\)")
 BOT_AUTHOR_RE = re.compile(r"(\[bot\]$|^svc-|^copy-pr-bot)", re.IGNORECASE)
 MAX_CLOSED_PR_PAGES = 15  # 1500 most recently updated closed PRs
@@ -55,29 +58,22 @@ def _git(git_dir: str, *args: str) -> str:
 
 
 def previous_trigger_tag(git_dir: str, tag: str) -> str | None:
-    """The *chronologically* previous trigger tag, if any.
+    """The *chronologically* previous weekly drop tag, if any.
 
-    Chronological (not ancestry) selection is deliberate: v* release
-    tags live on release branches, so the ancestry-nearest tag can skip
-    over the actual previous QA drop and make consecutive drop windows
-    overlap or gap. Consecutive trigger tags by creation time partition
-    the timeline exactly once.
+    Chronological (not ancestry) selection is deliberate: the ancestry-
+    nearest tag can skip over the actual previous QA drop and make
+    consecutive drop windows overlap or gap. Consecutive drop tags by
+    creation time partition the timeline exactly once.
     """
-    import fnmatch
-
     raw = _git(
         git_dir, "for-each-ref", "refs/tags", "--sort=creatordate",
         "--format=%(refname:short)%00%(creatordate:iso-strict)",
     )
     tags = [tuple(line.split("\x00", 1)) for line in raw.splitlines() if "\x00" in line]
-    trigger_tags = [
-        (name, date)
-        for name, date in tags
-        if any(fnmatch.fnmatchcase(name, pattern) for pattern in TRIGGER_TAG_MATCHES)
-    ]
+    trigger_tags = [(name, date) for name, date in tags if TRIGGER_TAG_RE.match(name)]
     own_date = next((date for name, date in trigger_tags if name == tag), None)
     if own_date is None:
-        raise SystemExit(f"tag {tag!r} is not a trigger tag (dev-*/v*)")
+        raise SystemExit(f"tag {tag!r} is not a weekly drop tag (dev-YY.MM.N[-h])")
     older = [name for name, date in trigger_tags if name != tag and date < own_date]
     return older[-1] if older else None
 
@@ -94,9 +90,9 @@ def window_commits(git_dir: str, tag: str, previous_tag: str | None) -> list[tup
     """(sha, subject) pairs in the window, newest first.
 
     Pure ancestry range when the previous tag is an ancestor (the normal
-    dev-*→dev-* case); otherwise (e.g. a v* tag cut from a release
-    branch) fall back to slicing the tag's own lineage by the boundary
-    tags' commit dates.
+    case); otherwise (e.g. a boundary tag cut from a release branch)
+    fall back to slicing the tag's own lineage by the boundary tags'
+    commit dates.
     """
     if previous_tag and _is_ancestor(git_dir, previous_tag, tag):
         raw = _git(git_dir, "log", "--format=%H%x00%s", f"{previous_tag}..{tag}")
