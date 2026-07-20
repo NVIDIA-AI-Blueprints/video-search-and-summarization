@@ -1369,12 +1369,12 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Base/alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason3 is only valid when the
   # local rtvi-vlm container is serving the integrated checkpoint).
   # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
   fi
@@ -1414,20 +1414,11 @@ function state_up() {
     set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
   fi
 
-  # Alerts or base profile on IGX-THOR or AGX-THOR: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "base" ]]); then
-    set_env_var "VLM_NAME_SLUG" "none"
-    set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-    set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
-    set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
-    set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
-    set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
-  fi
-  # Alerts/LVS profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if  ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]); then
+  # Base/alerts/LVS for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed RT-VLM configuration)
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     # Local VLM only: rtvi-vlm serves the VLM locally on the Compose network.
-    # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports. VLM_NAME and
+    # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports.
     # VLM_NAME and RTVI_VLM_MODEL_PATH come from the profile env files unless hardware/remote settings override them.
     if [[ "${vlm_mode}" != "remote" ]]; then
       set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
@@ -1457,7 +1448,12 @@ function state_up() {
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+      # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
+      if [[ "${profile}" == "base" ]]; then
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
+      else
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+      fi
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
     if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
@@ -1465,9 +1461,9 @@ function state_up() {
       set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
     fi
   fi
-  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
-  # (alerts defaults to VLM_MODEL_TYPE=rtvi via profile env files, so it does not need this override)
-  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
+  # Base local VLM always uses the rtvi_vlm agent profile (overrides default to rtvi; keep explicit for Thor/history).
+  # Remote VLM may still set VLM_MODEL_TYPE via --vlm-model-type / profile remote defaults above.
+  if [[ "${profile}" == "base" ]] && [[ "${vlm_mode}" != "remote" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
     local _compose_profiles
     _compose_profiles="$(get_env_value "${_generated_env}" "COMPOSE_PROFILES")"
