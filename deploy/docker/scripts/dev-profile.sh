@@ -418,7 +418,7 @@ function usage() {
   echo "  • LLM_ENDPOINT_URL    — optional; required when --use-remote-llm is passed (both must be set)"
   echo "  • VLM_ENDPOINT_URL    — optional; required when --use-remote-vlm is passed (both must be set)"
   echo "  • VLM_CUSTOM_WEIGHTS  — optional; when --use-remote-vlm is not passed: absolute path to custom weights dir; when --use-remote-vlm is passed, ignored"
-  echo "  • ENABLE_CRITIC       — optional; search profile: enabled by default; when false (case-insensitive), disables the critic agent and skips local VLM deployment"
+  echo "  • ENABLE_CRITIC       — optional; search profile: enabled by default; when false (case-insensitive), disables critic verification only (RT-VLM still runs for video_understanding)"
   echo ""
   echo "Options for 'up':"
   echo "  -p, --profile                    [REQUIRED] Profile."
@@ -1017,16 +1017,15 @@ function process_args() {
         fi
       fi
 
-      # Search critic requires a local VLM unless --use-remote-vlm is provided.
-      # On 2-GPU Brev launchables the configured local VLM device is unavailable,
-      # so fail fast instead of silently deploying without the critic service.
-      local _enable_critic_for_validation
-      _enable_critic_for_validation="${ENABLE_CRITIC:-$(get_env_value_from_files "ENABLE_CRITIC" "${_profile_env}" "${_profile_overrides_env}")}"
-      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ "${_enable_critic_for_validation,,}" != "false" ]]; then
+      # Search always deploys RT-VLM locally (it serves both the critic and video_understanding),
+      # so a local VLM GPU is required unless --use-remote-vlm is provided. On 2-GPU Brev
+      # launchables the configured local VLM device is unavailable, so fail fast instead of
+      # silently deploying a VLM that cannot be scheduled.
+      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
         local _brev_gpu_count
         _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
         if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
-          echo "[ERROR] Search critic requires a local VLM GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Set ENABLE_CRITIC=false to deploy search without critic, or pass --use-remote-vlm with VLM_ENDPOINT_URL."
+          echo "[ERROR] Search deploys a local RT-VLM that requires a dedicated GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
           ((_all_good++))
         fi
       fi
@@ -1365,12 +1364,12 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Alerts/LVS/search + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason3 is only valid when the
   # local rtvi-vlm container is serving the integrated checkpoint).
   # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "search" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
   fi
@@ -1387,44 +1386,44 @@ function state_up() {
     set_env_var "VLM_ENV_FILE" "${vlm_env_file}"
   fi
 
-  # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
-  # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
-  # Brev 2-GPU local-VLM critic deployments are rejected during argument validation.
+  # Search profile: RT-VLM (vss-rtvi-vlm) is ALWAYS deployed because it serves both the critic
+  # and the video_understanding tool. It starts via the vlm_${VLM_MODE}_${VLM_NAME_SLUG} compose
+  # profile with the synthetic slug "rtvi" (only rtvi-vlm's vlm_*_rtvi profiles match it, so no
+  # NIM VLM is started). ENABLE_CRITIC only toggles critic verification in the agent config
+  # (enable_critic); it does NOT gate RT-VLM. Brev 2-GPU local-VLM deployments are rejected
+  # during argument validation.
   if [[ "${profile}" == "search" ]]; then
     local _enable_critic
     _enable_critic="${ENABLE_CRITIC:-$(get_env_value_from_files "ENABLE_CRITIC" "${_source_env}" "${_overrides_env}")}"
     if [[ "${_enable_critic,,}" == "false" ]]; then
       set_env_var "ENABLE_CRITIC" "false"
-      set_env_var "VLM_NAME_SLUG" "none"
     else
       set_env_var "ENABLE_CRITIC" "true"
-      # Critic enabled: serve the VLM locally through rtvi-vlm (RT-VLM). rtvi-vlm
-      # starts with the main bp_developer_search_2d compose profile, so no dedicated
-      # vlm_ profile is needed. Mirrors the alerts/LVS RT-VLM wiring below.
-      set_env_var "VLM_NAME_SLUG" "none"
-      if [[ "${vlm_mode}" != "remote" ]]; then
-        set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
-        if [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-          set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
-          local _search_rtvi_vlm_max_model_len
-          _search_rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
-          if [[ -n "${_search_rtvi_vlm_max_model_len}" ]]; then
-            set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_search_rtvi_vlm_max_model_len}"
-          fi
-          # RT_VLM_DEVICE_ID mirrors the NIM device_ids pattern: local_shared follows
-          # the shared VLM device, local uses the VLM device.
-          if [[ "${vlm_mode}" == "local_shared" ]]; then
-            local _search_shared_rt_dev_id
-            _search_shared_rt_dev_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_source_env}" "${_overrides_env}")"
-            set_env_var "RT_VLM_DEVICE_ID" "${_search_shared_rt_dev_id:-${vlm_device_id}}"
-          else
-            set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
-          fi
+    fi
+    set_env_var "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}'
+    set_env_var "VLM_NAME_SLUG" "rtvi"
+    if [[ "${vlm_mode}" != "remote" ]]; then
+      set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
+      if [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+        local _search_rtvi_vlm_max_model_len
+        _search_rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+        if [[ -n "${_search_rtvi_vlm_max_model_len}" ]]; then
+          set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_search_rtvi_vlm_max_model_len}"
         fi
-        if [[ "${hardware_profile}" == "RTXPRO4500BW" ]]; then
-          set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
-          set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+        # RT_VLM_DEVICE_ID mirrors the NIM device_ids pattern: local_shared follows
+        # the shared VLM device, local uses the VLM device.
+        if [[ "${vlm_mode}" == "local_shared" ]]; then
+          local _search_shared_rt_dev_id
+          _search_shared_rt_dev_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_source_env}" "${_overrides_env}")"
+          set_env_var "RT_VLM_DEVICE_ID" "${_search_shared_rt_dev_id:-${vlm_device_id}}"
+        else
+          set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
         fi
+      fi
+      if [[ "${hardware_profile}" == "RTXPRO4500BW" ]]; then
+        set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+        set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
       fi
     fi
   fi
