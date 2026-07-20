@@ -60,7 +60,8 @@ curl -sf "$ES/mdx-vlm-alerts-*/_search" -H 'Content-Type: application/json' -d '
   "query": {"range": {"@timestamp": {"gte": "now-24h"}}}
 }' | jq '.hits.hits[]._source | {category, timestamp, verdict: .info.verdict}'
 
-# by on-demand correlationId (Workflow F results land in this same store)
+# on-demand (Workflow F) results land here ONLY when submitted with notification_type:"alert";
+# the default minimal submission is incident-kind -> use GET $AB/api/v1/realtime/incidents instead
 curl -sf "$ES/mdx-vlm-alerts-*/_search?q=<correlationId>" | jq '.hits.hits[]._source'
 ```
 
@@ -112,5 +113,5 @@ VLM real-time prompts are **not** configured in a file — they are per-request,
 
 - *Was it confirmed / show verdicts / verification results* → **this workflow (B)**: ES probe on `mdx-vlm-alerts-*`, never the rules list.
 - *What happened / any alerts today* → **Workflow C** (`GET /api/v1/realtime/incidents`), even on a CV deployment.
-- *Verify this specific clip/image URL right now* → **Workflow F** (on-demand verification) — its result document lands in this same `mdx-vlm-alerts-*` store, inspected with the probes above.
+- *Verify this specific clip/image URL right now* → **Workflow F** (on-demand verification) — its default (incident-kind) result surfaces via `GET /api/v1/realtime/incidents`, NOT this store; it lands here only when the submission carried `notification_type: "alert"`.
 - Verdict-keyword asks on a **VLM** deployment: explain-only → answer from this reference; execution → the VLM-mode refusal text in SKILL.md (redeploy hint `-m verification`); no auto-redeploy.
