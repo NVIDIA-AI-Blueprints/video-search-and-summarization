@@ -25,3 +25,6 @@
 #
 svglib
 python-bidi
+langchain-oci  # UPL-1.0 (Universal Permissive License, OSI-approved permissive) - pending OSRB; new transitive of nvidia-nat-langchain 1.7.0
+oci            # Apache-2.0 + UPL-1.0 dual - pending OSRB; required by langchain-oci (Oracle Cloud Infrastructure SDK)
+oci-openai     # UPL-1.0 - pending OSRB; required by langchain-oci
