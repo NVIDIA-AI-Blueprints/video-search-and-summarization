@@ -31,13 +31,16 @@ from release_notes.patterns import scan_surfaces  # noqa: E402
 LABEL = "needs-tracking-ref"
 OPT_OUT_LABEL = "no-tracking-ref"
 COMMENT_MARKER = "<!-- vss-tracking-ref-check -->"
+# NOTE: examples deliberately use <id> placeholders that do NOT match the
+# reference regexes — this comment becomes a scanned surface on the next
+# run, and a real-format example would satisfy the check by itself.
 COMMENT_BODY = f"""{COMMENT_MARKER}
-No JIRA (`VIA-<number>`) or NVBugs reference found on this PR.
+No JIRA (`VIA-<id>`) or NVBugs reference found on this PR.
 
 QA drop release notes attribute every change to its tracker — without a
 reference this PR lands in the "Unreferenced PRs" section and QA has no
 issue to verify it against. Please add the JIRA issue or NVBug id to the
-PR **description** (e.g. `Fixes NVBug 6217188` or `VIA-2035`).
+PR **description** (e.g. `Fixes NVBug <id>` or `VIA-<id>`).
 
 If this change genuinely has no tracker (pure chore), apply the
 `{OPT_OUT_LABEL}` label instead. This check is informational and does not
@@ -61,7 +64,14 @@ def main() -> int:
         ("body", pr.get("body") or ""),
         ("branch", (pr.get("head") or {}).get("ref") or ""),
     ]
-    for comment in github_api.get_paginated(f"/repos/{repo}/issues/{number}/comments"):
+    # Fetched once — reused below to locate our own marker comment
+    # (Greptile P2: avoid paginating the same list twice).
+    comments = github_api.get_paginated(f"/repos/{repo}/issues/{number}/comments")
+    for comment in comments:
+        # Bot comments (this check's own reminder, review bots, …) are not
+        # author intent — scanning them would let the reminder satisfy itself.
+        if (comment.get("user") or {}).get("type") == "Bot":
+            continue
         surfaces.append(("comment", comment.get("body") or ""))
     for commit in github_api.get_paginated(f"/repos/{repo}/pulls/{number}/commits"):
         message = (commit.get("commit") or {}).get("message") or ""
@@ -71,7 +81,9 @@ def main() -> int:
             surfaces.append(("commit_message", rest))
 
     references = scan_surfaces(surfaces)
-    bot_comment = _find_bot_comment(repo, number)
+    bot_comment = next(
+        (c for c in comments if COMMENT_MARKER in (c.get("body") or "")), None
+    )
 
     if references:
         found = ", ".join(sorted({f"{r.kind}:{r.key}" for r in references}))
@@ -103,13 +115,6 @@ def main() -> int:
             {"body": COMMENT_BODY},
         )
     return 0
-
-
-def _find_bot_comment(repo: str, number: int) -> dict | None:
-    for comment in github_api.get_paginated(f"/repos/{repo}/issues/{number}/comments"):
-        if COMMENT_MARKER in (comment.get("body") or ""):
-            return comment
-    return None
 
 
 if __name__ == "__main__":
