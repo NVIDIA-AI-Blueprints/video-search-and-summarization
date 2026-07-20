@@ -194,6 +194,11 @@ def fetch_pull_request(repo: str, number: int) -> PullRequest | None:
         ("branch", (pr.get("head") or {}).get("ref") or ""),
     ]
     for comment in github_api.get_paginated(f"/repos/{repo}/issues/{number}/comments"):
+        # Bot comments are not author intent — in particular the
+        # tracking-ref reminder bot's own comment must not count as a
+        # reference source (nor should review-bot chatter).
+        if (comment.get("user") or {}).get("type") == "Bot":
+            continue
         surfaces.append(("comment", comment.get("body") or ""))
     for commit in github_api.get_paginated(f"/repos/{repo}/pulls/{number}/commits"):
         message = (commit.get("commit") or {}).get("message") or ""
