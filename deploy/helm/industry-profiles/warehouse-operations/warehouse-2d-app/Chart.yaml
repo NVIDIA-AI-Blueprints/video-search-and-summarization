@@ -32,7 +32,7 @@ dependencies:
   repository: file://../../../services/calibration-import
   condition: calibration-import.enabled
 - name: rtvi
-  version: 3.2.0
+  version: 3.2.1
   repository: file://../../../services/rtvi
   condition: rtvi.enabled
 - name: analytics

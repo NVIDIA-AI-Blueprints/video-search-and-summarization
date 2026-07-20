@@ -185,7 +185,7 @@ data:
           fi
           token_url="https://authn.nvidia.com/token?service=ngc&scope=group/ngc:${NGC_ORG}"
           if [ -n "${NGC_TEAM}" ]; then
-            token_url="${token_url}&group/ngc:${NGC_ORG}/${NGC_TEAM}"
+            token_url="${token_url}&scope=group/ngc:${NGC_ORG}/${NGC_TEAM}"
           fi
           token="$(curl -s -u "\$oauthtoken:${NGC_CLI_API_KEY}" -H 'Accept:application/json' "${token_url}" | jq -r '.token')"
           curl --fail --show-error --location \

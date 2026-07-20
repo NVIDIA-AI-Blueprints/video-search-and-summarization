@@ -12,7 +12,7 @@ bp-configurator:
   name: bp-configurator-2d
   image:
     repository: nvcr.io/nvidia/vss-core/vss-configurator
-    tag: "3.2.0"
+    tag: "3.2.1"
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -89,9 +89,9 @@ calibration-import:
   enabled: true
   name: import-calibration-output-2d
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/wh-helm-charts-1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/wh-helm-charts-1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/wh-helm-charts-1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images
   requireCalibration: true
   requireImages: true
 
@@ -303,7 +303,7 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvidia/vss-core/vss-rt-cv
-      tag: "3.2.0"
+      tag: "3.2.1"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
