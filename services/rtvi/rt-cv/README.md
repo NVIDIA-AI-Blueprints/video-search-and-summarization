@@ -75,7 +75,7 @@ cd /path/to/services/rtvi/rt-cv
 **SBSA** (ARM64 server / Spark-style targets):
 
 ```bash
-docker build --platform linux/arm64 -f docker/sbsa.Dockerfile -t rtvi-cv:3.2.1-custom-sbsa .
+docker build --platform linux/arm64 -f docker/sbsa.Dockerfile -t rtvi-cv:3.3.0-custom-sbsa .
 ```
 
 **ARM** (aarch64 / Jetson-style; uses `docker/aarch64.Dockerfile`):
