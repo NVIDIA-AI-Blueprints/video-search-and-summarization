@@ -1,12 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Triggers the downstream release-notes pipeline when a QA drop tag
-# (dev-*) or GA release tag (v*) is pushed. The downstream job collects
-# every PR merged between the nearest previous trigger tag and this tag,
-# extracts JIRA (VIA-<n>) and NVBugs references, classifies them, and
-# posts release notes to the QA Drop Tracker bug — it runs on the GitLab
-# side because JIRA and NVBugs are internal systems.
+# Triggers the downstream release-notes pipeline when a weekly QA drop
+# tag is pushed. Only tags in the weekly drop format trigger —
+# dev-YY.MM.N with an optional hotfix suffix (dev-26.07.3,
+# dev-26.06.3-1). Other dev-* tags and v* GA release tags do NOT
+# generate notes. The downstream job collects every PR merged between
+# the previous weekly drop tag and this tag, extracts JIRA (VIA-<n>)
+# and NVBugs references, classifies them, and posts release notes to
+# the QA Drop Tracker bug — it runs on the GitLab side because JIRA and
+# NVBugs are internal systems.
 #
 # This workflow only fires the trigger and exits; unlike ci.yml's
 # Trigger Downstream Pipeline job it does not poll the downstream
@@ -17,8 +20,9 @@ name: Release Notes
 on:
   push:
     tags:
-      - "dev-*"
-      - "v*"
+      # Weekly drop format only (the downstream pipeline re-validates with
+      # a strict regex; glob filters here are necessarily looser).
+      - "dev-[0-9][0-9].[0-9][0-9].[0-9]*"
 
 permissions:
   contents: read
