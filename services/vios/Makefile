@@ -21,7 +21,7 @@ TOP := $(abspath $(lastword $(MAKEFILE_LIST))/..)
 # to the defaults below or override per build on the environment / command line:
 #   make cc=0 X86_BUILD_IMAGE=<image> <target>
 AARCH64_CC_IMAGE ?= vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0
-X86_BUILD_IMAGE  ?= vios-build:x86-devel-ubuntu24.04-cuda13.2.0_cpp20
+X86_BUILD_IMAGE  ?= vios-build:x86-devel-ubuntu24.04-cuda13.2.0
 
 ifeq ($(cc),1)
 all:
