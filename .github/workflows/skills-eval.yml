@@ -140,7 +140,7 @@ jobs:
       fail-fast: false
       # Cap concurrent legs near the vss-eval-* box count so legs don't
       # all grab a runner slot only to wait inside run_leg.py. Excess legs queue.
-      max-parallel: 4
+      max-parallel: 32
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
