@@ -44,6 +44,7 @@ from vss_agents.tools.vst.utils import get_rtsp_url as vst_get_rtsp_url
 from vss_agents.tools.vst.utils import get_stream_info_by_name as vst_get_stream_info_by_name
 from vss_agents.utils.retry import create_retry_strategy
 from vss_agents.utils.sanitize import scrub_log
+from vss_agents.utils.stream_routing import stream_routing_headers
 from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
@@ -251,12 +252,10 @@ async def add_to_rtvi_cv(
     logger.info(f"Adding stream to RTVI-CV: POST {url}")
     logger.debug(f"Payload: {payload}")
 
-    # `x-stream-id` is the routing key used by SDR's in-front-of-RTVI proxy
-    # (HAProxy Ingress / Envoy + SDR coordinator). Consistent-hashing on this
-    # header pins a stream to a single worker so subsequent add/delete/config
-    # calls all land on the same pod. See Projects/SDR/wiki.md.
+    # Routing convention: sensor_id here is the VST stream UUID — see
+    # vss_agents.utils.stream_routing for the contract.
     try:
-        response = await client.post(url, json=payload, headers={"x-stream-id": sensor_id})
+        response = await client.post(url, json=payload, headers=stream_routing_headers(sensor_id))
         if response.status_code not in (200, 201):
             error = f"RTVI-CV returned {response.status_code}: {response.text}"
             logger.error(error)
@@ -297,8 +296,7 @@ async def add_to_rtvi_embed(
     logger.info(f"Adding stream to RTVI-embed: POST {url}")
     logger.debug(f"Payload: {payload}")
 
-    # SDR routing key — same rationale as RTVI-CV add above.
-    headers = {"x-stream-id": sensor_id}
+    headers = stream_routing_headers(sensor_id)
     try:
         async for retry in create_retry_strategy(delay=2, retries=6, exceptions=(httpx.TransportError, RuntimeError)):
             with retry:
@@ -314,6 +312,15 @@ async def add_to_rtvi_embed(
 
                 streams = result.get("streams", [])
                 rtvi_stream_id = (streams[0].get("id") if streams else None) or sensor_id
+                if rtvi_stream_id != sensor_id:
+                    # The delete path resolves the stream by VST id only, so a
+                    # divergent service-minted id leaves an orphan on teardown.
+                    logger.warning(
+                        "RTVI-embed registered id %s != requested VST id %s; "
+                        "delete-by-VST-id may not find this stream.",
+                        rtvi_stream_id,
+                        sensor_id,
+                    )
 
                 logger.info(f"RTVI-embed stream registered: {rtvi_stream_id}")
                 return True, "Success", rtvi_stream_id
@@ -361,8 +368,7 @@ async def add_to_rtvi_vlm(
     )
     logger.debug("Payload: %s", scrub_log(payload))
 
-    # SDR routing key — RTVI-VLM is also fronted by the same SDR proxy.
-    headers = {"x-stream-id": sensor_id}
+    headers = stream_routing_headers(sensor_id)
     try:
         async for retry in create_retry_strategy(delay=2, retries=6, exceptions=(httpx.TransportError, RuntimeError)):
             with retry:
@@ -404,10 +410,17 @@ async def add_to_rtvi_vlm(
 
 
 async def start_embedding_generation(
-    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str
+    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str, routing_stream_id: str | None = None
 ) -> tuple[bool, str]:
     """
     Start embedding generation (fire-and-verify: confirm HTTP 200, then close).
+
+    ``stream_id`` is the RTVI-embed resource id (whatever ``/v1/streams/add``
+    registered); ``routing_stream_id`` is the VST stream UUID used for proxy
+    routing. They usually coincide, but when RTVI-embed echoes back its own
+    id the routing key must stay the VST UUID the add was hashed on —
+    otherwise this call lands on a pod that doesn't own the stream.
+
     Returns: (success, message)
     """
     if not config.rtvi_embed_url:
@@ -430,12 +443,10 @@ async def start_embedding_generation(
             "POST",
             url,
             json=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "text/event-stream",
-                # SDR routing key — pin to the worker that owns this stream.
-                "x-stream-id": stream_id,
-            },
+            headers=stream_routing_headers(
+                routing_stream_id or stream_id,
+                extra={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            ),
         ) as response:
             if response.status_code != 200:
                 error_body = await response.aread()
@@ -479,10 +490,8 @@ async def cleanup_rtvi_cv(
 
     logger.info(f"Removing from RTVI-CV: POST {url}")
 
-    # SDR routing key — same stream-id used on the add path, ensures the
-    # remove lands on the worker that holds this stream's state.
     try:
-        response = await client.post(url, json=payload, headers={"x-stream-id": sensor_id})
+        response = await client.post(url, json=payload, headers=stream_routing_headers(sensor_id))
         if response.status_code in (200, 201, 204):
             logger.info(f"RTVI-CV stream removed: {sensor_id}")
             return True, "OK"
@@ -492,17 +501,21 @@ async def cleanup_rtvi_cv(
 
 
 async def cleanup_rtvi_embed_stream(
-    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str | None
+    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str | None, routing_stream_id: str | None = None
 ) -> tuple[bool, str]:
-    """Remove stream from RTVI-embed."""
+    """Remove stream from RTVI-embed.
+
+    ``stream_id`` addresses the RTVI-embed resource; ``routing_stream_id``
+    (the VST stream UUID) selects the pod. Pass both when they differ.
+    """
     if not config.rtvi_embed_url:
         return True, "Skipped (not configured)"
 
     url = f"{config.rtvi_embed_url}/v1/streams/delete/{stream_id}"
     logger.info(f"Removing from RTVI-embed: DELETE {url}")
 
-    # SDR routing key — pin to the worker that owns this stream's state.
-    headers = {"x-stream-id": stream_id} if stream_id else {}
+    routing_key = routing_stream_id or stream_id
+    headers = stream_routing_headers(routing_key) if routing_key else {}
     try:
         response = await client.delete(url, headers=headers)
         if response.status_code in (200, 204):
@@ -514,17 +527,21 @@ async def cleanup_rtvi_embed_stream(
 
 
 async def cleanup_rtvi_embed_generation(
-    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str | None
+    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str | None, routing_stream_id: str | None = None
 ) -> tuple[bool, str]:
-    """Stop embedding generation in RTVI-embed."""
+    """Stop embedding generation in RTVI-embed.
+
+    Same id split as ``cleanup_rtvi_embed_stream``: resource id in the URL,
+    VST stream UUID in the routing header.
+    """
     if not config.rtvi_embed_url:
         return True, "Skipped (not configured)"
 
     url = f"{config.rtvi_embed_url}/v1/generate_video_embeddings/{stream_id}"
     logger.info(f"Stopping embedding generation: DELETE {url}")
 
-    # SDR routing key.
-    headers = {"x-stream-id": stream_id} if stream_id else {}
+    routing_key = routing_stream_id or stream_id
+    headers = stream_routing_headers(routing_key) if routing_key else {}
     try:
         response = await client.delete(url, headers=headers)
         if response.status_code in (200, 204):
@@ -536,17 +553,21 @@ async def cleanup_rtvi_embed_generation(
 
 
 async def cleanup_rtvi_vlm_stream(
-    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str | None
+    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str | None, routing_stream_id: str | None = None
 ) -> tuple[bool, str]:
-    """Remove stream from RTVI-VLM."""
+    """Remove stream from RTVI-VLM.
+
+    Same id split as ``cleanup_rtvi_embed_stream``: resource id in the URL,
+    VST stream UUID in the routing header.
+    """
     if not config.rtvi_vlm_url:
         return True, "Skipped (not configured)"
 
     url = f"{config.rtvi_vlm_url}/v1/streams/delete/{stream_id}"
     logger.info(f"Removing from RTVI-VLM: DELETE {url}")
 
-    # SDR routing key
-    headers = {"x-stream-id": stream_id} if stream_id else {}
+    routing_key = routing_stream_id or stream_id
+    headers = stream_routing_headers(routing_key) if routing_key else {}
     try:
         response = await client.delete(url, headers=headers)
         if response.status_code in (200, 204):
@@ -670,15 +691,19 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                 )
             rtvi_embed_added = config.rtvi_embed_url != ""
 
-            # Step 4: Start embedding generation
+            # Step 4: Start embedding generation. The routing key stays the
+            # VST sensor/stream UUID even if RTVI-embed echoed back its own
+            # resource id — the proxy pinned this stream by the UUID at add.
             if rtvi_embed_stream_id is None:
                 rtvi_embed_stream_id = sensor_id
             with TimeMeasure("rtsp_stream: start embedding generation"):
-                success, msg = await start_embedding_generation(client, config, rtvi_embed_stream_id)
+                success, msg = await start_embedding_generation(
+                    client, config, rtvi_embed_stream_id, routing_stream_id=sensor_id
+                )
             if not success:
                 # Rollback: cleanup RTVI-embed, RTVI-CV, and VST (sensor + storage)
                 if rtvi_embed_added:
-                    await cleanup_rtvi_embed_stream(client, config, rtvi_embed_stream_id)
+                    await cleanup_rtvi_embed_stream(client, config, rtvi_embed_stream_id, routing_stream_id=sensor_id)
                 if rtvi_cv_added:
                     await cleanup_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
                 await cleanup_vst_sensor(config, sensor_id)

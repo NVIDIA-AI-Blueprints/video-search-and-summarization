@@ -57,6 +57,7 @@ from pydantic import Field
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.utils.stream_routing import stream_routing_headers
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.url_translation import rewrite_url_host
 
@@ -342,12 +343,8 @@ async def _register_with_rtvi_cv(
     HTTP errors (non-2xx) raise ``HTTPException(502)`` so the caller surfaces a
     hard failure.
     """
-    # `x-stream-id` is the routing key for SDR-fronted RTVI deployments: the
-    # in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR coordinator)
-    # consistent-hashes this header to pin a stream to one worker pod.
-    # Without it the proxy falls back to round-robin and subsequent
-    # /add → /delete → /config calls for the same sensor can land on different
-    # workers. See Projects/SDR/wiki.md for the routing contract.
+    # Routing convention: sensor_id is the uploaded asset's VST UUID — see
+    # vss_agents.utils.stream_routing for the contract.
     rtvi_cv_url = rtvi_cv_base_url.rstrip("/")
     rtvi_cv_add_url = f"{rtvi_cv_url}/api/v1/stream/add"
     rtvi_cv_payload = {
@@ -371,7 +368,7 @@ async def _register_with_rtvi_cv(
                 response = await client.post(
                     rtvi_cv_add_url,
                     json=rtvi_cv_payload,
-                    headers={"x-stream-id": sensor_id},
+                    headers=stream_routing_headers(sensor_id),
                 )
             if response.status_code not in (200, 201):
                 error_msg = f"RTVI-CV returned {response.status_code}: {response.text}"
@@ -424,12 +421,10 @@ async def _run_rtvi_embedding(
             response = await client.post(
                 embedding_url,
                 json=embed_request,
-                headers={
-                    "accept": "application/json",
-                    "Content-Type": "application/json",
-                    # SDR routing key — same rationale as RTVI-CV.
-                    "x-stream-id": sensor_id,
-                },
+                headers=stream_routing_headers(
+                    sensor_id,
+                    extra={"accept": "application/json", "Content-Type": "application/json"},
+                ),
             )
 
         if response.status_code != 200:

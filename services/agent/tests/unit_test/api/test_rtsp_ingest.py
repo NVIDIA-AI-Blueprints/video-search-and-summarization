@@ -1078,3 +1078,93 @@ class TestRegisterRtspStreamApiRoutes:
 
         with pytest.raises(ValueError, match="vst_internal_url"):
             register_rtsp_ingest_routes(mock_app, mock_config)
+
+
+class TestRoutingKeyConvention:
+    """``x-stream-id`` must carry the VST stream UUID on every RTVI call.
+
+    The proxy in front of multi-replica RTVI consistent-hashes this header, so
+    a service-minted resource id (e.g. the id RTVI-embed echoes back from
+    ``/v1/streams/add``) must never become the routing key: the add was hashed
+    on the VST UUID, and hashing a different value sends the follow-up call to
+    a pod that does not own the stream. See vss_agents.utils.stream_routing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_generation_routes_by_vst_uuid_when_embed_echoes_own_id(self):
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_stream_cm = MagicMock()
+        mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_client = MagicMock()
+        mock_client.stream = MagicMock(return_value=mock_stream_cm)
+
+        success, _msg = await start_embedding_generation(
+            mock_client, config, "embed-minted-42", routing_stream_id="vst-uuid-123"
+        )
+
+        assert success is True
+        kwargs = mock_client.stream.call_args.kwargs
+        assert kwargs["headers"]["x-stream-id"] == "vst-uuid-123"
+        # The embed resource id stays in the payload — routing and resource
+        # identity are separate concerns.
+        assert kwargs["json"]["id"] == "embed-minted-42"
+
+    @pytest.mark.asyncio
+    async def test_embed_stream_cleanup_routes_by_vst_uuid_when_ids_diverge(self):
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = MagicMock()
+        mock_client.delete = AsyncMock(return_value=mock_response)
+
+        success, _msg = await cleanup_rtvi_embed_stream(
+            mock_client, config, "embed-minted-42", routing_stream_id="vst-uuid-123"
+        )
+
+        assert success is True
+        args, kwargs = mock_client.delete.call_args
+        assert args[0].endswith("/v1/streams/delete/embed-minted-42")
+        assert kwargs["headers"]["x-stream-id"] == "vst-uuid-123"
+
+    @pytest.mark.asyncio
+    async def test_embed_generation_cleanup_routes_by_vst_uuid_when_ids_diverge(self):
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = MagicMock()
+        mock_client.delete = AsyncMock(return_value=mock_response)
+
+        success, _msg = await cleanup_rtvi_embed_generation(
+            mock_client, config, "embed-minted-42", routing_stream_id="vst-uuid-123"
+        )
+
+        assert success is True
+        args, kwargs = mock_client.delete.call_args
+        assert args[0].endswith("/v1/generate_video_embeddings/embed-minted-42")
+        assert kwargs["headers"]["x-stream-id"] == "vst-uuid-123"
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.create_retry_strategy")
+    async def test_embed_add_warns_when_service_echoes_divergent_id(self, mock_retry, caplog):
+        """A divergent echoed id breaks delete-by-VST-id; it must be loud."""
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(return_value={"streams": [{"id": "embed-minted-42"}]})
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_retry.return_value = _single_attempt_retry()
+
+        with caplog.at_level("WARNING"):
+            success, _msg, rtvi_stream_id = await add_to_rtvi_embed(
+                mock_client, config, "vst-uuid-123", "camera-1", "rtsp://vst:554/vst-uuid-123"
+            )
+
+        assert success is True
+        assert rtvi_stream_id == "embed-minted-42"
+        assert any("delete-by-VST-id" in record.message for record in caplog.records)

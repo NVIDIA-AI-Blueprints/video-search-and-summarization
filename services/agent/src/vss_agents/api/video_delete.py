@@ -39,6 +39,7 @@ from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
 from vss_agents.utils.sanitize import scrub_log
+from vss_agents.utils.stream_routing import stream_routing_headers
 from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ class EsCleanupConfig(BaseModel):
 
 
 async def _remove_from_rtvi_cv(
-    client: httpx.AsyncClient, rtvi_cv_url: str, sensor_id: str, sensor_name: str
+    client: httpx.AsyncClient, rtvi_cv_url: str, stream_id: str, sensor_name: str
 ) -> tuple[bool, str]:
     """
     Remove a video stream from RTVI-CV.
@@ -94,7 +95,8 @@ async def _remove_from_rtvi_cv(
     Args:
         client: HTTP client
         rtvi_cv_url: Base RTVI-CV URL (e.g., http://localhost:9000)
-        sensor_id: The sensor UUID
+        stream_id: The VST stream UUID (the ``video_id`` of the upload) — the
+            same value the add path registered as ``camera_id`` and routed by
         sensor_name: The sensor/video name
 
     Returns:
@@ -108,7 +110,7 @@ async def _remove_from_rtvi_cv(
     payload = {
         "key": "sensor",
         "value": {
-            "camera_id": sensor_id,
+            "camera_id": stream_id,
             "camera_name": sensor_name,
             "camera_url": "",
             "change": "camera_remove",
@@ -120,12 +122,9 @@ async def _remove_from_rtvi_cv(
     logger.info(f"Removing from RTVI-CV: POST {url}")
 
     try:
-        # `x-stream-id` is the consistent-hash routing key for multi-replica
-        # RTVI-CV deployments — it must match the header sent on /stream/add
-        # so the remove lands on the pod that owns the stream.
-        response = await client.post(url, json=payload, headers={"x-stream-id": sensor_id})
+        response = await client.post(url, json=payload, headers=stream_routing_headers(stream_id))
         if response.status_code in (200, 201, 204):
-            logger.info("RTVI-CV stream removed: %s", scrub_log(sensor_id))
+            logger.info("RTVI-CV stream removed: %s", scrub_log(stream_id))
             return True, "OK"
         return False, f"RTVI-CV returned {response.status_code}: {response.text}"
     except Exception as e:
