@@ -29,12 +29,16 @@ _HELPER_CANDIDATES = (
 HELPER_PATH = next((p for p in _HELPER_CANDIDATES if p.is_file()), None)
 add_generated_protobuf_headers = None
 if HELPER_PATH is not None:
-    _SPEC = importlib.util.spec_from_file_location(
-        "add_generated_protobuf_headers", HELPER_PATH
-    )
-    assert _SPEC is not None and _SPEC.loader is not None
-    add_generated_protobuf_headers = importlib.util.module_from_spec(_SPEC)
-    _SPEC.loader.exec_module(add_generated_protobuf_headers)
+    try:
+        _SPEC = importlib.util.spec_from_file_location(
+            "add_generated_protobuf_headers", HELPER_PATH
+        )
+        assert _SPEC is not None and _SPEC.loader is not None
+        add_generated_protobuf_headers = importlib.util.module_from_spec(_SPEC)
+        _SPEC.loader.exec_module(add_generated_protobuf_headers)
+    except Exception:
+        # Helper import must not break collection (e.g. bind-mount path quirks).
+        add_generated_protobuf_headers = None
 
 GENERATED_PROTOBUF_FILES = (
     REPO_ROOT / "src/protos/nv_pb2.py",
