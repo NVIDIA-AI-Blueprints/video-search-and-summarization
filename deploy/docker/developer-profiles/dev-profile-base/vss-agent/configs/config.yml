@@ -52,7 +52,7 @@ functions:
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm # e.g. nim_vlm, openai_vlm
-    max_frames: 30
+    max_frames: ${VLM_MAX_FRAMES:-30}  # override via VLM_MAX_FRAMES; default 30 unchanged. Lower for VLMs that cap images per prompt.
     max_fps: 2  # for CR1, max fps is 2
     min_pixels: 3136
     max_pixels: 8388608

@@ -114,6 +114,10 @@ services:
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
       ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://alert-bridge:${ALERT_BRIDGE_PORT:-9080}}
 
+      # Video understanding: frames packed into a single VLM prompt.
+      # Default 30 (unchanged); lower via VLM_MAX_FRAMES for VLMs that cap images per prompt.
+      VLM_MAX_FRAMES: ${VLM_MAX_FRAMES:-30}
+
       # Audio Configuration
       ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
 
