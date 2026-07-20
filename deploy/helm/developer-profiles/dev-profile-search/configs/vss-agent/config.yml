@@ -193,10 +193,10 @@ llms:
     temperature: 0.0
     model_kwargs:
       extra_body:
-        num_frames_per_second_or_fixed_frames_chunk: 20
+        num_frames_per_second_or_fixed_frames_chunk: 60
         use_fps_for_chunking: false
-        vlm_input_width: 1280
-        vlm_input_height: 720
+        vlm_input_width: 800
+        vlm_input_height: 448
 
 workflow:
   _type: top_agent
