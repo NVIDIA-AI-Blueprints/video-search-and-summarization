@@ -1,0 +1,97 @@
+# =============================================================================
+# VIOS + NVStreamer  --  SANITY PLANS
+# -----------------------------------------------------------------------------
+# Each ENABLED plan runs against every ENABLED entry in its `systems:` map, applies
+# its `setup` (config + provisioning), then runs the CANONICAL sanity suite -- built
+# internally, not listed here. All results -> one PDF (each run tagged "Plan-x @ <system>").
+#
+#   python3 services/vios/sanity/run_sanity.py --plans services/vios/sanity/sanity_plans.yaml
+#
+# Toggle a plan with `enabled: true|false`; toggle a target with `systems.<name>.enabled`.
+#
+# ------------------------------ systems.* -------------------------------------
+#   A plan can be tested on multiple systems (local / remote / thor / orin / ...). Each entry:
+#     enabled     true -> run this plan against this system
+#     target      local | remote
+#     base_url    VST endpoint (e.g. http://<host>:30888)
+#     host/user/password   remote only (ssh deploy/provisioning)
+#
+
+# Provide single video file and then this will generate few variants of the video file and then run the sanity tests on each of the variants.
+defaults:
+  video_path: /home/vst/vst_release/streamer_videos/test/Warehouse_test.mp4
+  max_streams: 4     # cap on directory videos provisioned if there are huge number of videos.
+  # Optional: containers under test -- written into compose.env + docker-pulled automatically
+  # (no hand-editing). CLI flags --streamprocessing-image / --sensor-image / --nvstreamer-image
+  # override these. Omit to use whatever compose.env already points at.
+  # images:
+  #   streamprocessing: nvcr.io/.../vst-streamprocessing:<tag>
+  #   sensor:           nvcr.io/.../vst-sensor:<tag>
+  #   nvstreamer:       nvcr.io/.../nvstreamer:<tag>
+
+plans:
+
+  # ---------------------------------------------------------------------------
+  # Plan-1: general functional coverage on the REDIS consumer. No video-wall.
+  - name: "Plan-1 | NVStreamer + VIOS | redis consumer"
+    enabled: true
+    systems:
+      local:  { enabled: true,  target: local,  base_url: "http://localhost:30888" }
+      remote: { enabled: false, target: remote, host: "10.0.0.5", user: "user", password: "password", base_url: "http://10.0.0.5:30888" }
+    setup:
+      nvstreamer: true
+      vios: true
+      consumer: redis
+      variants: true
+      vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}
+      nvstreamer_config: {nv_streamer_sync_file_count: 0, nv_streamer_sync_playback: false}
+
+  # ---------------------------------------------------------------------------
+  # Plan-2: KAFKA consumer, 4 synchronized copies -> WebRTC video-wall + latency perf.
+  - name: "Plan-2 | NVStreamer + VIOS | kafka consumer"
+    enabled: true
+    systems:
+      local:  { enabled: true,  target: local,  base_url: "http://localhost:30888" }
+      remote: { enabled: false, target: remote, host: "10.0.0.5", user: "user", password: "password", base_url: "http://10.0.0.5:30888" }
+    setup:
+      nvstreamer: true
+      vios: true
+      consumer: kafka
+      broker_addr: "172.17.0.1:9092"
+      sync_wall: true
+      vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}
+      nvstreamer_config: {nv_streamer_sync_file_count: 4}
+
+  # ---------------------------------------------------------------------------
+  # Plan-3: Milestone VMS adaptor (milestone_onvif, type mms). NO overlay -- Milestone
+  # cameras carry no VST metadata. Discovers Milestone cameras; for each ONLINE camera runs
+  # download + live/replay picture + webrtc live/replay (all overlay=False).
+  - name: "Plan-3 | Milestone adaptor (no overlay)"
+    enabled: false
+    systems:
+      local: { enabled: true, target: local, base_url: "http://localhost:30888" }
+    setup:
+      vios: true
+      adaptor: milestone
+      # Milestone server config -> adaptor_config.json milestone_onvif (enabled:true).
+      ip: ""
+      user: ""
+      password: ""
+      port: "580"
+      # Milestone owns recording; no VIOS always-record, no AI bridge.
+      ai_bridge_endpoint: ""
+      always_recording: false
+
+  # ---------------------------------------------------------------------------
+  # Plan-4: ONVIF adaptor. Cameras from ONVIF network discovery (no NVStreamer). Same suite
+  # as Plan-1 with FULL overlay (the event-driven plugin subscribes camera_streaming for the
+  # discovered cameras).
+  - name: "Plan-4 | ONVIF adaptor (full overlay)"
+    enabled: false
+    systems:
+      local: { enabled: true, target: local, base_url: "http://localhost:30888" }
+    setup:
+      vios: true
+      adaptor: onvif
+      consumer: redis
+      vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}

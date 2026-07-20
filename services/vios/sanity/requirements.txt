@@ -1,0 +1,15 @@
+# VIOS + NVStreamer sanity harness -- Python dependencies.
+#   pip install -r services/vios/sanity/requirements.txt
+#   playwright install chromium          # one-time, pulls the browser used for the PDF/UI capture
+#
+# System packages (NOT pip): ffmpeg (provides ffprobe) must be on PATH.
+
+requests            # VIOS/NVStreamer REST API
+PyYAML              # sanity_plans.yaml
+av                  # PyAV -- RTSP demux + SEI metadata parse
+protobuf            # runtime for the compiled ds_schema_2d_pb2 (DeepStream 2D schema)
+redis               # live-overlay metadata publish/consume (redis broker)
+confluent-kafka     # live-overlay metadata publish/consume (kafka broker, Plan-2)
+aiortc              # WebRTC client for webrtc live/replay capture
+websockets          # WebRTC signaling
+playwright          # headless Chromium: VST-UI capture + PDF rendering (run `playwright install chromium`)
