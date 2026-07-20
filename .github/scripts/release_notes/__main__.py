@@ -27,7 +27,7 @@ from .render import NotesData, issue_comment, render
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="release_notes")
     parser.add_argument("--repo", required=True, help="owner/name of the GitHub repo")
-    parser.add_argument("--tag", required=True, help="the trigger tag (dev-* or v*)")
+    parser.add_argument("--tag", required=True, help="the weekly drop tag (dev-YY.MM.N[-h])")
     parser.add_argument("--tracker-bug", required=True, help="QA Drop Tracker NVBug id")
     parser.add_argument("--git-dir", default=".", help="path to a clone with tag history")
     parser.add_argument("--output", default=None, help="write notes markdown here")
