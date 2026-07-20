@@ -89,7 +89,6 @@ k8s-workerset2:
   WDM_MS_LISTENER_PORT: 9002
 
 
-
 workload-c:
   wl_obj_name: sdrc-example-c
   port: 4003
