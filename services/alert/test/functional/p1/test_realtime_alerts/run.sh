@@ -688,6 +688,38 @@ fi
 curl -s -X DELETE "${ES_HOST}/${MIX_IDX}" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
+# Test 8f: rejected/no chunks are excluded from consolidation
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8f: rejected chunks excluded from consolidated view..."
+VD_IDX="mdx-vlm-incidents-2099-04-04"
+VD_SENSOR="p1-verdict-mix"
+VD_WINDOW="start_time=2099-04-04T00:00:00Z&end_time=2099-04-04T01:00:00Z"
+curl -s -X DELETE "${ES_HOST}/${VD_IDX}" >/dev/null 2>&1 || true
+# confirmed/yes chunk followed by an adjacent rejected/no chunk (same session)
+curl -s -X PUT "${ES_HOST}/${VD_IDX}/_doc/vd-ok" -H "Content-Type: application/json" \
+    -d '{"sensorId":"p1-verdict-mix","category":"alert","timestamp":"2099-04-04T00:00:00.000Z","end":"2099-04-04T00:00:30.000Z","info":{"requestId":"r","chunkIdx":"0","verdict":"confirmed","triggerPhrase":"yes"}}' >/dev/null 2>&1
+curl -s -X PUT "${ES_HOST}/${VD_IDX}/_doc/vd-no" -H "Content-Type: application/json" \
+    -d '{"sensorId":"p1-verdict-mix","category":"alert","timestamp":"2099-04-04T00:00:30.000Z","end":"2099-04-04T00:01:00.000Z","info":{"requestId":"r","chunkIdx":"1","verdict":"rejected","triggerPhrase":"no"}}' >/dev/null 2>&1
+curl -s -X POST "${ES_HOST}/${VD_IDX}/_refresh" >/dev/null 2>&1
+
+VD_CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${VD_SENSOR}&category=alert&consolidate=true&${VD_WINDOW}")
+VD_EVENTS=$(echo "$VD_CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+VD_CC=$(echo "$VD_CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('chunkCount','') if inc else '')" 2>/dev/null || echo "")
+VD_VERDICT=$(echo "$VD_CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('verdict','') if inc else '')" 2>/dev/null || echo "")
+VD_RAW=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${VD_SENSOR}&consolidate=false" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+
+# consolidated: 1 event from the confirmed chunk only, verdict stays confirmed; raw: both docs
+if [ "$VD_EVENTS" = "1" ] && [ "$VD_CC" = "1" ] && [ "$VD_VERDICT" = "confirmed" ] && [ "$VD_RAW" = "2" ]; then
+    print_status "ok" "PASS: rejected chunk excluded (events=1, chunkCount=1, verdict=confirmed); raw shows both (2)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: verdict-mix (events=$VD_EVENTS cc=$VD_CC verdict=$VD_VERDICT raw=$VD_RAW)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${VD_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
 # Test 9: Caption-start failure — RTVI rejects generate_captions_alerts
 #         Expects: stream rolled back on RTVI, rule absent in AB
 # ---------------------------------------------------------------------------
