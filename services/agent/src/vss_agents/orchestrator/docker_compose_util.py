@@ -20,7 +20,6 @@ from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from dataclasses import field
 import os
-from pathlib import Path
 import re
 import subprocess
 from types import MappingProxyType
@@ -44,6 +43,7 @@ from .storage import resolve_required_absolute_file
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from collections.abc import Mapping
+    from pathlib import Path
 
 SupportedProfile = Literal["base", "search", "lvs", "alerts"]
 PROFILE_BASE: Final[str] = "base"
@@ -159,7 +159,7 @@ class DryRunRecipe:
     edge_allowed_profiles: frozenset[str]
     edge_device_ids: Mapping[str, str]
     profile_mode_to_env_modes: Mapping[str, Mapping[str, str]]
-    profile_env_override_file: Path | None = None
+    profile_env_override_file: Path
     hardware_profile_env_overrides: Mapping[str, Mapping[str, str | Mapping[str, str]]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -192,7 +192,6 @@ def create_dry_run_recipe(
     profile_mode_to_env_modes: dict[str, dict[str, str]] | None,
     source_compose_yaml: str,
     source_env: str,
-    profile_env_override_file: str | None = None,
 ) -> DryRunRecipe:
     profile = profile.strip()
     if profile not in SUPPORTED_PROFILES:
@@ -220,13 +219,13 @@ def create_dry_run_recipe(
         error_type=ValidationError,
     )
 
-    resolved_profile_env_override_file: Path | None = None
-    if profile_env_override_file and profile_env_override_file.strip():
-        candidate = Path(profile_env_override_file.strip()).expanduser()
-        if not candidate.is_absolute():
-            candidate = source_env_file.parent / candidate
-        candidate = candidate.resolve()
-        resolved_profile_env_override_file = candidate if candidate.is_file() else None
+    # overrides.env is mandatory and must live next to the profile .env.
+    profile_env_override_file = resolve_required_absolute_file(
+        str(source_env_file.parent / "overrides.env"),
+        field_name="overrides.env",
+        missing_label="Profile overrides.env",
+        error_type=ValidationError,
+    )
 
     try:
         model_resolution = ModelResolutionInput.model_validate(model_resolution, from_attributes=True)
@@ -257,7 +256,7 @@ def create_dry_run_recipe(
         mdx_data_dir=resolve_config_path(mdx_data_dir),
         compose_file=compose_file,
         source_env_file=source_env_file,
-        profile_env_override_file=resolved_profile_env_override_file,
+        profile_env_override_file=profile_env_override_file,
         supported_hardware_profiles=frozenset(model_resolution.hardware.hardware_profiles.keys()),
         edge_hardware_profiles=frozenset(model_resolution.hardware.edge_profiles),
         edge_allowed_profiles=frozenset(model_resolution.hardware.edge_allowed_profiles),
@@ -481,7 +480,7 @@ def infer_runtime_mode(
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
-    #   1b. profile env_override_file
+    #   1b. profile overrides.env (mandatory, next to .env)
     #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
     #   3. yml hw-defaults from hardware_profiles[HW]:
     #        a. str-valued keys at the HW root (always apply)
@@ -491,8 +490,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
     #   5. per-call env_overrides
     merged = parse_env_file(config.source_env_file)
-    if config.profile_env_override_file is not None:
-        merged.update(parse_env_file(config.profile_env_override_file))
+    merged.update(parse_env_file(config.profile_env_override_file))
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
     effective_hardware_profile = (

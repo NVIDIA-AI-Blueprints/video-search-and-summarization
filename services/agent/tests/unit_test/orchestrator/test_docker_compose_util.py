@@ -62,10 +62,9 @@ def _make_recipe(
     mdx_data_dir.mkdir()
     source_env_file = tmp_path / "profile.env"
     source_env_file.write_text(env_text.strip() + "\n")
-    profile_env_override_file: Path | None = None
-    if overrides_env_text is not None:
-        profile_env_override_file = tmp_path / "overrides.env"
-        profile_env_override_file.write_text(overrides_env_text.strip() + "\n")
+    # overrides.env is mandatory and always lives next to the profile .env.
+    profile_env_override_file = tmp_path / "overrides.env"
+    profile_env_override_file.write_text((overrides_env_text.strip() + "\n") if overrides_env_text else "")
 
     if edge_allowed_profiles is None:
         edge_allowed_profiles = frozenset({dcu.PROFILE_ALERTS, dcu.PROFILE_SEARCH})
@@ -933,30 +932,29 @@ class TestOverridesEnvLayering:
 
         assert resolved["LLM_NAME_SLUG"] == "from-env-overrides"
 
-    def test_missing_overrides_env_is_noop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_empty_overrides_env_is_noop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(tmp_path, _env_text(*_base_env("thor")), hardware_profile="thor")
         _patch_network(monkeypatch)
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert recipe.profile_env_override_file is None
+        assert recipe.profile_env_override_file == (tmp_path / "overrides.env")
         assert resolved["LLM_NAME_SLUG"] == "llm-a-slug"
 
 
 class TestCreateDryRunRecipeOverridesEnv:
-    """create_dry_run_recipe resolves the profile env override file from the caller-supplied
-    profile_env_override_file (env passed in from the notebook), not a hardcoded name."""
+    """create_dry_run_recipe always resolves overrides.env next to the profile .env and
+    requires it to exist (fail-fast otherwise)."""
 
     @staticmethod
-    def _make(tmp_path: Path, profile_env_override_file: str | None, *, overrides_name: str | None = None):
-        """Build a recipe; optionally pre-create an override env file named overrides_name
-        next to the profile .env, and pass profile_env_override_file through to the factory."""
+    def _make(tmp_path: Path, *, create_overrides: bool):
+        """Build a recipe; optionally pre-create overrides.env next to the profile .env."""
         profile_dir = tmp_path / "dev-profile-search"
         profile_dir.mkdir(parents=True)
         (profile_dir / ".env").write_text("MODE=2d\n")
         (tmp_path / "compose.yml").write_text("services: {}\n")
-        if overrides_name is not None:
-            (profile_dir / overrides_name).write_text("LLM_NAME_SLUG=slug\n")
+        if create_overrides:
+            (profile_dir / "overrides.env").write_text("LLM_NAME_SLUG=slug\n")
         kwargs = {
             "profile": "search",
             "env_overrides": {},
@@ -976,28 +974,15 @@ class TestCreateDryRunRecipeOverridesEnv:
             "source_compose_yaml": str(tmp_path / "compose.yml"),
             "source_env": str(profile_dir / ".env"),
         }
-        if profile_env_override_file is not None:
-            kwargs["profile_env_override_file"] = profile_env_override_file
         return profile_dir, dcu.create_dry_run_recipe(**kwargs)
 
-    def test_relative_name_resolves_against_profile_env_dir(self, tmp_path: Path):
-        profile_dir, recipe = self._make(tmp_path, "overrides.env", overrides_name="overrides.env")
+    def test_overrides_env_resolves_next_to_profile_env(self, tmp_path: Path):
+        profile_dir, recipe = self._make(tmp_path, create_overrides=True)
         assert recipe.profile_env_override_file == (profile_dir / "overrides.env").resolve()
 
-    def test_absolute_path_is_used_as_is(self, tmp_path: Path):
-        profile_dir, _ = self._make(tmp_path, None, overrides_name="overrides.env")
-        abs_path = profile_dir / "overrides.env"
-        _, recipe = self._make(tmp_path / "other", str(abs_path))
-        assert recipe.profile_env_override_file == abs_path.resolve()
-
-    def test_missing_file_resolves_to_none(self, tmp_path: Path):
-        _, recipe = self._make(tmp_path, "overrides.env")
-        assert recipe.profile_env_override_file is None
-
-    def test_absent_profile_env_override_file_resolves_to_none(self, tmp_path: Path):
-        # Not passing profile_env_override_file means no override env file is layered, even if one exists.
-        _, recipe = self._make(tmp_path, None, overrides_name="overrides.env")
-        assert recipe.profile_env_override_file is None
+    def test_missing_overrides_env_fails_fast(self, tmp_path: Path):
+        with pytest.raises(dcu.ValidationError, match=r"overrides\.env"):
+            self._make(tmp_path, create_overrides=False)
 
 
 class TestPrecedence:
@@ -1702,6 +1687,7 @@ def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_pa
     profile_dir.mkdir(parents=True)
     (deploy_dir / "compose.yml").write_text("services: {}\n")
     (profile_dir / ".env").write_text("HOST_IP=\n")
+    (profile_dir / "overrides.env").write_text("")
     monkeypatch.setenv("HOME", str(fake_home))
 
     model_resolution = {
@@ -1729,3 +1715,4 @@ def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_pa
     assert recipe.deployments_dir == deploy_dir.resolve()
     assert recipe.compose_file == (deploy_dir / "compose.yml").resolve()
     assert recipe.source_env_file == (profile_dir / ".env").resolve()
+    assert recipe.profile_env_override_file == (profile_dir / "overrides.env").resolve()
