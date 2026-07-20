@@ -160,6 +160,10 @@ class DeploymentConfig:
         self.pull_always = False
         self.existing_vst_deployment = False
         self.existing_nvstreamer_deployment = False
+        # When True (--no-sdrc), deploy VST in DIRECT mode: rewrite the
+        # SDRC-default compose.env back to VST_USE_SDRC=false / NGINX_MODE=vst /
+        # no sdrc compose profile / stream-processor reached directly on :30001.
+        self.no_sdrc = False
         self.tag_overrides: Dict[str, str] = {}
         # Full-image overrides (key: env var name, value: complete image reference
         # without the tag, e.g. "vios/vst-sensor"). Used when a local dev build
@@ -459,6 +463,12 @@ VST_CONTAINERS = [
     "redis-server",
     "sensor-ms",
     "streamprocessing-ms-1",
+    # SDRC mode services (gated behind --profile sdrc)
+    "sdr-controller",
+    "sdrc-init-dirs",
+    "sdrc-render-config",
+    # Legacy sdr+envoy names (kept so stop/cleanup still works on old deploys
+    # that pre-date the SDRC refactor; harmless when containers are absent).
     "sdr-streamprocessing",
     "envoy-streamprocessing",
     "prometheus",
@@ -647,6 +657,39 @@ class ConfigurationManager:
 
         self._update_env_file(self.config.main_compose_env, updates)
 
+        # --no-sdrc: switch the DEPLOYMENT MODE TOGGLE block to DIRECT by
+        # commenting the SDRC block and uncommenting the DIRECT block — a clean
+        # block toggle, not an in-place value rewrite. This keeps compose.env
+        # consistent: the active block's header matches its values and there is
+        # no stale/duplicate block. Default (no flag) leaves the shipped SDRC
+        # block untouched.
+        if self.config.no_sdrc:
+            if not self._set_deployment_mode(self.config.main_compose_env, sdrc=False):
+                # Toggle markers not found — fall back to in-place key rewrite.
+                self._update_env_file(self.config.main_compose_env, {
+                    'VST_USE_SDRC': 'false',
+                    'NGINX_MODE': 'vst',
+                    'COMPOSE_PROFILES': '',
+                    'STREAM_PROCESSOR_MODULE_ENDPOINT': 'http://${HOST_IP}:30001',
+                })
+            # Verify the change actually took effect. If the toggle block had a
+            # non-standard format (renamed headers, spaces around '='), both the
+            # block toggle and the key fallback can miss — refuse to deploy in
+            # the wrong mode rather than silently coming up as SDRC.
+            applied = (self._read_env_value(
+                self.config.main_compose_env, 'VST_USE_SDRC') or '').strip().lower()
+            if applied != 'false':
+                Logger.error(
+                    "--no-sdrc requested but VST_USE_SDRC did not become 'false' "
+                    f"(read {applied!r}). The compose.env DEPLOYMENT MODE TOGGLE block "
+                    "likely has a non-standard format (renamed headers, or spaces "
+                    "around '='). Restore the shipped toggle-block format or set the "
+                    "direct values manually, then re-run. Refusing to deploy in the "
+                    "wrong mode."
+                )
+                sys.exit(2)
+            Logger.info("VIOS deployment mode set to direct (--no-sdrc)")
+
         if self.config.customize_rtsp_ports:
             rtsp_updates = {}
             for i, port in self.config.rtsp_ports.items():
@@ -713,6 +756,85 @@ class ConfigurationManager:
                         f.write(line)
         except Exception as e:
             Logger.error(f"Failed to update {env_file}: {e}")
+
+    def _set_deployment_mode(self, env_file: Path, sdrc: bool) -> bool:
+        """Toggle the DEPLOYMENT MODE TOGGLE block in compose.env cleanly.
+
+        Comments out the unused block and uncomments the active one (instead of
+        rewriting values in place), so the active block's header matches its
+        values and there is no stale/duplicate block left behind.
+
+        Returns True if the toggle block was found and rewritten; False if the
+        markers were not found (caller can fall back to an in-place key rewrite).
+        """
+        if not env_file.exists():
+            Logger.error(f"Environment file not found: {env_file}")
+            return False
+        try:
+            with open(env_file, 'r') as f:
+                lines = f.readlines()
+        except OSError as e:
+            Logger.error(f"Failed to read {env_file}: {e}")
+            return False
+
+        # The block runs from the "---------- DIRECT MODE ... ----------" header
+        # down to (but not including) the next "######" section border.
+        # Lenient locators: tolerate changes to dash/hash counts and leading
+        # whitespace. The descriptive "# DIRECT MODE :" prose line has no dashes,
+        # so requiring dashes keeps us on the actual block header (not the prose).
+        start = next(
+            (i for i, ln in enumerate(lines)
+             if 'DIRECT MODE' in ln and '---' in ln),
+            None,
+        )
+        if start is None:
+            return False
+        end = next(
+            (i for i in range(start + 1, len(lines))
+             if lines[i].lstrip().startswith('###')),
+            None,
+        )
+        if end is None:
+            return False
+
+        if sdrc:
+            block = [
+                "# ---------- DIRECT MODE (uncomment below to use this mode) ----------",
+                "#VST_USE_SDRC=false",
+                "#NGINX_MODE=vst",
+                "#STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:30001",
+                "",
+                "",
+                "# ---------- SDRC MODE (default) ----------",
+                "VST_USE_SDRC=true",
+                "COMPOSE_PROFILES=sdrc",
+                "NGINX_MODE=vst-sdrc",
+                "STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:10000",
+            ]
+        else:
+            block = [
+                "# ---------- DIRECT MODE (default) ----------",
+                "VST_USE_SDRC=false",
+                "NGINX_MODE=vst",
+                "STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:30001",
+                "",
+                "",
+                "# ---------- SDRC MODE (uncomment below to use this mode) ----------",
+                "#VST_USE_SDRC=true",
+                "#COMPOSE_PROFILES=sdrc",
+                "#NGINX_MODE=vst-sdrc",
+                "#STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:10000",
+            ]
+        # Preserve one blank line before the closing "######" border.
+        new_region = [ln + "\n" for ln in block] + ["\n"]
+        new_lines = lines[:start] + new_region + lines[end:]
+        try:
+            with open(env_file, 'w') as f:
+                f.writelines(new_lines)
+        except OSError as e:
+            Logger.error(f"Failed to update {env_file}: {e}")
+            return False
+        return True
 
 
 class InteractiveConfiguration:
@@ -2722,6 +2844,10 @@ CONFIGURATION OVERRIDES:
     --instances N            Number of NVStreamer instances to deploy (1-5).
                              Rewrites COMPOSE_PROFILES accordingly.
                              ('--instance N' is also accepted)
+    --no-sdrc                Deploy VST in DIRECT mode (no SDR controller).
+                             Overrides the SDRC default in compose.env
+                             (VST_USE_SDRC=false, NGINX_MODE=vst,
+                             stream-processor on :30001, sdrc profile cleared).
 
 IMAGE TAG OVERRIDES:
     --all-tag TAG            Override tag for stream-processor + sensor images
@@ -2808,6 +2934,13 @@ def apply_command_line_overrides(config: DeploymentConfig, args):
         Logger.info(
             f"Using command line --instances override: {args.instances} "
             f"(COMPOSE_PROFILES will become nvstreamer-1..nvstreamer-{args.instances})"
+        )
+
+    if args.no_sdrc:
+        config.no_sdrc = True
+        Logger.info(
+            "Using --no-sdrc: VST will deploy in DIRECT mode (SDR controller "
+            "disabled; compose.env rewritten to direct-mode values)"
         )
 
     config.tag_overrides = {}
@@ -3039,6 +3172,13 @@ def main():
         help='Number of NVStreamer instances to deploy (1-5). '
              'Rewrites COMPOSE_PROFILES in nvstreamer/compose.env to '
              'nvstreamer-1,...,nvstreamer-N',
+    )
+    parser.add_argument(
+        '--no-sdrc', action='store_true',
+        help='Deploy VST in DIRECT mode (no SDR controller). Overrides the '
+             'SDRC default by rewriting compose.env: VST_USE_SDRC=false, '
+             'NGINX_MODE=vst, STREAM_PROCESSOR_MODULE_ENDPOINT=:30001, and '
+             'clears COMPOSE_PROFILES so the sdrc subgraph is skipped.',
     )
 
     parser.add_argument('--all-tag', type=str,
