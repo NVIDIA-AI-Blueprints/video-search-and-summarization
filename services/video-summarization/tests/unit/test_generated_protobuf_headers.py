@@ -20,11 +20,21 @@ import pytest
 
 from ..common import REPO_ROOT
 
-HELPER_PATH = REPO_ROOT / "ci/utils/add_generated_protobuf_headers.py"
-_SPEC = importlib.util.spec_from_file_location("add_generated_protobuf_headers", HELPER_PATH)
-assert _SPEC is not None and _SPEC.loader is not None
-add_generated_protobuf_headers = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(add_generated_protobuf_headers)
+# Helper lives in ci-vss-oss (mounted at /ci-utils in Jenkins) or optionally
+# under REPO_ROOT/ci/utils for local checkouts that vendor it.
+_HELPER_CANDIDATES = (
+    REPO_ROOT / "ci/utils/add_generated_protobuf_headers.py",
+    Path("/ci-utils/add_generated_protobuf_headers.py"),
+)
+HELPER_PATH = next((p for p in _HELPER_CANDIDATES if p.is_file()), None)
+add_generated_protobuf_headers = None
+if HELPER_PATH is not None:
+    _SPEC = importlib.util.spec_from_file_location(
+        "add_generated_protobuf_headers", HELPER_PATH
+    )
+    assert _SPEC is not None and _SPEC.loader is not None
+    add_generated_protobuf_headers = importlib.util.module_from_spec(_SPEC)
+    _SPEC.loader.exec_module(add_generated_protobuf_headers)
 
 GENERATED_PROTOBUF_FILES = (
     REPO_ROOT / "src/protos/nv_pb2.py",
@@ -52,6 +62,8 @@ def test_checked_in_generated_protobuf_files_have_spdx_header(path: Path):
     ],
 )
 def test_generated_protobuf_header_year_range_policy(start_year, current_year, expected):
+    if add_generated_protobuf_headers is None:
+        pytest.skip("add_generated_protobuf_headers.py not available")
     assert add_generated_protobuf_headers.copyright_year_text(start_year, current_year) == expected
 
 
@@ -67,6 +79,8 @@ def test_generated_protobuf_header_year_range_policy(start_year, current_year, e
 def test_existing_generated_protobuf_header_year_is_preserved_and_extended(
     existing_year, expected_year
 ):
+    if add_generated_protobuf_headers is None:
+        pytest.skip("add_generated_protobuf_headers.py not available")
     text = (
         "# SPDX-FileCopyrightText: Copyright (c) "
         f"{existing_year} NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n"
