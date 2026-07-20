@@ -289,6 +289,97 @@ def _list_brev_instances() -> list[dict]:
     return []
 
 
+def _list_registered_nodes() -> list[dict]:
+    """Snapshot registered external nodes from ``brev ls nodes --json``.
+
+    The CLI intentionally keeps registered nodes out of ``brev ls --json``.
+    Treat a well-formed empty array (or ``null``) as authoritative, but retry
+    empty/malformed output because transient auth/RPC failures otherwise make
+    the external pool disappear for the whole lock wait.
+    """
+    for attempt in range(4):
+        try:
+            proc = subprocess.run(
+                ["brev", "ls", "nodes", "--json"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            print(
+                f"[run-leg] brev ls nodes failed (attempt {attempt + 1}): {exc}",
+                flush=True,
+            )
+            time.sleep(5)
+            continue
+        raw = (proc.stdout or "").strip()
+        if raw.startswith("null"):
+            return []
+        if raw and raw.rfind("]") >= 0:
+            return _parse_brev_json(raw)
+        print(
+            f"[run-leg] brev ls nodes returned empty stdout "
+            f"(attempt {attempt + 1})",
+            flush=True,
+        )
+        time.sleep(5)
+    return []
+
+
+def _registered_gpu_hint(name: str) -> str:
+    """Infer hardware only for operator-controlled ``vss-eval-*`` names.
+
+    ``brev ls nodes --json`` currently reports name/status but no GPU model.
+    The pool's documented prefixes are therefore the only available hardware
+    contract. Unknown prefixes return empty so GPU-requiring legs fail closed.
+    """
+    normalized = name.lower()
+    if normalized.startswith("vss-eval-rtx"):
+        return "RTX PRO 6000"
+    if normalized.startswith("vss-eval-l40s"):
+        return "L40S"
+    if normalized.startswith("vss-eval-h100"):
+        return "H100"
+    return ""
+
+
+def _registered_pool_allowlist() -> set[str]:
+    """Names explicitly approved for automatic registered-node selection."""
+    raw = os.environ.get("BREV_REGISTERED_POOL", "")
+    return {
+        name.lower()
+        for name in re.split(r"[\s,]+", raw.strip())
+        if name
+    }
+
+
+def _list_pool_instances() -> list[dict]:
+    """Return managed instances plus connected registered pool nodes."""
+    instances = list(_list_brev_instances())
+    seen = {(inst.get("name") or "").lower() for inst in instances}
+    registered_allowlist = _registered_pool_allowlist()
+    if not registered_allowlist:
+        return instances
+    for node in _list_registered_nodes():
+        name = (node.get("name") or "").strip()
+        if (
+            not name
+            or name.lower() in seen
+            or name.lower() not in registered_allowlist
+        ):
+            continue
+        status = (node.get("status") or "").upper()
+        instances.append({
+            **node,
+            "name": name,
+            # Managed instances say RUNNING; registered nodes say Connected.
+            "status": "RUNNING" if status == "CONNECTED" else status,
+            "gpu": _registered_gpu_hint(name),
+            "instance_type": "registered-external-node",
+            "_registered": True,
+        })
+        seen.add(name.lower())
+    return instances
+
+
 def _loose_gpu_match(want: str, have: str) -> bool:
     """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` — all tokens of `want` must
     appear in `have` (substring fallback for dashed variants). Mirrors
@@ -309,17 +400,17 @@ def pool_candidates(metadata: dict) -> list[str]:
     """Eligible `vss-eval-*` boxes for this leg, best-first.
 
     Hardware-hard, software-free (AGENTS.md § 5a): RUNNING + gpu_type
-    token match. Exact name-hinted gpu_count matches sort first so the
-    pool stays partitioned (don't tie up a 2-GPU box with 1-GPU work);
-    over-provisioned boxes remain as fallback — brev_env validates the
-    final pick with `gpu_count >=` and the box is reset either way.
+    token match. Dedicated registered nodes sort before managed cloud
+    instances; exact name-hinted gpu_count matches sort first within each
+    tier. Over-provisioned boxes remain valid — brev_env validates the final
+    pick with live nvidia-smi and the box is reset either way.
     gpu_count == 0 (remote-all / GPU-independent) accepts any RUNNING box.
     """
     required_type = (metadata.get("gpu_type") or "").upper()
     required_count = int(metadata.get("gpu_count", 1) or 0)
 
-    names: list[str] = []
-    for inst in _list_brev_instances():
+    candidates: list[tuple[str, bool]] = []
+    for inst in _list_pool_instances():
         name = inst.get("name") or ""
         if not name.startswith("vss-eval-"):
             continue
@@ -333,14 +424,18 @@ def pool_candidates(metadata: dict) -> list[str]:
             if not (_loose_gpu_match(required_type, gpu)
                     or _loose_gpu_match(required_type, itype)):
                 continue
-        names.append(name)
+        candidates.append((name, bool(inst.get("_registered"))))
 
-    def sort_key(name: str) -> tuple[int, str]:
+    def sort_key(candidate: tuple[str, bool]) -> tuple[int, int, str]:
+        name, registered = candidate
         hint = _name_gpu_count_hint(name)
         exact = 0 if (required_count > 0 and hint == required_count) else 1
-        return (exact, name)
+        # Use the dedicated registered pool before consuming managed cloud
+        # capacity. Within each pool tier, preserve exact-count partitioning.
+        # BrevEnvironment validates the chosen node with live nvidia-smi.
+        return (0 if registered else 1, exact, name.lower())
 
-    return sorted(names, key=sort_key)
+    return [name for name, _ in sorted(candidates, key=sort_key)]
 
 
 @contextlib.contextmanager
