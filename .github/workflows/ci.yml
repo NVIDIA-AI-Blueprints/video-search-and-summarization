@@ -880,11 +880,11 @@ jobs:
     permissions:
       actions: read
       contents: read
-      # Needed so the trigger script can call the GitHub REST API to
-      # resolve the PR's base branch (only present on `pull_request`
-      # events, not on the `push` event used for `pull-request/<N>`
-      # synthetic refs created by copy-pr-bot).
-      pull-requests: read
+      # Needed so the trigger script can resolve the PR's base branch and
+      # the candidate reporter can update the validated-image PR comment.
+      # The workflow runs on `pull-request/<N>` synthetic push refs created
+      # by copy-pr-bot rather than on a `pull_request` event.
+      pull-requests: write
       issues: write
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
