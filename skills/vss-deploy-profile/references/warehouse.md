@@ -19,7 +19,7 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 | Warehouse Auto-Calibration | `2d` / `3d` / `mv3dt` | `bp_wh_auto_calib` | (same as mode default) | (same as mode default) | none | none |
 | Standalone Auto-Calibration | any | `auto_calib` | n/a | n/a | none | none |
 
-`COMPOSE_PROFILES` is computed automatically: `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}`. No `vlm_*` slice — `vss-rtvi-vlm` is always deployed for `bp_wh` and there is no VLM NIM.
+`COMPOSE_PROFILES` is set automatically to an explicit list of Docker **service names** for the active variant. Each service carries its own `profiles: ["<service-name>"]`, and `overrides.env` defines one `COMPOSE_PROFILES_WH_*` list per variant (`blueprint-deploy.sh` selects the matching one). No `vlm_*` slice — `vss-rtvi-vlm` is always in the warehouse service list and there is no VLM NIM.
 
 ## Minimal vs Extended Profile
 
@@ -105,10 +105,10 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | Container | Port | When |
 |---|---|---|
 | LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` |
-| `vss-rtvi-vlm` (real-time VLM) | `RTVI_VLM_PORT` (default `8018`) | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
+| `vss-rtvi-vlm` (real-time VLM) | `RTVI_VLM_PORT` (default `8018`) | **Always** deployed for warehouse — its `rtvi-vlm` profile is in every `COMPOSE_PROFILES_WH_*` list |
 | `vss-alert-bridge` | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
-> **No VLM NIM container.** VSS has two VLM paths: a standalone **VLM NIM** (controlled by `VLM_MODE` / `VLM_NAME_SLUG`, used by base/alerts/lvs/search profiles) and an integrated **RTVI VLM** (`vss-rtvi-vlm`). The warehouse blueprint uses **RTVI VLM only** — `vss-rtvi-vlm` is always deployed via the hardcoded compose profile `bp_wh_2d`, and `vss-agent` connects to it directly. Because warehouse does not use the standalone VLM NIM path, `VLM_MODE=none` and `VLM_NAME_SLUG=none` in the warehouse `.env`. There is no `vlm_*` slice in `COMPOSE_PROFILES`, so VLM NIM containers (e.g. `cosmos-reason2-8b` on port 30082) are never deployed.
+> **No VLM NIM container.** VSS has two VLM paths: a standalone **VLM NIM** (controlled by `VLM_MODE` / `VLM_NAME_SLUG`, used by base/alerts/lvs/search profiles) and an integrated **RTVI VLM** (`vss-rtvi-vlm`). The warehouse blueprint uses **RTVI VLM only** — `vss-rtvi-vlm` is always in the warehouse service list (its own `rtvi-vlm` profile), and `vss-agent` connects to it directly. Because warehouse does not use the standalone VLM NIM path, `VLM_MODE=none` and `VLM_NAME_SLUG=none` in the warehouse `.env`. There is no `vlm_*` slice in `COMPOSE_PROFILES`, so VLM NIM containers (e.g. `cosmos-reason2-8b` on port 30082) are never deployed.
 
 ## Perception Model
 
@@ -271,7 +271,7 @@ cd <repo>/deploy/docker
 # Brev only: export before docker compose so COMPOSE_PROFILES and BREV_ENV_ID
 # are available for variable substitution. Skip on non-Brev hosts.
 export BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment 2>/dev/null)
-export COMPOSE_PROFILES=<literal-value-from-generated-env>   # e.g. bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
+export COMPOSE_PROFILES=<resolved-service-list>   # NOT "bp_wh_2d,..."; see "COMPOSE_PROFILES — resolve to the service list on Brev" below
 
 printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 
@@ -746,7 +746,7 @@ For `bp_wh`, **always ask explicitly** — do not default to `local`:
 > - **remote** — point at an external LLM endpoint via `LLM_BASE_URL` (e.g. `https://integrate.api.nvidia.com`). No LLM NIM deployed. Requires `NVIDIA_API_KEY` — log in to the [NVIDIA NIM API catalog](https://build.nvidia.com) and get a NIM Catalog API key.
 > - **none** — disable LLM entirely."
 
-`vst-rtvi-vlm` (RTVI VLM) is **always** deployed locally for `bp_wh_2d`.
+`vst-rtvi-vlm` (RTVI VLM) is **always** deployed locally for warehouse.
 
 ```bash
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
@@ -829,7 +829,7 @@ LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 # LLM_BASE_URL — only when LLM_MODE=remote
 
 # --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
-# vss-rtvi-vlm is always deployed for bp_wh (hardcoded in compose profile bp_wh_2d).
+# vss-rtvi-vlm is always deployed for warehouse (its rtvi-vlm profile is in every COMPOSE_PROFILES_WH_* list).
 VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
 RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 RTVI_VLM_MODEL_TO_USE=cosmos-reason3
@@ -933,29 +933,33 @@ Uses `EXTERNAL_IP:3002` directly (not `VSS_PUBLIC_*`). The map tab is **disabled
 
 > **Do not** use the old `http://7777-<BREV_ENV_ID>.brevlab.com:7777` form — the Brev reverse proxy does not expose the raw HAProxy port. Using `http` with `:7777` will fail with connection refused or mixed-content errors in the browser.
 
-##### `COMPOSE_PROFILES` — set as a literal string on Brev
+##### `COMPOSE_PROFILES` — resolve to the service list on Brev
 
-The `COMPOSE_PROFILES` variable in warehouse `generated.env` is normally copied from the `overrides.env` shell-style template:
+Under the profile-inversion model, `COMPOSE_PROFILES` is an explicit list of Docker **service names** for the active variant — not a `${BP_PROFILE}_${MODE}` token. `overrides.env` builds one list per variant (`COMPOSE_PROFILES_WH_2D`, `COMPOSE_PROFILES_WH_KAFKA_2D`, …) and points `COMPOSE_PROFILES` at the one `blueprint-deploy.sh` selected:
 
 ```ini
-COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}
+# overrides.env
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}
 ```
 
-Some Docker Compose versions do not expand variable references within `--env-file` values, leaving the literal `${BP_PROFILE}` string unexpanded. Always override it with the resolved value in `generated.env` for the chosen profile:
+Some Docker Compose versions do not expand `${...}` references within `--env-file` values, leaving `COMPOSE_PROFILES` as the literal string `${COMPOSE_PROFILES_WH_2D}` — which matches **no** services. Resolve it by sourcing the warehouse env files, then run compose with the exported value:
 
 ```bash
-# Example for bp_wh + 2d + remote LLM (nemotron-nano-9b-v2)
-COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
-
-# Example for bp_wh + 2d + local LLM
-COMPOSE_PROFILES=bp_wh_2d,llm_local_nvidia-nemotron-nano-9b-v2
+cd <repo>/deploy/docker
+set -a
+. industry-profiles/warehouse-operations/.env
+. industry-profiles/warehouse-operations/generated.env
+set +a
+# COMPOSE_PROFILES now holds the resolved service list, e.g.:
+#   turnserver-init,turnserver,redis,...,vss-agent,rtvi-vlm,vss-ui,...,llm_remote_nvidia-nemotron-nano-9b-v2
+echo "$COMPOSE_PROFILES"
 ```
 
 ##### `vss-rtvi-vlm` bridge network access + socat proxy (Brev only)
 
 `vss-rtvi-vlm` runs on the Docker bridge network and needs to resolve Brev secure-link domains to fetch video clips for VLM verification. These steps are applied **after the stack is up** — see [After deploy — Brev](#after-deploy-brev).
 
-> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. The variable is defined as a template inside `overrides.env`/`generated.env` and is not expanded by `--env-file` in all Docker Compose versions. Set it as a literal value directly in `generated.env` (e.g. `COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2`) and also `export COMPOSE_PROFILES=bp_wh_2d,...` in the shell before running `docker compose up`.
+> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-name list** (via `COMPOSE_PROFILES_WH_*` in `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Source the warehouse `.env` + `generated.env` (as shown in "`COMPOSE_PROFILES` — resolve to the service list on Brev") so the `${COMPOSE_PROFILES_WH_*}` reference expands, then `export COMPOSE_PROFILES` with that resolved value before `docker compose up`.
 
 > **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.3.0-26.07.1"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.1"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
 
