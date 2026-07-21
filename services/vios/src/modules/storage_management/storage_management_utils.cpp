@@ -1100,20 +1100,20 @@ VmsErrorCode addFile(std::shared_ptr<DeviceManager> deviceMngr,
         LOG(info) << "Sending camera_proxy event for file-based sensor: " << sensor->id << endl;
         vst_common::notifySensorStatusEvent(SensorStatusProxy, sensor);
 
-        std::string cameraUrlOverride {EMPTY_STRING};
+        std::string httpFileUrl {EMPTY_STRING};
         StorageManagement* storageMngr = GET_STORAGE_MNGT();
         if (storageMngr != nullptr)
         {
-            cameraUrlOverride = storageMngr->generateUploadedFullFileUrl(sensor->id);
+            httpFileUrl = storageMngr->generateUploadedFullFileUrl(sensor->id);
         }
-        if (cameraUrlOverride.empty())
+        if (httpFileUrl.empty())
         {
             LOG(warning) << "Using the internal file path for camera_streaming because URL generation failed for sensor: "
                          << sensor->id << endl;
         }
 
         LOG(info) << "Sending camera_streaming event for file-based sensor: " << sensor->id << endl;
-        vst_common::notifySensorStatusEvent(SensorStatusStreaming, sensor, cameraUrlOverride);
+        vst_common::notifySensorStatusEvent(SensorStatusStreaming, sensor, httpFileUrl);
     }
     
     return VmsErrorCode::NoError;

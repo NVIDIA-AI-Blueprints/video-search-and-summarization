@@ -58,7 +58,7 @@ namespace vst_common
     void addSensorToRemoteDevice(shared_ptr<SensorInfo>& sensor, std::shared_ptr<DeviceManager> deviceManager);
     void removeSensorFromRemoteDevice(const string& sensor_id);
     void notifySensorStatusEvent(SensorStatusEvent statusEvent, shared_ptr<SensorInfo> sensor,
-                                 string cameraUrlOverride = EMPTY_STRING);
+                                 string httpFileUrl = EMPTY_STRING);
     void notifyStreamStatusEvent(SensorStatusEvent statusEvent, shared_ptr<StreamInfo> stream);
     void notifyEvent(const SensorStatus& status, const string& sensor_url, const SensorVideoEncoderSettingsValues* encoder_values = nullptr);
     int addSensorManually(shared_ptr<SensorInfo>& sensor, string& response, std::shared_ptr<DeviceManager> deviceManager);
