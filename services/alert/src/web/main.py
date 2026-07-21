@@ -36,7 +36,7 @@ from .core.dependencies import load_config
 
 app = FastAPI(
     title="Alert Agent API",
-    description="HTTP API for alert submission, prompt management, and WebSocket real-time alert broadcasting",
+    description="HTTP API for alert submission, prompt management, and verification config",
     version="1.0.0",
     redirect_slashes=False,
     servers=[
