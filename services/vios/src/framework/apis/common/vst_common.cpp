@@ -1209,7 +1209,7 @@ namespace vst_common
     }
 
     void notifySensorStatusEvent(SensorStatusEvent event, shared_ptr<SensorInfo> sensor,
-                                 string cameraUrlOverride)
+                                 string httpFileUrl)
     {
         if(sensor != nullptr)
         {
@@ -1221,9 +1221,9 @@ namespace vst_common
                 status.event = event;
                 status.sensorId = sensor->id;
                 status.sensorName = streams[0]->name;
-                string sensor_url = cameraUrlOverride.empty()
+                string sensor_url = httpFileUrl.empty()
                     ? toDomainName(streams[0]->live_proxy_url, streams[0]->id)
-                    : cameraUrlOverride;
+                    : httpFileUrl;
                 if (event == SensorStatusStreaming && sensor_url.empty())
                 {
                     return; // Skip notification if camera url is not present.
