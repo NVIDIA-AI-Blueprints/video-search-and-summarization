@@ -222,41 +222,48 @@ def _read_dataset_metadata(dataset_root: Path) -> dict:
 
 
 def _parse_brev_json(raw: str | None) -> list[dict]:
-    """Strip trailing walkthrough text and parse JSON array from brev CLI.
+    """Strip trailing walkthrough text and parse JSON from brev CLI.
 
     Handles both the legacy bare-array format (``[{...}, ...]``) and the
-    newer wrapped-object format (``{"workspaces": [{...}, ...]}\n``).
-    Same contract as envs.brev_env._parse_brev_json."""
+    newer wrapped format (``{"workspaces": [{...}, ...]}``) introduced in
+    recent brev CLI versions.
+    """
     import json
 
     if not raw:
         return []
+    # Try full parse first (handles both formats without bracket heuristics)
+    stripped = raw.strip()
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict) and "workspaces" in parsed:
+            return parsed["workspaces"]
+        return []
+    except json.JSONDecodeError:
+        pass
+    # Fallback: strip trailing walkthrough text after last `]`
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
-    # Try parsing up to the last ']' (works for bare-array output).
-    chunk = raw[: bracket + 1]
     try:
-        result = json.loads(chunk)
-        if isinstance(result, list):
-            return result
-        # Wrapped object truncated before closing '}' — extract the list.
-        if isinstance(result, dict):
-            for val in result.values():
-                if isinstance(val, list):
-                    return val
-            return []
+        parsed = json.loads(raw[: bracket + 1])
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict) and "workspaces" in parsed:
+            return parsed["workspaces"]
+        return []
     except json.JSONDecodeError:
         pass
-    # Fallback: find the first '[' and parse the inner array.
-    first_bracket = chunk.find("[")
-    if first_bracket < 0:
-        return []
-    try:
-        result = json.loads(chunk[first_bracket:])
-        return result if isinstance(result, list) else []
-    except json.JSONDecodeError:
-        return []
+    # Last resort: extract the inner array from {"workspaces": [...]}
+    start = raw.find("[")
+    if start >= 0 and bracket > start:
+        try:
+            return json.loads(raw[start: bracket + 1])
+        except json.JSONDecodeError:
+            pass
+    return []
 
 
 def _list_brev_instances() -> list[dict]:
