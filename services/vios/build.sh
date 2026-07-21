@@ -16,6 +16,7 @@
 # limitations under the License.
 
 ARCH="x86_64"
+ARCH_EXPLICIT=0   # set to 1 when the user passes arch=... (drives clean targeting)
 PACKAGE=0
 CONTAINER=0
 TAG=""
@@ -266,6 +267,7 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         arch=*)
             ARCH="${1#*=}"
+            ARCH_EXPLICIT=1
             if [[ "$ARCH" = "arm64" ]]; then ARCH="aarch64"; fi
             if [[ "$ARCH" = "amd64" ]]; then ARCH="x86_64"; fi
             # Orin/Jetson build the unified aarch64 target (runtime platform
@@ -379,17 +381,17 @@ declare -A DEFAULT_TAGS=(
     [mcp]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
-    [vst-base]="2.1.0-runtime-26.04.1"
+    [vst-base]="2.1.0-runtime-26.05.4"
 )
 
 # Function to build base image for faster container builds
 build_base_image() {
     local push=$1
 
-    echo "=============================================="
-    echo "Building VST Base Image (Optimization Strategy)"
-    echo "=============================================="
-    echo "This builds a base image containing all system packages"
+    echo "==================================================================================="
+    echo "Building VST Runtime Base Image (one-time build, reused by later container builds)"
+    echo "==================================================================================="
+    echo "This bakes all system packages into a base image so subsequent container builds reuse it and run faster (optimization)."
     echo ""
 
     # Determine the base image name and tag
@@ -501,9 +503,9 @@ build_toolchain_image() {
     local image_name
     image_name=$(get_toolchain_image_name)
 
-    echo "=============================================="
-    echo "Building VIOS Compile Toolchain Image"
-    echo "=============================================="
+    echo "======================================================="
+    echo "Building VIOS Compile Toolchain Image (one-time build)"
+    echo "======================================================="
     echo "Image: $image_name"
     echo "Arch:  $ARCH"
     echo ""
@@ -609,12 +611,12 @@ ensure_base_image() {
     base_image_name="$IMAGE_REGISTRY/vst-base:$base_tag"
 
     if image_exists "$base_image_name"; then
-        echo "[auto-deps] Base image already present: $base_image_name"
+        echo "[auto-deps] VST Runtime base-image already present: $base_image_name"
         return 0
     fi
 
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
-        echo "[ERROR] Base image not found: $base_image_name"
+        echo "[ERROR] VST Runtime base-image not found: $base_image_name"
         echo "        Build it explicitly with:   ./build.sh base-container"
         echo "        Or omit 'no-auto-deps' to let this script build it for you."
         exit 1
@@ -625,6 +627,64 @@ ensure_base_image() {
     build_base_image 0  # 0 = don't push during auto-build
 }
 
+# Build vios-ui with npm from the compile toolchain image, so the host does
+# not need Node.js or npm and those tools stay out of public runtime images.
+# Run as the invoking user to keep generated files writable outside Docker.
+build_vios_ui() {
+    local build_root="$1"
+    local ui_dir="$build_root/ui/vios-ui"
+
+    echo ""
+    echo "=================== Building UI ==================="
+
+    # Incremental build: reuse an existing dist/ when it is already up to date
+    # with the UI sources, instead of re-running the (slow) `tsc && vite build`
+    # on every nvstreamer/ingress container build. Freshness = no source file
+    # (excluding node_modules/ and dist/) is newer than the build marker
+    # dist/index.html. Pass `no-cache` to force a full rebuild.
+    local ui_marker="$ui_dir/dist/index.html"
+    if [[ $NO_CACHE -ne 1 && -f "$ui_marker" ]]; then
+        local newer_src
+        newer_src=$(find "$ui_dir" -type f \
+            -not -path "*/node_modules/*" \
+            -not -path "*/dist/*" \
+            -newer "$ui_marker" -print -quit 2>/dev/null)
+        if [[ -z "$newer_src" ]]; then
+            echo "vios-ui dist is up to date in $ui_dir; reusing existing build (pass no-cache to force a rebuild)."
+            echo "================== Building UI done (reused) ==============="
+            echo ""
+            return 0
+        fi
+        echo "vios-ui sources changed (e.g. $newer_src); rebuilding ..."
+    fi
+
+    local toolchain_image_name
+    toolchain_image_name=$(get_toolchain_image_name)
+
+    echo "Building vios-ui in $ui_dir using $toolchain_image_name ..."
+    if ! docker run --rm --network=host \
+        --entrypoint /bin/bash \
+        --user "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -e NPM_CONFIG_CACHE=/tmp/.npm \
+        -e NPM_CONFIG_PREFIX=/tmp/.npm-global \
+        -v "$build_root:/workspace" \
+        -w /workspace/ui/vios-ui \
+        "$toolchain_image_name" \
+        -c 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"; npm run install:link && npm run build'; then
+        echo "[ERROR] vios-ui build failed in toolchain image: $toolchain_image_name"
+        return 1
+    fi
+
+    if [[ ! -d "$ui_dir/dist" ]]; then
+        echo "[ERROR] vios-ui dist directory not found after build"
+        return 1
+    fi
+
+    echo "=================== Building UI done ==================="
+    echo ""
+}
+
 # Function to build the vios-ui and stage its dist output into the webroot dir
 # (used when building the nvstreamer container; webroot is packaged into the image).
 build_vios_ui_webroot() {
@@ -633,21 +693,12 @@ build_vios_ui_webroot() {
     local ui_dir="$build_root/ui/vios-ui"
     local webroot_dir="$build_root/webroot"
 
-    echo "Building vios-ui in $ui_dir ..."
-    cd "$ui_dir" || { echo "[ERROR] Cannot find vios-ui directory: $ui_dir"; exit 1; }
-    npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-    npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-    if [[ ! -d "dist" ]]; then
-        echo "[ERROR] vios-ui dist directory not found after build"
-        exit 1
-    fi
+    build_vios_ui "$build_root" || exit 1
 
     echo "Staging vios-ui dist into $webroot_dir ..."
     # Remove only the VST UI static files; leave other webroot files intact.
     rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html"
-    cp -rf dist/. "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
-    cd "$build_root" || exit 1
+    cp -rf "$ui_dir/dist/." "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
 }
 
 # Function to build a module
@@ -674,6 +725,8 @@ build_module() {
         return 0
     fi
 
+    record_built_arch
+
     if [[ $DEBUG -eq 1 ]]; then
         echo "Building module: $module with cc_value=$cc_value and debug mode"
         MODULE=$module make cc=$cc_value debug $package
@@ -689,6 +742,115 @@ build_module() {
     fi
 }
 
+# Record that ARCH was just built, so a later arch-less `./build.sh clean`
+# knows which architecture(s) to clean. Stored as a per-arch stamp file (not a
+# shell env var, which would not survive between separate build/clean runs).
+record_built_arch() {
+    mkdir -p "prebuilts/$ARCH" 2>/dev/null
+    : > "prebuilts/$ARCH/.vios-built"
+}
+
+# Remove arch-independent generated artifacts: UCF/helm build outputs, the
+# staged vios-ui assets, and the compiled release tarball. Safe to call once
+# per clean regardless of architecture.
+clean_generated_artifacts() {
+    rm -rf deployment/scaling/ucf/vst-app/vst-app-*
+    rm -rf deployment/scaling/ucf/vst-streamprocessing-app/vst-streamprocessing-app-*
+    rm -rf deployment/scaling/ucf/ingress/ucf/output
+    rm -rf deployment/scaling/ucf/redis/redis-app*
+    rm -rf deployment/scaling/ucf/recorder/output
+    rm -rf deployment/scaling/ucf/rtsp-server/output
+    rm -rf deployment/scaling/ucf/sensor/output
+    rm -rf deployment/scaling/ucf/storage/output
+    rm -rf deployment/scaling/ucf/postgres/output
+    rm -rf deployment/scaling/ucf/minio/output
+    rm -rf deployment/scaling/ucf/livestream/output
+    rm -rf deployment/scaling/ucf/replaystream/output
+    rm -rf deployment/scaling/ucf/nvstreamer-app/nvstreamer/nvstreamer-app-*
+    rm -rf deployment/scaling/ucf/nvstreamer-app/ingress/ucf/output
+    rm -rf deployment/ucf/nv-streamer/output
+    rm -rf deployment/scaling/ucf/sdr/vst-rtspserver-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-recorder-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-livestream-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-replaystream-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-streamprocessing/output/
+    rm -rf deployment/scaling/ucf/streamprocessing/output/
+
+    # Generated UI build output. Remove dist/ too so `clean` forces a full UI
+    # rebuild on the next container build; leaving it would let the incremental
+    # freshness check (marker: dist/index.html) reuse the old build.
+    # node_modules/ is intentionally kept so `npm install:link` stays fast.
+    rm -rf ui/vios-ui/dist
+
+    # Staged vios-ui assets (build_vios_ui_webroot). Never committed — only the
+    # .gitkeep placeholders are tracked — so these are safe to drop and are
+    # regenerated on the next container build. rm -rf is a no-op if absent.
+    rm -rf webroot/assets webroot/favicon webroot/index.html
+    rm -rf deployment/scaling/ingress/vst-ui/assets \
+           deployment/scaling/ingress/vst-ui/favicon \
+           deployment/scaling/ingress/vst-ui/index.html
+
+    # Compiled release output (out/$ARCH/vst_release.tbz2, ...). The container
+    # package step may write this as root, so a user-run rm can hit "Permission
+    # denied". Degrade gracefully with a hint instead of aborting the clean.
+    if [[ -e out ]]; then
+        rm -rf out 2>/dev/null || \
+            echo "[clean] WARN: could not remove root-owned out/ — run: sudo rm -rf out"
+    fi
+}
+
+# Clean the compiled artifacts for a single architecture. x86_64 cleans
+# natively; aarch64 uses the cross-compile toolchain container (make cc=1).
+# If the aarch64 toolchain image is absent, fall back to removing the
+# generated (git-untracked) libs on the host so clean still works without
+# Docker — vendored (tracked) prebuilt libs are left untouched.
+clean_arch() {
+    local a="$1" cc=0
+    [[ "$a" == "aarch64" ]] && cc=1
+    echo ""
+    echo "=================== Cleaning ($a) ==================="
+    if [[ $cc -eq 1 ]] && ! image_exists "$AARCH64_CC_IMAGE"; then
+        echo "[clean] aarch64 toolchain image '$AARCH64_CC_IMAGE' not present;"
+        echo "        removing generated (untracked) aarch64 libs on host instead."
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git ls-files --others --exclude-standard "prebuilts/$a" \
+                | xargs -r rm -f
+        else
+            echo "[clean] WARN: not a git work tree; cannot distinguish generated"
+            echo "        from vendored libs. Build the toolchain then re-run:"
+            echo "          ./build.sh toolchain arch=aarch64 && ./build.sh arch=arm64 clean"
+        fi
+    else
+        make cc=$cc clean
+    fi
+    rm -f "prebuilts/$a/.vios-built"
+}
+
+# Top-level clean entrypoint. With arch=... given, cleans exactly that arch;
+# otherwise cleans every architecture recorded by record_built_arch (both, if
+# both were built), falling back to the default arch when nothing is recorded.
+do_clean() {
+    local arches=()
+    if [[ $ARCH_EXPLICIT -eq 1 ]]; then
+        arches=("$ARCH")
+    else
+        local a
+        for a in x86_64 aarch64; do
+            [[ -f "prebuilts/$a/.vios-built" ]] && arches+=("$a")
+        done
+        [[ ${#arches[@]} -eq 0 ]] && arches=("$ARCH")
+    fi
+    echo "Clean target arch(es): ${arches[*]}"
+
+    local a
+    for a in "${arches[@]}"; do
+        clean_arch "$a"
+    done
+
+    clean_generated_artifacts
+    echo "Cleaning done ..!"
+}
+
 # Function to build and package all modules
 build_all() {
     local cc_value=$1
@@ -697,32 +859,12 @@ build_all() {
 
     if [[ $CLEAN -eq 1 ]]; then
         make cc=$cc_value clean
-
-        rm -rf deployment/scaling/ucf/vst-app/vst-app-*
-        rm -rf deployment/scaling/ucf/vst-streamprocessing-app/vst-streamprocessing-app-*
-        rm -rf deployment/scaling/ucf/ingress/ucf/output
-        rm -rf deployment/scaling/ucf/redis/redis-app*
-        rm -rf deployment/scaling/ucf/recorder/output
-        rm -rf deployment/scaling/ucf/rtsp-server/output
-        rm -rf deployment/scaling/ucf/sensor/output
-        rm -rf deployment/scaling/ucf/storage/output
-        rm -rf deployment/scaling/ucf/postgres/output
-        rm -rf deployment/scaling/ucf/minio/output
-        rm -rf deployment/scaling/ucf/livestream/output
-        rm -rf deployment/scaling/ucf/replaystream/output
-        rm -rf deployment/scaling/ucf/nvstreamer-app/nvstreamer/nvstreamer-app-*
-        rm -rf deployment/scaling/ucf/nvstreamer-app/ingress/ucf/output
-        rm -rf deployment/ucf/nv-streamer/output
-        rm -rf deployment/scaling/ucf/sdr/vst-rtspserver-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-recorder-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-livestream-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-replaystream-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-streamprocessing/output/
-        rm -rf deployment/scaling/ucf/streamprocessing/output/
+        clean_generated_artifacts
         echo "Cleaning done ..!"
         exit 0
     fi
 
+    record_built_arch
     echo "Building all with cc_value=$cc_value, package=$package, container=$container"
 
     if [[ $package -eq 1 ]]; then
@@ -1325,6 +1467,14 @@ fi
 # Auto-detect handles fresh clones; idempotent on warm hosts (cheap docker
 # image inspect). Skipped for `help` and `clean`-only paths where compilation
 # isn't actually needed.
+# Clean is a delete-only operation — handle it up front so it works regardless
+# of module flags, cleans whatever arch(es) were actually built (auto-detected
+# from the record_built_arch stamps), and never needs the toolchain just to rm.
+if [[ $CLEAN -eq 1 ]]; then
+    do_clean
+    exit 0
+fi
+
 if [[ $CLEAN -eq 0 ]]; then
     ensure_toolchain_image
 fi
@@ -1412,20 +1562,11 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
             UI_DIR="$INGRESS_BUILD_ROOT/ui/vios-ui"
             VST_UI_DIR="$INGRESS_BUILD_ROOT/deployment/scaling/ingress/vst-ui"
 
-            echo "Building vios-ui in $UI_DIR ..."
-            cd "$UI_DIR" || { echo "[ERROR] Cannot find vios-ui directory: $UI_DIR"; exit 1; }
-            npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-            npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-            if [[ ! -d "dist" ]]; then
-                echo "[ERROR] vios-ui dist directory not found after build"
-                exit 1
-            fi
+            build_vios_ui "$INGRESS_BUILD_ROOT" || exit 1
 
             echo "Staging vios-ui dist into $VST_UI_DIR ..."
             find "$VST_UI_DIR" -mindepth 1 -not -name '.gitkeep' -delete
-            cp -rf dist/. "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
-            cd "$INGRESS_BUILD_ROOT" || exit 1
+            cp -rf "$UI_DIR/dist/." "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
 
             cd deployment/scaling/ingress/ || exit 1
             echo "Building Docker image: $imagename"

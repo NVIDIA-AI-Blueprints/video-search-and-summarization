@@ -1,0 +1,225 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Unit tests for sensor_config_manager Flask API endpoints."""
+import os
+import json
+import pytest
+from unittest.mock import patch, MagicMock
+
+
+@pytest.fixture
+def safe_calibration_dir_for_api(monkeypatch, tmp_path):
+    """Use tmp_path for calibration so no global dirs are created."""
+    monkeypatch.setenv("CALIBRATION_DIR_MOUNT_PATH", str(tmp_path))
+    yield tmp_path
+
+
+@pytest.fixture
+def client(safe_calibration_dir_for_api):
+    """Flask test client with mocked sensor_mapping and CONFIG."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    mod.app.config["TESTING"] = True
+    with mod.app.test_client() as c:
+        yield c
+
+
+def test_healthz_returns_200_and_healthy(client):
+    """GET /healthz returns 200 and status healthy."""
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["status"] == "healthy"
+
+
+def test_readyz_profile_disabled_returns_200_ready(client):
+    """GET /readyz returns 200 ready when profile configurator is disabled."""
+    import sensor_config_manager as mod
+    with patch.dict(os.environ, {"ENABLE_PROFILE_CONFIGURATOR": "false"}):
+        # readiness_check reads os.environ.get at request time
+        r = client.get("/readyz")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["status"] == "ready"
+
+
+def test_readyz_profile_enabled_marker_present_returns_200(client, tmp_path):
+    """GET /readyz returns 200 when profile configurator enabled and marker file exists."""
+    import sensor_config_manager as mod
+    marker = tmp_path / "ready"
+    marker.write_text("")
+    with patch.dict(os.environ, {"ENABLE_PROFILE_CONFIGURATOR": "true"}):
+        with patch.object(mod, "PROFILE_CONFIG_READY_FILE", str(marker)):
+            with patch.object(mod, "is_profile_config_ready", return_value=True):
+                r = client.get("/readyz")
+    assert r.status_code == 200
+    assert r.get_json()["status"] == "ready"
+
+
+def test_readyz_profile_enabled_marker_missing_returns_503(client, tmp_path):
+    """GET /readyz returns 503 when profile configurator enabled and marker file missing."""
+    import sensor_config_manager as mod
+    with patch.dict(os.environ, {"ENABLE_PROFILE_CONFIGURATOR": "true"}):
+        with patch.object(mod, "is_profile_config_ready", return_value=False):
+            r = client.get("/readyz")
+    assert r.status_code == 503
+    assert r.get_json()["status"] == "not_ready"
+
+
+def test_post_calibration_disabled_returns_503(client, monkeypatch):
+    """POST /calibration returns 503 when calibration process is disabled."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "false")
+    mod.refresh_config()
+    r = client.post("/calibration", json={"sensors": []}, content_type="application/json")
+    assert r.status_code == 503
+
+
+def test_post_calibration_fetch_mode_returns_200_warning(client, monkeypatch):
+    """POST /calibration in fetch mode returns 200 with warning message."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    monkeypatch.setenv("CALIBRATION_MODE", "fetch")
+    monkeypatch.setenv("CALIBRATION_API_ENDPOINT", "http://example.com/cal")
+    mod.refresh_config()
+    r = client.post("/calibration", json={"sensors": []}, content_type="application/json")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data.get("status") == "warning"
+    assert "fetch" in data.get("message", "").lower()
+
+
+def test_post_calibration_upload_mode_success(client, monkeypatch, tmp_path):
+    """POST /calibration in upload mode with valid JSON returns 200 success."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    monkeypatch.setenv("CALIBRATION_MODE", "upload")
+    monkeypatch.setenv("CALIBRATION_DIR_MOUNT_PATH", str(tmp_path))
+    mod.refresh_config()
+    payload = {"sensors": [{"id": "c1"}], "calibrationType": "test"}
+    r = client.post("/calibration", json=payload, content_type="application/json")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data.get("status") == "success"
+
+
+def test_post_calibration_empty_body_returns_400(client, monkeypatch, tmp_path):
+    """POST /calibration with no body returns 400."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    monkeypatch.setenv("CALIBRATION_MODE", "upload")
+    monkeypatch.setenv("CALIBRATION_DIR_MOUNT_PATH", str(tmp_path))
+    mod.refresh_config()
+    r = client.post("/calibration", data=None, content_type="application/json")
+    assert r.status_code == 400
+
+
+def test_download_calibration_disabled_returns_503(client, monkeypatch):
+    """GET /download returns 503 when calibration process is disabled."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "false")
+    mod.refresh_config()
+    r = client.get("/download")
+    assert r.status_code == 503
+
+
+def test_download_calibration_file_missing_returns_404(client, monkeypatch, tmp_path):
+    """GET /download returns 404 when calibration file does not exist."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    monkeypatch.setenv("CALIBRATION_DIR_MOUNT_PATH", str(tmp_path))
+    mod.refresh_config()
+    r = client.get("/download")
+    assert r.status_code == 404
+
+
+def test_download_calibration_file_exists_returns_200(client, monkeypatch, tmp_path):
+    """GET /download returns 200 and file when calibration file exists."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    monkeypatch.setenv("CALIBRATION_DIR_MOUNT_PATH", str(tmp_path))
+    monkeypatch.setenv("CALIBRATION_FILE_NAME", "calibration.json")
+    mod.refresh_config()
+    cal_path = tmp_path / "calibration.json"
+    cal_path.write_text('{"sensors": []}')
+    r = client.get("/download")
+    assert r.status_code == 200
+    assert r.data
+
+
+def test_cameras_mapping_none_returns_503(client):
+    """GET /cameras returns 503 when sensor_mapping is not yet created."""
+    import sensor_config_manager as mod
+    with patch.object(mod, "sensor_mapping", None):
+        r = client.get("/cameras")
+    assert r.status_code == 503
+
+
+def test_cameras_with_mapping_returns_list(client, sample_sensor_mapping):
+    """GET /cameras returns 200 and list of sensor name|group_id|url when mapping exists."""
+    import sensor_config_manager as mod
+    with patch.object(mod, "sensor_mapping", sample_sensor_mapping):
+        r = client.get("/cameras")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 2
+    for item in data:
+        assert "|" in item
+        assert "rtsp://" in item
+
+
+def test_groups_calibration_disabled_returns_503(client, monkeypatch):
+    """GET /groups returns 503 when calibration process is disabled."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "false")
+    mod.refresh_config()
+    r = client.get("/groups")
+    assert r.status_code == 503
+
+
+def test_groups_mapping_none_returns_503(client, monkeypatch):
+    """GET /groups returns 503 when sensor_mapping is None."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    mod.refresh_config()
+    with patch.object(mod, "sensor_mapping", None):
+        r = client.get("/groups")
+    assert r.status_code == 503
+
+
+def test_groups_with_mapping_returns_list(client, sample_sensor_mapping, monkeypatch):
+    """GET /groups returns 200 and list of group names when mapping exists."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    mod.refresh_config()
+    with patch.object(mod, "sensor_mapping", sample_sensor_mapping):
+        r = client.get("/groups")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert isinstance(data, list)
+    assert "r1|g1" in data
+    assert "r2|g1" in data

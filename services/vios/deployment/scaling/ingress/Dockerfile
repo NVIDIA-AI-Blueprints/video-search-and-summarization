@@ -52,8 +52,10 @@ RUN mkdir -p /tmp/nginx/client-body \
 # Copy vst-ui directory to /vst-ui
 COPY vst-ui /vst-ui/
 
-# Ensure nginx owns the UI files
-RUN chown -R nginx:nginx /vst-ui
+# Ensure nginx workers can traverse directories and read the UI files even when
+# the build host uses a restrictive umask.
+RUN chown -R nginx:nginx /vst-ui \
+    && chmod -R a+rX /vst-ui
 
 # Set the user to nginx (non-root)
 #USER nginx
@@ -63,4 +65,3 @@ EXPOSE 30888
 
 # Start Nginx with config dump to help debugging on startup
 CMD ["sh", "-c", "cat /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
-

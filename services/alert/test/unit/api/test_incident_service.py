@@ -497,15 +497,34 @@ class TestConsolidationGrouping:
         assert len(event["llm"]["queries"]) == 200      # _MAX_MERGED_QUERIES
         assert event["info"]["mergedQueryCount"] == "500"
 
-    def test_missing_info_key_handled(self):
+    def test_missing_info_key_dropped(self):
+        # No info block means no confirmed verdict — such chunks must not
+        # consolidate (and must not crash the fold).
         c1 = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
         c2 = _chunk(idx=2, start="2025-01-01T00:00:25.000Z", end="2025-01-01T00:00:55.000Z")
         c1.pop("info")
         c2.pop("info")
-        events = _consolidator()._consolidate([c1, c2])
+        assert _consolidator()._consolidate([c1, c2]) == []
+
+    def test_rejected_chunk_never_joins_an_event(self):
+        # An adjacent rejected chunk must not merge, and must never supply
+        # the event's verdict even when it is the latest chunk.
+        confirmed = _chunk(idx=0, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
+        rejected = _chunk(idx=1, start="2025-01-01T00:00:30.000Z", end="2025-01-01T00:01:00.000Z")
+        rejected["info"]["verdict"] = "rejected"
+        rejected["info"]["triggerPhrase"] = "no"
+        events = _consolidator()._consolidate([confirmed, rejected])
         assert len(events) == 1
-        assert events[0]["info"]["isConsolidated"] == "true"
-        assert events[0]["info"]["chunkCount"] == "2"
+        e = events[0]
+        assert e["info"]["chunkCount"] == "1"
+        assert e["info"]["verdict"] == "confirmed"       # representative=latest must not pick the rejected chunk
+        assert e["chunk_ids"] == [confirmed["_id"]]
+        assert e["end"] == confirmed["end"]              # span not extended by the rejected chunk
+
+    def test_missing_verdict_dropped(self):
+        c = _chunk(idx=1, start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:30.000Z")
+        del c["info"]["verdict"]
+        assert _consolidator()._consolidate([c]) == []
 
 
 class TestConsolidationSplitReason:
@@ -619,6 +638,27 @@ class TestConsolidationService:
         )
         musts = mock_es_client.client.search.call_args.kwargs["query"]["bool"]["must"]
         assert {"exists": {"field": "info.chunkIdx"}} in musts
+
+    @pytest.mark.asyncio
+    async def test_consolidate_query_requires_confirmed_verdict(self, mock_es_client):
+        # The consolidated query must exclude non-confirmed docs server-side.
+        mock_es_client.client.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
+        await svc.list_incidents(
+            sensor_id="cam1", category="intrusion",
+            start_time="2025-01-01T00:00:00Z", end_time="2025-01-01T01:00:00Z",
+            consolidate=True,
+        )
+        musts = mock_es_client.client.search.call_args.kwargs["query"]["bool"]["must"]
+        assert {"term": {"info.verdict.keyword": "confirmed"}} in musts
+
+    @pytest.mark.asyncio
+    async def test_raw_view_does_not_filter_verdict(self, mock_es_client):
+        mock_es_client.client.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
+        svc = IncidentService(es_client=mock_es_client, consolidation=dict(_CONSOL_DEFAULT))
+        await svc.list_incidents(sensor_id="cam1", consolidate=False)
+        musts = mock_es_client.client.search.call_args.kwargs["query"].get("bool", {}).get("must", [])
+        assert {"term": {"info.verdict.keyword": "confirmed"}} not in musts
 
     @pytest.mark.asyncio
     async def test_raw_view_does_not_filter_verifier_docs(self, mock_es_client):

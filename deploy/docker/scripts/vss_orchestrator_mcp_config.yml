@@ -103,7 +103,7 @@ function_groups:
           OTHER:
           DGX-SPARK:
             RTVI_VLM_IMAGE_TAG: "3.2.1-sbsa"
-            PERCEPTION_TAG: "3.2.1-sbsa"
+            PERCEPTION_TAG: "3.3.0-sbsa-26.07.1"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             alerts.verification:
