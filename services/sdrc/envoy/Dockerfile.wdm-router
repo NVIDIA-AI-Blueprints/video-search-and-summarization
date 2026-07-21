@@ -61,9 +61,7 @@ WORKDIR /wdm
 
 COPY pyproject.toml uv.lock /wdm/
 COPY ./requirements.txt /wdm/requirements.txt
-COPY ./LICENSE /wdm/LICENSE
 COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
-COPY ./ThirdPartyLicences-notices.txt /wdm/ThirdPartyLicences-notices.txt
 
 # Mirror wheels + source distributions for OSRB/license compliance (pip only).
 # PIP_CONSTRAINT keeps build-time setuptools patched while preserving pkg_resources:
@@ -142,10 +140,7 @@ RUN luarocks install luasocket --lua-version=5.1 \
 RUN apt remove build-essential -y
 
 RUN mkdir -p wdm /etc/envoy /opt/wdm-runtime/envoy
-COPY ./LICENSE /wdm/LICENSE
 COPY ./3rdParty_Licenses.md /wdm/ThirdPartyLicences.txt
-# NVIDIA Software License Agreement for container distribution (legal requirement).
-COPY ./NVIDIA-Software-License-Agreement.pdf /wdm/NVIDIA-Software-License-Agreement.pdf
 
 COPY ./envoy/generate_envoy_config_xds_mw.py /opt/wdm-runtime/envoy/generate_envoy_config_xds_mw.py
 COPY ./envoy/templates /opt/wdm-runtime/envoy/templates
