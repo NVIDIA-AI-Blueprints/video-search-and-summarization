@@ -65,9 +65,12 @@ This skill requires the VSS **search** profile running on the host at `$HOST_IP`
 1. Probe the stack:
    ```bash
    curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
-     && curl -sf --max-time 5 "http://${HOST_IP}:9200/" >/dev/null
+     && curl -sf --max-time 5 "http://${HOST_IP}:9200/" >/dev/null \
+     && curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" >/dev/null
    ```
-   (The second check confirms Elasticsearch is up — unique to the search profile.)
+   Elasticsearch is unique to the search profile. RT-VLM on port 8018 is also
+   required: it serves the critic and `video_understanding`, including when
+   the underlying VLM model is remote (RT-VLM remains as a local proxy).
 
 2. **If the probe fails**, ask the user:
    > *"The VSS `search` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p search`?"*

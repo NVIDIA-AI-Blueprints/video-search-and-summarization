@@ -50,17 +50,28 @@ If further investigation is required, refer to the full components from the `vss
 
 - Potentially retry by augmenting the user input with a lower similary threshold to include more results. This helps seeing if a clip of interest was filtered out due to a lower score
 
-- Check if LLM/VLM are working:
+- Check if LLM and search RT-VLM are working. Search always exposes RT-VLM on
+  port 8018. With a remote VLM, this container remains local and proxies the
+  remote endpoint:
 ```bash
-# Ports are usually:
-# - LLM: 30081
-# - VLM: 30082
-curl -s http://${HOST_IP}:${PORT}/v1/models | jq .
+# Local LLM NIM (skip or probe its remote endpoint when LLM_MODE=remote)
+curl -s http://${HOST_IP}:30081/v1/models | jq .
 
-curl -s -X POST http://${HOST_IP}:${PORT}/v1/chat/completions \
+# Search RT-VLM (local model or remote proxy)
+curl -s http://${HOST_IP}:8018/v1/models | jq .
+docker logs vss-rtvi-vlm --tail 200
+
+curl -s -X POST http://${HOST_IP}:8018/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "<MODEL_NAME>", "max_tokens": 128, "messages": [{"role": "user", "content": "Hello!"}]}' | jq .
 ```
+
+If search results are returned but critic values are `unverified`, inspect
+RT-VLM logs for remote `422` / `500` responses, verify that `<MODEL_NAME>`
+exactly matches `/v1/models`, and confirm the deployment uses
+`VLM_MODEL_TYPE=rtvi` plus `VLM_NAME_SLUG=rtvi`. In remote mode also confirm
+`RTVI_VLM_MODEL_TO_USE=openai-compat`, `RTVI_VLM_MODEL_PATH=none`, and
+`RTVI_VLM_ENDPOINT=<remote-endpoint>/v1`.
 
 - Check if embeddings for that video source appear in Elasticsearch:
 ```bash

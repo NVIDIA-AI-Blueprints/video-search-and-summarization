@@ -5,9 +5,10 @@
 
 The vss-search-archive skill exercises the VSS agent's `POST /generate` endpoint
 for fused semantic + attribute search across pre-ingested video sources.
-It runs against a **full-remote-deployed VSS search profile** (deploy mode
-= `remote-all`; LLM and VLM both remote — Cosmos Embed1 and Elasticsearch
-still run locally on the GPU host). It does NOT deploy VSS itself; the
+It runs against a **full-remote-model VSS search profile** (deploy mode
+= `remote-all`; LLM and VLM model inference use remote endpoints, while the
+RT-VLM media proxy, Cosmos Embed1, and Elasticsearch still run locally on the
+GPU host). It does NOT deploy VSS itself; the
 coordinator chains a deploy task in front, then a VIOS upload step seeds
 the sample videos.
 

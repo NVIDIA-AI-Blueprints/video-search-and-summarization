@@ -44,6 +44,7 @@ If `resolved.yml` does not exist, return to `SKILL.md` Step 3 and run the compos
 | WebSocket query returns `error_message` | `docker logs vss-agent --tail 200` | LLM or VLM backend is not healthy or not reachable from the agent container. | Check model service `/v1/models`, verify `LLM_BASE_URL` / `VLM_BASE_URL` in `resolved.yml`, then restart/redeploy the affected service. |
 | Empty report or empty video answer | `docker logs vss-agent --tail 200` | VLM unreachable, bad VST URL, missing video ingest, or backend still cold. | Verify VST upload/listing, VLM `/v1/models`, and agent env URLs. Retry after health checks pass. |
 | `video_understanding` returns HTTP `500` (often retried 3×) though VLM `/v1/models` passed | `docker logs vss-agent --tail 200` for `fetch_video_async` / `TimeoutError`; then probe VST **from inside the VLM container** (command in section below) | Bridge-networked VLM/LLM NIM can't reach the host-mode VST (`:30888`) to download the clip — the host firewall (ufw) blocks the Docker bridge subnet. NIM is healthy; the failure is the video fetch, not inference. | Allow the bridge subnets to reach the host — see "VLM `500` / `fetch_video_async TimeoutError`" below. **Do not disable ufw.** |
+| Search RT-VLM remote proxy: MP4 re-encode fails (`libavcodec` missing, `VideoWriter_fourcc`, or `MP4 encoding failed`) | `docker logs vss-rtvi-vlm --tail 300` and `docker exec vss-rtvi-vlm printenv REMOTE_VIDEO_INPUT` | In remote mode RT-VLM re-encodes sampled frames into an MP4 for the remote NIM; the image's codec stack (PyNvVideoCodec/PyAV/OpenCV) can't build it, so requests fall back to images and may exceed the endpoint media limit (`422`) or fail (`500`). | Treat as an RT-VLM image/runtime dependency issue, not a config error — a healthy `/v1/models` probe does not mean media inference works. Confirm the deployed `vss-rt-vlm` image version and codec-install completion. |
 | `unknown or invalid runtime name: nvidia` | Search `docker info 2>/dev/null` for `runtimes`. | NVIDIA Container Toolkit is not installed or Docker was not restarted. | Follow `prerequisites.md`, restart Docker, and rerun the pre-flight check. |
 | GPU not detected | `nvidia-smi` and `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` | Driver, kernel module, or Docker GPU runtime issue. | Load modules with `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then follow `prerequisites.md` if Docker still cannot see GPUs. |
 | `cosmos-reason2-8b` crashes or is restarted in shared GPU mode | `docker logs nvidia-cosmos-reason2-8b --tail 200` | Known CR2/NIM restart limitation in shared GPU mode. Restarting the CR2 container alone may not recover service. | Redeploy the full affected VSS stack, or use the default Cosmos3 path where it is supported. |
@@ -94,7 +95,11 @@ if [ -n "${ENV_GEN:-}" ] && [ -f "$ENV_GEN" ]; then
 fi
 
 # VLM NIM responding (base/lvs profiles)
-if [ "${VLM_MODE:-}" = "remote" ]; then
+# Search exception: always probe local RT-VLM on :8018 (including remote mode,
+# where RT-VLM remains as the openai-compat proxy).
+if [ "${PROFILE:-}" = "search" ] || [ "${BP_PROFILE:-}" = "bp_developer_search" ]; then
+  curl -sf http://localhost:8018/v1/models | python3 -m json.tool
+elif [ "${VLM_MODE:-}" = "remote" ]; then
   echo "VLM_MODE=remote — skip localhost:30082; probing ${VLM_BASE_URL:-<remote-vlm-base-url>}/v1/models"
   REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
     "$REPO/skills/vss-deploy-profile/scripts/probe_remote_models.sh" "$VLM_BASE_URL" "${VLM_NAME:-}"
@@ -129,7 +134,7 @@ if you skipped it, you hit this.
 ```bash
 HOST_IP=$(ip route get 1.1.1.1 | awk '/src/{for(i=1;i<=NF;i++)if($i=="src")print $(i+1)}')  # same as dev-profile.sh
 curl -s -o /dev/null -w 'host→VST %{http_code}\n' --max-time 10 "http://$HOST_IP:30888/vst/api/v1/sensor/list"
-VLM=$(docker ps --format '{{.Names}}' | grep -iE 'cosmos|nemotron|qwen|vlm' | head -1)
+VLM=$(docker ps --format '{{.Names}}' | grep -iE 'vss-rtvi-vlm|cosmos|nemotron|qwen|vlm' | head -1)
 docker exec "$VLM" curl -s -o /dev/null -w 'vlm→VST %{http_code}\n' --max-time 10 "http://$HOST_IP:30888/vst/api/v1/sensor/list"
 ```
 
