@@ -125,7 +125,7 @@ start_rtdetr_gdino()
     sed -i "/^\[streammux\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
     sed -i "/^\[primary-gie\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
 
-    if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
+    if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
         # Replace or add msg-conv-msg2p-lib property in sink1 group
         echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv.so for sink1 group... #####"
         # First, remove any existing msg-conv-msg2p-lib line within [sink1] section
@@ -143,7 +143,7 @@ start_rtdetr_gdino()
         sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so' "$config_file"
     fi
 
-    if [[ "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
+    if [[ "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
         # Set compute-hw=2 under tracker section in config_file
         echo "##### Setting compute-hw=2 in tracker section of $config_file... #####"
         sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' "$config_file"
