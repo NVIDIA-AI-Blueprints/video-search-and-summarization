@@ -137,6 +137,46 @@ function get_vlm_slug() {
   esac
 }
 
+# Map CLI --vlm friendly names to RT-VLM MODEL_PATH for integrated (local) mode.
+# Used by base/alerts/lvs; search still uses standalone NIM slugs via get_vlm_slug.
+# Returns empty for unknown / unsupported names.
+function get_rtvi_vlm_model_path() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/cosmos-reason1-7b) echo "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic" ;;
+    nvidia/cosmos-reason2-8b) echo "ngc:nim/nvidia/cosmos-reason2-8b:hf-0303" ;;
+    nvidia/cosmos3-reasoner) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" ;;
+    Qwen/Qwen3-VL-8B-Instruct) echo "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" ;;
+    *) echo "" ;;
+  esac
+}
+
+function get_rtvi_vlm_model_to_use() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/cosmos-reason1-7b) echo "cosmos-reason1" ;;
+    nvidia/cosmos-reason2-8b) echo "cosmos-reason2" ;;
+    nvidia/cosmos3-reasoner) echo "cosmos-reason3" ;;
+    Qwen/Qwen3-VL-8B-Instruct) echo "vllm-compatible" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Derive the /v1/models id RT-VLM advertises from MODEL_PATH.
+# NGC: ngc:nim/<org>/<model>:<tag> → nim_<org>_<model>_<tag> ('.' in tag → '_', matching ngc_model_downloader).
+# HF git: git:https://huggingface.co/<org>/<repo> → <repo> (best-effort; confirm via /v1/models after boot).
+function get_rtvi_vlm_name_from_model_path() {
+  local _path="${1}"
+  if [[ "${_path}" == ngc:* ]]; then
+    local _rest="${_path#ngc:}"
+    echo "${_rest}" | tr '/:' '__' | tr '.' '_'
+  elif [[ "${_path}" == git:* ]]; then
+    basename "${_path#git:}"
+  else
+    basename "${_path}"
+  fi
+}
+
 # Mode: accepted CLI values verification | real-time; written to MODE in env as 2d_cv | 2d_vlm
 function get_mode_env_value() {
   local _mode="${1}"
@@ -469,7 +509,8 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
-  echo "                                     - nvidia/cosmos3-reasoner          (NIM_MODEL_SIZE=nano|super → VLM_NAME=nvidia/cosmos3-{size}-reasoner)"
+  echo "                                     - nvidia/cosmos3-reasoner          (search: NIM_MODEL_SIZE=nano|super → nvidia/cosmos3-{size}-reasoner;"
+  echo "                                                                         base/alerts/lvs: maps to RT-VLM MODEL_PATH + /v1/models basename)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -1456,9 +1497,26 @@ function state_up() {
       fi
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
-    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -z "${vlm}" ]]; then
       set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
       set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+    fi
+    # Honor --vlm for local RT-VLM: map friendly CLI name → MODEL_PATH + advertised basename.
+    # (Standalone NIM slug/VLM_NAME from the generic --vlm block above is overwritten here.)
+    if [[ "${vlm_mode}" != "remote" ]] && [[ -n "${vlm}" ]]; then
+      local _rtvi_path _rtvi_to_use _rtvi_name
+      _rtvi_path="$(get_rtvi_vlm_model_path "${vlm}")"
+      if [[ -z "${_rtvi_path}" ]]; then
+        echo "[ERROR] VLM '${vlm}' is not supported as an integrated RT-VLM checkpoint for profile ${profile}."
+        exit 1
+      fi
+      _rtvi_name="$(get_rtvi_vlm_name_from_model_path "${_rtvi_path}")"
+      _rtvi_to_use="$(get_rtvi_vlm_model_to_use "${vlm}")"
+      set_env_var "RTVI_VLM_MODEL_PATH" "${_rtvi_path}"
+      set_env_var "VLM_NAME" "${_rtvi_name}"
+      if [[ -n "${_rtvi_to_use}" ]]; then
+        set_env_var "RTVI_VLM_MODEL_TO_USE" "${_rtvi_to_use}"
+      fi
     fi
   fi
   # Base local VLM always uses the rtvi_vlm agent profile (overrides default to rtvi; keep explicit for Thor/history).

@@ -693,7 +693,11 @@ run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.
 run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
-run_dry_run_test "up base with llm/vlm" up -p base -i 127.0.0.1 --llm nvidia/nemotron-3-nano --vlm nvidia/cosmos-reason1-7b -d
+run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "base" \
+  -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
+  "LLM_NAME" "nvidia/nemotron-3-nano" "LLM_NAME_SLUG" "nemotron-3-nano" \
+  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi"
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
@@ -1478,7 +1482,32 @@ run_dry_run_up_and_check_generated_env "generated.env other LLM model openai/gpt
  -i 127.0.0.1 --llm openai/gpt-oss-20b -d -- \
   "LLM_NAME_SLUG" "gpt-oss-20b" "LLM_NAME" "openai/gpt-oss-20b"
 
-run_dry_run_up_and_check_generated_env "generated.env other VLM model Qwen/Qwen3-VL-8B-Instruct" "base" \
+run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos-reason1 maps to RT-VLM path+basename" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos-reason1-7b -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason1-7b_1_1-fp8-dynamic" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason1" "VLM_MODEL_TYPE" "rtvi"
+
+run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos-reason2 maps to RT-VLM path+basename" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos-reason2-8b -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-0303" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-0303" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "VLM_MODEL_TYPE" "rtvi"
+
+run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasoner maps to RT-VLM path+basename" "base" \
+ -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
+
+run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT-VLM git path+basename" "base" \
+ -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
+  "RTVI_VLM_MODEL_PATH" "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" \
+  "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
+
+# Search still uses standalone NIM VLM slugs for --vlm.
+run_dry_run_up_and_check_generated_env "generated.env search --vlm Qwen uses standalone NIM slug" "search" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
   "VLM_NAME_SLUG" "qwen3-vl-8b-instruct" "VLM_NAME" "Qwen/Qwen3-VL-8B-Instruct"
 
