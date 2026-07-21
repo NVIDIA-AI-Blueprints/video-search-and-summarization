@@ -51,12 +51,12 @@ manually call search backends.
 
 ## Deployment prerequisite
 
-This skill requires the VSS **search** profile. Resolve `AGENT_URL` and `ES_URL`
-from the selected deployment rather than assuming host ports: use the generated
-Docker profile ports, or a durable Kubernetes Ingress/operator-managed
-port-forward for the agent mutation endpoint and Elasticsearch. Authentication,
-if configured, must use the operator's approved mechanism and must not be copied
-into prompts or logs.
+This skill requires the VSS **search** profile. Resolve `AGENT_URL`, `ES_URL`,
+and `RT_VLM_URL` from the selected deployment rather than assuming host ports:
+use the generated Docker profile ports, or a durable Kubernetes
+Ingress/operator-managed port-forward for the agent mutation endpoint,
+Elasticsearch, and RT-VLM. Authentication, if configured, must use the
+operator's approved mechanism and must not be copied into prompts or logs.
 
 The deployment is not ready for archive search until its fully expanded
 `VST_EXTERNAL_URL` is reachable from the host that will consume search results.
@@ -75,9 +75,12 @@ Before an agent-backed source mutation:
 1. Probe the stack:
    ```bash
    curl -sfS --max-time 5 "${AGENT_URL}/health" >/dev/null \
-     && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null
+     && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null \
+     && curl -sfS --max-time 5 "${RT_VLM_URL}/v1/models" >/dev/null
    ```
-   (The second check confirms Elasticsearch is up — unique to the search profile.)
+   Elasticsearch is unique to the search profile. RT-VLM is also required: it
+   serves the critic and `video_understanding`, including when the underlying
+   VLM model is remote and RT-VLM remains as a local media proxy.
 
 2. **If the probe fails**, ask the user:
    > *"The selected VSS `search` profile endpoints are not reachable. Shall I deploy or reconnect it using the `/vss-deploy-profile` skill with `-p search`?"*
