@@ -138,9 +138,8 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # The coordinator currently has four static vss-skill-eval runner
-      # services. Allow one queued leg per active runner without flooding the
-      # runner queue; run_leg.py still caps execution at one leg per GPU box.
+      # Allow up to eight matrix legs. Unavailable runner slots queue in
+      # Actions; run_leg.py still caps execution at one leg per GPU box.
       max-parallel: 8
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as

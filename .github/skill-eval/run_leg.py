@@ -40,6 +40,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
+RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
 RTX4090_SKILLS = frozenset({
     "vss-ask-video",
     "vss-setup-behavior-analytics",
@@ -341,6 +342,8 @@ def _registered_gpu_hint(name: str) -> str:
     contract. Unknown prefixes return empty so GPU-requiring legs fail closed.
     """
     normalized = name.lower()
+    if normalized.startswith(RTX4090_PREFIX):
+        return "GEFORCE RTX 4090"
     if normalized.startswith("vss-eval-rtx"):
         return "RTX PRO 6000"
     if normalized.startswith("vss-eval-l40s"):
@@ -376,6 +379,9 @@ def _list_pool_instances(skill: str | None = None) -> list[dict]:
     instances = list(_list_brev_instances())
     seen = {(inst.get("name") or "").lower() for inst in instances}
     registered_allowlist = _registered_pool_allowlist(skill)
+    rtx4090_allowlist = _parse_pool_names(
+        os.environ.get("BREV_RTX4090_POOL", "")
+    )
     if not registered_allowlist:
         return instances
     for node in _list_registered_nodes():
@@ -395,6 +401,10 @@ def _list_pool_instances(skill: str | None = None) -> list[dict]:
             "gpu": _registered_gpu_hint(name),
             "instance_type": "registered-external-node",
             "_registered": True,
+            "_rtx4090_capability_routed": (
+                name.lower() in rtx4090_allowlist
+                and name.lower().startswith(RTX4090_PREFIX)
+            ),
         })
         seen.add(name.lower())
     return instances
@@ -412,6 +422,8 @@ def _loose_gpu_match(want: str, have: str) -> bool:
 def _name_gpu_count_hint(name: str) -> int | None:
     """Fleet-naming gpu_count hint: `*-1g*` → 1, `*-2g*` → 2 (AGENTS.md
     pool convention). None when the name encodes nothing."""
+    if name.lower().startswith(RTX4090_PREFIX):
+        return 1
     match = re.search(r"-(\d)g(?:-|$)", name)
     return int(match.group(1)) if match else None
 
@@ -444,10 +456,15 @@ def pool_candidates(metadata: dict) -> list[str]:
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
             itype = (inst.get("instance_type") or "").upper()
+            capability_routed = (
+                bool(inst.get("_rtx4090_capability_routed"))
+                and skill in RTX4090_SKILLS
+            )
             # Accept via instance_type when `gpu` is a transient "-"/"" flake
             # (brev catalog refresh) — same soft-fail brev_env applies.
             if not (_loose_gpu_match(required_type, gpu)
-                    or _loose_gpu_match(required_type, itype)):
+                    or _loose_gpu_match(required_type, itype)
+                    or capability_routed):
                 continue
         candidates.append((name, bool(inst.get("_registered"))))
 
