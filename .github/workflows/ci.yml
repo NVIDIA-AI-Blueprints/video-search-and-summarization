@@ -503,13 +503,27 @@ jobs:
           fetch-depth: 0
 
       - name: Check DCO sign-off
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Only check commits that are authored on this branch — i.e. NOT already
           # reachable from any long-lived upstream branch (main, develop, release/*,
-          # hotfix/*) or from the PR base (when running on a `pull_request` event).
-          # This avoids re-checking historical commits that were inherited via a sync
-          # or rebase from another branch and that pre-date the DCO requirement.
-          BASE="${GITHUB_BASE_REF:-develop}"
+          # hotfix/*) or from the PR base branch. This avoids re-checking historical
+          # commits that were inherited via a sync or rebase from another branch and
+          # that pre-date the DCO requirement.
+          #
+          # The base ref matters for STACKED PRs (base = another feature branch):
+          # without it, the walker re-checks the base branch's entire inherited
+          # history and fails on unsigned commits the PR author never touched
+          # (seen on PR #1200: 12 inherited failures, 0 from the PR's own commits).
+          # On `pull-request/<N>` mirror pushes GITHUB_BASE_REF is empty, so resolve
+          # the base from the PR API — same pattern as the license-diff fix (#622).
+          BASE="${GITHUB_BASE_REF:-}"
+          if [ -z "$BASE" ] && [[ "$GITHUB_REF_NAME" =~ ^pull-request/([0-9]+)$ ]]; then
+            BASE=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${BASH_REMATCH[1]}" \
+              --jq .base.ref 2>/dev/null || true)
+          fi
+          BASE="${BASE:-develop}"
 
           # `actions/checkout` only fetches the checked-out ref. Make sure the refs we
           # use as exclusion bases exist locally. Failures are tolerated (e.g. a fresh
@@ -538,6 +552,11 @@ jobs:
               'refs/remotes/origin/release/*' \
               'refs/remotes/origin/hotfix/*' \
               'refs/remotes/origin/dev/*' 2>/dev/null)
+
+          # Exclude the PR base branch too (no-op when it is one of the refs
+          # above; load-bearing when the base is a feature branch).
+          git rev-parse --verify "origin/$BASE" >/dev/null 2>&1 && \
+            EXCLUDES+=("^origin/$BASE")
 
           # --no-merges: skip auto-generated merge commits (e.g. from "Update branch" /
           # `git merge develop` into a feature branch). They have no Signed-off-by and
