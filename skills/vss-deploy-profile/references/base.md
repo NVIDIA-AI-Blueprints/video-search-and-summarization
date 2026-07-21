@@ -420,10 +420,10 @@ overwrite the template default — re-run the `sed` with the correct value.
 
 ## COMPOSE_PROFILES (computed — do not set directly)
 
-The `.env` file computes this from other variables:
+The profile's `overrides.env` sets this to an explicit list of service names (each service carries its own `profiles: ["<name>"]`):
 
 ```
-COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
+COMPOSE_PROFILES=phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}
 ```
 
 Example resolved value:

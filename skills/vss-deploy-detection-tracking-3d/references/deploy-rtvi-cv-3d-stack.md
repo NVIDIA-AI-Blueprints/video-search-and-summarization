@@ -261,7 +261,7 @@ MQTT_PORT=1883
 NGC_CLI_API_KEY='<your-ngc-key>'
 ```
 
-`COMPOSE_PROFILES` is computed automatically by the .env (search for `^COMPOSE_PROFILES=`): `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}` → for MV3DT this resolves to `bp_wh_kafka_mv3dt,llm_none_none`.
+`COMPOSE_PROFILES` is set automatically by `blueprint-deploy.sh` to an explicit list of service names for the variant (search for `^COMPOSE_PROFILES=`) — for MV3DT (`bp_wh_kafka`) it resolves to `${COMPOSE_PROFILES_WH_KAFKA_MV3DT}` (the MV3DT service list, with the LLM slice `llm_none_none`).
 
 ### RTSP input — Sensor Info File
 
@@ -448,7 +448,7 @@ VSS_CORE_IMAGES=$(docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config --images \
   | grep -E 'nvcr\.io/.*/vss-core/' | sort -u)
 if [ -z "$VSS_CORE_IMAGES" ]; then
-  echo "No vss-core images in the resolved compose — confirm MODE=mv3dt and COMPOSE_PROFILES resolved to bp_wh_kafka_mv3dt before continuing."
+  echo "No vss-core images in the resolved compose — confirm MODE=mv3dt and COMPOSE_PROFILES resolved to the MV3DT service list before continuing."
   exit 1
 fi
 for img in $VSS_CORE_IMAGES; do

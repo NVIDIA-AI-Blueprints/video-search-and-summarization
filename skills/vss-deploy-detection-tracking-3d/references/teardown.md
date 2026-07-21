@@ -78,12 +78,12 @@ If [`calibration-workflow.md`](calibration-workflow.md) deployed `auto_calib` se
 
 ```bash
 cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto_calib docker compose \
+COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose \
   --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down
 ```
 
-Normal MV3DT profiles (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`) do not include AMC. Auto-calibration warehouse profiles use `bp_wh_auto_calib_*`; if AMC is still running after the MV3DT teardown, use the command above.
+Normal MV3DT variants (`bp_wh_kafka` / `bp_wh_redis`, mode `mv3dt`) do not include AMC. Warehouse auto-calibration (`bp_wh_auto_calib`) does; if AMC is still running after the MV3DT teardown, use the command above.
 
 ## What is preserved across teardown
 

@@ -978,16 +978,16 @@ For complex validation scenarios, you can combine multiple conditions using `and
 All conditions must be true for the validation to apply:
 
 ```yaml
-- variable: COMPOSE_PROFILES
+- variable: BP_PROFILE
   condition:
     and:
       - variable: MODE
         equals: "2d"
       - variable: STREAM_TYPE
         equals: "kafka"
-  allowed_patterns:
-    - "bp_wh_kafka_2d*"
-  error_message: "When MODE=2d AND STREAM_TYPE=kafka, COMPOSE_PROFILES must match bp_wh_kafka_2d*"
+  disallowed_values:
+    - "bp_wh_redis"
+  error_message: "When MODE=2d AND STREAM_TYPE=kafka, BP_PROFILE must not be bp_wh_redis"
 ```
 
 #### OR Condition
@@ -1047,11 +1047,11 @@ A common use case is validating a variable when multiple conditions are met, wit
       - variable: NUM_STREAMS
         equals: "4"
       - or:
-          - variable: COMPOSE_PROFILES
-            matches: "bp_wh_kafka_3d,*"
-          - variable: COMPOSE_PROFILES
-            matches: "bp_wh_redis_3d,*"
-  error_message: "When using warehouse-4cams dataset, MODE must be 3d, NUM_STREAMS must be 4, and COMPOSE_PROFILES must match kafka or redis pattern"
+          - variable: BP_PROFILE
+            equals: "bp_wh_kafka"
+          - variable: BP_PROFILE
+            equals: "bp_wh_redis"
+  error_message: "When using warehouse-4cams dataset, MODE must be 3d, NUM_STREAMS must be 4, and BP_PROFILE must be bp_wh_kafka or bp_wh_redis"
 ```
 
 ### Trigger-Based Validation (when_equals + validate_conditions)
@@ -1090,16 +1090,16 @@ For scenarios where you want to validate that **other variables have correct val
         equals: "2d"
       - variable: NUM_STREAMS
         equals: "4"
-      - variable: COMPOSE_PROFILES
-        matches: "bp_wh_2d,*"
-  error_message: "When SAMPLE_VIDEO_DATASET=nv-warehouse-4cams, MODE must be 2d, NUM_STREAMS must be 4, and COMPOSE_PROFILES must start with bp_wh_2d"
+      - variable: BP_PROFILE
+        equals: "bp_wh"
+  error_message: "When SAMPLE_VIDEO_DATASET=nv-warehouse-4cams, MODE must be 2d, NUM_STREAMS must be 4, and BP_PROFILE must be bp_wh"
 ```
 
 **Logic**:
 - IF `SAMPLE_VIDEO_DATASET` = `"nv-warehouse-4cams"` THEN:
   - `MODE` must equal `"2d"` AND
   - `NUM_STREAMS` must equal `"4"` AND
-  - `COMPOSE_PROFILES` must match `"bp_wh_2d,*"`
+  - `BP_PROFILE` must equal `"bp_wh"`
 - IF `SAMPLE_VIDEO_DATASET` ≠ `"nv-warehouse-4cams"`: Skip validation
 
 #### Example: Multiple Dataset Validations
@@ -1117,8 +1117,8 @@ commons:
               equals: "2d"
             - variable: NUM_STREAMS
               equals: "4"
-            - variable: COMPOSE_PROFILES
-              matches: "bp_wh_2d,*"
+            - variable: BP_PROFILE
+              equals: "bp_wh"
       
       # 3-camera loading dock dataset has different requirements
       - variable: SAMPLE_VIDEO_DATASET
@@ -1130,10 +1130,10 @@ commons:
             - variable: NUM_STREAMS
               equals: "3"
             - or:
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_kafka_2d,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_redis_2d,*"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_kafka"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_redis"
     
     3d:
       # 3D warehouse dataset validation
@@ -1146,10 +1146,10 @@ commons:
             - variable: NUM_STREAMS
               equals: "4"
             - or:
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_kafka_3d,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_redis_3d,*"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_kafka"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_redis"
 ```
 
 #### Comparison: condition vs when_equals
@@ -1161,12 +1161,12 @@ commons:
 
 **Example - Using `condition`**:
 ```yaml
-# Validate COMPOSE_PROFILES when MODE=2d
-- variable: COMPOSE_PROFILES
+# Validate BP_PROFILE when MODE=2d
+- variable: BP_PROFILE
   condition:
     variable: MODE
     equals: "2d"
-  allowed_patterns: ["bp_wh_2d*"]
+  allowed_values: ["bp_wh"]
 ```
 
 **Example - Using `when_equals`**:

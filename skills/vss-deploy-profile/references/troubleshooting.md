@@ -50,14 +50,15 @@ If `resolved.yml` does not exist, return to `SKILL.md` Step 3 and run the compos
 
 ## Unexpanded `${...}` in `resolved.yml`
 
-**Skipping this is the #1 cause of "I deployed `search` but it brought
-up `base` + `lvs` + `search` services."** The `.env` line near 90 is
-literal `COMPOSE_PROFILES=${BP_PROFILE}_${MODE},...` — docker compose
-expands it at `config` time using the same env file. If any upstream
-var (`BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`,
-`VLM_MODE`) is missing from the env, the rendered profile list
-collapses to the empty string, and compose then includes **every**
-service from **every** profile.
+Under the profile-inversion model `COMPOSE_PROFILES` is an explicit list
+of service names (e.g. `phoenix,redis,vss-agent,...`), with only the
+`llm_*` / `vlm_*` NIM slices still templated. docker compose expands
+those at `config` time using the same env file. If an upstream var
+(`LLM_MODE`, `LLM_NAME_SLUG`, `VLM_MODE`, `VLM_NAME_SLUG`) is missing,
+the matching `llm_*` / `vlm_*` slice drops out and that NIM will not
+start. If `COMPOSE_PROFILES` itself is left unexpanded or empty, **no**
+service matches (every service is now gated by its own profile), so the
+stack comes up empty rather than over-provisioned.
 
 ```bash
 if grep -q '\${' "$REPO/deploy/docker/resolved.yml"; then

@@ -304,7 +304,7 @@ ss -tlnp | grep ':30888'
 curl -sf "http://localhost:30888/vst/api/v1/sensor/list"   # from the host itself
 ```
 
-**Fix:** If VST containers are missing, the profile gating didn't activate them — confirm `COMPOSE_PROFILES` resolves to `bp_wh_kafka_mv3dt` (or `_redis_`). If `HOST_IP=localhost` in `.env`, change it to the actual reachable IP and redeploy (compose substitutes at start time). For firewall, port-forward via SSH (`ssh -L 30888:localhost:30888`) or open the port on the host.
+**Fix:** If VST containers are missing, the profile gating didn't activate them — confirm `COMPOSE_PROFILES` resolves to the MV3DT service list (from `COMPOSE_PROFILES_WH_KAFKA_MV3DT` / `_REDIS_MV3DT`). If `HOST_IP=localhost` in `.env`, change it to the actual reachable IP and redeploy (compose substitutes at start time). For firewall, port-forward via SSH (`ssh -L 30888:localhost:30888`) or open the port on the host.
 
 ### VST video wall: "Failed to create Video Source" despite a healthy pipeline
 
