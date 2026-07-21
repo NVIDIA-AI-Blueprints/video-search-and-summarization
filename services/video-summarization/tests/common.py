@@ -30,7 +30,7 @@ import sseclient
 from via_server import ViaServer
 
 # Path discovery for repo-relative paths
-# This allows tests to work both locally (after pip install -e .) and in Docker
+# This allows tests to work locally (after pip install -e .) and in Docker
 TESTS_DIR = Path(__file__).parent
 REPO_ROOT = TESTS_DIR.parent
 SRC_DIR = REPO_ROOT / "src"
