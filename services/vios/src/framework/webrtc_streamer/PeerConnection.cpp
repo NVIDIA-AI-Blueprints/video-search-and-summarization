@@ -35,13 +35,11 @@
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_decoder_factory_template.h"
 #include "api/video_codecs/video_decoder_factory_template_libvpx_vp8_adapter.h"
-#include "api/video_codecs/video_decoder_factory_template_open_h264_adapter.h"
 #include "api/video_codecs/video_decoder_factory_template_libnv_adapter.h"
 #include "api/video_codecs/video_decoder_factory_template_libnv_passthrough_adapter.h"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
-#include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template_libnv_passthrough_adapter.h"
 
 #include "CapturerFactory.h"
@@ -205,34 +203,13 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
     }
     else
     {
-        if (use_inbuilt_encoder.empty() == false)
+        if (use_inbuilt_encoder.empty() == false && !iequals(use_inbuilt_encoder, "vp8"))
         {
-            if (iequals(use_inbuilt_encoder, "h264"))
-            {
-                LOG(info) << "using OpenH264EncoderTemplateAdapter" << endl;
-                dependencies.video_encoder_factory = std::make_unique<
-                        webrtc::VideoEncoderFactoryTemplate<webrtc::OpenH264EncoderTemplateAdapter>>();
-            }
-            else if (iequals(use_inbuilt_encoder, "vp8"))
-            {
-                LOG(info) << "using LibvpxVp8EncoderTemplateAdapter" << endl;
-                dependencies.video_encoder_factory = std::make_unique<
-                        webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
-            }
-            else
-            {
-                LOG(warning) << "Provided encoder value is wrong, Using default h264 encoder" << endl;
-                LOG(info) << "using OpenH264EncoderTemplateAdapter" << endl;
-                dependencies.video_encoder_factory = std::make_unique<
-                        webrtc::VideoEncoderFactoryTemplate<webrtc::OpenH264EncoderTemplateAdapter>>();
-            }
+            LOG(warning) << "WebRTC H264 encoder is disabled; using VP8 encoder" << endl;
         }
-        else
-        {
-            LOG(info) << "using OpenH264EncoderTemplateAdapter" << endl;
-            dependencies.video_encoder_factory = std::make_unique<
-                webrtc::VideoEncoderFactoryTemplate<webrtc::OpenH264EncoderTemplateAdapter>>();
-        }
+        LOG(info) << "using LibvpxVp8EncoderTemplateAdapter" << endl;
+        dependencies.video_encoder_factory = std::make_unique<
+            webrtc::VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter>>();
     }
 
     if (isJetsonPlatform())
@@ -246,10 +223,9 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
         }
         else
         {
-            LOG(info) << "using vp8 and h264 decoder" << endl;
+            LOG(info) << "using LibvpxVp8DecoderTemplateAdapter" << endl;
             dependencies.video_decoder_factory = std::make_unique<
-                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
-                                                    webrtc::OpenH264DecoderTemplateAdapter>>();
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
         }
     }
     else
@@ -274,10 +250,9 @@ webrtc::PeerConnectionFactoryDependencies CreatePeerConnectionFactoryDependencie
         }
         else
         {
-            LOG(info) << "using vp8 and h264 decoder" << endl;
+            LOG(info) << "using LibvpxVp8DecoderTemplateAdapter" << endl;
             dependencies.video_decoder_factory = std::make_unique<
-                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter,
-                                                    webrtc::OpenH264DecoderTemplateAdapter>>();
+                webrtc::VideoDecoderFactoryTemplate<webrtc::LibvpxVp8DecoderTemplateAdapter>>();
         }
     }
 

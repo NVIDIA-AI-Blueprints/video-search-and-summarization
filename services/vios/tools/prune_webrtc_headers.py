@@ -12,6 +12,9 @@ This script keeps every vendored header directly included by VIOS sources,
 every vendored header already recorded in compiler .d files, and the recursive
 #include closure of those headers.  Everything else in the vendored header tree
 can be removed with --delete.
+
+Use --keep-public-roots for a conservative audit that retains entire public
+third-party include roots.
 """
 
 from __future__ import annotations
@@ -192,7 +195,9 @@ def include_closure(
             resolved = resolver.resolve(include_name, header, quoted)
             if not resolved:
                 normalized = clean_include_name(include_name)
-                if normalized.startswith(
+                if quoted and "/" not in include_name:
+                    unresolved[f"{rel(header, resolver.header_root)} -> {include_name}"] += 1
+                elif normalized.startswith(
                     (
                         "api/",
                         "audio/",
@@ -202,6 +207,8 @@ def include_closure(
                         "common_audio/",
                         "common_video/",
                         "logging/",
+                        "json/",
+                        "libyuv/",
                         "media/",
                         "modules/",
                         "net/",
@@ -270,6 +277,11 @@ def main() -> int:
         metavar="N",
         help="print the first N headers that would be deleted",
     )
+    parser.add_argument(
+        "--keep-public-roots",
+        action="store_true",
+        help="keep all headers in public third-party include roots",
+    )
     args = parser.parse_args()
 
     vios_root = vios_root_from_script()
@@ -285,7 +297,7 @@ def main() -> int:
     source_files = iter_source_files(vios_root, header_root)
     source_roots, source_unresolved = direct_roots_from_sources(source_files, resolver)
     dep_roots = set() if args.no_depfiles else roots_from_depfiles(vios_root, header_root)
-    public_roots = public_include_roots(header_root)
+    public_roots = public_include_roots(header_root) if args.keep_public_roots else set()
     keep, closure_unresolved = include_closure(source_roots | dep_roots | public_roots, resolver)
     keep &= all_headers
     unneeded = sorted(all_headers - keep)
