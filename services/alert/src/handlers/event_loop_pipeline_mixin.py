@@ -207,7 +207,9 @@ class EventLoopPipelineMixin:
             )
             return None
 
-        user_prompt, system_prompt = self.prompt_manager.get_prompts_for_message(message)
+        user_prompt, system_prompt = await asyncio.to_thread(
+            self.prompt_manager.get_prompts_for_message, message
+        )
 
         if user_prompt is None and system_prompt is None:
             logger.warning("No prompt found [sensor=%s category=%s start=%s end=%s]",

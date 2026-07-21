@@ -408,3 +408,27 @@ class TestModeParity:
         assert _scrub(sync_enhancer.captured["published"][0]) == _scrub(
             async_enhancer.captured["published"][0]
         )
+
+
+class TestPromptLookupOffLoop:
+    def test_prompt_lookup_runs_off_the_event_loop_thread(self):
+        enhancer = _build_parity_enhancer("event_loop")
+        seen = {}
+
+        def _recording_lookup(message):
+            seen["lookup_thread"] = threading.current_thread()
+            return ("user-prompt", "system-prompt")
+
+        enhancer.prompt_manager.get_prompts_for_message = _recording_lookup
+        message = _make_message(1)
+
+        async def _run():
+            seen["loop_thread"] = threading.current_thread()
+            return await enhancer._prepare_message_context_async(
+                message, message["sensorId"], {}, 0.0
+            )
+
+        prompts = asyncio.run(_run())
+
+        assert prompts == ("user-prompt", "system-prompt")
+        assert seen["lookup_thread"] is not seen["loop_thread"]
