@@ -29,8 +29,9 @@ uv run nat mcp serve --config_file ../../deploy/docker/scripts/vss_orchestrator_
 For profile `.env` values and MCP startup values, `docker_generate` resolves in this order, with later entries overriding earlier ones:
 
 1. Selected profile `.env`
-2. MCP server environment, for deployment-wide values such as `HARDWARE_PROFILE`, `NGC_CLI_API_KEY`, and `NVIDIA_API_KEY`
-3. Per-call `env_overrides` from the `docker_generate` tool input, for one-off changes
+2. Profile `overrides.env` (mandatory; must sit next to the profile `.env`, `docker_generate` fails fast if missing)
+3. MCP server environment, for deployment-wide values such as `HARDWARE_PROFILE`, `NGC_CLI_API_KEY`, and `NVIDIA_API_KEY`
+4. Per-call `env_overrides` from the `docker_generate` tool input, for one-off changes
 
 ## Call tools manually
 
