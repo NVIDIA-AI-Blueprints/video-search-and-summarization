@@ -1272,9 +1272,33 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
 
 
 def _parse_brev_json(raw: str | None) -> list[dict]:
-    """Strip trailing walkthrough text and parse JSON array from brev CLI."""
+    """Strip trailing walkthrough text and parse JSON array from brev CLI.
+
+    Handles two known output shapes:
+      1. Bare JSON array: [{...}, {...}, ...]<trailing text>
+      2. Wrapped object:  {"workspaces": [{...}, ...]}  (brev CLI >= 0.7)
+    """
     if not raw:
         return []
+    # First, try parsing the full output as valid JSON (handles shape 2).
+    stripped = raw.strip()
+    if stripped.startswith("{"):
+        try:
+            obj = json.loads(stripped)
+            if isinstance(obj, dict):
+                # Accept "workspaces" key (primary) or first list-valued key
+                if "workspaces" in obj and isinstance(obj["workspaces"], list):
+                    return obj["workspaces"]
+                for v in obj.values():
+                    if isinstance(v, list):
+                        return v
+                return []
+            if isinstance(obj, list):
+                return obj
+            return []
+        except json.JSONDecodeError:
+            pass
+    # Shape 1: bare array possibly followed by walkthrough text.
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
