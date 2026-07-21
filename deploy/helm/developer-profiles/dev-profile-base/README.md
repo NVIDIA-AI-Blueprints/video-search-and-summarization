@@ -76,7 +76,7 @@ Create `values-base.yaml` and set the following (all are required for a typical 
 
 | Key | Description |
 |-----|-------------|
-| **`ngc.apiKey`** | Your NGC API key (for image pull and NIM). Chart uses `ngc.createSecrets: true` by default.|
+| **`ngc.apiKey`** | Your NGC API key (for image pull, NIM, and RT-VLM model access). Chart uses `ngc.createSecrets: true` by default.|
 | **`global.storageClass`** | StorageClass name in your cluster (e.g. `oci-bv-high`, `gp3`, `standard`). |
 | **`global.externalScheme`** | `http` or `https` (defaults to `http` in templates if unset). |
 | **`global.externalHost`** | Hostname or IP the browser uses (e.g. `vss.YOUR_IP.nip.io`). Required for a typical external install when subchart URL fields are omitted. |
@@ -114,7 +114,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`global.externalPort`** | `""` in defaults | Port segment in generated URLs; use **`""`** so URLs omit **`:port`** when using default 80/443. Set only for non-default ports (e.g. **`8080`**). |
 | **`global.storageClass`** | unset in default **`values.yaml`** | Set in **`values-base.yaml`**; used to create PVC. |
 | **`global.llmBaseUrl`** | `""` | Remote LLM API base URL for **vss-agent** when models are not in-cluster (use with **`nims.enabled: false`**). Must be reachable from pods in the release namespace (cluster DNS, **`NodePort`**, LB, or routable IP). |
-| **`global.vlmBaseUrl`** | `""` | Remote VLM API base URL; same constraints as **`global.llmBaseUrl`**. |
+| **`global.vlmBaseUrl`** | `""` | Optional external VLM service root, without a trailing `/v1`. When set, keep RT-VLM enabled and set `rtvi.vss-rtvi-vlm.useSharedNim=true` so RT-VLM proxies that endpoint. |
 | **`global.llmName`** | e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`** | Catalog-style model id passed to the agent; must match the model served at **`global.llmBaseUrl`**. |
 | **`global.vlmName`** | e.g. **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | RT-VLM `/v1/models` basename (or remote model id); must match the model served at **`global.vlmBaseUrl`** / RT-VLM. |
 | **`vios.vstStorage.createSharedPvcs`** | `true` | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **`StorageClass`** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**—pods use emptyDir or per-subchart PVCs depending on **`vios.vss-vios-*`** persistence. **`false`** avoids disk provisioning but **uploaded video and VST cache are lost** when pods are rescheduled if nothing else persists them. |
@@ -170,13 +170,14 @@ Use the table below when you want to change behavior beyond the minimal **`value
 
 ### Remote LLM and VLM
 
-When LLM and VLM run **outside** this release (another cluster service, **NIM** on a different node pool, or HTTP endpoints on your network), disable bundled **NIM** subcharts and set **`global`** URLs and model names in **`values-base.yaml`** (or via **`--set`**):
+When LLM and VLM run **outside** this release, disable bundled NIM workloads and configure the external service roots and model names:
 
 - **`nims.enabled`**: **`false`** — skips **NIM** workloads and related **NIMOperator** objects.
-- **`global.llmBaseUrl`** / **`global.vlmBaseUrl`**: base URLs reachable from **vss-agent** pods (no trailing path required beyond what your API expects; use the same scheme/host/port the agent can resolve).
+- **`global.llmBaseUrl`** / **`global.vlmBaseUrl`**: service-root URLs reachable from pods, without a trailing `/v1`.
 - **`global.llmName`** / **`global.vlmName`**: identifiers for those models (e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`**, **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**), aligned with the remote service.
+- **`rtvi.vss-rtvi-vlm.useSharedNim`**: **`true`** — keeps RT-VLM in the request path and makes it proxy the external VLM instead of loading the integrated checkpoint.
 
-You can still set **`llmNameSlug`** / **`vlmNameSlug`** for chart wiring where applicable, or rely on **`values-base.yaml`** placeholders when not using in-chart **NIM** charts. Optional overrides on **vss-agent** (**`agent.vss-agent.llmBaseUrl`**, **`agent.vss-agent.vlmBaseUrl`**, etc.) exist if the agent must differ from **`global.*`**.
+Do not disable `rtvi` for the normal migration path. The agent remains configured with `VLM_MODEL_TYPE=rtvi` and calls the in-cluster RT-VLM service.
 
 ### 2. Install
 
@@ -212,29 +213,28 @@ helm upgrade --install vss-base ./dev-profile-base \
   --set global.externalHost=vss.$EXTERNAL_HOST.nip.io \
   --set global.storageClass="$STORAGE_CLASS"
 
-# OR — in-cluster VSS with remote LLM/VLM (no NIM / RT-VLM subcharts); URLs must be reachable from vss-agent pods
+# OR — base with remote LLM/VLM. RT-VLM remains deployed and proxies the external VLM.
 # (reuse NGC_CLI_API_KEY, STORAGE_CLASS, EXTERNAL_HOST exports from the example above).
-# Also set agent VLM_MODEL_TYPE to nim/openai (values overlay) so video_understanding does not use rtvi_vlm.
-export LLM_BASE_URL='<REMOTE LLM ENDPOINT>'
-export VLM_BASE_URL='<REMOTE VLM ENDPOINT>'
+export LLM_BASE_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
+export VLM_BASE_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
 
 helm upgrade --install vss-base ./dev-profile-base \
   -f dev-profile-base/values-base.yaml \
   -n vss-base --create-namespace \
   --set nims.enabled=false \
-  --set rtvi.enabled=false \
   --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
   --set global.externalHost=vss.$EXTERNAL_HOST.nip.io \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
   --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set-string global.vlmName="nvidia/cosmos3-nano-reasoner"
+  --set-string global.vlmName="nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
+  --set rtvi.vss-rtvi-vlm.useSharedNim=true
 ```
 
 ## Exposing the stack
 
-**Note:** After install or upgrade, wait until **all** pods in your namespace are **Ready** before using the application in the browser. When **in-cluster NIM** is enabled (**`nims.enabled: true`**, the usual default), **NIM** model workloads need **extra time** (image pull, **`NIMService`** / **`NIMCache`**, model download and warm-up). Opening **vss-agent-ui** while NIM or other backends are still starting can produce **transient errors** (failed API calls, timeouts, empty screens). Check **`kubectl get pods -n <NAMESPACE>`** (or **`kubectl get pods -n <NAMESPACE> -w`**) until every workload shows **`Running`** and **`READY`** matches the expected column (e.g. **`1/1`**). With **remote** LLM/VLM only (**`nims.enabled: false`**), startup is often faster, but still confirm all pods are ready.
+**Note:** After install or upgrade, wait until **all** pods in your namespace are **Ready** before using the application in the browser. The LLM NIM and RT-VLM model may need extra time for image pull, model download, and warm-up. Opening **vss-agent-ui** while these backends are still starting can produce transient errors. Check **`kubectl get pods -n <NAMESPACE>`** (or **`kubectl get pods -n <NAMESPACE> -w`**) until every workload shows **`Running`** and **`READY`** matches the expected column.
 
 To expose VSS through a single hostname, set **`global.externalHost`** (and **`global.externalScheme`** / **`global.externalPort`** as needed) in **`values-base.yaml`** as in the table under [Prepare the values file](#1-prepare-the-values-file). That drives in-chart URLs for **vss-agent-ui**, **vss-agent**, and **vss-vios-ingress** when their own URL fields are empty.
 
