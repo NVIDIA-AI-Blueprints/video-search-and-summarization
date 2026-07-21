@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Triggers the downstream release-notes pipeline when a weekly QA drop
+# tag is pushed. Only tags in the weekly drop format trigger —
+# dev-YY.MM.N with an optional hotfix suffix (dev-26.07.3,
+# dev-26.06.3-1). Other dev-* tags and v* GA release tags do NOT
+# generate notes. The downstream job collects every PR merged between
+# the previous weekly drop tag and this tag, extracts JIRA (VIA-<n>)
+# and NVBugs references, classifies them, and posts release notes to
+# the QA Drop Tracker bug — it runs on the GitLab side because JIRA and
+# NVBugs are internal systems.
+#
+# This workflow only fires the trigger and exits; unlike ci.yml's
+# Trigger Downstream Pipeline job it does not poll the downstream
+# pipeline to completion (notes generation does not gate anything here).
+
+name: Release Notes
+
+on:
+  push:
+    tags:
+      # Weekly drop format only (the downstream pipeline re-validates with
+      # a strict regex; glob filters here are necessarily looser).
+      - "dev-[0-9][0-9].[0-9][0-9].[0-9]*"
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-release-notes:
+    name: Trigger Release Notes Pipeline
+    runs-on: [self-hosted, downstream-pipeline]
+    timeout-minutes: 15
+    env:
+      DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
+      DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
+      DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
+      # Standing trigger ref in the downstream project whose pipeline contains
+      # only the notes job — a notes trigger against the default ref would
+      # start the full eval pipeline (its jobs are opt-out gated).
+      DOWNSTREAM_REF: release-notes-trigger
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Trigger pipeline
+        run: python3 .github/scripts/release_notes/trigger.py
