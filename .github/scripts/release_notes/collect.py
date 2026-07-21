@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from . import github_api
 from .patterns import Reference, scan_surfaces
@@ -97,19 +98,30 @@ def window_commits(git_dir: str, tag: str, previous_tag: str | None) -> list[tup
     if previous_tag and _is_ancestor(git_dir, previous_tag, tag):
         raw = _git(git_dir, "log", "--format=%H%x00%s", f"{previous_tag}..{tag}")
         return [tuple(line.split("\x00", 1)) for line in raw.splitlines() if "\x00" in line]
-    lower = tag_commit_date(git_dir, previous_tag) if previous_tag else ""
+    lower = tag_commit_date(git_dir, previous_tag) if previous_tag else None
     raw = _git(git_dir, "log", "--format=%H%x00%cI%x00%s", tag)
     out: list[tuple[str, str]] = []
     for line in raw.splitlines():
         parts = line.split("\x00", 2)
-        if len(parts) == 3 and parts[1] > lower:
+        if len(parts) == 3 and (lower is None or _parse_iso(parts[1]) > lower):
             out.append((parts[0], parts[2]))
     return out
 
 
-def tag_commit_date(git_dir: str, rev: str) -> str:
-    """ISO-8601 committer date of the commit a tag points at."""
-    return _git(git_dir, "log", "-1", "--format=%cI", rev)
+def tag_commit_date(git_dir: str, rev: str) -> datetime:
+    """Committer date of the commit a tag points at (timezone-aware)."""
+    return _parse_iso(_git(git_dir, "log", "-1", "--format=%cI", rev))
+
+
+def _parse_iso(ts: str) -> datetime:
+    """Parse ISO-8601 with either a Z or a numeric offset.
+
+    Git %cI dates carry the committer's local offset while GitHub API
+    timestamps are UTC Z — comparing the raw strings lexicographically is
+    chronologically wrong across offsets, so all boundary comparisons go
+    through timezone-aware datetimes.
+    """
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
 def pr_numbers_for_window(
@@ -138,7 +150,11 @@ def pr_numbers_for_window(
     window_shas = {sha for sha, _ in commits}
     window_subjects = {subject for _, subject in commits}
     upper = tag_commit_date(git_dir, tag)
-    lower = tag_commit_date(git_dir, previous_tag) if previous_tag else ""
+    lower = (
+        tag_commit_date(git_dir, previous_tag)
+        if previous_tag
+        else datetime.min.replace(tzinfo=timezone.utc)
+    )
 
     numbers: set[int] = set()
     for _, subject in commits:
@@ -157,8 +173,9 @@ def pr_numbers_for_window(
             merged_at = pr.get("merged_at") or ""
             if not merged_at:
                 continue
+            merged_dt = _parse_iso(merged_at)
             base = (pr.get("base") or {}).get("ref") or ""
-            in_window = lower < merged_at <= upper and _is_integration_base(base)
+            in_window = lower < merged_dt <= upper and _is_integration_base(base)
             if in_window or pr.get("merge_commit_sha") in window_shas:
                 number = int(pr["number"])
                 numbers.add(number)
@@ -169,7 +186,9 @@ def pr_numbers_for_window(
                 ):
                     print(f"note: PR #{number} matched by merge time only ({merged_at})")
         # Stop once a whole page is older than the window's lower bound.
-        if parsed and all((pr.get("updated_at") or "") < lower for pr in parsed):
+        if parsed and all(
+            _parse_iso(pr["updated_at"]) < lower for pr in parsed if pr.get("updated_at")
+        ):
             break
         page_url = github_api._next_link(headers.get("Link", ""))
     return numbers
