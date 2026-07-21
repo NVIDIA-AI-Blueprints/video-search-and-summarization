@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from enum import StrEnum
@@ -186,6 +187,68 @@ def check_mcp_health(mcp_url: str, agent_dir: str | Path, timeout_s: int = 15) -
     if payload.get("status") == "error":
         return False, f"VSS Orchestrator MCP health check failed: {payload.get('error', payload)}"
     return True, "VSS Orchestrator MCP health check succeeded"
+
+
+def ensure_mcp_tls_certs(
+    certfile: str | Path,
+    keyfile: str | Path,
+    *,
+    san: str,
+    days: int = 365,
+    subject: str = "/CN=vss-orchestrator-mcp",
+) -> tuple[Path, Path]:
+    """Ensure MCP TLS cert/key exist; generate a self-signed pair if either is missing.
+
+    Args:
+        certfile: Destination PEM certificate path.
+        keyfile: Destination PEM private-key path.
+        san: OpenSSL ``subjectAltName`` value (e.g. ``DNS:localhost,IP:127.0.0.1``).
+        days: Certificate validity in days.
+        subject: OpenSSL ``-subj`` value.
+
+    Returns:
+        Resolved ``(cert_path, key_path)``.
+
+    Raises:
+        ValueError: if ``san`` is empty when generation is required.
+        RuntimeError: if ``openssl`` is not available when generation is required.
+        subprocess.CalledProcessError: if ``openssl`` fails.
+    """
+    cert_path = Path(certfile).expanduser().resolve()
+    key_path = Path(keyfile).expanduser().resolve()
+    if cert_path.is_file() and key_path.is_file():
+        return cert_path, key_path
+
+    san_value = san.strip()
+    if not san_value:
+        raise ValueError("san is required to auto-generate MCP TLS cert/key.")
+    if not shutil.which("openssl"):
+        raise RuntimeError("openssl is required to auto-generate MCP TLS cert/key.")
+
+    cert_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-days",
+            str(days),
+            "-keyout",
+            str(key_path),
+            "-out",
+            str(cert_path),
+            "-subj",
+            subject,
+            "-addext",
+            f"subjectAltName={san_value}",
+        ],
+        check=True,
+    )
+    return cert_path, key_path
 
 
 def require_success(result: dict[str, Any], label: str) -> dict[str, Any]:
