@@ -381,17 +381,17 @@ declare -A DEFAULT_TAGS=(
     [mcp]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
-    [vst-base]="2.1.0-runtime-26.04.1"
+    [vst-base]="2.1.0-runtime-26.05.4"
 )
 
 # Function to build base image for faster container builds
 build_base_image() {
     local push=$1
 
-    echo "=============================================="
-    echo "Building VST Base Image (Optimization Strategy)"
-    echo "=============================================="
-    echo "This builds a base image containing all system packages"
+    echo "==================================================================================="
+    echo "Building VST Runtime Base Image (one-time build, reused by later container builds)"
+    echo "==================================================================================="
+    echo "This bakes all system packages into a base image so subsequent container builds reuse it and run faster (optimization)."
     echo ""
 
     # Determine the base image name and tag
@@ -503,9 +503,9 @@ build_toolchain_image() {
     local image_name
     image_name=$(get_toolchain_image_name)
 
-    echo "=============================================="
-    echo "Building VIOS Compile Toolchain Image"
-    echo "=============================================="
+    echo "======================================================="
+    echo "Building VIOS Compile Toolchain Image (one-time build)"
+    echo "======================================================="
     echo "Image: $image_name"
     echo "Arch:  $ARCH"
     echo ""
@@ -611,12 +611,12 @@ ensure_base_image() {
     base_image_name="$IMAGE_REGISTRY/vst-base:$base_tag"
 
     if image_exists "$base_image_name"; then
-        echo "[auto-deps] Base image already present: $base_image_name"
+        echo "[auto-deps] VST Runtime base-image already present: $base_image_name"
         return 0
     fi
 
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
-        echo "[ERROR] Base image not found: $base_image_name"
+        echo "[ERROR] VST Runtime base-image not found: $base_image_name"
         echo "        Build it explicitly with:   ./build.sh base-container"
         echo "        Or omit 'no-auto-deps' to let this script build it for you."
         exit 1
