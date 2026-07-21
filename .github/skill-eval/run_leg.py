@@ -222,8 +222,11 @@ def _read_dataset_metadata(dataset_root: Path) -> dict:
 
 
 def _parse_brev_json(raw: str | None) -> list[dict]:
-    """Strip trailing walkthrough text and parse JSON array from brev CLI
-    (same contract as envs.brev_env._parse_brev_json)."""
+    """Strip trailing walkthrough text and parse JSON array from brev CLI.
+
+    Handles both the legacy bare-array format (``[{...}, ...]``) and the
+    newer wrapped-object format (``{"workspaces": [{...}, ...]}\n``).
+    Same contract as envs.brev_env._parse_brev_json."""
     import json
 
     if not raw:
@@ -231,8 +234,27 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
+    # Try parsing up to the last ']' (works for bare-array output).
+    chunk = raw[: bracket + 1]
     try:
-        return json.loads(raw[: bracket + 1])
+        result = json.loads(chunk)
+        if isinstance(result, list):
+            return result
+        # Wrapped object truncated before closing '}' — extract the list.
+        if isinstance(result, dict):
+            for val in result.values():
+                if isinstance(val, list):
+                    return val
+            return []
+    except json.JSONDecodeError:
+        pass
+    # Fallback: find the first '[' and parse the inner array.
+    first_bracket = chunk.find("[")
+    if first_bracket < 0:
+        return []
+    try:
+        result = json.loads(chunk[first_bracket:])
+        return result if isinstance(result, list) else []
     except json.JSONDecodeError:
         return []
 
