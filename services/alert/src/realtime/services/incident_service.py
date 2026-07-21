@@ -283,6 +283,11 @@ class IncidentService:
                 # are never folded into an event. Raw view (consolidate=false) is
                 # unfiltered.
                 must_clauses.append({"exists": {"field": "info.chunkIdx"}})
+                # Only CONFIRMED positives consolidate; rejected or
+                # missing-verdict chunks stay queryable via the raw view.
+                must_clauses.append(
+                    {"term": {"info.verdict.keyword": "confirmed"}}
+                )
 
             query = {"bool": {"must": must_clauses}} if must_clauses else {"match_all": {}}
             index_pattern = f"{self._index_base}-*"
@@ -451,6 +456,9 @@ class IncidentService:
             if not doc.get("sensorId") or not doc.get("category"):
                 continue
             if _parse_ts(doc.get("timestamp")) is None:
+                continue
+            # Only confirmed positives participate in events.
+            if _info_of(doc).get("verdict") != "confirmed":
                 continue
             key = (doc.get("sensorId"), doc.get("category"))
             groups.setdefault(key, []).append(doc)

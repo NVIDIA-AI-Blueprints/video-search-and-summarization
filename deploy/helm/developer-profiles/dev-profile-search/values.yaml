@@ -191,9 +191,9 @@ infra:
       backoffLimit: 5
       env:
         ELASTICSEARCH_ILM_MIN_AGE: 48h
+        ELASTICSEARCH_ENABLE_EMBEDDINGS: "true"
         ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1152'
         ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: '768'
-        BP_PROFILE: bp_developer_search
   kibana:
     enabled: true
     init:
@@ -220,10 +220,10 @@ rtvi:
     profileMode: search
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
-      # For multi-arch: 3.2.1
-      # For DGX-SPARK (SBSA): 3.2.1-sbsa
-      tag: 3.2.1
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
+      # For multi-arch: 3.3.0-26.07.1
+      # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.1
+      tag: 3.3.0-26.07.1
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
