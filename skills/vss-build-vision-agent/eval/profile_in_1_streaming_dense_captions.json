@@ -49,7 +49,7 @@
       "checks": [
         "The generated deployment is actually running from `{{repo_root}}/_builds/in-1/compose.yml`, not from upstream compose files.",
         "The deployment was launched with the generated `deploy-base-vision-profile` skill or the exact `docker compose --env-file .env -f compose.yml --profile bp_developer_in_1 up -d` command recorded by that skill.",
-        "The core long-running containers report `Up (healthy)` or just `Up` where no upstream healthcheck is declared within 5 min of `up -d`: `vss-vios-postgres`, `elasticsearch`, `kafka`, `kibana`, `logstash`, `redis`, `phoenix`, `vss-rtvi-vlm`, `vss-vios-ingress`, `vss-vios-sensor`, `vss-vios-streamprocessing`, `sdr-controller`, and `vss-vios-nvstreamer`.",
+        "The core long-running containers report `Up (healthy)` or just `Up` where no upstream healthcheck is declared within 5 min of `up -d`: `vss-vios-postgres`, `elasticsearch`, `kafka`, `kibana`, `logstash`, `redis`, `vss-rtvi-vlm`, `vss-vios-ingress`, `vss-vios-sensor`, `vss-vios-streamprocessing`, `sdr-controller`, and `vss-vios-nvstreamer`.",
         "All one-shot init/wait containers generated for this profile exit 0, including `vss-broker-health-check`, `vss-elasticsearch-init`, `vss-kafka-topics`, `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis` when it is not still running, and the SDRC wait-for-workloads service (`wait-for-docker-workloads` / container `sdrc-wait-for-workloads`) when present.",
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS reachable).",
         "`curl -sf --max-time 15 http://localhost:8018/v1/health/ready` returns exit 0 (RT-VLM reachable).",
