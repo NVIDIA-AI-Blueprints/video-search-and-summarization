@@ -69,6 +69,25 @@ class TestIsNonbuild(unittest.TestCase):
         self.assertFalse(self.nb("vss-alert-ms", "requirements.txt"))
         self.assertFalse(self.nb("vss-alert-ms", "Dockerfile"))
 
+    def test_video_analytics_docs_and_tests_are_nonbuild(self):
+        self.assertTrue(self.nb("vss-video-analytics-api", "README.md"))
+        self.assertTrue(self.nb("vss-video-analytics-api", "test/unit/x.test.js"))
+        self.assertTrue(self.nb("vss-video-analytics-api", "configs/sample-configs/x.json"))
+
+    def test_video_analytics_sources_are_build_relevant(self):
+        self.assertFalse(self.nb("vss-video-analytics-api", "src/app/index.js"))
+        self.assertFalse(self.nb("vss-video-analytics-api", "configs/default-configs/config.json"))
+
+    def test_behavior_analytics_docs_tests_and_configs_are_nonbuild(self):
+        self.assertTrue(self.nb("vss-behavior-analytics", "README.md"))
+        self.assertTrue(self.nb("vss-behavior-analytics", "tests/unit/test_app.py"))
+        self.assertTrue(self.nb("vss-behavior-analytics", "configs/warehouse_2d_config.json"))
+
+    def test_behavior_analytics_sources_are_build_relevant(self):
+        self.assertFalse(self.nb("vss-behavior-analytics", "src/mdx/analytics/core/app.py"))
+        self.assertFalse(self.nb("vss-behavior-analytics", "Pipfile.lock"))
+        self.assertFalse(self.nb("vss-behavior-analytics", "docker/Dockerfile"))
+
 
 class TestDiscoverEnvFiles(unittest.TestCase):
     def test_discovers_include_level_env_files(self):
