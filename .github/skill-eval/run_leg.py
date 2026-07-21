@@ -40,6 +40,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
+RTX4090_SKILLS = frozenset({
+    "vss-ask-video",
+    "vss-setup-behavior-analytics",
+    "vss-setup-video-analytics-api",
+    "vss-deploy-detection-tracking-2d",
+    "vss-deploy-video-embedding",
+    "vss-deploy-dense-captioning",
+    "vss-generate-video-calibration",
+})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -341,9 +350,7 @@ def _registered_gpu_hint(name: str) -> str:
     return ""
 
 
-def _registered_pool_allowlist() -> set[str]:
-    """Names explicitly approved for automatic registered-node selection."""
-    raw = os.environ.get("BREV_REGISTERED_POOL", "")
+def _parse_pool_names(raw: str) -> set[str]:
     return {
         name.lower()
         for name in re.split(r"[\s,]+", raw.strip())
@@ -351,11 +358,24 @@ def _registered_pool_allowlist() -> set[str]:
     }
 
 
-def _list_pool_instances() -> list[dict]:
+def _registered_pool_allowlist(skill: str | None = None) -> set[str]:
+    """Registered nodes approved for this skill.
+
+    ``BREV_REGISTERED_POOL`` contains full-capability workers. The separate
+    RTX 4090 pool is intentionally capability-routed because those 24 GB
+    cards cannot safely satisfy every RTX PRO 6000 task.
+    """
+    names = _parse_pool_names(os.environ.get("BREV_REGISTERED_POOL", ""))
+    if skill in RTX4090_SKILLS:
+        names.update(_parse_pool_names(os.environ.get("BREV_RTX4090_POOL", "")))
+    return names
+
+
+def _list_pool_instances(skill: str | None = None) -> list[dict]:
     """Return managed instances plus connected registered pool nodes."""
     instances = list(_list_brev_instances())
     seen = {(inst.get("name") or "").lower() for inst in instances}
-    registered_allowlist = _registered_pool_allowlist()
+    registered_allowlist = _registered_pool_allowlist(skill)
     if not registered_allowlist:
         return instances
     for node in _list_registered_nodes():
@@ -408,14 +428,19 @@ def pool_candidates(metadata: dict) -> list[str]:
     """
     required_type = (metadata.get("gpu_type") or "").upper()
     required_count = int(metadata.get("gpu_count", 1) or 0)
+    skill = metadata.get("skill") or os.environ.get("EVAL_SKILL") or None
 
     candidates: list[tuple[str, bool]] = []
-    for inst in _list_pool_instances():
+    for inst in _list_pool_instances(skill):
         name = inst.get("name") or ""
         if not name.startswith("vss-eval-"):
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
             continue
+        if inst.get("_registered") and required_count > 0:
+            count_hint = _name_gpu_count_hint(name)
+            if count_hint is not None and count_hint < required_count:
+                continue
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
             itype = (inst.get("instance_type") or "").upper()

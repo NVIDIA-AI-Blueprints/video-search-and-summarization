@@ -194,7 +194,7 @@ class PoolCandidates(unittest.TestCase):
 
     def setUp(self):
         self._orig = run_leg._list_pool_instances
-        run_leg._list_pool_instances = lambda: self.FLEET
+        run_leg._list_pool_instances = lambda _skill=None: self.FLEET
 
     def tearDown(self):
         run_leg._list_pool_instances = self._orig
@@ -286,6 +286,47 @@ class PoolCandidates(unittest.TestCase):
             [instance["name"] for instance in instances],
             ["vss-eval-rtx-2g-VM1b"],
         )
+
+    def test_4090_pool_is_limited_to_approved_skills(self):
+        env = {
+            "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
+            "BREV_RTX4090_POOL": (
+                "vss-eval-rtx-1g-2-runner,"
+                "vss-eval-rtx-1g-3-runner"
+            ),
+        }
+        with mock.patch.dict(run_leg.os.environ, env, clear=True):
+            approved = run_leg._registered_pool_allowlist("vss-ask-video")
+            unapproved = run_leg._registered_pool_allowlist(
+                "vss-deploy-profile"
+            )
+
+        self.assertEqual(
+            approved,
+            {
+                "vss-eval-rtx-2g-vm1b",
+                "vss-eval-rtx-1g-2-runner",
+                "vss-eval-rtx-1g-3-runner",
+            },
+        )
+        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
+
+    def test_underprovisioned_registered_node_is_filtered(self):
+        fleet = [
+            {"name": "vss-eval-rtx-1g-2-runner", "status": "RUNNING",
+             "gpu": "RTX PRO 6000", "_registered": True},
+            {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
+             "gpu": "RTX PRO 6000", "_registered": True},
+        ]
+        run_leg._list_pool_instances = lambda _skill=None: fleet
+
+        names = run_leg.pool_candidates({
+            "skill": "vss-ask-video",
+            "gpu_type": "RTX PRO 6000",
+            "gpu_count": 2,
+        })
+
+        self.assertEqual(names, ["vss-eval-rtx-2g-VM1b"])
 
 
 class HoldPoolLock(unittest.TestCase):

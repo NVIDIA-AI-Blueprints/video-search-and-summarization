@@ -490,7 +490,7 @@ The canonical harbor command is in § Harbor invocation.
 |---|---|---|
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g-3`, registered `vss-eval-rtx-2g-VM1b`) | RTX PRO 6000 BW. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Connected registered nodes are eligible alongside managed instances. |
+| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, registered `vss-eval-rtx-2g-VM1b`, capability-routed `vss-eval-rtx-1g-2-runner`) | RTX PRO 6000 BW by default. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
 Pool naming is operator-managed; the actual fleet is the union of managed
@@ -504,6 +504,14 @@ unknown GPU families. Don't hardcode a specific instance name —
 the operator's job**; the box lock and the trials both live inside
 `run_leg.py` — see Hard rules about `brev create / start / stop / delete /
 reset`.
+
+`BREV_RTX4090_POOL` is a separate, capability-routed allowlist. Its nodes
+are selected only when task metadata names one of the skills in
+`run_leg.py::RTX4090_SKILLS`: ask-video, behavior analytics, video analytics
+API, detection/tracking 2D, video embedding, dense captioning, or video
+calibration. All other skills use the full-capability registered pool or
+managed instances. A registered `-1g-` node is also filtered from any task
+requiring two GPUs before lock acquisition.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
