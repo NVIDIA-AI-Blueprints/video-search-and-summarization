@@ -112,6 +112,30 @@ NONBUILD_PATTERNS = {
         "*.log",
         "*.env",
     ],
+    # The video analytics API image selectively copies src/web-api-core,
+    # src/app, and configs/. Keep this aligned with ci-vss-oss.
+    "vss-video-analytics-api": [
+        "**/*.md",
+        "readmes/**",
+        "test/**",
+        "configs/sample-configs/**",
+        ".gitattributes",
+        ".gitignore",
+        "CLAUDE.md",
+    ],
+    # The behavior analytics Dockerfile copies the repository, while its
+    # .dockerignore removes tests, documentation, configs, and metadata.
+    # Keep this aligned with ci-vss-oss.
+    "vss-behavior-analytics": [
+        "**/*.md",
+        "docs/**",
+        "tests/**",
+        "configs/**",
+        ".gitattributes",
+        ".gitignore",
+        "CLAUDE.md",
+        "pyrightconfig.json",
+    ],
 }
 
 
