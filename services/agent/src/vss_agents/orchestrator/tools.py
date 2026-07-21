@@ -75,6 +75,7 @@ from .storage import ModelArtifact
 from .storage import ensure_alerts_engine_directories
 from .storage import ensure_data_directories
 from .storage import ensure_model_artifacts
+from .storage import resolve_config_path
 
 _COMPOSE_OPS_LOCK = threading.Lock()
 _COMPOSE_SPECS_LOCK = threading.Lock()
@@ -403,7 +404,15 @@ class HardwareResolutionConfig(BaseModel):
     def _coerce_null_overrides_to_empty(cls, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
-        return {k: (v if v is not None else {}) for k, v in value.items()}
+
+        def _coerce(node: Any) -> Any:
+            if node is None:
+                return {}
+            if isinstance(node, dict):
+                return {k: _coerce(v) for k, v in node.items()}
+            return node
+
+        return {k: _coerce(v) for k, v in value.items()}
 
 
 class ModelResolutionConfig(BaseModel):
@@ -615,14 +624,14 @@ async def vss_orchestrator(
 ) -> AsyncGenerator[FunctionGroup]:
     """VSS Orchestrator function group for managing docker compose deployments."""
 
-    deployments_dir = Path(_config.deployments_dir).resolve()
+    deployments_dir = resolve_config_path(_config.deployments_dir)
 
     # ---------------------------------------------------------------------------
     # Shared helpers
     # ---------------------------------------------------------------------------
 
-    configured_output_dir = Path(_config.output_dir).expanduser().resolve()
-    mdx_data_dir = Path(_config.mdx_data_dir).expanduser().resolve()
+    configured_output_dir = resolve_config_path(_config.output_dir)
+    mdx_data_dir = resolve_config_path(_config.mdx_data_dir)
     configured_mdx_data_directories = tuple(_config.mdx_data_directories)
     configured_model_artifacts_by_profile: dict[str, tuple[ModelArtifact, ...]] = {
         profile: tuple(
@@ -661,6 +670,31 @@ async def vss_orchestrator(
         runtime_settings = OrchestratorRuntimeSettings()
     except Exception as exc:
         raise RuntimeError("Missing required MCP server settings") from exc
+
+    # Dump the startup env vars the orchestrator consumes (the ones supplied when
+    # `nat mcp serve` was launched) to aid deployment debugging. The set of names
+    # is derived from OrchestratorRuntimeSettings' field aliases rather than a
+    # hardcoded list, so it stays in sync with the model. Secret values are masked.
+    _secret_markers = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL")
+    print("[vss_orchestrator] startup environment (from nat mcp serve):", flush=True)
+    for _field in OrchestratorRuntimeSettings.model_fields.values():
+        _env_name = _field.validation_alias
+        if not isinstance(_env_name, str):
+            continue
+        _raw = os.environ.get(_env_name)
+        if _raw is None:
+            _shown = "(unset)"
+        elif _raw and any(marker in _env_name.upper() for marker in _secret_markers):
+            _shown = f"<set, {len(_raw)} chars>"
+        else:
+            _shown = _raw
+        print(f"[vss_orchestrator]   {_env_name}={_shown}", flush=True)
+
+    # Dump the parsed function-group config the server read from the MCP YAML, so
+    # the effective values (after defaults/coercion, e.g. null overrides -> {})
+    # are visible at startup for deployment debugging.
+    print("[vss_orchestrator] startup config (from MCP config YAML):", flush=True)
+    print(_config.model_dump_json(indent=2), flush=True)
 
     def _resolve_output_paths(docker_compose_id: str) -> tuple[Path, Path]:
         """Return (env_path, compose_path) under the configured output directory."""
@@ -1102,6 +1136,8 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
+                # Honor LLM_DEVICE_ID / VLM_DEVICE_ID from the runtime settings, but NOT
+                # for edge hardware profiles.
                 effective_hardware_profile = (
                     env_overrides.get("HARDWARE_PROFILE", "").strip() or runtime_settings.hardware_profile
                 )

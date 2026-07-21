@@ -20,7 +20,6 @@ from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from dataclasses import field
 import os
-from pathlib import Path
 import re
 import subprocess
 from types import MappingProxyType
@@ -38,11 +37,13 @@ from .network_util import apply_brev_proxy_env
 from .network_util import detect_external_ip
 from .network_util import detect_internal_ip
 from .network_util import read_etc_environment
+from .storage import resolve_config_path
 from .storage import resolve_required_absolute_file
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from collections.abc import Mapping
+    from pathlib import Path
 
 SupportedProfile = Literal["base", "search", "lvs", "alerts"]
 PROFILE_BASE: Final[str] = "base"
@@ -158,6 +159,7 @@ class DryRunRecipe:
     edge_allowed_profiles: frozenset[str]
     edge_device_ids: Mapping[str, str]
     profile_mode_to_env_modes: Mapping[str, Mapping[str, str]]
+    profile_env_override_file: Path
     hardware_profile_env_overrides: Mapping[str, Mapping[str, str | Mapping[str, str]]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -195,7 +197,7 @@ def create_dry_run_recipe(
     if profile not in SUPPORTED_PROFILES:
         raise ValidationError(f"Unsupported profile '{profile}'. Supported: {sorted(SUPPORTED_PROFILES)}")
 
-    deployments_path = Path(deployments_dir).resolve()
+    deployments_path = resolve_config_path(deployments_dir)
     if not deployments_path.is_dir():
         raise ValidationError(f"Deployments directory does not exist: {deployments_path}")
 
@@ -214,6 +216,14 @@ def create_dry_run_recipe(
         resolved_source_env,
         field_name="source_env",
         missing_label="Profile source .env",
+        error_type=ValidationError,
+    )
+
+    # overrides.env is mandatory and must live next to the profile .env.
+    profile_env_override_file = resolve_required_absolute_file(
+        str(source_env_file.parent / "overrides.env"),
+        field_name="overrides.env",
+        missing_label="Profile overrides.env",
         error_type=ValidationError,
     )
 
@@ -240,12 +250,13 @@ def create_dry_run_recipe(
         nim_kvcache_percent=(nim_kvcache_percent or "").strip() or None,
         rtvi_vllm_gpu_memory_utilization=(rtvi_vllm_gpu_memory_utilization or "").strip() or None,
         profile_mode=(profile_mode or "").strip() or None,
-        output_env_file=Path(output_env_file).resolve(),
-        output_compose_file=Path(output_compose_file).resolve(),
+        output_env_file=resolve_config_path(output_env_file),
+        output_compose_file=resolve_config_path(output_compose_file),
         deployments_dir=deployments_path,
-        mdx_data_dir=Path(mdx_data_dir).expanduser().resolve(),
+        mdx_data_dir=resolve_config_path(mdx_data_dir),
         compose_file=compose_file,
         source_env_file=source_env_file,
+        profile_env_override_file=profile_env_override_file,
         supported_hardware_profiles=frozenset(model_resolution.hardware.hardware_profiles.keys()),
         edge_hardware_profiles=frozenset(model_resolution.hardware.edge_profiles),
         edge_allowed_profiles=frozenset(model_resolution.hardware.edge_allowed_profiles),
@@ -390,6 +401,35 @@ def resolve_env_interpolation(value: str, env: Mapping[str, str]) -> str:
     return ENV_VAR_INTERPOLATION_PATTERN.sub(_replace, value)
 
 
+def expand_env_value_references(env: dict[str, str]) -> None:
+    """Expand ``${VAR}``/``$VAR`` references in env values using other env values, in place.
+
+    Only references to keys present in ``env`` are substituted; unknown references are left
+    intact (so literal ``$`` and runtime-only vars survive). Chained references (A -> ${B},
+    B -> ${C}) are resolved with a bounded fixed-point iteration; any remaining references
+    after the cap (e.g. cycles) are left as-is.
+    """
+
+    def _sub_known(value: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            key = match.group("braced") or match.group("bare")
+            return env[key] if key in env else match.group(0)
+
+        return ENV_VAR_INTERPOLATION_PATTERN.sub(_replace, value)
+
+    for _ in range(len(env) + 1):
+        changed = False
+        for key, value in env.items():
+            if "$" not in value:
+                continue
+            expanded = _sub_known(value)
+            if expanded != value:
+                env[key] = expanded
+                changed = True
+        if not changed:
+            break
+
+
 def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfile) -> str:
     """Resolve COMPOSE_PROFILES from the profile env template, with a legacy fallback."""
 
@@ -440,6 +480,7 @@ def infer_runtime_mode(
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
+    #   1b. profile overrides.env (mandatory, next to .env)
     #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
     #   3. yml hw-defaults from hardware_profiles[HW]:
     #        a. str-valued keys at the HW root (always apply)
@@ -449,6 +490,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
     #   5. per-call env_overrides
     merged = parse_env_file(config.source_env_file)
+    merged.update(parse_env_file(config.profile_env_override_file))
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
     effective_hardware_profile = (
@@ -647,6 +689,10 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
     merged["COMPOSE_PROFILES"] = resolve_compose_profiles(merged, config.profile)
+    # Resolve nested ${VAR} references (e.g. SDR_CONTROLLER_CONFIG_PATH, VST_CONFIG_PATH,
+    # REACT_APP_API_ENDPOINT_BASE_URL) so the generated .env holds self-contained values;
+    # docker compose does not interpolate env-file values against each other.
+    expand_env_value_references(merged)
     return merged
 
 
