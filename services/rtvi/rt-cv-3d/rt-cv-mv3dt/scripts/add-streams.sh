@@ -11,7 +11,8 @@
 # Usage:
 #   ./scripts/add-streams.sh Camera=rtsp://host/cam0 Camera_01=rtsp://host/cam1 ...
 #   ./scripts/add-streams.sh --file streams.txt          # one NAME=URL per line, # comments
-#   ./scripts/add-streams.sh --remove Camera_01          # remove one stream
+#   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # remove one stream
+#   ./scripts/add-streams.sh --remove --file streams.txt          # remove every listed stream
 #   ./scripts/add-streams.sh --list                      # show current stream-info
 #
 # Options / env:
@@ -27,7 +28,7 @@ DELAY="${DELAY:-1}"
 READY_TIMEOUT="${READY_TIMEOUT:-600}"
 
 STREAMS=()
-REMOVE=""
+MODE=add
 LIST=0
 
 usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -35,7 +36,7 @@ usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 while (($#)); do
   case "$1" in
     --file)           mapfile -t -O "${#STREAMS[@]}" STREAMS < <(grep -vE '^\s*(#|$)' "$2"); shift 2 ;;
-    --remove)         REMOVE="$2"; shift 2 ;;
+    --remove)         MODE=remove; shift ;;
     --list)           LIST=1; shift ;;
     --ds-host)        DS_HOST="$2"; shift 2 ;;
     --ds-port)        DS_PORT="$2"; shift 2 ;;
@@ -88,15 +89,30 @@ print(json.dumps({
   rm -f "$tmp"; return 1
 }
 
-# ── --list / --remove modes ──────────────────────────────────────────────────
+# ── --list mode ──────────────────────────────────────────────────────────────
 if (( LIST )); then show_stream_info; exit 0; fi
-if [[ -n "$REMOVE" ]]; then
-  echo "── Removing stream camera_id=${REMOVE}"
-  post_sensor "$REMOVE" "" camera_remove
-  exit $?
-fi
 
 (( ${#STREAMS[@]} )) || { echo "ERROR: no streams given (NAME=URL args or --file)" >&2; usage 2; }
+
+# ── --remove mode: delete each listed stream (same NAME=URL as adding) ────────
+# Paced by --delay, mirroring the add path.
+if [[ "$MODE" == remove ]]; then
+  echo "── Removing ${#STREAMS[@]} stream(s) (delay=${DELAY}s)"
+  rc=0; idx=0
+  for entry in "${STREAMS[@]}"; do
+    cam="${entry%%=*}"; url="${entry#*=}"
+    if [[ -z "$cam" || "$url" == "$entry" || "$url" != rtsp://* ]]; then
+      echo "   ⚠ removal needs NAME=rtsp://... (the exact registered URL): [${entry}]" >&2
+      rc=2; continue
+    fi
+    echo "── Removing camera_id=${cam}"
+    post_sensor "$cam" "$url" camera_remove || rc=2
+    idx=$((idx + 1))
+    (( idx < ${#STREAMS[@]} )) && sleep "$DELAY"
+  done
+  echo; show_stream_info
+  exit "$rc"
+fi
 
 # ── 1. Wait for the perception REST API ─────────────────────────────────────
 echo "── Waiting up to ${READY_TIMEOUT}s for ${BASE}/api/v1/ready → ds-ready: YES"

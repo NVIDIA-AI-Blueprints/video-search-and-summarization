@@ -9,7 +9,7 @@ container images, and how to build them.
 
 **Assumptions**
 
-- A **`calibration.json`** for your camera setup (required either way). Refer to the
+- You cameras are already calibrated and you have a **`calibration.json`** for your camera setup. Refer to the
   [VSS Calibration documentation](https://docs.nvidia.com/vss/latest/calibration.html)
   for how to create one.
 - **Time-synchronized, 30 FPS multi-camera footage.** Whether you feed recordings or
@@ -27,8 +27,6 @@ streams**, which you register after launch (see
 [§4](#4-add-streams-dynamically-rtsp)). The rest of the setup is identical either way, so it is
 best to validate on recordings first and move to live RTSP once the results look good.
 
-All deployment settings live in one file, [docker/.env](docker/.env); set them in
-[§2.1](#21-set-environment-variables) before launching.
 
 
 ## Table of Contents
@@ -48,8 +46,8 @@ All deployment settings live in one file, [docker/.env](docker/.env); set them i
 - [4. Add streams dynamically (RTSP)](#4-add-streams-dynamically-rtsp)
 - [5. Check logs and receive metadata from Kafka](#5-check-logs-and-receive-metadata-from-kafka)
 - [6. Visualization](#6-visualization)
-  - [6.1 On-screen display (OSD)](#61-on-screen-display-osd)
-  - [6.2 Save the perception camera view](#62-save-the-perception-camera-view)
+  - [6.1 Perception camera view — live window (OSD)](#61-perception-camera-view--live-window-osd)
+  - [6.2 Perception camera view — save as video](#62-perception-camera-view--save-as-video)
   - [6.3 BEV visualizer — live window](#63-bev-visualizer--live-window)
   - [6.4 BEV visualizer — save as video](#64-bev-visualizer--save-as-video)
 - [Layout](#layout)
@@ -60,7 +58,8 @@ All deployment settings live in one file, [docker/.env](docker/.env); set them i
 
 Download the `vss-warehouse-app-data` package from NGC (substitute
 `<WAREHOUSE_APP_DATA_NGC>` / `<WAREHOUSE_APP_DATA_DIR>` with the resource
-reference and extracted directory name from your VSS release notes):
+reference and extracted directory name from the
+[VSS documentation](https://docs.nvidia.com/vss/latest/warehouse-docs/Quickstart-Guide.html#warehouse-app-data)):
 
 ```bash
 ngc registry resource download-version "<WAREHOUSE_APP_DATA_NGC>"
@@ -121,9 +120,9 @@ to `generated/` (gitignored):
 - `generated/pub_sub_info_config.yml` — sparse MQTT pub/sub neighbor graph
   (tune with `NEIGHBOR_CRITERIA=top_N:<K>` or `overlap_threshold:<T>`)
 
-The `/trck` topic endpoints in the pub/sub config point at the MQTT broker,
-default `localhost:1883`. If your broker is not on localhost, generate against
-it instead:
+The `/trck` topic endpoints in the generated pub/sub config default to the MQTT
+broker at `localhost:1883`. If your broker is not on localhost or on a different
+port, pass its address so the generated config points at it:
 
 ```bash
 MQTT_BROKERS=<host>:<port> ./scripts/generate-configs.sh /path/to/calibration.json
@@ -131,9 +130,8 @@ MQTT_BROKERS=<host>:<port> ./scripts/generate-configs.sh /path/to/calibration.js
 
 ### 2.3 Stage the DeepStream configs
 
-Set **`NUM_CAMS`** in [docker/.env](docker/.env) to your camera count, then run the staging script (it writes
-the config dir the container mounts, `generated/configs/`). Inline env variables at the front
-of a command override the ones in `.env`.
+Run the staging script below. It writes `generated/configs/`, the config directory the container
+mounts. Any variable you put at the front of the command overrides its value in `.env`.
 
 Pick the command for your case:
 
@@ -290,36 +288,55 @@ docker logs -f vss-rtvi-cv-mv3dt
 
 ## 6. Visualization
 
-Two things to look at — the **perception app's own camera view** (the tiled 3D-box
-view: on-screen [§6.1](#61-on-screen-display-osd) or saved to file
-[§6.2](#62-save-the-perception-camera-view)), and the **BEV top-down trajectory
-map** consumed from Kafka (live window [§6.3](#63-bev-visualizer--live-window) or
-saved to file [§6.4](#64-bev-visualizer--save-as-video)).
+Two visualizations are available: the **perception app's own camera view** (the tiled
+3D-box view, shown on-screen in [§6.1](#61-perception-camera-view--live-window-osd) or saved to file in
+[§6.2](#62-perception-camera-view--save-as-video)), and the **BEV track view**, which renders
+the object tracks consumed from Kafka onto a top-down, bird's-eye-view map (a live window
+in [§6.3](#63-bev-visualizer--live-window) or saved to file in
+[§6.4](#64-bev-visualizer--save-as-video)).
 
-### 6.1 On-screen display (OSD)
+### 6.1 Perception camera view — live window (OSD)
 
 **Requires a display on the host.** A tiled per-camera view with 3D bounding
 boxes, rendered by the perception container on your display:
 
 ```bash
-# Run `xhost +` to allow the container to open the display
-OSD=1 ./scripts/stage-configs.sh && (cd docker && docker compose up -d perception)
+# Run `xhost +` to allow the container to open the display.
+# Add the OSD=1 flag to the staging command in §2.3
+OSD=1 ./scripts/stage-configs.sh
 ```
 
-### 6.2 Save the perception camera view
+### 6.2 Perception camera view — save as video
 
-For a headless machine with no display, save the perception app's own annotated
-camera view (the same 3D-box view as the OSD) to an encoded video instead. **This
-only works with `INPUT_MODE=file`** ([§2.3](#23-stage-the-deepstream-configs)).
-Set `SAVE_VIDEO=1` in [docker/.env](docker/.env), stage, and launch:
+Save the perception app's own annotated camera view (the same 3D-box view as the
+OSD) to an encoded video, useful on a headless machine with no display. Enable it with
+`SAVE_VIDEO=1`, either set in [docker/.env](docker/.env) or passed inline to the staging
+command ([§2.3](#23-stage-the-deepstream-configs)), then launch. It writes
+`video-output/grid-view.mkv`: all cameras tiled into one video, with the 3D boxes and the
+class/ID labels overlaid. It works with either input:
+
+- **Recorded files** ([§2.3](#23-stage-the-deepstream-configs)) — the clips play
+  once and the file finalizes automatically at end-of-stream (the container then exits):
+  ```bash
+  # Add the SAVE_VIDEO=1 flag to the staging command in §2.3
+  INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh
+  ```
+- **Live RTSP** — recording runs until you stop the stack (`docker compose down`, or
+  `docker stop` on the perception container). A live stream has no natural end-of-stream,
+  so the `.mkv` is left **playable** but not finalized: it decodes fully, only without a
+  duration or seek index.
+  ```bash
+  # Add the SAVE_VIDEO=1 flag to the staging command in §2.3
+  SAVE_VIDEO=1 ./scripts/stage-configs.sh
+  ```
+
+Both cases write `video-output/grid-view.mkv`. To convert it to `.mp4` (and, for live RTSP,
+produce a finalized/seekable file), run a lossless conversion with no re-encode:
 
 ```bash
-INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh
+ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
+# For live RTSP input, a few "Non-monotonic DTS" warnings are expected and harmless.
 ```
-
-As the clips play it writes `video-output/grid-view.mkv` — all cameras tiled into
-one video, with the 3D boxes and the class/ID labels overlaid. The file finalizes when the clips reach
-end-of-stream (the container then exits).
 
 > **NVENC-less GPUs (e.g. A100, H100).** The video output from the perception container is encoded with the GPU's NVENC hardware
 > encoder (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). If your GPU has no
@@ -334,8 +351,8 @@ end-of-stream (the container then exits).
 ### 6.3 BEV visualizer — live window
 
 **Requires a display on the host** (without one, use
-[§6.4](#64-bev-visualizer--save-as-video)). A top-down trajectory map consumed
-live from Kafka. Launch it after the Kafka brokers are running:
+[§6.4](#64-bev-visualizer--save-as-video)). Object tracks consumed live from Kafka
+and drawn on a top-down, bird's-eye-view map. Launch it after the Kafka brokers are running:
 
 ```bash
 # per-camera tracks with cross-camera consistent IDs (mdx-raw): one point per camera view of each object

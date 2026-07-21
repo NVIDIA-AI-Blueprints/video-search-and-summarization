@@ -17,8 +17,9 @@
 #   - RT-DETR model-engine-file batch suffix = NUM_CAMS
 #   - INPUT_MODE=file: static [source-list] of file:///videos/<cam>.mp4 + SEI/sync
 #     off (plays local clips once; no add-streams.sh registration)
-#   - SAVE_VIDEO=1 (needs INPUT_MODE=file): enable the [sink2] tiled grid file
-#     sink → video-output/grid-view.mkv (the whole annotated camera grid; see README)
+#   - SAVE_VIDEO=1: enable the [sink2] tiled grid file sink → video-output/grid-view.mkv
+#     (the whole annotated camera grid; see README). Works with file or stream input
+#     (stream saves stay playable but unfinalized until remuxed; see README §6.2).
 #
 # Usage:  [OSD=0|1] [INPUT_MODE=stream|file] [SAVE_VIDEO=0|1]
 #         [TRACKER_CONFIG=/path/to/tracker.yml] ./scripts/stage-configs.sh
@@ -47,13 +48,6 @@ OSD="${OSD:-0}"
 INPUT_MODE="${INPUT_MODE:-stream}"
 SAVE_VIDEO="${SAVE_VIDEO:-0}"
 
-# Saving requires file input: the encoded grid video finalizes cleanly only at
-# end-of-stream, which local clips reach but live RTSP streams never do.
-if [ "$SAVE_VIDEO" = "1" ] && [ "$INPUT_MODE" != "file" ]; then
-  echo "ERROR: SAVE_VIDEO=1 requires INPUT_MODE=file (saved videos finalize only at" >&2
-  echo "       end-of-stream, which live streams don't reach). Set INPUT_MODE=file." >&2
-  exit 1
-fi
 TRACKER_CONFIG="${TRACKER_CONFIG:-$ROOT/configs/ds-mv3dt-tracker-config.yml}"
 [ -f "$TRACKER_CONFIG" ] || { echo "ERROR: tracker config not found: $TRACKER_CONFIG" >&2; exit 1; }
 
