@@ -31,4 +31,4 @@ include:
 
   # Services are differentiated by -2d, -3d, and -mv3dt suffixes.
   # Each service carries profiles: ["<service-name>"]; active services are selected
-  # via COMPOSE_PROFILES in overrides.env (COMPOSE_PROFILES_WH_*, playback variants, etc.).
+  # via COMPOSE_PROFILES in generated.env, using warehouse and playback variant lists from .env and overrides.env.
