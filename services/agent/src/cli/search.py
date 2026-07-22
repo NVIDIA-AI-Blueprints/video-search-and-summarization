@@ -163,6 +163,15 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
         ),
     )
     runtime.add_argument(
+        "--base-url",
+        default=None,
+        help=(
+            "Single-origin deployment ingress (haproxy), e.g. http://HOST:7777. Service endpoints "
+            "derive from its path routes: /elasticsearch, /cosmos-embed, /rtvi-cv, and the "
+            "pass-through /api and /vst prefixes. Explicit endpoint flags override derived values."
+        ),
+    )
+    runtime.add_argument(
         "--config",
         default=None,
         help="Explicit NAT-style config file path. Process-env fallback is intentionally not supported.",
@@ -468,7 +477,16 @@ def _build_runtime(args: argparse.Namespace) -> SearchRuntime:
         # rrf_*, embed_confidence_threshold, ...). Let the
         # error surface (exit 4) so the operator fixes the config they asked for.
         snap = RuntimeSnapshot.from_config_file(config_path, env=_config_env_from_args(args))
-        return _apply_runtime_overrides(snap.runtime, args)
+        runtime = _apply_runtime_overrides(snap.runtime, args)
+        if getattr(args, "base_url", None):
+            # Derived endpoints override config values but never explicit flags
+            # (explicit flags were already applied above and win on replace).
+            derived = _base_url_endpoints(args.base_url)
+            overrides: dict[str, Any] = {
+                field: value for field, value in derived.items() if getattr(args, field, None) is None
+            }
+            runtime = dataclass_replace(runtime, **overrides)
+        return runtime
 
     return _runtime_from_args(args)
 
@@ -487,27 +505,52 @@ def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
     return env
 
 
+def _base_url_endpoints(base_url: str) -> dict[str, str]:
+    """Derive every service endpoint from the single-origin ingress.
+
+    The haproxy ingress strips /elasticsearch, /cosmos-embed, and /rtvi-cv
+    prefixes; /api (agent) and /vst are served under those prefixes natively,
+    so both VST URLs are the origin itself. The Elasticsearch route is
+    read-only at the edge (mutating methods and admin paths are denied).
+    """
+    base = base_url.rstrip("/")
+    return {
+        "es_endpoint": f"{base}/elasticsearch",
+        "behavior_es_endpoint": f"{base}/elasticsearch",
+        "cosmos_embed_endpoint": f"{base}/cosmos-embed",
+        "rtvi_cv_endpoint": f"{base}/rtvi-cv",
+        "vst_internal_url": base,
+        "vst_external_url": base,
+    }
+
+
 def _runtime_from_args(args: argparse.Namespace) -> SearchRuntime:
     from lib.search_core.runtime import SearchRuntime
 
+    derived = _base_url_endpoints(args.base_url) if getattr(args, "base_url", None) else {}
+
+    def _endpoint(attr: str) -> str | None:
+        return getattr(args, attr, None) or derived.get(attr)
+
     primitive = getattr(args, "primitive", "search")
     required = list(_required_runtime_args(primitive))
-    missing = [flag for attr, flag in required if not getattr(args, attr, None)]
+    missing = [flag for attr, flag in required if not _endpoint(attr)]
     if missing:
         raise ConfigurationError(
             "missing required backend/runtime CLI option(s): "
             + ", ".join(missing)
-            + ". Provide them explicitly or pass --config with literal runtime values "
+            + ". Provide them explicitly, pass --base-url for a single-origin deployment ingress, "
+            + "or pass --config with literal runtime values "
             + "or --config-env KEY=VALUE pairs for interpolated deployment config."
         )
 
     kwargs: dict[str, Any] = {
-        "es_endpoint": args.es_endpoint,
-        "behavior_es_endpoint": args.behavior_es_endpoint or args.es_endpoint,
-        "cosmos_embed_endpoint": args.cosmos_embed_endpoint,
-        "rtvi_cv_endpoint": args.rtvi_cv_endpoint,
-        "vst_internal_url": args.vst_internal_url,
-        "vst_external_url": args.vst_external_url,
+        "es_endpoint": _endpoint("es_endpoint"),
+        "behavior_es_endpoint": _endpoint("behavior_es_endpoint") or _endpoint("es_endpoint"),
+        "cosmos_embed_endpoint": _endpoint("cosmos_embed_endpoint"),
+        "rtvi_cv_endpoint": _endpoint("rtvi_cv_endpoint"),
+        "vst_internal_url": _endpoint("vst_internal_url"),
+        "vst_external_url": _endpoint("vst_external_url"),
     }
     for field in _RUNTIME_OVERRIDE_FIELDS:
         value = getattr(args, field, None)

@@ -7,9 +7,9 @@ The vss-search-archive skill exercises the host-side NAT-free ``vss`` base
 distribution for fused semantic + attribute search across pre-ingested video
 sources. Search commands run from the repository checkout as ``uv run --project
 "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run
-"${RUNTIME_FLAGS[@]}" ...`` with runtime flags emitted by the skill's
-``scripts/vss_discover.py docker --profile search`` helper; they never run
-through a container/pod shell or a hand-crafted search endpoint.
+--base-url "${VSS_BASE_URL}" ...`` against the deployed profile's single
+haproxy ingress origin; they never run through a container/pod shell or a
+hand-crafted per-service endpoint.
 It runs against a **full-remote-deployed VSS search profile** (deploy mode
 = `remote-all`; LLM and VLM both remote — Cosmos Embed1 and Elasticsearch
 still run locally on the GPU host). The first generated step deploys that
@@ -98,9 +98,9 @@ SETUP_PREAMBLE = (
     "setup, prove the project-local host CLI is available with `cd \"${VSS_REPO_ROOT}\" && "
     "uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run --help`. "
     "If checkout validation fails, report it and stop. Do not look for a global `vss` executable. "
-    "Before readiness or cleanup queries, execute the skill's single `RUNTIME_JSON` resolver "
-    "(`scripts/vss_discover.py docker --profile search`, which wraps `discover_docker` and "
-    "`discover_docker_host_endpoints`). Use its distinct `video_embed_index`, `behavior_index`, "
+    "Before readiness or cleanup queries, resolve the runtime from the single haproxy ingress "
+    "origin per the skill's recipe (`AGENT_URL`/`VST_URL` = `${VSS_BASE_URL}`, `ES_URL` = "
+    "`${VSS_BASE_URL}/elasticsearch`). Use the distinct `video_embed_index`, `behavior_index`, "
     "and `raw_index` values; `ELASTIC_SEARCH_INDEX` is only the embedding index and must never be "
     "used for behavior or raw queries. For this pinned search profile the resolved values must be "
     "`mdx-embed-filtered-2025-01-01`, `mdx-behavior-2025-01-01`, and "
@@ -127,8 +127,7 @@ OPERATION_PREAMBLE = (
     "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
     "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, and work from that checkout. "
     "List registered sources through the prepared deployment's discovered VST/VIOS "
-    "connectivity: resolve `vst_url` from the skill's `vss_discover.py docker --profile search` "
-    "JSON (`discover_docker_host_endpoints(\"search\")` underneath) and "
+    "connectivity: `VST_URL` is the single ingress origin (`${VSS_BASE_URL}`) and "
     "GET its `/vst/api/v1/sensor/list`; do not assume a fixed port. If "
     "the requested source is not registered, follow the skill's missing-source rule: list "
     "registered sources, report the missing source, and stop without silently substituting "
@@ -139,8 +138,8 @@ OPERATION_PREAMBLE = (
     "pass the decomposed visual query with `--query` (never as a positional argument), select an "
     "explicit supported search mode, and pass its concrete value with `--search-mode`, "
     "and run the host checkout's project-local `cd \"${VSS_REPO_ROOT}\" && uv run --project "
-    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run` with the discovery-emitted "
-    "`\"${RUNTIME_FLAGS[@]}\"`, the resolved `--video-source`, `--output json --raw`, and any result "
+    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev vss search run` with `--base-url "
+    "\"${VSS_BASE_URL}\"`, the resolved `--video-source`, `--output json --raw`, and any result "
     "limit stated in the query. Put that fully constructed invocation in a `SEARCH_COMMAND` "
     "bash array and execute it with `if ! SEARCH_JSON=$(\"${SEARCH_COMMAND[@]}\"); then` so only "
     "the command's exact stdout is captured as `SEARCH_JSON`; fail on "

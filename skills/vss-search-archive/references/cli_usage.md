@@ -28,29 +28,21 @@ runtime route or manually call Elasticsearch, embedding, or search endpoints.
 Do not invoke it through `docker exec`, `kubectl exec`, a pod shell, or an
 agent runtime endpoint.
 
-## Deployment resolution (skill-owned)
+## Deployment resolution (single-origin)
 
-The CLI takes only explicit endpoint flags; resolve them from a deployment
-with the skill's discovery helper:
+A deployed Docker profile exposes one haproxy ingress; pass it as
+`--base-url` and every service endpoint derives from its path routes
+(`/elasticsearch` read-only, `/cosmos-embed`, `/rtvi-cv`, pass-through
+`/api` and `/vst`):
 
 ```bash
-# Docker: generated.env plus checked-out profile config -> explicit flags
-DISCOVER_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile search)
-mapfile -t RUNTIME_FLAGS < <(printf '%s' "${DISCOVER_JSON}" | jq -r '.flags | to_entries[] | .key, .value')
-
-# Kubernetes: live Deployment + ConfigMaps; --exec keeps managed
-# port-forwards alive for the wrapped search command (VSS_* env vars)
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" kubernetes \
-  --namespace <namespace> --release <release> --context <optional-context> \
-  --exec -- <search command using "${VSS_ES_ENDPOINT}" etc.>
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
+  --base-url "${VSS_BASE_URL:-http://127.0.0.1:7777}" ...
 ```
 
-Kubernetes `VST_EXTERNAL_URL` must be a host-reachable ingress URL or an
-operator-managed localhost forward that stays alive while result media links
-are used. The CLI rejects an in-cluster Service URL for this field; discovery's
-managed backend forwards close when the `--exec` wrapper exits.
+Kubernetes single-origin support is deferred; use explicit non-secret
+`--*-endpoint` flags for host-reachable services there. `VST_EXTERNAL_URL`
+must remain host-reachable while result media links are used.
 
 Explicit backend flags override values discovered through either selector. If
 no selector is used, all required backend values must be supplied explicitly

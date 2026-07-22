@@ -183,34 +183,25 @@ behavior identifier, and raw identifier are textually identical. RTVI-CV
 registration is asynchronous, so `/complete` alone does not prove those two
 indexes are ready.
 
-For a deployed Docker profile, resolve the endpoints and all three indexes in
-one operation from the same sources used by `vss`. Do not reuse
+A deployed Docker profile exposes every service through one haproxy ingress
+origin (`VSS_BASE_URL`, host port `HAPROXY_HOST_PORT`, default 7777): `/api`
+(agent) and `/vst` pass through natively; `/elasticsearch` is a read-only
+path-stripped route. Resolve the runtime from that single origin. Do not reuse
 `ELASTIC_SEARCH_INDEX` for behavior or raw-data checks: that variable names only
-the video embedding index.
+the video embedding index — the search profile's pinned index names are
+distinct per data kind.
 
 ```bash
-PROFILE="${PROFILE:-search}"
-RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile "${PROFILE}") || exit 1
-
-printf '%s' "${RUNTIME_JSON}" | jq -e '
-  (.agent_url | type == "string" and length > 0) and
-  (.es_url | type == "string" and length > 0) and
-  (.vst_url | type == "string" and length > 0) and
-  (.video_embed_index | type == "string" and length > 0) and
-  (.behavior_index | type == "string" and length > 0) and
-  (.raw_index | type == "string" and length > 0) and
-  (.video_embed_index != .behavior_index) and
-  (.video_embed_index != .raw_index) and
-  (.behavior_index != .raw_index)
-' >/dev/null || { echo "Invalid or aliased search runtime indexes: ${RUNTIME_JSON}" >&2; exit 1; }
-
-AGENT_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.agent_url') || exit 1
-ES_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.es_url') || exit 1
-VST_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.vst_url') || exit 1
-EMBED_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.video_embed_index') || exit 1
-BEHAVIOR_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.behavior_index') || exit 1
-RAW_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.raw_index') || exit 1
+VSS_BASE_URL="${VSS_BASE_URL:-http://127.0.0.1:7777}"
+AGENT_URL="${VSS_BASE_URL}"
+VST_URL="${VSS_BASE_URL}"
+ES_URL="${VSS_BASE_URL}/elasticsearch"
+EMBED_INDEX="${EMBED_INDEX:-mdx-embed-filtered-2025-01-01}"
+BEHAVIOR_INDEX="${BEHAVIOR_INDEX:-mdx-behavior-2025-01-01}"
+RAW_INDEX="${RAW_INDEX:-mdx-raw-2025-01-01}"
+[ "${EMBED_INDEX}" != "${BEHAVIOR_INDEX}" ] && [ "${EMBED_INDEX}" != "${RAW_INDEX}" ] &&
+  [ "${BEHAVIOR_INDEX}" != "${RAW_INDEX}" ] ||
+  { echo "Aliased search runtime indexes" >&2; exit 1; }
 
 index_count() {
   INDEX=$1 FIELD=$2 VALUE=$3
@@ -324,18 +315,12 @@ Report every final count. A successful DELETE response alone is not sufficient.
    : "${QUERY:?set the decomposed visual query}"
    : "${SEARCH_MODE:?set the explicit search mode}"
    : "${VIDEO_SOURCE:?set the resolved source name or stream ID}"
-   PROFILE="${PROFILE:-search}"
+   VSS_BASE_URL="${VSS_BASE_URL:-http://127.0.0.1:7777}"
    TOP_K="${TOP_K:-3}"
-   # Resolve the deployed profile's endpoints with the skill's discovery
-   # helper (discover_docker); the CLI itself takes only explicit flags.
-   DISCOVER_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile "${PROFILE}") || exit 1
-   mapfile -t RUNTIME_FLAGS < <(printf '%s' "${DISCOVER_JSON}" |
-     jq -r '.flags | to_entries[] | .key, .value')
    SEARCH_COMMAND=(
      uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev
      vss search run
-     "${RUNTIME_FLAGS[@]}"
+     --base-url "${VSS_BASE_URL}"
      --query "${QUERY}" --search-mode "${SEARCH_MODE}"
      --video-source "${VIDEO_SOURCE}" --top-k "${TOP_K}"
      --output json --raw
@@ -374,24 +359,13 @@ Report every final count. A successful DELETE response alone is not sufficient.
    Docker (`PROFILE` must match `--profile`):
 
    ```bash
-   PROFILE="${PROFILE:-search}"
-   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile "${PROFILE}" --get VST_EXTERNAL_URL)
+   EXPECTED_VST_EXTERNAL_URL="${VSS_BASE_URL:-http://127.0.0.1:7777}"
    ```
 
-   Kubernetes (`NAMESPACE`, `RELEASE`, and `KUBE_CONTEXT` must match the search
-   command):
-
-   ```bash
-   : "${NAMESPACE:?set the selected Kubernetes namespace}"
-   : "${RELEASE:?set the selected Kubernetes release}"
-   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" kubernetes --namespace "${NAMESPACE}" --release "${RELEASE}" \
-     ${KUBE_CONTEXT:+--context "${KUBE_CONTEXT}"} --get VST_EXTERNAL_URL)
-   ```
-
-   With no deployment selector, set `EXPECTED_VST_EXTERNAL_URL` to the same
-   explicit non-secret `--vst-external-url` value passed to `vss`.
+   With explicit endpoint flags instead of `--base-url`, set
+   `EXPECTED_VST_EXTERNAL_URL` to the same explicit non-secret
+   `--vst-external-url` value passed to `vss`. (Kubernetes ingress support is
+   deferred; use a host-reachable single-origin ingress or explicit flags.)
 
    Then validate the exact returned URLs. A media-bearing external VST origin
    must be public HTTPS: reject HTTP, localhost, single-label/internal hostnames,
@@ -541,62 +515,26 @@ The embedding index is resolved from the profile layers; behavior and raw index
 names are resolved from the interpolated agent config.
 
 ```bash
-DISCOVER_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile search)
-mapfile -t RUNTIME_FLAGS < <(printf '%s' "${DISCOVER_JSON}" | jq -r '.flags | to_entries[] | .key, .value')
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  "${RUNTIME_FLAGS[@]}" \
+  --base-url "${VSS_BASE_URL:-http://127.0.0.1:7777}" \
   --query "find all instances of forklifts" \
   --search-mode embed --source-type video_file --top-k 10 \
   --output json --raw
 ```
 
-Before running this, start the profile with `dev-profile.sh` so `generated.env`
-exists. The checked-in `.env` supplies stable profile values but is not, by
-itself, proof of a running initialized deployment. Private service ports are
-loopback-only; do not expose them to a LAN simply to run a search.
+Before running this, start the profile with `dev-profile.sh`. The haproxy
+ingress (host port `HAPROXY_HOST_PORT`, default 7777) is the only endpoint the
+CLI needs: `/api` and `/vst` pass through natively and `/elasticsearch`,
+`/cosmos-embed`, `/rtvi-cv` are path-stripped routes. The Elasticsearch route
+is read-only at the edge (mutating methods and admin paths are denied), so a
+search never needs the private service ports.
 
 ### Kubernetes / Helm
 
-Kubernetes has no `generated.env`. The command obtains non-secret state from:
-
-1. the live vss-agent Deployment, to find its config mount and literal or
-   ConfigMap-backed environment values;
-2. the mounted ConfigMap's `config.yml`;
-3. referenced ConfigMaps for the runtime-key allowlist only.
-
-It never reads `secretKeyRef` values, Secrets, checked-in `values.yaml`, or the
-agent runtime endpoint. It rewrites private backend Service URLs to managed
-localhost `kubectl port-forward` connections and closes every managed forward
-on success, failure, or interruption. `VST_EXTERNAL_URL` is the exception: it
-is returned in screenshots and media links that must outlive the CLI process,
-so it must already be host-reachable or use an operator-managed localhost
-forward whose lifetime extends through result consumption. The CLI rejects an
-in-cluster Service URL in that external field instead of returning dead links.
-
-```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" kubernetes \
-  --namespace <namespace> --release <release> --context <optional-context> \
-  --exec -- bash -c 'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-    --es-endpoint "${VSS_ES_ENDPOINT}" --behavior-es-endpoint "${VSS_BEHAVIOR_ES_ENDPOINT}" \
-    --cosmos-embed-endpoint "${VSS_COSMOS_EMBED_ENDPOINT}" --rtvi-cv-endpoint "${VSS_RTVI_CV_ENDPOINT}" \
-    --vst-internal-url "${VSS_VST_INTERNAL_URL}" --vst-external-url "${VSS_VST_EXTERNAL_URL}" \
-    --video-embed-index "${VSS_VIDEO_EMBED_INDEX}" --behavior-index "${VSS_BEHAVIOR_INDEX}" \
-    --query "person in a white jacket climbing a ladder" \
-    --search-mode fusion --attribute "white jacket" \
-    --video-source <resolved-source> --top-k 10 \
-    --output json --raw'
-```
-
-`--exec` keeps the managed `kubectl port-forward` processes alive for the
-wrapped command and exports every discovered flag as a `VSS_*` environment
-variable; forwards close when the wrapper exits.
-
-If a required runtime value is Secret-backed or absent from the Deployment and
-its non-secret ConfigMaps, stop. Do not print or pass a secret. Use an explicit
-non-secret endpoint override when valid, or route authenticated visual/media work
-through the operator-managed workflow.
+Kubernetes support through a single-origin ingress is deferred. When the Helm
+deployment exposes an equivalent host-reachable ingress, pass it as
+`--base-url`; until then, pass explicit non-secret `--*-endpoint` flags for
+host-reachable services. Never read or pass Secret-backed values.
 
 ## Search behavior and safeguards
 
@@ -623,27 +561,24 @@ through the operator-managed workflow.
 ## Query examples
 
 ```bash
-# Resolve the deployed Docker profile's endpoints once, then reuse the flags
-DISCOVER_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile search)
-mapfile -t RUNTIME_FLAGS < <(printf '%s' "${DISCOVER_JSON}" | jq -r '.flags | to_entries[] | .key, .value')
+VSS_BASE_URL="${VSS_BASE_URL:-http://127.0.0.1:7777}"
 
 # Embed-only search across all ingested files
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  "${RUNTIME_FLAGS[@]}" \
+  --base-url "${VSS_BASE_URL}" \
   --query "red forklift near a loading bay" --search-mode embed \
   --source-type video_file --output json --raw
 
 # Attribute-only search; source must have been resolved first
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  "${RUNTIME_FLAGS[@]}" \
+  --base-url "${VSS_BASE_URL}" \
   --query "person wearing a white jacket" \
   --search-mode attribute --attribute "white jacket" \
   --video-source warehouse-camera-3 --output json --raw
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  "${RUNTIME_FLAGS[@]}" \
+  --base-url "${VSS_BASE_URL}" \
   --query "forklift near a loading bay" --attribute "yellow forklift" \
   --search-mode fusion --allow-embed-only-fallback --output json --raw
 ```

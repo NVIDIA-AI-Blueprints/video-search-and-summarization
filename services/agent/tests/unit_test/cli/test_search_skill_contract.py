@@ -71,10 +71,10 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "ACTUAL_ORIGIN" in skill_text
     assert "Do not assume" in skill_text
     assert "is exported in the operation shell" in skill_text
-    assert "scripts/vss_discover.py" in skill_text
+    assert '--base-url "${VSS_BASE_URL}"' in skill_text
     assert "--deployment" not in skill_text
+    assert "vss_discover" not in skill_text
     assert "SEARCH_COMMAND=(" in skill_text
-    assert '"${RUNTIME_FLAGS[@]}"' in skill_text
     assert 'SEARCH_JSON=$("${SEARCH_COMMAND[@]}")' in skill_text
     assert 'jq -e \'type == "object"' in skill_text
     assert 'if [ "${HIT_COUNT}" -gt 0 ]; then' in skill_text
@@ -85,11 +85,11 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "VERIFY_PIXELS" in skill_text
     assert "mktemp -d /tmp/vss-search-verification" in skill_text
     assert "inspect every saved file" in skill_text
-    assert "RUNTIME_JSON=$(" in skill_text
-    assert "vss_discover.py" in skill_text
-    assert "jq -er '.video_embed_index'" in skill_text
-    assert "jq -er '.behavior_index'" in skill_text
-    assert ".raw_index" in skill_text
+    assert 'AGENT_URL="${VSS_BASE_URL}"' in skill_text
+    assert 'ES_URL="${VSS_BASE_URL}/elasticsearch"' in skill_text
+    assert 'EMBED_INDEX="${EMBED_INDEX:-mdx-embed-filtered-2025-01-01}"' in skill_text
+    assert 'BEHAVIOR_INDEX="${BEHAVIOR_INDEX:-mdx-behavior-2025-01-01}"' in skill_text
+    assert 'RAW_INDEX="${RAW_INDEX:-mdx-raw-2025-01-01}"' in skill_text
     assert "Do not reuse" in skill_text
     assert "ELASTIC_SEARCH_INDEX` for behavior or raw-data checks" in skill_text
     assert "`EMBED_INDEX`, `sensor.id.keyword`, resolved VST sensor UUID" in skill_text
@@ -155,22 +155,22 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "without adding a `streamId` routing header" in " ".join(expects[2]["checks"])
     assert "without adding a `streamId` routing header" in fusion_checks
     assert "http://localhost:30888" not in json.dumps(expects[0]["checks"])
-    assert "RUNTIME_JSON.vst_url" in expects[0]["checks"][2]
+    assert "${VST_URL}/vst/api/v1/sensor/list" in expects[0]["checks"][2]
 
     judge_prompt = GENERIC_JUDGE_PATH.read_text(encoding="utf-8")
     assert "assistant tool calls only" in judge_prompt
     assert "whole-file grep therefore produces false failures" in judge_prompt
 
     setup_checks = " ".join(expects[0]["checks"])
-    assert "authoritative `RUNTIME_JSON` resolver" in setup_checks
+    assert "single-origin runtime recipe" in setup_checks
     assert "configured in `deploy/docker/developer-profiles/dev-profile-search/generated.env`" not in setup_checks
     assert "`warehouse-ladder`" in setup_checks
     assert "canonical upload filename `warehouse-ladder.mp4`" in setup_checks
     assert "never invoked the deprecated single-step" in setup_checks
     assert "same canonical source" in setup_checks
     setup_query = expects[0]["query"]
-    assert "RUNTIME_JSON" in setup_query
-    assert "vss_discover.py docker --profile search" in setup_query
+    assert "single-origin runtime recipe" in setup_query
+    assert "haproxy ingress origin" in setup_query
     assert "never use `ELASTIC_SEARCH_INDEX` for behavior or raw queries" in setup_query
     assert "Make setup idempotent" in setup_query
     assert "exact or deduplicated remnants" in setup_query
@@ -202,13 +202,13 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "assuming an absent object must yield zero" in negative_checks
 
     deletion_checks = " ".join(expects[5]["checks"])
-    assert "authoritative `RUNTIME_JSON` resolver" in deletion_checks
+    assert "single-origin runtime recipe" in deletion_checks
     assert "required status `success`" in deletion_checks
     assert "sensor.id.keyword" in deletion_checks
     assert "sensorId.keyword" in deletion_checks
     assert "warehouse-ladder" in deletion_checks
     assert "sample-warehouse-ladder" not in deletion_checks
-    assert "RUNTIME_JSON" in deletion_checks
+    assert "single-origin runtime recipe" in deletion_checks
     assert "mdx-embed-filtered-2025-01-01" in deletion_checks
     assert "mdx-behavior-2025-01-01" in deletion_checks
     assert "mdx-raw-2025-01-01" in deletion_checks
@@ -292,7 +292,7 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "${VSS_REPO_ROOT}/services/agent/pyproject.toml" in first_instruction
     assert 'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev' in first_instruction
     assert "http://localhost:8000/docs" not in first_instruction
-    assert "single `RUNTIME_JSON` resolver" in first_instruction
+    assert "single haproxy ingress" in first_instruction
     assert "`ELASTIC_SEARCH_INDEX` is only the embedding index" in first_instruction
     assert "make setup idempotent on reused hosts" in first_instruction
     assert "exact readiness tuples independently" in first_instruction
@@ -332,7 +332,7 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "/generate" not in second_instruction
     assert "asking the user to clarify the source" in second_instruction
     assert "explicitly request ingestion" in second_instruction
-    assert "vss_discover.py docker --profile search" in second_instruction
+    assert "${VSS_BASE_URL}" in second_instruction
     assert "distinct embedding, behavior, and raw indexes" in second_instruction
     assert "poll the exact three index/field/value tuples to zero" in second_instruction
     rendered = json.loads((second / "tests" / "search.json").read_text())
