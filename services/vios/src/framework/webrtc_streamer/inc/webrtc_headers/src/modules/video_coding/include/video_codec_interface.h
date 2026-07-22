@@ -23,7 +23,9 @@
 #include "api/video_codecs/video_encoder.h"
 #include "common_video/generic_frame_descriptor/generic_frame_info.h"
 #include "modules/video_coding/codecs/h264/include/h264_globals.h"
+#ifdef RTC_ENABLE_H265
 #include "modules/video_coding/codecs/h265/include/h265_globals.h"
+#endif
 #include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 #include "rtc_base/system/rtc_export.h"
 
@@ -100,18 +102,22 @@ static_assert(std::is_trivial_v<CodecSpecificInfoH264> &&
               "");
 
 // Hack alert - the code assumes that thisstruct is memset when constructed.
+#ifdef RTC_ENABLE_H265
 struct CodecSpecificInfoH265 {
   H265PacketizationTypes packetization_mode;
 };
 static_assert(std::is_trivial_v<CodecSpecificInfoH265> &&
                   std::is_standard_layout_v<CodecSpecificInfoH265>,
               "");
+#endif
 
 union CodecSpecificInfoUnion {
   CodecSpecificInfoVP8 VP8;
   CodecSpecificInfoVP9 VP9;
   CodecSpecificInfoH264 H264;
+#ifdef RTC_ENABLE_H265
   CodecSpecificInfoH265 H265;
+#endif
 };
 static_assert(std::is_trivial_v<CodecSpecificInfoUnion> &&
                   std::is_standard_layout_v<CodecSpecificInfoUnion>,

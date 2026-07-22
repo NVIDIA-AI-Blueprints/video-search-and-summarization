@@ -69,7 +69,9 @@ struct LibNvPassthroughVideoEncoderTemplateAdapter {
         CreateH264PassthroughFormat(
             H264Profile::kProfileHigh, H264Level::kLevel4_2, "0"),
         SdpVideoFormat(kH264CodecName)};
+#ifdef RTC_ENABLE_H265
     supported_codecs.push_back(SdpVideoFormat(webrtc::kH265CodecName));
+#endif
     return supported_codecs;
   }
 
