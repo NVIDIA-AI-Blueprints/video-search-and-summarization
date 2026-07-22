@@ -56,8 +56,8 @@ source "$SCRIPT_DIR/cleanup.sh"
 
 cd "$PROJ_ROOT_DIR"
 echo "Building Docker image..."
-# Set timeout for docker build (10 minutes)
-BUILD_TIMEOUT=900
+# Set timeout for docker build (60 minutes)
+BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
 
 # In network-restricted CI environments github.com is unreachable, so the
 # opencv-source-build stage (which clones from GitHub) cannot run.  When the
@@ -94,8 +94,8 @@ fi
 
 COMPOSE_CMD="$COMPOSE_BASE up -d --build --force-recreate"
 
-# Timeout for compose up (CI sets COMPOSE_TIMEOUT e.g. 1800)
-COMPOSE_TIMEOUT=${COMPOSE_TIMEOUT:-300}
+# Timeout for compose up
+COMPOSE_TIMEOUT=${COMPOSE_TIMEOUT:-3600}
 echo "Running: $COMPOSE_CMD (timeout ${COMPOSE_TIMEOUT}s)..."
 $COMPOSE_CMD & COMPOSE_PID=$!
 COMPOSE_EXIT=0
