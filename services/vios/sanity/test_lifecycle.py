@@ -3,12 +3,19 @@
 
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import provision
-from run_sanity import _cleanup_transient_artifacts, _run_plans
+from run_sanity import _cleanup_transient_artifacts, _run_plans, _start_metadata_service
+
+_OVERLAY = Path(__file__).resolve().parents[1] / "test/bdd_tests/scripts/overlay"
+sys.path.insert(0, str(_OVERLAY))
+from fake_es_server import FakeESStore
 
 
 class LifecycleTest(unittest.TestCase):
@@ -53,6 +60,34 @@ class LifecycleTest(unittest.TestCase):
         plans = Path(__file__).with_name("sanity_plans.yaml")
         with self.assertRaisesRegex(ValueError, "exactly one enabled plan/system"):
             _run_plans(str(plans), keep_deployment=True)
+
+    def test_fake_es_retention_is_time_based_per_sensor(self):
+        hour_ms = 60 * 60 * 1000
+        store = FakeESStore(retention_hours=3)
+        store.append([
+            {"id": "a-old", "sensorId": "a", "_epoch_ms": 0},
+            {"id": "b-only", "sensorId": "b", "_epoch_ms": 0},
+            {"id": "a-new", "sensorId": "a", "_epoch_ms": 4 * hour_ms},
+        ])
+
+        hits = store.search(None, None, None, None, None)["hits"]["hits"]
+        retained = {(hit["_source"]["sensorId"], hit["_id"]) for hit in hits}
+        self.assertEqual(retained, {("a", "a-new"), ("b", "b-only")})
+
+    def test_metadata_service_receives_requested_retention(self):
+        ctx = SimpleNamespace(
+            broker="redis",
+            base_url="http://localhost:30888",
+            nvstreamer_url="http://localhost:31000",
+        )
+        with mock.patch.dict("os.environ", {"VIOS_SANITY_ES_RETENTION_HOURS": "10"}):
+            with mock.patch("subprocess.Popen") as popen:
+                popen.return_value.poll.return_value = None
+                _start_metadata_service(ctx, wait_s=0)
+
+        command = popen.call_args.args[0]
+        flag_index = command.index("--es-retention-hours")
+        self.assertEqual(command[flag_index + 1], "10")
 
 
 if __name__ == "__main__":

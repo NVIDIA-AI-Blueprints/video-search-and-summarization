@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -370,11 +371,20 @@ def _start_metadata_service(ctx, wait_s: int = 12):
     import subprocess
     import time as _t
     svc = Path(__file__).resolve().parents[1] / "test/bdd_tests/scripts/overlay/metadata_service.py"
+    retention_hours = float(os.environ.get("VIOS_SANITY_ES_RETENTION_HOURS", "3"))
+    if retention_hours <= 0:
+        raise ValueError("VIOS_SANITY_ES_RETENTION_HOURS must be greater than zero")
     cmd = ["python3", str(svc), "--broker", ctx.broker, "--base-url", ctx.base_url,
-           "--nvstreamer-url", ctx.nvstreamer_url, "--es-port", "19200"]
+           "--nvstreamer-url", ctx.nvstreamer_url, "--es-port", "19200",
+           "--es-retention-hours", f"{retention_hours:g}"]
     if ctx.broker == "kafka" and getattr(ctx, "kafka_brokers", None):
         cmd += ["--kafka", ctx.kafka_brokers]
-    log.info("starting event-driven overlay plugin (broker=%s, subscribing camera_streaming)", ctx.broker)
+    log.info(
+        "starting event-driven overlay plugin (broker=%s, retention=%g hours/sensor, "
+        "subscribing camera_streaming)",
+        ctx.broker,
+        retention_hours,
+    )
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)
     ctx._mds = proc
@@ -708,9 +718,18 @@ def main() -> int:
                     help="do NOT auto-start the evidence file server (serve share_dir on :18080)")
     ap.add_argument("--keep-transients", action="store_true",
                     help="retain generated provisioning copies and comparison-control videos")
+    ap.add_argument(
+        "--es-retention-hours",
+        type=float,
+        default=os.environ.get("VIOS_SANITY_ES_RETENTION_HOURS", "3"),
+        help="rolling fake-ES metadata history retained per sensor (default: 3 hours)",
+    )
     ap.add_argument("--install-deps", action="store_true",
                     help="install all prerequisites (pip deps, playwright chromium, Google Chrome, ffmpeg) and exit")
     a = ap.parse_args()
+    if a.es_retention_hours <= 0:
+        ap.error("--es-retention-hours must be greater than zero")
+    os.environ["VIOS_SANITY_ES_RETENTION_HOURS"] = f"{a.es_retention_hours:g}"
 
     if a.install_deps:
         return _install_deps()
@@ -773,7 +792,6 @@ def main() -> int:
     build_pdf(results, ctx, when, out, plan_meta, failures=fails_info)
     pdf_link = ctx.publish(out, "vios_sanity_report.pdf")
     if not a.keep_transients:
-        import os
         _cleanup_transient_artifacts(out.parent,
                                      Path(os.environ.get("VIOS_SANITY_OUT_DIR", "/tmp/vios_sanity")))
 

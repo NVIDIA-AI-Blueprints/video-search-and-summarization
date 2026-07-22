@@ -68,7 +68,8 @@ If you already set the images in `compose.env`, just omit the flags.
 
 Useful flags: `--only <case,case>` (subset), `--deploy-only`, `--no-serve` (don't auto-start the
 evidence server), `--from-json <results.json>` (re-render the PDF without re-running),
-`--restore-config` (restore the config snapshot), `--install-deps`.
+`--es-retention-hours <hours>` (fake-ES history per sensor; default 3), `--restore-config`
+(restore the config snapshot), `--install-deps`.
 
 ## Output, evidence & hosting
 
@@ -100,6 +101,7 @@ evidence server), `--from-json <results.json>` (re-render the PDF without re-run
 | `VIOS_SANITY_FILE_SERVER_PORT` | `18080` | port when deriving the base URL |
 | `VIOS_SANITY_FILE_SERVER_BIND` | `0.0.0.0` | listen address for the built-in artifact server |
 | `VIOS_SANITY_CHROME` | system Google Chrome (auto-detected) | codec-capable browser for WebRTC capture (H.264/H.265) |
+| `VIOS_SANITY_ES_RETENTION_HOURS` | `3` | rolling fake-ES metadata history retained per sensor |
 
 ## Overlay metadata
 
@@ -107,8 +109,10 @@ Overlay evidence is fed by a continuous metadata service
 ([`test/bdd_tests/scripts/overlay/metadata_service.py`](../test/bdd_tests/scripts/overlay/metadata_service.py))
 that subscribes to `camera_streaming` events, reads each VIOS RTSP proxy's SEI, publishes live
 metadata to the broker, and serves a fake Elasticsearch (`:19200`) that VIOS's
-`overlay.video_metadata_server` queries for download/replay overlay. The harness starts and
-stops it per run.
+`overlay.video_metadata_server` queries for download/replay overlay. The fake-ES retains a
+rolling 3-hour event-time window per sensor by default (324,000 documents at 30 fps). Use
+`--es-retention-hours 10` when a deployment needs ten hours of metadata; there is no separate
+document-count ceiling. The harness starts and stops it per run.
 
 ### Preserve an active plan
 

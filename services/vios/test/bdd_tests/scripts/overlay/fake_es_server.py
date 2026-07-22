@@ -30,9 +30,11 @@ query body shifts slightly between VIOS versions.
 """
 from __future__ import annotations
 
+import heapq
 import json
 import logging
 import threading
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
@@ -109,10 +111,14 @@ def _extract_query(body: Dict[str, Any]) -> Tuple[Optional[str], Optional[int], 
 class FakeESStore:
     """Thread-safe in-memory document set, queried like an ES index."""
 
-    def __init__(self, index_name: str = "mdx-bev-test"):
+    def __init__(self, index_name: str = "mdx-bev-test", retention_hours: float = 3.0):
+        if retention_hours <= 0:
+            raise ValueError("retention_hours must be greater than zero")
         self._lock = threading.Lock()
-        self._docs: List[Dict[str, Any]] = []
+        self._docs_by_sensor: Dict[Any, deque] = {}
         self.index_name = index_name
+        self.retention_hours = float(retention_hours)
+        self._retention_ms = int(self.retention_hours * 60 * 60 * 1000)
 
     def _prepare(self, docs):
         prepared = []
@@ -127,40 +133,51 @@ class FakeESStore:
         """Replace the document set. Each doc must carry ``_epoch_ms``."""
         prepared = self._prepare(docs)
         prepared.sort(key=lambda x: x["epoch_ms"])
+        grouped = defaultdict(deque)
+        for doc in prepared:
+            grouped[doc["source"].get("sensorId")].append(doc)
         with self._lock:
-            self._docs = prepared
+            self._docs_by_sensor = dict(grouped)
         logger.info("FakeES loaded %d docs into %s", len(prepared), self.index_name)
 
-    def append(self, docs: List[Dict[str, Any]], per_sensor_cap: int = 1_000_000) -> None:
-        """Append docs (continuous producer); keep sorted by time and cap the retained
-        history PER SENSOR so multiple streams never evict each other's docs. A single
-        global cap silently drops the OLDEST docs -- so with N streams backfilling long
-        recordings, the earliest history of every stream disappears and a replay/picture of
-        that time finds no metadata. Per-sensor keeps each stream's most-recent
-        `per_sensor_cap` docs (~9h at 30fps), so historical replay stays intact."""
-        prepared = self._prepare(docs)
+    def append(self, docs: List[Dict[str, Any]]) -> None:
+        """Append documents and retain the configured event-time window per sensor."""
+        grouped = defaultdict(list)
+        for doc in self._prepare(docs):
+            grouped[doc["source"].get("sensorId")].append(doc)
+
         with self._lock:
-            self._docs.extend(prepared)
-            self._docs.sort(key=lambda x: x["epoch_ms"])
-            counts: Dict[Any, int] = {}
-            kept_rev = []
-            for d in reversed(self._docs):          # newest first, keep N per sensor
-                sid = d["source"].get("sensorId")
-                c = counts.get(sid, 0)
-                if c < per_sensor_cap:
-                    counts[sid] = c + 1
-                    kept_rev.append(d)
-            if len(kept_rev) != len(self._docs):
-                kept_rev.reverse()
-                self._docs = kept_rev
+            for sensor_id, incoming in grouped.items():
+                incoming.sort(key=lambda doc: doc["epoch_ms"])
+                retained = self._docs_by_sensor.get(sensor_id)
+                if retained is None:
+                    retained = deque(incoming)
+                    self._docs_by_sensor[sensor_id] = retained
+                elif incoming and incoming[0]["epoch_ms"] >= retained[-1]["epoch_ms"]:
+                    retained.extend(incoming)
+                else:
+                    retained = deque(
+                        heapq.merge(retained, incoming, key=lambda doc: doc["epoch_ms"])
+                    )
+                    self._docs_by_sensor[sensor_id] = retained
+
+                cutoff_ms = retained[-1]["epoch_ms"] - self._retention_ms
+                while retained and retained[0]["epoch_ms"] < cutoff_ms:
+                    retained.popleft()
 
     def clear(self) -> None:
         with self._lock:
-            self._docs = []
+            self._docs_by_sensor = {}
 
     def search(self, sensor, gte_ms, lte_ms, size, search_after_ms) -> Dict[str, Any]:
         with self._lock:
-            docs = self._docs
+            if sensor is None:
+                buckets = [tuple(bucket) for bucket in self._docs_by_sensor.values()]
+            else:
+                buckets = [tuple(self._docs_by_sensor.get(sensor, ()))]
+                if None in self._docs_by_sensor:
+                    buckets.append(tuple(self._docs_by_sensor[None]))
+        docs = heapq.merge(*buckets, key=lambda doc: doc["epoch_ms"]) if buckets else ()
         hits = []
         for d in docs:
             if sensor is not None and d["source"].get("sensorId") not in (sensor, None):
@@ -256,8 +273,14 @@ class _Handler(BaseHTTPRequestHandler):
 class FakeESServer:
     """Context-managed fake ES on ``host:port`` backed by a FakeESStore."""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 0, index_name: str = "mdx-bev-test"):
-        self.store = FakeESStore(index_name)
+    def __init__(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 0,
+        index_name: str = "mdx-bev-test",
+        retention_hours: float = 3.0,
+    ):
+        self.store = FakeESStore(index_name, retention_hours=retention_hours)
         handler = type("_BoundHandler", (_Handler,), {"store": self.store})
         self._httpd = ThreadingHTTPServer((host, port), handler)
         self.host = host

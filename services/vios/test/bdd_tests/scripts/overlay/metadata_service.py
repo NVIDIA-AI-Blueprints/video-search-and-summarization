@@ -347,10 +347,23 @@ def main():
     ap.add_argument("--es-host", default="0.0.0.0")
     ap.add_argument("--es-port", type=int, default=19200)
     ap.add_argument("--es-index", default="mdx-bev-test")
+    ap.add_argument("--es-retention-hours", type=float, default=3.0,
+                    help="rolling fake-ES event-time history retained per sensor")
     a = ap.parse_args()
+    if a.es_retention_hours <= 0:
+        ap.error("--es-retention-hours must be greater than zero")
 
-    es = FakeESServer(host=a.es_host, port=a.es_port, index_name=a.es_index).start()
-    log.info("fake-ES (video_metadata_server) up on %s", es.base_url)
+    es = FakeESServer(
+        host=a.es_host,
+        port=a.es_port,
+        index_name=a.es_index,
+        retention_hours=a.es_retention_hours,
+    ).start()
+    log.info(
+        "fake-ES (video_metadata_server) up on %s; retaining %.3g hours per sensor",
+        es.base_url,
+        a.es_retention_hours,
+    )
 
     running = {}       # sensorId -> worker thread
     minfo_cache = {}   # sensorId -> {frames,w,h} from NVStreamer mediainfo (fetched lazily)
