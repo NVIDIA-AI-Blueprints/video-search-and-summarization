@@ -13,7 +13,6 @@ metadata:
   tags: "nvidia blueprint operational deployment"
 ---
 
-
 # VSS Video Embedding (RT-Embed)
 
 Use this skill when you need to:
