@@ -1637,6 +1637,23 @@ function state_up() {
     set_vss_linux_kernel_settings
   fi
 
+  # Resolve and display the managed container channel before deployment.
+  set -a
+  # shellcheck disable=SC1091
+  source "${deployment_directory}/containers.env"
+  set +a
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  echo "[INFO] Resolved compose images:"
+  (
+    cd "${deployment_directory}"
+    docker compose \
+      --env-file containers.env \
+      --env-file "developer-profiles/dev-profile-${profile}/.env" \
+      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+      config --images | sort -u
+  )
+
   # Docker login to nvcr.io
   echo "[INFO] Logging into nvcr.io..."
   if [[ "${dry_run}" == "true" ]]; then
@@ -1651,9 +1668,10 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
   else
     cd "${deployment_directory}" && docker compose \
+      --env-file containers.env \
       --env-file "developer-profiles/dev-profile-${profile}/.env" \
       --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
       up \
