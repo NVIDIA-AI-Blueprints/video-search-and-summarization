@@ -18,9 +18,9 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-alert-ms
-  tag: "3.3.0-26.07.10-e4c886ba00e5"
-  pullPolicy: IfNotPresent
+  repository: nvcr.io/nv-metropolis-dev/met-vlm-as-verifier/vss-alert-ms
+  tag: "async-io-fix"
+  pullPolicy: Always
 replicas: 1
 
 # Parameterized from parent / profile. In K8s use service names. Leave "" for release-based defaults.

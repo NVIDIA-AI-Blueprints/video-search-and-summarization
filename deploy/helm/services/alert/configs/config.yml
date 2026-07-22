@@ -123,13 +123,24 @@ alert_agent:
     end_time_in_dedup_key_categories: []
   metrics:
     per_sensor_labels: false
+  # Pipeline mode: sync | thread_bridge | event_loop (invalid value fails startup).
+  # For A/B perf arms flip only this key; thread_bridge reproduces the legacy
+  # async path, sync is the reference arm. See services/alert/README.md
+  # "Pipeline modes & concurrency sizing".
+  pipeline_mode: event_loop
+  async_dispatch_max_in_flight: 16    # Global in-flight bound, 2-4x max_vlm_concurrent
   async_io:
-    enabled: true
+    enabled: true                     # Ignored when pipeline_mode is set; kept for config-only rollback
     vst_enabled: true
     elastic_enabled: true
     dedup_enabled: true
     external_timeout_seconds: 30
     sink_warn_in_flight: 20
+    # event_loop per-service caps. max_vlm_concurrent MUST be set explicitly
+    # (default falls back to async_dispatch_workers) and MUST stay at or below
+    # the benchmarked VLM backend ceiling.
+    max_vlm_concurrent: 4
+    max_vst_concurrent: 8
   url_transform:
     enabled: true
   media_download:
