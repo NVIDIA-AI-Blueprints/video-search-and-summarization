@@ -103,7 +103,6 @@ services:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
 
     environment:
-      MODEL_TYPE: ${MODEL_TYPE}
       STREAM_TYPE: ${STREAM_TYPE}
       MODEL_NAME_2D: ${MODEL_NAME_2D}
       NUM_SENSORS: ${NUM_SENSORS}
