@@ -6,7 +6,7 @@ from io import StringIO
 from pathlib import Path
 
 from scripts.persist_summary import run_cli
-from vss_unified_memory.application.models import PersistSummaryResult, WriteStatus
+from vss_unified_memory.application.models import LatencyMs, PersistObservability, PersistSummaryResult, WriteStatus
 from vss_unified_memory.domain.models import Summary
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "vss_summary_input.json"
@@ -20,6 +20,21 @@ class FakePersistSummaryUseCase:
             event_ids=tuple(event.id for event in summary.events),
             attempted_records=3,
             successful_records=3,
+            observability=PersistObservability(
+                summary_id=summary.id,
+                event_count=len(summary.events),
+                summary_chars=len(summary.description),
+                event_chars_total=sum(len(event.description) for event in summary.events),
+                summary_chunk_count=1,
+                event_chunk_count=2,
+                total_chunk_count=3,
+                estimated_input_tokens=9,
+                embedding_model="cosmos-embed1-448p",
+                embedding_vector_count=3,
+                es_attempted_records=3,
+                es_successful_records=3,
+                latency_ms=LatencyMs(chunking=1.0, embedding=2.0, es_bulk_index=3.0),
+            ),
         )
 
 
@@ -31,6 +46,8 @@ def test_persist_summary_cli_success() -> None:
     output = json.loads(stdout.getvalue())
     assert output["status"] == "complete"
     assert output["summary_id"].startswith("summary:")
+    assert output["observability"]["embedding_model"] == "cosmos-embed1-448p"
+    assert output["observability"]["latency_ms"]["total"] is not None
 
 
 def test_persist_summary_cli_validation_failure() -> None:

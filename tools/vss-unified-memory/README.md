@@ -49,6 +49,68 @@ Configuration comes only from trusted environment variables:
 | `VSS_MEMORY_PASSAGE_OVERLAP_TOKENS` | no | `16` |
 | `VSS_MEMORY_EMBEDDING_MAX_CHARACTERS` | no | `1000` |
 | `VSS_MEMORY_REQUEST_TIMEOUT_SECONDS` | no | `30` |
+| `VSS_MEMORY_OBSERVABILITY_LOG` | no | — |
+| `VSS_MEMORY_OBSERVABILITY_INCLUDE_PREVIEWS` | no | `false` |
+
+When `VSS_MEMORY_OBSERVABILITY_LOG` is set, persist, recall, and inspect append one sanitized JSON line per invocation.
+The log includes timestamps, tool names, status, identifiers, and the observability object. Query text is logged as a
+SHA-256 hash by default; set `VSS_MEMORY_OBSERVABILITY_INCLUDE_PREVIEWS=true` to add bounded previews for operator
+debugging only.
+
+## Observability
+
+Successful persist and recall stdout objects may include an optional `observability` block with counts, timing, and
+token estimates. These fields are safe for automation and do not include raw credentials, embedding vectors, or full
+video descriptions unless preview mode is explicitly enabled in trusted configuration.
+
+Persist observability reports what was chunked and embedded before Elasticsearch bulk indexing:
+
+- `summary_id`, `event_count`, `summary_chars`, `event_chars_total`
+- `summary_chunk_count`, `event_chunk_count`, `total_chunk_count`
+- `estimated_input_tokens` from WordPiece passage token counts
+- `embedding_model`, `embedding_vector_count`
+- `es_attempted_records`, `es_successful_records`
+- `latency_ms.chunking`, `latency_ms.embedding`, `latency_ms.es_bulk_index`, `latency_ms.total`
+
+Recall observability reports what Elasticsearch and RT-Embed did and how much memory returned into hot context:
+
+- `operation` (`get` or `search`), `semantic`, optional query metadata
+- `query_text_chars`, `query_text_hash`, optional `query_text_preview`
+- `candidate_summary_ids` for semantic search
+- `returned_summary_count`, `returned_event_count`, `returned_chars`
+- `estimated_returned_tokens` using `ceil(chars / 4)` over returned descriptions
+- `latency_ms.query_embedding`, `latency_ms.es_*`, `latency_ms.total`
+
+Recall stdout still contains the full returned memory in `results`. OpenClaw injects that tool output into the active
+conversation, so follow-up questions can usually be answered from hot context without another Elasticsearch call.
+
+### Inspect persisted memory
+
+Operator tooling:
+
+```bash
+/home/ubuntu/video-search-and-summarization/tools/vss-unified-memory/scripts/inspect_memory.py \
+  > /tmp/vss-memory-snapshot.json
+```
+
+The script is read-only. It connects with trusted `VSS_MEMORY_*` configuration, paginates summary and event documents,
+and prints one JSON snapshot with index totals and per-summary metadata such as character counts, time range, and chunk
+presence estimates. It never deletes documents or mutates index templates.
+
+### OpenClaw LLM request logging
+
+OpenClaw/NemoClaw does not expose full chat-completions request bodies in-repo. For demo inspection, run the optional
+OpenAI-compatible proxy and point NemoClaw onboarding at it:
+
+```bash
+python3 /home/ubuntu/video-search-and-summarization/tools/vss-unified-memory/scripts/openai_logging_proxy.py \
+  --upstream https://integrate.api.nvidia.com/v1 \
+  --listen-port 8787 \
+  --log-path /tmp/openclaw-llm-requests.jsonl
+```
+
+The proxy redacts `Authorization` headers, forwards requests unchanged, and logs model name, message counts, estimated
+prompt tokens, optional bounded previews, tool calls, and provider usage when returned.
 
 The embedding adapter calls the VSS RT-Embed `POST /v1/generate_text_embeddings` API. The default dimension matches
 `cosmos-embed1-448p` in VSS 3.2.1. `VSS_MEMORY_TOKENIZER_VOCAB_PATH` must reference the `vocab.txt` shipped with that

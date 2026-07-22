@@ -135,12 +135,64 @@ class RepositoryWriteResult:
 
 
 @dataclass(frozen=True, slots=True)
+class LatencyMs:
+    chunking: float | None = None
+    embedding: float | None = None
+    es_bulk_index: float | None = None
+    query_embedding: float | None = None
+    es_exact_get: float | None = None
+    es_lexical_search: float | None = None
+    es_summary_knn: float | None = None
+    es_event_knn: float | None = None
+    es_parent_summary_hydration: float | None = None
+    es_related_event_lookup: float | None = None
+    total: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PersistObservability:
+    summary_id: str
+    event_count: int
+    summary_chars: int
+    event_chars_total: int
+    summary_chunk_count: int
+    event_chunk_count: int
+    total_chunk_count: int
+    estimated_input_tokens: int
+    embedding_model: str
+    embedding_vector_count: int
+    es_attempted_records: int
+    es_successful_records: int
+    latency_ms: LatencyMs
+
+
+@dataclass(frozen=True, slots=True)
+class RecallObservability:
+    operation: str
+    semantic: bool
+    returned_summary_count: int
+    returned_event_count: int
+    returned_chars: int
+    estimated_returned_tokens: int
+    latency_ms: LatencyMs
+    record_id: str | None = None
+    record_type: RecordType | None = None
+    include_related: bool | None = None
+    limit: int | None = None
+    query_text_chars: int | None = None
+    query_text_hash: str | None = None
+    query_text_preview: str | None = None
+    candidate_summary_ids: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PersistSummaryResult:
     status: WriteStatus
     summary_id: str
     event_ids: tuple[str, ...]
     attempted_records: int
     successful_records: int
+    observability: PersistObservability | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,3 +223,4 @@ class MemorySearchResult:
 @dataclass(frozen=True, slots=True)
 class RecallMemoryResult:
     results: tuple[MemorySearchResult, ...]
+    observability: RecallObservability | None = None

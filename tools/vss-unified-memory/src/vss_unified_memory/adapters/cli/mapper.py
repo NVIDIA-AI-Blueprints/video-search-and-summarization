@@ -11,15 +11,23 @@ from vss_unified_memory.adapters.cli.input_models import GetMemoryInput, Persist
 from vss_unified_memory.adapters.cli.output_models import (
     ErrorOutput,
     EventOutput,
+    LatencyMsOutput,
     MediaRefOutput,
+    PersistObservabilityOutput,
     PersistSummaryOutput,
     RecallItemOutput,
     RecallMemoryOutput,
+    RecallObservabilityOutput,
     SummaryOutput,
     TimeRangeOutput,
 )
 from vss_unified_memory.application.errors import ApplicationError
-from vss_unified_memory.application.models import MemoryQuery, PersistSummaryResult, RecallMemoryResult
+from vss_unified_memory.application.models import (
+    LatencyMs,
+    MemoryQuery,
+    PersistSummaryResult,
+    RecallMemoryResult,
+)
 from vss_unified_memory.domain.ids import event_id_from_summary_id, summary_id_from_completion_id
 from vss_unified_memory.domain.models import Event, MediaRef, MemoryEntity, Summary, TimeRange
 
@@ -108,6 +116,66 @@ def _map_entity(memory: MemoryEntity) -> SummaryOutput | EventOutput:
     )
 
 
+def _map_latency(latency: LatencyMs) -> LatencyMsOutput:
+    return LatencyMsOutput(
+        chunking=latency.chunking,
+        embedding=latency.embedding,
+        es_bulk_index=latency.es_bulk_index,
+        query_embedding=latency.query_embedding,
+        es_exact_get=latency.es_exact_get,
+        es_lexical_search=latency.es_lexical_search,
+        es_summary_knn=latency.es_summary_knn,
+        es_event_knn=latency.es_event_knn,
+        es_parent_summary_hydration=latency.es_parent_summary_hydration,
+        es_related_event_lookup=latency.es_related_event_lookup,
+        total=latency.total,
+    )
+
+
+def _map_persist_observability(result: PersistSummaryResult) -> PersistObservabilityOutput | None:
+    if result.observability is None:
+        return None
+    observability = result.observability
+    return PersistObservabilityOutput(
+        summary_id=observability.summary_id,
+        event_count=observability.event_count,
+        summary_chars=observability.summary_chars,
+        event_chars_total=observability.event_chars_total,
+        summary_chunk_count=observability.summary_chunk_count,
+        event_chunk_count=observability.event_chunk_count,
+        total_chunk_count=observability.total_chunk_count,
+        estimated_input_tokens=observability.estimated_input_tokens,
+        embedding_model=observability.embedding_model,
+        embedding_vector_count=observability.embedding_vector_count,
+        es_attempted_records=observability.es_attempted_records,
+        es_successful_records=observability.es_successful_records,
+        latency_ms=_map_latency(observability.latency_ms),
+    )
+
+
+def _map_recall_observability(result: RecallMemoryResult) -> RecallObservabilityOutput | None:
+    if result.observability is None:
+        return None
+    observability = result.observability
+    return RecallObservabilityOutput(
+        operation=observability.operation,  # type: ignore[arg-type]
+        semantic=observability.semantic,
+        record_id=observability.record_id,
+        record_type=observability.record_type,
+        include_related=observability.include_related,
+        limit=observability.limit,
+        query_text_chars=observability.query_text_chars,
+        query_text_hash=observability.query_text_hash,
+        query_text_preview=observability.query_text_preview,
+        candidate_summary_ids=observability.candidate_summary_ids,
+        returned_summary_count=observability.returned_summary_count,
+        returned_event_count=observability.returned_event_count,
+        returned_chars=observability.returned_chars,
+        estimated_returned_tokens=observability.estimated_returned_tokens,
+        latency_ms=_map_latency(observability.latency_ms),
+    )
+
+
 def map_persist_result_to_output(result: PersistSummaryResult) -> PersistSummaryOutput:
     return PersistSummaryOutput(
         status=result.status,
@@ -115,12 +183,14 @@ def map_persist_result_to_output(result: PersistSummaryResult) -> PersistSummary
         event_ids=result.event_ids,
         attempted_records=result.attempted_records,
         successful_records=result.successful_records,
+        observability=_map_persist_observability(result),
     )
 
 
 def map_recall_result_to_output(result: RecallMemoryResult) -> RecallMemoryOutput:
     return RecallMemoryOutput(
-        results=tuple(RecallItemOutput(memory=_map_entity(item.memory), score=item.score) for item in result.results)
+        results=tuple(RecallItemOutput(memory=_map_entity(item.memory), score=item.score) for item in result.results),
+        observability=_map_recall_observability(result),
     )
 
 

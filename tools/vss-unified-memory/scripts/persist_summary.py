@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import TextIO
 
@@ -40,19 +41,20 @@ from vss_unified_memory.adapters.persistence.elasticsearch.repository import (  
 )
 from vss_unified_memory.application.errors import ApplicationError  # noqa: E402
 from vss_unified_memory.application.models import WriteStatus  # noqa: E402
+from vss_unified_memory.application.observability import OperationTelemetry, append_observability_log  # noqa: E402
 from vss_unified_memory.application.use_cases.persist_summary import PersistSummaryUseCase  # noqa: E402
 from vss_unified_memory.config import Settings  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 
-def build_use_case() -> PersistSummaryUseCase:
-    settings = Settings()
+def build_use_case(settings: Settings, telemetry: OperationTelemetry) -> PersistSummaryUseCase:
     repository = ElasticsearchMemoryRepository(
         endpoint=str(settings.elasticsearch_endpoint),
         index=settings.elasticsearch_index,
         embedding_dimensions=settings.embedding_dimensions,
         request_timeout_seconds=settings.request_timeout_seconds,
+        telemetry=telemetry,
     )
     embedding_provider = NvidiaEmbeddingProvider(
         endpoint=str(settings.embedding_endpoint),
@@ -71,6 +73,7 @@ def build_use_case() -> PersistSummaryUseCase:
         repository=repository,
         embedding_provider=embedding_provider,
         passage_chunker=passage_chunker,
+        telemetry=telemetry,
     )
 
 
@@ -78,19 +81,58 @@ def _write_output(stdout: TextIO, output: OutputModel) -> None:
     stdout.write(output.model_dump_json() + "\n")
 
 
-def run_cli(stdin: TextIO, stdout: TextIO, persist_summary: PersistSummaryUseCase) -> int:
+def _finalize_total_latency(result_output: OutputModel, total_ms: float) -> OutputModel:
+    if not hasattr(result_output, "observability") or result_output.observability is None:
+        return result_output
+    observability = result_output.observability
+    latency = observability.latency_ms.model_copy(update={"total": total_ms})
+    return result_output.model_copy(update={"observability": observability.model_copy(update={"latency_ms": latency})})
+
+
+def run_cli(
+    stdin: TextIO,
+    stdout: TextIO,
+    persist_summary: PersistSummaryUseCase,
+    *,
+    observability_log: Path | None = None,
+) -> int:
+    started = time.perf_counter()
+    summary_id: str | None = None
     try:
         raw_json = json.load(stdin)
         input_model = PersistSummaryInput.model_validate(raw_json)
         summary = map_input_to_summary(input_model)
+        summary_id = summary.id
         result = persist_summary.execute(summary)
-        _write_output(stdout, map_persist_result_to_output(result))
+        output = _finalize_total_latency(map_persist_result_to_output(result), (time.perf_counter() - started) * 1000.0)
+        _write_output(stdout, output)
+        append_observability_log(
+            observability_log,
+            tool_name="persist_summary",
+            status=str(result.status.value),
+            summary_id=summary_id,
+            observability=output.observability.model_dump(mode="json") if output.observability else None,
+        )
         return 0 if result.status == WriteStatus.COMPLETE else 4
     except (json.JSONDecodeError, ValidationError, ValueError) as error:
-        _write_output(stdout, map_validation_error(error, error_code="invalid_summary_input"))
+        error_output = map_validation_error(error, error_code="invalid_summary_input")
+        _write_output(stdout, error_output)
+        append_observability_log(
+            observability_log,
+            tool_name="persist_summary",
+            status="failed",
+            summary_id=summary_id,
+        )
         return 2
     except ApplicationError as error:
-        _write_output(stdout, map_application_error(error))
+        error_output = map_application_error(error)
+        _write_output(stdout, error_output)
+        append_observability_log(
+            observability_log,
+            tool_name="persist_summary",
+            status="failed",
+            summary_id=summary_id,
+        )
         return error.exit_code
     except Exception:
         logger.exception("unexpected persistence failure")
@@ -101,6 +143,12 @@ def run_cli(stdin: TextIO, stdout: TextIO, persist_summary: PersistSummaryUseCas
                 message="unexpected persistence failure",
                 retryable=False,
             ),
+        )
+        append_observability_log(
+            observability_log,
+            tool_name="persist_summary",
+            status="failed",
+            summary_id=summary_id,
         )
         return 5
 
@@ -118,7 +166,9 @@ def main() -> int:
         )
         return 2
     try:
-        use_case = build_use_case()
+        settings = Settings()
+        telemetry = OperationTelemetry()
+        use_case = build_use_case(settings, telemetry)
     except ValidationError as error:
         _write_output(sys.stdout, map_validation_error(error, error_code="invalid_configuration"))
         return 2
@@ -133,7 +183,12 @@ def main() -> int:
             ),
         )
         return 5
-    return run_cli(stdin=sys.stdin, stdout=sys.stdout, persist_summary=use_case)
+    return run_cli(
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        persist_summary=use_case,
+        observability_log=settings.observability_log,
+    )
 
 
 if __name__ == "__main__":

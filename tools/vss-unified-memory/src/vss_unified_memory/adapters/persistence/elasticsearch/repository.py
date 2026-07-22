@@ -29,6 +29,7 @@ from vss_unified_memory.application.models import (
     RepositoryWriteResult,
     WriteStatus,
 )
+from vss_unified_memory.application.observability import OperationTelemetry
 from vss_unified_memory.domain.models import Event, MemoryEntity, RecordType, Summary
 
 
@@ -43,10 +44,12 @@ class ElasticsearchMemoryRepository:
         embedding_dimensions: int = 768,
         request_timeout_seconds: float = 30.0,
         client: Elasticsearch | None = None,
+        telemetry: OperationTelemetry | None = None,
     ) -> None:
         self._client = client or Elasticsearch(endpoint, request_timeout=request_timeout_seconds)
         self._index = index
         self._embedding_dimensions = embedding_dimensions
+        self._telemetry = telemetry
 
     def save(
         self,
@@ -64,7 +67,11 @@ class ElasticsearchMemoryRepository:
         documents: tuple[ElasticsearchDocument, ...] = (summary_document, *event_documents)
         attempted_records = len(documents)
         try:
-            successful_records, errors = self._bulk_documents(documents)
+            if self._telemetry is not None:
+                with self._telemetry.measure("es_bulk_index"):
+                    successful_records, errors = self._bulk_documents(documents)
+            else:
+                successful_records, errors = self._bulk_documents(documents)
         except Exception as error:
             raise RepositoryError("Elasticsearch memory write failed") from error
 
@@ -81,7 +88,15 @@ class ElasticsearchMemoryRepository:
         include_related: bool = False,
     ) -> MemoryEntity | None:
         try:
-            response = self._client.get(index=self._index, id=record_id, source_excludes=self._SOURCE_EXCLUDES)
+            if self._telemetry is not None:
+                with self._telemetry.measure("es_exact_get"):
+                    response = self._client.get(
+                        index=self._index,
+                        id=record_id,
+                        source_excludes=self._SOURCE_EXCLUDES,
+                    )
+            else:
+                response = self._client.get(index=self._index, id=record_id, source_excludes=self._SOURCE_EXCLUDES)
         except NotFoundError:
             return None
         except Exception as error:
@@ -115,12 +130,21 @@ class ElasticsearchMemoryRepository:
                             }
                         }
                     )
-                response = self._client.search(
-                    index=self._index,
-                    query={"bool": {"must": must or [{"match_all": {}}], "filter": filters}},
-                    size=query.limit,
-                    source_excludes=self._SOURCE_EXCLUDES,
-                )
+                if self._telemetry is not None:
+                    with self._telemetry.measure("es_lexical_search"):
+                        response = self._client.search(
+                            index=self._index,
+                            query={"bool": {"must": must or [{"match_all": {}}], "filter": filters}},
+                            size=query.limit,
+                            source_excludes=self._SOURCE_EXCLUDES,
+                        )
+                else:
+                    response = self._client.search(
+                        index=self._index,
+                        query={"bool": {"must": must or [{"match_all": {}}], "filter": filters}},
+                        size=query.limit,
+                        source_excludes=self._SOURCE_EXCLUDES,
+                    )
         except RepositoryError:
             raise
         except Exception as error:
@@ -160,6 +184,7 @@ class ElasticsearchMemoryRepository:
                 query_vector=query.query_vector,
                 filters=[*filters, {"term": {"record_type": RecordType.VIDEO_SUMMARY.value}}],
                 limit=candidate_limit,
+                latency_key="es_summary_knn",
                 inner_hits={
                     "name": "matching_summary_chunks",
                     "size": 3,
@@ -178,6 +203,7 @@ class ElasticsearchMemoryRepository:
                 query_vector=query.query_vector,
                 filters=[*filters, {"term": {"record_type": RecordType.VIDEO_EVENT.value}}],
                 limit=candidate_limit,
+                latency_key="es_event_knn",
                 inner_hits={
                     "name": "matching_event_chunks",
                     "size": 3,
@@ -206,6 +232,8 @@ class ElasticsearchMemoryRepository:
         ranked_ids = tuple(
             summary_id for summary_id, _ in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[: query.limit]
         )
+        if self._telemetry is not None:
+            self._telemetry.candidate_summary_ids = tuple(scores.keys())
         missing_ids = tuple(summary_id for summary_id in ranked_ids if summary_id not in parent_documents)
         parent_documents.update(self._get_summaries_by_ids(missing_ids))
         related_by_summary = self._get_related_events_for_summaries(ranked_ids)
@@ -225,6 +253,7 @@ class ElasticsearchMemoryRepository:
         query_vector: tuple[float, ...],
         filters: list[dict[str, Any]],
         limit: int,
+        latency_key: str | None = None,
         inner_hits: dict[str, Any] | None = None,
     ) -> tuple[tuple[ElasticsearchReadDocument, float | None], ...]:
         knn: dict[str, Any] = {
@@ -236,12 +265,21 @@ class ElasticsearchMemoryRepository:
         }
         if inner_hits is not None:
             knn["inner_hits"] = inner_hits
-        response = self._client.search(
-            index=self._index,
-            knn=knn,
-            size=limit,
-            source_excludes=self._SOURCE_EXCLUDES,
-        )
+        if self._telemetry is not None and latency_key is not None:
+            with self._telemetry.measure(latency_key):
+                response = self._client.search(
+                    index=self._index,
+                    knn=knn,
+                    size=limit,
+                    source_excludes=self._SOURCE_EXCLUDES,
+                )
+        else:
+            response = self._client.search(
+                index=self._index,
+                knn=knn,
+                size=limit,
+                source_excludes=self._SOURCE_EXCLUDES,
+            )
         return tuple(
             (self._parse_read_document(hit["_source"]), self._hit_score(hit)) for hit in response["hits"]["hits"]
         )
@@ -250,11 +288,19 @@ class ElasticsearchMemoryRepository:
         if not summary_ids:
             return {}
         try:
-            response = self._client.mget(
-                index=self._index,
-                ids=list(summary_ids),
-                source_excludes=self._SOURCE_EXCLUDES,
-            )
+            if self._telemetry is not None:
+                with self._telemetry.measure("es_parent_summary_hydration"):
+                    response = self._client.mget(
+                        index=self._index,
+                        ids=list(summary_ids),
+                        source_excludes=self._SOURCE_EXCLUDES,
+                    )
+            else:
+                response = self._client.mget(
+                    index=self._index,
+                    ids=list(summary_ids),
+                    source_excludes=self._SOURCE_EXCLUDES,
+                )
         except Exception as error:
             raise RepositoryError("Elasticsearch summary hydration failed") from error
         summaries: dict[str, SummaryReadDocument] = {}
@@ -274,20 +320,37 @@ class ElasticsearchMemoryRepository:
         if not summary_ids:
             return {}
         try:
-            response = self._client.search(
-                index=self._index,
-                query={
-                    "bool": {
-                        "filter": [
-                            {"terms": {"summary_id": list(summary_ids)}},
-                            {"term": {"record_type": RecordType.VIDEO_EVENT.value}},
-                        ]
-                    }
-                },
-                sort=[{"summary_id": "asc"}, {"ordinal": "asc"}],
-                size=10000,
-                source_excludes=self._SOURCE_EXCLUDES,
-            )
+            if self._telemetry is not None:
+                with self._telemetry.measure("es_related_event_lookup"):
+                    response = self._client.search(
+                        index=self._index,
+                        query={
+                            "bool": {
+                                "filter": [
+                                    {"terms": {"summary_id": list(summary_ids)}},
+                                    {"term": {"record_type": RecordType.VIDEO_EVENT.value}},
+                                ]
+                            }
+                        },
+                        sort=[{"summary_id": "asc"}, {"ordinal": "asc"}],
+                        size=10000,
+                        source_excludes=self._SOURCE_EXCLUDES,
+                    )
+            else:
+                response = self._client.search(
+                    index=self._index,
+                    query={
+                        "bool": {
+                            "filter": [
+                                {"terms": {"summary_id": list(summary_ids)}},
+                                {"term": {"record_type": RecordType.VIDEO_EVENT.value}},
+                            ]
+                        }
+                    },
+                    sort=[{"summary_id": "asc"}, {"ordinal": "asc"}],
+                    size=10000,
+                    source_excludes=self._SOURCE_EXCLUDES,
+                )
         except Exception as error:
             raise RepositoryError("Elasticsearch related-event lookup failed") from error
         hits = response["hits"]["hits"]

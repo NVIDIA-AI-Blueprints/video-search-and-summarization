@@ -22,3 +22,5 @@ class Settings(BaseSettings):
     passage_overlap_tokens: int = Field(default=16, ge=0)
     embedding_max_characters: int = Field(default=1000, ge=1, le=1000)
     request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    observability_log: Path | None = None
+    observability_include_previews: bool = False

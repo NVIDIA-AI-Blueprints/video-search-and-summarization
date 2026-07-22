@@ -21,8 +21,11 @@ Persist the structured LVS result already present in the active turn. Do not cal
    The launcher must reach configured localhost Elasticsearch and RT-Embed services, so request approved host/network
    execution up front when the Codex sandbox blocks local sockets. Scope any reusable approval prefix to this exact path.
 5. Parse the single JSON object from standard output.
-6. Return the video summary to the user only after `status` is `complete`.
-7. If `status` is `degraded` or `failed`, still answer the user's summarization request, but state clearly that durable memory was not fully written. Retry once only when `retryable` is `true`.
+6. Inspect optional `observability` when debugging memory writes. It reports chunk counts, embedding vector counts,
+   Elasticsearch bulk results, and latency for chunking, embedding, and indexing. It never includes credentials or raw
+   embedding vectors.
+7. Return the video summary to the user only after `status` is `complete`.
+8. If `status` is `degraded` or `failed`, still answer the user's summarization request, but state clearly that durable memory was not fully written. Retry once only when `retryable` is `true`.
 
 Treat `summary_id` and `event_ids` from the successful receipt as the canonical handles for follow-up questions. Never claim persistence from the process exit code alone; inspect the JSON status.
 
@@ -48,4 +51,6 @@ block when persistence is `degraded` or `failed`.
 - Preserve the complete original summary and every complete event description. Let the executable create deterministic
   token-aware passages for both and embed each passage separately; never chunk, average, normalize, or generate
   embeddings in the agent.
+- Optional operator logging: set `VSS_MEMORY_OBSERVABILITY_LOG=/tmp/vss-memory-observability.jsonl` in trusted runtime
+  configuration to append one JSON line per persist attempt with the observability object from stdout.
 - Keep event `type` as returned by VSS; taxonomy enrichment is outside this skill.

@@ -35,7 +35,13 @@ Invoke durable recall at most once per record per conversation after a successfu
    search, RT-Embed. If the tool surface cannot request host-network execution, use its exec-approval flow before
    invoking the launcher instead of intentionally generating a failed sandbox call.
 4. Parse the single JSON object from standard output.
-5. Use returned memory as prior generated evidence. Do not claim it is a fresh visual inspection.
+5. Inspect optional `observability` when debugging recall. It reports whether semantic search called RT-Embed, which
+   Elasticsearch steps ran, candidate summary IDs, returned character/token estimates, and latency breakdowns. Query text
+   is hashed by default; previews require trusted preview mode in runtime configuration.
+6. Use returned memory as prior generated evidence. Do not claim it is a fresh visual inspection.
+
+After a successful recall, treat the returned `results` payload as hot context for follow-up questions in the same
+conversation. Do not call recall again for the same record unless the user explicitly asks for another lookup.
 
 If a call nevertheless reports `PermissionError: Operation not permitted`, `embedding_failed`, or an unreachable
 localhost service, treat it as a possible permission-routing failure first. Retry the same typed operation once with
@@ -54,3 +60,7 @@ videos could answer the question ambiguously.
 - Do not expose stored data from another workspace or tenant unless runtime authorization permits it.
 - Do not rerun VSS summarization merely because durable memory returned no match; explain that no stored match was found.
 - Preserve timestamps and distinguish summary-level narrative from individual event evidence.
+- Optional operator logging: set `VSS_MEMORY_OBSERVABILITY_LOG=/tmp/vss-memory-observability.jsonl` in trusted runtime
+  configuration to append one JSON line per recall attempt with the observability object from stdout.
+- Read-only index inspection for operators:
+  `/home/ubuntu/video-search-and-summarization/tools/vss-unified-memory/scripts/inspect_memory.py`

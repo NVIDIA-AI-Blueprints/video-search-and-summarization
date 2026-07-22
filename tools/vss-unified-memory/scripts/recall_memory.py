@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import TextIO
 
@@ -38,6 +39,7 @@ from vss_unified_memory.adapters.persistence.elasticsearch.repository import (  
     ElasticsearchMemoryRepository,
 )
 from vss_unified_memory.application.errors import ApplicationError  # noqa: E402
+from vss_unified_memory.application.observability import OperationTelemetry, append_observability_log  # noqa: E402
 from vss_unified_memory.application.use_cases.recall_memory import RecallMemoryUseCase  # noqa: E402
 from vss_unified_memory.config import Settings  # noqa: E402
 
@@ -45,13 +47,13 @@ logger = logging.getLogger(__name__)
 recall_input_adapter = TypeAdapter(RecallMemoryInput)
 
 
-def build_use_case() -> RecallMemoryUseCase:
-    settings = Settings()
+def build_use_case(settings: Settings, telemetry: OperationTelemetry) -> RecallMemoryUseCase:
     repository = ElasticsearchMemoryRepository(
         endpoint=str(settings.elasticsearch_endpoint),
         index=settings.elasticsearch_index,
         embedding_dimensions=settings.embedding_dimensions,
         request_timeout_seconds=settings.request_timeout_seconds,
+        telemetry=telemetry,
     )
     embedding_provider = NvidiaEmbeddingProvider(
         endpoint=str(settings.embedding_endpoint),
@@ -60,26 +62,71 @@ def build_use_case() -> RecallMemoryUseCase:
         max_characters=settings.embedding_max_characters,
         timeout_seconds=settings.request_timeout_seconds,
     )
-    return RecallMemoryUseCase(repository=repository, embedding_provider=embedding_provider)
+    return RecallMemoryUseCase(
+        repository=repository,
+        embedding_provider=embedding_provider,
+        telemetry=telemetry,
+        include_query_preview=settings.observability_include_previews,
+    )
 
 
 def _write_output(stdout: TextIO, output: OutputModel) -> None:
     stdout.write(output.model_dump_json() + "\n")
 
 
-def run_cli(stdin: TextIO, stdout: TextIO, recall_memory: RecallMemoryUseCase) -> int:
+def _finalize_total_latency(result_output: OutputModel, total_ms: float) -> OutputModel:
+    if not hasattr(result_output, "observability") or result_output.observability is None:
+        return result_output
+    observability = result_output.observability
+    latency = observability.latency_ms.model_copy(update={"total": total_ms})
+    return result_output.model_copy(update={"observability": observability.model_copy(update={"latency_ms": latency})})
+
+
+def run_cli(
+    stdin: TextIO,
+    stdout: TextIO,
+    recall_memory: RecallMemoryUseCase,
+    *,
+    observability_log: Path | None = None,
+) -> int:
+    started = time.perf_counter()
+    record_id: str | None = None
     try:
         raw_json = json.load(stdin)
         input_model = recall_input_adapter.validate_python(raw_json)
         query = map_recall_input_to_query(input_model)
+        record_id = query.record_id
         result = recall_memory.execute(query)
-        _write_output(stdout, map_recall_result_to_output(result))
+        output = _finalize_total_latency(map_recall_result_to_output(result), (time.perf_counter() - started) * 1000.0)
+        _write_output(stdout, output)
+        append_observability_log(
+            observability_log,
+            tool_name="recall_memory",
+            status="complete",
+            record_id=record_id,
+            summary_id=record_id if record_id and record_id.startswith("summary:") else None,
+            observability=output.observability.model_dump(mode="json") if output.observability else None,
+        )
         return 0
     except (json.JSONDecodeError, ValidationError, ValueError) as error:
-        _write_output(stdout, map_validation_error(error, error_code="invalid_memory_query"))
+        error_output = map_validation_error(error, error_code="invalid_memory_query")
+        _write_output(stdout, error_output)
+        append_observability_log(
+            observability_log,
+            tool_name="recall_memory",
+            status="failed",
+            record_id=record_id,
+        )
         return 2
     except ApplicationError as error:
-        _write_output(stdout, map_application_error(error))
+        error_output = map_application_error(error)
+        _write_output(stdout, error_output)
+        append_observability_log(
+            observability_log,
+            tool_name="recall_memory",
+            status="failed",
+            record_id=record_id,
+        )
         return error.exit_code
     except Exception:
         logger.exception("unexpected recall failure")
@@ -90,6 +137,12 @@ def run_cli(stdin: TextIO, stdout: TextIO, recall_memory: RecallMemoryUseCase) -
                 message="unexpected recall failure",
                 retryable=False,
             ),
+        )
+        append_observability_log(
+            observability_log,
+            tool_name="recall_memory",
+            status="failed",
+            record_id=record_id,
         )
         return 5
 
@@ -107,7 +160,9 @@ def main() -> int:
         )
         return 2
     try:
-        use_case = build_use_case()
+        settings = Settings()
+        telemetry = OperationTelemetry()
+        use_case = build_use_case(settings, telemetry)
     except ValidationError as error:
         _write_output(sys.stdout, map_validation_error(error, error_code="invalid_configuration"))
         return 2
@@ -122,7 +177,12 @@ def main() -> int:
             ),
         )
         return 5
-    return run_cli(stdin=sys.stdin, stdout=sys.stdout, recall_memory=use_case)
+    return run_cli(
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        recall_memory=use_case,
+        observability_log=settings.observability_log,
+    )
 
 
 if __name__ == "__main__":
