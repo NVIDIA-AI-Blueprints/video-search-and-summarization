@@ -18,7 +18,7 @@ version: '3.8'
 services:
   # Kafka container (KRaft mode - no Zookeeper required)
   alert-bridge-kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: confluentinc/cp-kafka:7.5.15
     container_name: alert-bridge-kafka-test
     network_mode: host
     environment:
@@ -45,7 +45,7 @@ services:
 
   # Redis container for deduplication
   alert-bridge-redis:
-    image: redis/redis-stack-server:7.2.0-v9
+    image: redis/redis-stack-server:7.2.0-v19
     container_name: alert-bridge-redis-test
     network_mode: host
     healthcheck:

@@ -150,7 +150,7 @@ services:
       timeout: 1s
       retries: 100
   elasticsearch:
-    image: elasticsearch:9.1.2
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.5
     container_name: elasticsearch
     environment:
       discovery.type: single-node
@@ -231,7 +231,7 @@ services:
     # NOTE: this block is duplicated in docker/logstash/logstash-compose.yml
     # for the standalone workflow. Keep the two in sync when changing
     # image, command, plugin version, or bind-mount layout.
-    image: docker.elastic.co/logstash/logstash:${LOGSTASH_VERSION:-9.3.3}
+    image: docker.elastic.co/logstash/logstash:${LOGSTASH_VERSION:-9.3.5}
     container_name: logstash
     # The stock image's ENTRYPOINT is /usr/local/bin/docker-entrypoint. We
     # override it so the conditional plugin install can run first, then

@@ -24,14 +24,14 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp==1.23.0",
+    "mcp==1.28.1",
     "httpx>=0.28.1",
     "pydantic>=2.11.7",
     "uvloop>=0.21.0",
     "uvicorn>=0.35.0,<0.36.0",
     "starlette>=0.49.1",
     "pydantic-settings>=2.7.1",
-    "python-multipart (==0.0.22)",
+    "python-multipart==0.0.32",
 ]
 
 [project.scripts]

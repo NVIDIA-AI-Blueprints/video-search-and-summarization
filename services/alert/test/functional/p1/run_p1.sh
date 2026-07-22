@@ -119,7 +119,7 @@ phase_setup() {
             -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
             -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
             -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
-            confluentinc/cp-kafka:7.5.0 >/dev/null
+            confluentinc/cp-kafka:7.5.15 >/dev/null
         echo "$KAFKA_CONTAINER" > "$PID_DIR/kafka_container"
         print_status "wait" "Waiting for Kafka (up to 60s)..."
         if wait_for_service "kafka" "check_port 127.0.0.1 9092" 60; then

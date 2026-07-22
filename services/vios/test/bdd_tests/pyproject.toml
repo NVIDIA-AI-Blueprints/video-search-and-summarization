@@ -24,8 +24,8 @@ packages = [{include = "tests"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0.0"
-pytest = "^7.4.3"
-pytest-bdd = "^6.1.1"
+pytest = "^9.0.3"
+pytest-bdd = "^8.1.0"
 pytest-xdist = "^3.5.0"
 pytest-html = "^4.1.1"
 pytest-repeat = "^0.9.3"
@@ -34,7 +34,7 @@ requests = "^2.31.0"
 aiohttp = "^3.9.1"
 aiortc = "^1.6.0"
 websockets = "^12.0"
-mcp = "^1.23.0"
+mcp = "^1.28.1"
 httpx = "^0.28.0"
 pydantic = "^2.0"
 minio = "^7.2"
@@ -42,7 +42,7 @@ PyYAML = "^6.0"
 pynvml = "^12.0"
 
 [tool.poetry.group.dev.dependencies]
-black = "^23.12.0"
+black = "^26.3.1"
 flake8 = "^6.1.0"
 mypy = "^1.7.1"
 

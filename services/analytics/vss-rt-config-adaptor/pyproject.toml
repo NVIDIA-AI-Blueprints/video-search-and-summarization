@@ -18,7 +18,7 @@ name = "vss-rt-config-adaptor"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "Flask==3.1.0",
+    "Flask==3.1.3",
     "simple-settings==1.2.0",
     "ruamel.yaml==0.18.15",
 ]

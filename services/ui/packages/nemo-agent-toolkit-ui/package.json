@@ -45,7 +45,7 @@
     "chart.js": "^4.4.1",
     "eventsource-parser": "^0.1.0",
     "file-saver": "^2.0.5",
-    "form-data": "^4.0.4",
+    "form-data": "4.0.6",
     "html-to-image": "^1.11.11",
     "http-proxy": "^1.18.1",
     "i18next": "^22.4.13",
@@ -55,8 +55,8 @@
     "jwt-decode": "^4.0.0",
     "lodash": "^4.18.0",
     "lucide-react": "^0.454.0",
-    "next": "15.5.18",
-    "next-auth": "^4.24.13",
+    "next": "15.5.21",
+    "next-auth": "4.24.15",
     "next-i18next": "^13.2.2",
     "react": "^18.2.0",
     "react-bootstrap-modal": "^4.2.0",
@@ -73,7 +73,7 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "uuid": "^10.0.0"
+    "uuid": "11.1.1"
   },
   "devDependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -100,7 +100,7 @@
     "dotenv": "^17.2.3",
     "endent": "^2.1.0",
     "eslint": "^9.0.0",
-    "eslint-config-next": "15.5.18",
+    "eslint-config-next": "15.5.21",
     "gpt-3-encoder": "^1.1.4",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",

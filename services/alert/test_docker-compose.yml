@@ -17,7 +17,7 @@ version: '3.8'
 
 services:
   alert-bridge-kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: confluentinc/cp-kafka:7.5.15
     container_name: alert-bridge-kafka
     network_mode: host
     environment:

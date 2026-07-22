@@ -19,7 +19,7 @@ services:
   # Kafka container (KRaft mode - no Zookeeper required)
   # Only needed for local mode; remote mode uses remote Kafka
   alert-bridge-kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: confluentinc/cp-kafka:7.5.15
     container_name: alert-bridge-kafka-dev
     network_mode: host
     environment:
@@ -49,7 +49,7 @@ services:
   # Redis container for deduplication
   # Only needed for local mode; remote mode uses remote Redis
   alert-bridge-redis:
-    image: redis/redis-stack-server:7.2.0-v9
+    image: redis/redis-stack-server:7.2.0-v19
     container_name: alert-bridge-redis-dev
     network_mode: host
     healthcheck:

@@ -1,3 +1,3 @@
 redis==6.0.0
-protobuf==5.27.3
+protobuf==5.29.6
 confluent-kafka==2.6.1

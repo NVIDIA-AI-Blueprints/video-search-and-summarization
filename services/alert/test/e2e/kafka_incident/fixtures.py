@@ -351,7 +351,7 @@ def kafka_service(use_real_endpoints: bool) -> Iterator[ProcessHandle | None]:
         "-e", "KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT",
         "-e", "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
         "-e", "CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk",
-        "confluentinc/cp-kafka:7.5.0"
+        "confluentinc/cp-kafka:7.5.15"
     ]
     
     try:

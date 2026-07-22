@@ -65,7 +65,7 @@ Both topologies surface the same Kafka `camera_streaming` event downstream, so c
 
 ## Required Peer Services
 
-- **PostgreSQL (centralizedb)** — required. Stores sensor configurations, stream metadata, and system state across all VIOS microservice instances. Image `postgres:17.9-alpine` per `vst.env`. Source: `vios-microservices.rst` § OSS Containers table.
+- **PostgreSQL (centralizedb)** — required. Stores sensor configurations, stream metadata, and system state across all VIOS microservice instances. Image `postgres:17.10-alpine` per `vst.env`. Source: `vios-microservices.rst` § OSS Containers table.
 - **Kafka** — required when VSS publishes sensor add/remove events on a Kafka message bus. Broker address read from `KAFKA_BOOTSTRAP_URL` (default `localhost:9092` per `vst.env`); message key `KAFKA_MSG_KEY=sensor.id`. Used for downstream consumers to react to sensor lifecycle. Source: `vst.env` lines 56–58 + `vios-microservices.rst` § Key Features bullet 10.
 - **Redis** — required (host-network default). Used for caching sensor state and as an alternate message bus for sensor events; reachable at `REDIS_HOSTADDR:REDIS_PORT` (default `localhost:6379`); event key `REDIS_MSG_KEY=vst.event`. Source: `vst.env` lines 53–55.
 - **MinIO (optional)** — optional. S3-compatible object storage when video clips are stored in object storage rather than local filesystem. Source: `vios-microservices.rst` § OSS Containers.
