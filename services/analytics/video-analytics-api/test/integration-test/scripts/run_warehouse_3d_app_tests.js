@@ -33,7 +33,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 
-const OPENAPI_SPEC_PATH = path.join('src', 'app', 'specification', 'openapi-governance.json');
+const OPENAPI_SPEC_PATH = path.join('src', 'app', 'specification', 'openapi.json');
 const SCRIPT_DIR = __dirname;
 const TEST_DIR = path.join(SCRIPT_DIR, '..', '..');
 const DEFAULT_VIDEO_ANALYTICS_API_ROOT = path.join(TEST_DIR, '..');
