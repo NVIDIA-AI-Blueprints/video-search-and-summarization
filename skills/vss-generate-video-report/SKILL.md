@@ -24,6 +24,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 ## Instructions
 
+0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths.
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts (match against *Examples*).
 2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off to `/vss-deploy-profile` only when the required local services are needed and missing.
 3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B has no prompt-approval step.)
@@ -296,16 +297,26 @@ Never silently pick an unknown model.
 
 ### Step 3 — Call the VLM directly
 
-Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/agent/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
+Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
 
 The frame sampling and visual-token (pixel) budget must mirror the **live** `video_understanding` settings for the active profile when `vss-agent` is running. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
 
 When `vss-agent` is absent (Mode A2 / profile-agnostic), fall back to base-profile defaults (`max_fps=2`, `max_frames=30`, `min_pixels=3136`, `max_pixels=8388608`) or explicit `VIDEO_UNDERSTANDING_*` env overrides — do not hard-fail.
 
 ```bash
-# Default prompt source of truth:
-# references/default-vlm-prompt.md
-DEFAULT_PROMPT="$(cat references/default-vlm-prompt.md)"
+# Default prompt — load from the skill tree (do NOT use a cwd-relative path).
+# Set SKILL_DIR to the "Base directory for this skill" announced when this skill loads.
+: "${SKILL_DIR:?Set SKILL_DIR to the loaded skill's base directory (from the skill loader)}"
+PROMPT_FILE="$SKILL_DIR/references/default-vlm-prompt.md"
+[ -s "$PROMPT_FILE" ] || {
+  echo "ERROR: missing or empty VLM prompt file: $PROMPT_FILE" >&2
+  exit 1
+}
+DEFAULT_PROMPT="$(cat "$PROMPT_FILE")"
+[ -n "$DEFAULT_PROMPT" ] || {
+  echo "ERROR: DEFAULT_PROMPT is empty after reading $PROMPT_FILE" >&2
+  exit 1
+}
 
 # FINAL_PROMPT must come from the resolved HITL mode gate above.
 # Resolution order:
@@ -315,6 +326,7 @@ DEFAULT_PROMPT="$(cat references/default-vlm-prompt.md)"
 # - resolved false: FINAL_PROMPT="$DEFAULT_PROMPT"
 # - resolved true : FINAL_PROMPT comes from the latest EDIT/NEW value after explicit APPROVE.
 FINAL_PROMPT="${FINAL_PROMPT:-$DEFAULT_PROMPT}"
+[ -n "$FINAL_PROMPT" ] || { echo "ERROR: FINAL_PROMPT is empty; refusing to call VLM with a blank prompt" >&2; exit 1; }
 PROMPT="$FINAL_PROMPT"
 
 # Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`).
@@ -527,5 +539,5 @@ When zero results:
 - **`/vss-query-analytics`** — incident retrieval (and verdict / reasoning enrichment) for Mode B Step 2.
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
-- **`references/default-vlm-prompt.md`** — default Mode A VLM prompt used when `video_report_gen.hitl_enabled=false` or when HITL approves the current default prompt unchanged.
+- **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Step 3 loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.
 
