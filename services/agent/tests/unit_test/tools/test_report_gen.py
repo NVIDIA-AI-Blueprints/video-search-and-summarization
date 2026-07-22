@@ -17,10 +17,10 @@
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.report_gen import ReportGenConfig
-from vss_agents.tools.report_gen import ReportGenInput
-from vss_agents.tools.report_gen import ReportGenOutput
-from vss_agents.tools.report_gen import _format_messages_to_markdown
+from agent.tools.report_gen import ReportGenConfig
+from agent.tools.report_gen import ReportGenInput
+from agent.tools.report_gen import ReportGenOutput
+from agent.tools.report_gen import _format_messages_to_markdown
 
 
 class TestReportGenConfig:

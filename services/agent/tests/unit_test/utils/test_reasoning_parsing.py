@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/reasoning_parsing.py."""
+"""Tests for agent/utils/reasoning_parsing.py."""
 
 from unittest.mock import MagicMock
 
-from vss_agents.utils.reasoning_parsing import parse_reasoning_content
+from agent.utils.reasoning_parsing import parse_reasoning_content
 
 
 class TestParseReasoningContent:

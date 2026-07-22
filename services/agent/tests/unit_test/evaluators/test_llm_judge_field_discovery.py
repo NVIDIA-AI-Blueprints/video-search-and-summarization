@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge import LLMJudgeMetric
+from agent.evaluators.report_evaluator.field_evaluators.llm_judge import LLMJudgeMetric
 
 
 class TestLLMJudgeFieldDiscoverySuccess:
@@ -31,11 +31,9 @@ class TestLLMJudgeFieldDiscoverySuccess:
         mock_llm = MagicMock()
         mock_llm.model_name = "test"
 
-        with patch(
-            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
-        ):
+        with patch("agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
             with patch(
-                "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
+                "agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
             ):
                 metric = LLMJudgeMetric(
@@ -71,11 +69,9 @@ class TestLLMJudgeFieldDiscoverySuccess:
         mock_llm = MagicMock()
         mock_llm.model_name = "test"
 
-        with patch(
-            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
-        ):
+        with patch("agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
             with patch(
-                "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
+                "agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
             ):
                 metric = LLMJudgeMetric(
@@ -105,11 +101,9 @@ class TestLLMJudgeFieldDiscoverySuccess:
         mock_llm = MagicMock()
         mock_llm.model_name = "test"
 
-        with patch(
-            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
-        ):
+        with patch("agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
             with patch(
-                "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
+                "agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
             ):
                 metric = LLMJudgeMetric(
@@ -123,7 +117,7 @@ class TestLLMJudgeFieldDiscoverySuccess:
         metric.llm.ainvoke = AsyncMock(return_value=mock_response)
 
         with patch(
-            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.parse_reasoning_content",
+            "agent.evaluators.report_evaluator.field_evaluators.llm_judge.parse_reasoning_content",
             return_value=(None, "0.75"),
         ):
             result = await metric.evaluate(42, 42, "number_field")
@@ -136,11 +130,11 @@ class TestLLMJudgeFieldDiscoverySuccess:
         mock_llm.model_name = "test"
 
         with patch(
-            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag",
+            "agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag",
             return_value="<thinking>",
         ):
             with patch(
-                "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
+                "agent.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
             ):
                 metric = LLMJudgeMetric(
@@ -154,7 +148,7 @@ class TestLLMJudgeFieldDiscoverySuccess:
         metric.llm.ainvoke = AsyncMock(return_value=mock_response)
 
         with patch(
-            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.parse_reasoning_content",
+            "agent.evaluators.report_evaluator.field_evaluators.llm_judge.parse_reasoning_content",
             return_value=(None, "0.9"),
         ):
             result = await metric._invoke_llm("test prompt", lambda x: float(x.strip()))

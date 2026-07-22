@@ -11,10 +11,13 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 # Two top-level packages ship in the same wheel:
-#   - vss_agents: agent code, tools, NAT plugins (incl. register_knowledge_layers)
+#   - agent: agent code, tools, NAT plugins (incl. register_knowledge_layers)
 #   - lib:        NAT-independent libraries. lib.knowledge holds the BackendAdapter
 #                 ABC, schema, factory, and adapter implementations.
-packages = ["src/vss_agents", "src/lib"]
+# The base install carries only the light `lib` dependencies; agent and
+# lib.knowledge become importable once the `agent` extra's dependencies are
+# installed (see [project.optional-dependencies]).
+packages = ["src/agent", "src/cli", "src/lib"]
 
 
 [tool.uv]
@@ -71,36 +74,25 @@ explicit = true
 
 
 [project]
-name = "vss_agents"
+name = "nvidia-vss"
 dynamic = ["version"]
 dependencies = [
   # Keep package version constraints as open as possible to avoid conflicts with other packages. Always define a minimum
   # version when adding a new package. If unsure, default to using `~=` instead of `==`. When using `~=`, use 2 digits
   # of precision in the version specifier. For example, use `~=1.2` instead of `~=1.2.3` and `~=0.1.3` instead of
   # `~=0.1.3.5`.
+  #
+  # The base install is the NAT-free `lib` libraries (lib.search_core,
+  # lib.critic, lib.vlm, lib.vst, cli). Everything the NAT-based agent
+  # application needs lives in the `agent` extra below.
   # Keep sorted!!!
-  # s3 for s3 object store
-  "docker>=7.1.0",
-  "duckdb>=1.5.0.dev44",
-  "langchain-core >= 1.3.3",
-  "langchain-nvidia-ai-endpoints>=1.0.4",
-  "langgraph-checkpoint >= 4.0.0",
-  "markdown>=3.4.0",
-  "matplotlib>=3.8.0",
-  "mcp >= 1.23.0",
-  "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.6.0",
-  "opencv-python-headless>=4.13.0.92",
-  "protobuf>=6.33.5",
-  "pydantic >=2.11,<3",
-  "pydantic-settings~=2.13",
-  "python-multipart>=0.0.27",
-  "sentence-transformers>=3.0.0",
-  "starlette >= 0.49.1",
-  "tiktoken>=0.9.0",
-  "torch>=2.5.0",
-  "urllib3>=2.7.0",
-  "xhtml2pdf>=0.2.11",
+  "aiohttp~=3.13",
   "elasticsearch~=8.17.0",
+  "httpx~=0.28",
+  "opencv-python-headless>=4.13.0.92",
+  "pydantic >=2.11,<3",
+  "PyYAML~=6.0",
+  "tenacity~=9.0",
 ]
 requires-python = ">=3.13,<3.15"
 description = "Deep Search Agent"
@@ -108,15 +100,46 @@ license = "Apache-2.0"
 keywords = ["ai", "rag", "agents"]
 classifiers = [
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: Apache Software License",
 ]
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 
+[project.scripts]
+vss = "cli:main"
+
 [project.optional-dependencies]
+# Installation profiles, smallest to largest:
+#   nvidia-vss        -> NAT-free `lib` libraries only
+#   nvidia-vss[cli]   -> lib + the `vss` console script. The script ships with the
+#                 base wheel already; this extra is the stable name for CLI
+#                 installs and will hold CLI-only dependencies if any appear.
+#   nvidia-vss[agent] -> the NAT-based agent application (agent, lib.knowledge)
+cli = []
+agent = [
+    # Keep sorted!!!
+    # s3 for s3 object store
+    "docker>=7.1.0",
+    "duckdb>=1.5.0.dev44",
+    "langchain-core >= 1.3.3",
+    "langchain-nvidia-ai-endpoints>=1.0.4",
+    "langgraph-checkpoint >= 4.0.0",
+    "markdown>=3.4.0",
+    "matplotlib>=3.8.0",
+    "mcp >= 1.23.0",
+    "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.6.0",
+    "protobuf>=6.33.5",
+    "pydantic-settings~=2.13",
+    "python-multipart>=0.0.27",
+    "sentence-transformers>=3.0.0",
+    "starlette >= 0.49.1",
+    "tiktoken>=0.9.0",
+    "torch>=2.5.0",
+    "urllib3>=2.7.0",
+    "xhtml2pdf>=0.2.11",
+]
 # Opt-in knowledge_retrieval backends; default image is `frag_api`-only.
 frag_lib = ["nvidia-rag>=2.4.0"]
 llama_index = [
@@ -132,20 +155,24 @@ langchain = [
 ]
 
 [dependency-groups]
+# NAT-free tooling for the lib/vss CI lane and host-side development.
+cli-dev = [
+    "mypy>=1.15.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.1",
+    "ruff>=0.12.0",
+    "types-pyyaml>=6.0.12.20250915",
+]
 dev = [
+    { include-group = "cli-dev" },
     "ipdb>=0.13.13",
     "ipykernel>=6.29.5",
     "ipython>=9.0.2",
-    "mypy>=1.15.0",
     "pre-commit>=4.2.0",
-    "pytest>=8.4.1",
-    "pytest-asyncio>=0.24",
-    "ruff>=0.12.0",
     "nvidia-nat[test]==1.6.0",
-    "pytest-cov>=6.1",
     "types-requests>=2.32.4.20260107",
     "types-markdown>=3.10.0.20251106",
-    "types-pyyaml>=6.0.12.20250915",
     "types-python-dateutil>=2.9.0.20260124",
     "detect-secrets>=1.5.0",
 ]
@@ -156,14 +183,14 @@ eval = [
 ]
 
 [project.entry-points.'nat.components']
-vss_tools = "vss_agents.tools.register"
-vss_agents = "vss_agents.agents.register"
-vss_api = "vss_agents.api.register"
-vss_va_mcp = "vss_agents.video_analytics.tools"
-vss_orchestrator_mcp = "vss_agents.orchestrator.tools"
-vss_evaluators = "vss_agents.evaluators.register"
-vst_tools = "vss_agents.tools.vst.register"
-vss_knowledge_layer = "vss_agents.register_knowledge_layers"
+vss_tools = "agent.tools.register"
+vss_agents = "agent.agents.register"
+vss_api = "agent.api.register"
+vss_va_mcp = "agent.video_analytics.tools"
+vss_orchestrator_mcp = "agent.orchestrator.tools"
+vss_evaluators = "agent.evaluators.register"
+vst_tools = "agent.tools.vst.register"
+vss_knowledge_layer = "agent.register_knowledge_layers"
 
 
 
@@ -227,7 +254,7 @@ max-doc-length = 120
 force-sort-within-sections = true
 
 # Known first-party modules.
-known-first-party = ["deep_search"]
+known-first-party = ["deep_search", "lib", "cli", "agent"]
 
 # Known third-party modules.
 known-third-party = ["langchain", "llama_index", "crewai", "semantic_kernel", "mem0ai", "zep_cloud"]
@@ -254,8 +281,16 @@ force-single-line = true
 default-section = "third-party"
 
 [tool.coverage.run]
-source = ["src/vss_agents"]
+source = ["src/agent"]
 omit = [
+    # ============================================================
+    # AGENT-EXTRA-ONLY LIBRARY CODE
+    # lib.knowledge needs the `agent` extra's dependencies and is not
+    # exercised by the NAT-free lib coverage lane. Keep in sync with
+    # sonar.coverage.exclusions in .github/workflows/sonarqube.yml.
+    # ============================================================
+    "*/lib/knowledge/*",
+
     # ============================================================
     # DEPRECATED FILES
     # ============================================================
@@ -378,7 +413,7 @@ markers = [
 
 # Mypy configuration for type checking
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

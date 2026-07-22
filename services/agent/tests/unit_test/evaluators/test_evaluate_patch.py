@@ -22,12 +22,12 @@ from unittest.mock import MagicMock
 from nat.data_models.evaluator import EvalInputItem
 import pytest
 
-from vss_agents.evaluators.evaluate_patch import DatasetFilter
-from vss_agents.evaluators.evaluate_patch import _expand_multi_turn_items
-from vss_agents.evaluators.evaluate_patch import _filter_by_dataset_filter
-from vss_agents.evaluators.evaluate_patch import _get_conversation
-from vss_agents.evaluators.evaluate_patch import _write_latency_summary
-from vss_agents.evaluators.evaluate_patch import is_multi_turn_item
+from agent.evaluators.evaluate_patch import DatasetFilter
+from agent.evaluators.evaluate_patch import _expand_multi_turn_items
+from agent.evaluators.evaluate_patch import _filter_by_dataset_filter
+from agent.evaluators.evaluate_patch import _get_conversation
+from agent.evaluators.evaluate_patch import _write_latency_summary
+from agent.evaluators.evaluate_patch import is_multi_turn_item
 
 # --- Helpers ---
 

@@ -1287,6 +1287,10 @@ async def _run_brev_exec(
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
         command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
+    # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
+    # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
+    # are invisible to every command. Source it inline, same as SSH nodes.
+    command = f". ~/.eval_env 2>/dev/null || true; {command}"
     # brev exec <instance> <command> — brev handles SSH transparently
     cmd = ["brev", "exec", instance, command]
     logger.debug("brev exec: %s", command[:200])

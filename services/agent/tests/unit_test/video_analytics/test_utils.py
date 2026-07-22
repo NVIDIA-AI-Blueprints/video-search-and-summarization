@@ -12,21 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/video_analytics/utils.py."""
+"""Tests for agent/video_analytics/utils.py."""
 
 from datetime import UTC
 from datetime import datetime
 
 import pytest
 
-from vss_agents.video_analytics.utils import build_place_map
-from vss_agents.video_analytics.utils import build_sensor_map
-from vss_agents.video_analytics.utils import compute_bucket_size_seconds
-from vss_agents.video_analytics.utils import create_empty_histogram_buckets
-from vss_agents.video_analytics.utils import create_events_from_incidents
-from vss_agents.video_analytics.utils import parse_vst_sensor_list_response
-from vss_agents.video_analytics.utils import sweep_overlapping_incidents
-from vss_agents.video_analytics.utils import validate_iso_timestamp
+from agent.video_analytics.utils import build_place_map
+from agent.video_analytics.utils import build_sensor_map
+from agent.video_analytics.utils import compute_bucket_size_seconds
+from agent.video_analytics.utils import create_empty_histogram_buckets
+from agent.video_analytics.utils import create_events_from_incidents
+from agent.video_analytics.utils import parse_vst_sensor_list_response
+from agent.video_analytics.utils import sweep_overlapping_incidents
+from agent.video_analytics.utils import validate_iso_timestamp
 
 
 class TestValidateIsoTimestamp:
