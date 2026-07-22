@@ -11,7 +11,9 @@ against a small subset of those headers because libwebrtc itself is prebuilt.
 This script keeps every vendored header directly included by VIOS sources,
 every vendored header already recorded in compiler .d files, and the recursive
 #include closure of those headers.  Everything else in the vendored header tree
-can be removed with --delete.
+can be removed with --delete.  When --source-header-root and --sync-from-source
+are provided, the keep-set is resolved against a WebRTC source checkout and the
+matching headers are copied into the VIOS vendored header tree before pruning.
 
 Use --keep-public-roots for a conservative audit that retains entire public
 third-party include roots.
@@ -27,13 +29,24 @@ from collections import Counter, deque
 from pathlib import Path
 
 
-INCLUDE_RE = re.compile(r"^\s*#\s*include\s*([<\"])([^>\"]+)[>\"]", re.MULTILINE)
+INCLUDE_LINE_RE = re.compile(r"^\s*#\s*include\s*([<\"])([^>\"]+)[>\"]")
+DIRECTIVE_RE = re.compile(r"^\s*#\s*(ifdef|ifndef|if|elif|else|endif)\b(.*)")
 DEP_RE = re.compile(
     r"(?:/root|[A-Za-z0-9_./+-]+)?/?src/framework/webrtc_streamer/inc/"
     r"webrtc_headers/src/([^:\s\\]+)"
 )
 HEADER_SUFFIXES = {".h", ".hh", ".hpp", ".hxx", ".inc"}
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
+ENABLED_MACROS = {
+    "ABSL_HAVE_INTRINSIC_INT128",
+    "WEBRTC_LINUX",
+    "WEBRTC_POSIX",
+}
+DISABLED_MACROS = {
+    "RTC_ENABLE_H265",
+    "WEBRTC_ABSL_MUTEX",
+    "WEBRTC_WIN",
+}
 PUBLIC_INCLUDE_DIRS = (
     "third_party/abseil-cpp/absl",
     "third_party/boringssl/src/include",
@@ -76,6 +89,86 @@ def read_text(path: Path) -> str:
         return path.read_text(errors="ignore")
     except OSError:
         return ""
+
+
+def evaluate_condition(kind: str, expression: str) -> bool | None:
+    expression = expression.strip()
+    all_known_macros = ENABLED_MACROS | DISABLED_MACROS
+    for macro in all_known_macros:
+        macro_enabled = macro in ENABLED_MACROS
+        if kind == "ifdef" and expression == macro:
+            return macro_enabled
+        if kind == "ifndef" and expression == macro:
+            return not macro_enabled
+        if kind in {"if", "elif"}:
+            if expression in {macro, f"defined({macro})", f"defined {macro}"}:
+                return macro_enabled
+            if expression in {
+                f"!{macro}",
+                f"!defined({macro})",
+                f"!defined {macro}",
+                f"not defined({macro})",
+            }:
+                return not macro_enabled
+    return None
+
+
+def iter_active_includes(text: str) -> list[tuple[bool, str]]:
+    includes: list[tuple[bool, str]] = []
+    stack: list[dict[str, bool]] = [
+        {"parent_active": True, "active": True, "branch_taken": False}
+    ]
+
+    for line in text.splitlines():
+        directive = DIRECTIVE_RE.match(line)
+        if directive:
+            kind = directive.group(1)
+            expression = directive.group(2)
+
+            if kind in {"ifdef", "ifndef", "if"}:
+                parent_active = stack[-1]["active"]
+                condition = evaluate_condition(kind, expression)
+                active = parent_active if condition is None else parent_active and condition
+                stack.append(
+                    {
+                        "parent_active": parent_active,
+                        "active": active,
+                        "branch_taken": False if condition is None else condition,
+                    }
+                )
+                continue
+
+            if kind == "elif" and len(stack) > 1:
+                frame = stack[-1]
+                condition = evaluate_condition(kind, expression)
+                if frame["branch_taken"]:
+                    frame["active"] = False
+                elif condition is None:
+                    frame["active"] = frame["parent_active"]
+                    frame["branch_taken"] = True
+                else:
+                    frame["active"] = frame["parent_active"] and condition
+                    frame["branch_taken"] = condition
+                continue
+
+            if kind == "else" and len(stack) > 1:
+                frame = stack[-1]
+                frame["active"] = frame["parent_active"] and not frame["branch_taken"]
+                frame["branch_taken"] = True
+                continue
+
+            if kind == "endif" and len(stack) > 1:
+                stack.pop()
+                continue
+
+        if not stack[-1]["active"]:
+            continue
+
+        include = INCLUDE_LINE_RE.match(line)
+        if include:
+            includes.append((include.group(1) == '"', include.group(2)))
+
+    return includes
 
 
 class Resolver:
@@ -139,9 +232,7 @@ def direct_roots_from_sources(
     unresolved: Counter[str] = Counter()
 
     for source_file in source_files:
-        for match in INCLUDE_RE.finditer(read_text(source_file)):
-            quoted = match.group(1) == '"'
-            include_name = match.group(2)
+        for quoted, include_name in iter_active_includes(read_text(source_file)):
             resolved = resolver.resolve(include_name, None, quoted)
             if resolved:
                 roots.add(resolved)
@@ -189,9 +280,7 @@ def include_closure(
 
     while queue:
         header = queue.popleft()
-        for match in INCLUDE_RE.finditer(read_text(header)):
-            quoted = match.group(1) == '"'
-            include_name = match.group(2)
+        for quoted, include_name in iter_active_includes(read_text(header)):
             resolved = resolver.resolve(include_name, header, quoted)
             if not resolved:
                 normalized = clean_include_name(include_name)
@@ -254,6 +343,31 @@ def delete_unneeded(unneeded: list[Path], header_root: Path) -> int:
     return deleted
 
 
+def sync_from_source(
+    keep: set[Path], source_header_root: Path, target_header_root: Path
+) -> tuple[int, int]:
+    copied = 0
+    unchanged = 0
+
+    for source in sorted(keep):
+        try:
+            relative = source.relative_to(source_header_root)
+        except ValueError:
+            continue
+
+        target = target_header_root / relative
+        data = source.read_bytes()
+        if target.is_file() and target.read_bytes() == data:
+            unchanged += 1
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        copied += 1
+
+    return copied, unchanged
+
+
 def print_counter(title: str, counter: Counter[str], limit: int) -> None:
     if not counter:
         return
@@ -282,33 +396,79 @@ def main() -> int:
         action="store_true",
         help="keep all headers in public third-party include roots",
     )
+    parser.add_argument(
+        "--source-header-root",
+        type=Path,
+        help="resolve required headers from this WebRTC source root",
+    )
+    parser.add_argument(
+        "--sync-from-source",
+        action="store_true",
+        help="copy required headers from --source-header-root before pruning",
+    )
     args = parser.parse_args()
 
     vios_root = vios_root_from_script()
-    header_root = (
+    target_header_root = (
         vios_root / "src/framework/webrtc_streamer/inc/webrtc_headers/src"
     ).resolve()
-    if not header_root.is_dir():
-        print(f"missing WebRTC header root: {header_root}", file=sys.stderr)
+    source_header_root = (
+        args.source_header_root.resolve()
+        if args.source_header_root
+        else target_header_root
+    )
+    if not target_header_root.is_dir():
+        print(f"missing WebRTC header root: {target_header_root}", file=sys.stderr)
+        return 2
+    if not source_header_root.is_dir():
+        print(f"missing source WebRTC header root: {source_header_root}", file=sys.stderr)
+        return 2
+    if args.sync_from_source and source_header_root == target_header_root:
+        print("--sync-from-source requires a distinct --source-header-root", file=sys.stderr)
         return 2
 
-    resolver = Resolver(header_root)
-    all_headers = set(iter_header_files(header_root))
-    source_files = iter_source_files(vios_root, header_root)
+    resolver = Resolver(source_header_root)
+    source_all_headers = set(iter_header_files(source_header_root))
+    source_files = iter_source_files(vios_root, target_header_root)
     source_roots, source_unresolved = direct_roots_from_sources(source_files, resolver)
-    dep_roots = set() if args.no_depfiles else roots_from_depfiles(vios_root, header_root)
-    public_roots = public_include_roots(header_root) if args.keep_public_roots else set()
+    dep_roots = (
+        set() if args.no_depfiles else roots_from_depfiles(vios_root, source_header_root)
+    )
+    public_roots = (
+        public_include_roots(source_header_root) if args.keep_public_roots else set()
+    )
     keep, closure_unresolved = include_closure(source_roots | dep_roots | public_roots, resolver)
-    keep &= all_headers
-    unneeded = sorted(all_headers - keep)
+    keep &= source_all_headers
 
-    print(f"WebRTC header root: {header_root}")
+    target_keep = {
+        (target_header_root / path.relative_to(source_header_root)).resolve()
+        for path in keep
+        if is_under(path, source_header_root)
+    }
+    target_headers_before_sync = set(iter_header_files(target_header_root))
+    missing_before_sync = sorted(path for path in target_keep if not path.is_file())
+
+    copied = 0
+    unchanged = 0
+    if args.sync_from_source:
+        copied, unchanged = sync_from_source(keep, source_header_root, target_header_root)
+
+    target_all_headers = set(iter_header_files(target_header_root))
+    unneeded = sorted(target_all_headers - target_keep)
+
+    print(f"VIOS WebRTC header root: {target_header_root}")
+    print(f"Source WebRTC header root: {source_header_root}")
     print(f"VIOS source files scanned: {len(source_files)}")
-    print(f"Header files before prune: {len(all_headers)}")
+    print(f"Source header files scanned: {len(source_all_headers)}")
+    print(f"VIOS header files before sync: {len(target_headers_before_sync)}")
+    print(f"Required headers missing before sync: {len(missing_before_sync)}")
     print(f"Direct roots from source: {len(source_roots)}")
     print(f"Roots from compiler deps: {len(dep_roots)}")
     print(f"Public include-root headers kept: {len(public_roots)}")
     print(f"Headers kept by include closure: {len(keep)}")
+    print(f"Headers copied/updated from source: {copied}")
+    print(f"Required headers already current: {unchanged}")
+    print(f"VIOS header files before prune: {len(target_all_headers)}")
     print(f"Headers removable: {len(unneeded)}")
     print_counter("Unresolved direct WebRTC-like includes:", source_unresolved, 20)
     print_counter("Unresolved includes inside kept headers:", closure_unresolved, 30)
@@ -316,10 +476,10 @@ def main() -> int:
     if args.show_unneeded:
         print(f"First {min(args.show_unneeded, len(unneeded))} removable headers:")
         for path in unneeded[: args.show_unneeded]:
-            print(f"  {rel(path, header_root)}")
+            print(f"  {rel(path, target_header_root)}")
 
     if args.delete:
-        deleted = delete_unneeded(unneeded, header_root)
+        deleted = delete_unneeded(unneeded, target_header_root)
         print(f"Deleted headers: {deleted}")
     else:
         print("Dry run only; pass --delete to prune files.")
