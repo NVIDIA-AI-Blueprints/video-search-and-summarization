@@ -43,10 +43,11 @@ COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
 COPY --chown=root:root --chmod=0444 agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
 COPY --chown=root:root --chmod=0555 agent/src/agent /vss-agent/src/agent
-# `lib/` and `cli/` are sibling top-level packages shipped in the same wheel
-# (see pyproject.toml `packages = ["src/agent", "src/cli", "src/lib"]`);
-# without these copies the hatchling build inside the image would fail and
-# lib.knowledge would be missing from the built image.
+# Keep the former runner-class import path available while deployments move
+# from the currently pinned pre-rename image to the repackaged image.
+COPY --chown=root:root --chmod=0555 agent/src/vss_agents /vss-agent/src/vss_agents
+# `lib/` and `cli/` are sibling top-level packages shipped in the same wheel;
+# without these copies the hatchling build inside the image would fail.
 COPY --chown=root:root --chmod=0555 agent/src/lib /vss-agent/src/lib
 COPY --chown=root:root --chmod=0555 agent/src/cli /vss-agent/src/cli
 COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
