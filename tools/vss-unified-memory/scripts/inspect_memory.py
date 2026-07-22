@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TextIO
 
-from elasticsearch import Elasticsearch
+from elasticsearch import Elasticsearch, NotFoundError
 
 
 def _reexec_with_local_environment() -> None:
@@ -66,7 +66,10 @@ def _write_output(stdout: TextIO, output: OutputModel | dict[str, Any]) -> None:
 
 
 def _count_documents(client: Elasticsearch, index: str, record_type: RecordType) -> int:
-    response = client.count(index=index, query={"term": {"record_type": record_type.value}})
+    try:
+        response = client.count(index=index, query={"term": {"record_type": record_type.value}})
+    except NotFoundError:
+        return 0
     return int(response["count"])
 
 
@@ -111,28 +114,37 @@ def _chunk_metadata(source: dict[str, Any], chunk_field: str) -> tuple[bool, int
 
 def _collect_event_stats(client: Elasticsearch, index: str) -> dict[str, dict[str, Any]]:
     stats: dict[str, dict[str, Any]] = {}
-    for hit in _paginated_hits(
-        client,
-        index=index,
-        query={"term": {"record_type": RecordType.VIDEO_EVENT.value}},
-        source=_EVENT_SOURCE_FIELDS,
-        sort=[{"summary_id": "asc"}, {"ordinal": "asc"}, {"id": "asc"}],
-    ):
-        source = hit["_source"]
-        summary_id = source["summary_id"]
-        entry = stats.setdefault(
-            summary_id,
-            {"event_chars_total": 0, "has_event_chunks": False, "event_chunk_count": 0, "time_starts": [], "time_ends": []},
-        )
-        description = source.get("description") or ""
-        entry["event_chars_total"] += len(description)
-        has_chunks, chunk_count = _chunk_metadata(source, "event_chunks")
-        entry["has_event_chunks"] = entry["has_event_chunks"] or has_chunks
-        entry["event_chunk_count"] += chunk_count
-        time_range = _time_range(source)
-        if time_range is not None:
-            entry["time_starts"].append(time_range["start_seconds"])
-            entry["time_ends"].append(time_range["end_seconds"])
+    try:
+        for hit in _paginated_hits(
+            client,
+            index=index,
+            query={"term": {"record_type": RecordType.VIDEO_EVENT.value}},
+            source=_EVENT_SOURCE_FIELDS,
+            sort=[{"summary_id": "asc"}, {"ordinal": "asc"}, {"id": "asc"}],
+        ):
+            source = hit["_source"]
+            summary_id = source["summary_id"]
+            entry = stats.setdefault(
+                summary_id,
+                {
+                    "event_chars_total": 0,
+                    "has_event_chunks": False,
+                    "event_chunk_count": 0,
+                    "time_starts": [],
+                    "time_ends": [],
+                },
+            )
+            description = source.get("description") or ""
+            entry["event_chars_total"] += len(description)
+            has_chunks, chunk_count = _chunk_metadata(source, "event_chunks")
+            entry["has_event_chunks"] = entry["has_event_chunks"] or has_chunks
+            entry["event_chunk_count"] += chunk_count
+            time_range = _time_range(source)
+            if time_range is not None:
+                entry["time_starts"].append(time_range["start_seconds"])
+                entry["time_ends"].append(time_range["end_seconds"])
+    except NotFoundError:
+        return {}
     return stats
 
 
@@ -142,42 +154,45 @@ def build_snapshot(client: Elasticsearch, index: str) -> dict[str, Any]:
     event_stats = _collect_event_stats(client, index)
 
     summaries: list[dict[str, Any]] = []
-    for hit in _paginated_hits(
-        client,
-        index=index,
-        query={"term": {"record_type": RecordType.VIDEO_SUMMARY.value}},
-        source=_SUMMARY_SOURCE_FIELDS,
-        sort=[{"created_at": "asc"}, {"summary_id": "asc"}],
-    ):
-        source = hit["_source"]
-        summary_id = source["summary_id"]
-        has_summary_chunks, summary_chunk_count = _chunk_metadata(source, "summary_chunks")
-        related = event_stats.get(summary_id, {})
-        event_chars_total = int(related.get("event_chars_total", 0))
-        has_event_chunks = bool(related.get("has_event_chunks", False))
-        event_chunk_count = int(related.get("event_chunk_count", 0))
-        chunk_count_estimate = summary_chunk_count + event_chunk_count
-        summary_time_range = _time_range(source)
-        if summary_time_range is None and related.get("time_starts"):
-            summary_time_range = {
-                "start_seconds": min(related["time_starts"]),
-                "end_seconds": max(related["time_ends"]),
-            }
-        summaries.append(
-            {
-                "summary_id": summary_id,
-                "video_id": source.get("video_id"),
-                "media_name": source.get("media_name"),
-                "created_at": source.get("created_at"),
-                "event_count": source.get("event_count", 0),
-                "summary_chars": len(source.get("description") or ""),
-                "event_chars_total": event_chars_total,
-                "time_range": summary_time_range,
-                "has_summary_chunks": has_summary_chunks,
-                "has_event_chunks": has_event_chunks,
-                "chunk_count_estimate": chunk_count_estimate if chunk_count_estimate else None,
-            }
-        )
+    try:
+        for hit in _paginated_hits(
+            client,
+            index=index,
+            query={"term": {"record_type": RecordType.VIDEO_SUMMARY.value}},
+            source=_SUMMARY_SOURCE_FIELDS,
+            sort=[{"created_at": "asc"}, {"summary_id": "asc"}],
+        ):
+            source = hit["_source"]
+            summary_id = source["summary_id"]
+            has_summary_chunks, summary_chunk_count = _chunk_metadata(source, "summary_chunks")
+            related = event_stats.get(summary_id, {})
+            event_chars_total = int(related.get("event_chars_total", 0))
+            has_event_chunks = bool(related.get("has_event_chunks", False))
+            event_chunk_count = int(related.get("event_chunk_count", 0))
+            chunk_count_estimate = summary_chunk_count + event_chunk_count
+            summary_time_range = _time_range(source)
+            if summary_time_range is None and related.get("time_starts"):
+                summary_time_range = {
+                    "start_seconds": min(related["time_starts"]),
+                    "end_seconds": max(related["time_ends"]),
+                }
+            summaries.append(
+                {
+                    "summary_id": summary_id,
+                    "video_id": source.get("video_id"),
+                    "media_name": source.get("media_name"),
+                    "created_at": source.get("created_at"),
+                    "event_count": source.get("event_count", 0),
+                    "summary_chars": len(source.get("description") or ""),
+                    "event_chars_total": event_chars_total,
+                    "time_range": summary_time_range,
+                    "has_summary_chunks": has_summary_chunks,
+                    "has_event_chunks": has_event_chunks,
+                    "chunk_count_estimate": chunk_count_estimate if chunk_count_estimate else None,
+                }
+            )
+    except NotFoundError:
+        summaries = []
 
     return {
         "index": index,
