@@ -316,18 +316,24 @@ spec:
               value: {{ .Values.env.DS_MODEL_FAMILY | quote }}
             - name: DS_CONFIG_FILE
               value: {{ .Values.env.DS_CONFIG_FILE | default "" | quote }}
-            - name: DS_VISION_ENCODER
-              value: {{ .Values.env.DS_VISION_ENCODER | default "false" | quote }}
+            - name: MODEL_NAME_2D
+              value: {{ .Values.env.MODEL_NAME_2D | quote }}
             - name: DS_TRACKER_REID
               value: {{ .Values.env.DS_TRACKER_REID | default "false" | quote }}
             - name: DS_SHOW_SENSOR_ID
               value: {{ .Values.env.DS_SHOW_SENSOR_ID | default "false" | quote }}
+            - name: NUM_SENSORS
+              value: {{ .Values.env.NUM_SENSORS | quote }}
+            - name: DS_VISION_ENCODER
+              value: {{ .Values.env.DS_VISION_ENCODER | default "false" | quote }}
             - name: VISION_ENCODER_MODEL
               value: {{ .Values.env.VISION_ENCODER_MODEL | default "" | quote }}
             - name: VISION_ENCODER_VERSION
               value: {{ .Values.env.VISION_ENCODER_VERSION | default "" | quote }}
             - name: STREAM_TYPE
               value: {{ .Values.env.STREAM_TYPE | default .Values.streamType | quote }}
+            - name: HARDWARE_PROFILE
+              value: {{ .Values.env.HARDWARE_PROFILE | default "" | quote }}
             - name: DS_MODE_FLAG
               value: {{ .Values.env.DS_MODE_FLAG | default "1" | quote }}
             - name: DS_MESSAGE_RATE
