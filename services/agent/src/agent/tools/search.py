@@ -1308,14 +1308,8 @@ async def execute_core_search(
         # Merge consecutive chunks from the same sensor into single results
         search_results = _merge_consecutive_results(search_results)
 
-        # Step 3: If critic enabled and configured, verify results with VLM
-        if (
-            config.enable_critic
-            and search_input.agent_mode
-            and search_input.use_critic
-            and critic_agent
-            and search_results
-        ):
+        # Step 3: If requested and configured, verify results with VLM
+        if search_input.agent_mode and search_input.use_critic and critic_agent and search_results:
             try:
                 from agent.agents.critic_agent import CriticAgentResult
                 from agent.agents.critic_agent import VideoInfo
@@ -1511,11 +1505,6 @@ class SearchConfig(FunctionBaseConfig, name="search"):
         description="Maximum number of results to return. Used as the default top_k when not specified and as a cap when top_k is too high.",
     )
 
-    enable_critic: bool = Field(
-        default=False,
-        description="Configuration flag to enable/disable critic agent at a global level.",
-    )
-
     search_max_iterations: int = Field(
         default=1,
         ge=1,
@@ -1620,8 +1609,7 @@ class SearchInput(BaseModel):
 
     use_critic: bool = Field(
         default=True,
-        description="""Request-level flag to enable/disable critic agent for this search request.
-        `critic_agent` must be set and `enable_critic` must be True in the config.""",
+        description="Request-level flag to enable/disable the configured critic agent for this search request.",
     )
 
 

@@ -4,12 +4,12 @@ Profile: `search` | Blueprint: `bp_developer_search` | Mode: `2d`
 
 > **Alpha feature** — not recommended for production.
 
-Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. RT-VLM is always part of the search profile: it serves the optional **Critique agent** and the always-available `video_understanding` tool. `ENABLE_CRITIC` controls result verification behavior; it does not gate the RT-VLM service.
+Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. RT-VLM is always part of the search profile: it serves the optional **Critique agent** and the always-available `video_understanding` tool. Critic verification is controlled per request with `use_critic`.
 
 ## What's different from `base` and `lvs`
 
 - **Four always-on GPU services:** `rtvi-cv` (DeepStream perception), `rtvi-embed` (Cosmos Embed1 embeddings), the **LLM**, and `vss-rtvi-vlm`. Search does not deploy a standalone Cosmos VLM NIM.
-- **RT-VLM serves two consumers.** The Critique agent uses it when `use_critic=true` (default), and `video_understanding` uses it independently. Setting `ENABLE_CRITIC=false` leaves RT-VLM running.
+- **RT-VLM serves two consumers.** The Critique agent uses it when `use_critic=true` (default), and `video_understanding` uses it independently.
 - **Default local layout uses three GPUs.** `RT_CV_DEVICE_ID=0`; `RT_EMBED_DEVICE_ID=1` and `LLM_DEVICE_ID=1`; `RT_VLM_DEVICE_ID=2`. The LLM must leave headroom for RT-Embed on GPU 1.
 - **Remote VLM still uses a local RT-VLM proxy.** `vss-rtvi-vlm` runs in `openai-compat` mode and forwards inference to the selected remote endpoint.
 
