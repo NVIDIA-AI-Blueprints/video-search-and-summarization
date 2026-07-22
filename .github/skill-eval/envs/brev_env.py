@@ -1274,36 +1274,36 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
 def _parse_brev_json(raw: str | None) -> list[dict]:
     """Strip trailing walkthrough text and parse JSON array from brev CLI.
 
-    Handles two known output shapes:
-      1. Bare JSON array: [{...}, {...}, ...]<trailing text>
-      2. Wrapped object:  {"workspaces": [{...}, ...]}  (brev CLI >= 0.7)
+    Handles two output formats:
+      - Legacy: raw JSON array `[{...}, ...]`
+      - Current (brev >=0.7): `{"workspaces": [{...}, ...]}` wrapper
     """
     if not raw:
         return []
-    # First, try parsing the full output as valid JSON (handles shape 2).
-    stripped = raw.strip()
-    if stripped.startswith("{"):
+    bracket = raw.rfind("]")
+    if bracket < 0:
+        return []
+    # Try parsing the full object first (handles {"workspaces": [...]} wrapper)
+    brace_end = raw.rfind("}")
+    if brace_end > bracket:
         try:
-            obj = json.loads(stripped)
+            obj = json.loads(raw[: brace_end + 1])
             if isinstance(obj, dict):
-                # Accept "workspaces" key (primary) or first list-valued key
-                if "workspaces" in obj and isinstance(obj["workspaces"], list):
-                    return obj["workspaces"]
+                # Return the first list-valued field (usually "workspaces")
                 for v in obj.values():
                     if isinstance(v, list):
                         return v
                 return []
             if isinstance(obj, list):
                 return obj
-            return []
         except json.JSONDecodeError:
             pass
-    # Shape 1: bare array possibly followed by walkthrough text.
-    bracket = raw.rfind("]")
-    if bracket < 0:
-        return []
+    # Fallback: legacy raw array format
     try:
-        return json.loads(raw[: bracket + 1])
+        result = json.loads(raw[: bracket + 1])
+        if isinstance(result, list):
+            return result
+        return []
     except json.JSONDecodeError:
         return []
 
