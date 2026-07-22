@@ -34,6 +34,7 @@ def main() -> int:
     parser.add_argument("--attempts", type=int, default=240)
     parser.add_argument("--interval-seconds", type=int, default=15)
     parser.add_argument("--release-set", type=Path)
+    parser.add_argument("--release-set-output", type=Path)
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -65,6 +66,12 @@ def main() -> int:
     )
     if problems:
         raise RuntimeError("invalid release set: " + "; ".join(problems))
+
+    if args.release_set_output:
+        args.release_set_output.parent.mkdir(parents=True, exist_ok=True)
+        args.release_set_output.write_text(
+            json.dumps(release_set, indent=2, sort_keys=True) + "\n"
+        )
 
     variables = downstream_variables(release_set)
     with Path(github_env).open("a") as output:

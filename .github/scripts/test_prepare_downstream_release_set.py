@@ -43,6 +43,7 @@ class DownstreamVariablesTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             release_path = Path(tmp) / "release-set.json"
+            release_output_path = Path(tmp) / "handoff/release-set.json"
             env_path = Path(tmp) / "github.env"
             release_path.write_text(json.dumps(release_set))
             argv = [
@@ -51,6 +52,8 @@ class DownstreamVariablesTest(unittest.TestCase):
                 sha,
                 "--release-set",
                 str(release_path),
+                "--release-set-output",
+                str(release_output_path),
             ]
             with mock.patch("sys.argv", argv), mock.patch.dict(
                 os.environ, {"GITHUB_ENV": str(env_path)}, clear=True
@@ -60,6 +63,7 @@ class DownstreamVariablesTest(unittest.TestCase):
                 self.assertEqual(module.main(), 0)
                 download.assert_not_called()
             self.assertIn("DOWNSTREAM_EXTRA_VARIABLES_JSON", env_path.read_text())
+            self.assertEqual(json.loads(release_output_path.read_text()), release_set)
 
 
 if __name__ == "__main__":
