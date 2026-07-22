@@ -917,30 +917,6 @@ function state_up() {
     fi
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
-
-    # Select explicit service-list variable for the active warehouse variant.
-    local _minimal_profile _cp_var
-    _minimal_profile="$(get_env_value_from_files "MINIMAL_PROFILE" "${_source_env}" "${_overrides_env}")"
-    case "${bp_profile}_${mode}" in
-      bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
-      bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
-      bp_wh_redis_2d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_2D" ;;
-      bp_wh_auto_calib_2d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_2D" ;;
-      bp_wh_kafka_3d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
-      bp_wh_redis_3d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
-      bp_wh_auto_calib_3d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_3D" ;;
-      bp_wh_kafka_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_KAFKA_MV3DT" ;;
-      bp_wh_redis_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_REDIS_MV3DT" ;;
-      bp_wh_auto_calib_mv3dt) _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT" ;;
-      *)
-        echo "[ERROR] Unknown warehouse bp-profile/mode combination: ${bp_profile}/${mode}"
-        return 1
-        ;;
-    esac
-    if [[ -n "${_minimal_profile}" ]] && ([[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]); then
-      _cp_var="${_cp_var}_MINIMAL"
-    fi
-    set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
   fi
 
   if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then

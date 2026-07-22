@@ -130,21 +130,22 @@ commons:
         # required: false
         allowed_values: ["none", "local", "local_shared", "remote"]
 
-      # STREAM_TYPE is derived from BP_PROFILE; keep the pair consistent.
-      - variable: BP_PROFILE
+      # Conditional validation - if STREAM_TYPE=redis, validate COMPOSE_PROFILES
+      - variable: COMPOSE_PROFILES
         condition:
           variable: STREAM_TYPE
           equals: "redis"
-        allowed_values: ["bp_wh_redis"]
-        error_message: "STREAM_TYPE=redis requires BP_PROFILE=bp_wh_redis"
+        allowed_patterns:
+          - "*redis*"
 
-      - variable: BP_PROFILE
+      # Conditional validation - if STREAM_TYPE=kafka, validate COMPOSE_PROFILES
+      - variable: COMPOSE_PROFILES
         # required: false
         condition:
           variable: STREAM_TYPE
           equals: "kafka"
-        disallowed_values: ["bp_wh_redis"]
-        error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
+        disallowed_patterns:
+          - "*redis*"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
       - variable: PERCEPTION_TAG
@@ -163,8 +164,8 @@ commons:
               equals: "2d"
             - variable: NUM_STREAMS
               equals: "4"
-            - variable: BP_PROFILE
-              equals: "bp_wh"
+            - variable: COMPOSE_PROFILES
+              matches: "bp_wh_2d,*"
 
       - variable: SAMPLE_VIDEO_DATASET
         when_equals: "warehouse-loading-dock-3cams-synthetic"
@@ -175,12 +176,12 @@ commons:
             - variable: NUM_STREAMS
               equals: "3"
             - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_kafka_2d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_redis_2d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_auto_calib_2d,*"
 
     3d:
       # VSS path variables must be set to real paths, not placeholders or empty
@@ -219,22 +220,23 @@ commons:
         # required: false
         allowed_values: ["none"]
 
-      # STREAM_TYPE is derived from BP_PROFILE; keep the pair consistent.
-      - variable: BP_PROFILE
+      # Conditional validation - if STREAM_TYPE=redis, validate COMPOSE_PROFILES
+      - variable: COMPOSE_PROFILES
         # required: false
         condition:
           variable: STREAM_TYPE
           equals: "redis"
-        allowed_values: ["bp_wh_redis"]
-        error_message: "STREAM_TYPE=redis requires BP_PROFILE=bp_wh_redis"
+        allowed_patterns:
+          - "*redis*"
 
-      - variable: BP_PROFILE
+      # Conditional validation - if STREAM_TYPE=kafka, validate COMPOSE_PROFILES
+      - variable: COMPOSE_PROFILES
         # required: false
         condition:
           variable: STREAM_TYPE
           equals: "kafka"
-        disallowed_values: ["bp_wh_redis"]
-        error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
+        disallowed_patterns:
+          - "*redis*"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
       - variable: PERCEPTION_TAG
@@ -254,12 +256,12 @@ commons:
             - variable: NUM_STREAMS
               equals: "4"
             - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_kafka_3d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_redis_3d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_auto_calib_3d,*"
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
@@ -296,20 +298,21 @@ commons:
       - variable: VLM_MODE
         allowed_values: ["none"]
 
-      # STREAM_TYPE is derived from BP_PROFILE; keep the pair consistent.
-      - variable: BP_PROFILE
+      # Conditional validation - if STREAM_TYPE=redis, validate COMPOSE_PROFILES
+      - variable: COMPOSE_PROFILES
         condition:
           variable: STREAM_TYPE
           equals: "redis"
-        allowed_values: ["bp_wh_redis"]
-        error_message: "STREAM_TYPE=redis requires BP_PROFILE=bp_wh_redis"
+        allowed_patterns:
+          - "*redis*"
 
-      - variable: BP_PROFILE
+      # Conditional validation - if STREAM_TYPE=kafka, validate COMPOSE_PROFILES
+      - variable: COMPOSE_PROFILES
         condition:
           variable: STREAM_TYPE
           equals: "kafka"
-        disallowed_values: ["bp_wh_redis"]
-        error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
+        disallowed_patterns:
+          - "*redis*"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
       - variable: PERCEPTION_TAG
@@ -329,12 +332,12 @@ commons:
             - variable: NUM_STREAMS
               equals: "4"
             - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_kafka_mv3dt,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_redis_mv3dt,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_auto_calib_mv3dt,*"
 
   variables:
     2d:

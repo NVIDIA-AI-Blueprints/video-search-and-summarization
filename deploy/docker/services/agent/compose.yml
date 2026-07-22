@@ -19,7 +19,7 @@ services:
   vss-va-mcp:
     image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-va-mcp
-    profiles: ["vss-va-mcp"]
+    profiles: ["vss-va-mcp", "bp_wh_2d"]
     ports:
     - ${VSS_VA_MCP_HOST_PORT:-9901}:${VSS_VA_MCP_PORT:-9901}
     volumes:
@@ -61,7 +61,7 @@ services:
     # Version pinned via VSS_AGENT_VERSION (see the profile .env files).
     image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
     container_name: vss-agent
-    profiles: ["vss-agent"]
+    profiles: ["vss-agent", "bp_wh_2d"]
     ports:
     - ${VSS_AGENT_HOST_PORT:-8000}:${VSS_AGENT_PORT:-8000}
     environment:

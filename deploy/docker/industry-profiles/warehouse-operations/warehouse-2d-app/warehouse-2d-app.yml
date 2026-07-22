@@ -21,7 +21,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["vss-behavior-analytics-2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","playback_kafka_2d","playback_redis_2d"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
@@ -39,7 +39,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["vss-behavior-analytics-playback-2d"]
+    profiles: ["playback_kafka_2d","playback_redis_2d"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_DATA_DIR/playback/warehouse_loading_dock_playback.json:/opt/mdx/playback/warehouse_loading_dock_playback.json
@@ -55,7 +55,7 @@ services:
     image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
-    profiles: ["nvstreamer-2d"]
+    profiles: ["bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -88,7 +88,7 @@ services:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
       network: host
-    profiles: ["bp-configurator-2d-init"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     container_name: vss-configurator-2d-init
     environment:
       BP_PROFILE: $BP_PROFILE
@@ -130,7 +130,7 @@ services:
 
   bp-configurator-2d:
     image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
-    profiles: ["bp-configurator-2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     container_name: vss-configurator
     networks:
       default:
@@ -219,7 +219,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["perception-2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
@@ -246,7 +246,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app
       dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
-    profiles: ["kibana-init-container-2d"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-kibana-init
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/kibana-dashboard/warehouse-2d-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
@@ -259,7 +259,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["vss-video-analytics-api-2d"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-video-analytics-api
     networks:
       default:
@@ -275,7 +275,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app
       dockerfile: Dockerfiles/import-calibration.Dockerfile
-    profiles: ["import-calibration-output-container-2d"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-import-calibration-output
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json

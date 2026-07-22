@@ -1101,38 +1101,20 @@ _warehouse_host_port_keys=(
   VSS_AUTO_CALIBRATION_HOST_PORT VSS_AUTO_CALIBRATION_UI_HOST_PORT
 )
 if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
-  _warehouse_static_compose_keys=(
-    _WH_BASE _WH_KAFKA _WH_BROKER_HEALTH _WH_EXTENDED_COMMON _WH_MONITORING _WH_AGENT_STACK
-    _WH_2D_APP _WH_3D_APP _WH_MV3DT_APP _WH_2D_EXTENDED _WH_3D_EXTENDED _WH_MV3DT_EXTENDED
-    _WH_AUTO_CALIB _WH_PLAYBACK_2D _WH_PLAYBACK_3D _WH_PLAYBACK_MV3DT
-    COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
-    COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
-    COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL
-    COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL
-    COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
-    COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
-    COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
-  )
-  for _key in "${_warehouse_static_compose_keys[@]}"; do
-    if ! grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
-      echo "FAIL: warehouse .env should define static compose profile value ${_key}"
-      ((_split_failed++)) || true
-    fi
-    if grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
-      echo "FAIL: warehouse overrides.env should not define static compose profile value ${_key}"
-      ((_split_failed++)) || true
-    fi
-  done
-  for _key in COMPOSE_PROFILES_WH_2D COMPOSE_PROFILES; do
-    if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
-      echo "FAIL: warehouse .env should not define override-layer compose profile value ${_key}"
-      ((_split_failed++)) || true
-    fi
-    if ! grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
-      echo "FAIL: warehouse overrides.env should define override-layer compose profile value ${_key}"
-      ((_split_failed++)) || true
-    fi
-  done
+  if grep -Fq 'COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}' "${_warehouse_overrides_env}"; then
+    echo "PASS: warehouse overrides.env uses BP_PROFILE/MODE compose profile selection"
+    ((TESTS_PASSED++)) || true
+  else
+    echo "FAIL: warehouse overrides.env should use BP_PROFILE/MODE compose profile selection"
+    ((_split_failed++)) || true
+  fi
+  if grep -Eq '^(_WH_|COMPOSE_PROFILES_WH_|COMPOSE_PROFILES_PLAYBACK_)' "${_warehouse_stable_env}" "${_warehouse_overrides_env}"; then
+    echo "FAIL: warehouse env files should not define explicit warehouse compose profile lists"
+    ((_split_failed++)) || true
+  else
+    echo "PASS: warehouse env files do not define explicit warehouse compose profile lists"
+    ((TESTS_PASSED++)) || true
+  fi
   for _key in "${_warehouse_host_port_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define host-published port override ${_key}"
@@ -1181,7 +1163,31 @@ fi
 # --- COMPOSE_PROFILES service-list integrity ---
 _profile_tags_file="$(mktemp)"
 while IFS= read -r -d '' _compose_file; do
-  sed -nE 's/^[[:space:]]*profiles:[[:space:]]*\["([^"]+)"\].*/\1/p' "${_compose_file}"
+  awk '
+    /^[[:space:]]*profiles:[[:space:]]*\[/ {
+      line = $0
+      while (match(line, /"[^"]+"/)) {
+        print substr(line, RSTART + 1, RLENGTH - 2)
+        line = substr(line, RSTART + RLENGTH)
+      }
+      next
+    }
+    /^[[:space:]]*profiles:[[:space:]]*$/ {
+      in_profiles = 1
+      next
+    }
+    in_profiles && /^[[:space:]]*-[[:space:]]*/ {
+      line = $0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      sub(/[[:space:]]*#.*/, "", line)
+      gsub(/^"|"$/, "", line)
+      if (line != "") print line
+      next
+    }
+    in_profiles && $0 !~ /^[[:space:]]*($|#)/ {
+      in_profiles = 0
+    }
+  ' "${_compose_file}"
 done < <(find "${REPO_ROOT}/deploy/docker" -type f \( -name '*.yml' -o -name '*.yaml' \) ! -path '*/services/nim/*' -print0) | sort -u > "${_profile_tags_file}"
 
 load_compose_env_values() {
