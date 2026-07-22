@@ -288,16 +288,46 @@ def push_event_changed_files() -> set[str]:
     return filenames
 
 
-def launchable_notebook_changed() -> bool:
-    """Return true when this run's VSS changes touch the launchable notebook."""
+# Changes that cannot affect the built blueprint (services/ + deploy/), so the
+# downstream blueprint pipeline would only re-eval identical inputs. Fail OPEN:
+# run the eval on anything not clearly in this set, so a real change is never
+# skipped.
+_IRRELEVANT_PREFIXES = (".github/", "docs/")
+_IRRELEVANT_SUFFIXES = (".md", ".rst", ".txt")
+_IRRELEVANT_EXACT = frozenset({".pre-commit-config.yaml", "LICENSE", "NOTICE", ".gitignore"})
+
+
+def run_changed_files() -> set[str]:
+    """Changed filenames for this run (PR synthetic branch or push); empty if unknown."""
     ref_name = os.environ.get("GITHUB_REF_NAME", "").strip()
     pr_match = re.fullmatch(r"pull-request/(\d+)", ref_name)
     if pr_match:
-        pr_number = int(pr_match.group(1))
         repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
         token = os.environ.get("GITHUB_TOKEN", "").strip()
-        return LAUNCHABLE_NOTEBOOK_PATH in fetch_pr_changed_files(repo, pr_number, token)
-    return LAUNCHABLE_NOTEBOOK_PATH in push_event_changed_files()
+        if repo and token:
+            return fetch_pr_changed_files(repo, int(pr_match.group(1)), token)
+        return set()
+    return push_event_changed_files()
+
+
+def downstream_relevant(changed: set[str]) -> bool:
+    """True unless EVERY changed file clearly cannot affect the built blueprint."""
+    if not changed:  # undeterminable -> run (fail open)
+        return True
+
+    def irrelevant(path: str) -> bool:
+        return (
+            path.startswith(_IRRELEVANT_PREFIXES)
+            or path.endswith(_IRRELEVANT_SUFFIXES)
+            or path in _IRRELEVANT_EXACT
+        )
+
+    return any(not irrelevant(path) for path in changed)
+
+
+def launchable_notebook_changed(changed: set[str]) -> bool:
+    """Return true when this run's VSS changes touch the launchable notebook."""
+    return LAUNCHABLE_NOTEBOOK_PATH in changed
 
 
 def resolve_branches() -> tuple[str, str]:
@@ -365,8 +395,24 @@ def main() -> int:
             add_mask(segment)
 
         target_branch, compare_branch = resolve_branches()
+
+        # Skip the (hours-long, self-hosted-GPU) downstream eval on PRs whose
+        # changes cannot affect the built blueprint (docs/CI-only). The job
+        # exits 0, so its check goes green without holding a runner or being
+        # reddened by an unrelated downstream failure.
+        changed = run_changed_files()
+        is_pr_run = bool(re.fullmatch(r"pull-request/\d+", os.environ.get("GITHUB_REF_NAME", "").strip()))
+        if is_pr_run and changed and not downstream_relevant(changed):
+            print(
+                "::notice::Skipping downstream pipeline: this change only touches "
+                "docs/CI files (no services/ or deploy/ code), so the blueprint "
+                "eval cannot be affected."
+            )
+            write_summary("Downstream pipeline skipped: docs/CI-only change (no services/ or deploy/ files).")
+            return 0
+
         extra_variables: dict[str, str] = {}
-        if launchable_notebook_changed():
+        if launchable_notebook_changed(changed):
             extra_variables[LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE] = "true"
 
         project_id = fetch_project_id(base_url, token, project_path)
