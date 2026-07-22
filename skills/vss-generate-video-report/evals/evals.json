@@ -3,12 +3,12 @@
       "id": "video-report-routing-mode-a",
       "question": "Which skill should I use to generate a structured report for a recorded video clip?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and explains that recorded video or sensor report requests use Mode A: /vss-manage-video-io-storage to resolve a clip URL, a VLM chat/completions call for analysis, and assets/video-analysis-report.md for the final report. It should mention that /generate is not used.",
+      "ground_truth": "Loads vss-generate-video-report and explains that recorded video or sensor report requests use Mode A: /vss-manage-video-io-storage to resolve a clip URL, a VLM chat/completions call for analysis, and references/report-templates/video-analysis-report.md for the final report. It should mention that /generate is not used.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Identifies Mode A for recorded video clip reports.",
         "Mentions the clip URL plus VLM chat/completions path.",
-        "Mentions assets/video-analysis-report.md as the output template.",
+        "Mentions references/report-templates/video-analysis-report.md as the output template.",
         "States that POST /generate is not the report path."
       ]
     },
@@ -16,12 +16,12 @@
       "id": "video-report-routing-mode-b",
       "question": "Which skill should handle a report on incidents for a sensor between two timestamps?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and explains that incident-range report requests use Mode B: /vss-query-analytics with video_analytics__get_incidents, then assets/incident-range-report.md for the final report. It should note that Mode B does not call the VLM and does not use POST /generate.",
+      "ground_truth": "Loads vss-generate-video-report and explains that incident-range report requests use Mode B: /vss-query-analytics with video_analytics__get_incidents, then references/report-templates/incident-range-report.md for the final report. It should note that Mode B does not call the VLM and does not use POST /generate.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Identifies Mode B for incident range reports.",
         "Mentions /vss-query-analytics and video_analytics__get_incidents.",
-        "Mentions assets/incident-range-report.md as the output template.",
+        "Mentions references/report-templates/incident-range-report.md as the output template.",
         "States that Mode B does not use the VLM chat path or POST /generate."
       ]
     },
@@ -36,6 +36,43 @@
         "Returns a one-line no-incidents report when the result set is empty.",
         "States not to invent incidents.",
         "States not to fall back to Mode A or call the VLM for an empty incident range."
+      ]
+    },
+    {
+      "id": "video-report-hitl-off-policy",
+      "question": "For Mode A report generation, what should happen when video_report_gen.hitl_enabled is false?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and states that video_report_gen.hitl_enabled=false skips prompt-confirmation questions and runs Mode A directly with the default/current prompt before VLM chat/completions.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "Identifies this as the Mode A HITL-off path.",
+        "States that prompt-approval questions are skipped when video_report_gen.hitl_enabled=false.",
+        "States that Mode A proceeds directly to the VLM chat/completions call."
+      ]
+    },
+    {
+      "id": "video-report-hitl-on-policy",
+      "question": "For Mode A report generation, what choices should be offered when video_report_gen.hitl_enabled is true?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and states that video_report_gen.hitl_enabled=true shows the current prompt and asks the user to choose APPROVE, EDIT, or NEW prompt. It should also mention anti-stall handling: do not treat yes/confirm/whitespace as approval and do not wait for empty-string confirmation loops.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "Identifies this as the Mode A HITL-on path.",
+        "Lists APPROVE, EDIT, and NEW prompt choices.",
+        "States that yes/confirm/ok or whitespace are not treated as approval.",
+        "States not to wait for empty-string confirmation or loop indefinitely."
+      ]
+    },
+    {
+      "id": "video-report-hitl-stall-guard",
+      "question": "If the user responds 'yes' after you show the Mode A prompt in HITL on mode, what should you do?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and says 'yes' is ambiguous. The agent should re-prompt once with explicit APPROVE | EDIT | NEW options, then require one explicit option instead of looping or assuming approval.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "Treats 'yes' as ambiguous (not approval).",
+        "Re-prompts once with explicit APPROVE/EDIT/NEW options.",
+        "Avoids infinite confirmation loops or empty-string assumptions."
       ]
     }
   ]

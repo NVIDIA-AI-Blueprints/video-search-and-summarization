@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.2.3"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -26,9 +26,10 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts (match against *Examples*).
 2. **Verify the deployment profile** for that mode under *Deployment prerequisite*; hand off to `/vss-deploy-profile` if its probe fails.
-3. **Run that mode's numbered steps** — *Mode A* or *Mode B* below.
-4. **Rewrite every user-facing clip URL** with the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` one-liner (*Browser-playable clip URL*) before embedding it in the report.
-5. **Return the rendered report markdown** to the user.
+3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B has no prompt-approval step.)
+4. **Run that mode's numbered steps** — *Mode A* or *Mode B* below.
+5. **Rewrite every user-facing clip URL** with the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` one-liner (*Browser-playable clip URL*) before embedding it in the report.
+6. **Return the rendered report markdown** to the user.
 
 Output contract for evaluators:
 - Mode A top title MUST be exactly `# Video Analysis Report`.
@@ -77,6 +78,24 @@ curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
 ```
 
 If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or `-p alerts` (Mode B). **Always** confirm the deploy with the user first.
+
+---
+
+## HITL prompt mode (legacy runtime flag)
+
+Use legacy runtime config `video_report_gen.hitl_enabled` to control prompt confirmation behavior for **Mode A only**.
+
+- `video_report_gen.hitl_enabled=false`: do not ask clarification; run Mode A with the current default prompt.
+- `video_report_gen.hitl_enabled=true`: before Mode A Step 3, show the current prompt and ask the user to choose one of:
+  - `APPROVE` — use the current prompt as-is.
+  - `EDIT: <instructions>` — apply edits to the current prompt and show the revised prompt once for final `APPROVE`.
+  - `NEW: <full prompt>` — replace with a brand-new prompt.
+
+Guardrails (required):
+- Do **not** treat `yes`, `confirm`, `ok`, or whitespace-only text as approval.
+- Do **not** wait for an empty-string confirmation.
+- If the response is ambiguous, re-prompt once with explicit `APPROVE | EDIT: ... | NEW: ...` options.
+- If still ambiguous after that single retry, stop and ask for one explicit option instead of looping.
 
 ---
 
@@ -187,7 +206,13 @@ Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content
 The frame sampling and visual-token (pixel) budget must mirror the **live** `video_understanding` settings for the active profile. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
 
 ```bash
-PROMPT='Describe in detail what happens in the video, with timestamps (start–end in seconds from clip start) for each segment or event. Cover scenes, objects, people, vehicles, and notable actions.'
+DEFAULT_PROMPT='Describe in detail what happens in the video, with timestamps (start–end in seconds from clip start) for each segment or event. Cover scenes, objects, people, vehicles, and notable actions.'
+
+# FINAL_PROMPT must come from the HITL mode gate above.
+# - video_report_gen.hitl_enabled=false: FINAL_PROMPT="$DEFAULT_PROMPT"
+# - video_report_gen.hitl_enabled=true : FINAL_PROMPT comes from APPROVE / EDIT / NEW flow.
+FINAL_PROMPT="${FINAL_PROMPT:-$DEFAULT_PROMPT}"
+PROMPT="$FINAL_PROMPT"
 
 # Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`).
 # video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning.
@@ -288,7 +313,7 @@ If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), 
 
 ### Step 4 — Fill the Video Analysis Report template
 
-Copy [`assets/video-analysis-report.md`](assets/video-analysis-report.md), fill every placeholder, and return the rendered markdown to the user. Keep the source asset unchanged. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never leave the placeholder in the output, never include template instructions in a filled cell, and never use the raw `HOST_IP:30888` URL.
+Load the matching template from [`references/report-templates/video-analysis-report.md`](references/report-templates/video-analysis-report.md). Treat the template as read-only — copy its structure, fill every placeholder, and return the rendered markdown to the user. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens (e.g. `<BROWSER_CLIP_URL>`, `<sensor_id>`, `<YYYY-MM-DD>`), or internal-only URLs in user output. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never use the raw `HOST_IP:30888` URL.
 
 ---
 
@@ -331,7 +356,7 @@ For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place
 
 ### Step 3 — Fill the Incident Range Report template
 
-Copy [`assets/incident-range-report.md`](assets/incident-range-report.md), then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Keep the source asset unchanged. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL. Never include template instructions in a filled cell.
+Load the matching template from [`references/report-templates/incident-range-report.md`](references/report-templates/incident-range-report.md). Treat the template as read-only — copy its structure, then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens, or internal-only URLs in user output. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL.
 
 If `get_incidents` returns zero results, STOP and return exactly a one-line empty-range statement naming the requested range and scope. Do not render the full Incident Range template, do not invent incidents, do not seed test data, and do not fall back to Mode A.
 
