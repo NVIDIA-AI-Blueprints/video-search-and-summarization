@@ -23,6 +23,7 @@ Mitigation: Review and scan skill before deployment. <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [Video Analysis Report Template](references/report-templates/video-analysis-report.md) <br>
 - [Incident Range Report Template](references/report-templates/incident-range-report.md) <br>
+- [Default VLM Prompt](references/default-vlm-prompt.md) <br>
 
 
 ## Skill Output: <br>
@@ -69,7 +70,7 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 3 | 26% (-0%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
-3.2.3 (source: frontmatter) <br>
+3.2.9 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

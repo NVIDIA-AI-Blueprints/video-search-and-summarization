@@ -42,7 +42,7 @@
       "id": "video-report-hitl-off-policy",
       "question": "For Mode A report generation, what should happen when video_report_gen.hitl_enabled is false?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and states that video_report_gen.hitl_enabled=false skips prompt-confirmation questions and runs Mode A directly with the default/current prompt before VLM chat/completions.",
+      "ground_truth": "Loads vss-generate-video-report and states that resolved HITL=false skips prompt-confirmation questions and runs Mode A directly with the default/current prompt before VLM chat/completions. Runtime video_report_gen.hitl_enabled is preferred; HITL_ENABLED is fallback only when runtime config is unavailable.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Identifies this as the Mode A HITL-off path.",
@@ -54,25 +54,102 @@
       "id": "video-report-hitl-on-policy",
       "question": "For Mode A report generation, what choices should be offered when video_report_gen.hitl_enabled is true?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and states that video_report_gen.hitl_enabled=true shows the current prompt and asks the user to choose APPROVE, EDIT, or NEW prompt. It should also mention anti-stall handling: do not treat yes/confirm/whitespace as approval and do not wait for empty-string confirmation loops.",
+      "ground_truth": "Loads vss-generate-video-report and states that resolved HITL=true shows the current prompt and asks the user to choose APPROVE, EDIT, or NEW prompt. After every EDIT or NEW, it must show the same three options again and continue looping until explicit APPROVE. It should also mention anti-stall handling: do not treat yes/confirm/whitespace as approval and do not wait for empty-string confirmation loops.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Identifies this as the Mode A HITL-on path.",
         "Lists APPROVE, EDIT, and NEW prompt choices.",
+        "States the same APPROVE/EDIT/NEW options are re-shown after every EDIT or NEW until APPROVE.",
+        "States that report generation starts only after explicit APPROVE.",
         "States that yes/confirm/ok or whitespace are not treated as approval.",
         "States not to wait for empty-string confirmation or loop indefinitely."
+      ]
+    },
+    {
+      "id": "video-report-hitl-harness-fallback",
+      "question": "If runtime video_report_gen.hitl_enabled cannot be read, how should HITL mode be resolved?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and states HITL resolution is runtime-first, then harness fallback HITL_ENABLED=true/false when runtime config is unavailable, then default false when neither source is set.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "Prefers runtime video_report_gen.hitl_enabled when available.",
+        "Uses HITL_ENABLED=true/false only as fallback when runtime config is unavailable.",
+        "Defaults to false when neither runtime nor fallback is set.",
+        "Notes on first report generation that HITL defaulted off and HITL_ENABLED=true enables it.",
+        "Maps resolved true/false to the same Mode A HITL behaviors."
       ]
     },
     {
       "id": "video-report-hitl-stall-guard",
       "question": "If the user responds 'yes' after you show the Mode A prompt in HITL on mode, what should you do?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and says 'yes' is ambiguous. The agent should re-prompt once with explicit APPROVE | EDIT | NEW options, then require one explicit option instead of looping or assuming approval.",
+      "ground_truth": "Loads vss-generate-video-report and says 'yes' is ambiguous. The agent should re-prompt with explicit APPROVE | EDIT | NEW options and continue the HITL loop until explicit APPROVE, without assuming approval.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Treats 'yes' as ambiguous (not approval).",
-        "Re-prompts once with explicit APPROVE/EDIT/NEW options.",
-        "Avoids infinite confirmation loops or empty-string assumptions."
+        "Re-prompts with explicit APPROVE/EDIT/NEW options.",
+        "Continues HITL until explicit APPROVE before report generation.",
+        "Avoids empty-string approval assumptions."
+      ]
+    },
+    {
+      "id": "video-report-hitl-multi-edit-loop",
+      "question": "In HITL-on mode, if the user edits the prompt multiple times, when should report generation start?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and states that each EDIT/NEW updates the working prompt, then the same APPROVE/EDIT/NEW menu is shown again. Report generation starts only when the user explicitly says APPROVE, using the latest edited prompt.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "States users can EDIT/NEW multiple times.",
+        "States the same APPROVE/EDIT/NEW options repeat each round.",
+        "States report generation starts only on explicit APPROVE.",
+        "States the latest edited prompt is used."
+      ]
+    },
+    {
+      "id": "video-report-profile-agnostic-mode-a",
+      "question": "Does Mode A require a specific VSS profile before report generation?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and explains Mode A is profile-agnostic: it can run via VST clip URL + VLM or via local video file/base64 + explicit VLM endpoint. It should not claim base profile is always mandatory.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "States Mode A is profile-agnostic.",
+        "Mentions both Mode A paths: VST clip URL path and local-file/base64 plus endpoint path.",
+        "Avoids claiming base profile is always required."
+      ]
+    },
+    {
+      "id": "video-report-local-or-base64-path",
+      "question": "If I provide either a local video file path on disk or a base64 video payload and a VLM endpoint, how should Mode A run?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and explains Mode A path A2 accepts either a local video file on disk or base64 video, then calls the provided VLM endpoint/model without requiring VST.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "Identifies Mode A path A2 for local-file/base64 input.",
+        "States that VST is not required for local-file/base64 plus endpoint path.",
+        "States that VLM endpoint and model must be explicit or discovered."
+      ]
+    },
+    {
+      "id": "video-report-long-video-lvs-handoff",
+      "question": "If the input video is longer than 2 minutes, what should the report skill do?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and states direct Mode A VLM should stop for videos over 120 seconds and prompt the user to deploy/use LVS via /vss-deploy-profile and /vss-summarize-video.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "States >120s videos should not continue on direct Mode A VLM path.",
+        "Prompts user to deploy/use LVS for long videos."
+      ]
+    },
+    {
+      "id": "video-report-vlm-unclear-options",
+      "question": "When VLM/deployment is unclear and no default is selected, what options should the user get?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and offers exactly three options: provide endpoint, suggest options from auto-discovery, or deploy a local VLM.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "Offers provide endpoint option.",
+        "Offers auto-discover based suggestion option.",
+        "Offers deploy local VLM option."
       ]
     }
   ]
