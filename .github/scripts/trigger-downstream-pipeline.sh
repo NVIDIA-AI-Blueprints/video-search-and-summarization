@@ -6,6 +6,7 @@ import re
 import socket
 import ssl
 import sys
+import time
 from typing import Any
 from urllib.error import ContentTooShortError
 from urllib.error import HTTPError
@@ -96,34 +97,62 @@ def request_json(
             headers["Content-Type"] = "application/x-www-form-urlencoded"
 
     request = Request(url, data=data, headers=headers)
-    try:
-        with urlopen(request) as response:
-            payload = response.read().decode("utf-8")
-    except HTTPError as exc:
-        # Extract just the "message" / "error" field from the JSON body
-        # (GitLab convention). We do NOT include the raw body because it
-        # sometimes echoes the full request URL, which is a secret. The
-        # message field itself is safe - typically "Reference not found",
-        # "Missing CI config file", "insufficient_scope", etc.
-        reason = ""
+    # Retry transient failures (connection errors, HTTP 429/5xx) with exponential
+    # backoff. A single network blip or GitLab hiccup would otherwise fail the
+    # whole job outright; on the downstream side that burns a held runner slot
+    # and forces a full re-trigger, so a couple of cheap retries pay for
+    # themselves. Non-transient errors (4xx) still fail fast.
+    retryable_status = frozenset({429, 500, 502, 503, 504})
+    max_attempts = 4
+    for attempt in range(1, max_attempts + 1):
         try:
-            body = exc.read().decode("utf-8", errors="replace")
-            body_json = json.loads(body) if body else {}
-            if isinstance(body_json, dict):
-                msg = body_json.get("message") or body_json.get("error")
-                if isinstance(msg, str):
-                    reason = msg
-                elif isinstance(msg, dict):
-                    # GitLab sometimes returns a dict of field: [errors]
-                    reason = ", ".join(f"{k}: {v}" for k, v in msg.items())
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            pass
-        suffix = f": {reason}" if reason else ""
-        emit_error(f"{action} failed with status {exc.code}{suffix}")
-        raise SystemExit(1) from exc
-    except (URLError, ContentTooShortError) as exc:
-        emit_error(f"{action} failed due to a connection error: {connection_error_detail(exc)}")
-        raise SystemExit(1) from exc
+            with urlopen(request) as response:
+                payload = response.read().decode("utf-8")
+            break
+        except HTTPError as exc:
+            if exc.code in retryable_status and attempt < max_attempts:
+                delay = 2 * 2 ** (attempt - 1)
+                print(
+                    f"::warning::{action} attempt {attempt}/{max_attempts} failed "
+                    f"with status {exc.code}; retrying in {delay}s",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+                continue
+            # Extract just the "message" / "error" field from the JSON body
+            # (GitLab convention). We do NOT include the raw body because it
+            # sometimes echoes the full request URL, which is a secret. The
+            # message field itself is safe - typically "Reference not found",
+            # "Missing CI config file", "insufficient_scope", etc.
+            reason = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")
+                body_json = json.loads(body) if body else {}
+                if isinstance(body_json, dict):
+                    msg = body_json.get("message") or body_json.get("error")
+                    if isinstance(msg, str):
+                        reason = msg
+                    elif isinstance(msg, dict):
+                        # GitLab sometimes returns a dict of field: [errors]
+                        reason = ", ".join(f"{k}: {v}" for k, v in msg.items())
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                pass
+            suffix = f": {reason}" if reason else ""
+            emit_error(f"{action} failed with status {exc.code}{suffix}")
+            raise SystemExit(1) from exc
+        except (URLError, ContentTooShortError) as exc:
+            if attempt < max_attempts:
+                delay = 2 * 2 ** (attempt - 1)
+                print(
+                    f"::warning::{action} attempt {attempt}/{max_attempts} failed due "
+                    f"to a connection error ({connection_error_detail(exc)}); "
+                    f"retrying in {delay}s",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+                continue
+            emit_error(f"{action} failed due to a connection error: {connection_error_detail(exc)}")
+            raise SystemExit(1) from exc
 
     try:
         parsed = json.loads(payload)
