@@ -247,6 +247,7 @@ def run_prometheus(
             "upstream": "alert_bridge_upstream_duration_by_sensor_seconds",
             "kafka_lag": "alert_bridge_kafka_lag_duration_by_sensor_seconds",
             "queue_wait": "alert_bridge_worker_queue_wait_duration_by_sensor_seconds",
+            "start_wait": "alert_bridge_worker_start_wait_duration_by_sensor_seconds",
             "vst": "alert_bridge_vst_duration_by_sensor_seconds",
             "video_len": "alert_bridge_video_length_by_sensor_seconds",
             "vlm": "alert_bridge_vlm_duration_by_sensor_seconds",
@@ -265,6 +266,7 @@ def run_prometheus(
             "upstream": "alert_bridge_upstream_duration_seconds",
             "kafka_lag": "alert_bridge_kafka_lag_duration_seconds",
             "queue_wait": "alert_bridge_worker_queue_wait_duration_seconds",
+            "start_wait": "alert_bridge_worker_start_wait_duration_seconds",
             "vst": "alert_bridge_vst_duration_seconds",
             "video_len": "alert_bridge_video_length_seconds",
             "vlm": "alert_bridge_vlm_duration_seconds",
@@ -286,6 +288,7 @@ def run_prometheus(
         upstream = prom_fetch_row(base_url, histogram_metrics["upstream"], window, sensor_filter)
         kafka_lag = prom_fetch_row(base_url, histogram_metrics["kafka_lag"], window, sensor_filter)
         queue_wait = prom_fetch_row(base_url, histogram_metrics["queue_wait"], window, sensor_filter)
+        start_wait = prom_fetch_row(base_url, histogram_metrics["start_wait"], window, sensor_filter)
         vst = prom_fetch_row(base_url, histogram_metrics["vst"], window, sensor_filter)
         video_len = prom_fetch_row(base_url, histogram_metrics["video_len"], window, sensor_filter)
         vlm = prom_fetch_row(base_url, histogram_metrics["vlm"], window, sensor_filter)
@@ -495,6 +498,7 @@ def run_prometheus(
         ("Upstream (CV+Analytics)", upstream),
         ("Kafka Consumer Lag", kafka_lag),
         ("Worker Queue Wait", queue_wait),
+        ("Worker Start Wait", start_wait),
         ("VST Fetch", vst),
         ("Video Clip Length", video_len),
         ("VLM Inference", vlm),
@@ -503,7 +507,7 @@ def run_prometheus(
     ]
     print("-" * W)
     for idx, (name, row) in enumerate(prom_rows):
-        if idx in (3, 7):
+        if idx in (4, 8):
             print("-" * W)
         print_prom_row(name, *row)
     print("=" * W)
@@ -1271,6 +1275,10 @@ def main() -> None:
             w.writerow(["Section", "Metric", "Avg", "p50", "p90", "p99", "Max", "Count"])
             w.writerows(csv_rows)
         print(f"  CSV: {args.csv_file}")
+
+    print()
+    print("  E2E = Upstream + Kafka Lag + Worker Queue Wait + Worker Start Wait + Worker Processing.")
+    print("  Worker Processing = VST Fetch + VLM attempt(s) + other processing/sink time.")
 
     if not (prom_ok and es_ok):
         # CI / operator tooling needs a visible signal when any section

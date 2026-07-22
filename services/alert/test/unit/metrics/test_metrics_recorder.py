@@ -36,6 +36,7 @@ import importlib
 import os
 import sys
 import time
+from datetime import datetime, timezone
 
 import pytest
 
@@ -298,6 +299,25 @@ class TestEnabledMode:
         # and the caller's dict must remain unchanged.
         assert latency["timestamps"]["elasticReadyAt"] == "2025-01-02T03:04:08Z"
         assert E2E_DURATION._sum.get() == pytest.approx(e2e_before + 8.0)
+
+    def test_record_event_complete_observes_worker_start_wait(self, enabled_recorder):
+        from metrics.prometheus_metrics import WORKER_START_WAIT_DURATION
+
+        worker_start_time = time.time()
+        worker_assigned_at = datetime.fromtimestamp(
+            worker_start_time - 2.0, tz=timezone.utc
+        ).isoformat()
+        before = WORKER_START_WAIT_DURATION._sum.get()
+
+        enabled_recorder.record_event_complete(
+            worker_start_time=worker_start_time,
+            message={"info": {"verdict": "confirmed"}},
+            latency={"timestamps": {"workerAssignedAt": worker_assigned_at}},
+        )
+
+        assert WORKER_START_WAIT_DURATION._sum.get() == pytest.approx(
+            before + 2.0
+        )
 
     def test_record_event_complete_increments_events_total(self, enabled_recorder):
         from metrics.prometheus_metrics import EVENTS_TOTAL
@@ -834,18 +854,34 @@ class TestEnabledMode:
     def test_per_sensor_worker_processing_histogram_increments_when_flag_on(self, enabled_recorder):
         try:
             enabled_recorder.set_per_sensor_labels(True)
-            from metrics.prometheus_metrics import WORKER_PROCESSING_DURATION_BY_SENSOR
-            before = WORKER_PROCESSING_DURATION_BY_SENSOR.labels(sensorId="cam-worker")._sum.get()
+            from metrics.prometheus_metrics import (
+                WORKER_PROCESSING_DURATION_BY_SENSOR,
+                WORKER_START_WAIT_DURATION_BY_SENSOR,
+            )
+            processing_before = WORKER_PROCESSING_DURATION_BY_SENSOR.labels(
+                sensorId="cam-worker"
+            )._sum.get()
+            start_wait_before = WORKER_START_WAIT_DURATION_BY_SENSOR.labels(
+                sensorId="cam-worker"
+            )._sum.get()
+            worker_start_time = time.time() - 1.0
+            worker_assigned_at = datetime.fromtimestamp(
+                worker_start_time - 2.0, tz=timezone.utc
+            ).isoformat()
 
             enabled_recorder.record_event_complete(
-                worker_start_time=time.time() - 1.0,
+                worker_start_time=worker_start_time,
                 message={"sensorId": "cam-worker", "info": {"verdict": "confirmed"}},
-                latency={},
+                latency={"timestamps": {"workerAssignedAt": worker_assigned_at}},
             )
 
             assert (
                 WORKER_PROCESSING_DURATION_BY_SENSOR.labels(sensorId="cam-worker")._sum.get()
-                > before
+                > processing_before
+            )
+            assert (
+                WORKER_START_WAIT_DURATION_BY_SENSOR.labels(sensorId="cam-worker")._sum.get()
+                == pytest.approx(start_wait_before + 2.0)
             )
         finally:
             enabled_recorder.set_per_sensor_labels(False)

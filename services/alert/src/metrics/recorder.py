@@ -94,6 +94,8 @@ if PROMETHEUS_ENABLED:
         WORKER_PROCESSING_DURATION_BY_SENSOR,
         WORKER_QUEUE_WAIT_DURATION,
         WORKER_QUEUE_WAIT_DURATION_BY_SENSOR,
+        WORKER_START_WAIT_DURATION,
+        WORKER_START_WAIT_DURATION_BY_SENSOR,
     )
 
 
@@ -133,8 +135,8 @@ def per_sensor_labels_enabled() -> bool:
 _SENSOR_ID_MAX_LEN = 128
 
 # Hard cap on the number of distinct sensorId label values this process
-# will ever mint. Each new distinct ID adds ~80 Prometheus series
-# (8 histograms × ~10 buckets each); at the default cap of 128 sensors
+# will ever mint. Each new distinct ID adds ~90 Prometheus series
+# (9 histograms × ~10 buckets each); at the default cap of 128 sensors
 # the per-sensor surface is ~10k series — right at the guideline budget.
 # Once the cap is reached every new unseen ID folds to "unknown_overflow"
 # so excess traffic remains visible without growing the registry further.
@@ -554,6 +556,22 @@ def record_event_complete(
     }
 
     observe_pipeline_latency(message, latency_for_obs)
+    worker_assigned_at = (
+        existing_timestamps.get("workerAssignedAt")
+        or existing_timestamps.get("worker_assigned_at")
+    )
+    worker_started_at = datetime.fromtimestamp(
+        worker_start_time, tz=timezone.utc
+    ).isoformat()
+    worker_start_wait_duration = iso_delta_seconds(
+        worker_assigned_at, worker_started_at
+    )
+    _observe(WORKER_START_WAIT_DURATION, worker_start_wait_duration)
+    _observe_by_sensor(
+        WORKER_START_WAIT_DURATION_BY_SENSOR,
+        worker_start_wait_duration,
+        message.get("sensorId"),
+    )
     worker_processing_duration = time.time() - worker_start_time
     _observe(WORKER_PROCESSING_DURATION, worker_processing_duration)
     _observe_by_sensor(

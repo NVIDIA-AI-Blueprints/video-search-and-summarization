@@ -24,6 +24,7 @@ from prometheus_client import Counter, Gauge, Histogram
 UPSTREAM_DURATION_BUCKETS = [0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 30.0, 60.0]
 KAFKA_LAG_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
 WORKER_QUEUE_WAIT_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+WORKER_START_WAIT_BUCKETS = [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
 VST_DURATION_BUCKETS = [0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
 VIDEO_LENGTH_BUCKETS = [1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 30.0, 60.0]
 VLM_DURATION_BUCKETS = [0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 30.0]
@@ -53,6 +54,14 @@ WORKER_QUEUE_WAIT_DURATION = Histogram(
     buckets=WORKER_QUEUE_WAIT_BUCKETS,
 )
 
+# Worker start wait: time after scheduler assignment until per-event processing starts.
+# Includes sub-batch head-of-line blocking, pre-processing, and async dispatch backlog.
+WORKER_START_WAIT_DURATION = Histogram(
+    'alert_bridge_worker_start_wait_duration_seconds',
+    'Time from worker assignment to per-event processing start',
+    buckets=WORKER_START_WAIT_BUCKETS,
+)
+
 # VST video fetch latency
 VST_DURATION = Histogram(
     'alert_bridge_vst_duration_seconds',
@@ -75,10 +84,10 @@ VLM_DURATION = Histogram(
     buckets=VLM_DURATION_BUCKETS,
 )
 
-# Total worker processing time (worker_assigned to elastic_ready)
+# Total worker processing time (per-event processing start to elastic_ready)
 WORKER_PROCESSING_DURATION = Histogram(
     'alert_bridge_worker_processing_seconds',
-    'Total time worker spent processing an event (worker_assigned → elastic_ready)',
+    'Total time spent processing an event (processing start → elastic_ready)',
     buckets=WORKER_PROCESSING_BUCKETS,
 )
 
@@ -136,6 +145,13 @@ WORKER_QUEUE_WAIT_DURATION_BY_SENSOR = Histogram(
     'Time from Kafka consume to worker assignment, broken down by sensor',
     ['sensorId'],
     buckets=WORKER_QUEUE_WAIT_BUCKETS,
+)
+
+WORKER_START_WAIT_DURATION_BY_SENSOR = Histogram(
+    'alert_bridge_worker_start_wait_duration_by_sensor_seconds',
+    'Time from worker assignment to per-event processing start, broken down by sensor',
+    ['sensorId'],
+    buckets=WORKER_START_WAIT_BUCKETS,
 )
 
 VST_DURATION_BY_SENSOR = Histogram(
