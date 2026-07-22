@@ -28,7 +28,7 @@ If `resolved.yml` does not exist, return to `SKILL.md` Step 3 and run the compos
 | Symptom | Grep / check | Likely cause | Corrective action |
 |---|---|---|---|
 | REST call / endpoint returns connection refused | `curl -sf http://<host>:<port>/docs` or `/health`; `docker compose ps` | Target microservice is not running — crashed, never started, or wrong port. | Probe `/docs` or `/health`; if down, check the container logs, then redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill. |
-| `resolved.yml` contains `${...}` | `grep -n '\${' "$REPO/deploy/docker/resolved.yml"` | Compose did not see required env values such as `BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`, or `VLM_MODE`. This can cause every profile's services to deploy. | Fix the missing values in the profile `generated.env`, regenerate `resolved.yml`, re-run the grep check, then deploy. Full procedure under "Unexpanded `${...}`" below. |
+| `resolved.yml` contains `${...}` | `grep -n '\${' "$REPO/deploy/docker/resolved.yml"` | Compose did not see required env values such as the selected `COMPOSE_PROFILES_WH_*` list or the `LLM_MODE` / `VLM_MODE` model selectors. This can leave the deployment empty or omit the selected NIM. | Fix the missing values in the profile `generated.env`, regenerate `resolved.yml`, re-run the grep check, then deploy. Full procedure under "Unexpanded `${...}`" below. |
 | `docker compose up` says no `resolved.yml` | `test -f "$REPO/deploy/docker/resolved.yml"` | The dry-run step was skipped. | Run `docker compose --env-file "$ENV_SRC" --env-file "$ENV_GEN" config > "$REPO/deploy/docker/resolved.yml"` first. |
 | NIM container is up but `/generate` or model calls time out | `docker logs <nim-container> --tail 200` and `curl -sf http://<host>:<port>/v1/models` | NIM cold start or model still loading. | Keep polling `/v1/models` or the service health endpoint before retrying the agent request. Do not restart a loading NIM unless logs show a hard failure. |
 | `CUDA out of memory` | Search `docker logs <container> 2>&1` for `out of memory`. | LLM, VLM, RT-VLM, or embedding service is too large for the selected GPU placement. | Follow the profile sizing reference. Typical fixes are lowering `NIM_KVCACHE_PERCENT`, lowering `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, lowering max model length / max sequences, reducing streams, switching one side to remote mode with user approval, or freeing GPUs via `docker compose down`. |
@@ -69,7 +69,7 @@ fi
 ```
 
 If this check fails, re-apply the Step 2 env overrides directly to
-the `.env` file at the path above, regenerate `resolved.yml` (Step 3),
+the active `generated.env` file, regenerate `resolved.yml` (Step 3),
 and re-run this check before continuing.
 
 ## NIM endpoint probes

@@ -830,12 +830,11 @@ Validates that a variable's value exactly matches one of the allowed values:
 Validates that a variable's value matches at least one wildcard pattern:
 
 ```yaml
-- variable: COMPOSE_PROFILES
+- variable: SAMPLE_VIDEO_DATASET
   allowed_patterns:
-    - "bp_wh_kafka*"
-    - "playback_kafka*"
-    - "bp_wh*"
-  error_message: "COMPOSE_PROFILES must match an allowed pattern"
+    - "warehouse-*"
+    - "nv-warehouse-*"
+  error_message: "SAMPLE_VIDEO_DATASET must match an allowed warehouse dataset pattern"
 ```
 
 **Supported Wildcards**:
@@ -843,7 +842,7 @@ Validates that a variable's value matches at least one wildcard pattern:
 - `?`: Matches any single character
 
 **Examples**:
-- Pattern `bp_wh*` matches: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, etc.
+- Pattern `warehouse-*` matches: `warehouse-loading-dock`, `warehouse-4cams`, etc.
 - Pattern `video?.mp4` matches: `video1.mp4`, `videoA.mp4`, but not `video10.mp4`
 
 #### 3. Regular Expression (Regex Match)
@@ -906,19 +905,17 @@ Validates that a variable's value does NOT match any of the disallowed wildcard 
 You can apply validation rules only when certain conditions are met using the `condition` field:
 
 ```yaml
-- variable: COMPOSE_PROFILES
+- variable: BP_PROFILE
   condition:
     variable: STREAM_TYPE
     equals: "redis"
-  allowed_patterns:
-    - "bp_wh_kafka*"
-    - "playback_kafka*"
-    - "bp_wh*"
-  error_message: "When STREAM_TYPE=redis, COMPOSE_PROFILES must match allowed patterns"
+  allowed_values:
+    - "bp_wh_redis"
+  error_message: "When STREAM_TYPE=redis, BP_PROFILE must be bp_wh_redis"
 ```
 
 **What this means**:
-- The validation for `COMPOSE_PROFILES` only runs if `STREAM_TYPE` equals `"redis"`
+- The validation for `BP_PROFILE` only runs if `STREAM_TYPE` equals `"redis"`
 - If `STREAM_TYPE` has any other value (or is not set), this validation is skipped
 
 ### Condition Operators
@@ -1037,7 +1034,7 @@ A common use case is validating a variable when multiple conditions are met, wit
 # When SAMPLE_VIDEO_DATASET=warehouse-4cams, validate:
 # - MODE must be 3d
 # - NUM_STREAMS must be 4
-# - COMPOSE_PROFILES must match kafka OR redis pattern
+# - BP_PROFILE must select the Kafka or Redis warehouse variant
 - variable: SAMPLE_VIDEO_DATASET
   when_equals: "warehouse-4cams-20mx20m-synthetic"
   validate_conditions:
@@ -1171,7 +1168,7 @@ commons:
 
 **Example - Using `when_equals`**:
 ```yaml
-# When SAMPLE_VIDEO_DATASET=nv-warehouse-4cams, validate MODE, NUM_STREAMS, and COMPOSE_PROFILES
+# When SAMPLE_VIDEO_DATASET=nv-warehouse-4cams, validate MODE, NUM_STREAMS, and BP_PROFILE
 - variable: SAMPLE_VIDEO_DATASET
   when_equals: "nv-warehouse-4cams"
   validate_conditions:
@@ -1253,16 +1250,14 @@ commons:
 commons:
   variable_validation:
     2d:
-      - variable: COMPOSE_PROFILES
+      - variable: BP_PROFILE
         required: false
         condition:
           variable: STREAM_TYPE
           equals: "redis"
-        allowed_patterns:
-          - "bp_wh_kafka*"
-          - "playback_kafka*"
-          - "bp_wh*"
-        error_message: "When STREAM_TYPE=redis, COMPOSE_PROFILES must match allowed patterns"
+        allowed_values:
+          - "bp_wh_redis"
+        error_message: "When STREAM_TYPE=redis, BP_PROFILE must be bp_wh_redis"
 ```
 
 #### Example 3: Multiple Validations with Different Conditions
@@ -1352,7 +1347,7 @@ When validation fails:
 **Example Log Output**:
 ```
 ERROR - Validation failed: NIM must be one of: none, local, remote
-ERROR - Validation failed: When STREAM_TYPE=redis, COMPOSE_PROFILES must match allowed patterns
+ERROR - Validation failed: When STREAM_TYPE=redis, BP_PROFILE must be bp_wh_redis
 ERROR - Variable validation completed with 2 error(s)
 ```
 

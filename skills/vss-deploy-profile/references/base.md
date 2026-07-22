@@ -6,7 +6,7 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 
 ## Services Deployed
 
-Profile `bp_developer_base_2d` activates only the services below. Elasticsearch, Kafka, and VST MCP are **not** part of `base` — they ship with `search`, `lvs`, and `alerts` (see those profile references). If you see `VST_MCP_URL` / `VSS_VA_MCP_PORT` warnings during `docker compose config`, that's expected on `base` and not an error.
+The `base` service list activates only the services below. Elasticsearch, Kafka, and VST MCP are **not** part of `base` — they ship with `search`, `lvs`, and `alerts` (see those profile references). If you see `VST_MCP_URL` / `VSS_VA_MCP_PORT` warnings during `docker compose config`, that's expected on `base` and not an error.
 
 Container names below are exactly what `docker ps` reports (sourced from the `container_name:` keys in `deploy/docker/services/**/compose.yml`). LLM/VLM NIM containers are named after the selected model — the row shows the **default**; swapping `LLM_NAME_SLUG` / `VLM_NAME_SLUG` in `generated.env` selects a different per-model compose with its own `container_name`.
 
@@ -428,7 +428,7 @@ COMPOSE_PROFILES=phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb
 
 Example resolved value:
 ```
-bp_developer_base_2d,bp_developer_base_2d_DGX-SPARK,llm_remote_none,vlm_local_shared_cosmos3-reasoner
+phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_remote_none,vlm_local_shared_cosmos3-reasoner
 ```
 
 The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automatically.
