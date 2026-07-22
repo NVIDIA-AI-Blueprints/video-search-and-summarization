@@ -19,15 +19,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from vss_agents.agents.critic_agent import CriticAgentConfig
-from vss_agents.agents.critic_agent import CriticAgentInput
-from vss_agents.agents.critic_agent import CriticAgentOutput
-from vss_agents.agents.critic_agent import CriticAgentResult
-from vss_agents.agents.critic_agent import VideoInfo
-from vss_agents.agents.critic_agent import VideoResult
-from vss_agents.agents.critic_agent import critic_agent
-from vss_agents.agents.critic_agent import get_json_from_string
-from vss_agents.tools.search import CriticResult
+from agent.agents.critic_agent import CriticAgentConfig
+from agent.agents.critic_agent import CriticAgentInput
+from agent.agents.critic_agent import CriticAgentOutput
+from agent.agents.critic_agent import CriticAgentResult
+from agent.agents.critic_agent import VideoInfo
+from agent.agents.critic_agent import VideoResult
+from agent.agents.critic_agent import critic_agent
+from agent.agents.critic_agent import get_json_from_string
+from agent.tools.search import CriticResult
 
 # ---------------------------------------------------------------------------
 # Fixtures

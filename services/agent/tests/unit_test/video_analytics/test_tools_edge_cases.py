@@ -19,15 +19,15 @@ from unittest.mock import patch
 
 import pytest
 
-from vss_agents.video_analytics.tools import AnalyzeInput
-from vss_agents.video_analytics.tools import EmptyInput
-from vss_agents.video_analytics.tools import GetSensorIdsInput
-from vss_agents.video_analytics.tools import VideoAnalyticsToolConfig
-from vss_agents.video_analytics.tools import video_analytics
+from agent.video_analytics.tools import AnalyzeInput
+from agent.video_analytics.tools import EmptyInput
+from agent.video_analytics.tools import GetSensorIdsInput
+from agent.video_analytics.tools import VideoAnalyticsToolConfig
+from agent.video_analytics.tools import video_analytics
 
 
 async def _setup(config, mock_builder, mock_es_client):
-    with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+    with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
         gen = video_analytics.__wrapped__(config, mock_builder)
         group = await gen.__anext__()
     fns_dict = await group.get_included_functions()

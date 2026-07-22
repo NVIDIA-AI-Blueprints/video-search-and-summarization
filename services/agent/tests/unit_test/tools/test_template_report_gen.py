@@ -16,8 +16,8 @@
 
 from unittest.mock import MagicMock
 
-from vss_agents.tools.template_report_gen import PDF_CONVERSION_AVAILABLE
-from vss_agents.tools.template_report_gen import _get_object_store_url
+from agent.tools.template_report_gen import PDF_CONVERSION_AVAILABLE
+from agent.tools.template_report_gen import _get_object_store_url
 
 
 class TestGetObjectStoreUrl:
