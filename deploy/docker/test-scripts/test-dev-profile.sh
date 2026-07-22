@@ -707,11 +707,11 @@ set +e
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_compose_env_order}" 2> "${_err_compose_env_order}"
 _compose_env_order_exit=$?
 set -e
-if [[ ${_compose_env_order_exit} -eq 0 ]] && grep -Fq "docker compose --env-file developer-profiles/dev-profile-base/.env --env-file developer-profiles/dev-profile-base/generated.env up" "${_out_compose_env_order}"; then
-  echo "PASS: dry-run compose command passes .env before generated.env"
+if [[ ${_compose_env_order_exit} -eq 0 ]] && grep -Fq "docker compose --env-file containers.env --env-file developer-profiles/dev-profile-base/.env --env-file developer-profiles/dev-profile-base/generated.env up" "${_out_compose_env_order}"; then
+  echo "PASS: dry-run compose command passes container defaults, .env, then generated.env"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: dry-run compose command should pass .env before generated.env"
+  echo "FAIL: dry-run compose command should preserve container, profile, override precedence"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"

@@ -744,6 +744,9 @@ jobs:
     needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
     env:
       NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
     steps:
@@ -768,6 +771,14 @@ jobs:
             || fail "build-time codec guard missing"
           echo "OK: Dockerfile removes bundled codecs and enforces the build-time guard."
 
+      # The committed deploy coordinate may target GHCR or NGC.
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # NGC_CLI_API_KEY lets us pull the published agent image from nvcr.io.
       - name: Log in to NGC
         if: ${{ env.NGC_CLI_API_KEY != '' }}
@@ -782,9 +793,63 @@ jobs:
       # the docker pull would fail. The always-on unit test + Dockerfile assertion
       # above, plus the Dockerfile build-time guard in the gated publish build,
       # keep enforcing the policy when this scan is skipped.
+      # PR mirrors publish only pr-<N>-* candidates; develop-latest is created
+      # after merge, so the committed deploy coordinate is not pullable yet.
       - name: Scan the deployed agent image for patent-encumbered codecs
-        if: ${{ env.NGC_CLI_API_KEY != '' }}
+        if: ${{ env.NGC_CLI_API_KEY != '' && !startsWith(github.ref_name, 'pull-request/') }}
         run: python3 .github/scripts/check_no_patented_codecs.py --from-deploy vss-agent
+
+  # ---------------------------------------------------------------------------
+  # Job 11c: Container coordinates golden test (containers.env SSOT)
+  # Guards the single source of truth for first-party image coordinates:
+  # (1) unit-test the resolver, (2) prove every resolved compose image ref
+  # matches the checked-in golden file, and (3) prove containers.env cannot
+  # drift from the inline compose defaults. Pure Python, no registry access.
+  # ---------------------------------------------------------------------------
+  compose-golden:
+    name: Container Coordinates Golden
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the golden resolver and SSOT-aware name matching
+        run: |
+          python3 .github/scripts/test_compose_image_golden.py
+          python3 .github/scripts/test_helm_release_channel_policy.py
+          python3 .github/scripts/test_diagnose_sonarqube_failure.py
+
+      - name: Unit-test the release-set tooling
+        run: python3 .github/scripts/test_release_set.py
+
+      - name: Unit-test the build change detection
+        run: |
+          python3 .github/scripts/test_detect_changed_images.py
+          python3 .github/scripts/test_container_build_plan.py
+
+      - name: Unit-test the downstream GHCR candidate reporter
+        run: |
+          python3 .github/scripts/test_update_pr_ghcr_candidates.py
+          python3 .github/scripts/test_prepare_downstream_release_set.py
+          python3 .github/scripts/test_prepare_nightly_promotion.py
+          python3 .github/scripts/test_prepare_promotion_trigger.py
+          python3 .github/scripts/test_trigger_downstream_pipeline.py
+          python3 .github/scripts/test_advance_ghcr_alias.py
+
+      - name: Unit-test the GHCR immutability/provenance guard
+        run: python3 .github/scripts/test_ghcr_image_guard.py
+
+      - name: Unit-test the last-green channel controller
+        run: python3 .github/scripts/test_last_green.py
+
+      - name: Verify resolved image refs match the golden file
+        run: python3 .github/scripts/compose_image_golden.py
+
+      - name: Verify profile dependency closure over the container inventory
+        run: python3 .github/scripts/release_set.py closure
 
   # ---------------------------------------------------------------------------
   # Job 12: Trigger downstream pipeline and poll it to completion
@@ -811,14 +876,16 @@ jobs:
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
     # (+ a small safety buffer).
-    timeout-minutes: 245
+    timeout-minutes: 310
     permissions:
+      actions: read
       contents: read
-      # Needed so the trigger script can call the GitHub REST API to
-      # resolve the PR's base branch (only present on `pull_request`
-      # events, not on the `push` event used for `pull-request/<N>`
-      # synthetic refs created by copy-pr-bot).
-      pull-requests: read
+      # Needed so the trigger script can resolve the PR's base branch and
+      # the candidate reporter can update the validated-image PR comment.
+      # The workflow runs on `pull-request/<N>` synthetic push refs created
+      # by copy-pr-bot rather than on a `pull_request` event.
+      pull-requests: write
+      issues: write
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
@@ -839,11 +906,16 @@ jobs:
           mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
           rm -rf .source-artifact
 
+      - name: Prepare GHCR release-set handoff
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/prepare_downstream_release_set.py
+
       - name: Trigger pipeline
         id: trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+        run: python3 .github/scripts/trigger_downstream_pipeline.py
 
       - name: Poll pipeline
         env:
@@ -852,3 +924,9 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+      - name: Update PR with downstream-validated GHCR candidates
+        if: startsWith(github.ref_name, 'pull-request/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/update_pr_ghcr_candidates.py

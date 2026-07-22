@@ -206,3 +206,12 @@ jobs:
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # This diagnostic never changes the scanner outcome. It only distinguishes
+      # NVIDIA SonarQube/network outages from repository-specific findings so a
+      # transient "No route to host" failure is not misrouted to code owners.
+      - name: Classify SonarQube connectivity failure
+        if: failure()
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: python3 .github/scripts/diagnose_sonarqube_failure.py
