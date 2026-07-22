@@ -283,3 +283,17 @@ def test_run_deep_clean_passes_rm_timeout_to_subprocess(tmp_path: Path):
         _run_deep_clean(data_dir, logs.append)
 
     assert captured_timeouts == [300]
+
+
+def test_run_deep_clean_raises_when_rm_command_not_found(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    with (
+        patch("agent.orchestrator.tools.subprocess.run", side_effect=FileNotFoundError("rm")),
+        patch("agent.orchestrator.tools.os.geteuid", return_value=0),
+        patch("agent.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        with pytest.raises(RuntimeError, match="deep-clean command not found"):
+            _run_deep_clean(data_dir, logs.append)

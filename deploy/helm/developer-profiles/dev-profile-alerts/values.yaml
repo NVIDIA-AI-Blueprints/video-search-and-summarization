@@ -108,9 +108,9 @@ infra:
       enabled: true
       env:
         ELASTICSEARCH_ILM_MIN_AGE: 4h
+        ELASTICSEARCH_ENABLE_EMBEDDINGS: "false"
         ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1536'
         ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: '768'
-        BP_PROFILE: bp_developer_alerts
   kibana:
     enabled: true
     init:

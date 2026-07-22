@@ -64,19 +64,10 @@ docker compose -f docker/deploy/compose.yaml --env-file=<path/to/.env> up
 ### Linting
 
 ```bash
-# Check code style and formatting
-flake8 src/ tests/
-
-# Auto-format a file
-black <file>
-
-# Organize imports
-# (Use VSCode "Organize Imports" or run isort via CLI if available)
+# Check / format with ruff (repo-standard; line-length 100 in pyproject.toml)
+ruff check src/ tests/
+ruff format src/ tests/
 ```
-
-Linting configuration:
-- `.flake8`: flake8 rules (max line length 110, ignores E203, W503)
-- `pyproject.toml`: black (line length 100) and isort (black profile)
 
 ### Testing
 
