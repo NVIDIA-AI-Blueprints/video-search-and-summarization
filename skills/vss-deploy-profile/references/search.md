@@ -86,7 +86,7 @@ LLM_DEVICE_ID=1                                          # LLM shares GPU 1 with
 VLM_DEVICE_ID=2
 RT_VLM_DEVICE_ID=2
 LLM_MODE=local_shared
-VLM_MODE=local_shared
+VLM_MODE=local
 VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
 VLM_NAME_SLUG=rtvi
 VLM_MODEL_TYPE=rtvi
@@ -96,7 +96,7 @@ RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=<hardware-derived value>
 ```
 
-The resolved compose must include profile `vlm_local_shared_rtvi` and container `vss-rtvi-vlm`. Use `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, not `NIM_KVCACHE_PERCENT`, to size RT-VLM.
+The resolved compose must include profile `vlm_local_rtvi` and container `vss-rtvi-vlm`. Use `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, not `NIM_KVCACHE_PERCENT`, to size RT-VLM.
 
 ## Sizing — RT-Embed and RT-CV knobs
 
