@@ -94,6 +94,16 @@ fi
 
 COMPOSE_CMD="$COMPOSE_BASE up -d --build --force-recreate"
 
+dump_compose_debug() {
+    echo "--- Docker Compose status (debug) ---"
+    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE ps -a 2>/dev/null) || true
+    echo "--- Docker Compose logs (debug) ---"
+    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE logs --tail=120 2>/dev/null) || true
+    echo "--- mdx-kafka inspect (debug) ---"
+    docker inspect mdx-kafka 2>/dev/null || true
+    echo "--- end Docker Compose debug ---"
+}
+
 # Timeout for compose up
 COMPOSE_TIMEOUT=${COMPOSE_TIMEOUT:-3600}
 echo "Running: $COMPOSE_CMD (timeout ${COMPOSE_TIMEOUT}s)..."
@@ -111,10 +121,7 @@ done
 if kill -0 $COMPOSE_PID 2>/dev/null; then
     TIMED_OUT=1
     echo "✗ Docker Compose timed out after $COMPOSE_TIMEOUT seconds - killing process"
-    echo "--- Docker Compose status at timeout (debug) ---"
-    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE ps -a 2>/dev/null) || true
-    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE logs --tail=80 2>/dev/null) || true
-    echo "--- end status ---"
+    dump_compose_debug
     kill -TERM $COMPOSE_PID 2>/dev/null
     sleep 60
     kill -9 $COMPOSE_PID 2>/dev/null
@@ -129,6 +136,7 @@ else
     else
         echo "✗ Docker Compose failed to start (exit $COMPOSE_EXIT)"
     fi
+    dump_compose_debug
     # Call the cleanup function based on mode
     if [[ "$MODE" = "prod" ]]; then
         cleanup_docker_environment
@@ -233,6 +241,13 @@ echo "Wait complete, continuing..."
 
 cd "$PROJ_ROOT_DIR"
 
+if [[ -z "${ES_URL:-}" ]]; then
+    TEST_HOST="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
+    TEST_HOST="${TEST_HOST:-localhost}"
+    ES_URL="http://${TEST_HOST}:9200"
+fi
+echo "Using Elasticsearch URL: $ES_URL"
+
 # Define which data types to dump/compare for each profile
 get_data_types_for_profile() {
     local profile=$APP_NAME$APP_MODE
@@ -292,6 +307,7 @@ extract_data_type() {
     ELASTICDUMP_TIMEOUT=180
     ELASTICDUMP_OUTPUT=$(
         timeout "$ELASTICDUMP_TIMEOUT" python3 tests/integration/dump_es_data.py \
+            --url "$ES_URL" \
             --index "$elasticsearch_index" \
             --output "tests/integration/docker_compose/apps_data/data_log/tmp/$data_type" \
             "${dump_args[@]}" 2>&1
