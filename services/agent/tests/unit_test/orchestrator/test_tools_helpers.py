@@ -17,13 +17,13 @@
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.orchestrator.tools import ContainerLogsInput
-from vss_agents.orchestrator.tools import HardwareResolutionConfig
-from vss_agents.orchestrator.tools import LruRegistry
-from vss_agents.orchestrator.tools import ModelArtifactEntry
-from vss_agents.orchestrator.tools import ModelPackageConfig
-from vss_agents.orchestrator.tools import OrchestratorToolConfig
-from vss_agents.orchestrator.tools import _truncate_text_to_max_bytes
+from agent.orchestrator.tools import ContainerLogsInput
+from agent.orchestrator.tools import HardwareResolutionConfig
+from agent.orchestrator.tools import LruRegistry
+from agent.orchestrator.tools import ModelArtifactEntry
+from agent.orchestrator.tools import ModelPackageConfig
+from agent.orchestrator.tools import OrchestratorToolConfig
+from agent.orchestrator.tools import _truncate_text_to_max_bytes
 
 
 class TestLruRegistry:

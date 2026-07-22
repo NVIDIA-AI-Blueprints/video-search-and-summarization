@@ -19,11 +19,11 @@ from unittest.mock import patch
 
 import pytest
 
-from vss_agents.tools.attribute_search import AttributeSearchMetadata
-from vss_agents.tools.attribute_search import AttributeSearchResult
-from vss_agents.tools.attribute_search import _search_behavior
-from vss_agents.tools.attribute_search import enrich_attribute_results
-from vss_agents.tools.attribute_search import resolve_index_by_source_type
+from agent.tools.attribute_search import AttributeSearchMetadata
+from agent.tools.attribute_search import AttributeSearchResult
+from agent.tools.attribute_search import _search_behavior
+from agent.tools.attribute_search import enrich_attribute_results
+from agent.tools.attribute_search import resolve_index_by_source_type
 
 
 def _make_result(
@@ -60,7 +60,7 @@ class TestEnrichAttributeResults:
 
         mock_get_stream_id = AsyncMock(side_effect=["stream-1", "stream-2"])
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("agent.tools.vst.utils.get_stream_id", mock_get_stream_id):
             await enrich_attribute_results(results, "http://vst-internal:30888")
 
         assert [r.metadata.sensor_id for r in results] == ["stream-1", "stream-2"]
@@ -83,7 +83,7 @@ class TestEnrichAttributeResults:
                 raise RuntimeError("boom")
             return "stream-2"
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", side_effect=_get_stream_id):
+        with patch("agent.tools.vst.utils.get_stream_id", side_effect=_get_stream_id):
             await enrich_attribute_results(results, "http://vst-internal:30888")
 
         assert results[0].metadata.sensor_id == "camera-1"
@@ -102,7 +102,7 @@ class TestEnrichAttributeResults:
 
         mock_get_stream_id = AsyncMock(return_value="stream-2")
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("agent.tools.vst.utils.get_stream_id", mock_get_stream_id):
             await enrich_attribute_results(results, "http://vst-internal:30888")
 
         assert results[0].screenshot_url == "http://existing"
@@ -115,7 +115,7 @@ class TestEnrichAttributeResults:
         results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
         mock_get_stream_id = AsyncMock(return_value="stream-1")
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("agent.tools.vst.utils.get_stream_id", mock_get_stream_id):
             await enrich_attribute_results(
                 results,
                 vst_internal_url="http://vst-internal:30888",
@@ -133,7 +133,7 @@ class TestEnrichAttributeResults:
         results = [_make_result(sensor_id="camera-1", start_time="2025-01-01T00:00:00Z")]
         mock_get_stream_id = AsyncMock(return_value="stream-1")
 
-        with patch("vss_agents.tools.vst.utils.get_stream_id", mock_get_stream_id):
+        with patch("agent.tools.vst.utils.get_stream_id", mock_get_stream_id):
             await enrich_attribute_results(
                 results,
                 vst_internal_url=None,

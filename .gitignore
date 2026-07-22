@@ -3,6 +3,11 @@
 # Python
 __pycache__/
 *.pyc
+/services/agent/.coverage
+/services/agent/coverage.xml
+/services/agent/coverage-lib.xml
+/services/agent/.wheel-smoke/
+/services/agent/dist/
 
 # Runtime artifacts from the deploy flow — these carry live credentials
 # (NGC_CLI_API_KEY, NVIDIA_API_KEY, etc.) and resolved compose state,
