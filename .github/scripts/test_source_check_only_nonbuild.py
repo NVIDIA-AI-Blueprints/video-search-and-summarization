@@ -32,8 +32,8 @@ class TestIsNonbuild(unittest.TestCase):
         self.assertTrue(self.nb("vss-agent", "stubs/nat/__init__.pyi"))
 
     def test_agent_shipped_src_md_is_build_relevant(self):
-        # COPY agent/src/vss_agents wholesale ships these — must NOT be skipped.
-        self.assertFalse(self.nb("vss-agent", "src/vss_agents/orchestrator/README.md"))
+        # COPY agent/src/agent wholesale ships these — must NOT be skipped.
+        self.assertFalse(self.nb("vss-agent", "src/agent/orchestrator/README.md"))
         self.assertFalse(self.nb("vss-agent", "pyproject.toml"))
         self.assertFalse(self.nb("vss-agent", "uv.lock"))
 
@@ -199,8 +199,8 @@ class TestPathIsIgnored(unittest.TestCase):
 
     def test_shipped_src_not_ignored(self):
         # A bare README.md must NOT ignore a shipped src/**/README.md.
-        self.assertFalse(self.ig("src/vss_agents/orchestrator/README.md"))
-        self.assertFalse(self.ig("src/vss_agents/tools/video_understanding.py"))
+        self.assertFalse(self.ig("src/agent/orchestrator/README.md"))
+        self.assertFalse(self.ig("src/agent/tools/video_understanding.py"))
         self.assertFalse(self.ig("pyproject.toml"))
         self.assertFalse(self.ig("docker/Dockerfile"))
 
@@ -226,7 +226,7 @@ class TestDiffIsIgnoredOnly(unittest.TestCase):
         self.assertEqual(set(changed), {"tests/unit/test_x.py", "README.md"})
 
     def test_some_build_relevant(self):
-        ok, _ = self.run_diff(["tests/unit/test_x.py", "src/vss_agents/tools/x.py"])
+        ok, _ = self.run_diff(["tests/unit/test_x.py", "src/agent/tools/x.py"])
         self.assertFalse(ok)
 
     def test_no_changes_returns_false(self):

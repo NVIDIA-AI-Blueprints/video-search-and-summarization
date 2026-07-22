@@ -182,7 +182,7 @@ If the probe fails or the listed ids don't include `${VLM_MODEL}`, fall back to 
 
 ### Step 3 — Call the VLM directly
 
-Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
+Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/agent/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
 
 The frame sampling and visual-token (pixel) budget must mirror the **live** `video_understanding` settings for the active profile. **Send `mm_processor_kwargs` and `media_io_kwargs`** so the direct call uses the same frame sampling and pixel budget as the in-agent `video_understanding` tool — omitting them lets the VLM apply its own defaults, so the output diverges from the agent path.
 

@@ -136,6 +136,9 @@ namespace nv_vms
             // Event method to send events for file sensors
             void notifyFileSensorEvents();
 
+            // Generate a full-file url for an uploaded sensor
+            std::string generateUploadedFullFileUrl(const std::string& sensorId);
+
             // Cloud storage scanning and auto-import at bootup
             void scanAndImportCloudFiles();
             void scanAndImportCloudFilesBackground();

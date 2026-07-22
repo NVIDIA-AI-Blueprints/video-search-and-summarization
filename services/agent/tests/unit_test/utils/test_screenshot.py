@@ -14,7 +14,7 @@
 # limitations under the License.
 """Unit tests for build_screenshot_url."""
 
-from vss_agents.tools.vst.snapshot import build_screenshot_url
+from agent.tools.vst.snapshot import build_screenshot_url
 
 
 class TestBuildScreenshotUrl:

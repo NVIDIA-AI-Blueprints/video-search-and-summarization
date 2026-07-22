@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/asyncmixin.py."""
+"""Tests for agent/utils/asyncmixin.py."""
 
 import pytest
 
-from vss_agents.utils.asyncmixin import AsyncMixin
+from agent.utils.asyncmixin import AsyncMixin
 
 
 class TestAsyncMixin:
