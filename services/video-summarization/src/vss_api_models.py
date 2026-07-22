@@ -186,6 +186,19 @@ class DeleteFileResponse(ViaBaseModel):
     deleted: bool = Field(description="Indicates if the file was deleted")
 
 
+class DeleteIndexResponse(ViaBaseModel):
+    """Response schema for the delete-asset-index request."""
+
+    asset_id: str = Field(description="The asset identifier whose index was targeted.")
+    deleted: bool = Field(
+        description="True when the index was dropped; False when the operation was skipped."
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Additional context about the outcome (skip reason or error message).",
+    )
+
+
 class ListFilesResponse(ViaBaseModel):
     """Response schema for the list files API."""
 
