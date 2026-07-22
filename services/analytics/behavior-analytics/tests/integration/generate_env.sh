@@ -58,23 +58,11 @@ else
     PLAYBACK_MODE=""
 fi
 
-# Get real IP address
-# Use ip first (works on Alpine/BusyBox); hostname -I is not supported on BusyBox
-if command -v ip >/dev/null 2>&1; then
-    HOST_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
-fi
-if [[ -z "$HOST_IP" ]]; then
-    HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-fi
-if [[ -z "$HOST_IP" ]]; then
-    HOST_IP="$(ifconfig 2>/dev/null | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1' | head -1)"
-fi
-
-# If we couldn't get an IP, use localhost as fallback
-if [[ -z "$HOST_IP" ]]; then
-    HOST_IP="localhost"
-    echo "Warning: Could not determine real IP address, using localhost"
-fi
+# Docker Compose uses host networking for this integration stack. Kafka clients
+# first connect to the bootstrap server, then follow the broker's advertised
+# listener from metadata. Advertising the Docker bridge/container IP breaks the
+# in-container healthcheck and topic initialization in CI, so advertise loopback.
+HOST_IP="localhost"
 
 # Create/populate the .env file based on profiles
 ENV_FILE="$SCRIPT_DIR/docker_compose/infra/.env"
