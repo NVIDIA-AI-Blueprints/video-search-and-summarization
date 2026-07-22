@@ -11,28 +11,27 @@
 - **Architecture support:** x86_64 for the default developer profile; use the
   VSS release-specific tag guidance for SBSA or Jetson/Thor targets.
 
-The upstream service key is `lvs-server` in
-`deploy/docker/services/video-summarization/compose.yml`; the container name is
-`vss-lvs`. The upstream compose reads the full image from `CONTAINER_IMAGE` with
-default `nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.0`; generated
-profiles should either set that variable for LVS or patch the image line to use
-LVS-specific `LVS_IMAGE`/`LVS_TAG` variables.
+The source-of-truth upstream service key is `lvs` in
+`services/video-summarization/docker/deploy/compose.yaml`; the default container
+name is `lvs`. Older developer-profile wrapper composes may expose
+`lvs-server` / `vss-lvs`, but build-vision-agent generated allow-lists must use
+the source-of-truth `lvs` key and compose path.
 
 ## GPU Requirements
 
-- **GPU required?** Conditional. `lvs-server` itself does not reserve a GPU, but
+- **GPU required?** Conditional. `lvs` itself does not reserve a GPU, but
   the generated profile must provide a VLM backend and usually an LLM backend.
 - **Minimum VRAM:** Determined by the selected VLM/LLM peers. The default
   integrated RT-VLM Cosmos Reason 8B path needs a VLM-capable GPU; the local
   Nemotron LLM NIM needs GPU memory per its hardware-profile env file.
 - **Supported GPU architectures:** Follow the selected RT-VLM and LLM NIM
   deployment references.
-- **GPU count per instance:** `lvs-server` needs 0; default local peers usually
+- **GPU count per instance:** `lvs` needs 0; default local peers usually
   need 1 GPU for RT-VLM plus either a dedicated or shared GPU for the LLM.
-- **Can share GPU with other services?** `lvs-server` can share because it has no
+- **Can share GPU with other services?** `lvs` can share because it has no
   GPU reservation. LLM and VLM sharing is controlled by the selected NIM and
   RT-VLM profile modes.
-- **Compose snippet for device reservation:** Not applicable to `lvs-server`.
+- **Compose snippet for device reservation:** Not applicable to `lvs`.
   Use the selected RT-VLM and LLM deploy references for GPU reservation blocks.
 
 ## CPU & Memory
@@ -41,8 +40,8 @@ LVS-specific `LVS_IMAGE`/`LVS_TAG` variables.
   infra.
 - **Minimum RAM:** 32 GB recommended for the LVS API plus infra; add memory for
   local RT-VLM/LLM model servers.
-- **`shm_size`:** Not set on `lvs-server`; model-serving peers may set `shm_size`.
-- **`ulimits`:** No non-default `ulimits` on `lvs-server`.
+- **`shm_size`:** Not set on `lvs`; model-serving peers may set `shm_size`.
+- **`ulimits`:** `lvs` may set service-level limits such as `nofile`; model-serving peers may set their own limits.
 
 ## Storage
 
@@ -58,31 +57,31 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 
 ## Startup Behavior
 
-- **Expected startup time:** `lvs-server` usually becomes ready within 2 minutes
+- **Expected startup time:** `lvs` usually becomes ready within 2 minutes
   after its peers are available. First boot of local RT-VLM or LLM peers can take
   up to 20 minutes due to image/model download and model warmup.
-- **Startup ordering dependencies:** `lvs-server` declares optional
-  `depends_on` entries for many LLM/VLM peers, including `rtvi-vlm`. Generated
-  standalone builds must keep only peers that are included in the generated
-  allow-list and strip undefined optional peers.
+- **Startup ordering dependencies:** `lvs` declares peer `depends_on` entries
+  for services such as Elasticsearch and LLM readiness helpers. Generated
+  standalone builds must keep included peers and strip only undefined optional
+  peers when a wrapper or selected deployment shape declares them.
 - **Health check endpoint:** `GET http://localhost:38111/v1/ready`
 - **Health check tuning:** `interval: 30s`, `timeout: 10s`, `retries: 10`,
   `start_period: 120s`
-- **Log signatures of healthy startup:** `vss-lvs` accepts requests on
+- **Log signatures of healthy startup:** `lvs` accepts requests on
   `BACKEND_PORT` and `curl -sf http://localhost:38111/v1/ready` exits 0.
 
 ## Known Deployment Issues
 
 | Symptom | Root cause | Fix |
 |---|---|---|
-| `docker compose config` fails with an undefined `depends_on` service | `lvs-server` references optional LLM/VLM peers that were not included in a standalone build | Strip undefined optional peers in the patched copy or add the selected peer service key to the allow-list |
-| `GET /v1/ready` returns 503 | RT-VLM, LLM, Elasticsearch, or config initialization is not ready | Check `vss-lvs`, `vss-rtvi-vlm`, selected LLM NIM, and Elasticsearch logs; retry until the `start_period` budget expires |
+| `docker compose config` fails with an undefined `depends_on` service | `lvs` or an older wrapper references peers that were not included in a standalone build | Strip undefined optional peers in the patched copy or add the selected peer service key to the allow-list |
+| `GET /v1/ready` returns 503 | RT-VLM, LLM, Elasticsearch, or config initialization is not ready | Check `lvs`, `vss-rtvi-vlm`, selected LLM NIM, and Elasticsearch logs; retry until the `start_period` budget expires |
 | `POST /v1/summarize` returns 422 | Request is missing required `model`, `scenario`, or `events`, or includes a non-schema field | Build requests from `video-summarization-api.md` and the OpenAPI schema |
 | `POST /v1/summarize` returns 400 for model errors | `model` does not match the id advertised by `GET /models` | Query `/models` and copy the exact id into the request and `VLM_NAME` |
 | `POST /v1/summarize` returns 503 busy | LVS is already processing a file | Run one smoke-test summarize request at a time and retry after the current request completes |
 | LVS starts with config-file errors | The `config.yaml` bind source resolved to a missing file or Docker-created directory | Point `VSS_APPS_DIR` to `deploy/docker` or materialize `config.yaml` into the build output and rewrite the bind source |
 | LVS cannot reach Kafka or Elasticsearch | Host-networked service has wrong `HOST_IP`, `KAFKA_BOOTSTRAP_SERVERS`, `ES_HOST`, or `ES_PORT` | Use host-reachable addresses such as `${HOST_IP}:9092` and `localhost:9200`/`${HOST_IP}:9200` according to the generated env |
-| `lvs-server` pulls or starts the wrong image | A generic `CONTAINER_IMAGE` from another service leaked into the combined env | Set `CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.0` for the LVS build or patch the image line to use LVS-specific variables |
+| `lvs` pulls or starts the wrong image | A wrapper or generated compose image value does not match the selected LVS release | Use the source-of-truth LVS compose image contract or patch the image line to an LVS-specific `LVS_IMAGE` / `LVS_TAG` value |
 
 ## Prerequisites
 
@@ -147,8 +146,8 @@ curl -s -X POST "http://${HOST_IP}:38111/v1/summarize" \
 ## Logs & Status
 
 ```bash
-docker ps --filter name=vss-lvs --format '{{.Names}} {{.Status}}'
-docker logs --tail 100 vss-lvs
+docker ps --filter name=lvs --format '{{.Names}} {{.Status}}'
+docker logs --tail 100 lvs
 curl -sf "http://${HOST_IP}:38111/metrics" | head
 ```
 

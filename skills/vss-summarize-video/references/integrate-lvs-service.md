@@ -26,7 +26,7 @@ the current build-vision-agent add-on.
 The `component_services:` block for build-vision-agent is intentionally not in
 this neutral contract. It lives in
 `skills/vss-build-vision-agent/references/patch-lvs.md`, where the orchestrator
-declares `lvs-server` and the optional local LLM placement variants without
+declares `lvs` and the optional local LLM placement variants without
 making this service skill depend back on the orchestrator.
 
 ## Integration Interfaces
@@ -126,9 +126,8 @@ jq -e '.choices[0].message.content | length > 0'
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `LVS_BACKEND_URL` | Host-facing LVS API URL used by operators and agents | `http://${HOST_IP}:38111` | Yes |
-| `CONTAINER_IMAGE` | Full image reference consumed by the upstream `lvs-server` compose | `nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.0` | Yes unless compose is patched to use `LVS_IMAGE`/`LVS_TAG` |
 | `LVS_IMAGE` | LVS image repository | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Yes |
-| `LVS_TAG` | LVS image tag | `3.2.0` | Yes |
+| `LVS_TAG` | LVS image tag | release-specific tag | Yes |
 | `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `false` | No |
 | `LVS_DATABASE_BACKEND` | Active database backend | `elasticsearch_db` | Yes |
 | `KAFKA_ENABLED` | Enable Kafka integration | `true` in the LVS developer profile | Yes for shared VSS infra |
@@ -144,7 +143,7 @@ jq -e '.choices[0].message.content | length > 0'
 | `LLM_NAME` | LLM model id | `nvidia/nvidia-nemotron-nano-9b-v2` | Required for local LLM |
 | `LLM_BASE_URL` | Remote or local LLM OpenAI-compatible base URL | `http://${HOST_IP}:${LLM_PORT}` when local | Required |
 | `NVIDIA_API_KEY` / `OPENAI_API_KEY` | Remote endpoint auth and LVS LLM API key fallback | empty | Required when endpoint enforces auth |
-| `VSS_APPS_DIR` | Absolute path to `deploy/docker` for config bind mounts | none | Yes |
+| `VSS_APPS_DIR` | Optional build/deploy root when wrapper composes are used; source-of-truth LVS compose uses repo-relative config mounts instead | none | Conditional |
 | `VSS_DATA_DIR` | Data root for models, videos, logs, and caches | none | Yes |
 | `HOST_IP` | Host-reachable IP address | none | Yes |
 
@@ -172,52 +171,43 @@ jq -e '.choices[0].message.content | length > 0'
 - **Model id must be discovered.** `VLM_NAME` must match `GET /models`; a
   friendly model name that RT-VLM does not advertise causes summarize requests
   to fail.
-- **`lvs-server` has optional NIM `depends_on` entries.** Standalone generated
-  builds must strip undefined optional peers or include the selected LLM/VLM NIM
-  service keys in the allow-list.
+- **`lvs` has peer `depends_on` entries.** Standalone generated builds must keep
+  included peers such as Elasticsearch and LLM readiness helpers, and strip only
+  undefined optional peers when a wrapper or selected deployment shape declares
+  them.
 - **LVS config bind mount must resolve to a file.** The compose mount for
   `config.yaml` must point to a real file, not a Docker-created directory.
-- **Generic image variable.** The upstream `lvs-server` compose reads
-  `CONTAINER_IMAGE`, not `LVS_IMAGE`/`LVS_TAG` directly. Generated profiles must
-  either set `CONTAINER_IMAGE` to the LVS image or patch the image line to use
-  LVS-specific variables. Do not inherit an unrelated `CONTAINER_IMAGE`.
+- **Image variable isolation.** Generated profiles must keep the LVS image
+  isolated from unrelated service image variables, using the source compose's
+  image contract or a patched LVS-specific `LVS_IMAGE` / `LVS_TAG` pair.
 - **Single-file processing concurrency.** A busy LVS instance can return 503 for
   concurrent summarize requests. Generated smoke tests should run one request at
   a time.
 
 ## Example Compose Snippet
 
-Excerpted shape from `deploy/docker/services/video-summarization/compose.yml`:
+Excerpted shape from `services/video-summarization/docker/deploy/compose.yaml`:
 
 ```yaml
 services:
-  lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.0}
-    container_name: vss-lvs
-    profiles: ["bp_developer_lvs_2d"]
-    network_mode: host
+  lvs:
+    image: via-engine-${USER:-user}
+    container_name: lvs
+    ports:
+      - ${LVS_BACKEND_PORT:-38111}:38111
     volumes:
-      - ${VSS_APPS_DIR}/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
-      - ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
+      - ../../config/config.yaml:/opt/nvidia/via/config/default_config.yaml:ro
     environment:
-      - CA_RAG_CONFIG=/app/config.yaml
-      - BACKEND_PORT=${BACKEND_PORT:-38111}
-      - LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
-      - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
-      - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-      - KAFKA_STRUCTURED_SUMMARY_TOPIC=${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
-      - RTVI_VLM_URL=${RTVI_VLM_URL:-}
-      - LVS_ENABLE_MCP=${LVS_ENABLE_MCP:-false}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-38111}/v1/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 120s
-    restart: always
+      LVS_DATABASE_BACKEND: ${LVS_DATABASE_BACKEND:-elasticsearch_db}
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_STRUCTURED_SUMMARY_TOPIC: ${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
+      RTVI_VLM_URL: ${RTVI_VLM_URL:-http://rtvi-vlm:8000}
     depends_on:
-      rtvi-vlm:
-        condition: service_healthy
-        required: false
+      elasticsearch:
+        condition: service_started
+      wait-for-elasticsearch:
+        condition: service_completed_successfully
+      wait-for-llm:
+        condition: service_completed_successfully
 ```

@@ -28,7 +28,7 @@ Schema for the `component_services:` block is in `references/component-services-
 
 ## component_services block
 
-LVS owns only the `lvs-server` service. VIOS, RT-VLM, Kafka, Elasticsearch, and
+LVS owns only the `lvs` service. VIOS, RT-VLM, Kafka, Elasticsearch, and
 Logstash are peers owned by other catalog entries and should be reused when the
 target profile already has them. The optional LLM NIM variant is included only
 when the deployment uses a local LLM for LVS event merging or request handling;
@@ -37,8 +37,8 @@ remote LLM mode adds no compose service key.
 ```yaml
 component_services:
   # LVS REST API for stored/uploaded video summarization.
-  - key: lvs-server
-    file: services/video-summarization/compose.yml
+  - key: lvs
+    file: services/video-summarization/docker/deploy/compose.yaml
     role: Long Video Summarization API on :38111; summarizes VIOS-stored or uploaded video through POST /v1/summarize and returns choices[0].message.content.
     required: true
 
@@ -62,7 +62,7 @@ component_services:
 > **Add-on behavior.** LVS is an extension to another generated profile, not a
 > replacement for that profile. When the user asks to add summarization to base,
 > dense-captioning, alerts, search, or a customer profile, preserve the existing
-> services and add `lvs-server`; reuse VIOS, RT-VLM, Kafka, Elasticsearch, and
+> services and add `lvs`; reuse VIOS, RT-VLM, Kafka, Elasticsearch, and
 > Logstash if they are already present. If any required peer is missing and can
 > be added from the catalog, propose adding that peer. If a peer is missing and
 > has no reference files, report the gap instead of generating a partial compose.
@@ -92,21 +92,49 @@ the VIOS-provided file or clip source.
 Applied to patched copies under `<BUILD_DIR>/patched/`; the upstream tree is
 never modified.
 
+### Patch 0 - extract only allow-listed LVS services
+
+`services/video-summarization/docker/deploy/compose.yaml` is the source-of-truth
+compose for LVS, but it also carries self-contained development siblings such as
+Elasticsearch, Kafka, Logstash, and readiness helpers. In build-vision-agent
+profiles, those peers are owned by other catalog entries and are usually already
+present in the target profile. Do not activate the whole source compose as an
+LVS component.
+
+When the allow-list includes `lvs` from this file:
+
+- Keep and patch the `lvs` service block.
+- Do not allow this copied file to introduce duplicate `elasticsearch`, `kafka`,
+  or `logstash` services when those peers are already contributed by ELK/shared
+  infrastructure entries.
+- Remove or profile-gate non-allow-listed sibling service blocks from the
+  patched copy unless they are explicitly listed in `<BUILD_DIR>/allow-list.yml`.
+- If a removed sibling was a `depends_on` target of `lvs` (for example
+  `wait-for-elasticsearch` or `wait-for-llm`), remove that `depends_on` edge and
+  rely on the generated deploy skill's readiness waits before smoke testing.
+- Keep direct peer references such as `elasticsearch` only when that service key
+  is defined elsewhere in the generated include graph.
+
+Record every removed or deactivated sibling service in `PATCHES.md`.
+
 ### Patch 1 - invented flag
 
-The upstream `lvs-server` block gates on `profiles: ["bp_developer_lvs_2d"]`.
-Step 6.5 appends the per-generation invented flag (for example
-`bp_developer_an_1`) to `lvs-server` in the patched copy. If a local LLM NIM is
-selected, append the same flag to exactly one selected LLM service key in
+The upstream `lvs` block in `services/video-summarization/docker/deploy/compose.yaml`
+is the source-of-truth LVS service for generated builds. It may not carry the
+same dev-profile flag shape as wrapper composes. Step 6.5 appends the
+per-generation invented flag (for example `bp_developer_an_1`) to `lvs` in the
+patched copy, preserving any upstream profile list if present. If a local LLM
+NIM is selected, append the same flag to exactly one selected LLM service key in
 `services/nim/nvidia-nemotron-nano-9b-v2/compose.yml`. Preserve all upstream
 profile flags.
 
 ### Patch 2 - strip undefined optional peers
 
-The upstream `lvs-server` block declares many `required: false` `depends_on`
-peers for optional LLM and VLM NIM services plus `rtvi-vlm`. The generalized
-Patch 2 rule strips whichever optional peers are undefined in the patched
-include graph and keeps defined peers:
+The upstream `lvs` block declares peer `depends_on` entries for Elasticsearch,
+LLM readiness, and similar support services. Wrapper composes may also declare
+optional LLM and VLM NIM peers. The generalized Patch 2 rule strips whichever
+optional peers are undefined in the patched include graph and keeps defined
+peers:
 
 - Keep `rtvi-vlm` when RT-VLM is selected or reused for the generated profile.
 - Keep the selected local LLM NIM key when `lvs_llm_placement` is `local` or
@@ -116,18 +144,20 @@ include graph and keeps defined peers:
 
 ### Patch 3 - materialize LVS config bind mount
 
-`lvs-server` bind-mounts:
+`lvs` bind-mounts the LVS config file. In the source-of-truth compose the
+relative mount is:
 
 ```text
-${VSS_APPS_DIR}/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
+../../config/config.yaml:/opt/nvidia/via/config/default_config.yaml:ro
 ```
 
-The generated build may either keep `VSS_APPS_DIR` pointed at the upstream
-`deploy/docker` tree or materialize `services/video-summarization/configs/config.yaml`
-under `<BUILD_DIR>/patched/` and rewrite the bind source there. In either case,
-the generated manifest must state which source is used. Do not let Docker create
-an empty directory at `/app/config.yaml`; that produces confusing LVS startup
-failures.
+Because the patched copy preserves the upstream relative path under
+`<BUILD_DIR>/patched/services/video-summarization/docker/deploy/compose.yaml`,
+Patch 3 must materialize the sibling source file at
+`<BUILD_DIR>/patched/services/video-summarization/config/config.yaml` or rewrite
+the bind source to another real file. In either case, the generated manifest
+must state which source is used. Do not let Docker create an empty directory at
+the config path; that produces confusing LVS startup failures.
 
 ## Env overrides the skill applies
 
@@ -135,7 +165,7 @@ When LVS is selected, the generated `.env.template` and `.env` must include the
 LVS API and backend values needed for stored-video summarization:
 
 - `LVS_BACKEND_URL=http://${HOST_IP}:38111`
-- `CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.0` unless the patched compose rewrites `image:` to `${LVS_IMAGE}:${LVS_TAG}`. The upstream LVS compose uses the generic `CONTAINER_IMAGE` variable; do not let an unrelated service's `CONTAINER_IMAGE` leak into `lvs-server`.
+- `LVS_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization` and an appropriate release `LVS_TAG`, or a patched `image:` value matching the source-of-truth LVS compose. Do not let an unrelated generic image variable leak into `lvs`.
 - `LVS_ENABLE_MCP=false`
 - `LVS_DATABASE_BACKEND=elasticsearch_db`
 - `KAFKA_ENABLED=true`
@@ -172,7 +202,7 @@ The generated smoke test MUST NOT use `/v1/stream_summarize` or
 
 ## Emitted shape
 
-The patched `lvs-server` block is `include:`d from `<BUILD_DIR>/compose.yml`.
+The patched `lvs` block is `include:`d from `<BUILD_DIR>/compose.yml`.
 Deploy with:
 
 ```bash
