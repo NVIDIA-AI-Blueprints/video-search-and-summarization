@@ -39,7 +39,7 @@ metadata:
       {{ $embedPath }} /
     # Consistent-hash on the stream-id header. Same x-stream-id key the
     # agent's RTVI-CV / RTVI-Embed clients already emit (see
-    # services/agent/src/vss_agents/api/video_ingest.py:313, :365 and
+    # services/agent/src/agent/api/video_ingest.py:313, :365 and
     # rtsp_ingest.py). Inject a uuid() fallback for any request that
     # arrives without the header so they don't all hash to the empty
     # string and pile on one replica.

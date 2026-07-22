@@ -20,8 +20,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from vss_agents.video_analytics.embeddings import EmbeddingModel
-from vss_agents.video_analytics.embeddings import PlaceEmbeddingCache
+from agent.video_analytics.embeddings import EmbeddingModel
+from agent.video_analytics.embeddings import PlaceEmbeddingCache
 
 
 def add_place(cache: PlaceEmbeddingCache, name: str, embedding: np.ndarray) -> None:
@@ -33,21 +33,21 @@ def add_place(cache: PlaceEmbeddingCache, name: str, embedding: np.ndarray) -> N
 class TestEmbeddingModel:
     """Test EmbeddingModel class."""
 
-    @patch("vss_agents.video_analytics.embeddings.SentenceTransformer", create=True)
+    @patch("agent.video_analytics.embeddings.SentenceTransformer", create=True)
     def test_init_success(self, mock_st_class):
         """Test successful model initialization."""
         mock_model = MagicMock()
         mock_st_class.return_value = mock_model
 
         with patch.dict("sys.modules", {"sentence_transformers": MagicMock(SentenceTransformer=mock_st_class)}):
-            with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model") as mock_load:
+            with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model") as mock_load:
                 model = EmbeddingModel("test-model")
                 assert model.model_name == "test-model"
                 mock_load.assert_called_once()
 
     def test_encode_without_model_raises(self):
         """Test encode raises when model not loaded."""
-        with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model"):
+        with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model"):
             model = EmbeddingModel()
             model.model = None
             with pytest.raises(RuntimeError, match="Embedding model not loaded"):
@@ -55,7 +55,7 @@ class TestEmbeddingModel:
 
     def test_encode_batch_without_model_raises(self):
         """Test encode_batch raises when model not loaded."""
-        with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model"):
+        with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model"):
             model = EmbeddingModel()
             model.model = None
             with pytest.raises(RuntimeError, match="Embedding model not loaded"):
@@ -63,7 +63,7 @@ class TestEmbeddingModel:
 
     def test_encode_batch_empty_list(self):
         """Test encode_batch with empty list returns empty array."""
-        with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model"):
+        with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model"):
             model = EmbeddingModel()
             model.model = MagicMock()
             result = model.encode_batch([])
@@ -71,7 +71,7 @@ class TestEmbeddingModel:
 
     def test_encode_success(self):
         """Test successful encoding."""
-        with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model"):
+        with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model"):
             model = EmbeddingModel()
             mock_model = MagicMock()
             mock_model.encode.return_value = np.array([0.1, 0.2, 0.3])
@@ -83,7 +83,7 @@ class TestEmbeddingModel:
 
     def test_encode_batch_success(self):
         """Test successful batch encoding."""
-        with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model"):
+        with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model"):
             model = EmbeddingModel()
             mock_model = MagicMock()
             mock_model.encode.return_value = np.array([[0.1, 0.2], [0.3, 0.4]])
@@ -94,7 +94,7 @@ class TestEmbeddingModel:
 
     def test_encode_exception(self):
         """Test encode handles exceptions."""
-        with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model"):
+        with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model"):
             model = EmbeddingModel()
             mock_model = MagicMock()
             mock_model.encode.side_effect = Exception("Encode error")
@@ -105,7 +105,7 @@ class TestEmbeddingModel:
 
     def test_encode_batch_exception(self):
         """Test encode_batch handles exceptions."""
-        with patch("vss_agents.video_analytics.embeddings.EmbeddingModel._load_model"):
+        with patch("agent.video_analytics.embeddings.EmbeddingModel._load_model"):
             model = EmbeddingModel()
             mock_model = MagicMock()
             mock_model.encode.side_effect = Exception("Batch error")
@@ -127,7 +127,7 @@ class TestEmbeddingModel:
             # Reimport to get fresh class
             import importlib
 
-            import vss_agents.video_analytics.embeddings as emb_module
+            import agent.video_analytics.embeddings as emb_module
 
             importlib.reload(emb_module)
 
@@ -139,7 +139,7 @@ class TestEmbeddingModel:
         with (
             patch.dict("sys.modules", {"sentence_transformers": None}),
             patch(
-                "vss_agents.video_analytics.embeddings.EmbeddingModel._load_model",
+                "agent.video_analytics.embeddings.EmbeddingModel._load_model",
                 side_effect=ImportError("Module not found"),
             ),
             pytest.raises(ImportError),

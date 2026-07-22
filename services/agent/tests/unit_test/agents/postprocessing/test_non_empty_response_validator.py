@@ -17,7 +17,7 @@
 
 import pytest
 
-from vss_agents.agents.postprocessing.validators.non_empty_response_validator import NonEmptyResponseValidator
+from agent.agents.postprocessing.validators.non_empty_response_validator import NonEmptyResponseValidator
 
 
 @pytest.fixture

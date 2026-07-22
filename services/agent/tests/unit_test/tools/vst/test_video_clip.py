@@ -17,10 +17,10 @@
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.vst.video_clip import VSTVideoClipConfig
-from vss_agents.tools.vst.video_clip import VSTVideoClipISOInput
-from vss_agents.tools.vst.video_clip import VSTVideoClipOffsetInput
-from vss_agents.tools.vst.video_clip import VSTVideoClipOutput
+from agent.tools.vst.video_clip import VSTVideoClipConfig
+from agent.tools.vst.video_clip import VSTVideoClipISOInput
+from agent.tools.vst.video_clip import VSTVideoClipOffsetInput
+from agent.tools.vst.video_clip import VSTVideoClipOutput
 
 
 class TestVSTVideoClipConfig:

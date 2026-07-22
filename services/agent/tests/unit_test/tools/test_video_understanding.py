@@ -16,14 +16,14 @@
 
 import pytest
 
-from vss_agents.tools.video_understanding import VideoUnderstandingConfig
-from vss_agents.tools.video_understanding import _build_vlm_messages
-from vss_agents.tools.video_understanding import _effective_system_prompt
-from vss_agents.tools.video_understanding import _is_cosmos_model
-from vss_agents.tools.video_understanding import _is_omni_audio_model
-from vss_agents.tools.video_understanding import _parse_thinking_from_content
-from vss_agents.tools.video_understanding import _should_use_video_base64
-from vss_agents.tools.video_understanding import _should_use_video_file_base64
+from agent.tools.video_understanding import VideoUnderstandingConfig
+from agent.tools.video_understanding import _build_vlm_messages
+from agent.tools.video_understanding import _effective_system_prompt
+from agent.tools.video_understanding import _is_cosmos_model
+from agent.tools.video_understanding import _is_omni_audio_model
+from agent.tools.video_understanding import _parse_thinking_from_content
+from agent.tools.video_understanding import _should_use_video_base64
+from agent.tools.video_understanding import _should_use_video_file_base64
 
 
 class TestParseThinkingFromContent:
@@ -316,8 +316,8 @@ class TestBuildVlmMessages:
             assert step_size == 2.0
             return ["frame-a", "frame-b"]
 
-        monkeypatch.setattr("vss_agents.tools.video_understanding.aiohttp.ClientSession", FakeSession)
-        monkeypatch.setattr("vss_agents.tools.video_understanding.frame_select", fake_frame_select)
+        monkeypatch.setattr("agent.tools.video_understanding.aiohttp.ClientSession", FakeSession)
+        monkeypatch.setattr("agent.tools.video_understanding.frame_select", fake_frame_select)
 
         messages = await _build_vlm_messages(
             "http://10.0.0.1:30888/vst/storage/video.mp4",
@@ -364,7 +364,7 @@ class TestBuildVlmMessages:
             def get(self, url):
                 return FakeResponse()
 
-        monkeypatch.setattr("vss_agents.tools.video_understanding.aiohttp.ClientSession", FakeSession)
+        monkeypatch.setattr("agent.tools.video_understanding.aiohttp.ClientSession", FakeSession)
 
         messages = await _build_vlm_messages(
             "http://10.0.0.1:30888/vst/storage/video.mp4",

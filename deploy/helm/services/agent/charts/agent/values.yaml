@@ -94,7 +94,7 @@ vssAgentVersion: "3.3.0-65576357eb80"
 lvsBackendService: ""
 
 # [Optional] HTTP-client timeouts (seconds) for the post-upload pipeline in
-# services/agent/src/vss_agents/api/video_ingest.py. Each value flows in as
+# services/agent/src/agent/api/video_ingest.py. Each value flows in as
 # a VIDEO_INGEST_*_TIMEOUT_SECONDS env var and is only emitted when set, so
 # leaving a key empty preserves whatever the agent's YAML config or the
 # DEFAULT_*_TIMEOUT_SECONDS module constants set (the canonical source of

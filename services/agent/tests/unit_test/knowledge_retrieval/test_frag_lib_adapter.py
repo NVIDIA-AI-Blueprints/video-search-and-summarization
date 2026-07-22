@@ -14,7 +14,7 @@
 # limitations under the License.
 """Tests for lib.knowledge.adapters.frag_lib.
 
-The `nvidia-rag` package is an optional extra (`vss-agents[frag_lib]`) and
+The `nvidia-rag` package is an optional extra (`nvidia-vss[frag_lib]`) and
 isn't installed in the default test environment. The adapter does a deferred
 import inside `__init__`, so we inject fake `nvidia_rag.*` modules into
 `sys.modules` BEFORE constructing the adapter — that way the deferred
@@ -98,7 +98,7 @@ class TestFragLibImport:
         from lib.knowledge.adapters.frag_lib import FragLibAdapter
         from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        with pytest.raises(ImportError, match=r"vss-agents\[frag_lib\]"):
+        with pytest.raises(ImportError, match=r"nvidia-vss\[frag_lib\]"):
             FragLibAdapter(FragLibConfig())
 
 
