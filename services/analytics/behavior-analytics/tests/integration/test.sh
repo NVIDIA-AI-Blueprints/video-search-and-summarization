@@ -241,11 +241,12 @@ echo "Wait complete, continuing..."
 
 cd "$PROJ_ROOT_DIR"
 
-if [[ -z "${ES_URL:-}" ]]; then
+TEST_HOST="${TEST_HOST:-}"
+if [ -z "$TEST_HOST" ] && [ "${CI:-}" = "true" ] && [ "${DOCKER_HOST:-}" = "unix:///var/run/docker.sock" ]; then
     TEST_HOST="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
-    TEST_HOST="${TEST_HOST:-localhost}"
-    ES_URL="http://${TEST_HOST}:9200"
 fi
+TEST_HOST="${TEST_HOST:-localhost}"
+ES_URL="${ES_URL:-http://${TEST_HOST}:9200}"
 echo "Using Elasticsearch URL: $ES_URL"
 
 # Define which data types to dump/compare for each profile
