@@ -14,15 +14,15 @@ One box per **logical layer**, not per service. The Step 4 proposal text already
 
 The diagram MUST include:
 
-- **One box per logical layer** (ingestion / inference / storage / search / infra). Use the double-line frame (`╔═╗ ║ ╚═╝`) for layers and the single-line frame (`┌─┐ │ └─┘`) for external actors so they read as visually distinct at a glance.
+- **One box per logical layer** (ingestion / inference / storage / search / infra). Use the double-line frame (`╔═╗ ║ ╚═╝`) for runtime layers. External actors can be either separate single-line top-level boxes or a grouped `EXTERNAL ACTORS` double-line layer; both forms are acceptable when clearly annotated.
 - **Layer header line** carries the layer name (em-dash separated from a one-line role) and a right-aligned **network mode + GPU annotation** in square brackets. Always include both fields, even for non-GPU layers: `[network_mode: host · GPU: none]`, `[network_mode: bridge · GPU: 0]`, `[network_mode: bridge · GPU: none]`. Do not write a bare `[bridge]`, `[host]`, or a header with no GPU value.
 - **Service list inside the box.** List every allow-listed service key, including one-shot init/wait services such as `kafka-topic-init-container` and `elasticsearch-init-container`; do not summarize them as `+ inits`. One service per line where possible, named by its service key and optionally followed by `container_name` in parentheses when they differ. Append `:PORT` for any host-exposed port. Use `·` (or `-` in `--ascii` mode) as the inline separator when two short services share a line.
-- **External actors** (`operator`, `external RTSP source`, `agent UI`) as small single-line-frame boxes above the layered stack. Give each external actor an annotation line such as `[network_mode: external · GPU: none]` so the diagram remains auditable when copied into `MANIFEST.md`. If you group external actors into an `EXTERNAL ACTORS` logical layer instead of separate boxes, that layer header must also include both fields, for example `[network_mode: external/host · GPU: none]`. Edges enter the stack from the top. When the **NvStreamer validation harness** is included (sidecar `validation_harness:` key — see `references/validation-harness.md`), render it as a single-line-frame **validation-source** box labeled `NvStreamer (validation source)` with its ports (`:31000` HTTP, `:315xx` RTSP) in place of the real external-camera box; its edge enters the ingestion (VIOS) layer labeled with the registration call `POST /sensor/add (sensorUrl=rtsp://…315xx)`.
+- **External actors** (`operator`, `external RTSP source`, `agent UI`, validation harnesses) shown as annotated top-level boxes, or grouped inside a top `EXTERNAL ACTORS` layer. Each separate actor box, or the grouped actor-layer header, should state `network_mode` and `GPU` (usually `GPU: none`). When the **NvStreamer validation harness** is included (sidecar `validation_harness:` key — see `references/validation-harness.md`), render it as a validation-source actor labeled `NvStreamer (validation source)` with `nvstreamer-validation / vss-vios-nvstreamer` and its ports (`:31000` HTTP, `:315xx` RTSP); its edge enters the ingestion (VIOS) layer labeled with the registration call `POST /sensor/add (sensorUrl=rtsp://…315xx)`.
 - **One labeled arrow per inter-layer connection** declared in the integrate refs' `§ Integration Interfaces`. Label format:
   - REST calls: `POST /vst/api/v1/sensor/add` (path only, drop the host)
   - Kafka: two-line label — `Kafka topic: mdx-vlm-captions` on line 1, `schema: nv.VisionLLM (proto)` on line 2
   - Shared bind mounts: `shared host vol: clip_storage`
-  - RTSP / live media: `RTSP :30554 (live)` / `RTSP :30564 (vod)`
+  - RTSP / live media: `RTSP :<dynamic-port> (live proxy)` / `RTSP :30554-30564 pool`
   - Direction: producer → consumer; the arrowhead lands ON the consumer box
 - **Header comments** above the diagram, prefixed with `#`, carrying the deployment shape and the compose-profile flag:
 
@@ -52,22 +52,22 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
                     │                                 │ vss-vios-nvstreamer                        │
                     │                                 │ :31000 HTTP · :315xx RTSP                  │
                     │                                 └─────────────────┬──────────────────────────┘
-                 │ PUT /storage/file?ts                  │ POST /sensor/add
-                 │ POST /sensor/add                      │ (sensorUrl=rtsp://…315xx)
-                 ▼                                       ▼
+                    │ PUT /storage/file?ts                              │ POST /sensor/add
+                    │ POST /sensor/add                                  │ (sensorUrl=rtsp://…315xx)
+                    ▼                                                   ▼
   ╔═══════════════════════════════════════════════════════════╗
   ║  VIOS [network_mode: host · GPU: none]                    ║
   ║  ingestion + storage                                      ║
   ║  ───────────────────────────────────────────────────────  ║
   ║  vst-ingress :30888 · sensor-ms :30000                    ║
-  ║  stream-processing :30001 :30554 :30564                   ║
+  ║  stream-processing :30001 · RTSP pool :30554-30564         ║
   ║  sdr-controller :10000 :5003                               ║
   ║  sdrc-init-dirs · sdrc-render-config                       ║
   ║  sdrc-wdm-env-from-config                                  ║
   ║  sdrc-wait-for-redis · wait-for-docker-workloads           ║
   ║  centralizedb (postgres)                                  ║
   ╚════════════════════════════╤══════════════════════════════╝
-                               │ RTSP :30554 (live)
+                               │ RTSP :<dynamic-port> (VIOS live proxy)
                                │ shared host vol: clip_storage
                                ▼
   ╔═══════════════════════════════════════════════════════════╗
@@ -91,7 +91,7 @@ Use as a template for the shape; swap layers and labels per the actual allow-lis
   ╚═══════════════════════════════════════════════════════════╝
 ```
 
-In this IN-1 example the streaming input is the **NvStreamer validation harness** (no real camera was supplied), so the top-right external actor is the NvStreamer validation source rather than a physical camera. It registers its auto-discovered sample with VIOS via `POST /sensor/add` (field `sensorUrl`); VIOS then re-publishes the stream on `rtsp://<host>:30554/live/<id>`, which RT-VLM consumes (the VIOS → RT-VLM edge already shown). If the operator HAD supplied a real RTSP camera, swap the validation-source box for an `external RTSP source` box and drop the `validation_harness:` key. The `operator` box's `POST /sensor/add` edge is the manual/VOD path and is independent of the harness.
+In this IN-1 example the streaming input is the **NvStreamer validation harness** (no real camera was supplied), so the top-right external actor is the NvStreamer validation source rather than a physical camera. It registers its auto-discovered sample with VIOS via `POST /sensor/add` (field `sensorUrl`); VIOS then re-publishes the stream on `rtsp://<host>:<dynamic-port>/live/<id>`, which RT-VLM consumes (the VIOS → RT-VLM edge already shown). The live-proxy port is assigned by the RtspLoadBalancer pool and must be read from runtime evidence, not hardcoded. If the operator HAD supplied a real RTSP camera, swap the validation-source box for an `external RTSP source` box and drop the `validation_harness:` key. The operator's `POST /sensor/add` edge is the manual/VOD path and is independent of the harness.
 
 ## Canonical AT-1 example (realtime alerts, `alert_source=vlm-realtime`)
 
