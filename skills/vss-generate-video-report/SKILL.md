@@ -33,6 +33,8 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 Output contract for evaluators:
 - Mode A top title MUST be exactly `# Video Analysis Report`.
+- Mode A MUST include `## Basic Information` followed by a pipe-table (`Field | Value`) with the exact required rows from the template: Report Identifier, Date of Analysis, Time of Analysis, Video Source, Clip Range, Clip URL, VLM, Analysis Request — every row filled with concrete values.
+- Mode A MUST include `## Analysis Results` containing the VLM caption/summary (with any `<think>…</think>` block stripped).
 - Mode B top title MUST be exactly `# Incident Range Report` (never `# Incident Report` or sensor-named variants).
 - Mode B MUST include `## Basic Information` with the exact required rows from the template (Report Identifier, Range, Scope, Total Incidents, Confirmed / Rejected / Unverified).
 - Mode B MUST use heading level `#` for the top title. Do not use `## Incident Report`, `## Incident Range Report`, or any alternate wording.
@@ -73,9 +75,9 @@ This skill is profile-agnostic for Mode A. A specific profile does **not** have 
 
 | Mode / Path | User must provide | Services that must be reachable | Storage/location requirement | Not required |
 |---|---|---|---|---|
-| **Mode A / A1 (VST clip URL)** | sensor and/or clip time range | VST + VLM endpoint | Clip is fetched from VST timeline/URL APIs | VA-MCP analytics |
-| **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VST, VA-MCP analytics |
-| **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VST, direct VLM path |
+| **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
+| **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
+| **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
 
 Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
@@ -85,7 +87,7 @@ Hard gate behavior:
 Probe examples:
 
 ```bash
-# Mode A path A1 — VST reachable
+# Mode A path A1 — VIOS reachable
 curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null
 
 # Mode B — VA-MCP reachable
@@ -449,7 +451,7 @@ If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), 
 
 ### Step 4 — Fill the Video Analysis Report template
 
-Load the matching template from [`references/report-templates/video-analysis-report.md`](references/report-templates/video-analysis-report.md). Treat the template as read-only — copy its structure, fill every placeholder, and return the rendered markdown to the user. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens (e.g. `<BROWSER_CLIP_URL>`, `<sensor_id>`, `<YYYY-MM-DD>`), or internal-only URLs in user output. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never use the raw `HOST_IP:30888` URL.
+Load the matching template from [`references/report-templates/video-analysis-report.md`](references/report-templates/video-analysis-report.md). Treat the template as read-only — copy its structure **verbatim**, keeping its exact headings and `## Basic Information` pipe-table, and fill every placeholder. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens (e.g. `<BROWSER_CLIP_URL>`, `<sensor_id>`, `<YYYY-MM-DD>`), or internal-only URLs in user output. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never use the raw `HOST_IP:30888` URL.
 
 ---
 
