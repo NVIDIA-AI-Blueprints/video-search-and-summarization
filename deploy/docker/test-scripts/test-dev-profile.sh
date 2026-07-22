@@ -567,6 +567,9 @@ run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI t
 run_dry_run_up_and_check_generated_env "generated.env lvs RTXPRO4500BW RTVI tuning" "lvs" \
   -i 127.0.0.1 -H RTXPRO4500BW -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+run_dry_run_up_and_check_generated_env "generated.env base RTXPRO4500BW RTVI tuning" "base" \
+  -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
