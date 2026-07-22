@@ -872,6 +872,8 @@ jobs:
     needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 140
+    outputs:
+      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
     permissions:
       actions: read
       contents: read
@@ -881,6 +883,7 @@ jobs:
           persist-credentials: false
 
       - name: Wait for successful GHCR release set
+        id: release-set
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -919,6 +922,9 @@ jobs:
       - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
+    if: >-
+      success() &&
+      needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
