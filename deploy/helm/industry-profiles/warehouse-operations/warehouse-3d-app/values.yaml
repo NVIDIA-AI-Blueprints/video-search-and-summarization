@@ -197,7 +197,6 @@ infra:
         ELASTICSEARCH_ILM_MIN_AGE: 4h
         ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: "1536"
         ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: "768"
-        BP_PROFILE: bp_wh_3d
   kibana:
     enabled: true
     init:
@@ -331,8 +330,8 @@ rtvi:
     profileMode: standalone-3d
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
-      tag: "3.2.1"
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
+      tag: "3.3.0-26.07.1"
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
