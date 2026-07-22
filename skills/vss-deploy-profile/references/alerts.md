@@ -47,7 +47,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 |---|---|---|---|
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
 | VLM | Cosmos Reason3 Nano BF16 (integrated) | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** / slug **`none`** | RT-VLM (port 8018), `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
-| Perception (2d_cv only) | Grounding DINO | (`MODEL_NAME_2D=GDINO`, `MODEL_TYPE=cnn`) | RT-CV (DeepStream) |
+| Perception (2d_cv only) | Grounding DINO | (`DS_MODEL_FAMILY=rtdetr-gdino`, `MODEL_NAME_2D=GDINO`) | RT-CV (DeepStream) |
 
 LLM alternates: same as `base` — `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
 
