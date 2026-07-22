@@ -17,7 +17,7 @@ general:
   use_uvloop: true
   front_end:
     _type: vss_fastapi
-    runner_class: agent.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
