@@ -68,7 +68,9 @@ struct LibNvPassthroughVideoDecoderTemplateAdapter {
     };
 
     formats.push_back(webrtc::SdpVideoFormat(webrtc::kH264CodecName));
+#ifdef RTC_ENABLE_H265
     formats.push_back(webrtc::SdpVideoFormat(webrtc::kH265CodecName));
+#endif
     return formats;
   }
 
