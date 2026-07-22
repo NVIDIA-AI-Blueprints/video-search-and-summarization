@@ -229,45 +229,32 @@ functions:
       timeout: 300
   # <<< frag
 
-  # >>> graph_rag: reference-only ArangoDB graph retrieval example
-  # VSS does not create, seed, or manage this graph. The database,
-  # collections, edges, and graph name must already exist in ArangoDB.
-  # To use this example, uncomment the block, replace the placeholder schema
-  # names, configure the ARANGO_* environment variables, and add the tool name
-  # to workflow.tool_names.
+  # >>> arango_graph: reference-only ArangoDB retrieval example
+  # VSS does not create, seed, or manage this graph. Point this tool at an
+  # existing ArangoDB graph and add it to workflow.tool_names.
   #
   # example_graph_retrieval:
   #   _type: knowledge_retrieval
-  #   backend: graph_rag
+  #   backend: arango_graph
   #   top_k: 5
   #   backend_config:
-  #     provider: langchain_arango
-  #
-  #     # LLM used by LangChain to generate read-only AQL and summarize results.
-  #     llm_model: ${LLM_NAME}
-  #     llm_base_url: ${LLM_BASE_URL}/v1
-  #     llm_api_key: ${NVIDIA_API_KEY:-}
-  #     temperature: 0.0
-  #     llm_reasoning: false
-  #
-  #     # Existing ArangoDB graph connection.
-  #     arango_url: ${ARANGO_URL:-http://arango-db:8529}
-  #     arango_database: ${ARANGO_DB:-example_graphs}
-  #     arango_username: ${ARANGO_USER:-root}
-  #     arango_password: ${ARANGO_PASSWORD:-}
-  #     arango_graph_name: ${ARANGO_GRAPH_NAME:-example_graph}
-  #
-  #     # LangChain graph QA chains require this before running generated AQL.
-  #     # Use read-only ArangoDB credentials in production.
-  #     allow_dangerous_requests: true
-  #     return_intermediate_steps: true
-  #     max_aql_generation_attempts: 4
-  #
+  #     # Optional. Defaults to arango; custom providers can use provider_config.
+  #     provider: arango
+  #     llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  #     # Provider-specific connection settings. These can also come from
+  #     # ARANGO_* env vars.
+  #     provider_config:
+  #       arango_url: ${ARANGO_URL:-http://arango-db:8529}
+  #       arango_database: ${ARANGO_DB:-example_graphs}
+  #       arango_graph_name: ${ARANGO_GRAPH_NAME:-example_graph}
   #     schema_description: |
-  #       Example reference graph. node_a vertices connect to node_b vertices
-  #       through related_to edges. Replace these collection and edge names with
-  #       the schema from an existing ArangoDB graph.
-  #
+  #       node_a vertices connect to node_b vertices through related_to edges.
+  #       Replace these names with your existing graph schema.
+  #     allowed_vertex_collections:
+  #     - node_a
+  #     - node_b
+  #     allowed_edge_collections:
+  #     - related_to
   #     graph_semantics:
   #     - name: example_relationship
   #       user_terms: ["node", "related", "relationship", "connection"]
@@ -275,14 +262,7 @@ functions:
   #       edge_collection: related_to
   #       target_collection: node_b
   #       meaning: node_a records are connected to related node_b records.
-  #
-  #     allowed_vertex_collections:
-  #     - node_a
-  #     - node_b
-  #
-  #     allowed_edge_collections:
-  #     - related_to
-  # <<< graph_rag reference
+  # <<< arango_graph reference
 
 llms:
   # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
