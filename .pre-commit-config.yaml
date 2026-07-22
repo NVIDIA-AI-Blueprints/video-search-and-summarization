@@ -46,6 +46,16 @@ repos:
     pass_filenames: false
     require_serial: true
 
+  # Mirrors CI job "Lint (Python)" yamllint step: lint tracked .github / services YAML.
+  # Run ephemerally via uvx so yamllint (GPL-3.0-or-later) never lands in the
+  # project venv or lockfile, matching the CI step's licensing rationale.
+  - id: yamllint
+    name: yamllint (.github / services YAML)
+    entry: 'uvx yamllint -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}"'
+    language: system
+    files: ^(\.github/.*\.ya?ml|\.pre-commit-config\.yaml|services/.*\.ya?ml)$
+    stages: [pre-commit]
+
   # DCO sign-off check — mirrors CI job "DCO Sign-off".
   # Runs at `commit-msg` stage so we read the *new* commit's message
   # (passed in as $1) instead of `git log -1` on the parent — which
