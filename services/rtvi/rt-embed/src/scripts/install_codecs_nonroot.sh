@@ -63,6 +63,7 @@ if [ ! -r /etc/ssl/certs/ca-certificates.crt ]; then
 fi
 
 PACKAGES=(
+    # FFmpeg and GStreamer
     ffmpeg
     libavcodec60
     libavfilter9
@@ -75,6 +76,8 @@ PACKAGES=(
     gstreamer1.0-plugins-bad
     gstreamer1.0-plugins-ugly
     gstreamer1.0-libav
+
+    # Video and audio codecs
     libde265-0
     libx265-199
     libx264-164
@@ -94,6 +97,8 @@ PACKAGES=(
     libaribb24-0t64
     libpocketsphinx3
     libsphinxbase3t64
+
+    # Media formats, streaming, and signal processing
     libjxl0.7
     libplacebo338
     libzimg2
@@ -107,6 +112,8 @@ PACKAGES=(
     librubberband2
     libsoxr0
     libmysofa1
+
+    # Runtime dependencies
     libopenblas0-serial
     libblas3
     liblapack3
@@ -135,8 +142,7 @@ fi
 
 mkdir -p \
     "$APT_DIR/lists/partial" \
-    "$APT_DIR/archives/partial" \
-    "$INSTALL_DIR"
+    "$APT_DIR/cache"
 
 cat > "$SOURCES_LIST" <<EOF
 deb [arch=$DEB_ARCH signed-by=$KEYRING] $ARCHIVE_MIRROR noble main universe
@@ -149,12 +155,10 @@ APT_OPTIONS=(
     -o "Dir::Etc::sourceparts=-"
     -o "Dir::State::lists=$APT_DIR/lists"
     -o "Dir::Cache=$APT_DIR/cache"
-    -o "Dir::Cache::archives=$APT_DIR/archives"
     -o "APT::Architecture=$DEB_ARCH"
     -o "APT::Update::Error-Mode=any"
     -o "Acquire::Retries=${CODEC_DOWNLOAD_RETRIES:-5}"
     -o "Acquire::https::Timeout=${CODEC_DOWNLOAD_TIMEOUT_SECONDS:-60}"
-    -o "Acquire::http::Timeout=${CODEC_DOWNLOAD_TIMEOUT_SECONDS:-60}"
 )
 
 echo "Installing proprietary codecs from signed Ubuntu Noble repositories (arch=$DEB_ARCH)..."
@@ -170,15 +174,17 @@ if [ "${CODEC_VALIDATE_ONLY:-false}" = "true" ]; then
         echo "ERROR: Failed to resolve one or more codec packages" >&2
         exit 1
     }
-    mapfile -t ARTIFACT_URIS < <(printf '%s\n' "$URI_OUTPUT" | awk '/^\047https:\/\// {print $1}')
-    if [ ${#ARTIFACT_URIS[@]} -ne ${#PACKAGES[@]} ]; then
-        echo "ERROR: Expected ${#PACKAGES[@]} HTTPS artifacts, resolved ${#ARTIFACT_URIS[@]}" >&2
+    HTTPS_ARTIFACT_COUNT=$(grep -c "^'https://" <<< "$URI_OUTPUT" || true)
+    if [ "$HTTPS_ARTIFACT_COUNT" -ne ${#PACKAGES[@]} ]; then
+        echo "ERROR: Expected ${#PACKAGES[@]} HTTPS artifacts, resolved $HTTPS_ARTIFACT_COUNT" >&2
         printf '%s\n' "$URI_OUTPUT" >&2
         exit 1
     fi
-    echo "Validated ${#ARTIFACT_URIS[@]} signed HTTPS codec artifacts."
+    echo "Validated $HTTPS_ARTIFACT_COUNT signed HTTPS codec artifacts."
     exit 0
 fi
+
+mkdir -p "$INSTALL_DIR"
 
 echo "Downloading ${#PACKAGES[@]} codec packages with apt retry and hash validation..."
 if ! (

@@ -158,9 +158,7 @@ jobs:
           bash -n "$EMBED_INSTALLER"
           bash -n "$VLM_INSTALLER"
           cmp "$EMBED_INSTALLER" "$VLM_INSTALLER"
-          CODEC_VALIDATE_ONLY=true \
-            CODEC_INSTALL_DIR="$RUNNER_TEMP/rtvi-codecs" \
-            bash "$EMBED_INSTALLER"
+          CODEC_VALIDATE_ONLY=true bash "$EMBED_INSTALLER"
 
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)
