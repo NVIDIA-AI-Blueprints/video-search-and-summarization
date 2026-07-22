@@ -29,6 +29,6 @@ include:
 
   # Warehouse Configuration - includes 2D, 3D (Sparse4D), and MV3DT apps
 
-  # Services are differentiated by -2d, -3d, and -mv3dt suffixes
-  # Use profiles: bp_wh_2d, bp_wh_kafka_2d, bp_wh_redis_2d (2D)
-  # bp_wh_kafka_3d, bp_wh_redis_3d (3D (Sparse4D)), bp_wh_kafka_mv3dt, bp_wh_redis_mv3dt (MV3DT)
+  # Services are differentiated by -2d, -3d, and -mv3dt suffixes.
+  # Each service carries profiles: ["<service-name>"]; active services are selected
+  # via COMPOSE_PROFILES in generated.env, using warehouse and playback variant lists from .env and overrides.env.
