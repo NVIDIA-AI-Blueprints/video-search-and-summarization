@@ -194,7 +194,9 @@ class PoolCandidates(unittest.TestCase):
 
     def setUp(self):
         self._orig = run_leg._list_pool_instances
-        run_leg._list_pool_instances = lambda _skill=None: self.FLEET
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: self.FLEET
+        )
 
     def tearDown(self):
         run_leg._list_pool_instances = self._orig
@@ -302,9 +304,11 @@ class PoolCandidates(unittest.TestCase):
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
-            approved = run_leg._registered_pool_allowlist("vss-ask-video")
+            approved = run_leg._registered_pool_allowlist(
+                "vss-ask-video", "base_profile_video_understanding"
+            )
             unapproved = run_leg._registered_pool_allowlist(
-                "vss-deploy-profile"
+                "vss-deploy-profile", "search"
             )
 
         self.assertEqual(
@@ -317,6 +321,27 @@ class PoolCandidates(unittest.TestCase):
         )
         self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
 
+    def test_4090_test_capabilities_fail_closed(self):
+        self.assertTrue(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "alerts_cv"
+        ))
+        self.assertTrue(run_leg._rtx4090_supports(
+            "vss-manage-alerts", "subscriptions_lifecycle"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "search"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "warehouse"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-dense-captioning", "alerts_profile_api"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-detection-tracking-3d", "deploy"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+
     def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
         fleet = [{
             "name": "vss-eval-geforce-rtx4090-vm1",
@@ -325,17 +350,19 @@ class PoolCandidates(unittest.TestCase):
             "_registered": True,
             "_rtx4090_capability_routed": True,
         }]
-        run_leg._list_pool_instances = lambda _skill=None: fleet
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
         requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
 
         approved = run_leg.pool_candidates({
             **requirements,
             "skill": "vss-ask-video",
-        })
+        }, "base_profile_video_understanding")
         unapproved = run_leg.pool_candidates({
             **requirements,
-            "skill": "vss-deploy-profile",
-        })
+            "skill": "vss-deploy-dense-captioning",
+        }, "alerts_profile_api")
 
         self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
         self.assertEqual(unapproved, [])
@@ -348,13 +375,15 @@ class PoolCandidates(unittest.TestCase):
             {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
              "gpu": "RTX PRO 6000", "_registered": True},
         ]
-        run_leg._list_pool_instances = lambda _skill=None: fleet
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
 
         names = run_leg.pool_candidates({
             "skill": "vss-ask-video",
             "gpu_type": "RTX PRO 6000",
             "gpu_count": 2,
-        })
+        }, "base_profile_video_understanding")
 
         self.assertEqual(names, ["vss-eval-rtx-2g-VM1b"])
 

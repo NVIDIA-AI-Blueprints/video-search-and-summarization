@@ -507,12 +507,15 @@ the operator's job**; the box lock and the trials both live inside
 reset`.
 
 `BREV_RTX4090_POOL` is a separate, capability-routed allowlist. Its nodes
-are selected only when task metadata names one of the skills in
-`run_leg.py::RTX4090_SKILLS`: ask-video, behavior analytics, video analytics
-API, detection/tracking 2D, video embedding, dense captioning, or video
-calibration. All other skills use the full-capability registered pool or
-managed instances. A registered `-1g-` node is also filtered from any task
-requiring two GPUs before lock acquisition.
+are selected only when the skill and spec stem match the resource-proven
+matrix in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS`. This includes
+the proven ask-video, report, base/LVS/Alerts profile, summarize, alerts,
+query analytics, 2D detection, embedding, calibration, VIOS, setup, and
+standalone dense-captioning tests. Search, Warehouse, dense-captioning
+Alerts, and every 3D detection/calibration test remain on full-capability
+workers. Missing skill/spec metadata fails closed. A registered single-GPU
+node is also filtered from any task requiring two GPUs before lock
+acquisition.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.

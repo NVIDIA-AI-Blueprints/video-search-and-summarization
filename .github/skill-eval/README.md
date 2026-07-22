@@ -49,7 +49,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `HF_TOKEN` | Required by the Edge 4B vLLM on SPARK / Thor `shared` mode |
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
-| `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the skills in `run_leg.py::RTX4090_SKILLS` |
+| `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
 
 ## Layout
 
