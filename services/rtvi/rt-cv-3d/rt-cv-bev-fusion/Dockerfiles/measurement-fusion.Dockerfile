@@ -36,7 +36,7 @@ RUN apt-get update \
 
 # Declare bundled OS-level binaries so the NGC/Anchore scanner can attribute
 # them in the distroless image (the scanner reads /var/lib/dpkg/status.d).
-COPY src/deps.json /build/deps.json
+COPY deps.json /build/deps.json
 RUN curl -fsSL -o generate_metadata.sh \
         https://urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v0.3.sh \
  && chmod +x generate_metadata.sh \
@@ -61,7 +61,7 @@ RUN echo "deb-src http://deb.debian.org/debian trixie main" >> /etc/apt/sources.
 # (metromind/mdat/py-analytics-stream v3.2). pip must be uninstalled last.
 RUN pip install --upgrade pip pipenv setuptools wheel
 
-COPY src/Pipfile src/Pipfile.lock /build/
+COPY Pipfile Pipfile.lock /build/
 RUN pipenv requirements --hash > requirements.txt \
  && pip install --no-deps --no-cache-dir -r requirements.txt \
  && pip uninstall -y wheel pipenv setuptools pip
@@ -96,8 +96,7 @@ COPY --from=builder /usr/share/source /usr/share/source
 WORKDIR /app
 COPY src/schema_pb2.py /app/schema_pb2.py
 COPY src/measurement_fusion.py /app/measurement_fusion.py
-COPY src/3rdParty_Licenses.md /app/3rdParty_Licenses.md
-COPY src/NVIDIA-Software-License-Agreement.pdf /app/NVIDIA-Software-License-Agreement.pdf
+COPY 3rdParty_Licenses.md /app/3rdParty_Licenses.md
 
 # Reset any preset ENTRYPOINT from the distroless base (e.g. /usr/bin/python3.X)
 # so Docker does not prepend it to CMD. CMD is also easier to override from
