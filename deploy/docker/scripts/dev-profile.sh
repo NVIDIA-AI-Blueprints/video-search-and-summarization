@@ -418,7 +418,6 @@ function usage() {
   echo "  • LLM_ENDPOINT_URL    — optional; required when --use-remote-llm is passed (both must be set)"
   echo "  • VLM_ENDPOINT_URL    — optional; required when --use-remote-vlm is passed (both must be set)"
   echo "  • VLM_CUSTOM_WEIGHTS  — optional; when --use-remote-vlm is not passed: absolute path to custom weights dir; when --use-remote-vlm is passed, ignored"
-  echo "  • ENABLE_CRITIC       — optional; search profile: enabled by default; when false (case-insensitive), disables critic verification only (RT-VLM still runs for video_understanding)"
   echo ""
   echo "Options for 'up':"
   echo "  -p, --profile                    [REQUIRED] Profile."
@@ -1389,17 +1388,8 @@ function state_up() {
   # Search profile: RT-VLM (vss-rtvi-vlm) is ALWAYS deployed because it serves both the critic
   # and the video_understanding tool. It starts via the vlm_${VLM_MODE}_${VLM_NAME_SLUG} compose
   # profile with the synthetic slug "rtvi" (only rtvi-vlm's vlm_*_rtvi profiles match it, so no
-  # NIM VLM is started). ENABLE_CRITIC only toggles critic verification in the agent config
-  # (enable_critic); it does NOT gate RT-VLM. Brev 2-GPU local-VLM deployments are rejected
-  # during argument validation.
+  # NIM VLM is started). Brev 2-GPU local-VLM deployments are rejected during argument validation.
   if [[ "${profile}" == "search" ]]; then
-    local _enable_critic
-    _enable_critic="${ENABLE_CRITIC:-$(get_env_value_from_files "ENABLE_CRITIC" "${_source_env}" "${_overrides_env}")}"
-    if [[ "${_enable_critic,,}" == "false" ]]; then
-      set_env_var "ENABLE_CRITIC" "false"
-    else
-      set_env_var "ENABLE_CRITIC" "true"
-    fi
     set_env_var "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}'
     set_env_var "VLM_NAME_SLUG" "rtvi"
     if [[ "${vlm_mode}" != "remote" ]]; then

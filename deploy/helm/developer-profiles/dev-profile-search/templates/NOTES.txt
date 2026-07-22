@@ -45,8 +45,8 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
     --set nims.global.ngcApiKey=<NGC_API_KEY> \
     --wait=false
 
-  Critic agent and Cosmos3 NIM are enabled by default.
-  To disable: --set global.enableCritic=false,nims.cosmos3.enabled=false
+  Critic verification is controlled per request with use_critic.
+  The vss-rtvi-vlm service also supports video_understanding and is enabled by default.
 
   Both bare IP and hostname formats are accepted for global.externalHost:
     --set global.externalHost=<NODE_IP>                          (bare IP)
