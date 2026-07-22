@@ -1101,6 +1101,38 @@ _warehouse_host_port_keys=(
   VSS_AUTO_CALIBRATION_HOST_PORT VSS_AUTO_CALIBRATION_UI_HOST_PORT
 )
 if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
+  _warehouse_static_compose_keys=(
+    _WH_BASE _WH_KAFKA _WH_BROKER_HEALTH _WH_EXTENDED_COMMON _WH_MONITORING _WH_AGENT_STACK
+    _WH_2D_APP _WH_3D_APP _WH_MV3DT_APP _WH_2D_EXTENDED _WH_3D_EXTENDED _WH_MV3DT_EXTENDED
+    _WH_AUTO_CALIB _WH_PLAYBACK_2D _WH_PLAYBACK_3D _WH_PLAYBACK_MV3DT
+    COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
+    COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
+    COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL
+    COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL
+    COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
+    COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
+    COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
+  )
+  for _key in "${_warehouse_static_compose_keys[@]}"; do
+    if ! grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
+      echo "FAIL: warehouse .env should define static compose profile value ${_key}"
+      ((_split_failed++)) || true
+    fi
+    if grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
+      echo "FAIL: warehouse overrides.env should not define static compose profile value ${_key}"
+      ((_split_failed++)) || true
+    fi
+  done
+  for _key in COMPOSE_PROFILES_WH_2D COMPOSE_PROFILES; do
+    if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
+      echo "FAIL: warehouse .env should not define override-layer compose profile value ${_key}"
+      ((_split_failed++)) || true
+    fi
+    if ! grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
+      echo "FAIL: warehouse overrides.env should define override-layer compose profile value ${_key}"
+      ((_split_failed++)) || true
+    fi
+  done
   for _key in "${_warehouse_host_port_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define host-published port override ${_key}"
@@ -1155,7 +1187,6 @@ done < <(find "${REPO_ROOT}/deploy/docker" -type f \( -name '*.yml' -o -name '*.
 load_compose_env_values() {
   local env_file="${1}"
   local line key value
-  _compose_env_values=()
   while IFS= read -r line || [[ -n "${line}" ]]; do
     [[ "${line}" =~ ^[[:space:]]*# ]] && continue
     [[ "${line}" =~ ^[[:space:]]*$ ]] && continue
@@ -1187,10 +1218,16 @@ resolve_compose_env_value() {
 
 _compose_profiles_failed=0
 for _compose_env_file in \
+  "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/.env \
   "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/overrides.env \
+  "${REPO_ROOT}"/deploy/docker/industry-profiles/*/.env \
   "${REPO_ROOT}"/deploy/docker/industry-profiles/*/overrides.env; do
   [[ -f "${_compose_env_file}" ]] || continue
   declare -A _compose_env_values=()
+  _sibling_env_file="$(dirname "${_compose_env_file}")/.env"
+  if [[ "$(basename "${_compose_env_file}")" == "overrides.env" && -f "${_sibling_env_file}" ]]; then
+    load_compose_env_values "${_sibling_env_file}"
+  fi
   load_compose_env_values "${_compose_env_file}"
   for _var in "${!_compose_env_values[@]}"; do
     [[ "${_var}" == COMPOSE_PROFILES* ]] || continue
