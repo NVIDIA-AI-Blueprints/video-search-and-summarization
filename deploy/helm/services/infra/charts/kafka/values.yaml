@@ -80,7 +80,7 @@ podSecurityContext:
 
 topicJob:
   enabled: true
-  ttlSecondsAfterFinished: 300
+  ttlSecondsAfterFinished: null
   backoffLimit: 10
   # Empty: inherits kafka.nodeSelector from the Job template coalesce.
   nodeSelector: {}
