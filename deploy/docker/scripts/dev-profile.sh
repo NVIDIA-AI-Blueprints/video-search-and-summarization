@@ -1270,6 +1270,10 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    # Alerts VLM mode uses a different explicit service list than CV mode.
+    if [[ "${mode_env}" == "2d_vlm" ]]; then
+      set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+    fi
   fi
 
   # ===== LLM Configuration =====
@@ -1465,6 +1469,12 @@ function state_up() {
   # (alerts defaults to VLM_MODEL_TYPE=rtvi via profile env files, so it does not need this override)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
+    local _compose_profiles
+    _compose_profiles="$(get_env_value "${_generated_env}" "COMPOSE_PROFILES")"
+    case ",${_compose_profiles}," in
+      *,rtvi-vlm,*) ;;
+      *) set_env_var "COMPOSE_PROFILES" "${_compose_profiles},rtvi-vlm" ;;
+    esac
   fi
 
   # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
@@ -1629,6 +1639,23 @@ function state_up() {
     set_vss_linux_kernel_settings
   fi
 
+  # Resolve and display the managed container channel before deployment.
+  set -a
+  # shellcheck disable=SC1091
+  source "${deployment_directory}/containers.env"
+  set +a
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  echo "[INFO] Resolved compose images:"
+  (
+    cd "${deployment_directory}"
+    docker compose \
+      --env-file containers.env \
+      --env-file "developer-profiles/dev-profile-${profile}/.env" \
+      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+      config --images | sort -u
+  )
+
   # Docker login to nvcr.io
   echo "[INFO] Logging into nvcr.io..."
   if [[ "${dry_run}" == "true" ]]; then
@@ -1643,9 +1670,10 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
   else
     cd "${deployment_directory}" && docker compose \
+      --env-file containers.env \
       --env-file "developer-profiles/dev-profile-${profile}/.env" \
       --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
       up \

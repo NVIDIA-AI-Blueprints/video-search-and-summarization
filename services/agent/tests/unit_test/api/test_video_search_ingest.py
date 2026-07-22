@@ -21,9 +21,9 @@ from unittest.mock import patch
 from fastapi import FastAPI
 import pytest
 
-from vss_agents.api.video_ingest import VideoIngestResponse
-from vss_agents.api.video_search_ingest import create_video_search_ingest_router
-from vss_agents.api.video_search_ingest import register_video_search_ingest_routes
+from agent.api.video_ingest import VideoIngestResponse
+from agent.api.video_search_ingest import create_video_search_ingest_router
+from agent.api.video_search_ingest import register_video_search_ingest_routes
 
 
 class TestDeprecatedSearchIngestRouter:
@@ -185,9 +185,9 @@ class TestUploadVideoToVstHeaderValidation:
         request.stream.return_value = "stream-body"
 
         with (
-            patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client),
+            patch("agent.api.video_search_ingest.httpx.AsyncClient", return_value=client),
             patch(
-                "vss_agents.api.video_search_ingest._run_post_upload_processing",
+                "agent.api.video_search_ingest._run_post_upload_processing",
                 new=AsyncMock(
                     return_value=VideoIngestResponse(message="ok", sensor_id="sensor-abc", filename="clip.mp4")
                 ),
@@ -222,9 +222,9 @@ class TestUploadVideoToVstHeaderValidation:
         request.stream.return_value = "stream-body"
 
         with (
-            patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client) as async_client,
+            patch("agent.api.video_search_ingest.httpx.AsyncClient", return_value=client) as async_client,
             patch(
-                "vss_agents.api.video_search_ingest._run_post_upload_processing",
+                "agent.api.video_search_ingest._run_post_upload_processing",
                 new=AsyncMock(
                     return_value=VideoIngestResponse(message="ok", sensor_id="sensor-abc", filename="clip.mp4")
                 ),

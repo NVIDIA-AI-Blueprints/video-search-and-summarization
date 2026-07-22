@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Poll a downstream CI pipeline and report per-job progress.
 
-Runs inline right after ``trigger-downstream-pipeline.sh`` in the same
+Runs inline right after ``trigger_downstream_pipeline.py`` in the same
 GitHub Actions job. Reads the pipeline / project ids from env (set by
 the trigger step via ``$GITHUB_OUTPUT``), then polls the downstream
 API every ``POLL_INTERVAL_SECONDS`` (default 120s) until the pipeline

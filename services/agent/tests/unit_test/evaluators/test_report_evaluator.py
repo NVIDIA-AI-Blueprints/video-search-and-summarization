@@ -25,13 +25,13 @@ from nat.data_models.evaluator import EvalInputItem
 import pytest
 import yaml
 
-from vss_agents.evaluators.report_evaluator.data_models import EvaluationScore
-from vss_agents.evaluators.report_evaluator.eval_config_models import EvalMetricsConfig
-from vss_agents.evaluators.report_evaluator.eval_config_models import FieldConfig
-from vss_agents.evaluators.report_evaluator.evaluate import ReportEvaluator
-from vss_agents.evaluators.report_evaluator.evaluate import _fetch_and_parse_report
-from vss_agents.evaluators.report_evaluator.evaluate import _load_eval_metrics_yaml
-from vss_agents.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
+from agent.evaluators.report_evaluator.data_models import EvaluationScore
+from agent.evaluators.report_evaluator.eval_config_models import EvalMetricsConfig
+from agent.evaluators.report_evaluator.eval_config_models import FieldConfig
+from agent.evaluators.report_evaluator.evaluate import ReportEvaluator
+from agent.evaluators.report_evaluator.evaluate import _fetch_and_parse_report
+from agent.evaluators.report_evaluator.evaluate import _load_eval_metrics_yaml
+from agent.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
 
 MOCK_METRIC_SCORE = 0.8
 MOCK_LLM_JUDGE_SCORE = 0.9
@@ -490,7 +490,7 @@ class TestReportEvaluator:
             # Mock the fetch_and_parse_report
             generated_data = {"summary": "gen summary", "details": "gen details"}
             with patch(
-                "vss_agents.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
+                "agent.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
                 AsyncMock(return_value=(generated_data, "report_123.md")),
             ):
                 item = EvalInputItem(
@@ -589,7 +589,7 @@ class TestReportEvaluator:
                 "other_field": "gen3",
             }
             with patch(
-                "vss_agents.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
+                "agent.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
                 AsyncMock(return_value=(generated_data, "report_123.md")),
             ):
                 item = EvalInputItem(
@@ -633,7 +633,7 @@ class TestReportEvaluator:
         try:
             generated_data = {"summary": "gen", "details": "gen"}
             with patch(
-                "vss_agents.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
+                "agent.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
                 AsyncMock(return_value=(generated_data, "report_123.md")),
             ):
                 item = EvalInputItem(
@@ -706,7 +706,7 @@ class TestReportEvaluator:
                 "vlm_field_3": "gen3",
             }
             with patch(
-                "vss_agents.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
+                "agent.evaluators.report_evaluator.evaluate._fetch_and_parse_report",
                 AsyncMock(return_value=(generated_data, "report_123.md")),
             ):
                 item = EvalInputItem(

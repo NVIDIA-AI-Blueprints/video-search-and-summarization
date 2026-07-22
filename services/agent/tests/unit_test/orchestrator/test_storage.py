@@ -12,11 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/orchestrator/storage.py."""
+"""Tests for agent/orchestrator/storage.py."""
 
 from pathlib import Path
 
-from vss_agents.orchestrator.storage import ensure_alerts_engine_directories
+from agent.orchestrator.storage import ensure_alerts_engine_directories
+from agent.orchestrator.storage import resolve_config_path
+
+
+def test_resolve_config_path_expands_tilde(monkeypatch, tmp_path: Path):
+    fake_home = tmp_path / "home" / "user"
+    fake_home.mkdir(parents=True)
+    repo = fake_home / "video-search-and-summarization" / "deploy" / "docker"
+    repo.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    assert resolve_config_path("~/video-search-and-summarization/deploy/docker") == repo.resolve()
 
 
 def test_ensure_alerts_engine_directories_creates_writable_engine_dirs(tmp_path: Path):
