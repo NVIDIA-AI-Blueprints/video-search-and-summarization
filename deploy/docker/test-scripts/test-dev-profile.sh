@@ -1101,10 +1101,8 @@ _warehouse_host_port_keys=(
   VSS_AUTO_CALIBRATION_HOST_PORT VSS_AUTO_CALIBRATION_UI_HOST_PORT
 )
 if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
-  _warehouse_static_compose_keys=(
-    _WH_BASE _WH_KAFKA _WH_BROKER_HEALTH _WH_EXTENDED_COMMON _WH_MONITORING _WH_AGENT_STACK
-    _WH_2D_APP _WH_3D_APP _WH_MV3DT_APP _WH_2D_EXTENDED _WH_3D_EXTENDED _WH_MV3DT_EXTENDED
-    _WH_AUTO_CALIB _WH_PLAYBACK_2D _WH_PLAYBACK_3D _WH_PLAYBACK_MV3DT
+  _warehouse_compose_profile_keys=(
+    COMPOSE_PROFILES_WH_2D
     COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
     COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
     COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL
@@ -1112,27 +1110,22 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
     COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
     COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
+    COMPOSE_PROFILES
   )
-  for _key in "${_warehouse_static_compose_keys[@]}"; do
-    if ! grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
-      echo "FAIL: warehouse .env should define static compose profile value ${_key}"
-      ((_split_failed++)) || true
-    fi
-    if grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
-      echo "FAIL: warehouse overrides.env should not define static compose profile value ${_key}"
-      ((_split_failed++)) || true
-    fi
-  done
-  for _key in COMPOSE_PROFILES_WH_2D COMPOSE_PROFILES; do
+  for _key in "${_warehouse_compose_profile_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
-      echo "FAIL: warehouse .env should not define override-layer compose profile value ${_key}"
+      echo "FAIL: warehouse .env should not define user-facing compose profile value ${_key}"
       ((_split_failed++)) || true
     fi
     if ! grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
-      echo "FAIL: warehouse overrides.env should define override-layer compose profile value ${_key}"
+      echo "FAIL: warehouse overrides.env should define user-facing compose profile value ${_key}"
       ((_split_failed++)) || true
     fi
   done
+  if grep -Eq '(^_WH_|\$\{_WH_)' "${_warehouse_stable_env}" "${_warehouse_overrides_env}"; then
+    echo "FAIL: warehouse env files should not define or reference _WH helper variables"
+    ((_split_failed++)) || true
+  fi
   for _key in "${_warehouse_host_port_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define host-published port override ${_key}"
