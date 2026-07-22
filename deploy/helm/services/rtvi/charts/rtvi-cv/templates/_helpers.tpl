@@ -70,6 +70,38 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "vss-rtvi-cv.mv3dtMqttHost" -}}
+{{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
+{{- if $mv3dt.mqttHost -}}
+{{- $mv3dt.mqttHost -}}
+{{- else if $mv3dt.mqttServiceName -}}
+{{- $mv3dt.mqttServiceName -}}
+{{- else -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
+{{- if $usePrefix -}}
+{{- printf "%s-mosquitto" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "mosquitto" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "vss-rtvi-cv.mv3dtRedisHost" -}}
+{{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
+{{- if $mv3dt.redisHost -}}
+{{- $mv3dt.redisHost -}}
+{{- else -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
+{{- if $usePrefix -}}
+{{- printf "%s-redis" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "redis" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
 {{/* Models PVC size: prefer existing claim (stable upgrades). lookup empty in helm template/dry-run. Set forceModelsStorageFromValues to use values only. */}}
 {{- define "vss-rtvi-cv.effectiveAlertsModelsStorage" -}}
 {{- $claim := printf "%s-models" (include "vss-rtvi-cv.fullname" .) }}
