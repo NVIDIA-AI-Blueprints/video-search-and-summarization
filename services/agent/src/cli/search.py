@@ -16,7 +16,7 @@
 
 A single search domain dispatches every primitive:
 
-    vss search {run,embed,attribute} [--runtime-flags...] [--config <path>] [--json '<payload>'] [--stream]
+    vss search {run,embed,attribute} [--runtime-flags...] [--config <path>] [--json '<payload>']
        runtime:   backend URLs and runtime knobs are passed explicitly as CLI
                   flags. The CLI intentionally does not read endpoint env vars
                   or $VSS_AGENT_CONFIG_FILE.
@@ -24,7 +24,6 @@ A single search domain dispatches every primitive:
                   values may be supplied with --config-env KEY=VALUE.
                   Process-environment fallback is intentionally not supported.
        --json:    payload as a JSON object matching the input model.
-       --stream:  only valid for `search`; emits SearchEvent JSON lines.
        stdin:     alternative payload source. When both --json and piped stdin
                   are present, --json takes precedence (stdin is not read).
 
@@ -64,16 +63,11 @@ import httpx
 from pydantic import ValidationError
 
 from lib._foundation.errors import BackendUnreachableError
-from lib._foundation.errors import LibraryError
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import IndexNotFoundError
 from lib.search_core.errors import InvalidInputError
 from lib.search_core.models.common import FusionMethod
-from lib.vst import VSTError
 
-from .deployment import DeploymentConfig
-from .deployment import PortForwardError
-from .deployment import discover_deployment
 from .search_operations import SEARCH_OPERATIONS
 
 _PREFLIGHT_MAX_ATTEMPTS = 3
@@ -81,7 +75,6 @@ _PREFLIGHT_RETRY_STATUS_CODES = frozenset({429, 502, 503, 504})
 _PREFLIGHT_RETRY_DELAYS_SECONDS = (0.25, 0.5)
 
 if TYPE_CHECKING:
-    from lib.search_core.host import VSSSearch
     from lib.search_core.runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
@@ -120,34 +113,6 @@ def _required_runtime_args(primitive: str) -> tuple[tuple[str, str], ...]:
         ("vst_internal_url", "--vst-internal-url"),
         ("vst_external_url", "--vst-external-url"),
     )
-
-
-# Resolve the CLI exit code for a streamed ErrorEvent by LibraryError subtype so
-# streaming matches the non-streaming main() try/except (which relies on normal
-# subclass catching). Ordered most-specific-need-not-come-first because the
-# three LibraryError branches below are disjoint; IndexNotFoundError resolves via
-# issubclass(BackendUnreachableError) → 3, exactly like the non-stream path.
-_ERROR_EXIT_CODES: tuple[tuple[type[LibraryError], int], ...] = (
-    (InvalidInputError, 2),
-    (BackendUnreachableError, 3),
-    (ConfigurationError, 4),
-)
-_SEARCH_ERROR_CLASSES: dict[str, type[LibraryError]] = {
-    cls.__name__: cls
-    for cls in (InvalidInputError, BackendUnreachableError, IndexNotFoundError, VSTError, ConfigurationError)
-}
-
-
-def _exit_code_for_stream_error(error_code: str) -> int:
-    """Map an ErrorEvent.error_code string to the same exit code main() would use."""
-    if error_code == "ValidationError":
-        return 2
-    error_cls = _SEARCH_ERROR_CLASSES.get(error_code)
-    if error_cls is not None:
-        for base, code in _ERROR_EXIT_CODES:
-            if issubclass(error_cls, base):
-                return code
-    return 1
 
 
 def _parse_bool(value: str) -> bool:
@@ -212,35 +177,6 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
             "May be repeated; the CLI never reads process env vars."
         ),
     )
-    runtime.add_argument(
-        "--deployment",
-        choices=("docker", "kubernetes"),
-        default=None,
-        help=(
-            "Discover a host-reachable runtime from a live deployment. Docker reads the selected "
-            "profile's generated.env; Kubernetes reads live Deployment/ConfigMap state without Secrets."
-        ),
-    )
-    runtime.add_argument(
-        "--profile",
-        default=None,
-        help="Docker developer profile (for example search). Required with --deployment docker.",
-    )
-    runtime.add_argument(
-        "--namespace",
-        default=None,
-        help="Kubernetes namespace. Required with --deployment kubernetes.",
-    )
-    runtime.add_argument(
-        "--release",
-        default=None,
-        help="Helm release name. Required with --deployment kubernetes.",
-    )
-    runtime.add_argument(
-        "--kube-context",
-        default=None,
-        help="Optional kubectl context for --deployment kubernetes.",
-    )
     runtime.add_argument("--es-endpoint", default=None, help="Elasticsearch endpoint for video embedding search.")
     runtime.add_argument(
         "--behavior-es-endpoint",
@@ -297,7 +233,7 @@ def _add_runtime_args(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_output_args(p: argparse.ArgumentParser, *, supports_stream: bool) -> None:
+def _add_output_args(p: argparse.ArgumentParser) -> None:
     output = p.add_argument_group("output options")
     output.add_argument(
         "--output",
@@ -306,7 +242,6 @@ def _add_output_args(p: argparse.ArgumentParser, *, supports_stream: bool) -> No
         help=(
             "Output format: a single JSON object (default), one JSON object per result row "
             "(jsonl, ideal for piping), or a human-readable table."
-            + (" Ignored for --stream, which always emits event JSON lines." if supports_stream else "")
         ),
     )
     output.add_argument(
@@ -429,16 +364,9 @@ def _parse_args(argv: list[str] | None = None, *, operation: str) -> argparse.Na
         help="Payload as a JSON object matching the primitive's input model.",
     )
     if primitive == "search":
-        p.add_argument(
-            "--stream",
-            action="store_true",
-            help="Emit SearchEvent JSON lines instead of a single output JSON.",
-        )
         _add_search_query_args(p)
-    else:
-        p.set_defaults(stream=False)
     _add_runtime_args(p)
-    _add_output_args(p, supports_stream=primitive == "search")
+    _add_output_args(p)
     p.set_defaults(cli_name=prog)
     return p.parse_args(argv)
 
@@ -519,48 +447,30 @@ def _load_payload(args: argparse.Namespace) -> dict[str, Any]:
     return {}
 
 
-def _build_facade(
-    args: argparse.Namespace,
-    search_payload: dict[str, Any] | None = None,
-    *,
-    deployment: DeploymentConfig | None = None,
-) -> VSSSearch:
-    """Build the facade without reading process environment.
+def _build_runtime(args: argparse.Namespace) -> SearchRuntime:
+    """Resolve the runtime without reading process environment.
 
-    Runtime values come from explicit CLI flags. ``--config`` can be paired
-    with explicit ``--config-env KEY=VALUE`` pairs to reproduce a deployment
-    config, but there is intentionally no ``$VSS_AGENT_CONFIG_FILE`` or
-    endpoint-env fallback in the CLI layer.
+    Runtime values come from explicit CLI flags, optionally seeded by an
+    explicit ``--config`` file interpolated with ``--config-env KEY=VALUE``
+    pairs. There is intentionally no ``$VSS_AGENT_CONFIG_FILE`` fallback, no
+    endpoint-env fallback, and no deployment discovery: the CLI never reads
+    config out of a deployed VSS.
     """
-    from lib.search_core.host import VSSSearch
     from lib.search_core.runtime import RuntimeSnapshot
 
-    config_path = (
-        Path(args.config) if args.config is not None else (deployment.config_path if deployment is not None else None)
-    )
-    if config_path is not None:
+    if args.config is not None:
+        config_path = Path(args.config)
         if not config_path.exists():
             raise ConfigurationError(f"--config path does not exist: {str(config_path)!r}")
-        # Deployment-derived values establish the baseline.  Explicit
-        # --config-env values then take precedence, as do runtime flags below.
-        config_env = dict(deployment.env) if deployment is not None else {}
-        config_env.update(_deployment_env_overrides(args) if deployment is not None else _config_env_from_args(args))
         # When --config is explicitly provided we must NOT silently fall back to
         # args-only construction on a ConfigurationError: doing so would drop
         # every profile knob the config carries (w_*,
         # rrf_*, embed_confidence_threshold, ...). Let the
         # error surface (exit 4) so the operator fixes the config they asked for.
-        snap = RuntimeSnapshot.from_config_file(config_path, env=config_env)
-        # Resolve explicit flags before deployment rewriting so an external
-        # endpoint override never starts an unnecessary port-forward. An
-        # explicit in-cluster endpoint is still recognized and forwarded.
-        runtime = _apply_runtime_overrides(snap.runtime, args)
-        if deployment is not None:
-            runtime = _rewrite_deployment_runtime(args, search_payload or {}, runtime, deployment)
-        return VSSSearch.from_runtime(runtime)
+        snap = RuntimeSnapshot.from_config_file(config_path, env=_config_env_from_args(args))
+        return _apply_runtime_overrides(snap.runtime, args)
 
-    runtime = _runtime_from_args(args)
-    return VSSSearch.from_runtime(runtime)
+    return _runtime_from_args(args)
 
 
 def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
@@ -574,48 +484,6 @@ def _config_env_from_args(args: argparse.Namespace) -> dict[str, str]:
         if "\n" in value or "\r" in value:
             raise InvalidInputError(f"--config-env value for {key!r} must not contain newlines")
         env[key] = value
-    return env
-
-
-_DEPLOYMENT_RUNTIME_ENV_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("es_endpoint", ("ELASTIC_SEARCH_ENDPOINT",)),
-    ("behavior_es_endpoint", ("BEHAVIOR_ES_ENDPOINT",)),
-    ("cosmos_embed_endpoint", ("COSMOS_EMBED_ENDPOINT", "RTVI_EMBED_BASE_URL")),
-    ("cosmos_embed_model", ("RTVI_EMBED_MODEL",)),
-    ("rtvi_cv_endpoint", ("RTVI_CV_ENDPOINT", "RTVI_CV_BASE_URL")),
-    ("vst_internal_url", ("VST_INTERNAL_URL",)),
-    ("vst_external_url", ("VST_EXTERNAL_URL",)),
-    ("video_embed_index", ("ELASTIC_SEARCH_INDEX", "RTVI_EMBED_ES_INDEX")),
-    (
-        "video_embed_index_wildcard",
-        ("ELASTIC_SEARCH_INDEX_WILDCARD", "RTSP_EMBED_ES_INDEX_PATTERN"),
-    ),
-    ("behavior_index", ("BEHAVIOR_ES_INDEX", "BEHAVIOR_INDEX")),
-    (
-        "behavior_index_wildcard",
-        ("BEHAVIOR_INDEX_WILDCARD", "RTSP_BEHAVIOR_ES_INDEX_PATTERN"),
-    ),
-    ("frames_index", ("FRAMES_INDEX", "RAW_ES_INDEX")),
-    (
-        "frames_index_wildcard",
-        ("FRAMES_INDEX_WILDCARD", "RTSP_RAW_ES_INDEX_PATTERN"),
-    ),
-)
-
-
-def _deployment_env_overrides(args: argparse.Namespace) -> dict[str, str]:
-    """Translate explicit CLI values into deployment-config interpolation.
-
-    Runtime flags ultimately override the parsed snapshot as well, but the
-    snapshot must first be able to parse a live config whose corresponding
-    Deployment value may be absent or Secret-backed.
-    """
-    env = _config_env_from_args(args)
-    for field, keys in _DEPLOYMENT_RUNTIME_ENV_FIELDS:
-        value = getattr(args, field, None)
-        if value is not None:
-            rendered = str(value).lower() if isinstance(value, bool) else str(value)
-            env.update(dict.fromkeys(keys, rendered))
     return env
 
 
@@ -719,72 +587,11 @@ def _search_backend_route(payload: dict[str, Any]) -> tuple[bool, bool]:
     return mode in {"embed", "fusion"}, mode in {"attribute", "fusion"}
 
 
-def _runtime_fields_for_request(
-    args: argparse.Namespace,
-    payload: dict[str, Any],
-    _runtime: SearchRuntime,
-) -> set[str]:
-    """Return only runtime endpoints that the selected request can contact."""
-    primitive = getattr(args, "primitive", "search")
-    fields: set[str] = set()
-    if primitive == "embed_search":
-        fields.update(("es_endpoint", "vst_external_url"))
-        fields.add("cosmos_embed_endpoint")
-    elif primitive == "attribute_search":
-        fields.update(("behavior_es_endpoint", "rtvi_cv_endpoint", "vst_internal_url", "vst_external_url"))
-    elif primitive == "search":
-        if payload.get("object_ids"):
-            fields.update(("behavior_es_endpoint", "vst_internal_url", "vst_external_url"))
-            return fields
-        uses_embed, uses_attribute = _search_backend_route(payload)
-        if uses_embed:
-            fields.update(("es_endpoint", "cosmos_embed_endpoint", "vst_external_url"))
-        if uses_attribute:
-            fields.update(("behavior_es_endpoint", "rtvi_cv_endpoint", "vst_internal_url", "vst_external_url"))
-        if payload.get("video_sources"):
-            fields.add("vst_internal_url")
-        if getattr(args, "allow_embed_only_fallback", False) and uses_attribute and not uses_embed:
-            fields.update(("es_endpoint", "cosmos_embed_endpoint"))
-    return fields
-
-
 def _activate_embed_only_fallback(payload: dict[str, Any], *, reason: str) -> None:
     """Convert a fusion/attribute request to the explicitly allowed embed route."""
     payload["attributes"] = []
     payload["search_mode"] = "embed"
     sys.stderr.write(f"[vss] RTVI-CV {reason}; continuing with explicit embed-only fallback.\n")
-
-
-def _rewrite_deployment_runtime(
-    args: argparse.Namespace,
-    payload: dict[str, Any],
-    runtime: SearchRuntime,
-    deployment: DeploymentConfig,
-) -> SearchRuntime:
-    """Rewrite only requested endpoints, preserving RTVI fallback semantics.
-
-    Kubernetes forwarding happens before the HTTP capability probe.  Treating
-    an unavailable RTVI-CV port-forward as a generic discovery failure would
-    make ``--allow-embed-only-fallback`` ineffective precisely when the RTVI-CV
-    pod or Service is unavailable.  Probe that route independently so the
-    opt-in fallback can recompute and forward only the embed dependencies.
-    """
-    fields = _runtime_fields_for_request(args, payload, runtime)
-    may_fallback = (
-        args.primitive == "search"
-        and getattr(args, "allow_embed_only_fallback", False)
-        and "rtvi_cv_endpoint" in fields
-    )
-    if may_fallback:
-        try:
-            runtime = deployment.rewrite_runtime(runtime, fields={"rtvi_cv_endpoint"})
-        except PortForwardError as e:
-            _activate_embed_only_fallback(payload, reason=f"port-forward is unavailable ({e})")
-            fields = _runtime_fields_for_request(args, payload, runtime)
-        else:
-            fields.remove("rtvi_cv_endpoint")
-    rewritten: SearchRuntime = deployment.rewrite_runtime(runtime, fields=fields)
-    return rewritten
 
 
 # Keys under which each primitive/search output nests its list of result rows.
@@ -901,16 +708,6 @@ def _render_output(model: Any, args: argparse.Namespace) -> str:
     if pretty:
         return json.dumps(data, indent=2)
     return json.dumps(data, separators=(",", ":"))
-
-
-async def _write_search_stream(stream: Any) -> int:
-    exit_code = 0
-    async for event in stream:
-        sys.stdout.write(event.model_dump_json() + "\n")
-        sys.stdout.flush()
-        if getattr(event, "type", None) == "error":
-            exit_code = _exit_code_for_stream_error(getattr(event, "error_code", ""))
-    return exit_code
 
 
 async def _close_cli_clients() -> None:
@@ -1174,46 +971,95 @@ def _validate_payload_before_preflight(args: argparse.Namespace, payload: dict[s
         return
 
 
-async def _run(args: argparse.Namespace) -> int:
+async def _search_preflights(args: argparse.Namespace, payload: dict[str, Any], runtime: SearchRuntime) -> None:
+    """Named-source resolution + typed deployment checks (one event loop)."""
+    try:
+        await _resolve_named_sources(payload, runtime)
+        await _preflight_search_runtime(args, payload, runtime)
+    finally:
+        # Clients created here are bound to this (about to close) loop.
+        await _close_cli_clients()
+
+
+def _run_search_pipeline(payload: dict[str, Any], runtime: SearchRuntime) -> Any:
+    """Execute `search` through the synchronous Ranks pipeline facade."""
+    from lib.search_core.models.search import SearchInput
+    from lib.search_core.pipeline.bridge import deps_from_runtime
+    from lib.search_core.pipeline.facade import SearchParams
+    from lib.search_core.pipeline.facade import run_search
+
+    search_input = SearchInput(**payload)
+    top_k = search_input.top_k if search_input.top_k is not None else runtime.default_max_results
+    deps = deps_from_runtime(
+        runtime,
+        source_type=search_input.source_type,
+        top_k=top_k,
+        video_sources=search_input.video_sources,
+        timestamp_start=search_input.timestamp_start,
+        timestamp_end=search_input.timestamp_end,
+    )
+    params = SearchParams(
+        default_max_results=runtime.default_max_results,
+        embed_confidence_threshold=runtime.embed_confidence_threshold,
+        fusion_method=runtime.fusion_method,
+        w_attribute=runtime.w_attribute,
+        w_embed=runtime.w_embed,
+        rrf_k=runtime.rrf_k,
+        rrf_w=runtime.rrf_w,
+        top_percent_filter=runtime.top_percent_filter,
+    )
+    return run_search(search_input, deps, params)
+
+
+async def _run_primitive(primitive: str, payload: dict[str, Any], runtime: SearchRuntime) -> Any:
+    """Run one low-level primitive (embed_search / attribute_search) directly."""
+    if primitive == "embed_search":
+        from lib.search_core.models.embed_search import EmbedSearchInput
+        from lib.search_core.primitives.embed_search import EmbedSearch
+
+        embed_engine = EmbedSearch.from_runtime(runtime)
+        try:
+            return await embed_engine.run(EmbedSearchInput(**payload))
+        finally:
+            await embed_engine.aclose()
+    from lib.search_core.models.attribute_search import AttributeSearchInput
+    from lib.search_core.primitives.attribute_search import AttributeSearch
+
+    attribute_engine = AttributeSearch.from_runtime(runtime)
+    try:
+        return await attribute_engine.run(AttributeSearchInput(**payload))
+    finally:
+        await attribute_engine.aclose()
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.primitive == "search":
         payload = _resolve_search_payload(args)
     else:
         payload = _load_payload(args)
 
-    deployment: DeploymentConfig | None = None
     try:
-        # Validate before deployment discovery: Kubernetes discovery may query
-        # Services and start port-forwards, none of which is appropriate for a
-        # payload that cannot reach a primitive.
+        # Validate before any backend call: invalid input must exit 2
+        # deterministically without touching the deployment.
         _validate_payload_before_preflight(args, payload)
-        deployment = discover_deployment(args, env_overrides=_deployment_env_overrides(args))
-        facade = (
-            _build_facade(args, payload, deployment=deployment)
-            if deployment is not None
-            else _build_facade(args, payload)
-        )
-        async with facade as vss:
-            if args.primitive == "search":
-                await _resolve_named_sources(payload, vss.runtime)
-            await _preflight_search_runtime(args, payload, vss.runtime)
-            if args.primitive == "search" and args.stream:
-                return await _write_search_stream(vss.search_stream(**payload))
-
-            out = await getattr(vss, args.primitive)(**payload)
-            sys.stdout.write(_render_output(out, args) + "\n")
-            sys.stdout.flush()
-            return 0
+        runtime = _build_runtime(args)
+        if args.primitive == "search":
+            asyncio.run(_search_preflights(args, payload, runtime))
+            out = _run_search_pipeline(payload, runtime)
+        else:
+            out = asyncio.run(_run_primitive(args.primitive, payload, runtime))
+        sys.stdout.write(_render_output(out, args) + "\n")
+        sys.stdout.flush()
+        return 0
     finally:
-        if deployment is not None:
-            deployment.close()
-        await _close_cli_clients()
+        asyncio.run(_close_cli_clients())
 
 
 def _invoke(argv: list[str] | None = None, *, operation: str) -> int:
     try:
         args = _parse_args(argv, operation=operation)
         logging.basicConfig(level=args.log_level)
-        return asyncio.run(_run(args))
+        return _run(args)
     except InvalidInputError as e:
         sys.stderr.write(f"[vss] invalid input: {e}\n")
         return 2

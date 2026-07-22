@@ -304,10 +304,12 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)
 
 
-def test_search_archive_cli_streams_status_and_final_events(
+def test_search_archive_cli_rejects_removed_stream_flag(
     agent_root: Path,
     mock_services: _MockSearchServices,
 ) -> None:
+    # Streaming was removed from the CLI (the harness owns progress); the flag
+    # must fail loudly (argparse exit 2), never hang or silently no-op.
     result = _run_search_archive(
         agent_root,
         mock_services,
@@ -318,11 +320,8 @@ def test_search_archive_cli_streams_status_and_final_events(
         "--stream",
     )
 
-    assert result.returncode == 0, result.stderr
-    events = _json_lines(result.stdout)
-    assert [event["type"] for event in events][-1] == "final"
-    assert any(event["type"] == "status" and event["stage"] == "tool_call" for event in events)
-    assert events[-1]["output"]["data"][0]["video_name"] == "warehouse_clip.mp4"
+    assert result.returncode == 2
+    assert "--stream" in result.stderr
 
 
 def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
@@ -461,25 +460,45 @@ def test_search_archive_cli_missing_runtime_args_exit_4(agent_root: Path) -> Non
     assert "missing required backend/runtime CLI option(s)" in result.stderr
 
 
-@pytest.mark.asyncio
-async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
+def test_pipeline_e2e_uses_concrete_clients_with_mock_services(
     mock_services: _MockSearchServices,
     search_config: Path,
 ) -> None:
-    from lib.search_core.clients.elastic import ElasticClient
-    from lib.search_core.host import VSSSearch
+    import asyncio
 
+    from lib.search_core.models.search import SearchInput
+    from lib.search_core.pipeline.bridge import deps_from_runtime
+    from lib.search_core.pipeline.facade import SearchParams
+    from lib.search_core.pipeline.facade import run_search
+    from lib.search_core.runtime import RuntimeSnapshot
+
+    runtime = RuntimeSnapshot.from_config_file(search_config, env={}).runtime
+    search_input = SearchInput(
+        query="red forklift",
+        original_query="red forklift",
+        source_type="video_file",
+        video_sources=["warehouse_clip"],
+        top_k=1,
+    )
     try:
-        async with VSSSearch.from_config_file(search_config, env={}) as vss:
-            out = await vss.search(
-                query="red forklift",
-                original_query="red forklift",
-                source_type="video_file",
-                video_sources=["warehouse_clip"],
-                top_k=1,
-            )
+        out = run_search(
+            search_input,
+            deps_from_runtime(runtime, source_type="video_file", top_k=1),
+            SearchParams(
+                default_max_results=runtime.default_max_results,
+                embed_confidence_threshold=runtime.embed_confidence_threshold,
+                fusion_method=runtime.fusion_method,
+                w_attribute=runtime.w_attribute,
+                w_embed=runtime.w_embed,
+                rrf_k=runtime.rrf_k,
+                rrf_w=runtime.rrf_w,
+                top_percent_filter=runtime.top_percent_filter,
+            ),
+        )
     finally:
-        await ElasticClient.close_all()
+        from lib.search_core.clients.elastic import ElasticClient
+
+        asyncio.run(ElasticClient.close_all())
 
     assert len(out.data) == 1
     assert out.data[0].video_name == "warehouse_clip.mp4"

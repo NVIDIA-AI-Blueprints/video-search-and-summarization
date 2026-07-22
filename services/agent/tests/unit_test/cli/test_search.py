@@ -11,13 +11,10 @@ import json
 
 import pytest
 
-from cli.deployment import PortForwardError
 from cli.search import _apply_runtime_overrides
 from cli.search import _build_archive_search_payload
-from cli.search import _build_facade
+from cli.search import _build_runtime
 from cli.search import _config_env_from_args
-from cli.search import _deployment_env_overrides
-from cli.search import _exit_code_for_stream_error
 from cli.search import _extract_rows
 from cli.search import _load_payload
 from cli.search import _parse_args
@@ -28,17 +25,14 @@ from cli.search import _preflight_search_runtime
 from cli.search import _render_output
 from cli.search import _required_runtime_args
 from cli.search import _resolve_named_sources
-from cli.search import _rewrite_deployment_runtime
-from cli.search import _runtime_fields_for_request
 from cli.search import _runtime_from_args
+from cli.search import _search_backend_route
 from cli.search import _validate_payload_before_preflight
-from cli.search import _write_search_stream
 from cli.search import run
 from lib._foundation.errors import BackendUnreachableError
 from lib.search_core import SearchRuntime
 from lib.search_core.errors import ConfigurationError
 from lib.search_core.errors import InvalidInputError
-from lib.search_core.events import ErrorEvent
 from lib.search_core.models.embed_search import EmbedSearchOutput
 from lib.search_core.models.embed_search import EmbedSearchResultItem
 from lib.search_core.models.search import SearchOutput
@@ -204,13 +198,12 @@ functions:
         ]
     )
 
-    payload = _build_archive_search_payload(args)
-    facade = _build_facade(args, payload)
+    runtime = _build_runtime(args)
 
-    assert facade._rt.es_endpoint == "http://arg-es:9200"
-    assert facade._rt.cosmos_embed_endpoint == "http://arg-embed:8017"
-    assert facade._rt.rtvi_cv_endpoint == "http://arg-cv:9000"
-    assert facade._rt.default_max_results == 7
+    assert runtime.es_endpoint == "http://arg-es:9200"
+    assert runtime.cosmos_embed_endpoint == "http://arg-embed:8017"
+    assert runtime.rtvi_cv_endpoint == "http://arg-cv:9000"
+    assert runtime.default_max_results == 7
 
 
 def test_config_env_rejects_missing_equals() -> None:
@@ -230,113 +223,6 @@ def test_load_payload_rejects_non_object_stdin(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(InvalidInputError, match="stdin JSON must be an object"):
         _load_payload(argparse.Namespace(json_payload=None))
-
-
-def test_deployment_runtime_flags_fill_config_interpolation() -> None:
-    args = _parse_search_args(
-        [
-            "--deployment",
-            "kubernetes",
-            "--namespace",
-            "vss",
-            "--release",
-            "search",
-            "--es-endpoint",
-            "https://es.example",
-            "--cosmos-embed-endpoint",
-            "https://embed.example",
-            "--rtvi-cv-endpoint",
-            "https://cv.example",
-            "--vst-internal-url",
-            "https://vst.example",
-            "--vst-external-url",
-            "https://public.example",
-            "--query",
-            "forklift",
-        ]
-    )
-
-    env = _deployment_env_overrides(args)
-
-    assert env["ELASTIC_SEARCH_ENDPOINT"] == "https://es.example"
-    assert env["COSMOS_EMBED_ENDPOINT"] == "https://embed.example"
-    assert env["RTVI_EMBED_BASE_URL"] == "https://embed.example"
-    assert env["RTVI_CV_ENDPOINT"] == "https://cv.example"
-    assert env["RTVI_CV_BASE_URL"] == "https://cv.example"
-    assert env["VST_INTERNAL_URL"] == "https://vst.example"
-
-
-def test_deployment_index_flags_fill_every_supported_interpolation_alias() -> None:
-    args = _parse_search_args(
-        [
-            "--video-embed-index",
-            "tenant-video",
-            "--video-embed-index-wildcard",
-            "tenant-video-*",
-            "--behavior-index",
-            "tenant-behavior",
-            "--behavior-index-wildcard",
-            "tenant-behavior-*",
-            "--frames-index",
-            "tenant-raw",
-            "--frames-index-wildcard",
-            "tenant-raw-*",
-            "--query",
-            "forklift",
-        ]
-    )
-
-    env = _deployment_env_overrides(args)
-
-    assert env["ELASTIC_SEARCH_INDEX"] == env["RTVI_EMBED_ES_INDEX"] == "tenant-video"
-    assert env["ELASTIC_SEARCH_INDEX_WILDCARD"] == "tenant-video-*"
-    assert env["RTSP_EMBED_ES_INDEX_PATTERN"] == "tenant-video-*"
-    assert env["BEHAVIOR_ES_INDEX"] == env["BEHAVIOR_INDEX"] == "tenant-behavior"
-    assert env["BEHAVIOR_INDEX_WILDCARD"] == "tenant-behavior-*"
-    assert env["RTSP_BEHAVIOR_ES_INDEX_PATTERN"] == "tenant-behavior-*"
-    assert env["FRAMES_INDEX"] == env["RAW_ES_INDEX"] == "tenant-raw"
-    assert env["FRAMES_INDEX_WILDCARD"] == "tenant-raw-*"
-    assert env["RTSP_RAW_ES_INDEX_PATTERN"] == "tenant-raw-*"
-
-
-def test_deployment_rewrites_after_explicit_runtime_overrides(tmp_path) -> None:
-    config = tmp_path / "config.yml"
-    config.write_text(
-        """
-functions:
-  embed_search:
-    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
-    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
-    vst_internal_url: ${VST_INTERNAL_URL}
-    vst_external_url: ${VST_EXTERNAL_URL}
-  attribute_search:
-    rtvi_cv_endpoint: ${RTVI_CV_BASE_URL}
-""",
-        encoding="utf-8",
-    )
-    args = _parse_search_args(["--es-endpoint", "https://external-es.example", "--query", "forklift"])
-
-    class RecordingDeployment:
-        def __init__(self) -> None:
-            self.config_path = config
-            self.env = {
-                "COSMOS_EMBED_ENDPOINT": "http://vss-rtvi-embed:8000",
-                "RTVI_CV_BASE_URL": "http://vss-rtvi-cv:9000",
-                "VST_INTERNAL_URL": "http://vss-vios-ingress:30888",
-                "VST_EXTERNAL_URL": "https://public.example",
-            }
-            self.seen_es_endpoint: str | None = None
-
-        def rewrite_runtime(self, runtime, *, fields):
-            self.seen_es_endpoint = runtime.es_endpoint
-            assert fields == {"es_endpoint", "cosmos_embed_endpoint", "vst_external_url"}
-            return runtime
-
-    deployment = RecordingDeployment()
-
-    _build_facade(args, _build_archive_search_payload(args), deployment=deployment)  # type: ignore[arg-type]
-
-    assert deployment.seen_es_endpoint == "https://external-es.example"
 
 
 def test_search_archive_rejects_non_positive_top_k() -> None:
@@ -636,7 +522,7 @@ def test_config_error_not_swallowed_when_config_given(tmp_path) -> None:
         operation="run",
     )
     with pytest.raises(ConfigurationError, match="es_endpoint"):
-        _build_facade(args, {})
+        _build_runtime(args)
 
 
 def test_main_malformed_config_exits_4(tmp_path) -> None:
@@ -667,59 +553,21 @@ def test_main_malformed_config_exits_4(tmp_path) -> None:
 # --------------------------------------------------------------- stream/non-stream exit-code parity (#4)
 
 
-class TestStreamExitCodes:
-    def test_index_not_found_maps_to_3(self) -> None:
-        # IndexNotFoundError is a BackendUnreachableError subclass → exit 3.
-        assert _exit_code_for_stream_error("IndexNotFoundError") == 3
-
-    def test_backend_unreachable_maps_to_3(self) -> None:
-        assert _exit_code_for_stream_error("BackendUnreachableError") == 3
-
-    def test_vst_error_maps_to_3(self) -> None:
-        assert _exit_code_for_stream_error("VSTError") == 3
-
-    def test_invalid_input_maps_to_2(self) -> None:
-        assert _exit_code_for_stream_error("InvalidInputError") == 2
-
-    def test_validation_error_maps_to_2(self) -> None:
-        assert _exit_code_for_stream_error("ValidationError") == 2
-
-    def test_configuration_error_maps_to_4(self) -> None:
-        assert _exit_code_for_stream_error("ConfigurationError") == 4
-
-    def test_unknown_maps_to_1(self) -> None:
-        assert _exit_code_for_stream_error("UnexpectedError") == 1
-        assert _exit_code_for_stream_error("NoFinalResult") == 1
-
-    def test_streamed_index_not_found_yields_exit_3(self) -> None:
-        async def fake_stream():
-            yield ErrorEvent(error_code="IndexNotFoundError", message="index missing")
-
-        exit_code = asyncio.run(_write_search_stream(fake_stream()))
-        assert exit_code == 3
-
-
-def test_main_index_not_found_non_stream_exits_3(monkeypatch) -> None:
+def test_main_index_not_found_exits_3(monkeypatch) -> None:
     from lib.search_core.errors import IndexNotFoundError
 
-    def boom(args, payload=None):
+    def boom(args):
         raise IndexNotFoundError("video_embeddings")
 
-    monkeypatch.setattr("cli.search._build_facade", boom)
+    monkeypatch.setattr("cli.search._build_runtime", boom)
     exit_code = run(
         "run",
         ["--json", '{"query":"forklift","source_type":"video_file"}'],
     )
-    # Same exit code (3) as the streamed IndexNotFoundError path above.
     assert exit_code == 3
 
 
 # --------------------------------------------------------------- --stream on non-search (#7 adjacent)
-
-
-def test_stream_rejected_on_non_search_primitive() -> None:
-    with pytest.raises(SystemExit, match="2"):
-        run("embed", ["--stream", "--json", "{}"])
 
 
 # --------------------------------------------------- search-only flags on other primitives (#1)
@@ -779,19 +627,10 @@ def test_named_source_resolution_refuses_unavailable_source(monkeypatch: pytest.
 
 
 def test_dead_vst_during_named_source_resolution_exits_3(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    class FakeFacade:
-        runtime = _runtime()
-
-        async def __aenter__(self) -> FakeFacade:
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            return None
-
     async def dead_vst(_endpoint: str) -> dict[str, str]:
         raise VSTError("connection refused")
 
-    monkeypatch.setattr("cli.search._build_facade", lambda *_args, **_kwargs: FakeFacade())
+    monkeypatch.setattr("cli.search._build_runtime", lambda *_args, **_kwargs: _runtime())
     monkeypatch.setattr("lib.vst.get_name_to_stream_id_map", dead_vst)
 
     exit_code = run(
@@ -1006,21 +845,15 @@ def test_invalid_attribute_payload_fails_before_rtvi_preflight(monkeypatch: pyte
     assert exit_code == 2
 
 
-def test_invalid_payload_fails_before_deployment_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unexpected_discovery(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("deployment discovery must not run for invalid input")
+def test_invalid_payload_fails_before_runtime_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unexpected_build(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("runtime construction must not run for invalid input")
 
-    monkeypatch.setattr("cli.search.discover_deployment", unexpected_discovery)
+    monkeypatch.setattr("cli.search._build_runtime", unexpected_build)
 
     exit_code = run(
         "embed",
         [
-            "--deployment",
-            "kubernetes",
-            "--namespace",
-            "vss",
-            "--release",
-            "search",
             "--json",
             "{}",
         ],
@@ -1082,14 +915,6 @@ def test_rtvi_cv_preflight_retries_transport_failure(monkeypatch: pytest.MonkeyP
     assert calls == 2
 
 
-def test_request_runtime_fields_exclude_unused_kubernetes_services() -> None:
-    args = _parse_search_args(["--query", "forklift"])
-
-    fields = _runtime_fields_for_request(args, _build_archive_search_payload(args), _runtime())
-
-    assert fields == {"es_endpoint", "cosmos_embed_endpoint", "vst_external_url"}
-
-
 def test_pydantic_normalization_drives_route_planning() -> None:
     args = _parse_search_args(["--query", "forklift"])
     payload = {
@@ -1100,40 +925,10 @@ def test_pydantic_normalization_drives_route_planning() -> None:
     }
 
     _validate_payload_before_preflight(args, payload)
-    fields = _runtime_fields_for_request(args, payload, _runtime())
 
     assert payload["search_mode"] == "fusion"
-    assert {"es_endpoint", "cosmos_embed_endpoint", "behavior_es_endpoint", "rtvi_cv_endpoint"} <= fields
-    assert "vlm_base_url" not in fields
-
-
-def test_rtvi_port_forward_failure_uses_explicit_embed_fallback(capsys: pytest.CaptureFixture[str]) -> None:
-    args = _parse_search_args(["--query", "forklift", "--allow-embed-only-fallback"])
-    payload = {
-        "query": "forklift",
-        "source_type": "video_file",
-        "attributes": ["white jacket"],
-        "search_mode": "attribute",
-    }
-    _validate_payload_before_preflight(args, payload)
-    calls: list[set[str]] = []
-
-    class FailingRTVIDeployment:
-        def rewrite_runtime(self, runtime: SearchRuntime, *, fields: set[str]) -> SearchRuntime:
-            calls.append(fields)
-            if fields == {"rtvi_cv_endpoint"}:
-                raise PortForwardError("no ready RTVI-CV pod")
-            return runtime
-
-    _rewrite_deployment_runtime(args, payload, _runtime(), FailingRTVIDeployment())  # type: ignore[arg-type]
-
-    assert payload["attributes"] == []
-    assert payload["search_mode"] == "embed"
-    assert calls == [
-        {"rtvi_cv_endpoint"},
-        {"es_endpoint", "cosmos_embed_endpoint", "vst_external_url"},
-    ]
-    assert "explicit embed-only fallback" in capsys.readouterr().err
+    uses_embed, uses_attribute = _search_backend_route(payload)
+    assert uses_embed and uses_attribute
 
 
 def test_attribute_fallback_recomputes_embed_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
