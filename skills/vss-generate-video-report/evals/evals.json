@@ -121,11 +121,14 @@
       "id": "video-report-local-or-base64-path",
       "question": "If I provide either a local video file path on disk or a base64 video payload and a VLM endpoint, how should Mode A run?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and explains Mode A path A2 accepts either a local video file on disk or base64 video, then calls the provided VLM endpoint/model without requiring VST.",
+      "ground_truth": "Loads vss-generate-video-report and explains Mode A path A2 accepts either a local video file on disk or base64 video, then calls the provided VLM endpoint/model without requiring VST or vss-agent. Step 3 falls back to base-profile video_understanding defaults when vss-agent is absent and reuses the same MM_KWARGS multimodal settings as A1.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Identifies Mode A path A2 for local-file/base64 input.",
         "States that VST is not required for local-file/base64 plus endpoint path.",
+        "States that vss-agent is not required for Step 3 config on the A2 path.",
+        "States Step 3 falls back to base-profile video_understanding defaults when vss-agent is unavailable.",
+        "States A2 reuses the same MM_KWARGS / multimodal settings as A1 for Cosmos backends.",
         "States that VLM endpoint and model must be explicit or discovered."
       ]
     },
@@ -133,11 +136,24 @@
       "id": "video-report-long-video-lvs-handoff",
       "question": "If the input video is longer than 2 minutes, what should the report skill do?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and states direct Mode A VLM should stop for videos over 120 seconds and prompt the user to deploy/use LVS via /vss-deploy-profile and /vss-summarize-video.",
+      "ground_truth": "Loads vss-generate-video-report and states direct Mode A VLM should stop for videos that are 120 seconds or longer and prompt the user to deploy/use LVS via /vss-deploy-profile and /vss-summarize-video.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
-        "States >120s videos should not continue on direct Mode A VLM path.",
+        "States videos of 120 seconds or longer should not continue on direct Mode A VLM path.",
         "Prompts user to deploy/use LVS for long videos."
+      ]
+    },
+    {
+      "id": "video-report-step3-no-vss-agent-fallback",
+      "question": "If vss-agent is not running during Mode A Step 3, should report generation hard-fail?",
+      "expected_skill": "vss-generate-video-report",
+      "ground_truth": "Loads vss-generate-video-report and states Step 3 should not hard-fail when vss-agent is absent: fall back to base-profile video_understanding defaults (max_fps=2, max_frames=30, min_pixels=3136, max_pixels=8388608) or VIDEO_UNDERSTANDING_* env overrides.",
+      "expected_behavior": [
+        "Loads vss-generate-video-report.",
+        "States Step 3 does not hard-fail when vss-agent is absent.",
+        "Mentions base-profile video_understanding defaults fallback.",
+        "Mentions optional VIDEO_UNDERSTANDING_* env overrides.",
+        "Notes this fallback supports Mode A2 / profile-agnostic runs."
       ]
     },
     {

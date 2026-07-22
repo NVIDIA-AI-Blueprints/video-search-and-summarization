@@ -35,6 +35,9 @@ Output contract for evaluators:
 - Mode A top title MUST be exactly `# Video Analysis Report`.
 - Mode B top title MUST be exactly `# Incident Range Report` (never `# Incident Report` or sensor-named variants).
 - Mode B MUST include `## Basic Information` with the exact required rows from the template (Report Identifier, Range, Scope, Total Incidents, Confirmed / Rejected / Unverified).
+- Mode B MUST use heading level `#` for the top title. Do not use `## Incident Report`, `## Incident Range Report`, or any alternate wording.
+- Mode B empty-range output MUST be exactly one plain-text line (no markdown heading/table/list/extra lines) in this format:
+  `No incidents found for scope <scope> in range <start_time> to <end_time>.`
 
 ---
 
@@ -491,7 +494,19 @@ For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place
 
 Load the matching template from [`references/report-templates/incident-range-report.md`](references/report-templates/incident-range-report.md). Treat the template as read-only — copy its structure, then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens, or internal-only URLs in user output. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL.
 
-If `get_incidents` returns zero results, STOP and return exactly a one-line empty-range statement naming the requested range and scope. Do not render the full Incident Range template, do not invent incidents, do not seed test data, and do not fall back to Mode A.
+For non-empty results, rendered output MUST start exactly with:
+- `# Incident Range Report`
+- `## Basic Information`
+- a pipe table containing rows: `Report Identifier`, `Range`, `Scope`, `Total Incidents`, `Confirmed / Rejected / Unverified`
+
+If `get_incidents` returns zero results, STOP and return exactly this one-line sentence shape (single line only):
+`No incidents found for scope <scope> in range <start_time> to <end_time>.`
+
+When zero results:
+- Do not render `# Incident Range Report`.
+- Do not render `## Basic Information`.
+- Do not render any markdown table, bullets, or summary section.
+- Do not invent incidents, do not seed test data, and do not fall back to Mode A.
 
 ---
 
