@@ -26,7 +26,7 @@ services:
     restart: always
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.11.3
+    image: quay.io/prometheus/prometheus:v3.13.1
     container_name: prometheus
     profiles: ["prometheus"]
     volumes:

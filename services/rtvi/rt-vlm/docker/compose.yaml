@@ -171,7 +171,7 @@ services:
       start_period: 300s
 
   kafka:
-    image: apache/kafka:4.1.1
+    image: apache/kafka:4.1.2
     ports:
       - "${KAFKA_PORT:-9092}:9092"
       - "9094:9094"

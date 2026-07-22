@@ -85,7 +85,7 @@ jobs:
       pr_base: ${{ steps.pr.outputs.base }}
     steps:
       - name: Checkout mirror head
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0   # plan diffs the cumulative head...base range
 
@@ -153,7 +153,7 @@ jobs:
     timeout-minutes: 840
     steps:
       - name: Checkout mirror head
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
 

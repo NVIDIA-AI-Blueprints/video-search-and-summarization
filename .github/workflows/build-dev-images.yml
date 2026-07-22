@@ -57,7 +57,7 @@ jobs:
       matrix: ${{ steps.detect.outputs.matrix }}
       count: ${{ steps.detect.outputs.count }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -90,7 +90,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
 
@@ -228,7 +228,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
 

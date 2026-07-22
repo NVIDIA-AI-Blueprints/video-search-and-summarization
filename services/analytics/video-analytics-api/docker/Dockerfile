@@ -1,4 +1,4 @@
-FROM node:22.23.0-bullseye AS builder
+FROM node:22.23.1-bookworm AS builder
 
 # Build web-api-core from source
 COPY ./src/web-api-core /web-api-core

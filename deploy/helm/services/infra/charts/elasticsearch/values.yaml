@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/elasticsearch/elasticsearch
-  tag: "9.3.5"
+  tag: "9.3.8"
   pullPolicy: IfNotPresent
 
 replicas: 1

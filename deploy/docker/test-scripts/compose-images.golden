@@ -29,8 +29,8 @@ deploy/docker/services/infra/compose.yml arizephoenix/phoenix:14.15.0
 deploy/docker/services/infra/compose.yml confluentinc/cp-kafka:8.2.2
 deploy/docker/services/infra/compose.yml confluentinc/cp-kafka:8.2.2
 deploy/docker/services/infra/compose.yml coturn/coturn:4.14.0
-deploy/docker/services/infra/compose.yml docker.elastic.co/kibana/kibana:9.3.5
-deploy/docker/services/infra/compose.yml docker.elastic.co/logstash/logstash:9.3.5
+deploy/docker/services/infra/compose.yml docker.elastic.co/kibana/kibana:9.3.8
+deploy/docker/services/infra/compose.yml docker.elastic.co/logstash/logstash:9.3.8
 deploy/docker/services/infra/compose.yml eclipse-mosquitto:2
 deploy/docker/services/infra/compose.yml elasticsearch
 deploy/docker/services/infra/compose.yml redis:8.6.4-alpine
@@ -45,7 +45,7 @@ deploy/docker/services/monitoring/compose.yml ghcr.io/google/cadvisor:0.56.2
 deploy/docker/services/monitoring/compose.yml grafana/grafana:13.0.1-ubuntu
 deploy/docker/services/monitoring/compose.yml nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
 deploy/docker/services/monitoring/compose.yml quay.io/prometheus/node-exporter:v1.11.1
-deploy/docker/services/monitoring/compose.yml quay.io/prometheus/prometheus:v3.11.3
+deploy/docker/services/monitoring/compose.yml quay.io/prometheus/prometheus:v3.13.1
 deploy/docker/services/nim/cosmos-reason1-7b/compose.yml nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.1
 deploy/docker/services/nim/cosmos-reason1-7b/compose.yml nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.1
 deploy/docker/services/nim/cosmos-reason2-8b/compose.yml nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0

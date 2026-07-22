@@ -5,7 +5,7 @@ ARG BUILD_TYPE=prod
 
 # Builder phase. This remains target-platform-specific because the dependency
 # graph includes native SWC/Sharp/Turbo packages.
-FROM node:22.23.0 AS builder
+FROM node:22.23.1 AS builder
 ARG USER_ID
 ARG GROUP_ID
 

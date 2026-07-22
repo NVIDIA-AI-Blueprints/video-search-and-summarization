@@ -47,7 +47,7 @@ jobs:
       AGENT_UI_CONFIG: ${{ inputs.agent_ui_artifacts_config || vars.VSS_AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH }}
       ALERT_CONFIG: ${{ inputs.alert_artifacts_config || vars.VSS_ALERT_ARTIFACTS_PROMOTION_CONFIG_PATH }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: develop
           fetch-depth: 0

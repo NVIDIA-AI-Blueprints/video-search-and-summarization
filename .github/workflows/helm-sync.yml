@@ -26,7 +26,7 @@ on:
 # Workflow-scoped GITHUB_TOKEN permissions. The bot uses
 # `${{ github.token }}` directly (no PAT, no rotation, no personal-
 # account binding) to push helm-sync-bot/pr-<N> and comment on the
-# source PR. `actions/checkout@v4` injects this token via
+# source PR. The pinned `actions/checkout` action injects this token via
 # http.extraheader, so `git push` and `gh` calls inherit it
 # automatically — IF gh CLI doesn't pick up a different token from
 # the runner's persistent ~/.config/gh/hosts.yml first. The agent
@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: Checkout mirror head
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # full history so dorny/paths-filter and the agent can both
           # diff `PR_BASE...HEAD` against the accumulated PR diff

@@ -77,7 +77,7 @@ jobs:
       has_targets: ${{ steps.plan.outputs.has_targets }}
     steps:
       - name: Checkout mirror head
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The scheduled nightly fires from the DEFAULT branch (main) but must
           # EVALUATE develop, where active skill/harness work lands. Schedule ->
@@ -119,7 +119,7 @@ jobs:
     timeout-minutes: 360
     steps:
       - name: Checkout mirror head
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Match the plan job: nightly evaluates develop; dispatch uses the
           # chosen ref. Both jobs must check out the same tree.

@@ -270,7 +270,7 @@ tests/
 
 - **Docker Compose** (v2) and **NVIDIA Container Toolkit** so the `rt-cv` service can use `deploy.resources.reservations.devices` (GPU).
 - **Images**: Compose uses `pull_policy: if_not_present` so existing local images are reused. Pull when your registry allows (HTTP **429** rate limits are common on Docker Hub / NGC):
-  - `docker pull apache/kafka:3.9.0` (or set `KAFKA_IMAGE` in `.env` to a tag you already have, e.g. `apache/kafka:4.1.1`).
+  - `docker pull apache/kafka:3.9.0` (or set `KAFKA_IMAGE` in `.env` to a tag you already have, e.g. `apache/kafka:4.1.2`).
   - `ngc registry login` then `docker pull --platform linux/amd64 <RTVI_CV_IMAGE>` for the perception image, or build from this repo: `docker build -f docker/x86.Dockerfile -t rtvi-cv:3.3.0-custom-x86 .` and set `RTVI_CV_IMAGE` accordingly.
 - **x86 hosts**: Set `RTVI_CV_PLATFORM=linux/amd64` in `.env` so Docker does not select an `arm64` image manifest by mistake.
 

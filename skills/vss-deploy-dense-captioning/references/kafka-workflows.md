@@ -166,7 +166,7 @@ before continuing.
 ```bash
 : "${HOST_IP:=host.docker.internal}"
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-rtvi-vlm-kafka}"
-KAFKA_IMAGE="${KAFKA_IMAGE:-apache/kafka:4.1.1}"
+KAFKA_IMAGE="${KAFKA_IMAGE:-apache/kafka:4.1.2}"
 
 if docker ps -a --format '{{.Names}}' | grep -qx "$KAFKA_CONTAINER"; then
   echo "Kafka container $KAFKA_CONTAINER already exists."
@@ -245,7 +245,7 @@ case "$KAFKA_IMAGE" in
       "$KAFKA_IMAGE"
     ;;
   *)
-    echo "Unsupported KAFKA_IMAGE=$KAFKA_IMAGE; use apache/kafka:4.1.1 or confluentinc/cp-kafka:8.2.2"
+    echo "Unsupported KAFKA_IMAGE=$KAFKA_IMAGE; use apache/kafka:4.1.2 or confluentinc/cp-kafka:8.2.2"
     exit 1
     ;;
 esac
