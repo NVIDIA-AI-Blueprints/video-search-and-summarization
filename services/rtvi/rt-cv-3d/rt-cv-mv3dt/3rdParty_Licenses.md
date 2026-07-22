@@ -1,10 +1,136 @@
 # Third-Party Licenses
 
-This file contains the full license text for all third-party dependencies.
+This file contains the full license text for all third-party dependencies used by the rt-cv-mv3dt helper scripts (see `utils/requirements.txt`).
 
 ---
 
-## confluent-kafka:2.6.1
+## numpy:2.2.6
+
+**License Type:** BSD-3-Clause
+
+```
+Copyright (c) 2005-2024, NumPy Developers.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+
+    * Redistributions in binary form must reproduce the above
+       copyright notice, this list of conditions and the following
+       disclaimer in the documentation and/or other materials provided
+       with the distribution.
+
+    * Neither the name of the NumPy Developers nor the names of any
+       contributors may be used to endorse or promote products derived
+       from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+---
+
+## PyYAML:6.0.2
+
+**License Type:** MIT
+
+```
+Copyright (c) 2017-2021 Ingy döt Net
+Copyright (c) 2006-2016 Kirill Simonov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## tqdm:4.67.1
+
+**License Type:** MPL-2.0 AND MIT
+
+```
+`tqdm` is a product of collaborative work.
+Unless otherwise stated, all authors (see commit logs) retain copyright
+for their respective work, and release the work under the MIT licence
+(text below).
+
+Exceptions or notable authors are listed below
+in reverse chronological order:
+
+* files: *
+  MPL-2.0 2015-2024 (c) Casper da Costa-Luis
+  [casperdcl](https://github.com/casperdcl).
+* files: tqdm/_tqdm.py
+  MIT 2016 (c) [PR #96] on behalf of Google Inc.
+* files: tqdm/_tqdm.py README.rst .gitignore
+  MIT 2013 (c) Noam Yorav-Raphael, original author.
+
+[PR #96]: https://github.com/tqdm/tqdm/pull/96
+
+
+Mozilla Public Licence (MPL) v. 2.0 - Exhibit A
+-----------------------------------------------
+
+This Source Code Form is subject to the terms of the
+Mozilla Public License, v. 2.0.
+If a copy of the MPL was not distributed with this project,
+You can obtain one at https://mozilla.org/MPL/2.0/.
+
+
+MIT License (MIT)
+-----------------
+
+Copyright (c) 2013 noamraph
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+---
+
+## confluent-kafka:2.14.2
 
 **License Type:** Apache-2.0
 
@@ -214,7 +340,7 @@ Apache License
 
 ---
 
-## protobuf:5.29.6
+## protobuf:7.35.1
 
 **License Type:** BSD-3-Clause
 
@@ -255,14 +381,14 @@ support library is itself covered by the above license.
 
 ---
 
-## redis:7.4.0
+## opencv-python:4.12.0.88
 
 **License Type:** MIT
 
 ```
 MIT License
 
-Copyright (c) 2022-2023, Redis, inc.
+Copyright (c) Olli-Pekka Heinisuo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -285,174 +411,3 @@ SOFTWARE.
 
 ---
 
-## gcc:14
-
-**License Type:** GPL v3+ with GCC Runtime Library Exception
-
-```
-GNU GENERAL PUBLIC LICENSE
-Version 3, 29 June 2007
-
-Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
-Everyone is permitted to copy and distribute verbatim copies
-of this license document, but changing it is not allowed.
-
-Preamble
-
-The GNU General Public License is a free, copyleft license for
-software and other kinds of works.
-
-The licenses for most software and other practical works are designed
-to take away your freedom to share and change the works. By contrast,
-the GNU General Public License is intended to guarantee your freedom to
-share and change all versions of a program--to make sure it remains free
-software for all its users.
-
-GCC Runtime Library Exception
-
-Version 3.1, 31 March 2009
-
-Copyright (C) 2009 Free Software Foundation, Inc. <https://fsf.org/>
-
-Everyone is permitted to copy and distribute verbatim copies of this
-license document, but changing it is not allowed.
-
-This GCC Runtime Library Exception ("Exception") is an additional
-permission under section 7 of the GNU General Public License, version
-3 ("GPLv3"). It applies to a given file (the "Runtime Library") that
-bears a notice placed by the copyright holder of the file stating that
-the file is governed by GPLv3 along with this Exception.
-
-When you use GCC to compile a program, GCC may combine portions of
-certain GCC header files and runtime libraries with the compiled
-program. The purpose of this Exception is to allow compilation of
-non-GPL (including proprietary) programs to use, in this way, the
-header files and runtime libraries covered by this Exception.
-
-0. Definitions.
-
-A file is an "Independent Module" if it either requires the Runtime
-Library for execution after a Compilation Process, or makes use of an
-interface provided by the Runtime Library, but is not otherwise based
-on the Runtime Library.
-
-"GCC" means a version of the GNU Compiler Collection, with or without
-modifications, governed by version 3 (or a specified later version) of
-the GNU General Public License (GPL) with the option of using any
-subsequent versions published by the FSF.
-
-"GPL-compatible Software" is software whose conditions of propagation,
-modification and use would permit combination with GCC in accord with
-the license of GCC.
-
-"Target Code" refers to output from any compiler for a real or virtual
-target processor architecture, in executable form or suitable for
-input to an assembler, loader, linker and/or execution
-phase. Notwithstanding that, Target Code does not include data in any
-format that is used as a compiler intermediate representation, or used
-for producing a compiler intermediate representation.
-
-The "Compilation Process" transforms code entirely represented in
-non-intermediate languages designed for human-written code, and/or in
-Java Virtual Machine byte code, into Target Code. Thus, for example,
-use of source code generators and preprocessors need not be considered
-part of the Compilation Process, since the Compilation Process can be
-understood as starting with the output of the generators or
-preprocessors.
-
-A Compilation Process is "Eligible" if it is done using GCC, alone or
-with other GPL-compatible software, or if it is done without using any
-work based on GCC. For example, using non-GPL-compatible Software to
-optimize any GCC intermediate representations would not qualify as an
-Eligible Compilation Process.
-
-1. Grant of Additional Permission.
-
-You have permission to propagate a work of Target Code formed by
-combining the Runtime Library with Independent Modules, even if such
-propagation would otherwise violate the terms of GPLv3, provided that
-all Target Code was generated by Eligible Compilation Processes. You
-may then convey such a combination under terms of your choice,
-consistent with the licensing of the Independent Modules.
-
-2. No Weakening of GCC Copyleft.
-
-The availability of this Exception does not imply any general
-presumption that third-party software is unaffected by the copyleft
-requirements of the license of GCC.
-```
-
----
-
-## pytest:9.1.1
-
-**License Type:** MIT
-
-```
-The MIT License (MIT)
-
-Copyright (c) 2004 Holger Krekel and others
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
----
-
-## pytest-timeout:2.4.0
-
-**License Type:** MIT
-
-```
-The MIT License
-
-Copyright (C) 2012, 2014 Floris Bruynooghe
-
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-```
-
----
-
-## Source Code Availability
-
-### Python Packages
-All Python packages listed in this document are distributed with their source code included
-in the container's Python site-packages directory (typically `/usr/local/lib/python${PY_VERSION}/site-packages`).
-Users can access the source code directly within the container.
-
-### Binary/System Components
-For compiled/binary components distributed in this container, their source code is included
-in the container at `/usr/share/source/`.
-Users can access the source code directly within the container.
