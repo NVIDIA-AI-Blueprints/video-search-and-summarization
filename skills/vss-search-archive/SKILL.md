@@ -191,8 +191,7 @@ the video embedding index.
 ```bash
 PROFILE="${PROFILE:-search}"
 RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python -c 'import json,sys; from cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
-  "${PROFILE}") || exit 1
+  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile "${PROFILE}") || exit 1
 
 printf '%s' "${RUNTIME_JSON}" | jq -e '
   (.agent_url | type == "string" and length > 0) and
@@ -327,10 +326,16 @@ Report every final count. A successful DELETE response alone is not sufficient.
    : "${VIDEO_SOURCE:?set the resolved source name or stream ID}"
    PROFILE="${PROFILE:-search}"
    TOP_K="${TOP_K:-3}"
+   # Resolve the deployed profile's endpoints with the skill's discovery
+   # helper (discover_docker); the CLI itself takes only explicit flags.
+   DISCOVER_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+     python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile "${PROFILE}") || exit 1
+   mapfile -t RUNTIME_FLAGS < <(printf '%s' "${DISCOVER_JSON}" |
+     jq -r '.flags | to_entries[] | .key, .value')
    SEARCH_COMMAND=(
      uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev
      vss search run
-     --deployment docker --profile "${PROFILE}"
+     "${RUNTIME_FLAGS[@]}"
      --query "${QUERY}" --search-mode "${SEARCH_MODE}"
      --video-source "${VIDEO_SOURCE}" --top-k "${TOP_K}"
      --output json --raw
@@ -371,8 +376,7 @@ Report every final count. A successful DELETE response alone is not sufficient.
    ```bash
    PROFILE="${PROFILE:-search}"
    EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python -c 'import sys; from cli.deployment import discover_docker; print(discover_docker(sys.argv[1]).env["VST_EXTERNAL_URL"])' \
-     "${PROFILE}")
+     python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile "${PROFILE}" --get VST_EXTERNAL_URL)
    ```
 
    Kubernetes (`NAMESPACE`, `RELEASE`, and `KUBE_CONTEXT` must match the search
@@ -382,8 +386,8 @@ Report every final count. A successful DELETE response alone is not sufficient.
    : "${NAMESPACE:?set the selected Kubernetes namespace}"
    : "${RELEASE:?set the selected Kubernetes release}"
    EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python -c 'import sys; from cli.deployment import discover_kubernetes; d=discover_kubernetes(namespace=sys.argv[1], release=sys.argv[2], context=sys.argv[3] or None); print(d.env["VST_EXTERNAL_URL"]); d.close()' \
-     "${NAMESPACE}" "${RELEASE}" "${KUBE_CONTEXT:-}")
+     python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" kubernetes --namespace "${NAMESPACE}" --release "${RELEASE}" \
+     ${KUBE_CONTEXT:+--context "${KUBE_CONTEXT}"} --get VST_EXTERNAL_URL)
    ```
 
    With no deployment selector, set `EXPECTED_VST_EXTERNAL_URL` to the same
@@ -537,8 +541,11 @@ The embedding index is resolved from the profile layers; behavior and raw index
 names are resolved from the interpolated agent config.
 
 ```bash
+DISCOVER_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile search)
+mapfile -t RUNTIME_FLAGS < <(printf '%s' "${DISCOVER_JSON}" | jq -r '.flags | to_entries[] | .key, .value')
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment docker --profile search \
+  "${RUNTIME_FLAGS[@]}" \
   --query "find all instances of forklifts" \
   --search-mode embed --source-type video_file --top-k 10 \
   --output json --raw
@@ -568,14 +575,23 @@ forward whose lifetime extends through result consumption. The CLI rejects an
 in-cluster Service URL in that external field instead of returning dead links.
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment kubernetes --namespace <namespace> --release <release> \
-  --kube-context <optional-context> \
-  --query "person in a white jacket climbing a ladder" \
-  --search-mode fusion --attribute "white jacket" \
-  --video-source <resolved-source> --top-k 10 \
-  --output json --raw
+uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" kubernetes \
+  --namespace <namespace> --release <release> --context <optional-context> \
+  --exec -- bash -c 'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
+    --es-endpoint "${VSS_ES_ENDPOINT}" --behavior-es-endpoint "${VSS_BEHAVIOR_ES_ENDPOINT}" \
+    --cosmos-embed-endpoint "${VSS_COSMOS_EMBED_ENDPOINT}" --rtvi-cv-endpoint "${VSS_RTVI_CV_ENDPOINT}" \
+    --vst-internal-url "${VSS_VST_INTERNAL_URL}" --vst-external-url "${VSS_VST_EXTERNAL_URL}" \
+    --video-embed-index "${VSS_VIDEO_EMBED_INDEX}" --behavior-index "${VSS_BEHAVIOR_INDEX}" \
+    --query "person in a white jacket climbing a ladder" \
+    --search-mode fusion --attribute "white jacket" \
+    --video-source <resolved-source> --top-k 10 \
+    --output json --raw'
 ```
+
+`--exec` keeps the managed `kubectl port-forward` processes alive for the
+wrapped command and exports every discovered flag as a `VSS_*` environment
+variable; forwards close when the wrapper exits.
 
 If a required runtime value is Secret-backed or absent from the Deployment and
 its non-secret ConfigMaps, stop. Do not print or pass a secret. Use an explicit
@@ -607,22 +623,27 @@ through the operator-managed workflow.
 ## Query examples
 
 ```bash
+# Resolve the deployed Docker profile's endpoints once, then reuse the flags
+DISCOVER_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+  python "${VSS_REPO_ROOT}/skills/vss-search-archive/scripts/vss_discover.py" docker --profile search)
+mapfile -t RUNTIME_FLAGS < <(printf '%s' "${DISCOVER_JSON}" | jq -r '.flags | to_entries[] | .key, .value')
+
 # Embed-only search across all ingested files
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment docker --profile search \
+  "${RUNTIME_FLAGS[@]}" \
   --query "red forklift near a loading bay" --search-mode embed \
   --source-type video_file --output json --raw
 
 # Attribute-only search; source must have been resolved first
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment kubernetes --namespace vss --release search \
+  "${RUNTIME_FLAGS[@]}" \
   --query "person wearing a white jacket" \
   --search-mode attribute --attribute "white jacket" \
   --video-source warehouse-camera-3 --output json --raw
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment docker --profile search \
+  "${RUNTIME_FLAGS[@]}" \
   --query "forklift near a loading bay" --attribute "yellow forklift" \
   --search-mode fusion --allow-embed-only-fallback --output json --raw
 ```

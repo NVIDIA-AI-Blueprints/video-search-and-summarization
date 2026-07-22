@@ -71,10 +71,10 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "ACTUAL_ORIGIN" in skill_text
     assert "Do not assume" in skill_text
     assert "is exported in the operation shell" in skill_text
-    assert "discover_docker" in skill_text
-    assert "discover_kubernetes" in skill_text
+    assert "scripts/vss_discover.py" in skill_text
+    assert "--deployment" not in skill_text
     assert "SEARCH_COMMAND=(" in skill_text
-    assert '--deployment docker --profile "${PROFILE}"' in skill_text
+    assert '"${RUNTIME_FLAGS[@]}"' in skill_text
     assert 'SEARCH_JSON=$("${SEARCH_COMMAND[@]}")' in skill_text
     assert 'jq -e \'type == "object"' in skill_text
     assert 'if [ "${HIT_COUNT}" -gt 0 ]; then' in skill_text
@@ -86,10 +86,10 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "mktemp -d /tmp/vss-search-verification" in skill_text
     assert "inspect every saved file" in skill_text
     assert "RUNTIME_JSON=$(" in skill_text
-    assert "RuntimeSnapshot.from_config_file" in skill_text
-    assert '"video_embed_index":r.video_embed_index' in skill_text
-    assert '"behavior_index":r.behavior_index' in skill_text
-    assert '"raw_index":r.frames_index' in skill_text
+    assert "vss_discover.py" in skill_text
+    assert "jq -er '.video_embed_index'" in skill_text
+    assert "jq -er '.behavior_index'" in skill_text
+    assert ".raw_index" in skill_text
     assert "Do not reuse" in skill_text
     assert "ELASTIC_SEARCH_INDEX` for behavior or raw-data checks" in skill_text
     assert "`EMBED_INDEX`, `sensor.id.keyword`, resolved VST sensor UUID" in skill_text
@@ -170,7 +170,7 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "same canonical source" in setup_checks
     setup_query = expects[0]["query"]
     assert "RUNTIME_JSON" in setup_query
-    assert "RuntimeSnapshot.from_config_file" in setup_query
+    assert "vss_discover.py docker --profile search" in setup_query
     assert "never use `ELASTIC_SEARCH_INDEX` for behavior or raw queries" in setup_query
     assert "Make setup idempotent" in setup_query
     assert "exact or deduplicated remnants" in setup_query
@@ -217,10 +217,18 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
 def test_documented_run_flags_are_accepted_by_run_parser() -> None:
     args = _parse_args(
         [
-            "--deployment",
-            "docker",
-            "--profile",
-            "search",
+            "--es-endpoint",
+            "http://127.0.0.1:9200",
+            "--behavior-es-endpoint",
+            "http://127.0.0.1:9200",
+            "--cosmos-embed-endpoint",
+            "http://127.0.0.1:8017",
+            "--rtvi-cv-endpoint",
+            "http://127.0.0.1:9000",
+            "--vst-internal-url",
+            "http://127.0.0.1:30888",
+            "--vst-external-url",
+            "https://vst.example",
             "--query",
             "person in a white jacket climbing a ladder",
             "--attribute",
@@ -324,7 +332,7 @@ def test_harbor_adapter_renders_each_step_and_propagates_verifier_failure(tmp_pa
     assert "/generate" not in second_instruction
     assert "asking the user to clarify the source" in second_instruction
     assert "explicitly request ingestion" in second_instruction
-    assert 'discover_docker_host_endpoints("search")' in second_instruction
+    assert "vss_discover.py docker --profile search" in second_instruction
     assert "distinct embedding, behavior, and raw indexes" in second_instruction
     assert "poll the exact three index/field/value tuples to zero" in second_instruction
     rendered = json.loads((second / "tests" / "search.json").read_text())
