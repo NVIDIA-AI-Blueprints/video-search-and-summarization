@@ -20,8 +20,10 @@ global: {}
 # HELM_RELEASE_CHANNEL_POLICY: Helm stays on an immutable NGC staging pin;
 # Docker developer profiles may independently follow GHCR develop-latest.
 image:
-  repository: nvcr.io/nv-metropolis-dev/met-vlm-as-verifier/vss-alert-ms
-  tag: "async-io-fix"
+  # TODO(temporary): hardcoded to the async-io PR image for eval testing.
+  # Revert to the NGC staging pin before merging upstream.
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms
+  tag: "pr-1332-fa569cdc3b08"
   pullPolicy: Always
 replicas: 1
 
