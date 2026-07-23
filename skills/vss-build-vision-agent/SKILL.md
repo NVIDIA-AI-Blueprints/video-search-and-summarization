@@ -1,6 +1,11 @@
 ---
 name: vss-build-vision-agent
 description: Compose VSS-based agent deployments from a natural-language capability description. Use this skill when the user asks for a new VSS profile or extension to an existing profile. Route, compose, configure, and deploy stock base, alerts, LVS, or search developer profiles and lean custom combinations expressed as delta overlays using one current developer profile as the Foundation.
+license: Apache-2.0
+metadata:
+  version: "3.2.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint orchestration deployment compose code-generation"
 ---
 
 # Build Vision Agent
