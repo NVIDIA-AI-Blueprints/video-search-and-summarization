@@ -1,10 +1,10 @@
 # Tear down an existing VSS deployment
 
-Always tear down **by project name** — every profile's `.env` sets
-`COMPOSE_PROJECT_NAME=mdx`, so the whole stack is labeled `mdx`. A plain
-`docker compose down` leaves named volumes and the project network behind, so
-target the `mdx` project and pass `-v --remove-orphans`. Two flavors, depending
-on whether you keep model caches.
+Always tear down **by project name** — every profile's `overrides.env` sets
+`COMPOSE_PROJECT_NAME=vss` by default, and users may change it when running
+multiple profiles on one host. A plain `docker compose down` leaves named volumes
+and the project network behind, so target the selected project and pass
+`-v --remove-orphans`. Two flavors, depending on whether you keep model caches.
 
 ## Full teardown — reclaim the host
 
@@ -12,13 +12,14 @@ Removes containers, the project network, **and all named volumes** (including
 multi-GB NIM/RTVI model caches). This is the canonical `dev-profile.sh` teardown.
 
 ```bash
-docker compose -p mdx down -v --remove-orphans
+docker compose -p "${COMPOSE_PROJECT_NAME:-vss}" down -v --remove-orphans
 docker volume ls -q -f dangling=true | xargs -r docker volume rm   # sweep leftovers
 ```
 
-- **`-p mdx`** removes everything labeled with the `mdx` project — robust even if
-  `resolved.yml` is stale or now describes a *different* profile. A file-scoped
-  `down` only touches what that file currently lists, leaving the rest behind.
+- **`-p "${COMPOSE_PROJECT_NAME:-vss}"`** removes everything labeled with the
+  selected Compose project — robust even if `resolved.yml` is stale or now
+  describes a *different* profile. A file-scoped `down` only touches what that
+  file currently lists, leaving the rest behind.
 - **`-v`** removes named volumes — without it ES / Kafka / Postgres / Milvus data
   **and** NIM/RTVI model caches all survive.
 - **`--remove-orphans`** frees the project network from leftover or host-networked
@@ -53,12 +54,12 @@ prior deploy linger and pass unrelated container-name checks,
 contaminate results, and can bind ports the new deploy needs.
 
 ```bash
-# Tear down by project name (matches dev-profile.sh: every profile sets
-# COMPOSE_PROJECT_NAME=mdx). This catches every mdx-labeled container/network
-# regardless of which resolved.yml is on disk. NO -v here — the cache-preserving
+# Tear down by project name (matches the selected COMPOSE_PROJECT_NAME;
+# profiles default to vss in overrides.env). This catches every project-labeled
+# container/network regardless of which resolved.yml is on disk. NO -v here — the cache-preserving
 # path keeps NIM/RTVI model caches; stale DATA volumes are removed explicitly
 # below. --remove-orphans frees + deletes the project network.
-docker compose -p mdx down --remove-orphans
+docker compose -p "${COMPOSE_PROJECT_NAME:-vss}" down --remove-orphans
 
 # Catch-all: remove every VSS-stack container the dev-profile compose
 # files bring up. Without this, leftovers from a prior deploy linger
@@ -75,17 +76,17 @@ docker ps -a --format '{{.Names}}' \
   | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-|sensor-ms-|vst-ingress-|vst-mcp-|vst-file-proxy|centralizedb-|storage-ms-|streamprocessing-ms-|sdr-(http|streamprocessing)-|envoy-(http|streamprocessing)-|rtspserver-ms-|recorder-ms-|replaystream-ms-|livestream-ms-|metropolis-vss-ui|phoenix)' \
   | xargs -r docker rm -f
 
-# `down --remove-orphans` already deletes the project network (mdx_default).
-# Remove it explicitly only as a belt-and-suspenders, by EXACT name — `-f name=mdx`
-# is a substring match and would also catch unrelated *mdx* networks.
-docker network rm mdx_default 2>/dev/null || true
+# `down --remove-orphans` already deletes the project network, such as vss_default.
+# Remove it explicitly only as a belt-and-suspenders, by exact project name.
+project="${COMPOSE_PROJECT_NAME:-vss}"
+docker network rm "${project}_default" 2>/dev/null || true
 
 # `down` (no -v) also leaves every named volume. Remove the stale DATA volumes
 # that poison a fresh deploy — ES indices, Kafka offsets, Postgres, logstash
 # libs, nvstreamer recordings — while KEEPING model caches (rtvi-*, *_cache).
-# Names are <project>_<vol>; match on the volume-name suffix.
+# Names are <project>_<vol>; match the selected project plus known stale data volumes.
 docker volume ls -q \
-  | grep -E '(mdx-elastic-(data|logs)|mdx-kafka|mdx-logstash-libs|phoenix-data|vios_pg_data|mdx-nvstreamer-(data|videos))$' \
+  | grep -E "^${project}[-_](elastic-(data|logs)|kafka|logstash-libs|nvstreamer-(data|videos))$|(${project}[-_])?(phoenix-data|vios_pg_data)$" \
   | xargs -r docker volume rm
 ```
 
