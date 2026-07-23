@@ -15,63 +15,20 @@
 	},
 	"webhooks":
 	{
-		"enabled": true,
+		"enabled": false,
 		"items":
 		[
 			{
-				"enabled": true,
-				"id": "wh-001",
+				"enabled": false,
+				"id": "dummy-camera-add",
 				"camera_status_change": "camera_add",
 				"request": [
 					{
-						"url": "https://your-receiver2.example.com/api/v1/camera",
-						"method": "POST",
-						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
-						"query_params": {"change": "{{event.change}}"},
-						"camera_type": ["rtsp", "file"],
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
-						"url": "https://your-receiver2.example.com/api/v1/camera",
-						"method": "POST",
-						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
-						"query_params": {},
-						"camera_type": ["rtsp", "file"],
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
-						"url": "http://127.0.0.1:8088/api/v1/camera/add",
-						"method": "POST",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
-						"query_params": {"change": "{{event.change}}"},
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
 						"url": "http://127.0.0.1:18088/bdd/webhooks/camera/add",
 						"method": "POST",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+						"headers": {"Content-Type": "application/json", "x-stream-id": "{{event.camera_id}}"},
 						"query_params": {"change": "{{event.change}}"},
-						"camera_type": ["file"],
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
-						"url": "http://127.0.0.1:18088/bdd/webhooks/camera/add/unfiltered",
-						"method": "POST",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
-						"query_params": {"change": "{{event.change}}"},
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
-						"url": "http://127.0.0.1:18088/bdd/webhooks/camera/add/rtsp-only",
-						"method": "POST",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
-						"query_params": {"change": "{{event.change}}"},
-						"camera_type": ["rtsp"],
+						"camera_type": ["rtsp", "file"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					}
@@ -79,33 +36,16 @@
 				"auth": {"type": "hmac-sha256", "secret": "{{secrets.signing_key}}", "header_name": "X-VIOS-Signature"}
 			},
 			{
-				"enabled": true,
-				"id": "wh-002",
+				"enabled": false,
+				"id": "dummy-camera-streaming",
 				"camera_status_change": "camera_streaming",
 				"request": [
 					{
-						"url": "https://your-receiver.example.com/api/v1/camera",
-						"method": "PUT",
-						"headers": {"Content-Type": "application/json", "Authorization": "Bearer {{secrets.token}}", "streamId": "{{event.camera_id}}"},
-						"query_params": {},
-						"camera_type": ["rtsp"],
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
-						"url": "http://127.0.0.1:8088/api/v1/camera/streaming",
-						"method": "PUT",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
-						"query_params": {"change": "{{event.change}}"},
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
 						"url": "http://127.0.0.1:18088/bdd/webhooks/camera/streaming",
 						"method": "PUT",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+						"headers": {"Content-Type": "application/json", "x-stream-id": "{{event.camera_id}}"},
 						"query_params": {"change": "{{event.change}}"},
-						"camera_type": ["file"],
+						"camera_type": ["rtsp", "file"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					}
@@ -113,24 +53,16 @@
 				"auth": {"type": "hmac-sha256", "secret": "{{secrets.signing_key}}", "header_name": "X-VIOS-Signature"}
 			},
 			{
-				"enabled": true,
-				"id": "wh-003",
+				"enabled": false,
+				"id": "dummy-camera-remove",
 				"camera_status_change": "camera_remove",
 				"request": [
 					{
-						"url": "http://127.0.0.1:8088/api/v1/camera/remove",
-						"method": "DELETE",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
-						"query_params": {"change": "{{event.change}}"},
-						"timeout_ms": 5000,
-						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
-					},
-					{
 						"url": "http://127.0.0.1:18088/bdd/webhooks/camera/remove",
 						"method": "DELETE",
-						"headers": {"Content-Type": "application/json", "streamId": "{{event.camera_id}}"},
+						"headers": {"Content-Type": "application/json", "x-stream-id": "{{event.camera_id}}"},
 						"query_params": {"change": "{{event.change}}"},
-						"camera_type": ["file"],
+						"camera_type": ["rtsp", "file"],
 						"timeout_ms": 5000,
 						"retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]}
 					}
