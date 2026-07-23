@@ -220,7 +220,7 @@ def generate_task(
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-build-vision-agent` skill to build and deploy the "
+            f"Use the `/vss-build-vision-agent` skill for the "
             f"`{build_profile}` profile on `{platform}`. "
             "Work from `$HOME/video-search-and-summarization` (the VSS repository root).",
             "",
