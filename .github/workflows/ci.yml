@@ -159,6 +159,7 @@ jobs:
           bash -n "$VLM_INSTALLER"
           cmp "$EMBED_INSTALLER" "$VLM_INSTALLER"
           CODEC_VALIDATE_ONLY=true bash "$EMBED_INSTALLER"
+          CODEC_VALIDATE_ONLY=true CODEC_DEB_ARCH=arm64 bash "$EMBED_INSTALLER"
 
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)

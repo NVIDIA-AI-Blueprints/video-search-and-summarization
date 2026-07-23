@@ -32,19 +32,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
-DEB_ARCH=$(dpkg --print-architecture)
-MACHINE=$(uname -m)
+HOST_DEB_ARCH=$(dpkg --print-architecture)
+DEB_ARCH=${CODEC_DEB_ARCH:-$HOST_DEB_ARCH}
+case "$DEB_ARCH" in
+    amd64) MACHINE=x86_64 ;;
+    arm64) MACHINE=aarch64 ;;
+    *)
+        echo "ERROR: Unsupported architecture: $DEB_ARCH (supported: amd64, arm64)" >&2
+        exit 1
+        ;;
+esac
 LIB_DIR="$INSTALL_DIR/usr/lib/${MACHINE}-linux-gnu"
 GST_PLUGIN_DIR="$LIB_DIR/gstreamer-1.0"
 
-if [ -f "$INSTALL_DIR/.installed" ]; then
-    echo "Proprietary codecs already installed at $INSTALL_DIR"
-    exit 0
+if [ "$DEB_ARCH" != "$HOST_DEB_ARCH" ] && [ "${CODEC_VALIDATE_ONLY:-false}" != "true" ]; then
+    echo "ERROR: Cross-architecture resolution is supported only with CODEC_VALIDATE_ONLY=true" >&2
+    exit 1
 fi
 
-if [ "$DEB_ARCH" != "amd64" ] && [ "$DEB_ARCH" != "arm64" ]; then
-    echo "ERROR: Unsupported architecture: $DEB_ARCH (supported: amd64, arm64)" >&2
-    exit 1
+if [ "${CODEC_VALIDATE_ONLY:-false}" != "true" ] && [ -f "$INSTALL_DIR/.installed" ]; then
+    echo "Proprietary codecs already installed at $INSTALL_DIR"
+    exit 0
 fi
 
 if ! command -v apt-get >/dev/null 2>&1; then
@@ -205,7 +213,10 @@ fi
 
 echo "Extracting ${#DEBS[@]} packages..."
 for deb in "${DEBS[@]}"; do
-    dpkg -x "$deb" "$INSTALL_DIR/"
+    if ! dpkg -x "$deb" "$INSTALL_DIR/"; then
+        echo "ERROR: Failed to extract $deb" >&2
+        exit 1
+    fi
 done
 
 [ -f "$LIB_DIR/blas/libblas.so.3" ] &&
