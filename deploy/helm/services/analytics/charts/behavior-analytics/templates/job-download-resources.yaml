@@ -22,7 +22,9 @@ metadata:
     {{- include "vss-behavior-analytics.labels" . | nindent 4 }}
 spec:
   backoffLimit: 3
-  ttlSecondsAfterFinished: 120
+  {{- with .Values.downloadResourcesJob.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   template:
     spec:
       restartPolicy: OnFailure

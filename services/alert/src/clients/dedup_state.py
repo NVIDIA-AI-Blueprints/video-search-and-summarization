@@ -741,3 +741,79 @@ class DedupStateHandler:
         if self._dedup_verbose:
             self.logger.debug("Checked confirmed verdict (ES): %s => True", fingerprint)
         return True
+
+    async def is_verdict_confirmed_async(self, fingerprint: str) -> bool:
+        """Async mirror of ``is_verdict_confirmed`` (AsyncElasticsearch lookup,
+        same fail-open semantics and metrics)."""
+        import asyncio
+
+        if not self._protect_confirmed_enabled or not fingerprint:
+            return False
+        client = await asyncio.to_thread(self._get_es_client)
+        if client is None:
+            _metric("inc_verdict_fail_open", "es_down")
+            return False
+        start = time.time()
+        try:
+            doc = await client.get_document_async(self._verdict_index, fingerprint)
+        except Exception as e:
+            self.logger.warning("Failed to check confirmed (%s); allowing write: %s", e, fingerprint)
+            _metric("inc_verdict_fail_open", "error")
+            return False  # Fail-open
+        finally:
+            _metric("observe_verdict_es_get", time.time() - start)
+
+        if not doc:
+            return False
+
+        expires_at = doc.get("expires_at")
+        try:
+            expires_at_f = float(expires_at)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                "Confirmed-verdict marker has missing/non-numeric expires_at; failing open."
+            )
+            _metric("inc_verdict_fail_open", "malformed")
+            return False
+        if not math.isfinite(expires_at_f):
+            self.logger.warning(
+                "Confirmed-verdict marker has non-finite expires_at; failing open."
+            )
+            _metric("inc_verdict_fail_open", "malformed")
+            return False
+        if expires_at_f <= time.time():
+            _metric("inc_verdict_fail_open", "expired")
+            return False
+        if self._dedup_verbose:
+            self.logger.debug("Checked confirmed verdict (ES): %s => True", fingerprint)
+        return True
+
+    async def mark_verdict_confirmed_async(self, fingerprint: str) -> bool:
+        """Async mirror of ``mark_verdict_confirmed``."""
+        import asyncio
+
+        if not self._protect_confirmed_enabled or not fingerprint:
+            return False
+        client = await asyncio.to_thread(self._get_es_client)
+        if client is None:
+            _metric("inc_verdict_fail_open", "es_down")
+            return False
+        try:
+            await client.ensure_json_index_async(self._verdict_index)
+            expires_at = time.time() + self._protect_confirmed_ttl
+            await client.write_json_async(
+                self._verdict_index,
+                {
+                    "fingerprint": fingerprint,
+                    "expires_at": expires_at,
+                    "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                },
+                doc_id=fingerprint,
+            )
+            if self._dedup_verbose:
+                self.logger.debug("Marked confirmed (ES): %s", fingerprint)
+            return True
+        except Exception as e:
+            self.logger.warning("Failed to mark confirmed verdict: %s", e)
+            _metric("inc_verdict_fail_open", "write_error")
+            return False

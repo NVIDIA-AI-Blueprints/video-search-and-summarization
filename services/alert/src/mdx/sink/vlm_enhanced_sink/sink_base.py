@@ -137,6 +137,25 @@ class VLMEnhancedSink(ABC):
                 return config.get("output_category") or None
         return self._category_mapping.get(original_category)
 
+    def _prepare_publish(
+        self,
+        message: Dict[str, Any],
+        user_prompt: str,
+        system_prompt: Optional[str],
+        payload: Any,
+    ) -> tuple:
+        """Shared publish preparation: resolve event kind, stamp the
+        downstream type hint, build the enriched event."""
+        event_kind = 'alert' if is_alert(message) else 'incident'
+        message.setdefault('type', 'mdx-vlm-alerts' if event_kind == 'alert' else 'mdx-vlm-incidents')
+        enriched = build_vlm_enriched_event(
+            message,
+            user_prompt,
+            system_prompt,
+            payload,
+        )
+        return event_kind, enriched
+
     def publish_success(
         self,
         message: Dict[str, Any],
@@ -145,17 +164,9 @@ class VLMEnhancedSink(ABC):
         vlm_response: VLMResponsePayload,
         latency: Optional[Dict[str, Any]] = None,
     ) -> None:
-        latency = latency or {}
-        event_kind = 'alert' if is_alert(message) else 'incident'
-        # Preserve downstream hint
-        message.setdefault('type', 'mdx-vlm-alerts' if event_kind == 'alert' else 'mdx-vlm-incidents')
-        enriched = build_vlm_enriched_event(
-            message,
-            user_prompt,
-            system_prompt,
-            vlm_response,
+        event_kind, enriched = self._prepare_publish(
+            message, user_prompt, system_prompt, vlm_response
         )
-       
         self._store_success(event_kind, enriched, vlm_response, user_prompt)
 
     def publish_error(
@@ -166,17 +177,9 @@ class VLMEnhancedSink(ABC):
         error_payload: Dict[str, Any],
         latency: Optional[Dict[str, Any]] = None,
     ) -> None:
-        latency = latency or {}
-        event_kind = 'alert' if is_alert(message) else 'incident'
-        # Preserve downstream hint
-        message.setdefault('type', 'mdx-vlm-alerts' if event_kind == 'alert' else 'mdx-vlm-incidents')
-        enriched = build_vlm_enriched_event(
-            message,
-            user_prompt,
-            system_prompt,
-            error_payload,
+        event_kind, enriched = self._prepare_publish(
+            message, user_prompt, system_prompt, error_payload
         )
-       
         self._store_error(event_kind, enriched, error_payload)
 
     @abstractmethod
