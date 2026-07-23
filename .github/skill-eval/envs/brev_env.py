@@ -234,11 +234,15 @@ class BrevEnvironment(BaseEnvironment):
             self._instance_name,
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            # Use -RH to follow symlinks at the command-line arguments —
-            # /logs is commonly a symlink to /opt/dlami/nvme/logs on these
-            # instances, and plain -R only changes the symlink itself without
-            # descending into the target directory.
-            "sudo chown -RH $(whoami):$(id -gn) /logs /tests /solution /skills",
+            # Use trailing slashes on /logs/ /tests/ etc. because /logs is a
+            # symlink on pool boxes (-> /opt/dlami/nvme/logs); without the
+            # trailing slash `chown -R` changes only the symlink itself and
+            # never traverses into the target directory, leaving freshly-created
+            # subdirs (verifier/, artifacts/) owned by root — which makes the
+            # verifier crash with PermissionError when it tries to write
+            # reward.txt (observed: every trial on g7e fleet since the symlink
+            # was introduced).
+            "sudo chown -R $(whoami):$(id -gn) /logs/ /tests/ /solution/ /skills/",
             timeout=30,
         )
         # Fail loud: this is the load-bearing artifacts wipe. A silent failure
@@ -1447,9 +1451,8 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
 def _parse_brev_json(raw: str | None) -> list[dict]:
     """Strip trailing walkthrough text and parse JSON from brev CLI.
 
-    Handles both the legacy bare-array format (``[{...}, ...]``) and the
-    newer wrapped format (``{"workspaces": [{...}, ...]}``) introduced in
-    recent brev CLI versions.
+    Handles legacy flat arrays (`[{...}, ...]`) and object envelopes such as
+    `{"workspaces": [{...}, ...]}`.
     """
     if not raw:
         return []
@@ -1477,12 +1480,27 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
+
+    # Try a full object envelope first; this handles `{"workspaces": [...]}` plus
+    # trailing CLI text.
+    brace_end = raw.rfind("}")
+    if brace_end > bracket:
+        try:
+            parsed = json.loads(raw[: brace_end + 1])
+            extracted = _extract_list(parsed)
+            if extracted:
+                return extracted
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback: extract the final flat JSON array prefix.
     try:
         return _extract_list(json.loads(raw[: bracket + 1]))
     except json.JSONDecodeError:
         pass
 
-    # Last resort: extract the inner array from {"workspaces": [...]}.
+    # Last resort: extract the inner-most array from an otherwise partial
+    # wrapper.
     start = raw.find("[")
     if start >= 0 and bracket > start:
         try:
