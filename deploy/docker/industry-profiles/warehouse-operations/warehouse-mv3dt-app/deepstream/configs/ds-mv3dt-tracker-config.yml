@@ -36,8 +36,25 @@ StateEstimator:
   measurementNoiseVar4Detector: 78.43805173471176
   measurementNoiseVar4Tracker: 82.2705749896136
 
+PoseEstimator:
+  poseEstimatorType: 1
+  useVPICropScaler: 1
+  operateOnClassIds: [0]
+  batchSize: 1
+  workspaceSize: 1000
+  inferDims: [3, 256, 192]
+  networkMode: 1
+  inputOrder: 0
+  colorFormat: 0
+  offsets: [123.6750, 116.2800, 103.5300]
+  netScaleFactor: 0.00392156
+  onnxFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx
+  modelEngineFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx_b1_gpu0_fp16.engine
+  poseInferenceInterval: -1
+
 ObjectModelProjection:
   outputFootLocation: 1
+  minPoseConfidence: 0.95
   cameraModelFilepath:
     Camera: /tmp/camInfo/Camera.yml
     Camera_01: /tmp/camInfo/Camera_01.yml
