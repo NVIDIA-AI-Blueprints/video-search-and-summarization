@@ -17,10 +17,10 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.evaluation_compressor import EvaluationCompressorConfig
-from agent.tools.evaluation_compressor import EvaluationCompressorInput
-from agent.tools.evaluation_compressor import remove_caption_details
-from agent.tools.evaluation_compressor import split_text_by_sections
+from vss_agents.tools.evaluation_compressor import EvaluationCompressorConfig
+from vss_agents.tools.evaluation_compressor import EvaluationCompressorInput
+from vss_agents.tools.evaluation_compressor import remove_caption_details
+from vss_agents.tools.evaluation_compressor import split_text_by_sections
 
 
 class TestEvaluationCompressorConfig:

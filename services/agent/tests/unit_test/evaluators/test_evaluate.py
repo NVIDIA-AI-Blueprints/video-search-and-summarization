@@ -21,7 +21,7 @@ class TestEvaluateModuleImports:
 
     def test_module_import(self):
         # Test that the module can be imported without errors
-        from agent.evaluators.report_evaluator import evaluate
+        from vss_agents.evaluators.report_evaluator import evaluate
 
         assert evaluate is not None
 
@@ -31,8 +31,8 @@ class TestEvaluationHelpers:
 
     def test_evaluation_metrics_exist(self):
         """Test that evaluation metrics are defined."""
-        from agent.evaluators.report_evaluator.field_evaluators.base import METRIC_REGISTRY
-        from agent.evaluators.report_evaluator.field_evaluators.base import register_metric
+        from vss_agents.evaluators.report_evaluator.field_evaluators.base import METRIC_REGISTRY
+        from vss_agents.evaluators.report_evaluator.field_evaluators.base import register_metric
 
         assert callable(register_metric)
         assert isinstance(METRIC_REGISTRY, dict)

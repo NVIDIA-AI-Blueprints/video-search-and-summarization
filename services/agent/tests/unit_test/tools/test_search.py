@@ -23,17 +23,17 @@ from unittest.mock import MagicMock
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.embed_search import EmbedSearchConfig
-from agent.tools.embed_search import QueryInput
-from agent.tools.embed_search import _str_input_converter
-from agent.tools.search import QUERY_DECOMPOSITION_PROMPT
-from agent.tools.search import DecomposedQuery
-from agent.tools.search import SearchConfig
-from agent.tools.search import SearchInput
-from agent.tools.search import SearchOutput
-from agent.tools.search import SearchResult
-from agent.tools.search import _resolve_video_sources_for_search
-from agent.tools.search import decompose_query
+from vss_agents.tools.embed_search import EmbedSearchConfig
+from vss_agents.tools.embed_search import QueryInput
+from vss_agents.tools.embed_search import _str_input_converter
+from vss_agents.tools.search import QUERY_DECOMPOSITION_PROMPT
+from vss_agents.tools.search import DecomposedQuery
+from vss_agents.tools.search import SearchConfig
+from vss_agents.tools.search import SearchInput
+from vss_agents.tools.search import SearchOutput
+from vss_agents.tools.search import SearchResult
+from vss_agents.tools.search import _resolve_video_sources_for_search
+from vss_agents.tools.search import decompose_query
 
 
 class TestResolveVideoSourcesForSearch:

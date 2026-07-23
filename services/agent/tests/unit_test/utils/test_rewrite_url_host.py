@@ -17,7 +17,7 @@
 
 import pytest
 
-from agent.utils.url_translation import rewrite_url_host
+from vss_agents.utils.url_translation import rewrite_url_host
 
 
 class TestRewriteUrlHost:

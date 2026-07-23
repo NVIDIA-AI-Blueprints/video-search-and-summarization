@@ -26,13 +26,13 @@ import urllib.parse
 
 import pytest
 
-from agent.tools.vst.snapshot import VSTSnapshotConfig
-from agent.tools.vst.snapshot import VSTSnapshotISOInput
-from agent.tools.vst.snapshot import VSTSnapshotOutput
-from agent.tools.vst.snapshot import get_snapshot_url
-from agent.tools.vst.snapshot import vst_snapshot
-from agent.tools.vst.utils import build_overlay_config
-from agent.tools.vst.video_clip import get_video_url
+from vss_agents.tools.vst.snapshot import VSTSnapshotConfig
+from vss_agents.tools.vst.snapshot import VSTSnapshotISOInput
+from vss_agents.tools.vst.snapshot import VSTSnapshotOutput
+from vss_agents.tools.vst.snapshot import get_snapshot_url
+from vss_agents.tools.vst.snapshot import vst_snapshot
+from vss_agents.tools.vst.utils import build_overlay_config
+from vss_agents.tools.vst.video_clip import get_video_url
 
 
 class TestBuildOverlayConfig:
@@ -135,8 +135,8 @@ class TestSnapshotBoundingBox:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("agent.tools.vst.snapshot.create_retry_strategy") as mock_retry:
+        with patch("vss_agents.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.snapshot.create_retry_strategy") as mock_retry:
 
                 async def fake_retry(*args, **kwargs):
                     yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -176,8 +176,8 @@ class TestSnapshotBoundingBox:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("agent.tools.vst.snapshot.create_retry_strategy") as mock_retry:
+        with patch("vss_agents.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.snapshot.create_retry_strategy") as mock_retry:
 
                 async def fake_retry(*args, **kwargs):
                     yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -200,9 +200,9 @@ class TestSnapshotBoundingBox:
     @pytest.mark.asyncio
     async def test_snapshot_tool_passes_overlay_config(self, config_with_overlay, mock_builder):
         """Test that the snapshot tool passes overlay_config to get_snapshot_url."""
-        with patch("agent.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+        with patch("vss_agents.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
-            with patch("agent.tools.vst.snapshot.get_snapshot_url", new_callable=AsyncMock) as mock_get_url:
+            with patch("vss_agents.tools.vst.snapshot.get_snapshot_url", new_callable=AsyncMock) as mock_get_url:
                 mock_get_url.return_value = "http://10.0.0.1:30888/vst/img.jpg"
 
                 gen = vst_snapshot.__wrapped__(config_with_overlay, mock_builder)
@@ -242,8 +242,8 @@ class TestVideoClipBoundingBox:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("agent.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+        with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
 
                 async def fake_retry(*args, **kwargs):
                     yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -284,8 +284,8 @@ class TestVideoClipBoundingBox:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("agent.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+        with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
 
                 async def fake_retry(*args, **kwargs):
                     yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -323,8 +323,8 @@ class TestVideoClipBoundingBox:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("agent.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+        with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
 
                 async def fake_retry(*args, **kwargs):
                     yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))

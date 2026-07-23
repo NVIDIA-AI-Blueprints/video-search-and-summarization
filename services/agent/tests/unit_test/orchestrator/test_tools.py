@@ -20,10 +20,10 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.orchestrator.tools import ComposeDownOperationInput
-from agent.orchestrator.tools import GenerateInput
-from agent.orchestrator.tools import OrchestratorRuntimeSettings
-from agent.orchestrator.tools import _run_deep_clean
+from vss_agents.orchestrator.tools import ComposeDownOperationInput
+from vss_agents.orchestrator.tools import GenerateInput
+from vss_agents.orchestrator.tools import OrchestratorRuntimeSettings
+from vss_agents.orchestrator.tools import _run_deep_clean
 
 
 def test_generate_input_does_not_expose_runtime_secret_fields():
@@ -116,7 +116,7 @@ def test_run_deep_clean_skips_missing_data_directory(tmp_path: Path):
     missing = tmp_path / "does-not-exist"
     logs: list[str] = []
 
-    with patch("agent.orchestrator.tools.subprocess.run") as mock_run:
+    with patch("vss_agents.orchestrator.tools.subprocess.run") as mock_run:
         _run_deep_clean(missing, logs.append)
 
     # No subprocess at all: compose-down already handled volumes, and the data dir is missing.
@@ -140,9 +140,9 @@ def test_run_deep_clean_does_not_invoke_docker_volume_prune(tmp_path: Path):
         return _make_completed(returncode=0)
 
     with (
-        patch("agent.orchestrator.tools.subprocess.run", side_effect=fake_run),
-        patch("agent.orchestrator.tools.os.geteuid", return_value=0),
-        patch("agent.orchestrator.tools.shutil.which", return_value=None),
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
     ):
         _run_deep_clean(data_dir, logs.append)
 
@@ -156,8 +156,8 @@ def test_run_deep_clean_removes_existing_data_directory(tmp_path: Path):
     logs: list[str] = []
 
     with (
-        patch("agent.orchestrator.tools.os.geteuid", return_value=1000),
-        patch("agent.orchestrator.tools.shutil.which", return_value=None),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
     ):
         _run_deep_clean(data_dir, logs.append)
 
@@ -180,9 +180,9 @@ def test_run_deep_clean_uses_sudo_when_non_root_and_available(tmp_path: Path):
         return _make_completed(returncode=0)
 
     with (
-        patch("agent.orchestrator.tools.subprocess.run", side_effect=fake_run),
-        patch("agent.orchestrator.tools.os.geteuid", return_value=1000),
-        patch("agent.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
     ):
         _run_deep_clean(data_dir, logs.append)
 
@@ -208,9 +208,9 @@ def test_run_deep_clean_skips_sudo_when_root(tmp_path: Path):
         return _make_completed(returncode=0)
 
     with (
-        patch("agent.orchestrator.tools.subprocess.run", side_effect=fake_run),
-        patch("agent.orchestrator.tools.os.geteuid", return_value=0),
-        patch("agent.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
     ):
         _run_deep_clean(data_dir, logs.append)
 
@@ -230,9 +230,9 @@ def test_run_deep_clean_raises_when_rm_returns_nonzero(tmp_path: Path):
         return _make_completed(returncode=1, stderr="rm: cannot remove ...: Permission denied\n")
 
     with (
-        patch("agent.orchestrator.tools.subprocess.run", side_effect=fake_run),
-        patch("agent.orchestrator.tools.os.geteuid", return_value=1000),
-        patch("agent.orchestrator.tools.shutil.which", return_value=None),
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
     ):
         with pytest.raises(RuntimeError, match="Failed to delete data directory"):
             _run_deep_clean(data_dir, logs.append)
@@ -250,9 +250,9 @@ def test_run_deep_clean_raises_when_rm_times_out(tmp_path: Path):
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=300)
 
     with (
-        patch("agent.orchestrator.tools.subprocess.run", side_effect=fake_run),
-        patch("agent.orchestrator.tools.os.geteuid", return_value=0),
-        patch("agent.orchestrator.tools.shutil.which", return_value=None),
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
     ):
         with pytest.raises(RuntimeError, match=r"rm -rf .* timed out"):
             _run_deep_clean(data_dir, logs.append)
@@ -276,9 +276,9 @@ def test_run_deep_clean_passes_rm_timeout_to_subprocess(tmp_path: Path):
         return _make_completed(returncode=0)
 
     with (
-        patch("agent.orchestrator.tools.subprocess.run", side_effect=fake_run),
-        patch("agent.orchestrator.tools.os.geteuid", return_value=0),
-        patch("agent.orchestrator.tools.shutil.which", return_value=None),
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
     ):
         _run_deep_clean(data_dir, logs.append)
 
@@ -291,9 +291,9 @@ def test_run_deep_clean_raises_when_rm_command_not_found(tmp_path: Path):
     logs: list[str] = []
 
     with (
-        patch("agent.orchestrator.tools.subprocess.run", side_effect=FileNotFoundError("rm")),
-        patch("agent.orchestrator.tools.os.geteuid", return_value=0),
-        patch("agent.orchestrator.tools.shutil.which", return_value=None),
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=FileNotFoundError("rm")),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
     ):
         with pytest.raises(RuntimeError, match="deep-clean command not found"):
             _run_deep_clean(data_dir, logs.append)

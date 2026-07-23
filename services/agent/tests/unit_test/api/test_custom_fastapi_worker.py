@@ -30,8 +30,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.api.custom_fastapi_worker import CustomFastApiFrontEndWorker
-from agent.api.front_end_config import StreamingIngestConfig
+from vss_agents.api.custom_fastapi_worker import CustomFastApiFrontEndWorker
+from vss_agents.api.front_end_config import StreamingIngestConfig
 
 _MISSING = object()
 
@@ -61,12 +61,12 @@ def patched_register_fns():
          rtsp_ingest, rtsp_delete, video_delete)
     """
     with (
-        patch("agent.api.custom_fastapi_worker.register_video_upload") as video_upload,
-        patch("agent.api.custom_fastapi_worker.register_video_upload_complete") as video_upload_complete,
-        patch("agent.api.custom_fastapi_worker.register_video_search_ingest_routes") as video_search_ingest,
-        patch("agent.api.custom_fastapi_worker.register_rtsp_ingest_routes") as rtsp_ingest,
-        patch("agent.api.custom_fastapi_worker.register_rtsp_delete_routes") as rtsp_delete,
-        patch("agent.api.custom_fastapi_worker.register_video_delete_routes") as video_delete,
+        patch("vss_agents.api.custom_fastapi_worker.register_video_upload") as video_upload,
+        patch("vss_agents.api.custom_fastapi_worker.register_video_upload_complete") as video_upload_complete,
+        patch("vss_agents.api.custom_fastapi_worker.register_video_search_ingest_routes") as video_search_ingest,
+        patch("vss_agents.api.custom_fastapi_worker.register_rtsp_ingest_routes") as rtsp_ingest,
+        patch("vss_agents.api.custom_fastapi_worker.register_rtsp_delete_routes") as rtsp_delete,
+        patch("vss_agents.api.custom_fastapi_worker.register_video_delete_routes") as video_delete,
     ):
         yield (
             video_upload,

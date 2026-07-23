@@ -22,13 +22,13 @@ from nat.builder.context import ContextState
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.lvs_config_media import LVSConfigMediaConfig
-from agent.tools.lvs_config_media import LVSConfigMediaInput
-from agent.tools.lvs_config_media import LVSConfigMediaOutput
-from agent.tools.lvs_config_media import LVSMediaStatus
-from agent.tools.lvs_config_media import lvs_config_media
-from agent.tools.lvs_media_state import clear_configured_media_state
-from agent.tools.lvs_media_state import configured_media
+from vss_agents.tools.lvs_config_media import LVSConfigMediaConfig
+from vss_agents.tools.lvs_config_media import LVSConfigMediaInput
+from vss_agents.tools.lvs_config_media import LVSConfigMediaOutput
+from vss_agents.tools.lvs_config_media import LVSMediaStatus
+from vss_agents.tools.lvs_config_media import lvs_config_media
+from vss_agents.tools.lvs_media_state import clear_configured_media_state
+from vss_agents.tools.lvs_media_state import configured_media
 
 
 class TestLVSConfigMediaModels:
@@ -116,15 +116,15 @@ class TestLVSConfigMediaInner:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
             mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
             with patch(
-                "agent.tools.lvs_config_media._prompt_user_input",
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
                 new_callable=AsyncMock,
             ) as mock_prompt:
                 mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
-                with patch("agent.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
-                    with patch("agent.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
                         inner_fn = await self._get_inner_fn(config)
                         result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
 
@@ -174,15 +174,15 @@ class TestLVSConfigMediaInner:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
             mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
             with patch(
-                "agent.tools.lvs_config_media._prompt_user_input",
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
                 new_callable=AsyncMock,
             ) as mock_prompt:
                 mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
-                with patch("agent.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
-                    with patch("agent.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
                         inner_fn = await self._get_inner_fn(config)
                         await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
 
@@ -215,15 +215,15 @@ class TestLVSConfigMediaInner:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
             mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
             with patch(
-                "agent.tools.lvs_config_media._prompt_user_input",
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
                 new_callable=AsyncMock,
             ) as mock_prompt:
                 mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
-                with patch("agent.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
-                    with patch("agent.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
                         inner_fn = await self._get_inner_fn(config)
                         await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
 
@@ -256,15 +256,15 @@ class TestLVSConfigMediaInner:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
             mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
             with patch(
-                "agent.tools.lvs_config_media._prompt_user_input",
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
                 new_callable=AsyncMock,
             ) as mock_prompt:
                 mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
-                with patch("agent.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
-                    with patch("agent.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
                         inner_fn = await self._get_inner_fn(config)
                         await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
 
@@ -282,7 +282,7 @@ class TestLVSConfigMediaInner:
             hitl_objects_template="Objects",
         )
 
-        with patch("agent.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
             mock_stream.return_value = (None, None)
             inner_fn = await self._get_inner_fn(config)
             result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))

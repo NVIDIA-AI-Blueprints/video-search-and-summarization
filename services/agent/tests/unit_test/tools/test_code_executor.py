@@ -19,10 +19,10 @@ from unittest.mock import patch
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.code_executor.docker_backend import cleanup_docker_resources
-from agent.tools.code_executor.python_executor import CodeExecutorConfig
-from agent.tools.code_executor.python_executor import CodeExecutorInput
-from agent.tools.code_executor.python_executor import CodeExecutorOutput
+from vss_agents.tools.code_executor.docker_backend import cleanup_docker_resources
+from vss_agents.tools.code_executor.python_executor import CodeExecutorConfig
+from vss_agents.tools.code_executor.python_executor import CodeExecutorInput
+from vss_agents.tools.code_executor.python_executor import CodeExecutorOutput
 
 
 class TestCodeExecutorConfig:
@@ -129,6 +129,6 @@ class TestDockerBackendModule:
 
     def test_cleanup_docker_resources(self):
         """Test cleanup_docker_resources calls ImageBuilder.reset_instance (covers line 23)."""
-        with patch("agent.tools.code_executor.docker_backend.ImageBuilder") as mock_builder:
+        with patch("vss_agents.tools.code_executor.docker_backend.ImageBuilder") as mock_builder:
             cleanup_docker_resources()
             mock_builder.reset_instance.assert_called_once()

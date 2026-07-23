@@ -14,9 +14,9 @@
 # limitations under the License.
 """Unit tests for geolocation module."""
 
-from agent.tools.geolocation import GeolocationConfig
-from agent.tools.geolocation import GeolocationInput
-from agent.tools.geolocation import GeolocationOutput
+from vss_agents.tools.geolocation import GeolocationConfig
+from vss_agents.tools.geolocation import GeolocationInput
+from vss_agents.tools.geolocation import GeolocationOutput
 
 
 class TestGeolocationConfig:

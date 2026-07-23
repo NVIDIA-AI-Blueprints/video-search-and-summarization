@@ -16,9 +16,9 @@
 
 import pytest
 
-from agent.tools.search import _SIMILARITY_RATIO_THRESHOLD
-from agent.tools.search import SearchResult
-from agent.tools.search import _merge_consecutive_results
+from vss_agents.tools.search import _SIMILARITY_RATIO_THRESHOLD
+from vss_agents.tools.search import SearchResult
+from vss_agents.tools.search import _merge_consecutive_results
 
 
 def _make_result(start: str, end: str, similarity: float, sensor_id: str = "s1") -> SearchResult:

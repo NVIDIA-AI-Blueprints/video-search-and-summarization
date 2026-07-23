@@ -19,14 +19,14 @@ from datetime import datetime
 
 import pytest
 
-from agent.video_analytics.utils import build_place_map
-from agent.video_analytics.utils import build_sensor_map
-from agent.video_analytics.utils import compute_bucket_size_seconds
-from agent.video_analytics.utils import create_empty_histogram_buckets
-from agent.video_analytics.utils import create_events_from_incidents
-from agent.video_analytics.utils import parse_vst_sensor_list_response
-from agent.video_analytics.utils import sweep_overlapping_incidents
-from agent.video_analytics.utils import validate_iso_timestamp
+from vss_agents.video_analytics.utils import build_place_map
+from vss_agents.video_analytics.utils import build_sensor_map
+from vss_agents.video_analytics.utils import compute_bucket_size_seconds
+from vss_agents.video_analytics.utils import create_empty_histogram_buckets
+from vss_agents.video_analytics.utils import create_events_from_incidents
+from vss_agents.video_analytics.utils import parse_vst_sensor_list_response
+from vss_agents.video_analytics.utils import sweep_overlapping_incidents
+from vss_agents.video_analytics.utils import validate_iso_timestamp
 
 
 class TestValidateIsoTimestamp:

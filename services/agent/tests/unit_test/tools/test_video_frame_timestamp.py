@@ -17,9 +17,9 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.prompt import VIDEO_FRAME_TIMESTAMP_PROMPT
-from agent.tools.video_frame_timestamp import VideoFrameTimestampConfig
-from agent.tools.video_frame_timestamp import VideoFrameTimestampInput
+from vss_agents.prompt import VIDEO_FRAME_TIMESTAMP_PROMPT
+from vss_agents.tools.video_frame_timestamp import VideoFrameTimestampConfig
+from vss_agents.tools.video_frame_timestamp import VideoFrameTimestampInput
 
 
 class TestVideoFrameTimestampConfig:

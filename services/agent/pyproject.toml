@@ -11,15 +11,14 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 # Top-level packages shipped in the same wheel:
-#   - agent:      agent code, tools, NAT plugins (incl. register_knowledge_layers)
-#   - vss_agents: compatibility namespace for deployment configs using the former name
+#   - vss_agents: agent code, tools, NAT plugins (incl. register_knowledge_layers)
 #   - cli:        NAT-independent command-line interface
 #   - lib:        NAT-independent libraries. lib.knowledge holds the BackendAdapter
 #                 ABC, schema, factory, and adapter implementations.
 # The base install carries only the light `lib` dependencies; agent and
 # lib.knowledge become importable once the `agent` extra's dependencies are
 # installed (see [project.optional-dependencies]).
-packages = ["src/agent", "src/vss_agents", "src/cli", "src/lib"]
+packages = ["src/vss_agents", "src/cli", "src/lib"]
 
 
 [tool.uv]
@@ -118,7 +117,7 @@ vss = "cli:main"
 #   nvidia-vss[cli]   -> lib + the `vss` console script. The script ships with the
 #                 base wheel already; this extra is the stable name for CLI
 #                 installs and will hold CLI-only dependencies if any appear.
-#   nvidia-vss[agent] -> the NAT-based agent application (agent, lib.knowledge)
+#   nvidia-vss[agent] -> the NAT-based agent application (vss_agents, lib.knowledge)
 cli = []
 agent = [
     # Keep sorted!!!
@@ -185,14 +184,14 @@ eval = [
 ]
 
 [project.entry-points.'nat.components']
-vss_tools = "agent.tools.register"
-vss_agents = "agent.agents.register"
-vss_api = "agent.api.register"
-vss_va_mcp = "agent.video_analytics.tools"
-vss_orchestrator_mcp = "agent.orchestrator.tools"
-vss_evaluators = "agent.evaluators.register"
-vst_tools = "agent.tools.vst.register"
-vss_knowledge_layer = "agent.register_knowledge_layers"
+vss_tools = "vss_agents.tools.register"
+vss_agents = "vss_agents.agents.register"
+vss_api = "vss_agents.api.register"
+vss_va_mcp = "vss_agents.video_analytics.tools"
+vss_orchestrator_mcp = "vss_agents.orchestrator.tools"
+vss_evaluators = "vss_agents.evaluators.register"
+vst_tools = "vss_agents.tools.vst.register"
+vss_knowledge_layer = "vss_agents.register_knowledge_layers"
 
 
 
@@ -256,7 +255,7 @@ max-doc-length = 120
 force-sort-within-sections = true
 
 # Known first-party modules.
-known-first-party = ["deep_search", "lib", "cli", "agent"]
+known-first-party = ["deep_search", "lib", "cli", "vss_agents"]
 
 # Known third-party modules.
 known-third-party = ["langchain", "llama_index", "crewai", "semantic_kernel", "mem0ai", "zep_cloud"]
@@ -283,7 +282,7 @@ force-single-line = true
 default-section = "third-party"
 
 [tool.coverage.run]
-source = ["src/agent"]
+source = ["src/vss_agents"]
 omit = [
     # ============================================================
     # AGENT-EXTRA-ONLY LIBRARY CODE

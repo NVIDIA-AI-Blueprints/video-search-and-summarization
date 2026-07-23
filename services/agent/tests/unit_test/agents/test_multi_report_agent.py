@@ -17,8 +17,8 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.agents.multi_report_agent import MultiReportAgentConfig
-from agent.agents.multi_report_agent import MultiReportAgentInput
+from vss_agents.agents.multi_report_agent import MultiReportAgentConfig
+from vss_agents.agents.multi_report_agent import MultiReportAgentInput
 
 
 class TestMultiReportAgentInput:

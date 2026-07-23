@@ -14,8 +14,8 @@
 # limitations under the License.
 """Tests for agent/utils/markdown_parser.py."""
 
-from agent.utils.markdown_parser import parse_markdown_to_json
-from agent.utils.markdown_parser import parse_table_or_blocktext
+from vss_agents.utils.markdown_parser import parse_markdown_to_json
+from vss_agents.utils.markdown_parser import parse_table_or_blocktext
 
 
 class TestParseTable:

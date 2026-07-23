@@ -17,8 +17,8 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.evaluators.customized_qa_evaluator.register import CustomizedQAEvaluatorConfig
-from agent.evaluators.customized_trajectory_evaluator.register import CustomizedTrajectoryEvaluatorConfig
+from vss_agents.evaluators.customized_qa_evaluator.register import CustomizedQAEvaluatorConfig
+from vss_agents.evaluators.customized_trajectory_evaluator.register import CustomizedTrajectoryEvaluatorConfig
 
 
 class TestCustomizedQAEvaluatorConfig:

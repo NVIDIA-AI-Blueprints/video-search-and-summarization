@@ -18,12 +18,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.tools.video_detailed_caption import VideoDetailedCaptionConfig
-from agent.tools.video_detailed_caption import VideoDetailedCaptionInput
-from agent.tools.video_detailed_caption import video_detailed_caption
-from agent.tools.video_skim_caption import VideoSkimCaptionConfig
-from agent.tools.video_skim_caption import VideoSkimCaptionInput
-from agent.tools.video_skim_caption import video_skim_caption
+from vss_agents.tools.video_detailed_caption import VideoDetailedCaptionConfig
+from vss_agents.tools.video_detailed_caption import VideoDetailedCaptionInput
+from vss_agents.tools.video_detailed_caption import video_detailed_caption
+from vss_agents.tools.video_skim_caption import VideoSkimCaptionConfig
+from vss_agents.tools.video_skim_caption import VideoSkimCaptionInput
+from vss_agents.tools.video_skim_caption import video_skim_caption
 
 
 class TestVideoDetailedCaptionInner:

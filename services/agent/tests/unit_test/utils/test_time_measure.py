@@ -17,7 +17,7 @@
 import time
 from unittest.mock import patch
 
-from agent.utils.time_measure import TimeMeasure
+from vss_agents.utils.time_measure import TimeMeasure
 
 
 class TestTimeMeasure:
@@ -59,7 +59,7 @@ class TestTimeMeasure:
 
     def test_print_enabled(self):
         """Test that print output works when enabled."""
-        with patch("agent.utils.time_measure.logger") as mock_logger, TimeMeasure("print test", print=True):
+        with patch("vss_agents.utils.time_measure.logger") as mock_logger, TimeMeasure("print test", print=True):
             time.sleep(0.001)
 
         # Verify logger.log was called with PERF level for timing output

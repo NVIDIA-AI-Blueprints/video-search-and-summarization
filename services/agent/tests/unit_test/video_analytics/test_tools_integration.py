@@ -20,15 +20,15 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.video_analytics.tools import AnalyzeInput
-from agent.video_analytics.tools import AverageSpeedsInput
-from agent.video_analytics.tools import FovHistogramInput
-from agent.video_analytics.tools import GetIncidentInput
-from agent.video_analytics.tools import GetIncidentsInputBase
-from agent.video_analytics.tools import GetIncidentsInputWithVLM
-from agent.video_analytics.tools import GetSensorIdsInput
-from agent.video_analytics.tools import VideoAnalyticsToolConfig
-from agent.video_analytics.tools import video_analytics
+from vss_agents.video_analytics.tools import AnalyzeInput
+from vss_agents.video_analytics.tools import AverageSpeedsInput
+from vss_agents.video_analytics.tools import FovHistogramInput
+from vss_agents.video_analytics.tools import GetIncidentInput
+from vss_agents.video_analytics.tools import GetIncidentsInputBase
+from vss_agents.video_analytics.tools import GetIncidentsInputWithVLM
+from vss_agents.video_analytics.tools import GetSensorIdsInput
+from vss_agents.video_analytics.tools import VideoAnalyticsToolConfig
+from vss_agents.video_analytics.tools import video_analytics
 
 
 class MockESClient:
@@ -267,7 +267,7 @@ class TestVideoAnalyticsAsyncGenerator:
             }
         )
 
-        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
             # Get the async generator from the decorated function
             # The decorator wraps it, so we need to handle that
             gen = video_analytics(config, mock_builder)
@@ -286,7 +286,7 @@ class TestVideoAnalyticsAsyncGenerator:
         mock_es = AsyncMock()
         mock_es.get_by_id = AsyncMock(side_effect=Exception("ES connection failed"))
 
-        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
             gen = video_analytics(config, mock_builder)
             try:
                 async for group in gen:
@@ -302,7 +302,7 @@ class TestVideoAnalyticsAsyncGenerator:
         mock_es = AsyncMock()
         mock_es.get_by_id = AsyncMock(return_value=None)
 
-        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
             gen = video_analytics(config, mock_builder)
             try:
                 async for group in gen:
@@ -327,8 +327,8 @@ class TestVideoAnalyticsAsyncGenerator:
         mock_embedding_model = MagicMock()
         mock_embedding_model.encode_batch = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
-        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
-            with patch("agent.video_analytics.embeddings.EmbeddingModel", return_value=mock_embedding_model):
+        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+            with patch("vss_agents.video_analytics.embeddings.EmbeddingModel", return_value=mock_embedding_model):
                 gen = video_analytics(config, mock_builder)
                 try:
                     async for group in gen:

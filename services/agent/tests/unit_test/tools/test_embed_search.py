@@ -20,11 +20,11 @@ from unittest.mock import MagicMock
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.embed_search import EmbedSearchConfig
-from agent.tools.embed_search import EmbedSearchOutput
-from agent.tools.embed_search import EmbedSearchResultItem
-from agent.tools.embed_search import QueryInput
-from agent.tools.embed_search import _chat_request_input_converter
+from vss_agents.tools.embed_search import EmbedSearchConfig
+from vss_agents.tools.embed_search import EmbedSearchOutput
+from vss_agents.tools.embed_search import EmbedSearchResultItem
+from vss_agents.tools.embed_search import QueryInput
+from vss_agents.tools.embed_search import _chat_request_input_converter
 
 
 class TestChatRequestInputConverter:

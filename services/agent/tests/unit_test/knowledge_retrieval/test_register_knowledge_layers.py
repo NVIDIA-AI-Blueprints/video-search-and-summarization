@@ -24,12 +24,12 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.register_knowledge_layers import KnowledgeRetrievalConfig
-from agent.register_knowledge_layers import KnowledgeRetrievalInput
-from agent.register_knowledge_layers import _format_results
-from agent.register_knowledge_layers import _setup_backend
-from agent.register_knowledge_layers import knowledge_retrieval
-from agent.tools.lvs_media_state import LVSConfiguredMedia
+from vss_agents.register_knowledge_layers import KnowledgeRetrievalConfig
+from vss_agents.register_knowledge_layers import KnowledgeRetrievalInput
+from vss_agents.register_knowledge_layers import _format_results
+from vss_agents.register_knowledge_layers import _setup_backend
+from vss_agents.register_knowledge_layers import knowledge_retrieval
+from vss_agents.tools.lvs_media_state import LVSConfiguredMedia
 from lib.knowledge.schema import Chunk
 from lib.knowledge.schema import ContentType
 from lib.knowledge.schema import RetrievalResult
@@ -185,7 +185,7 @@ class TestKnowledgeRetrievalInner:
         mock_retriever = AsyncMock()
         mock_retriever.retrieve.return_value = RetrievalResult(query="q", backend="frag_api", success=True, chunks=[])
         with patch(
-            "agent.register_knowledge_layers.get_retriever",
+            "vss_agents.register_knowledge_layers.get_retriever",
             new=AsyncMock(return_value=mock_retriever),
         ):
             inner_fn = await self._get_inner_fn(config, mock_builder)
@@ -199,7 +199,7 @@ class TestKnowledgeRetrievalInner:
         mock_retriever = AsyncMock()
         mock_retriever.retrieve.return_value = RetrievalResult(query="q", backend="frag_api", success=True, chunks=[])
         with patch(
-            "agent.register_knowledge_layers.get_retriever",
+            "vss_agents.register_knowledge_layers.get_retriever",
             new=AsyncMock(return_value=mock_retriever),
         ):
             inner_fn = await self._get_inner_fn(config, mock_builder)
@@ -218,7 +218,7 @@ class TestKnowledgeRetrievalInner:
         mock_retriever = AsyncMock()
         mock_retriever.__class__.tool_description_hint = "BACKEND_SPECIFIC_USAGE_HINT"
         with patch(
-            "agent.register_knowledge_layers.get_retriever",
+            "vss_agents.register_knowledge_layers.get_retriever",
             new=AsyncMock(return_value=mock_retriever),
         ):
             gen = knowledge_retrieval.__wrapped__(config, mock_builder)
@@ -233,7 +233,7 @@ class TestKnowledgeRetrievalInner:
         mock_retriever = AsyncMock()
         mock_retriever.retrieve.return_value = RetrievalResult(query="q", backend="frag_api", success=True, chunks=[])
         with patch(
-            "agent.register_knowledge_layers.get_retriever",
+            "vss_agents.register_knowledge_layers.get_retriever",
             new=AsyncMock(return_value=mock_retriever),
         ):
             inner_fn = await self._get_inner_fn(config, mock_builder)
@@ -273,10 +273,10 @@ class TestStreamNameResolution:
         )
         with (
             patch(
-                "agent.register_knowledge_layers.get_retriever",
+                "vss_agents.register_knowledge_layers.get_retriever",
                 new=AsyncMock(return_value=mock_retriever),
             ),
-            patch("agent.register_knowledge_layers.configured_media", return_value=cached),
+            patch("vss_agents.register_knowledge_layers.configured_media", return_value=cached),
         ):
             gen = knowledge_retrieval.__wrapped__(config, AsyncMock())
             inner_fn = (await gen.__anext__()).single_fn

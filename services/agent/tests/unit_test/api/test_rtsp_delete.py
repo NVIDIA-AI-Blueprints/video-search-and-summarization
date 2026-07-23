@@ -26,10 +26,10 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.api.rtsp_delete import DeleteStreamResponse
-from agent.api.rtsp_delete import create_rtsp_delete_router
-from agent.api.rtsp_delete import register_rtsp_delete_routes
-from agent.api.rtsp_ingest import ServiceConfig
+from vss_agents.api.rtsp_delete import DeleteStreamResponse
+from vss_agents.api.rtsp_delete import create_rtsp_delete_router
+from vss_agents.api.rtsp_delete import register_rtsp_delete_routes
+from vss_agents.api.rtsp_ingest import ServiceConfig
 
 
 class TestDeleteStreamResponse:
@@ -62,12 +62,12 @@ class TestDeleteStreamEndpoint:
     """Test delete_stream endpoint."""
 
     @pytest.mark.asyncio
-    @patch("agent.api.rtsp_delete.cleanup_vst_sensor")
-    @patch("agent.api.rtsp_delete.cleanup_rtvi_cv")
-    @patch("agent.api.rtsp_delete.cleanup_rtvi_embed_stream")
-    @patch("agent.api.rtsp_delete.cleanup_rtvi_embed_generation")
-    @patch("agent.api.rtsp_delete.get_stream_info_by_name")
-    @patch("agent.api.rtsp_delete.httpx.AsyncClient")
+    @patch("vss_agents.api.rtsp_delete.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_cv")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_embed_stream")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_embed_generation")
+    @patch("vss_agents.api.rtsp_delete.get_stream_info_by_name")
+    @patch("vss_agents.api.rtsp_delete.httpx.AsyncClient")
     async def test_successful_delete_with_full_rtvi(
         self,
         mock_client_class,
@@ -104,10 +104,10 @@ class TestDeleteStreamEndpoint:
         assert response.name == "camera-1"
 
     @pytest.mark.asyncio
-    @patch("agent.api.rtsp_delete.cleanup_vst_sensor")
-    @patch("agent.api.rtsp_delete.cleanup_rtvi_vlm_stream")
-    @patch("agent.api.rtsp_delete.get_stream_info_by_name")
-    @patch("agent.api.rtsp_delete.httpx.AsyncClient")
+    @patch("vss_agents.api.rtsp_delete.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_vlm_stream")
+    @patch("vss_agents.api.rtsp_delete.get_stream_info_by_name")
+    @patch("vss_agents.api.rtsp_delete.httpx.AsyncClient")
     async def test_delete_calls_rtvi_vlm_cleanup_when_only_vlm_configured(
         self,
         mock_client_class,
@@ -137,9 +137,9 @@ class TestDeleteStreamEndpoint:
         mock_cleanup_rtvi_vlm.assert_awaited_once_with(mock_client, ANY, "sensor-123")
 
     @pytest.mark.asyncio
-    @patch("agent.api.rtsp_delete.cleanup_vst_storage")
-    @patch("agent.api.rtsp_delete.cleanup_vst_sensor")
-    @patch("agent.api.rtsp_delete.get_stream_info_by_name")
+    @patch("vss_agents.api.rtsp_delete.cleanup_vst_storage")
+    @patch("vss_agents.api.rtsp_delete.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_delete.get_stream_info_by_name")
     async def test_delete_stream_not_found(
         self,
         mock_get_stream_info,
@@ -165,12 +165,12 @@ class TestDeleteStreamEndpoint:
         assert "not found" in response.message.lower() or "Failed to find" in response.message
 
     @pytest.mark.asyncio
-    @patch("agent.api.rtsp_delete.cleanup_vst_sensor")
-    @patch("agent.api.rtsp_delete.cleanup_rtvi_cv")
-    @patch("agent.api.rtsp_delete.cleanup_rtvi_embed_stream")
-    @patch("agent.api.rtsp_delete.cleanup_rtvi_embed_generation")
-    @patch("agent.api.rtsp_delete.get_stream_info_by_name")
-    @patch("agent.api.rtsp_delete.httpx.AsyncClient")
+    @patch("vss_agents.api.rtsp_delete.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_cv")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_embed_stream")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_embed_generation")
+    @patch("vss_agents.api.rtsp_delete.get_stream_info_by_name")
+    @patch("vss_agents.api.rtsp_delete.httpx.AsyncClient")
     async def test_partial_delete(
         self,
         mock_client_class,

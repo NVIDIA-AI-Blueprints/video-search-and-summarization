@@ -14,9 +14,9 @@
 # limitations under the License.
 """Tests for agent/video_analytics/query_builders.py."""
 
-from agent.video_analytics.query_builders import BehaviorQueryBuilder
-from agent.video_analytics.query_builders import FramesQueryBuilder
-from agent.video_analytics.query_builders import IncidentQueryBuilder
+from vss_agents.video_analytics.query_builders import BehaviorQueryBuilder
+from vss_agents.video_analytics.query_builders import FramesQueryBuilder
+from vss_agents.video_analytics.query_builders import IncidentQueryBuilder
 
 
 class TestIncidentQueryBuilder:

@@ -20,8 +20,8 @@ from unittest.mock import MagicMock
 from nat.data_models.evaluator import EvalInputItem
 import pytest
 
-from agent.evaluators.customized_qa_evaluator.evaluate import DEFAULT_QA_EVAL_PROMPT
-from agent.evaluators.customized_qa_evaluator.evaluate import CustomizedQAEvaluator
+from vss_agents.evaluators.customized_qa_evaluator.evaluate import DEFAULT_QA_EVAL_PROMPT
+from vss_agents.evaluators.customized_qa_evaluator.evaluate import CustomizedQAEvaluator
 
 
 class TestDefaultQAEvalPrompt:

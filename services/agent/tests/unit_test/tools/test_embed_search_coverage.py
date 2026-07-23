@@ -16,10 +16,10 @@
 
 import json
 
-from agent.tools.embed_search import BASE_2025
-from agent.tools.embed_search import EmbedSearchOutput
-from agent.tools.embed_search import _sanitize_for_logging
-from agent.tools.embed_search import _str_input_converter
+from vss_agents.tools.embed_search import BASE_2025
+from vss_agents.tools.embed_search import EmbedSearchOutput
+from vss_agents.tools.embed_search import _sanitize_for_logging
+from vss_agents.tools.embed_search import _str_input_converter
 
 
 class TestSanitizeForLogging:

@@ -19,10 +19,10 @@ from datetime import datetime
 
 import pytest
 
-from agent.data_models.vss import MediaInfoOffset
-from agent.data_models.vss import float_to_int
-from agent.data_models.vss import remove_timezone
-from agent.data_models.vss import timestamp_validator
+from vss_agents.data_models.vss import MediaInfoOffset
+from vss_agents.data_models.vss import float_to_int
+from vss_agents.data_models.vss import remove_timezone
+from vss_agents.data_models.vss import timestamp_validator
 
 
 class TestFloatToInt:

@@ -16,8 +16,8 @@
 
 import pytest
 
-from agent.video_analytics.interface import IncidentMetadata
-from agent.video_analytics.interface import VideoAnalyticsInterface
+from vss_agents.video_analytics.interface import IncidentMetadata
+from vss_agents.video_analytics.interface import VideoAnalyticsInterface
 
 
 class TestIncidentMetadata:

@@ -17,9 +17,9 @@
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
-from agent.data_models.vss import MediaInfoOffset
-from agent.utils.video_file import get_video_duration
-from agent.utils.video_file import pad_media_info
+from vss_agents.data_models.vss import MediaInfoOffset
+from vss_agents.utils.video_file import get_video_duration
+from vss_agents.utils.video_file import pad_media_info
 
 
 class TestGetVideoDuration:
@@ -47,7 +47,7 @@ class TestGetVideoDuration:
         mock_cap.get.side_effect = mock_get
 
         with patch("os.path.exists", return_value=True):
-            with patch("agent.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
+            with patch("vss_agents.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
                 result = get_video_duration("/fake/path.mp4")
 
         # 1000 frames / 30 fps = 33.33 seconds
@@ -59,7 +59,7 @@ class TestGetVideoDuration:
         mock_cap.isOpened.return_value = False
 
         with patch("os.path.exists", return_value=True):
-            with patch("agent.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
+            with patch("vss_agents.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
                 result = get_video_duration("/fake/path.mp4")
 
         assert result == 0.0
@@ -81,7 +81,7 @@ class TestGetVideoDuration:
         mock_cap.get.side_effect = mock_get
 
         with patch("os.path.exists", return_value=True):
-            with patch("agent.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
+            with patch("vss_agents.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
                 result = get_video_duration("/fake/path.mp4")
 
         assert result == 0.0
@@ -103,7 +103,7 @@ class TestGetVideoDuration:
         mock_cap.get.side_effect = mock_get
 
         with patch("os.path.exists", return_value=True):
-            with patch("agent.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
+            with patch("vss_agents.utils.video_file.cv2.VideoCapture", return_value=mock_cap):
                 result = get_video_duration("/fake/path.mp4")
 
         assert result == 0.0

@@ -17,9 +17,9 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.vst.duration import VSTDurationConfig
-from agent.tools.vst.duration import VSTDurationInput
-from agent.tools.vst.duration import VSTDurationOutput
+from vss_agents.tools.vst.duration import VSTDurationConfig
+from vss_agents.tools.vst.duration import VSTDurationInput
+from vss_agents.tools.vst.duration import VSTDurationOutput
 
 
 class TestVSTDurationConfig:

@@ -17,15 +17,15 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.video_analytics.tools import AnalyzeInput
-from agent.video_analytics.tools import AverageSpeedsInput
-from agent.video_analytics.tools import EmptyInput
-from agent.video_analytics.tools import FovHistogramInput
-from agent.video_analytics.tools import GetIncidentInput
-from agent.video_analytics.tools import GetIncidentsInputBase
-from agent.video_analytics.tools import GetIncidentsInputWithVLM
-from agent.video_analytics.tools import GetSensorIdsInput
-from agent.video_analytics.tools import VideoAnalyticsToolConfig
+from vss_agents.video_analytics.tools import AnalyzeInput
+from vss_agents.video_analytics.tools import AverageSpeedsInput
+from vss_agents.video_analytics.tools import EmptyInput
+from vss_agents.video_analytics.tools import FovHistogramInput
+from vss_agents.video_analytics.tools import GetIncidentInput
+from vss_agents.video_analytics.tools import GetIncidentsInputBase
+from vss_agents.video_analytics.tools import GetIncidentsInputWithVLM
+from vss_agents.video_analytics.tools import GetSensorIdsInput
+from vss_agents.video_analytics.tools import VideoAnalyticsToolConfig
 
 
 class TestEmptyInput:

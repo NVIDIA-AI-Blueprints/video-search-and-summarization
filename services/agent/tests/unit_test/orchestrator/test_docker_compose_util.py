@@ -20,8 +20,8 @@ from typing import ClassVar
 import pytest
 import yaml
 
-from agent.orchestrator import docker_compose_util as dcu
-from agent.orchestrator import network_util
+from vss_agents.orchestrator import docker_compose_util as dcu
+from vss_agents.orchestrator import network_util
 
 
 def _env_text(*lines: str) -> str:
