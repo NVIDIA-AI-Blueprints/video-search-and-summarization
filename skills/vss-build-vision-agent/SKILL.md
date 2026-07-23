@@ -1,6 +1,6 @@
 ---
 name: vss-build-vision-agent
-description: Route, compose, configure, and deploy VSS developer vision-agent profiles. Use for stock base, alerts, LVS, or search deployments and for lean custom combinations expressed as delta overlays on one current developer profile.
+description: Compose VSS-based agent deployments from a natural-language capability description. Use this skill when the user asks for a new VSS profile or extension to an existing profile. Route, compose, configure, and deploy stock base, alerts, LVS, or search developer profiles and lean custom combinations expressed as delta overlays on one current developer profile.
 ---
 
 # Build Vision Agent
