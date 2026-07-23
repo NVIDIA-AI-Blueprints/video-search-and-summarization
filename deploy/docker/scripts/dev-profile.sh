@@ -1415,6 +1415,11 @@ function state_up() {
         set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
         set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
       fi
+    else
+      # Remote VLM: rtvi-vlm runs as a lightweight proxy with no local model, but
+      # Compose still reserves a GPU via RT_VLM_DEVICE_ID. Pin to device 0 (always
+      # present) so hosts with fewer GPUs don't fail on the overrides.env default of 2.
+      set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
   fi
 
