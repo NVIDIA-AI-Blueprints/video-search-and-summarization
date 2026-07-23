@@ -51,9 +51,9 @@ readinessProbe:
   failureThreshold: 30
 sensorModuleEndpoint: ""
 vstIngressEndpoint: ""   # default: <Release>-vss-vios-ingress:30888/vst (host:port/path, no scheme). When global.vlmBaseUrl and global.externalHost are set, defaults to <externalHost>[:externalPort]/vst so incident URLs work for remote VLM. Override explicitly if needed.
-# Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means use Release.Name (e.g. vss-redis:6379).
+# Redis: used in notification_config.json message_broker.redis_server_env_var. Default "" means use Release.Name (e.g. vss-redis:6379).
 redisServerAddress: ""
-# Kafka / video metadata / cloud storage / MQTT: vst_config.json placeholders. Empty = release-based or Compose default.
+# Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.
 kafkaServerAddress: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""

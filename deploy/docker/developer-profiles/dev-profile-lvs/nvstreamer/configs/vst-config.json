@@ -136,14 +136,6 @@
 		"webrtc_out_enc_preset": "ultra_fast",
 		"enable_drc": true
 	},
-	"notifications":
-	{
-		"enable_notification": false,
-		"use_message_broker" : "kafka",
-		"message_broker_topic":"vst.event",
-		"redis_server_env_var": "redis:6379",
-		"kafka_server_address": "kafka:29092"
-	},
 	"debug":
 	{
 		"enable_perf_logging":true,
