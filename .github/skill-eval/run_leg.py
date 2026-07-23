@@ -643,7 +643,7 @@ def run_invocations(
         print(f"FATAL: unsupported EVAL_AGENT {agent!r} (expected claude-code | codex)",
               file=sys.stderr)
         return 1
-    model = os.environ.get("ANTHROPIC_MODEL", "")
+    model = os.environ.get("SKILLS_EVAL_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
     if not base_url:
         print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
@@ -662,7 +662,7 @@ def run_invocations(
         env["OPENAI_API_KEY"] = anthropic_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
     if not model:
-        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
+        print("FATAL: SKILLS_EVAL_MODEL not set", file=sys.stderr)
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)

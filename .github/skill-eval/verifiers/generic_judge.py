@@ -33,7 +33,7 @@ Env (from `[verifier.env]` in task.toml, plumbed by Harbor):
     ANTHROPIC_BASE_URL   optional, for proxies (e.g. NVIDIA inference API)
     JUDGE_MODEL          explicit judge model (preferred; adapter sets
                          this via [verifier.env]); falls back to
-                         ANTHROPIC_MODEL, then "claude-sonnet-4-6"
+                         SKILLS_EVAL_MODEL
     JUDGE_MAX_TURNS              per-check agent turn cap (default 100)
     JUDGE_PER_CHECK_TIMEOUT_S    per-check wall-clock cap (default 600s)
     JUDGE_PARALLELISM            concurrent checks per step
@@ -286,19 +286,19 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
             "matched": None,
         }
 
-    # Model resolution: JUDGE_MODEL is the explicit knob the adapter
-    # plumbs via [verifier.env] in task.toml. If unset, fall back to
-    # ANTHROPIC_MODEL (the agent's model — proven to work against the
-    # NVIDIA proxy whitelist). The literal "claude-sonnet-4-6" is the
-    # last-resort default for dev/test outside CI; sonnet is the right
-    # judge default given the per-check workload (trajectory inspection
-    # + live-stack probes need real reasoning). Bump to opus or change
-    # JUDGE_MODEL on the host if a heavier model is needed.
+    # Model resolution: JUDGE_MODEL is the explicit per-adapter knob set via
+    # [verifier.env] in task.toml. Falls back to SKILLS_EVAL_MODEL (the fleet
+    # default shared with the agent). No silent default — unset is fatal.
     model = (
         os.environ.get("JUDGE_MODEL")
-        or os.environ.get("ANTHROPIC_MODEL")
-        or "claude-sonnet-4-6"
+        or os.environ.get("SKILLS_EVAL_MODEL")
     )
+    if not model:
+        return {
+            "verdict": "error",
+            "rationale": "SKILLS_EVAL_MODEL not set; cannot run LLM judge",
+            "matched": None,
+        }
     # Judge agent runs Bash+Read+Grep to inspect trajectory + probe live
     # stack per check. Large multi-step trajectories (a deploy + sensor
     # onboard + alert flow can run 100+ agent turns, and trajectory.json is

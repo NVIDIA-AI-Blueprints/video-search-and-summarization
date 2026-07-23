@@ -206,12 +206,12 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             "[verifier.env]",
             'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
             'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-            # ANTHROPIC_MODEL gives the verifier's judge model cascade
+            # SKILLS_EVAL_MODEL feeds the verifier's judge model cascade
             # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
             # fallback when JUDGE_MODEL is unset. Forwarding a literal
             # default for JUDGE_MODEL would bake it in and short-circuit
             # the cascade — the proxy 401s the literal default outright.
-            'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+            'SKILLS_EVAL_MODEL = "${SKILLS_EVAL_MODEL}"',
             # JUDGE_MAX_TURNS bumped from the generic_judge.py:276 default
             # of 25 because VIOS step trajectories run 6+ MB on a full
             # 13-step thread (upload + sensor probes + replay + record).

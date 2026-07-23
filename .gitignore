@@ -25,3 +25,4 @@ deploy/docker/rag-secret.override.yml
 # labels only its _builds/<name>/ directory; it is never a Compose profile.
 # override.env and resolved.yml may contain credentials, so ignore the tree.
 _builds/
+scratch/

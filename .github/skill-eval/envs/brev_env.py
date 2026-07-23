@@ -332,6 +332,7 @@ class BrevEnvironment(BaseEnvironment):
         ]
         for key in (
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
+            "SKILLS_EVAL_MODEL", "JUDGE_MODEL",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
             # Pin the eval's deploy step to the PR's actual head SHA on

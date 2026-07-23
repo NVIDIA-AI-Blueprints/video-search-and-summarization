@@ -519,10 +519,10 @@ def generate_task(
         "[verifier.env]",
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        # ANTHROPIC_MODEL gives the verifier's judge model cascade
-        # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
+        # SKILLS_EVAL_MODEL feeds the verifier's judge model cascade
+        # (JUDGE_MODEL → SKILLS_EVAL_MODEL) — no silent default
         # fallback when JUDGE_MODEL is unset.
-        'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+        'SKILLS_EVAL_MODEL = "${SKILLS_EVAL_MODEL}"',
         "",
     ]
     (task_dir / "task.toml").write_text("\n".join(meta_lines))

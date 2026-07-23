@@ -366,7 +366,7 @@ def generate_task(
         "[verifier.env]",
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+        'SKILLS_EVAL_MODEL = "${SKILLS_EVAL_MODEL}"',
         "",
     ]
     (task_dir / "task.toml").write_text("\n".join(meta_lines))

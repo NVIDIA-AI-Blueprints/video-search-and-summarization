@@ -194,7 +194,7 @@ def _task_toml(
         "[verifier.env]",
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+        'SKILLS_EVAL_MODEL = "${SKILLS_EVAL_MODEL}"',
         "",
         "[metadata]",
         'skill = "vss-manage-alerts"',

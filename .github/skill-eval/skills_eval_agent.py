@@ -414,7 +414,10 @@ End with `DONE: <reward summary>` after posting the result, or
 `BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
 
-    model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
+    model = os.environ.get("SKILLS_EVAL_MODEL")
+    if not model:
+        print("FATAL: SKILLS_EVAL_MODEL not set", file=sys.stderr)
+        sys.exit(1)
     print(f"[agent] starting · pr={pr_number} base={pr_base} head={pr_head[:8]} "
           f"model={model} max_turns={MAX_TURNS}", flush=True)
 

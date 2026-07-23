@@ -218,7 +218,7 @@ def generate_task(
             "[verifier.env]",
             'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
             'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-            'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+            'SKILLS_EVAL_MODEL = "${SKILLS_EVAL_MODEL}"',
             # Higher turn budget for multi-step deploy trials with deep
             # trajectories (AMC chain can exceed 25 turns easily).
             'JUDGE_MAX_TURNS = "50"',
@@ -339,7 +339,7 @@ def generate_routing_task(
             "[verifier.env]",
             'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
             'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-            'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+            'SKILLS_EVAL_MODEL = "${SKILLS_EVAL_MODEL}"',
             "",
             "[metadata]",
             f'skill = "vss-deploy-detection-tracking-3d"',
