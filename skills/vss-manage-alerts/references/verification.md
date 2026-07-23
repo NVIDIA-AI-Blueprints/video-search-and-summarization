@@ -27,7 +27,7 @@ Verified CV alerts carry an extended `info` block:
 | `rejected` | VLM determined it is a false positive |
 | `not-confirmed` | VLM response could not be parsed into a confirmed/rejected verdict (parse failure) |
 | `verification-failed` | Verification could not complete — API/VLM error |
-| `""` (empty) | A pluggable response parser was used instead of the verdict path |
+| `""` (empty) | No verdict parsing ran. Either the **default `use_verdict: false` freestyle deploy** — the common case: the raw VLM text is stored in `reasoning` / `vlm_response` and no verdict is stamped — or a pluggable response parser replaced the verdict path. An empty verdict is a **valid success, not a failure**; report the VLM text, never invent a `confirmed`/`rejected`. |
 
 - Companion fields (camelCase, inside `info`): `verificationResponseCode` (HTTP-like; `200` = success), `verificationResponseStatus` (`OK` or an error description), `reasoning` (the VLM's explanation), and `vlm_response` (pluggable-parser output only).
 - VLM real-time mode incidents are always "confirmed" at source (the trigger itself is a Yes/No VLM answer), so there is **no** separate verdict field in VLM mode.
@@ -69,6 +69,7 @@ Reading the results:
 
 - Summarize each hit's `category`, timestamp, sensor, `info.verdict`, and `info.reasoning`. Accept camelCase or snake_case on the response-code field (`verificationResponseCode` / `verification_response_code`) — index mappings have varied.
 - **Zero hits is a valid answer.** CV detection has latency (stream must be online, detections must trip a Behavior Analytics rule, VLM round-trip). Report "no verification results yet", optionally note the latency reasons, and STOP — never pad the answer with the rules list, `/incidents`, the `mdx-vlm-incidents-*` ES index (incident-kind docs carry no verdicts — a populated incidents index next to an empty alerts index is normal, not a substitute), or invented documents.
+  - **One exception — on-demand follow-up:** when the question follows an *on-demand* verification (Workflow F), its default result is incident-kind and lands in `/incidents`, not this store. Poll `GET $AB/api/v1/realtime/incidents` by the request's `correlationId` and report the VLM `reasoning` / `vlm_response` (still no `verdict` field on a freestyle deploy) instead of answering "no results".
 - Never report a verdict you did not read from a returned document.
 
 ## Customize CV verifier prompts
@@ -111,7 +112,7 @@ VLM real-time prompts are **not** configured in a file — they are per-request,
 
 ## Routing guards
 
-- *Was it confirmed / show verdicts / verification results* → **this workflow (B)**: ES probe on `mdx-vlm-alerts-*`, never the rules list.
+- *Was it confirmed / show verdicts / verification results* → **this workflow (B)**: ES probe on `mdx-vlm-alerts-*`, never the rules list. *Exception:* a follow-up to an on-demand verification just run → **Workflow F**, poll `/realtime/incidents` by `correlationId` (that result is incident-kind, not in this store).
 - *What happened / any alerts today* → **Workflow C** (`GET /api/v1/realtime/incidents`), even on a CV deployment.
 - *Verify this specific clip/image URL right now* → **Workflow F** (on-demand verification) — its default (incident-kind) result surfaces via `GET /api/v1/realtime/incidents`, NOT this store; it lands here only when the submission carried `notification_type: "alert"`.
 - Verdict-keyword asks on a **VLM** deployment: explain-only → answer from this reference; execution → the VLM-mode refusal text in SKILL.md (redeploy hint `-m verification`); no auto-redeploy.
