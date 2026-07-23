@@ -3,17 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-build-vision-agent skill.
 
-The vss-build-vision-agent skill takes a natural-language capability description
-and produces a validated Docker Compose deployment under `_builds/<build-name>/`.
-Unlike `vss-deploy-profile`, which deploys a pre-existing VSS profile, this skill
-BUILDS a new profile from scratch and then deploys it. No pre-deploy prerequisite
-is injected — the skill itself handles the full generate+deploy lifecycle.
+The skill translates a natural-language capability description into either a
+stock developer-profile deployment or a delta overlay on exactly one current
+developer profile. Build artifacts live under `_builds/<name>/` and always
+contain `override.env`, `compose.yml`, and a directly deployable
+`resolved.yml`. Optional service-definition patches live under `patches/`.
 
-The specs exercise generated deployments such as streaming dense captioning
-and RT-CV / RT-DETR detection-tracking. The spec's `profile` field is the
-*build-profile slug* passed to `/vss-build-vision-agent`, NOT a
-`/vss-deploy-profile -p <profile>` arg. No prerequisite deploy is injected when
-the spec does not declare `requires_deployed_vss = true`.
+The specs exercise profile routing, canonical service selection, lean artifact
+generation, Compose validation, and optional runtime deployment. The spec's
+`profile` field is only the build-directory label recorded by the harness; it
+is never a Compose profile.
 
 ## Platform topology
 
@@ -66,7 +65,7 @@ from pathlib import Path
 PLATFORMS: dict[str, dict] = {
     # Primary target for vss-build-vision-agent IN-1
     # Key matches the spec's resources.platforms declaration ("RTXPRO6000BW")
-    # and the cross-adapter convention (see vss-manage-video-io-storage, vss-deploy-profile, etc.)
+    # and the platform naming convention shared by the VSS eval adapters.
     "RTXPRO6000BW": {
         "short_name":       "rtxpro6000bw",
         "gpu_type":         "RTX PRO 6000",
@@ -96,14 +95,12 @@ PLATFORMS: dict[str, dict] = {
 
 DEFAULT_PLATFORM = "RTXPRO6000BW"
 
-# Prepended to every instruction.md so the skill's own HITL bypass clause fires.
-# The skill's SKILL.md "Autonomous mode" branch triggers on exactly this wording;
-# without it the agent pauses for confirmation in CI (no user to answer).
+# Prepended to every instruction.md because the eval runner cannot answer
+# interactive deployment confirmations.
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
-    "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "You are pre-authorized to perform the validation and deployment actions "
+    "explicitly requested by this trial; do not pause for confirmation."
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
@@ -161,10 +158,14 @@ def generate_test_script(step: int, spec_name: str) -> str:
     )
 
 
-def generate_solve_script(platform: str, build_profile: str) -> str:
+def generate_solve_script(
+    platform: str,
+    build_profile: str,
+    artifact_expected: bool,
+) -> str:
     """Gold solution stub — verifier drives assertions independently;
-    solve.sh just confirms the build output exists."""
-    return (
+    solve.sh confirms the resolved artifact contract for build turns."""
+    lines = [
         "#!/bin/bash\n"
         f"# Gold solution: vss-build-vision-agent / {build_profile} on {platform}\n"
         "set -euo pipefail\n"
@@ -172,12 +173,27 @@ def generate_solve_script(platform: str, build_profile: str) -> str:
         'REPO_ROOT="${HOME}/video-search-and-summarization"\n'
         f'BUILD_DIR="${{REPO_ROOT}}/_builds/{build_profile}"\n'
         "\n"
-        'if [ ! -f "${BUILD_DIR}/compose.yml" ]; then\n'
-        "    echo \"Build output missing: ${BUILD_DIR}/compose.yml\"\n"
-        "    exit 1\n"
-        "fi\n"
-        "echo \"Build output found at ${BUILD_DIR}/compose.yml — verifier will drive the assertions.\"\n"
-    )
+    ]
+    if artifact_expected:
+        lines.extend(
+            [
+                "for artifact in override.env compose.yml resolved.yml; do\n",
+                '    if [ ! -f "${BUILD_DIR}/${artifact}" ]; then\n',
+                '        echo "Build output missing: ${BUILD_DIR}/${artifact}"\n',
+                "        exit 1\n",
+                "    fi\n",
+                "done\n",
+                'grep -q "^FOUNDATION=" "${BUILD_DIR}/override.env"\n',
+                'grep -q "^COMPOSE_PROFILES=" "${BUILD_DIR}/override.env"\n',
+                'docker compose -f "${BUILD_DIR}/resolved.yml" config --quiet\n',
+                'echo "Resolved build output found at ${BUILD_DIR}; verifier will drive the assertions."\n',
+            ]
+        )
+    else:
+        lines.append(
+            'echo "No artifact required for this proposal-only turn; verifier will drive the assertions."\n'
+        )
+    return "".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -269,11 +285,7 @@ def generate_task(
             "",
             "[metadata]",
             'skill = "vss-build-vision-agent"',
-            # `profile` here is the build-profile slug — NOT a /vss-deploy-profile arg.
-            # The harness does NOT inject a prerequisite deploy task when this field
-            # is "in-1" (or any non-standard VSS profile name). It is recorded for
-            # provenance only. BrevEnvironment._ensure_prerequisite_deployed looks for
-            # a `requires_deployed_vss = true` flag; when absent (as here) it skips.
+            # `profile` is a build-directory label used only for task provenance.
             f'profile = "{build_profile}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
@@ -310,7 +322,14 @@ def generate_task(
         # ---- solution/ -----------------------------------------------------
         solution_dir = step_dir / "solution"
         solution_dir.mkdir(exist_ok=True)
-        (solution_dir / "solve.sh").write_text(generate_solve_script(platform, build_profile))
+        artifact_expected = expect.get("artifact_expected", True)
+        if not isinstance(artifact_expected, bool):
+            raise ValueError(
+                f"expects[{idx}].artifact_expected must be a JSON boolean"
+            )
+        (solution_dir / "solve.sh").write_text(
+            generate_solve_script(platform, build_profile, artifact_expected)
+        )
 
         # Bundle the build skill itself plus the service skills the spec may
         # need after generation.
