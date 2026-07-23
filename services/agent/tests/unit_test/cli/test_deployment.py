@@ -102,7 +102,34 @@ def test_docker_layers_profile_env_and_rewrites_private_hosts(tmp_path: Path, mo
         "agent_url": "http://127.0.0.1:18000",
         "vst_url": "http://127.0.0.1:30888",
         "es_url": "http://127.0.0.1:19200",
+        "rtvi_vlm_url": "http://127.0.0.1:8018",
     }
+
+
+def test_docker_host_endpoints_honor_rtvi_vlm_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = tmp_path / "deploy/docker/developer-profiles/dev-profile-search"
+    config = profile / "vss-agent/configs/config.yml"
+    config.parent.mkdir(parents=True)
+    config.write_text(_CONFIG)
+    _write_docker_service_envs(tmp_path)
+    (profile / ".env").write_text("")
+    (profile / "generated.env").write_text(
+        "\n".join(
+            (
+                "ELASTICSEARCH_HOST_PORT=19200",
+                "VSS_AGENT_HOST_PORT=18000",
+                # RT-VLM proxy publishes 28018; VLM_PORT is the separate Cosmos NIM
+                # and must not be picked up for the RT-VLM endpoint.
+                "RTVI_VLM_PORT=28018",
+                "VLM_PORT=30082",
+            )
+        )
+    )
+    monkeypatch.setattr(deployment, "_repo_root", lambda: tmp_path)
+
+    endpoints = deployment.discover_docker_host_endpoints("search")
+
+    assert endpoints["rtvi_vlm_url"] == "http://127.0.0.1:28018"
 
 
 def test_docker_retains_external_vss_prefixed_vlm_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

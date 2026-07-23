@@ -50,6 +50,7 @@ use gated HF models. Validate them through
 | Remote LLM | `LLM_MODE=remote`, `LLM_NAME_SLUG=none`, `LLM_BASE_URL=<host>` (no `/v1`), `LLM_NAME=<model>`, `NVIDIA_API_KEY=<key>` |
 | Remote VLM | `VLM_MODE=remote`, `VLM_NAME_SLUG=none`, `VLM_BASE_URL=<host>` (no `/v1`), `VLM_NAME=<model>`, `NVIDIA_API_KEY=<key>` |
 | **Remote LLM AND remote VLM** (aka `remote-all`) | **BOTH of the above** — you must set `LLM_MODE=remote`, `VLM_MODE=remote`, `LLM_NAME_SLUG=none`, `VLM_NAME_SLUG=none`, `LLM_BASE_URL`, `VLM_BASE_URL`, `LLM_NAME`, `VLM_NAME`. The presence of a remote VLM endpoint does not imply `VLM_MODE=remote` — you have to write it explicitly. |
+| **Search remote VLM (local RT-VLM proxy)** | Like base/alerts/lvs, search keeps a local RT-VLM proxy for remote VLM. Use `VLM_MODE=remote`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `VLM_BASE_URL=<host>` (no `/v1`), `VLM_NAME=<model>`, `RTVI_VLM_ENDPOINT=<host>/v1`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, `RTVI_VLM_MODEL_PATH=none`, and `NVIDIA_API_KEY=<key>` when required. For search `remote-all`, keep both `LLM_NAME_SLUG=none` and `VLM_NAME_SLUG=none`. |
 | NVIDIA API for remote inference | `LLM_BASE_URL=https://integrate.api.nvidia.com` |
 | Dedicated GPUs | `LLM_MODE=local`, `VLM_MODE=local`, `LLM_DEVICE_ID=0`, `VLM_DEVICE_ID=1` |
 | Different LLM model | `LLM_NAME=<name>`, `LLM_NAME_SLUG=<slug>` |
@@ -81,7 +82,10 @@ all of the following before `docker compose up`:
    `LLM_NAME=<model>` into
    `deploy/docker/developer-profiles/dev-profile-<profile>/generated.env`
    (the skill's per-deploy working copy — see ``SKILL.md`` (see `../SKILL.md`)
-   Step 1c). Do the same set for VLM if the user said remote VLM. Use
+   Step 1c). Do the same set for VLM if the user said remote VLM. For the
+   **search** profile, use the "Search remote VLM (local RT-VLM proxy)" row
+   above instead (`VLM_NAME_SLUG=none` plus the `RTVI_VLM_*` proxy values so the
+   local RT-VLM proxies the remote endpoint). Use
    `sed -i "s|^KEY=.*|KEY=VALUE|"` — the `overrides.env` template ships
    with placeholder rows for these keys, which are copied to `generated.env`
    so the same `sed` patterns work.
