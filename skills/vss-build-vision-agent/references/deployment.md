@@ -31,18 +31,18 @@ Before running:
 ## Delta mode
 
 Use the same four env layers used for composition validation. Never copy or edit
-the Base Profile files.
+the Foundation files.
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
-BASE_PROFILE="$(sed -n 's/^BASE_PROFILE=//p' "$BUILD_DIR/overrides.env")"
-BASE_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$BASE_PROFILE"
+FOUNDATION="$(sed -n 's/^BASE_PROFILE=//p' "$BUILD_DIR/overrides.env")"
+FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 
 compose_args=(
   --env-file "$REPO/deploy/docker/containers.env"
-  --env-file "$BASE_DIR/.env"
-  --env-file "$BASE_DIR/overrides.env"
+  --env-file "$FOUNDATION_DIR/.env"
+  --env-file "$FOUNDATION_DIR/overrides.env"
   --env-file "$BUILD_DIR/overrides.env"
   -f "$REPO/deploy/docker/compose.yml"
 )
@@ -78,7 +78,7 @@ then
 fi
 ```
 
-Then run the Base Profile's stock readiness checks plus checks for every added
+Then run the Foundation's stock readiness checks plus checks for every added
 capability owner. Allow cold NIM and RTVI model loads to finish. If a check
 fails, report the failing service and its recent logs; do not declare a partial
 deployment successful.

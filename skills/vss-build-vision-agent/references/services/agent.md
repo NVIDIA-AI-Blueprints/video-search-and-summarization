@@ -24,7 +24,7 @@
 
 | Environment variable | Use |
 |---|---|
-| `VSS_AGENT_CONFIG_FILE` | Select the checked-in agent config for the Base Profile. |
+| `VSS_AGENT_CONFIG_FILE` | Select the checked-in agent config for the Foundation. |
 | `VSS_AGENT_HOST_PORT`, `VSS_AGENT_PORT` | Publish and bind the agent API. |
 | `VSS_VA_MCP_HOST_PORT`, `VSS_VA_MCP_PORT`, `VSS_VA_MCP_CONFIG_FILE` | Configure the optional analytics MCP. |
 | `LLM_MODE`, `LLM_MODEL_TYPE`, `LLM_NAME`, `LLM_BASE_URL` | Configure the agent's LLM. |

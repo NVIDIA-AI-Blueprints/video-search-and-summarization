@@ -5,7 +5,7 @@
 - General VSS agent, UI, video ingest/storage, LLM, and integrated RT-VLM.
 - Choose for "deploy VSS", general video understanding, or the smallest
   developer foundation.
-- Prefer as a delta base when the request needs agent + VIOS + inference but no
+- Prefer as the Foundation when the request needs agent + VIOS + inference but no
   ELK-backed alerts, search, or long-video summarization.
 
 ## Profile Service Set
@@ -26,7 +26,7 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 | RT-VLM | `rtvi-vlm` |
 
-`redis` is a shared peer used by the base graph.
+`redis` is a shared peer used by this profile graph.
 
 ## Profile-specific environment knobs
 

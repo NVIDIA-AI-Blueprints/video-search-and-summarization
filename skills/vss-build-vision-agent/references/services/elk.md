@@ -15,7 +15,7 @@
 - Use `elasticsearch-init-container` with `elasticsearch`.
 - Use `kafka-topic-init-container` and `broker-health-check` with Kafka-backed
   capability owners.
-- Use exactly the dashboard initializer matching the selected Base Profile.
+- Use exactly the dashboard initializer matching the selected Foundation.
 - `logstash` requires the broker and the profile's selected `STREAM_TYPE`.
 - `redis` may be used without the full ELK/Kafka set when it is only a cache.
 

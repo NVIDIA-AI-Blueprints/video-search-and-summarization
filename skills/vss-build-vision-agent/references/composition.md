@@ -1,7 +1,7 @@
 # Delta Profile Composition
 
 - [Model](#model)
-- [Select the base](#select-the-base)
+- [Select the foundation](#select-the-foundation)
 - [Compute the delta](#compute-the-delta)
 - [Artifact contract](#artifact-contract)
 - [Validate](#validate)
@@ -9,12 +9,13 @@
 
 ## Model
 
-A Delta Profile is the smallest environment and optional Compose overlay applied
-to exactly one current developer Base Profile. The Base Profile remains in place;
-the delta does not copy its `.env`, `overrides.env`, Compose files, configs, or
-skill bundle.
+A Foundation is one reviewed, current developer profile selected as the closest
+starting point for a request. A Delta Profile is the smallest environment and
+optional Compose overlay applied to exactly one Foundation. The Foundation
+remains in place; the delta does not copy its `.env`, `overrides.env`, Compose
+files, configs, or skill bundle.
 
-Current Base Profiles:
+Current Foundations:
 
 - `base`
 - `alerts`
@@ -24,7 +25,7 @@ Current Base Profiles:
 Use only developer profiles. Do not route warehouse or industry profiles through
 this workflow.
 
-## Select the base
+## Select the foundation
 
 1. Translate the request and any eval specification into required and forbidden
    capabilities.
@@ -40,7 +41,7 @@ checked against source before writing a delta.
 
 ## Compute the delta
 
-Start with the Base Profile's effective `COMPOSE_PROFILES`.
+Start with the Foundation's effective `COMPOSE_PROFILES`.
 
 - Add an existing service by adding its exact, self-named profile key.
 - Remove a service by omitting its exact key.
@@ -73,9 +74,9 @@ the requested build. It is never a Compose profile.
 
 `overrides.env` contains:
 
-1. `BASE_PROFILE=<base|alerts|lvs|search>` for human/tooling traceability.
+1. `BASE_PROFILE=<base|alerts|lvs|search>` naming the Foundation for current tooling compatibility.
 2. The full effective `COMPOSE_PROFILES` after additions and removals.
-3. Only environment values that differ from the Base Profile.
+3. Only environment values that differ from the Foundation.
 
 Do not write secrets unless the user explicitly requests a local deploy file;
 prefer exported shell variables for credentials. `_builds/` is gitignored.
@@ -96,14 +97,14 @@ From the repository root:
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
-BASE_PROFILE="$(sed -n 's/^BASE_PROFILE=//p' "$REPO/_builds/<name>/overrides.env")"
-BASE_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$BASE_PROFILE"
+FOUNDATION="$(sed -n 's/^BASE_PROFILE=//p' "$REPO/_builds/<name>/overrides.env")"
+FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 BUILD_DIR="$REPO/_builds/<name>"
 
 compose_args=(
   --env-file "$REPO/deploy/docker/containers.env"
-  --env-file "$BASE_DIR/.env"
-  --env-file "$BASE_DIR/overrides.env"
+  --env-file "$FOUNDATION_DIR/.env"
+  --env-file "$FOUNDATION_DIR/overrides.env"
   --env-file "$BUILD_DIR/overrides.env"
   -f "$REPO/deploy/docker/compose.yml"
 )
@@ -117,7 +118,7 @@ docker compose "${compose_args[@]}" config --images
 
 Then verify:
 
-- `BASE_PROFILE` names one current developer profile.
+- `BASE_PROFILE` names one current developer profile as the Foundation.
 - Every `COMPOSE_PROFILES` token exists in the current Compose graph after env
   interpolation.
 - The resolved service list is non-empty.

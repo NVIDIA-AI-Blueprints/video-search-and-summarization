@@ -28,7 +28,7 @@
 | `VST_INGRESS_HOST_PORT`, `SENSOR_HTTP_HOST_PORT`, `STREAM_PROCESSOR_HTTP_HOST_PORT` | Publish VIOS APIs. |
 | `RTSP_SERVER_HOST_PORT`, `RTSP_SERVER_HOST_PORT_END` | Publish RTSP playback ports. |
 | `VST_BASE_URL`, `VST_INTERNAL_URL`, `VST_EXTERNAL_URL`, `VST_MCP_URL` | Configure internal and public routing. |
-| `VST_NGINX_MODE` | Select direct or SDRC routing supported by the Base Profile. |
+| `VST_NGINX_MODE` | Select direct or SDRC routing supported by the Foundation. |
 | `SDR_CONTROLLER_CONFIG_PATH`, `SDRC_*_HOST_PORT` | Select rendered SDR config and host ports. |
 | `NVSTREAMER_HTTP_PORT`, `NVSTREAMER_HTTP_HOST_PORT`, `NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES` | Configure a profile's NvStreamer source. |
 | `NUM_SENSORS`, `STREAM_TYPE` | Configure source count and broker type where supported. |
