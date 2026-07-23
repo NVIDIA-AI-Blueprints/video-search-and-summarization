@@ -61,6 +61,7 @@ _stub_modules = [
     'handlers', 'handlers.enrichment', 'handlers.direct_media',
     'handlers.prompt_handler', 'handlers.prompt_handler.alert_type_config_loader',
     'handlers.async_dispatch_mixin',
+    'handlers.event_loop_pipeline_mixin',
     'handlers.async_external_io_mixin',
     'handlers.async_vlm_mode_mixin',
     'utils.logging_config',
@@ -91,6 +92,16 @@ class _AsyncDispatchMixinStub: pass
 class _AsyncExternalIOMixinStub: pass
 class _AsyncVLMModeMixinStub: pass
 sys.modules['handlers.async_dispatch_mixin'].AsyncDispatchMixin = _AsyncDispatchMixinStub
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_SYNC = 'sync'
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_THREAD_BRIDGE = 'thread_bridge'
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_EVENT_LOOP = 'event_loop'
+sys.modules['handlers.async_dispatch_mixin'].resolve_pipeline_mode = lambda raw, legacy: (
+    str(raw).strip().lower()
+    if raw is not None and str(raw).strip().lower() in ('sync', 'thread_bridge', 'event_loop')
+    else ('thread_bridge' if legacy else 'sync')
+)
+sys.modules['handlers.event_loop_pipeline_mixin'].EventLoopPipelineMixin = type(
+    'EventLoopPipelineMixinStub', (), {})
 sys.modules['handlers.async_external_io_mixin'].AsyncExternalIOMixin = _AsyncExternalIOMixinStub
 sys.modules['handlers.async_vlm_mode_mixin'].AsyncVLMModeMixin = _AsyncVLMModeMixinStub
 
@@ -119,6 +130,22 @@ for _recorder_attr in (
 
 import enhance_alert_with_vlm as eavw  # noqa: E402
 from enhance_alert_with_vlm import AnomalyEnhancer  # noqa: E402
+
+def _bind_real_stage_helpers(stub):
+    for _name in (
+        '_prepare_message_context', '_resolve_video_url', '_transform_video_urls',
+        '_handle_media_collection_failure', '_handle_url_validation_failure',
+        '_apply_vlm_response', '_apply_vlm_parse_failure',
+        '_publish_outcome_and_complete', '_handle_vlm_exception',
+        '_apply_vlm_exception', '_log_vlm_exception',
+    ):
+        setattr(stub, _name, getattr(AnomalyEnhancer, _name).__get__(stub))
+    for _name in (
+        '_classify_vst_failure', '_classify_vst_failure_reason',
+        '_classify_pre_processing_failure', '_extract_root_cause',
+    ):
+        setattr(stub, _name, getattr(AnomalyEnhancer, _name))
+
 
 
 # ── Classifier tests ─────────────────────────────────────────────────────
@@ -193,6 +220,7 @@ def spy_record(monkeypatch):
 
 def _make_stub():
     stub = Mock(spec=AnomalyEnhancer)
+    _bind_real_stage_helpers(stub)
     stub._set_message_id_and_should_skip = Mock()
     stub._classify_pre_processing_failure = AnomalyEnhancer._classify_pre_processing_failure
     stub.redis_handler = None

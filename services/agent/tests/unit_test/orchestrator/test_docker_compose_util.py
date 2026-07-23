@@ -55,15 +55,17 @@ def _make_recipe(
     edge_device_ids: dict[str, str] | None = None,
     hardware_profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] | None = None,
     overrides_env_text: str | None = None,
+    source_env_filename: str = "profile.env",
 ) -> dcu.DryRunRecipe:
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
     mdx_data_dir = tmp_path / "mdx-data"
     mdx_data_dir.mkdir()
-    source_env_file = tmp_path / "profile.env"
+    source_env_file = tmp_path / source_env_filename
+    source_env_file.parent.mkdir(parents=True, exist_ok=True)
     source_env_file.write_text(env_text.strip() + "\n")
     # overrides.env is mandatory and always lives next to the profile .env.
-    profile_env_override_file = tmp_path / "overrides.env"
+    profile_env_override_file = source_env_file.with_name("overrides.env")
     profile_env_override_file.write_text((overrides_env_text.strip() + "\n") if overrides_env_text else "")
 
     if edge_allowed_profiles is None:
@@ -330,12 +332,13 @@ class TestResolveComposeProfiles:
             "LLM_NAME_SLUG": "llm-a-slug",
             "VLM_MODE": "local_shared",
             "VLM_NAME_SLUG": "vlm-a-slug",
-            "COMPOSE_PROFILES": "${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+            "COMPOSE_PROFILES_CV": "vss-agent,alert-bridge,llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+            "COMPOSE_PROFILES": "${COMPOSE_PROFILES_CV}",
         }
 
         assert (
             dcu.resolve_compose_profiles(merged, dcu.PROFILE_ALERTS)
-            == "bp_developer_alerts_2d_cv,bp_developer_alerts_2d_cv_H100,llm_local_shared_llm-a-slug"
+            == "vss-agent,alert-bridge,llm_local_shared_llm-a-slug"
         )
 
     def test_resolve_compose_profiles_falls_back_for_legacy_env(self):
@@ -393,6 +396,24 @@ class TestExpandEnvValueReferences:
         dcu.expand_env_value_references(env)
         # Values remain referential (unresolved) but the call terminates.
         assert set(env) == {"A", "B"}
+
+
+class TestLoadProfileEnv:
+    def test_build_resolved_env_merges_sibling_overrides_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            profile=dcu.PROFILE_BASE,
+            source_env_filename=".env",
+        )
+        recipe.source_env_file.with_name("overrides.env").write_text(
+            "COMPOSE_PROFILES=vss-agent,llm_${LLM_MODE}_${LLM_NAME_SLUG}\n"
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["COMPOSE_PROFILES"] == "vss-agent,llm_local_llm-a-slug"
 
 
 class TestSanitizeResolvedCompose:
@@ -1652,8 +1673,9 @@ class TestGenerateDryRunArtifacts:
                 "VLM_NAME_SLUG=none",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
-                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},"
-                "llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+                "COMPOSE_PROFILES_CV=vss-behavior-analytics-alerts,llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+                "COMPOSE_PROFILES_VLM=nvstreamer-alerts,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+                "COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}",
             ),
             profile=dcu.PROFILE_ALERTS,
             env_overrides={"MODE": dcu.MODE_2D_VLM},
@@ -1668,13 +1690,11 @@ class TestGenerateDryRunArtifacts:
         resolved_env, env_path, compose_path = dcu.generate_dry_run_artifacts(recipe)
 
         assert resolved_env["MODE"] == dcu.MODE_2D_VLM
-        assert "bp_developer_alerts_2d_vlm" in resolved_env["COMPOSE_PROFILES"]
+        assert "rtvi-vlm" in resolved_env["COMPOSE_PROFILES"]
+        assert "vss-behavior-analytics-alerts" not in resolved_env["COMPOSE_PROFILES"]
         assert "vlm_local" not in resolved_env["COMPOSE_PROFILES"]
         assert "MODE=2d_vlm" in env_path.read_text()
-        assert (
-            "COMPOSE_PROFILES=bp_developer_alerts_2d_vlm,bp_developer_alerts_2d_vlm_igx,llm_local_llm-a-slug"
-            in env_path.read_text()
-        )
+        assert "COMPOSE_PROFILES=nvstreamer-alerts,rtvi-vlm,llm_local_llm-a-slug" in env_path.read_text()
         assert compose_path.read_text() == "services: {}\n"
 
 

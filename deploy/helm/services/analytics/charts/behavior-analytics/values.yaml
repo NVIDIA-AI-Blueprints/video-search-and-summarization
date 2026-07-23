@@ -48,6 +48,8 @@ resourceFiles:
 
 downloadResourcesFromNgc: false
 downloadResourcesFromNgcWaitSeconds: 300
+downloadResourcesJob:
+  ttlSecondsAfterFinished: null
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"

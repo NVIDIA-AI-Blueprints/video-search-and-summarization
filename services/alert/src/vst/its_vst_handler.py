@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import base64
+import asyncio
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
+import httpx
 import pandas as pd
 import requests
 from pandas.core.frame import DataFrame
@@ -488,6 +490,193 @@ class ITS_VST_HANDLER:
 
         return es_results
 
+    def _build_video_url_request(
+        self,
+        stream_id: str,
+        start_time: str,
+        end_time: str,
+        objects_ids: Optional[List] = None,
+        remove_overlay: bool = False,
+        alert_type_anchor: Optional[str] = None,
+    ) -> Tuple[str, Dict[str, str], Dict, int, str, str]:
+        """Build the storage video-URL request. Pure CPU — shared by the sync
+        and async transports. Returns
+        ``(url, headers, params, timeout, effective_start, effective_end)``."""
+        storage_base, _unused_ep, _storage_timeout = self._get_storage_config()
+        if not storage_base:
+            raise ValueError('Storage base URL not configured')
+
+        timeout = self.config.get('vst_config', {}).get('timeout', 20)
+        expiry_minutes = self.url_retention_minutes
+
+        endpoint_path = '/vst/api/v1/storage/file/' + stream_id + '/url'
+        url = f"{storage_base.rstrip('/')}{endpoint_path}"
+
+        headers = {
+            'Accept': 'application/json, text/plain, */*'
+        }
+
+        effective_start_time, effective_end_time = self._compute_effective_time_window(
+            start_time, end_time, alert_type_anchor
+        )
+
+        configuration = {
+            "disableAudio": False,
+        }
+
+        if self.add_overlay and not remove_overlay:
+            configuration["overlay"] = {
+                "bbox": {
+                    "showAll": False,
+                    "objectId": objects_ids,
+                    "showObjId": self.overlay_config["showObjId"],
+                    "objIdPosition": self.overlay_config["objIdPosition"],
+                },
+                "color": self.overlay_config["color"],
+                "thickness": self.overlay_config["thickness"],
+                "opacity": self.overlay_config["opacity"],
+                "debug": self.overlay_config["debug"],
+            }
+
+        params = {
+            'streamId': stream_id,
+            'startTime': effective_start_time,
+            'endTime': effective_end_time,
+            'expiryMinutes': int(expiry_minutes),
+            'container': 'mp4',
+            'configuration': json.dumps(configuration)
+        }
+        return url, headers, params, timeout, effective_start_time, effective_end_time
+
+    @staticmethod
+    def _vst_error_from_status(status: Optional[int], body: Optional[str]) -> VSTError:
+        """Map an HTTP error status to the VSTError taxonomy. Shared by the
+        sync (requests) and async (httpx) transports."""
+        if status == 404:
+            return VSTRecordingNotFoundError(
+                f"No recording found in VST (HTTP {status}): {body}",
+                status_code=status, response_body=body,
+                category="recording_not_found",
+            )
+        if status in (429, 503):
+            return VSTOverloadedError(
+                f"VST overloaded (HTTP {status}): {body}",
+                status_code=status, response_body=body,
+                category="overloaded",
+            )
+        if status and 400 <= status < 500:
+            return VSTClientError(
+                f"VST client error (HTTP {status}): {body}",
+                status_code=status, response_body=body,
+                category="client_error",
+            )
+        return VSTUnavailableError(
+            f"VST server error (HTTP {status}): {body}",
+            status_code=status, response_body=body,
+            category="server_error",
+        )
+
+    async def get_video_stream_url_async(
+        self,
+        http_client: "httpx.AsyncClient",
+        stream_name: str,
+        start_time: str,
+        end_time: str,
+        objects_ids: Optional[List] = None,
+        remove_overlay: bool = False,
+        latency: Optional[Dict[str, float]] = None,
+        alert_type_anchor: Optional[str] = None,
+    ) -> str:
+        """Async mirror of ``get_video_stream_url`` — same request building,
+        window math and error taxonomy, httpx transport instead of requests.
+        The (cached) stream-name lookup runs off-loop via ``asyncio.to_thread``.
+        """
+        url = None
+        timeout = None
+        try:
+            latency = latency or {}
+            stream_id = await asyncio.to_thread(self._get_stream_id_from_name, stream_name)
+            stream_id = stream_id or stream_name
+            url, headers, params, timeout, effective_start_time, effective_end_time = (
+                self._build_video_url_request(
+                    stream_id, start_time, end_time,
+                    objects_ids, remove_overlay, alert_type_anchor,
+                )
+            )
+
+            self.logger.debug(
+                f"Requesting VST video URL: url={url}, streamId={stream_id}, start={effective_start_time}, end={effective_end_time}, expiryMinutes={params['expiryMinutes']}, objects_ids={objects_ids}"
+            )
+
+            response = await http_client.get(url, headers=headers, params=params, timeout=timeout)
+            self.logger.debug(f"VST video URL response status: {response.status_code}, final_url={response.url}")
+            response.raise_for_status()
+
+            data = response.json() if response.content else {}
+
+            video_url = data.get('videoUrl')
+            if not video_url:
+                raise VSTError(
+                    f"videoUrl missing in VST response (HTTP {response.status_code}): {response.text}",
+                    status_code=response.status_code,
+                    response_body=response.text,
+                    category="missing_video_url",
+                )
+
+            return video_url, effective_start_time, effective_end_time
+
+        except VSTError:
+            raise
+
+        except httpx.TimeoutException as e:
+            self.logger.error(
+                "VST request timed out: url=%s, timeout=%ss, stream=%s",
+                url, timeout, stream_name,
+            )
+            raise VSTTimeoutError(
+                f"VST request timed out after {timeout}s for stream={stream_name}",
+                category="timeout",
+            ) from e
+
+        except httpx.ConnectError as e:
+            self.logger.error(
+                "VST connection failed: url=%s, stream=%s, error=%s",
+                url, stream_name, e,
+            )
+            raise VSTUnavailableError(
+                f"Cannot connect to VST at {url}: {e}",
+                category="connection_failed",
+            ) from e
+
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else None
+            body = e.response.text if e.response is not None else None
+            self.logger.error(
+                "VST HTTP error: status=%s, url=%s, stream=%s, body=%s",
+                status, url, stream_name, body,
+            )
+            raise self._vst_error_from_status(status, body) from e
+
+        except httpx.HTTPError as e:
+            self.logger.error(
+                "VST request error: url=%s, stream=%s, error=%s",
+                url, stream_name, e,
+            )
+            raise VSTError(
+                f"VST request failed for stream={stream_name}: {e}",
+                category="request_error",
+            ) from e
+
+        except Exception as e:
+            self.logger.error(
+                "Unexpected VST error: url=%s, stream=%s, error=%s",
+                url, stream_name, e,
+            )
+            raise VSTError(
+                f"Unexpected VST error for stream={stream_name}: {e}",
+                category="unexpected",
+            ) from e
+
     def get_video_stream_url(
         self,
         stream_name: str,
@@ -518,56 +707,16 @@ class ITS_VST_HANDLER:
         '''
         try:
             latency = latency or {}
-            # Determine storage base and timeout using shared helper (honors env override)
-            storage_base, _unused_ep, timeout = self._get_storage_config()
-            if not storage_base:
-                raise ValueError('Storage base URL not configured')
-
-            timeout = self.config.get('vst_config', {}).get('timeout', 20)
-            expiry_minutes = self.url_retention_minutes
-
             stream_id = self._get_stream_id_from_name(stream_name) or stream_name
-            endpoint_path = '/vst/api/v1/storage/file/' + stream_id + '/url'
-            #endpoint_path = '/vst/api/v1/storage/file/url'
-            url = f"{storage_base.rstrip('/')}{endpoint_path}"
-
-            headers = {
-                'Accept': 'application/json, text/plain, */*'
-            }
-
-            effective_start_time, effective_end_time = self._compute_effective_time_window(
-                start_time, end_time, alert_type_anchor
+            url, headers, params, timeout, effective_start_time, effective_end_time = (
+                self._build_video_url_request(
+                    stream_id, start_time, end_time,
+                    objects_ids, remove_overlay, alert_type_anchor,
+                )
             )
 
-            configuration = {
-                "disableAudio": False,
-            }
-
-            if self.add_overlay and not remove_overlay:
-                configuration["overlay"] = {
-                    "bbox": {
-                        "showAll": False,
-                        "objectId": objects_ids,
-                        "showObjId": self.overlay_config["showObjId"],
-                        "objIdPosition": self.overlay_config["objIdPosition"],
-                    },
-                    "color": self.overlay_config["color"],
-                    "thickness": self.overlay_config["thickness"],
-                    "opacity": self.overlay_config["opacity"],
-                    "debug": self.overlay_config["debug"],
-                }
-
-            params = {
-                'streamId': stream_id,
-                'startTime': effective_start_time,
-                'endTime': effective_end_time,
-                'expiryMinutes': int(expiry_minutes),
-                'container': 'mp4',
-                'configuration': json.dumps(configuration)
-            }
-
             self.logger.debug(
-                f"Requesting VST video URL: url={url}, streamId={stream_id}, start={effective_start_time}, end={effective_end_time}, expiryMinutes={expiry_minutes}, objects_ids={objects_ids}"
+                f"Requesting VST video URL: url={url}, streamId={stream_id}, start={effective_start_time}, end={effective_end_time}, expiryMinutes={params['expiryMinutes']}, objects_ids={objects_ids}"
             )
 
             response = requests.get(url, headers=headers, params=params, timeout=timeout)
@@ -620,30 +769,7 @@ class ITS_VST_HANDLER:
                 "VST HTTP error: status=%s, url=%s, stream=%s, body=%s",
                 status, url, stream_name, body,
             )
-            if status == 404:
-                raise VSTRecordingNotFoundError(
-                    f"No recording found in VST (HTTP {status}): {body}",
-                    status_code=status, response_body=body,
-                    category="recording_not_found",
-                ) from e
-            elif status in (429, 503):
-                raise VSTOverloadedError(
-                    f"VST overloaded (HTTP {status}): {body}",
-                    status_code=status, response_body=body,
-                    category="overloaded",
-                ) from e
-            elif status and 400 <= status < 500:
-                raise VSTClientError(
-                    f"VST client error (HTTP {status}): {body}",
-                    status_code=status, response_body=body,
-                    category="client_error",
-                ) from e
-            else:
-                raise VSTUnavailableError(
-                    f"VST server error (HTTP {status}): {body}",
-                    status_code=status, response_body=body,
-                    category="server_error",
-                ) from e
+            raise self._vst_error_from_status(status, body) from e
 
         except requests.RequestException as e:
             self.logger.error(

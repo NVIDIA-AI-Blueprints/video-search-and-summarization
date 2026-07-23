@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/deploy/docker/release-set.schema.json",
+  "title": "VSS container release set",
+  "description": "One complete, immutable set of container images for a VSS source commit. The manifest — not a moving tag — is the source of truth: acceptance tests run against exactly these digests, the last-green channel records the set that passed, and the weekly NGC promotion copies the same digests without rebuilding. Produced by .github/scripts/release_set.py assemble.",
+  "type": "object",
+  "required": ["schema_version", "release_set_id", "source", "images"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "release_set_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "SHA-256 over the canonical JSON of this document with release_set_id set to the empty string. Immutable identity for the acceptance handoff and the last-green lock."
+    },
+    "source": {
+      "type": "object",
+      "required": ["repository", "commit"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "ref": { "type": "string" },
+        "workflow_run": { "type": "string" }
+      }
+    },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "strategy", "image", "tag"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Logical name; must exist in deploy/docker/container-inventory.json."
+          },
+          "strategy": {
+            "enum": ["build", "mirror", "reuse-pinned"],
+            "description": "build: built from this repo for this set. mirror: copied from an approved upstream digest. reuse-pinned: unchanged component explicitly carried forward at its current pinned coordinate (never silently absent)."
+          },
+          "image": { "type": "string", "description": "registry/name, no tag" },
+          "tag": { "type": "string", "description": "Immutable tag for this set" },
+          "digest": {
+            "type": ["string", "null"],
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "Manifest-list digest. Required (non-null) for strategy=build and strategy=mirror; may be null for reuse-pinned entries until the mirror program (I-07) resolves them."
+          },
+          "platforms": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "source_path": {
+            "type": ["string", "null"],
+            "description": "Repo-relative source folder (build strategy only)."
+          },
+          "source_tree_sha": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "git rev-parse <commit>:<source_path> — the TREE hash the container-source gate compares, not the commit SHA."
+          },
+          "upstream_digest": {
+            "type": ["string", "null"],
+            "description": "For mirror strategy: the source-registry digest the copy was verified against."
+          }
+        }
+      }
+    }
+  }
+}

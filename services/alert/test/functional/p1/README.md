@@ -27,10 +27,11 @@ These run against simulators with known inputs — not a live deployment.
 | `test_document_parity` | Send an incident; verify output doc is in the correct dated ES index with `sensorId` preserved | Field pass-through and index routing |
 | `test_verdict_distribution` | Send 3 incidents with unique timestamps (unique fingerprints); verify all receive non-null VLM verdicts | VLM classifies each independently (not deduped) |
 | `test_redis_dedup` | Send the same incident twice with identical ID; verify only 1 doc is indexed | In-process deduplication is active (Redis removed) |
-| `test_async_smoke` | Restart AB with async external I/O guardrails enabled; send one incident; verify output doc and async guardrail log | Async guardrails can be enabled without breaking end-to-end flow |
-| `test_async_verdict_parity` | Run one sync incident + one async incident with same payload shape; compare verdict/status signature | Async mode preserves sync verdict/status behavior |
-| `test_async_dedup_parity` | Run duplicate-incident dedup check in sync then async mode; compare indexed document count | Async dedup wrapper preserves dedup semantics |
-| `test_async_kafka_non_blocking` | Inject fixed VLM delay, send a burst of incidents, and verify async dispatch queueing continues before first delayed response | Kafka consume/scheduling is decoupled from slow VLM I/O in async mode |
+| `test_async_smoke` | Restart AB in thread_bridge then event_loop mode; send one incident per mode; verify output doc and mode log | Both async pipeline modes can be enabled without breaking end-to-end flow |
+| `test_async_verdict_parity` | Run the same incident shape in sync, thread_bridge and event_loop modes; compare verdict/status signatures | Async modes preserve sync verdict/status behavior |
+| `test_async_dedup_parity` | Run duplicate-incident dedup check in sync, thread_bridge and event_loop modes; compare indexed document count | Async modes preserve dedup semantics |
+| `test_async_kafka_non_blocking` | Inject fixed VLM delay, send a burst of incidents, and verify dispatch queueing continues before first delayed response (thread_bridge and event_loop) | Kafka consume/scheduling is decoupled from slow VLM I/O in both async modes |
+| `test_event_loop_concurrency` | Close the NIM stub response gate, burst incidents, assert in-flight VLM concurrency exceeds thread count while consumer lag drains to 0 and nothing publishes; then assert `max_vlm_concurrent` caps peak in-flight exactly | Event-loop concurrency is bounded by semaphores, not threads, and Kafka consumption is decoupled from VLM latency |
 | `test_vst_video_url` | Send an incident; verify output doc contains a `videoUrl`/`videoSource` referencing the VST simulator | VST integration and URL extraction |
 | `test_document_schema` | Send an incident; verify output doc has all required fields | Full schema completeness |
 | `test_vlm_error_codes` | Stop the NIM simulator; send an incident; verify non-200 `verificationResponseCode` | Error handling when VLM is unavailable |
@@ -476,9 +477,9 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 ### test_async_kafka_non_blocking
 
-**Purpose:** Verify that in async mode, Kafka consumption/dispatch continues even while a VLM request is blocked on slow I/O.
+**Purpose:** Verify that in each async pipeline mode (thread_bridge and event_loop), Kafka consumption/dispatch continues even while a VLM request is blocked on slow I/O.
 
-**Setup:** Restart AB with async guardrails enabled and DEBUG logging. Restart the NIM simulator with `NIM_STUB_DELAY_SECONDS` to force slow VLM responses.
+**Setup:** For each mode, restart AB with the mode config and DEBUG logging. Restart the NIM simulator with `NIM_STUB_DELAY_SECONDS` to force slow VLM responses.
 
 **Trigger:** Produce a burst of incidents with unique `sensorId` values.
 
@@ -489,6 +490,25 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 **Pass:** Queueing activity continues before the first delayed VLM response and all burst incidents are indexed.
 **Fail:** No delayed response observed, no queue progression during wait window, or burst documents missing.
+
+---
+
+### test_event_loop_concurrency
+
+**Purpose:** Prove the event_loop mode's core property deterministically: in-flight VLM concurrency is bounded by semaphores rather than thread count, and Kafka consumption is fully decoupled from VLM latency.
+
+**Setup:** Restart the NIM stub (threading server with `/stub/stats` counters and a response gate), restart AB in event_loop mode with `num_workers=1`, `async_dispatch_workers=1`.
+
+**Trigger (phase A):** Close the stub gate, produce a burst of 12 incidents. Poll `/stub/stats` until `in_flight == 12`.
+
+**Check (phase A):** While the gate is closed: consumer-group lag drains to 0 and zero documents exist for the test prefix. After opening the gate: all 12 documents appear and `peak_in_flight >= 12`.
+
+**Trigger (phase B):** Restart AB with `max_vlm_concurrent=3`, close the gate, produce 10 incidents, wait until `in_flight == 3`, open the gate and wait for all 10 documents.
+
+**Check (phase B):** `peak_in_flight == 3` across the whole run — the cap was never exceeded.
+
+**Pass:** Both phases hold: concurrency 12 > 1 worker thread with lag 0, and the cap is exact.
+**Fail:** Stub never reaches expected in-flight, documents publish while the gate is closed, lag does not drain, or peak exceeds the cap.
 
 ---
 

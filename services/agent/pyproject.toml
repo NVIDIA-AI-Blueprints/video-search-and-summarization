@@ -10,14 +10,16 @@ raw-options.root = "../.."
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-# Two top-level packages ship in the same wheel:
-#   - agent: agent code, tools, NAT plugins (incl. register_knowledge_layers)
+# Top-level packages shipped in the same wheel:
+#   - agent:      agent code, tools, NAT plugins (incl. register_knowledge_layers)
+#   - vss_agents: compatibility namespace for deployment configs using the former name
+#   - cli:        NAT-independent command-line interface
 #   - lib:        NAT-independent libraries. lib.knowledge holds the BackendAdapter
 #                 ABC, schema, factory, and adapter implementations.
 # The base install carries only the light `lib` dependencies; agent and
 # lib.knowledge become importable once the `agent` extra's dependencies are
 # installed (see [project.optional-dependencies]).
-packages = ["src/agent", "src/cli", "src/lib"]
+packages = ["src/agent", "src/vss_agents", "src/cli", "src/lib"]
 
 
 [tool.uv]
