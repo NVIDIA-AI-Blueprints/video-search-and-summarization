@@ -17,9 +17,9 @@
 
 import pytest
 
-from agent.utils.sanitize import quote_path_segment
-from agent.utils.sanitize import safe_basename
-from agent.utils.sanitize import scrub_log
+from vss_agents.utils.sanitize import quote_path_segment
+from vss_agents.utils.sanitize import safe_basename
+from vss_agents.utils.sanitize import scrub_log
 
 
 def test_scrub_log_replaces_crlf_with_space() -> None:

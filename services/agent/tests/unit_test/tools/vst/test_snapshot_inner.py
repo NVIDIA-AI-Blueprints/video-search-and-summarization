@@ -21,11 +21,11 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.tools.vst.snapshot import VSTSnapshotConfig
-from agent.tools.vst.snapshot import VSTSnapshotISOInput
-from agent.tools.vst.snapshot import VSTSnapshotOffsetInput
-from agent.tools.vst.snapshot import VSTSnapshotOutput
-from agent.tools.vst.snapshot import vst_snapshot
+from vss_agents.tools.vst.snapshot import VSTSnapshotConfig
+from vss_agents.tools.vst.snapshot import VSTSnapshotISOInput
+from vss_agents.tools.vst.snapshot import VSTSnapshotOffsetInput
+from vss_agents.tools.vst.snapshot import VSTSnapshotOutput
+from vss_agents.tools.vst.snapshot import vst_snapshot
 
 
 class TestVSTSnapshotInner:
@@ -61,9 +61,9 @@ class TestVSTSnapshotInner:
     @pytest.mark.asyncio
     async def test_snapshot_success_with_seconds(self, config, mock_builder):
         """Test snapshot with seconds-based start_time."""
-        with patch("agent.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+        with patch("vss_agents.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
-            with patch("agent.tools.vst.snapshot.get_timeline", new_callable=AsyncMock) as mock_timeline:
+            with patch("vss_agents.tools.vst.snapshot.get_timeline", new_callable=AsyncMock) as mock_timeline:
                 mock_timeline.return_value = ("2025-01-01T00:00:00.000+00:00", "2025-01-01T01:00:00.000+00:00")
 
                 mock_response = MagicMock()
@@ -81,8 +81,8 @@ class TestVSTSnapshotInner:
                 mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
                 mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-                with patch("agent.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
-                    with patch("agent.tools.vst.snapshot.create_retry_strategy") as mock_retry:
+                with patch("vss_agents.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
+                    with patch("vss_agents.tools.vst.snapshot.create_retry_strategy") as mock_retry:
 
                         async def fake_retry(*args, **kwargs):
                             yield MagicMock(
@@ -105,7 +105,7 @@ class TestVSTSnapshotInner:
     @pytest.mark.asyncio
     async def test_snapshot_success_with_iso_timestamp(self, config_iso, mock_builder):
         """Test snapshot with ISO 8601 timestamp start_time."""
-        with patch("agent.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+        with patch("vss_agents.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
 
             mock_response = MagicMock()
@@ -121,8 +121,8 @@ class TestVSTSnapshotInner:
             mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("agent.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
-                with patch("agent.tools.vst.snapshot.create_retry_strategy") as mock_retry:
+            with patch("vss_agents.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
+                with patch("vss_agents.tools.vst.snapshot.create_retry_strategy") as mock_retry:
 
                     async def fake_retry(*args, **kwargs):
                         yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -156,9 +156,9 @@ class TestVSTSnapshotInner:
 
     @pytest.mark.asyncio
     async def test_snapshot_out_of_range(self, config, mock_builder):
-        with patch("agent.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+        with patch("vss_agents.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
-            with patch("agent.tools.vst.snapshot.get_timeline", new_callable=AsyncMock) as mock_timeline:
+            with patch("vss_agents.tools.vst.snapshot.get_timeline", new_callable=AsyncMock) as mock_timeline:
                 # Short video - 10 seconds
                 mock_timeline.return_value = ("2025-01-01T00:00:00.000+00:00", "2025-01-01T00:00:10.000+00:00")
 
@@ -177,8 +177,8 @@ class TestVSTSnapshotInner:
                 mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
                 mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-                with patch("agent.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
-                    with patch("agent.tools.vst.snapshot.create_retry_strategy") as mock_retry:
+                with patch("vss_agents.tools.vst.snapshot.aiohttp.ClientSession", return_value=mock_session_cm):
+                    with patch("vss_agents.tools.vst.snapshot.create_retry_strategy") as mock_retry:
 
                         async def fake_retry(*args, **kwargs):
                             yield MagicMock(

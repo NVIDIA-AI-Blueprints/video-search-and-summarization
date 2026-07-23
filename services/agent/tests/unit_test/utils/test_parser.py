@@ -16,8 +16,8 @@
 
 import pytest
 
-from agent.utils.parser import ReActOutputParserError
-from agent.utils.parser import parse_function_calls
+from vss_agents.utils.parser import ReActOutputParserError
+from vss_agents.utils.parser import parse_function_calls
 
 
 class TestReActOutputParserError:

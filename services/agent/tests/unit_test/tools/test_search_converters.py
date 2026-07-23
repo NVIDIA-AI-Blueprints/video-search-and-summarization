@@ -19,13 +19,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.tools.embed_search import EmbedSearchOutput
-from agent.tools.embed_search import EmbedSearchResultItem
-from agent.tools.search import SearchConfig
-from agent.tools.search import SearchInput
-from agent.tools.search import SearchOutput
-from agent.tools.search import SearchResult
-from agent.tools.search import search
+from vss_agents.tools.embed_search import EmbedSearchOutput
+from vss_agents.tools.embed_search import EmbedSearchResultItem
+from vss_agents.tools.search import SearchConfig
+from vss_agents.tools.search import SearchInput
+from vss_agents.tools.search import SearchOutput
+from vss_agents.tools.search import SearchResult
+from vss_agents.tools.search import search
 
 
 def _make_embed_output(results):

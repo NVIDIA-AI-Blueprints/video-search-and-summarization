@@ -16,15 +16,15 @@
 
 import pytest
 
-from agent.evaluators.report_evaluator.field_evaluators.base import METRIC_REGISTRY
-from agent.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
-from agent.evaluators.report_evaluator.field_evaluators.base import register_metric
-from agent.evaluators.report_evaluator.field_evaluators.common import ExactMatchMetric
-from agent.evaluators.report_evaluator.field_evaluators.common import F1Metric
-from agent.evaluators.report_evaluator.field_evaluators.common import NonEmptyMetric
-from agent.evaluators.report_evaluator.field_evaluators.common import RegexMetric
-from agent.evaluators.report_evaluator.field_evaluators.common import calculate_f1_score
-from agent.evaluators.report_evaluator.field_evaluators.common import tokenize_text
+from vss_agents.evaluators.report_evaluator.field_evaluators.base import METRIC_REGISTRY
+from vss_agents.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
+from vss_agents.evaluators.report_evaluator.field_evaluators.base import register_metric
+from vss_agents.evaluators.report_evaluator.field_evaluators.common import ExactMatchMetric
+from vss_agents.evaluators.report_evaluator.field_evaluators.common import F1Metric
+from vss_agents.evaluators.report_evaluator.field_evaluators.common import NonEmptyMetric
+from vss_agents.evaluators.report_evaluator.field_evaluators.common import RegexMetric
+from vss_agents.evaluators.report_evaluator.field_evaluators.common import calculate_f1_score
+from vss_agents.evaluators.report_evaluator.field_evaluators.common import tokenize_text
 
 
 class TestTokenizeText:

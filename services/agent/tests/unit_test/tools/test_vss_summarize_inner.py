@@ -21,10 +21,10 @@ import uuid
 
 import pytest
 
-from agent.tools.vss_summarize import VSSSummarizeConfig
-from agent.tools.vss_summarize import VSSSummarizeInput
-from agent.tools.vss_summarize import VSSSummarizeOutput
-from agent.tools.vss_summarize import vss_summarize
+from vss_agents.tools.vss_summarize import VSSSummarizeConfig
+from vss_agents.tools.vss_summarize import VSSSummarizeInput
+from vss_agents.tools.vss_summarize import VSSSummarizeOutput
+from vss_agents.tools.vss_summarize import vss_summarize
 
 
 class TestVSSSummarizeInner:

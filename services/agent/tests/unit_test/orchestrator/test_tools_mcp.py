@@ -25,24 +25,24 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.orchestrator import tools as tools_mod
-from agent.orchestrator.tools import ComposeAction
-from agent.orchestrator.tools import ComposeArtifactsInput
-from agent.orchestrator.tools import ComposeDownOperationInput
-from agent.orchestrator.tools import ComposeOperation
-from agent.orchestrator.tools import ComposeStatus
-from agent.orchestrator.tools import ComposeStatusInput
-from agent.orchestrator.tools import ComposeUpOperationInput
-from agent.orchestrator.tools import ContainerLogsInput
-from agent.orchestrator.tools import DockerPrereqsInput
-from agent.orchestrator.tools import DockerProfilesInput
-from agent.orchestrator.tools import GenerateInput
-from agent.orchestrator.tools import HardwareResolutionConfig
-from agent.orchestrator.tools import ModelArtifactEntry
-from agent.orchestrator.tools import ModelPackageConfig
-from agent.orchestrator.tools import ModelResolutionConfig
-from agent.orchestrator.tools import OrchestratorToolConfig
-from agent.orchestrator.tools import vss_orchestrator
+from vss_agents.orchestrator import tools as tools_mod
+from vss_agents.orchestrator.tools import ComposeAction
+from vss_agents.orchestrator.tools import ComposeArtifactsInput
+from vss_agents.orchestrator.tools import ComposeDownOperationInput
+from vss_agents.orchestrator.tools import ComposeOperation
+from vss_agents.orchestrator.tools import ComposeStatus
+from vss_agents.orchestrator.tools import ComposeStatusInput
+from vss_agents.orchestrator.tools import ComposeUpOperationInput
+from vss_agents.orchestrator.tools import ContainerLogsInput
+from vss_agents.orchestrator.tools import DockerPrereqsInput
+from vss_agents.orchestrator.tools import DockerProfilesInput
+from vss_agents.orchestrator.tools import GenerateInput
+from vss_agents.orchestrator.tools import HardwareResolutionConfig
+from vss_agents.orchestrator.tools import ModelArtifactEntry
+from vss_agents.orchestrator.tools import ModelPackageConfig
+from vss_agents.orchestrator.tools import ModelResolutionConfig
+from vss_agents.orchestrator.tools import OrchestratorToolConfig
+from vss_agents.orchestrator.tools import vss_orchestrator
 
 
 class _FakePopen:
@@ -244,7 +244,7 @@ async def test_profiles_lists_supported_profiles(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_prereqs_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        with patch("agent.orchestrator.tools.run_prereqs_checks", return_value={"docker": "ok"}):
+        with patch("vss_agents.orchestrator.tools.run_prereqs_checks", return_value={"docker": "ok"}):
             result = await _call(group, "prereqs", DockerPrereqsInput())
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["details"] == {"docker": "ok"}
@@ -254,7 +254,7 @@ async def test_prereqs_success(tmp_path: Path):
 async def test_prereqs_runtime_error(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         with patch(
-            "agent.orchestrator.tools.run_prereqs_checks",
+            "vss_agents.orchestrator.tools.run_prereqs_checks",
             side_effect=RuntimeError("docker missing"),
         ):
             result = await _call(group, "prereqs", DockerPrereqsInput())
@@ -294,7 +294,7 @@ async def test_docker_list_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="alpha\nbeta\n", stderr="")
 
-        with patch("agent.orchestrator.tools.asyncio.to_thread", return_value=completed):
+        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(
                 group,
                 "docker_list",
@@ -309,7 +309,7 @@ async def test_docker_list_failure(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="daemon down")
 
-        with patch("agent.orchestrator.tools.asyncio.to_thread", return_value=completed):
+        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(
                 group,
                 "docker_list",
@@ -324,7 +324,7 @@ async def test_docker_logs_success(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="log line\n", stderr="")
 
-        with patch("agent.orchestrator.tools.asyncio.to_thread", return_value=completed):
+        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="vss-agent"))
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["logs"] == "log line\n"
@@ -337,7 +337,7 @@ async def test_docker_logs_truncates_large_output(tmp_path: Path):
         huge = "x" * (2 * 1024 * 1024)
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=huge, stderr="")
 
-        with patch("agent.orchestrator.tools.asyncio.to_thread", return_value=completed):
+        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="vss-agent", tail=50))
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert result["logs_truncated"] is True
@@ -349,7 +349,7 @@ async def test_docker_logs_failure(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="No such container")
 
-        with patch("agent.orchestrator.tools.asyncio.to_thread", return_value=completed):
+        with patch("vss_agents.orchestrator.tools.asyncio.to_thread", return_value=completed):
             result = await _call(group, "docker_logs", ContainerLogsInput(container_name="missing"))
     assert result["status"] == ComposeStatus.ERROR.value
     assert "No such container" in result["error"]
@@ -392,7 +392,7 @@ async def test_docker_up_starts_background_operation(tmp_path: Path):
         compose_path = Path(config.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
         _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
 
-        with patch("agent.orchestrator.tools.threading.Thread") as mock_thread:
+        with patch("vss_agents.orchestrator.tools.threading.Thread") as mock_thread:
             mock_thread.return_value.start = MagicMock()
             result = await _call(
                 group,
@@ -425,7 +425,7 @@ async def test_docker_down_starts_with_deep_clean_callback(tmp_path: Path):
         compose_path = Path(config.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
         _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
 
-        with patch("agent.orchestrator.tools.threading.Thread") as mock_thread:
+        with patch("vss_agents.orchestrator.tools.threading.Thread") as mock_thread:
             mock_thread.return_value.start = MagicMock()
             result = await _call(
                 group,
@@ -466,9 +466,9 @@ async def test_docker_generate_success(tmp_path: Path, monkeypatch: pytest.Monke
         }
 
         with (
-            patch("agent.orchestrator.tools.create_dry_run_recipe", return_value=fake_recipe) as mock_recipe,
+            patch("vss_agents.orchestrator.tools.create_dry_run_recipe", return_value=fake_recipe) as mock_recipe,
             patch(
-                "agent.orchestrator.tools.generate_dry_run_artifacts",
+                "vss_agents.orchestrator.tools.generate_dry_run_artifacts",
                 return_value=(resolved_env, env_path, compose_path),
             ),
         ):
@@ -483,10 +483,10 @@ async def test_docker_generate_success(tmp_path: Path, monkeypatch: pytest.Monke
 @pytest.mark.asyncio
 async def test_docker_generate_validation_error(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
-        from agent.orchestrator.docker_compose_util import ValidationError
+        from vss_agents.orchestrator.docker_compose_util import ValidationError
 
         with patch(
-            "agent.orchestrator.tools.create_dry_run_recipe",
+            "vss_agents.orchestrator.tools.create_dry_run_recipe",
             side_effect=ValidationError("bad profile mode"),
         ):
             result = await _call(group, "docker_generate", GenerateInput(profile="base"))
@@ -548,8 +548,8 @@ async def test_docker_up_watcher_marks_error_when_docker_missing(tmp_path: Path)
         _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
 
         with (
-            patch("agent.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
-            patch("agent.orchestrator.tools.subprocess.Popen", side_effect=FileNotFoundError("docker")),
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.subprocess.Popen", side_effect=FileNotFoundError("docker")),
         ):
             result = await _call(group, "docker_up", ComposeUpOperationInput(docker_compose_id=compose_id))
 
@@ -579,7 +579,7 @@ async def test_startup_bootstrap_failure(tmp_path: Path):
     config = _make_orchestrator_config(tmp_path)
     builder = MagicMock()
     with patch(
-        "agent.orchestrator.tools.ensure_data_directories",
+        "vss_agents.orchestrator.tools.ensure_data_directories",
         side_effect=RuntimeError("permission denied"),
     ):
         with pytest.raises(RuntimeError, match="Startup directory bootstrap failed"):
@@ -654,9 +654,9 @@ async def test_docker_generate_applies_device_ids_from_runtime(tmp_path: Path, m
         fake_recipe = MagicMock()
 
         with (
-            patch("agent.orchestrator.tools.create_dry_run_recipe", return_value=fake_recipe) as mock_recipe,
+            patch("vss_agents.orchestrator.tools.create_dry_run_recipe", return_value=fake_recipe) as mock_recipe,
             patch(
-                "agent.orchestrator.tools.generate_dry_run_artifacts",
+                "vss_agents.orchestrator.tools.generate_dry_run_artifacts",
                 return_value=(resolved_env, env_path, compose_path),
             ),
         ):
@@ -686,12 +686,12 @@ async def test_docker_generate_alerts_profile(tmp_path: Path):
         fake_recipe = MagicMock()
 
         with (
-            patch("agent.orchestrator.tools.create_dry_run_recipe", return_value=fake_recipe),
+            patch("vss_agents.orchestrator.tools.create_dry_run_recipe", return_value=fake_recipe),
             patch(
-                "agent.orchestrator.tools.generate_dry_run_artifacts",
+                "vss_agents.orchestrator.tools.generate_dry_run_artifacts",
                 return_value=(resolved_env, env_path, compose_path),
             ),
-            patch("agent.orchestrator.tools.ensure_alerts_engine_directories") as mock_alerts_dirs,
+            patch("vss_agents.orchestrator.tools.ensure_alerts_engine_directories") as mock_alerts_dirs,
         ):
             result = await _call(group, "docker_generate", GenerateInput(profile="alerts", profile_mode="verification"))
 
@@ -703,7 +703,7 @@ async def test_docker_generate_alerts_profile(tmp_path: Path):
 async def test_prereqs_uncaught_exception_propagates_through_mcp_wrapper(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         with patch(
-            "agent.orchestrator.tools.asyncio.to_thread",
+            "vss_agents.orchestrator.tools.asyncio.to_thread",
             side_effect=ValueError("unexpected prereqs failure"),
         ):
             with pytest.raises(ValueError, match="unexpected prereqs failure"):
@@ -724,9 +724,9 @@ async def test_docker_up_precompose_check_failure(tmp_path: Path):
         _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
 
         with (
-            patch("agent.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
             patch(
-                "agent.orchestrator.tools.ensure_data_directories",
+                "vss_agents.orchestrator.tools.ensure_data_directories",
                 side_effect=RuntimeError("data dir not writable"),
             ),
         ):
@@ -765,9 +765,9 @@ async def test_docker_up_search_profile_runs_model_artifact_check(tmp_path: Path
         )
 
         with (
-            patch("agent.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
-            patch("agent.orchestrator.tools.ensure_model_artifacts") as mock_models,
-            patch("agent.orchestrator.tools.subprocess.Popen", side_effect=FileNotFoundError("docker")),
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.ensure_model_artifacts") as mock_models,
+            patch("vss_agents.orchestrator.tools.subprocess.Popen", side_effect=FileNotFoundError("docker")),
         ):
             result = await _call(group, "docker_up", ComposeUpOperationInput(docker_compose_id=compose_id))
 
@@ -789,9 +789,9 @@ async def test_docker_up_alerts_profile_runs_engine_directory_check(tmp_path: Pa
         )
 
         with (
-            patch("agent.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
-            patch("agent.orchestrator.tools.ensure_alerts_engine_directories") as mock_engines,
-            patch("agent.orchestrator.tools.subprocess.Popen", side_effect=FileNotFoundError("docker")),
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.ensure_alerts_engine_directories") as mock_engines,
+            patch("vss_agents.orchestrator.tools.subprocess.Popen", side_effect=FileNotFoundError("docker")),
         ):
             result = await _call(group, "docker_up", ComposeUpOperationInput(docker_compose_id=compose_id))
 
@@ -871,7 +871,7 @@ async def test_docker_down_cancels_running_up_and_terminates_process(tmp_path: P
             process=up_process,
         )
 
-        with patch("agent.orchestrator.tools.threading.Thread") as mock_thread:
+        with patch("vss_agents.orchestrator.tools.threading.Thread") as mock_thread:
             mock_thread.return_value.start = MagicMock()
             result = await _call(group, "docker_down", ComposeDownOperationInput(docker_compose_id=compose_id))
 
@@ -890,9 +890,9 @@ async def test_docker_up_watcher_success_streams_logs_and_finishes(tmp_path: Pat
         _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
 
         with (
-            patch("agent.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
             patch(
-                "agent.orchestrator.tools.subprocess.Popen",
+                "vss_agents.orchestrator.tools.subprocess.Popen",
                 lambda *args, **kwargs: _FakePopen(*args, lines=["pull complete", "started"], exit_code=0, **kwargs),
             ),
         ):
@@ -917,13 +917,13 @@ async def test_docker_down_deep_clean_failure_after_successful_compose(tmp_path:
         _register_compose_spec(docker_compose_id=compose_id, env_path=env_path, compose_path=compose_path)
 
         with (
-            patch("agent.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
             patch(
-                "agent.orchestrator.tools.subprocess.Popen",
+                "vss_agents.orchestrator.tools.subprocess.Popen",
                 lambda *args, **kwargs: _FakePopen(*args, exit_code=0, **kwargs),
             ),
             patch(
-                "agent.orchestrator.tools._run_deep_clean",
+                "vss_agents.orchestrator.tools._run_deep_clean",
                 side_effect=RuntimeError("deep clean failed"),
             ),
         ):
@@ -962,12 +962,12 @@ async def test_docker_up_watcher_exits_before_popen_when_cancelled(tmp_path: Pat
             return _FakePopen(*args, **kwargs)
 
         with (
-            patch("agent.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
+            patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
             patch(
-                "agent.orchestrator.tools.ensure_data_directories",
+                "vss_agents.orchestrator.tools.ensure_data_directories",
                 side_effect=_cancel_ops_after_precheck,
             ),
-            patch("agent.orchestrator.tools.subprocess.Popen", side_effect=_track_popen),
+            patch("vss_agents.orchestrator.tools.subprocess.Popen", side_effect=_track_popen),
         ):
             result = await _call(group, "docker_up", ComposeUpOperationInput(docker_compose_id=compose_id))
 
@@ -999,7 +999,7 @@ async def test_terminate_running_op_kills_on_wait_timeout(tmp_path: Path):
             process=up_process,
         )
 
-        with patch("agent.orchestrator.tools.threading.Thread") as mock_thread:
+        with patch("vss_agents.orchestrator.tools.threading.Thread") as mock_thread:
             mock_thread.return_value.start = MagicMock()
             await _call(group, "docker_down", ComposeDownOperationInput(docker_compose_id=compose_id))
 

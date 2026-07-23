@@ -20,15 +20,15 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from agent.utils.frame_select import frame_select
-from agent.utils.frame_select import has_nvidia_gpu
+from vss_agents.utils.frame_select import frame_select
+from vss_agents.utils.frame_select import has_nvidia_gpu
 
 
 class TestFrameSelect:
     """Test frame_select function."""
 
     def test_invalid_video_path(self):
-        with patch("agent.utils.frame_select.cv2") as mock_cv2:
+        with patch("vss_agents.utils.frame_select.cv2") as mock_cv2:
             mock_cap = MagicMock()
             mock_cap.isOpened.return_value = False
             mock_cv2.VideoCapture.return_value = mock_cap
@@ -36,7 +36,7 @@ class TestFrameSelect:
                 frame_select("/nonexistent/video.mp4", 0.0, 10.0, 1.0)
 
     def test_successful_frame_extraction(self):
-        with patch("agent.utils.frame_select.cv2") as mock_cv2:
+        with patch("vss_agents.utils.frame_select.cv2") as mock_cv2:
             mock_cap = MagicMock()
             mock_cap.isOpened.return_value = True
             mock_cap.get.side_effect = lambda prop: {0: 30.0, 7: 300}[prop]  # FPS=30, frames=300
@@ -52,7 +52,7 @@ class TestFrameSelect:
             assert isinstance(result[0], str)  # base64 string
 
     def test_no_frames_selected(self):
-        with patch("agent.utils.frame_select.cv2") as mock_cv2:
+        with patch("vss_agents.utils.frame_select.cv2") as mock_cv2:
             mock_cap = MagicMock()
             mock_cap.isOpened.return_value = True
             mock_cap.get.side_effect = lambda prop: {0: 30.0, 7: 10}[prop]
@@ -65,7 +65,7 @@ class TestFrameSelect:
             assert result == []
 
     def test_frame_read_failure(self):
-        with patch("agent.utils.frame_select.cv2") as mock_cv2:
+        with patch("vss_agents.utils.frame_select.cv2") as mock_cv2:
             mock_cap = MagicMock()
             mock_cap.isOpened.return_value = True
             mock_cap.get.side_effect = lambda prop: {0: 30.0, 7: 300}[prop]
@@ -83,19 +83,19 @@ class TestHasNvidiaGpu:
     """Test has_nvidia_gpu function."""
 
     def test_no_nvidia_smi(self):
-        with patch("agent.utils.frame_select.shutil.which", return_value=None):
+        with patch("vss_agents.utils.frame_select.shutil.which", return_value=None):
             assert has_nvidia_gpu() is False
 
     def test_nvidia_smi_success(self):
-        with patch("agent.utils.frame_select.shutil.which", return_value="/usr/bin/nvidia-smi"):
+        with patch("vss_agents.utils.frame_select.shutil.which", return_value="/usr/bin/nvidia-smi"):
             mock_result = MagicMock()
             mock_result.returncode = 0
-            with patch("agent.utils.frame_select.subprocess.run", return_value=mock_result):
+            with patch("vss_agents.utils.frame_select.subprocess.run", return_value=mock_result):
                 assert has_nvidia_gpu() is True
 
     def test_nvidia_smi_failure(self):
-        with patch("agent.utils.frame_select.shutil.which", return_value="/usr/bin/nvidia-smi"):
+        with patch("vss_agents.utils.frame_select.shutil.which", return_value="/usr/bin/nvidia-smi"):
             mock_result = MagicMock()
             mock_result.returncode = 1
-            with patch("agent.utils.frame_select.subprocess.run", return_value=mock_result):
+            with patch("vss_agents.utils.frame_select.subprocess.run", return_value=mock_result):
                 assert has_nvidia_gpu() is False

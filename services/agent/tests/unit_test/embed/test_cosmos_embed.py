@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from agent.embed.cosmos_embed import CosmosEmbedClient
+from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 
 
 class TestCosmosEmbedClient:
@@ -231,7 +231,7 @@ class TestLRUCache:
         """Filling the cache past maxsize evicts the LRU entry and its lock."""
         client, mock_http = _make_client_with_mock()
         # Shrink cache for the test
-        from agent.embed.embed import LRUEmbeddingCache
+        from vss_agents.embed.embed import LRUEmbeddingCache
 
         client._text_cache = LRUEmbeddingCache(maxsize=2)
 
@@ -261,7 +261,7 @@ class TestLRUCache:
     async def test_lru_cache_touch_on_access(self):
         """Accessing an entry marks it as recently used, avoiding eviction."""
         client, mock_http = _make_client_with_mock()
-        from agent.embed.embed import LRUEmbeddingCache
+        from vss_agents.embed.embed import LRUEmbeddingCache
 
         client._text_cache = LRUEmbeddingCache(maxsize=2)
 

@@ -14,11 +14,11 @@
 # limitations under the License.
 """Tests for agent/prompt.py."""
 
-from agent.prompt import INIT_SUMMARIZE_PROMPT
-from agent.prompt import VIDEO_FRAME_TIMESTAMP_PROMPT
-from agent.prompt import VLM_FORMAT_INSTRUCTION
-from agent.prompt import VLM_PROMPT_EXAMPLES
-from agent.prompt import VSS_SUMMARIZE_PROMPT
+from vss_agents.prompt import INIT_SUMMARIZE_PROMPT
+from vss_agents.prompt import VIDEO_FRAME_TIMESTAMP_PROMPT
+from vss_agents.prompt import VLM_FORMAT_INSTRUCTION
+from vss_agents.prompt import VLM_PROMPT_EXAMPLES
+from vss_agents.prompt import VSS_SUMMARIZE_PROMPT
 
 
 class TestVlmPromptExamples:

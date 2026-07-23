@@ -21,11 +21,11 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.tools.embed_search import EmbedSearchConfig
-from agent.tools.embed_search import EmbedSearchOutput
-from agent.tools.embed_search import QueryInput
-from agent.tools.embed_search import embed_search
-from agent.utils.es_client import VSSESClient
+from vss_agents.tools.embed_search import EmbedSearchConfig
+from vss_agents.tools.embed_search import EmbedSearchOutput
+from vss_agents.tools.embed_search import QueryInput
+from vss_agents.tools.embed_search import embed_search
+from vss_agents.utils.es_client import VSSESClient
 
 
 def _make_es_response(hits):
@@ -69,7 +69,7 @@ class TestEmbedSearchEdgeCases:
         return client
 
     async def _get_inner_fn(self, config, mock_builder, mock_es, mock_embed_client):
-        with patch("agent.tools.embed_search.CosmosEmbedClient", return_value=mock_embed_client):
+        with patch("vss_agents.tools.embed_search.CosmosEmbedClient", return_value=mock_embed_client):
             gen = embed_search.__wrapped__(config, mock_builder)
             fi = await gen.__anext__()
             return fi.single_fn

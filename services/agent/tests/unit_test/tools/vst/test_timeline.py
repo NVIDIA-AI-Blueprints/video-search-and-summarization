@@ -17,9 +17,9 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.vst.timeline import VSTTimelineConfig
-from agent.tools.vst.timeline import VSTTimelineInput
-from agent.tools.vst.timeline import VSTTimelineOutput
+from vss_agents.tools.vst.timeline import VSTTimelineConfig
+from vss_agents.tools.vst.timeline import VSTTimelineInput
+from vss_agents.tools.vst.timeline import VSTTimelineOutput
 
 
 class TestVSTTimelineConfig:

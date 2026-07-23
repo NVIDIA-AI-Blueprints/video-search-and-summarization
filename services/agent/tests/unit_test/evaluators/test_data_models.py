@@ -14,7 +14,7 @@
 # limitations under the License.
 """Tests for agent/evaluators/report_evaluator/data_models.py."""
 
-from agent.evaluators.report_evaluator.data_models import EvaluationScore
+from vss_agents.evaluators.report_evaluator.data_models import EvaluationScore
 
 
 class TestEvaluationScore:

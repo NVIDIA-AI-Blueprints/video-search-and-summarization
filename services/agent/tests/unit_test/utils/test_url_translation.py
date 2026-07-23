@@ -14,7 +14,7 @@
 # limitations under the License.
 """Unit tests for url_translation module."""
 
-from agent.utils.url_translation import rewrite_to_internal_vst_url
+from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
 
 class TestRewriteToInternalVstUrl:

@@ -19,8 +19,8 @@ from datetime import datetime
 from pydantic import ValidationError
 import pytest
 
-from agent.agents.report_agent import ReportAgentInput
-from agent.agents.report_agent import VideoReportAgentInput
+from vss_agents.agents.report_agent import ReportAgentInput
+from vss_agents.agents.report_agent import VideoReportAgentInput
 
 
 class TestReportAgentInput:

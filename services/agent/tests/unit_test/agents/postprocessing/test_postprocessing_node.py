@@ -19,12 +19,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.agents.postprocessing.data_models import NonEmptyResponseValidatorConfig
-from agent.agents.postprocessing.data_models import PostprocessingConfig
-from agent.agents.postprocessing.data_models import URLValidatorConfig
-from agent.agents.postprocessing.data_models import ValidatorResult
-from agent.agents.postprocessing.data_models import ValidatorsConfig
-from agent.agents.postprocessing.postprocessing_node import PostprocessingNode
+from vss_agents.agents.postprocessing.data_models import NonEmptyResponseValidatorConfig
+from vss_agents.agents.postprocessing.data_models import PostprocessingConfig
+from vss_agents.agents.postprocessing.data_models import URLValidatorConfig
+from vss_agents.agents.postprocessing.data_models import ValidatorResult
+from vss_agents.agents.postprocessing.data_models import ValidatorsConfig
+from vss_agents.agents.postprocessing.postprocessing_node import PostprocessingNode
 
 
 class TestPostprocessingNodeInit:

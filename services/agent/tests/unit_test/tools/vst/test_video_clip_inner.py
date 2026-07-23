@@ -21,12 +21,12 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.tools.vst.video_clip import VSTVideoClipConfig
-from agent.tools.vst.video_clip import VSTVideoClipISOInput
-from agent.tools.vst.video_clip import VSTVideoClipOffsetInput
-from agent.tools.vst.video_clip import VSTVideoClipOutput
-from agent.tools.vst.video_clip import get_video_url
-from agent.tools.vst.video_clip import vst_video_clip
+from vss_agents.tools.vst.video_clip import VSTVideoClipConfig
+from vss_agents.tools.vst.video_clip import VSTVideoClipISOInput
+from vss_agents.tools.vst.video_clip import VSTVideoClipOffsetInput
+from vss_agents.tools.vst.video_clip import VSTVideoClipOutput
+from vss_agents.tools.vst.video_clip import get_video_url
+from vss_agents.tools.vst.video_clip import vst_video_clip
 
 
 class TestGetVideoUrl:
@@ -35,7 +35,7 @@ class TestGetVideoUrl:
     @pytest.mark.asyncio
     async def test_get_video_url_full_video(self):
         """Test getting full video URL without time range."""
-        with patch("agent.tools.vst.video_clip.get_timeline", new_callable=AsyncMock) as mock_timeline:
+        with patch("vss_agents.tools.vst.video_clip.get_timeline", new_callable=AsyncMock) as mock_timeline:
             mock_timeline.return_value = ("2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z")
 
             mock_response = MagicMock()
@@ -51,8 +51,8 @@ class TestGetVideoUrl:
             mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("agent.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
-                with patch("agent.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+            with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+                with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
                     # Simple retry that just yields once
                     async def fake_retry(*args, **kwargs):
                         yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -65,7 +65,7 @@ class TestGetVideoUrl:
     @pytest.mark.asyncio
     async def test_get_video_url_with_time_range(self):
         """Test getting video URL with start and end time."""
-        with patch("agent.tools.vst.video_clip.get_timeline", new_callable=AsyncMock) as mock_timeline:
+        with patch("vss_agents.tools.vst.video_clip.get_timeline", new_callable=AsyncMock) as mock_timeline:
             mock_timeline.return_value = ("2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z")
 
             mock_response = MagicMock()
@@ -81,8 +81,8 @@ class TestGetVideoUrl:
             mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("agent.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
-                with patch("agent.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+            with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+                with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
 
                     async def fake_retry(*args, **kwargs):
                         yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -110,8 +110,8 @@ class TestGetVideoUrl:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("agent.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+        with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
 
                 async def fake_retry(*args, **kwargs):
                     yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -144,8 +144,8 @@ class TestGetVideoUrl:
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("agent.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("agent.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+        with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
 
                 async def fake_retry(*args, **kwargs):
                     yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
@@ -166,7 +166,7 @@ class TestGetVideoUrl:
     @pytest.mark.asyncio
     async def test_get_video_url_invalid_range(self):
         """Test error when clip end time is before start time."""
-        with patch("agent.tools.vst.video_clip.get_timeline", new_callable=AsyncMock) as mock_timeline:
+        with patch("vss_agents.tools.vst.video_clip.get_timeline", new_callable=AsyncMock) as mock_timeline:
             # 60-second timeline
             mock_timeline.return_value = ("2025-01-01T00:00:00.000Z", "2025-01-01T00:01:00.000Z")
 
@@ -216,11 +216,11 @@ class TestVSTVideoClipInner:
 
     @pytest.mark.asyncio
     async def test_video_clip_inner(self, config, mock_builder):
-        with patch("agent.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+        with patch("vss_agents.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
-            with patch("agent.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
+            with patch("vss_agents.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
                 mock_get_url.return_value = "http://10.0.0.1:30888/vst/video.mp4"
-                with patch("agent.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
+                with patch("vss_agents.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
                     gen = vst_video_clip.__wrapped__(config, mock_builder)
                     fi = await gen.__anext__()
                     inner_fn = fi.single_fn
@@ -235,11 +235,11 @@ class TestVSTVideoClipInner:
     @pytest.mark.asyncio
     async def test_video_clip_inner_with_iso_timestamps(self, config_iso, mock_builder):
         """Test video clip with ISO timestamps."""
-        with patch("agent.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+        with patch("vss_agents.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
-            with patch("agent.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
+            with patch("vss_agents.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
                 mock_get_url.return_value = "http://10.0.0.1:30888/vst/video.mp4"
-                with patch("agent.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
+                with patch("vss_agents.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
                     gen = vst_video_clip.__wrapped__(config_iso, mock_builder)
                     fi = await gen.__anext__()
                     inner_fn = fi.single_fn
@@ -272,11 +272,11 @@ class TestVSTVideoClipInner:
     @pytest.mark.asyncio
     async def test_video_clip_inner_with_object_ids(self, config_iso_with_overlay, mock_builder):
         """Test video clip with object_ids for overlay bounding boxes."""
-        with patch("agent.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+        with patch("vss_agents.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
-            with patch("agent.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
+            with patch("vss_agents.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
                 mock_get_url.return_value = "http://10.0.0.1:30888/vst/video.mp4"
-                with patch("agent.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
+                with patch("vss_agents.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
                     gen = vst_video_clip.__wrapped__(config_iso_with_overlay, mock_builder)
                     fi = await gen.__anext__()
                     inner_fn = fi.single_fn

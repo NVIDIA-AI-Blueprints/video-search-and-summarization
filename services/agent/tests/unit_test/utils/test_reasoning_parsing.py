@@ -16,7 +16,7 @@
 
 from unittest.mock import MagicMock
 
-from agent.utils.reasoning_parsing import parse_reasoning_content
+from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 
 
 class TestParseReasoningContent:

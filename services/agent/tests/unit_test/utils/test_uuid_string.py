@@ -14,7 +14,7 @@
 # limitations under the License.
 import uuid
 
-from agent.utils.uuid_string import is_standard_uuid_string
+from vss_agents.utils.uuid_string import is_standard_uuid_string
 
 
 def test_is_standard_uuid_string_accepts_valid_uuid() -> None:

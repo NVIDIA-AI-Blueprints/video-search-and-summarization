@@ -14,11 +14,11 @@
 # limitations under the License.
 """Unit tests for VST tools modules (vst_download, vst_files)."""
 
-from agent.tools.vst_download import VSTDownloadConfig
-from agent.tools.vst_download import VSTDownloadInput
-from agent.tools.vst_download import VSTDownloadOutput
-from agent.tools.vst_files import VSTFilesConfig
-from agent.tools.vst_files import VSTFilesInput
+from vss_agents.tools.vst_download import VSTDownloadConfig
+from vss_agents.tools.vst_download import VSTDownloadInput
+from vss_agents.tools.vst_download import VSTDownloadOutput
+from vss_agents.tools.vst_files import VSTFilesConfig
+from vss_agents.tools.vst_files import VSTFilesInput
 
 
 class TestVSTDownloadConfig:

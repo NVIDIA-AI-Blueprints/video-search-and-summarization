@@ -17,11 +17,11 @@
 from datetime import datetime
 from datetime import timedelta
 
-from agent.tools.multi_incident_formatter import IncidentData
-from agent.tools.multi_incident_formatter import MultiIncidentFormatterInput
-from agent.tools.multi_incident_formatter import MultiIncidentFormatterOutput
-from agent.tools.multi_incident_formatter import _determine_optimal_bin_size
-from agent.tools.multi_incident_formatter import _normalize_timestamp
+from vss_agents.tools.multi_incident_formatter import IncidentData
+from vss_agents.tools.multi_incident_formatter import MultiIncidentFormatterInput
+from vss_agents.tools.multi_incident_formatter import MultiIncidentFormatterOutput
+from vss_agents.tools.multi_incident_formatter import _determine_optimal_bin_size
+from vss_agents.tools.multi_incident_formatter import _normalize_timestamp
 
 
 class TestNormalizeTimestamp:

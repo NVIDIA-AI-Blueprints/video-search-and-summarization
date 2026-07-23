@@ -14,9 +14,9 @@
 # limitations under the License.
 """Unit tests for incidents module."""
 
-from agent.tools.incidents import DuckDBIncidentsManager
-from agent.tools.incidents import VARetrievalConfig
-from agent.tools.incidents import VARetrievalInput
+from vss_agents.tools.incidents import DuckDBIncidentsManager
+from vss_agents.tools.incidents import VARetrievalConfig
+from vss_agents.tools.incidents import VARetrievalInput
 
 
 class TestVARetrievalConfig:

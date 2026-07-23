@@ -20,13 +20,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.tools.embed_search import EmbedSearchOutput
-from agent.tools.embed_search import EmbedSearchResultItem
-from agent.tools.search import DecomposedQuery
-from agent.tools.search import SearchConfig
-from agent.tools.search import SearchInput
-from agent.tools.search import SearchOutput
-from agent.tools.search import search
+from vss_agents.tools.embed_search import EmbedSearchOutput
+from vss_agents.tools.embed_search import EmbedSearchResultItem
+from vss_agents.tools.search import DecomposedQuery
+from vss_agents.tools.search import SearchConfig
+from vss_agents.tools.search import SearchInput
+from vss_agents.tools.search import SearchOutput
+from vss_agents.tools.search import search
 
 
 def _make_embed_output_with_results(results):
@@ -290,7 +290,7 @@ class TestSearchInner:
     @pytest.mark.asyncio
     async def test_search_agent_mode_rtsp_keeps_video_source_name_for_attribute_search(self, mock_builder, monkeypatch):
         """RTSP agent-mode search must preserve camera names for attribute_search filters."""
-        from agent.tools import search as search_module
+        from vss_agents.tools import search as search_module
 
         config = SearchConfig(
             embed_search_tool="embed_search",
@@ -355,10 +355,10 @@ class TestSearchInner:
     @pytest.mark.asyncio
     async def test_object_id_search_passes_external_vst_url_to_enrichment(self, mock_builder, monkeypatch):
         """Search-by-image/object-id results should use explicit external VST URL for thumbnails."""
-        from agent.tools import attribute_search as attribute_search_module
-        from agent.tools import search as search_module
-        from agent.tools.attribute_search import AttributeSearchMetadata
-        from agent.tools.attribute_search import AttributeSearchResult
+        from vss_agents.tools import attribute_search as attribute_search_module
+        from vss_agents.tools import search as search_module
+        from vss_agents.tools.attribute_search import AttributeSearchMetadata
+        from vss_agents.tools.attribute_search import AttributeSearchResult
 
         config = SearchConfig(
             embed_search_tool="embed_search",

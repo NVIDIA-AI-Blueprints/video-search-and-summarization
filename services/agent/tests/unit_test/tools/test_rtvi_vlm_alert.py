@@ -17,10 +17,10 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
-from agent.tools.rtvi_vlm_alert import RTVIVLMAlertInput
-from agent.tools.rtvi_vlm_alert import RTVIVLMAlertOutput
-from agent.tools.rtvi_vlm_alert import _sensor_to_alert_rule_id
+from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
+from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertInput
+from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertOutput
+from vss_agents.tools.rtvi_vlm_alert import _sensor_to_alert_rule_id
 
 
 class TestRTVIVLMAlertConfig:

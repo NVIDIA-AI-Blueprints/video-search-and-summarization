@@ -14,10 +14,10 @@
 # limitations under the License.
 """Tests for agent/agents/data_models.py."""
 
-from agent.agents.data_models import AgentDecision
-from agent.agents.data_models import AgentMessageChunk
-from agent.agents.data_models import AgentMessageChunkType
-from agent.agents.data_models import AgentOutput
+from vss_agents.agents.data_models import AgentDecision
+from vss_agents.agents.data_models import AgentMessageChunk
+from vss_agents.agents.data_models import AgentMessageChunkType
+from vss_agents.agents.data_models import AgentOutput
 
 
 class TestAgentDecision:

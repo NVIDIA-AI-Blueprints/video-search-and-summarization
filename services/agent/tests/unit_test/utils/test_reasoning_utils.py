@@ -16,8 +16,8 @@
 
 from unittest.mock import MagicMock
 
-from agent.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
-from agent.utils.reasoning_utils import get_thinking_tag
+from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
+from vss_agents.utils.reasoning_utils import get_thinking_tag
 
 
 class TestGetThinkingTag:

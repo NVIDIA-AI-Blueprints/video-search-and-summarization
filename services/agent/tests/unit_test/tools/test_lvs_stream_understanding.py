@@ -23,14 +23,14 @@ from nat.builder.context import ContextState
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.lvs_config_media import LVSMediaStatus
-from agent.tools.lvs_media_state import LVSConfiguredMedia
-from agent.tools.lvs_media_state import clear_configured_media_state
-from agent.tools.lvs_media_state import remember_configured_media
-from agent.tools.lvs_stream_understanding import LVSStreamUnderstandingConfig
-from agent.tools.lvs_stream_understanding import LVSStreamUnderstandingInput
-from agent.tools.lvs_stream_understanding import LVSStreamUnderstandingOutput
-from agent.tools.lvs_stream_understanding import lvs_stream_understanding
+from vss_agents.tools.lvs_config_media import LVSMediaStatus
+from vss_agents.tools.lvs_media_state import LVSConfiguredMedia
+from vss_agents.tools.lvs_media_state import clear_configured_media_state
+from vss_agents.tools.lvs_media_state import remember_configured_media
+from vss_agents.tools.lvs_stream_understanding import LVSStreamUnderstandingConfig
+from vss_agents.tools.lvs_stream_understanding import LVSStreamUnderstandingInput
+from vss_agents.tools.lvs_stream_understanding import LVSStreamUnderstandingOutput
+from vss_agents.tools.lvs_stream_understanding import lvs_stream_understanding
 
 
 class TestLVSStreamUnderstandingModels:
@@ -189,8 +189,8 @@ class TestLVSStreamUnderstandingInner:
             model="nvidia/cosmos-reason2-8b",
         )
 
-        with patch("agent.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session):
-            with patch("agent.tools.lvs_stream_understanding.aiohttp.ClientTimeout"):
+        with patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session):
+            with patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config)
                 result = await inner_fn(
                     LVSStreamUnderstandingInput(
@@ -245,8 +245,8 @@ class TestLVSStreamUnderstandingInner:
             vst_internal_url="http://localhost:30888",
         )
 
-        with patch("agent.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session):
-            with patch("agent.tools.lvs_stream_understanding.aiohttp.ClientTimeout"):
+        with patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session):
+            with patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"):
                 inner_fn = await self._get_inner_fn(config)
                 result = await inner_fn(
                     LVSStreamUnderstandingInput(
@@ -329,9 +329,9 @@ class TestLVSStreamUnderstandingInner:
         )
 
         with (
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
-            patch("agent.tools.lvs_stream_understanding.get_timeline", new=AsyncMock()) as mock_get_timeline,
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
+            patch("vss_agents.tools.lvs_stream_understanding.get_timeline", new=AsyncMock()) as mock_get_timeline,
         ):
             inner_fn = await self._get_inner_fn(config)
             result = await inner_fn(
@@ -385,9 +385,9 @@ class TestLVSStreamUnderstandingInner:
         timeline_mock = AsyncMock(return_value=("2026-05-06T01:01:13.623Z", "2026-05-06T01:42:56.504Z"))
 
         with (
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
-            patch("agent.tools.lvs_stream_understanding.get_timeline", new=timeline_mock) as mock_get_timeline,
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
+            patch("vss_agents.tools.lvs_stream_understanding.get_timeline", new=timeline_mock) as mock_get_timeline,
         ):
             inner_fn = await self._get_inner_fn(config)
             result = await inner_fn(
@@ -441,9 +441,9 @@ class TestLVSStreamUnderstandingInner:
         timeline_mock = AsyncMock(return_value=("2026-05-06T01:01:13.623Z", "2026-05-06T01:42:56.504Z"))
 
         with (
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
-            patch("agent.tools.lvs_stream_understanding.get_timeline", new=timeline_mock),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
+            patch("vss_agents.tools.lvs_stream_understanding.get_timeline", new=timeline_mock),
         ):
             inner_fn = await self._get_inner_fn(config)
             await inner_fn(
@@ -493,9 +493,9 @@ class TestLVSStreamUnderstandingInner:
         timeline_mock = AsyncMock(return_value=("2026-05-06T01:01:13.623Z", "2026-05-06T01:42:56.504Z"))
 
         with (
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
-            patch("agent.tools.lvs_stream_understanding.get_timeline", new=timeline_mock),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
+            patch("vss_agents.tools.lvs_stream_understanding.get_timeline", new=timeline_mock),
         ):
             inner_fn = await self._get_inner_fn(config)
             await inner_fn(
@@ -514,7 +514,7 @@ class TestLVSStreamUnderstandingInner:
     async def test_vst_timeline_failure_returns_failed_status(self):
         """If VST timeline lookup fails, the tool should surface a FAILED
         status and skip the LVS call entirely."""
-        from agent.tools.vst.utils import VSTError
+        from vss_agents.tools.vst.utils import VSTError
 
         remember_configured_media(
             LVSConfiguredMedia(
@@ -539,9 +539,9 @@ class TestLVSStreamUnderstandingInner:
         timeline_mock = AsyncMock(side_effect=VSTError("VST unavailable"))
 
         with (
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
-            patch("agent.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
-            patch("agent.tools.lvs_stream_understanding.get_timeline", new=timeline_mock),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
+            patch("vss_agents.tools.lvs_stream_understanding.get_timeline", new=timeline_mock),
         ):
             inner_fn = await self._get_inner_fn(config)
             result = await inner_fn(

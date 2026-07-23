@@ -16,7 +16,7 @@
 
 import pytest
 
-from agent.utils.asyncmixin import AsyncMixin
+from vss_agents.utils.asyncmixin import AsyncMixin
 
 
 class TestAsyncMixin:

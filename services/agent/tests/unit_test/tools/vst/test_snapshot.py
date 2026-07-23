@@ -17,10 +17,10 @@
 from pydantic import ValidationError
 import pytest
 
-from agent.tools.vst.snapshot import VSTSnapshotConfig
-from agent.tools.vst.snapshot import VSTSnapshotISOInput
-from agent.tools.vst.snapshot import VSTSnapshotOffsetInput
-from agent.tools.vst.snapshot import VSTSnapshotOutput
+from vss_agents.tools.vst.snapshot import VSTSnapshotConfig
+from vss_agents.tools.vst.snapshot import VSTSnapshotISOInput
+from vss_agents.tools.vst.snapshot import VSTSnapshotOffsetInput
+from vss_agents.tools.vst.snapshot import VSTSnapshotOutput
 
 
 class TestVSTSnapshotConfig:

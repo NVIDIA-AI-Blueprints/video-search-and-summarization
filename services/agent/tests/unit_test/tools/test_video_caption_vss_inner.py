@@ -22,9 +22,9 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.tools.video_caption import VideoCaptionConfig
-from agent.tools.video_caption import VideoCaptionInput
-from agent.tools.video_caption import video_caption
+from vss_agents.tools.video_caption import VideoCaptionConfig
+from vss_agents.tools.video_caption import VideoCaptionInput
+from vss_agents.tools.video_caption import video_caption
 
 
 class TestVideoCaptionVSSInner:
@@ -85,10 +85,10 @@ class TestVideoCaptionVSSInner:
         )
 
         # Mock resolve_video_file
-        with patch("agent.tools.video_caption.resolve_video_file", new_callable=AsyncMock) as mock_resolve:
+        with patch("vss_agents.tools.video_caption.resolve_video_file", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = ("/tmp/test_video.mp4", False)
 
-            with patch("agent.tools.video_caption.httpx.AsyncClient") as mock_httpx:
+            with patch("vss_agents.tools.video_caption.httpx.AsyncClient") as mock_httpx:
                 mock_client = AsyncMock()
                 mock_httpx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_httpx.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -136,10 +136,10 @@ class TestVideoCaptionVSSInner:
         with open(temp_file, "w") as f:
             f.write("fake video data")
 
-        with patch("agent.tools.video_caption.resolve_video_file", new_callable=AsyncMock) as mock_resolve:
+        with patch("vss_agents.tools.video_caption.resolve_video_file", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = (temp_file, True)  # needs_cleanup=True
 
-            with patch("agent.tools.video_caption.httpx.AsyncClient") as mock_httpx:
+            with patch("vss_agents.tools.video_caption.httpx.AsyncClient") as mock_httpx:
                 mock_client = AsyncMock()
                 mock_httpx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_httpx.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -193,10 +193,10 @@ class TestVideoCaptionNonVSSInner:
 
         mock_frames = ["base64frame1", "base64frame2"]
 
-        with patch("agent.tools.video_caption.resolve_video_file", new_callable=AsyncMock) as mock_resolve:
+        with patch("vss_agents.tools.video_caption.resolve_video_file", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = ("/tmp/test_vid.mp4", False)
 
-            with patch("agent.utils.frame_select.frame_select", return_value=mock_frames):
+            with patch("vss_agents.utils.frame_select.frame_select", return_value=mock_frames):
                 gen = video_caption.__wrapped__(config_no_vss, mock_builder)
                 fi = await gen.__anext__()
                 inner_fn = fi.single_fn

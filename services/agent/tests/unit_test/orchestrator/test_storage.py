@@ -16,8 +16,8 @@
 
 from pathlib import Path
 
-from agent.orchestrator.storage import ensure_alerts_engine_directories
-from agent.orchestrator.storage import resolve_config_path
+from vss_agents.orchestrator.storage import ensure_alerts_engine_directories
+from vss_agents.orchestrator.storage import resolve_config_path
 
 
 def test_resolve_config_path_expands_tilde(monkeypatch, tmp_path: Path):

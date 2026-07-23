@@ -16,7 +16,7 @@
 
 import pytest
 
-from agent.utils.retry import create_retry_strategy
+from vss_agents.utils.retry import create_retry_strategy
 
 
 class TestCreateRetryStrategy:

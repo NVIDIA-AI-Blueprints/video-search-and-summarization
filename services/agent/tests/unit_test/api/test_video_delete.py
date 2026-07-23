@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.api.video_delete import _remove_from_rtvi_cv
+from vss_agents.api.video_delete import _remove_from_rtvi_cv
 
 
 class TestRemoveFromRtviCv:
