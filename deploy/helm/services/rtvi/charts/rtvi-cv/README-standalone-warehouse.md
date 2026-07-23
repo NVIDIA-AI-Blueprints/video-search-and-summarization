@@ -194,7 +194,7 @@ kubectl delete namespace "${NAMESPACE}"
 
 ### 7.5 Finished Jobs
 
-The NGC download Job sets **`ttlSecondsAfterFinished`**; completed Jobs may disappear automatically. If a Job is stuck, delete it manually:
+The NGC download Job does not set **`ttlSecondsAfterFinished`** by default so Helm can observe completed Jobs during installs. If a Job is stuck, delete it manually:
 
 ```bash
 kubectl delete job -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE}" --ignore-not-found

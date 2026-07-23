@@ -1101,6 +1101,31 @@ _warehouse_host_port_keys=(
   VSS_AUTO_CALIBRATION_HOST_PORT VSS_AUTO_CALIBRATION_UI_HOST_PORT
 )
 if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
+  _warehouse_compose_profile_keys=(
+    COMPOSE_PROFILES_WH_2D
+    COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
+    COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
+    COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL
+    COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL
+    COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
+    COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
+    COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
+    COMPOSE_PROFILES
+  )
+  for _key in "${_warehouse_compose_profile_keys[@]}"; do
+    if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
+      echo "FAIL: warehouse .env should not define user-facing compose profile value ${_key}"
+      ((_split_failed++)) || true
+    fi
+    if ! grep -Eq "^${_key}=" "${_warehouse_overrides_env}"; then
+      echo "FAIL: warehouse overrides.env should define user-facing compose profile value ${_key}"
+      ((_split_failed++)) || true
+    fi
+  done
+  if grep -Eq '(^_WH_|\$\{_WH_)' "${_warehouse_stable_env}" "${_warehouse_overrides_env}"; then
+    echo "FAIL: warehouse env files should not define or reference _WH helper variables"
+    ((_split_failed++)) || true
+  fi
   for _key in "${_warehouse_host_port_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define host-published port override ${_key}"
@@ -1141,6 +1166,83 @@ for _spec in "${_shared_service_env_specs[@]}"; do
 done
 if [[ ${_split_failed} -eq 0 ]]; then
   echo "PASS: developer profile env split keeps profile-specific override-layer values isolated"
+  ((TESTS_PASSED++)) || true
+else
+  ((TESTS_FAILED++)) || true
+fi
+
+# --- COMPOSE_PROFILES service-list integrity ---
+_profile_tags_file="$(mktemp)"
+while IFS= read -r -d '' _compose_file; do
+  sed -nE 's/^[[:space:]]*profiles:[[:space:]]*\["([^"]+)"\].*/\1/p' "${_compose_file}"
+done < <(find "${REPO_ROOT}/deploy/docker" -type f \( -name '*.yml' -o -name '*.yaml' \) ! -path '*/services/nim/*' -print0) | sort -u > "${_profile_tags_file}"
+
+load_compose_env_values() {
+  local env_file="${1}"
+  local line key value
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+    [[ "${line}" =~ ^[[:space:]]*$ ]] && continue
+    if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+      value="${value%$'\r'}"
+      value="${value#\"}"; value="${value%\"}"
+      value="${value#\'}"; value="${value%\'}"
+      _compose_env_values["${key}"]="${value}"
+    fi
+  done < "${env_file}"
+}
+
+resolve_compose_env_value() {
+  local value="${1}"
+  local depth key replacement
+  for ((depth = 0; depth < 10; depth++)); do
+    if [[ "${value}" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; then
+      key="${BASH_REMATCH[1]}"
+      replacement="${_compose_env_values[${key}]:-}"
+      value="${value//\$\{${key}\}/${replacement}}"
+    else
+      break
+    fi
+  done
+  printf '%s' "${value}"
+}
+
+_compose_profiles_failed=0
+for _compose_env_file in \
+  "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/.env \
+  "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/overrides.env \
+  "${REPO_ROOT}"/deploy/docker/industry-profiles/*/.env \
+  "${REPO_ROOT}"/deploy/docker/industry-profiles/*/overrides.env; do
+  [[ -f "${_compose_env_file}" ]] || continue
+  declare -A _compose_env_values=()
+  _sibling_env_file="$(dirname "${_compose_env_file}")/.env"
+  if [[ "$(basename "${_compose_env_file}")" == "overrides.env" && -f "${_sibling_env_file}" ]]; then
+    load_compose_env_values "${_sibling_env_file}"
+  fi
+  load_compose_env_values "${_compose_env_file}"
+  for _var in "${!_compose_env_values[@]}"; do
+    [[ "${_var}" == COMPOSE_PROFILES* ]] || continue
+    _resolved_profiles="$(resolve_compose_env_value "${_compose_env_values[${_var}]}")"
+    IFS=',' read -r -a _profile_tokens <<< "${_resolved_profiles}"
+    for _token in "${_profile_tokens[@]}"; do
+      _token="${_token//[[:space:]]/}"
+      [[ -n "${_token}" ]] || continue
+      case "${_token}" in
+        llm_*|vlm_*) continue ;;
+      esac
+      if ! grep -Fxq "${_token}" "${_profile_tags_file}"; then
+        echo "FAIL: ${_compose_env_file} ${_var} references missing service profile '${_token}'"
+        ((_compose_profiles_failed++)) || true
+      fi
+    done
+  done
+  unset _compose_env_values
+done
+rm -f "${_profile_tags_file}"
+if [[ ${_compose_profiles_failed} -eq 0 ]]; then
+  echo "PASS: COMPOSE_PROFILES service lists reference existing non-NIM compose profiles"
   ((TESTS_PASSED++)) || true
 else
   ((TESTS_FAILED++)) || true
@@ -1470,6 +1572,8 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
   "VLM_MODE" "remote" "VLM_PORT" "30082" "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
+_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+
 # LVS with local/local_shared VLM: route LVS through RT-VLM and let RT-VLM load the integrated Cosmos checkpoint.
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \
  -i 127.0.0.1 -H OTHER -d -- \
@@ -1477,7 +1581,7 @@ run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM 
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
   "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
-  "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+  "COMPOSE_PROFILES" "${_expected_lvs_compose_profiles}"
 
 # LVS with remote VLM: keep RT-VLM in the stack and point only RT-VLM at the remote OpenAI-compatible endpoint.
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env lvs remote VLM uses RT-VLM proxy to remote endpoint" "lvs" \
@@ -1487,7 +1591,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
   "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat" \
   "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "5" \
   "RTVI_VLM_MODEL_PATH" "none" \
-  "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+  "COMPOSE_PROFILES" "${_expected_lvs_compose_profiles}"
 
 # Remote endpoints can override the default when their image prompt limit differs.
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=8 run_dry_run_up_and_check_generated_env "generated.env lvs remote VLM preserves explicit frame default" "lvs" \
