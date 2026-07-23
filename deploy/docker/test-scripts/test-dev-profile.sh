@@ -531,10 +531,10 @@ run_dry_run_test "edge (AGX-THOR) alerts real-time uses device ID 0 (no VLM over
 # Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION is an option (mirrors NIM hw-H100.env pattern: ${VLM_NIM_KVCACHE_PERCENT}), flows through from env (unset → empty).
 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
 # Alerts on IGX-THOR/AGX-THOR: RTVI_VLLM_GPU_MEMORY_UTILIZATION env var flows through to generated.env (option pattern, like ${VLM_NIM_KVCACHE_PERCENT} in NIM hw-H100.env).
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
@@ -1179,7 +1179,7 @@ EOF
 
 # --- Profile env split: stable .env plus script-modifiable overrides.env ---
 _common_overrides_env_keys=(
-  HARDWARE_PROFILE COMPOSE_PROFILES
+  HARDWARE_PROFILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES
   LLM_DEVICE_ID VLM_DEVICE_ID LLM_MODE VLM_MODE
   LLM_NAME LLM_NAME_SLUG LLM_ENV_FILE LLM_BASE_URL LLM_MODEL_TYPE
   VLM_NAME VLM_NAME_SLUG VLM_ENV_FILE VLM_BASE_URL VLM_MODEL_TYPE
@@ -1200,10 +1200,12 @@ for _profile in base lvs search alerts; do
     continue
   fi
   _expected_override_keys=("${_common_overrides_env_keys[@]}")
+  _allowed_duplicate_keys=()
   case "${_profile}" in
     base)
-      _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_stable_keys=(MODE RTVI_VLM_MAX_MODEL_LEN)
+      _allowed_duplicate_keys=(RTVI_VLM_MAX_MODEL_LEN)
       ;;
     lvs)
       _expected_override_keys+=(RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
@@ -1222,7 +1224,14 @@ for _profile in base lvs search alerts; do
       ;;
   esac
   for _key in "${_expected_override_keys[@]}"; do
-    if grep -Eq "^${_key}=" "${_stable_env}"; then
+    _allow_duplicate=0
+    for _duplicate_key in "${_allowed_duplicate_keys[@]}"; do
+      if [[ "${_key}" == "${_duplicate_key}" ]]; then
+        _allow_duplicate=1
+        break
+      fi
+    done
+    if [[ ${_allow_duplicate} -eq 0 ]] && grep -Eq "^${_key}=" "${_stable_env}"; then
       echo "FAIL: dev-profile-${_profile}/.env should not define override-layer ${_key}"
       ((_split_failed++)) || true
     fi
@@ -1232,11 +1241,18 @@ for _profile in base lvs search alerts; do
     fi
   done
   for _key in "${_expected_stable_keys[@]}"; do
+    _allow_duplicate=0
+    for _duplicate_key in "${_allowed_duplicate_keys[@]}"; do
+      if [[ "${_key}" == "${_duplicate_key}" ]]; then
+        _allow_duplicate=1
+        break
+      fi
+    done
     if ! grep -Eq "^${_key}=" "${_stable_env}"; then
       echo "FAIL: dev-profile-${_profile}/.env should keep static ${_key}"
       ((_split_failed++)) || true
     fi
-    if grep -Eq "^${_key}=" "${_overrides_env}"; then
+    if [[ ${_allow_duplicate} -eq 0 ]] && grep -Eq "^${_key}=" "${_overrides_env}"; then
       echo "FAIL: dev-profile-${_profile}/overrides.env should not define static ${_key}"
       ((_split_failed++)) || true
     fi
@@ -1272,6 +1288,14 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
     COMPOSE_PROFILES
   )
+  if grep -Eq "^COMPOSE_PROJECT_NAME=" "${_warehouse_stable_env}"; then
+    echo "FAIL: warehouse .env should not define user-facing compose project name COMPOSE_PROJECT_NAME"
+    ((_split_failed++)) || true
+  fi
+  if ! grep -Eq "^COMPOSE_PROJECT_NAME=" "${_warehouse_overrides_env}"; then
+    echo "FAIL: warehouse overrides.env should define user-facing compose project name COMPOSE_PROJECT_NAME"
+    ((_split_failed++)) || true
+  fi
   for _key in "${_warehouse_compose_profile_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define user-facing compose profile value ${_key}"
@@ -1300,8 +1324,21 @@ else
   echo "FAIL: warehouse profile should have both .env and overrides.env"
   ((_split_failed++)) || true
 fi
+_smartcities_overrides_env="${REPO_ROOT}/deploy/docker/industry-profiles/smartcities/overrides.env"
+if [[ -f "${_smartcities_overrides_env}" ]]; then
+  _smartcities_inherited_override_keys=(COMPOSE_PROJECT_NAME VIDEO_ANALYTICS_API_HOST_PORT)
+  for _key in "${_smartcities_inherited_override_keys[@]}"; do
+    if grep -Eq "^${_key}=" "${_smartcities_overrides_env}"; then
+      echo "FAIL: smartcities overlay should inherit user-facing override ${_key} from the selected base profile"
+      ((_split_failed++)) || true
+    fi
+  done
+else
+  echo "FAIL: smartcities profile should have overrides.env"
+  ((_split_failed++)) || true
+fi
 _shared_service_env_specs=(
-  "deploy/docker/services/agent/agent.env:VSS_AGENT_VERSION VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
+  "deploy/docker/services/agent/agent.env:VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
   "deploy/docker/services/alert/alert.env:ALERT_BRIDGE_PORT ALERT_BRIDGE_URL"
   "deploy/docker/services/ui/ui.env:NEXT_PUBLIC_APP_TITLE NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR NEXT_PUBLIC_ENABLE_CHAT_TAB NEXT_PUBLIC_ENABLE_MAP_TAB"
   "deploy/docker/services/infra/infra.env:ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS"
@@ -1778,7 +1815,7 @@ run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM 
   "VLM_MODE" "local_shared" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "VLM_PORT" "8018" \
   "RTVI_VLM_ENDPOINT" "''" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
-  "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
+  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" \
   "COMPOSE_PROFILES" "${_expected_lvs_compose_profiles}"
 
 # LVS with remote VLM: keep RT-VLM in the stack and point only RT-VLM at the remote OpenAI-compatible endpoint.
@@ -1947,8 +1984,8 @@ elif [[ ${exit_code} -ne 0 ]]; then
   echo "FAIL: down dry-run (expected exit 0, got ${exit_code})"
   cat "${out_file}" "${err_file}" | sed 's/^/    /'
   ((TESTS_FAILED++)) || true
-elif ! grep -q "\[DRY-RUN\] docker compose -p mdx down -v --remove-orphans" "${out_file}"; then
-  echo "FAIL: down dry-run (stdout missing '[DRY-RUN] docker compose -p mdx down -v --remove-orphans')"
+elif ! grep -q "\[DRY-RUN\] docker compose -p vss down -v --remove-orphans" "${out_file}"; then
+  echo "FAIL: down dry-run (stdout missing '[DRY-RUN] docker compose -p vss down -v --remove-orphans')"
   ((TESTS_FAILED++)) || true
 elif ! grep -q "State down completed" "${out_file}"; then
   echo "FAIL: down dry-run (stdout missing 'State down completed')"
