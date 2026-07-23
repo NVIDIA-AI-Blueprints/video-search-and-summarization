@@ -15,9 +15,9 @@
 
 services:
   alert-bridge:
-    image: nvcr.io/nvstaging/vss-core/vss-alert-ms:3.3.0-26.07.10-e4c886ba00e5
+    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-alert-ms}:${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-develop-latest}}
     container_name: vss-alert-bridge
-    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["alert-bridge"]
     restart: unless-stopped
     ports:
       - ${ALERT_BRIDGE_HOST_PORT:-9080}:${ALERT_BRIDGE_PORT:-9080}

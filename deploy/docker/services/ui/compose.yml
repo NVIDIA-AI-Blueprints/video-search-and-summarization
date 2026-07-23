@@ -16,8 +16,8 @@
 services:
 
   vss-ui:
-    image: nvcr.io/nvstaging/vss-core/vss-agent-ui:3.2.1-26.07.1-dd945777eef9
-    profiles: ["bp_wh_2d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: ${VSS_AGENT_UI_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent-ui}:${VSS_CONTAINER_TAG:-${VSS_AGENT_UI_TAG:-develop-latest}}
+    profiles: ["vss-ui"]
     container_name: vss-agent-ui
     ports:
       - ${VSS_UI_HOST_PORT:-3000}:3000

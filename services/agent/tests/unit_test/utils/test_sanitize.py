@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for vss_agents.utils.sanitize."""
+"""Unit tests for agent.utils.sanitize."""
 
 import pytest
 
-from vss_agents.utils.sanitize import quote_path_segment
-from vss_agents.utils.sanitize import safe_basename
-from vss_agents.utils.sanitize import scrub_log
+from agent.utils.sanitize import quote_path_segment
+from agent.utils.sanitize import safe_basename
+from agent.utils.sanitize import scrub_log
 
 
 def test_scrub_log_replaces_crlf_with_space() -> None:

@@ -15,7 +15,7 @@
 """Tests for lib.knowledge.adapters.llama_index.
 
 The `llama-index-*` and `chromadb` packages are an optional extra
-(`vss-agents[llama_index]`) and aren't installed in the default test env.
+(`nvidia-vss[llama_index]`) and aren't installed in the default test env.
 The adapter does deferred imports inside `__init__`, so we inject fake
 `llama_index.*` / `chromadb` modules into `sys.modules` BEFORE constructing
 the adapter — the deferred import resolves to our fakes and we never
@@ -125,7 +125,7 @@ class TestLlamaIndexImport:
         from lib.knowledge.adapters.llama_index import LlamaIndexAdapter
         from lib.knowledge.adapters.llama_index import LlamaIndexConfig
 
-        with pytest.raises(ImportError, match=r"vss-agents\[llama_index\]"):
+        with pytest.raises(ImportError, match=r"nvidia-vss\[llama_index\]"):
             LlamaIndexAdapter(LlamaIndexConfig(persist_dir="/tmp/chroma"))
 
 

@@ -14,10 +14,10 @@
 # limitations under the License.
 """Unit tests for nvschema module."""
 
-from vss_agents.video_analytics.nvschema import Coordinates
-from vss_agents.video_analytics.nvschema import Incident
-from vss_agents.video_analytics.nvschema import Location
-from vss_agents.video_analytics.nvschema import Place
+from agent.video_analytics.nvschema import Coordinates
+from agent.video_analytics.nvschema import Incident
+from agent.video_analytics.nvschema import Location
+from agent.video_analytics.nvschema import Place
 
 
 class TestLocation:

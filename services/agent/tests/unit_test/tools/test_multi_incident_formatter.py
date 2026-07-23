@@ -12,16 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/tools/multi_incident_formatter.py."""
+"""Tests for agent/tools/multi_incident_formatter.py."""
 
 from datetime import datetime
 from datetime import timedelta
 
-from vss_agents.tools.multi_incident_formatter import IncidentData
-from vss_agents.tools.multi_incident_formatter import MultiIncidentFormatterInput
-from vss_agents.tools.multi_incident_formatter import MultiIncidentFormatterOutput
-from vss_agents.tools.multi_incident_formatter import _determine_optimal_bin_size
-from vss_agents.tools.multi_incident_formatter import _normalize_timestamp
+from agent.tools.multi_incident_formatter import IncidentData
+from agent.tools.multi_incident_formatter import MultiIncidentFormatterInput
+from agent.tools.multi_incident_formatter import MultiIncidentFormatterOutput
+from agent.tools.multi_incident_formatter import _determine_optimal_bin_size
+from agent.tools.multi_incident_formatter import _normalize_timestamp
 
 
 class TestNormalizeTimestamp:

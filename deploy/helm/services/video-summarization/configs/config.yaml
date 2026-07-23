@@ -75,11 +75,13 @@ tools:
 
 functions:
   summarization:
-    type: vlm_structured_summarization_online
+    # File summaries already accumulate RT-VLM captions synchronously over
+    # SSE. Keep this path independent of the live-stream Kafka/ES pipeline.
+    type: vlm_structured_summarization
     params:
       time_overlap_threshold: 0.1
       max_events_per_batch: 50
-      kafka_enabled: true
+      kafka_enabled: false
       enable_llm_merging: !ENV ${LVS_ENABLE_LLM_MERGING:false}
     tools:
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}

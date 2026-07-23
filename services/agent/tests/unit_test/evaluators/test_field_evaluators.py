@@ -12,19 +12,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/evaluators/report_evaluator/field_evaluators/."""
+"""Tests for agent/evaluators/report_evaluator/field_evaluators/."""
 
 import pytest
 
-from vss_agents.evaluators.report_evaluator.field_evaluators.base import METRIC_REGISTRY
-from vss_agents.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
-from vss_agents.evaluators.report_evaluator.field_evaluators.base import register_metric
-from vss_agents.evaluators.report_evaluator.field_evaluators.common import ExactMatchMetric
-from vss_agents.evaluators.report_evaluator.field_evaluators.common import F1Metric
-from vss_agents.evaluators.report_evaluator.field_evaluators.common import NonEmptyMetric
-from vss_agents.evaluators.report_evaluator.field_evaluators.common import RegexMetric
-from vss_agents.evaluators.report_evaluator.field_evaluators.common import calculate_f1_score
-from vss_agents.evaluators.report_evaluator.field_evaluators.common import tokenize_text
+from agent.evaluators.report_evaluator.field_evaluators.base import METRIC_REGISTRY
+from agent.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
+from agent.evaluators.report_evaluator.field_evaluators.base import register_metric
+from agent.evaluators.report_evaluator.field_evaluators.common import ExactMatchMetric
+from agent.evaluators.report_evaluator.field_evaluators.common import F1Metric
+from agent.evaluators.report_evaluator.field_evaluators.common import NonEmptyMetric
+from agent.evaluators.report_evaluator.field_evaluators.common import RegexMetric
+from agent.evaluators.report_evaluator.field_evaluators.common import calculate_f1_score
+from agent.evaluators.report_evaluator.field_evaluators.common import tokenize_text
 
 
 class TestTokenizeText:

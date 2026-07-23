@@ -138,6 +138,24 @@ repo evolves.
    | new Dockerfile (new service) | new `templates/<svc>-deployment.yaml` + values entry |
    | NIM / GPU resource hints | `resources.limits.nvidia.com/gpu` + tolerations / nodeSelector |
 
+   **Intentional developer/release image-channel split.** Image-coordinate
+   equality has one explicit exception and must not be reported as Helm drift:
+
+   - Images classified with `"ghcr_build": true` in
+     `deploy/docker/container-inventory.json` use GHCR moving aliases in Docker
+     Compose for continuous developer testing.
+   - Their Helm charts are the QA/release channel and intentionally retain
+     immutable `nvcr.io/nvstaging/vss-core/*` pins until the tested digest is
+     promoted. Each intentional pin carries a
+     `HELM_RELEASE_CHANNEL_POLICY` comment immediately above its `image:` block.
+   - Treat that GHCR `develop-latest` versus immutable NGC staging difference
+     as **already synced**. Never propose putting `develop-latest` in Helm:
+     doing so would bypass nightly acceptance and make Kubernetes deployments
+     consume an unvalidated mutable alias.
+   - Continue to flag every other semantic difference, including image changes
+     for inventory entries without `ghcr_build`, missing policy comments,
+     container env, ports, mounts, commands, probes, resources, and topology.
+
    For each docker-side change, decide one of:
    - **already synced** — the helm-side change matches semantically.
      Don't second-guess wording differences (e.g. helm uses
