@@ -35,7 +35,7 @@ jobs:
             project_key: TEGRASW_metropolis_video-search-and-summarization-agent_video-search-and-summarization
             project_name: video-search-and-summarization-agent
             sources: services/agent
-            tests: services/agent/tests
+            tests: services/agent/packages/vss_core/tests,services/agent/packages/vss_agents/tests,services/agent/packages/vss_cli/tests
             python_version: "3.13"
           - name: ui
             project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
@@ -87,7 +87,7 @@ jobs:
 
           # Keep the agent's production and test scopes disjoint.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**,services/agent/tests/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**"
           fi
 
           {
@@ -117,7 +117,7 @@ jobs:
             # new-code coverage gate. They are still analyzed for bugs,
             # code smells, and duplication.
             agent_coverage_exclusions=(
-              "**/lib/knowledge/**"
+              "**/vss_core/knowledge/**"
               "**/agents/report_agent_old.py"
               "**/api/custom_fastapi_worker.py"
               "**/sitecustomize.py"

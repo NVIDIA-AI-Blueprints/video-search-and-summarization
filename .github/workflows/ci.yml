@@ -317,7 +317,7 @@ jobs:
       - name: Build and test NAT-free base distribution
         run: |
           uv sync --frozen --no-dev --group cli-dev --extra cli
-          uv run --no-sync mypy packages/vss_core/src/vss_core packages/vss_cli/src/vss_cli
+          uv run --no-sync mypy packages/vss_core/src/vss_core/_foundation packages/vss_core/src/vss_core/critic packages/vss_core/src/vss_core/search_core packages/vss_core/src/vss_core/vlm packages/vss_core/src/vss_core/vst packages/vss_cli/src/vss_cli
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
