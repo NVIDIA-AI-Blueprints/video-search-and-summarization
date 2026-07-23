@@ -234,7 +234,11 @@ class BrevEnvironment(BaseEnvironment):
             self._instance_name,
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
+            # Use -RH to follow symlinks at the command-line arguments —
+            # /logs is commonly a symlink to /opt/dlami/nvme/logs on these
+            # instances, and plain -R only changes the symlink itself without
+            # descending into the target directory.
+            "sudo chown -RH $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
         # Fail loud: this is the load-bearing artifacts wipe. A silent failure
@@ -1449,35 +1453,40 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
     """
     if not raw:
         return []
-    # Try full parse first (handles both formats without bracket heuristics)
-    stripped = raw.strip()
-    try:
-        parsed = json.loads(stripped)
+
+    def _extract_list(parsed: object) -> list[dict]:
         if isinstance(parsed, list):
             return parsed
-        if isinstance(parsed, dict) and "workspaces" in parsed:
-            return parsed["workspaces"]
+        if isinstance(parsed, dict):
+            for key in ("workspaces", "instances", "nodes"):
+                if isinstance(parsed.get(key), list):
+                    return parsed[key]
+            for value in parsed.values():
+                if isinstance(value, list):
+                    return value
         return []
+
+    # Try full parse first (handles both formats without bracket heuristics).
+    stripped = raw.strip()
+    try:
+        return _extract_list(json.loads(stripped))
     except json.JSONDecodeError:
         pass
-    # Fallback: strip trailing walkthrough text after last `]`
+
+    # Fallback: strip trailing walkthrough text after last `]`.
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
     try:
-        parsed = json.loads(raw[: bracket + 1])
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict) and "workspaces" in parsed:
-            return parsed["workspaces"]
-        return []
+        return _extract_list(json.loads(raw[: bracket + 1]))
     except json.JSONDecodeError:
         pass
-    # Last resort: extract the inner array from {"workspaces": [...]}
+
+    # Last resort: extract the inner array from {"workspaces": [...]}.
     start = raw.find("[")
     if start >= 0 and bracket > start:
         try:
-            return json.loads(raw[start: bracket + 1])
+            return _extract_list(json.loads(raw[start: bracket + 1]))
         except json.JSONDecodeError:
             pass
     return []
