@@ -177,10 +177,10 @@ functions:
   #   _type: knowledge_retrieval
   #   backend: arango_graph
   #   top_k: 5
+  #   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   #   backend_config:
   #     # Optional. Defaults to arango; custom providers can use provider_config.
   #     provider: arango
-  #     llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   #     # Provider-specific connection settings. These can also come from
   #     # ARANGO_* env vars.
   #     provider_config:
