@@ -32,7 +32,7 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 | VST / NvStreamer | ✅ | ✅ |
 | Auto-Calibration | ❌ (use the auto-calibration variant) | ❌ (use the auto-calibration variant) |
 | ELK (Elasticsearch/Logstash/Kibana) | ❌ | ✅ |
-| Video Analytics API (`vss-video-analytics-api`, `MDX_PORT` 8081) | ❌ | ✅ |
+| Video Analytics API (`vss-video-analytics-api`, `VIDEO_ANALYTICS_API_HOST_PORT` 8081) | ❌ | ✅ |
 | Monitoring | ❌ | ✅ |
 | Bounding box overlays in VST | ❌ | ✅ (requires Elasticsearch) |
 
@@ -170,7 +170,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | VST MCP (direct) | `http://<HOST_IP>:8001` | All warehouse variants |
 | Phoenix (direct) | `http://<HOST_IP>:6006` | `BP_PROFILE=bp_wh` only (prefer `/phoenix` via HAProxy) |
 | Kibana (direct) | `http://<HOST_IP>:5601` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/kibana` via HAProxy |
-| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/video-analytics-api` via HAProxy |
+| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`VIDEO_ANALYTICS_API_HOST_PORT`) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/video-analytics-api` via HAProxy |
 | VST UI | `http://<HOST_IP>:30888/vst/` | All warehouse variants — direct port, not proxied via HAProxy |
 
 `EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. The HAProxy `h_main` ACL routes browser traffic through `${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`; for local defaults this is `${EXTERNAL_IP}:${HAPROXY_HOST_PORT}`. Wrong Host headers get a 404 from haproxy.
