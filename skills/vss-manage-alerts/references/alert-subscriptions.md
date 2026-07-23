@@ -1,12 +1,16 @@
 # Alert Subscriptions
 
-You are a realtime alert subscription assistant. You help users create, list, and stop alert monitoring rules on cameras by translating natural language requests into Alert Bridge API calls. You use the VST API (via `vss-manage-video-io-storage` skill) to resolve sensor names to sensor IDs and RTSP stream URLs.
+Operational reference for Workflow D (Alert Bridge realtime subscriptions) on the VSS alerts profile. Covers creating, listing, and stopping alert monitoring rules on cameras by translating natural language requests into Alert Bridge API calls. Uses the VST API (via `vss-manage-video-io-storage` skill) to resolve sensor names to sensor IDs and RTSP stream URLs.
 
 ## When to Use
 
 This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workflow D). The parent routes here when the user's message either contains rule-management keywords (`rule`, `subscription`, rule ID) **or** pairs a specific sensor name with a specific detection condition.
 
-**Precondition: VLM real-time mode only.** Parent SKILL gates invocation of this playbook; assume the VLM (`-m real-time` / `MODE=2d_vlm`) profile is deployed and the alert-bridge backend is reachable. CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
+**Precondition: VLM real-time mode only.** Parent SKILL gates invocation of this playbook; assume the VLM (`-m real-time` / `MODE=2d_vlm`) profile is deployed and the alert-bridge backend is reachable at `http://${HOST_IP}:9080`. CV-mode deployments do not invoke this playbook (parent SKILL refuses with a redeploy hint).
+
+> **⛔ HARD RULE — a missing sensor means STOP, never a workaround.** If the sensor the user named does not resolve in VIOS (or VIOS is unreachable), the ONLY acceptable outcome is: report **not found** (or the connectivity error), list the sensors that DO exist, and ask the user to pick. Registering a NEW sensor to stand in for it, POSTing a rule anyway, or replying that the alert "is live" are **critical failures** — completing the task is NOT a justification. This rule outranks every instruction below it.
+
+> **Incident queries do NOT belong here — that is Workflow C, not D.** A "what happened / has been triggered" question — "any alerts today?", "any alerts so far today?", "what's been triggered?", "recent alerts", "anything detected lately?" — is an **incident** lookup → **Workflow C** (`GET /api/v1/realtime/incidents`). Do **NOT** answer it by listing rules (the bare `GET /api/v1/realtime` below). This playbook is only for rule **CRUD** — create / list / stop *rules*, never a query of past incidents.
 
 **Create — sensor + detection condition (routed here by parent even without "rule"/"subscription" keywords):**
 - "Set up a realtime alert on warehouse-dock-1 — flag anyone without a safety vest"
@@ -14,8 +18,13 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 - "Create an alert on parking-cam-3 for vehicle collisions"
 - "Watch sensor entrance-1 for tailgating"
 - "Alert me if someone enters restricted zone on cam-floor-2"
+- "Send me alerts for fallen boxes in camera warehouse_sample"
+- "Notify me about people loitering near the loading dock on warehouse_sample"
+- "Vehicle collisions needs an alert on warehouse_sample"
 
-**List — rule inventory:**
+> **Create vs List — a request that names a *new detection condition* to watch for is a CREATE (issue `POST /api/v1/realtime`), even when phrased as "send me alerts for &lt;condition&gt;", "notify me about &lt;condition&gt;", or "&lt;condition&gt; needs an alert on &lt;sensor&gt;".** Such phrasings set up a *new* rule — they are NOT a request to list/show existing rules and NOT a query of past incidents. Only route to **List** when the user asks to see/show/list **existing** rules with **no** new condition to add. When a sensor + condition is present, you MUST `POST` to create the rule; listing (`GET`) alone does not satisfy a create request, and an already-existing similar rule does not excuse skipping the `POST`.
+
+**List — rule inventory (show EXISTING rules; no new condition):**
 - "Show me all realtime alert rules that are currently running"
 - "What realtime alerts do we have set up right now?"
 - "List active rules on warehouse-dock-1"
@@ -27,30 +36,30 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 - "Turn off the fire detection alert on cam-floor-2"
 - "Stop rule 496aebd1-16d0-4123-81cf-10603e047d02"
 
-**Not this skill** (handled by parent Workflow B instead):
-- "Start real-time alert for sensor warehouse_sample" — no detection condition specified, generic start
+**Condition-less start is handled here too:**
+- "Start a real-time alert on sensor warehouse_sample" — no detection condition specified. This still creates a rule; use the **default prompt** (see Create Step 1) instead of asking the user for a condition.
 
 ---
 
 ## Setup
 
-**1. Alert Bridge endpoint:** `http://host.openshell.internal:9080`
+**1. Alert Bridge endpoint:** `http://${HOST_IP}:9080`
 - It is reachable directly from the sandbox at this URL.
 - Do NOT prompt the user for the endpoint; use this one.
-- All Alert Bridge API calls use this base: `http://host.openshell.internal:9080/api/v1/realtime`
+- All Alert Bridge API calls use this base: `http://${HOST_IP}:9080/api/v1/realtime`
 
 **2. Alert Bridge health check path:** `/health` (NOT `/api/v1/health`)
 - The correct probe is:
   ```bash
-  curl -sf --connect-timeout 5 "http://host.openshell.internal:9080/health"
+  curl -sf --connect-timeout 5 "http://${HOST_IP}:9080/health"
   ```
 - `/api/v1/health` returns 404 — do not use it.
 - If the backend is unavailable (non-zero exit code or connection error), abort and report the connectivity error.
 
-**3. Do NOT route through the VSS Agent `/generate` endpoint under any circumstance. Workflow D MUST call Alert Bridge directly at `http://host.openshell.internal:9080/api/v1/realtime`. If Alert Bridge is unreachable, abort and report the connectivity error — do not fall back to `/generate`.
+**3. Do NOT route through the VSS Agent `/generate` endpoint under any circumstance. Workflow D MUST call Alert Bridge directly at `http://${HOST_IP}:9080/api/v1/realtime`. If Alert Bridge is unreachable, abort and report the connectivity error — do not fall back to `/generate`.
 
 **4. Payload must include `sensor_id` as the UUID from VIOS:**
-- Call `GET http://host.openshell.internal:30888/vst/api/v1/sensor/list`
+- Call `GET http://${HOST_IP}:30888/vst/api/v1/sensor/list`
 - Match by name, extract the `sensorId` field (UUID).
 - Put that UUID in the Alert Bridge payload's `sensor_id` field — not the name.
 
@@ -59,7 +68,7 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 **Auth:** Optional. Most deployments run without auth. If a `401` is returned, retry with `-H "Authorization: Bearer <token>"` and ask the user for the token.
 
 **Dependency — vss-manage-video-io-storage skill (VIOS/VST):**
-This skill depends on the `vss-manage-video-io-storage` skill for VST endpoint resolution. The VST API at `http://host.openshell.internal:30888/vst/api/v1/` is used to look up sensor IDs, names, and RTSP stream URLs.
+This skill depends on the `vss-manage-video-io-storage` skill for VST endpoint resolution. The VST API at `http://${HOST_IP}:30888/vst/api/v1/` is used to look up sensor IDs, names, and RTSP stream URLs.
 - If VST is unreachable, sensor resolution cannot proceed. Surface it as: "Cannot resolve sensor — the camera service (VST) is not responding. Please ensure VST is running and try again."
 
 ---
@@ -81,7 +90,9 @@ Example: *"Set up a realtime alert on warehouse-dock-1 — flag anyone entering 
 - `sensor_name` -> `warehouse-dock-1`
 - `prompt` -> `flag anyone entering aisle 4, aisle 5, or the rack B3 area without a safety vest`
 
-**Both fields are required.** If the sensor name is missing or ambiguous in the message, do NOT guess or pick a default sensor. Stop and ask the user: "Which sensor/camera do you want to monitor?" If the monitoring condition is missing, ask: "What condition should I watch for?" Never proceed to Step 2 without an explicit sensor name from the user.
+**The sensor name is required; the condition is optional.** If the sensor name is missing or ambiguous, do NOT guess or pick a default sensor — stop and ask: "Which sensor/camera do you want to monitor?" Never proceed to Step 2 without an explicit sensor name.
+
+If the **detection condition is missing** (a bare "start a real-time alert on `<sensor>`"), do NOT block — use the **default prompt** `"Describe any notable events or anomalies in this video stream."` with `alert_type` `general_monitoring`. Only these defaults substitute for a missing condition; a condition the user *does* give is always passed through verbatim.
 
 ---
 
@@ -92,7 +103,7 @@ Resolve the user's sensor name to three values needed for the payload: `sensor_i
 **2a. Fetch the sensor list:**
 
 ```bash
-curl -s "http://host.openshell.internal:30888/vst/api/v1/sensor/list" | jq .
+curl -s "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq .
 ```
 
 Example response (each entry has `name` and `sensorId`):
@@ -114,13 +125,14 @@ Find the entry whose `name` matches the user's sensor name (case-insensitive). F
 - **`sensorId`** — e.g. `"2812768c-f21b-450e-a7be-2bbf406aaaa0"` → this becomes `sensor_id` in the payload
 - **`name`** — e.g. `"warehouse-dock-1"` → this becomes `sensor_name` in the payload
 
-If **no match** — reply with available sensor names and ask the user to clarify.
+If **no match** — **STOP here.** The named sensor does not exist in VIOS. Reply that `<sensor_name>` was **not found**, list the available sensor names, and ask the user to pick one. Do **NOT** invent or guess a `sensor_id` or `live_stream_url`, do **NOT** work around the miss by **registering a new sensor** (`POST /sensor/add`) to mint an id — onboarding happens only when the user explicitly asks to add a camera and supplies its source, never as a substitute for a sensor they named — do **NOT** POST a rule to Alert Bridge, and do **NOT** report the alert as created. Reporting success for an unresolved sensor is a failure.
+If **VIOS itself is unreachable** during resolution — do not improvise: report the connectivity error exactly as the Setup section says ("Cannot resolve sensor — the camera service (VST) is not responding…") and STOP; an unreachable VIOS is never a reason to mint sensors or rules.
 If **multiple matches** — list them and ask which one the user meant.
 
 **2c. Fetch RTSP URL using the `sensorId`:**
 
 ```bash
-curl -s "http://host.openshell.internal:30888/vst/api/v1/sensor/<sensorId>/streams" | jq .
+curl -s "http://${HOST_IP}:30888/vst/api/v1/sensor/<sensorId>/streams" | jq .
 ```
 
 Select the main stream (`isMain: true`) and extract the `url` field → this becomes `live_stream_url` in the payload.
@@ -145,6 +157,8 @@ From the user's prompt, generate a short `snake_case` tag that summarizes the al
 - Lowercase, words separated by underscores
 - 2-4 words maximum
 - Descriptive of the specific monitoring condition
+- **Derive it from the detection condition in *this* request only.** Map the *condition phrase*, not the sensor name, the sentence subject, or a location: "anyone without a safety vest" → `ppe_vest_violation` (NOT `box_dropped`), "smoke detection" → `smoke_detection` (NOT `camera_02`), "people loitering near the loading dock" → `people_loitering` (NOT `loading_dock`).
+- **Never reuse an `alert_type` from an existing rule or a previous request.** If you list existing rules first (e.g. to check for duplicates), ignore their tags when deriving this one — a leftover `fallen_boxes`/`box_dropped` rule from an earlier request must not influence a safety-vest request.
 
 **Examples:**
 
@@ -162,10 +176,12 @@ From the user's prompt, generate a short `snake_case` tag that summarizes the al
 
 ### Step 4 — Build and POST to Alert Bridge
 
+**Create the rule ONLY via Alert Bridge `POST :9080/api/v1/realtime`.** Never call the `rtvi-vlm` microservice (`:8018`, e.g. `POST /v1/streams/add`) directly — Alert Bridge wires the stream to rtvi-vlm itself; a direct `:8018` call bypasses rule persistence and is a failure even if the stream goes live.
+
 Construct the payload using values collected from the previous steps and POST to the Alert Bridge realtime endpoint:
 
 ```bash
-curl -s -X POST "http://host.openshell.internal:9080/api/v1/realtime" \
+curl -s -X POST "http://${HOST_IP}:9080/api/v1/realtime" \
   -H "Content-Type: application/json" \
   -d '{
     "live_stream_url": "<RTSP_URL>",
@@ -178,6 +194,15 @@ curl -s -X POST "http://host.openshell.internal:9080/api/v1/realtime" \
     "chunk_overlap_duration": 5
   }' | jq .
 ```
+
+**Send this canonical payload consistently.** Use exactly these field names
+and the fixed defaults shown (`system_prompt: "Answer yes or no"`,
+`chunk_duration: 30`, `chunk_overlap_duration: 5`) on every create — do not
+improvise extra fields, rename fields, or vary the defaults between requests.
+Only `live_stream_url`, `alert_type`, and `prompt` are strictly required by the
+API; the three sensor/`system_prompt`/chunk fields above are skill conventions
+that keep created rules uniform and the behavior reproducible. Omit `model` (the
+service falls back to its configured default).
 
 **Payload field reference:**
 
@@ -240,12 +265,12 @@ The resolved RTSP URL(s) are used **only for client-side filtering** — to matc
 ### Step 3 — Fetch Rules from Alert Bridge
 
 ```bash
-curl -s "http://host.openshell.internal:9080/api/v1/realtime" | jq .
+curl -s "http://${HOST_IP}:9080/api/v1/realtime" | jq .
 ```
 
 If the user specified an `alert_type` tag, add it as a query parameter:
 ```bash
-curl -s "http://host.openshell.internal:9080/api/v1/realtime?alert_type=<TAG>" | jq .
+curl -s "http://${HOST_IP}:9080/api/v1/realtime?alert_type=<TAG>" | jq .
 ```
 
 **Client-side filtering on the response:**
@@ -260,7 +285,7 @@ For each rule remaining after filtering, determine the human-readable sensor nam
 
 1. If the rule already contains a non-null `sensor_name` field, use it directly.
 2. Otherwise, fall back to reverse-resolving: fetch all streams via `GET /sensor/streams` (returns all streams grouped by sensorId), find the stream whose `url` matches the rule's `live_stream_url`, and use the corresponding sensor's `name`.
-3. If neither approach yields a name, display the `live_stream_url` as-is (fallback).
+3. If neither approach yields a name, show the rule's `sensor_id` (or the literal `(unresolved sensor)`) — **never** print the raw `live_stream_url` / `rtsp://` URL to the user.
 
 ---
 
@@ -275,6 +300,8 @@ Display one line per rule with these fields:
 | **Prompt** | `prompt` from the rule (truncate if longer than ~80 chars) |
 | **Created** | `created_at` from the rule |
 | **Rule ID** | `id` from the rule |
+
+> **Never expose raw RTSP / `live_stream_url` values in your reply.** The user must see only the reverse-resolved **sensor name** (or the `sensor_id` fallback) — do NOT print `rtsp://...` URLs, and do NOT dump the raw rule JSON. Show only human-readable fields: sensor name, tag, prompt, created time, rule ID. Leaking an `rtsp://` URL is an error.
 
 **Empty list is a success case.** If no rules are returned (or all are filtered out), reply:
 > "No realtime alert rules are currently running."
@@ -294,6 +321,10 @@ Do not treat an empty list as an error.
 
 "Stop X" and "yes" are NOT the same intent. "Stop X" always produces a question. Only "yes" produces a deletion. Even if you already know the rule ID from conversation context, "Stop X" still produces only a question.
 
+> **This confirmation is a user-facing safety gate, not a setup/deploy confirmation.** It ALWAYS applies — including under autonomous, pre-authorized, or non-interactive/CI execution. A "run autonomously / do not ask for confirmation" instruction authorizes deploy and setup actions only; it does NOT authorize you to skip this stop/delete confirmation. When there is no interactive user to answer (e.g. an eval harness), reply with the yes/no confirmation question (stating the rule ID and sensor) and STOP — do not issue the `DELETE`.
+>
+> **`DELETE` is never a diagnostic.** Do not issue `DELETE` calls as connectivity probes, retries-against-a-dead-endpoint, or cleanup attempts — diagnostics use `GET` / `/health` only. And when **no matching rule was found**, there is nothing to delete: zero `DELETE` calls may be issued on that turn.
+
 ### On "Stop" Request — Find Rule and Ask Confirmation
 
 **Parse sensor name and alert type from the message:**
@@ -312,7 +343,7 @@ Example: *"Stop the PPE alert on warehouse-dock-1."*
 **Fetch rules and filter:**
 
 ```bash
-curl -s "http://host.openshell.internal:9080/api/v1/realtime" | jq .
+curl -s "http://${HOST_IP}:9080/api/v1/realtime" | jq .
 ```
 
 Resolve the user's `sensor_name` to RTSP URL(s) via the VST API (same as Create Step 2), then apply both filters client-side on the response:
@@ -324,12 +355,14 @@ Resolve the user's `sensor_name` to RTSP URL(s) via the VST API (same as Create 
 | Matches | Action |
 |---|---|
 | **0** | Reply: "No matching rule found for `<alert_type>` on **<sensor_name>**. Would you like to see what's currently running?" |
-| **>1** | Reply: "Multiple rules match that description. Please be more specific — for example, include the exact alert type tag." Do NOT show a numbered picker. |
+| **>1** | Reply: "Multiple rules match that description." — then list each matching rule as `` `<alert_type>` (rule ID: `<id>`) on **<sensor_name>** `` and ask the user to specify the exact alert type tag or rule ID. Do NOT show a numbered picker. |
 | **1** | Reply with the confirmation question below. |
 
 **Your reply for 1 match — only this, nothing else:**
 
 > "Stop alert `<alert_type>` on **<sensor_name>**? (rule ID: `<id>`) — yes/no"
+
+**Always use this exact template.** The confirmation (and any disambiguation) MUST name the matched rule ID(s) and sensor — never a generic "are you sure?" without identifiers.
 
 ---
 
@@ -342,7 +375,7 @@ This section applies only when the user's message is "yes" (or equivalent) in re
 - User said **yes** -> execute:
 
 ```bash
-curl -s -X DELETE "http://host.openshell.internal:9080/api/v1/realtime/<RULE_ID>" | jq .
+curl -s -X DELETE "http://${HOST_IP}:9080/api/v1/realtime/<RULE_ID>" | jq .
 ```
 
 **Response handling:**
@@ -378,9 +411,9 @@ All errors must be translated into plain language. Never show raw HTTP responses
 
 ## Tips
 
-- **RTSP streams only:** Realtime alerts require a live RTSP stream. When resolving a sensor in Step 2, verify the stream `url` starts with `rtsp://`. If the `url` is a file path (e.g. `"/home/vst/vst_release/streamer_videos/video.mp4"`), the sensor is a file-based upload and cannot be used for realtime monitoring. Report: "Sensor '`<name>`' is a file-based sensor, not a live camera. Realtime alerts require a live RTSP stream."
+- **RTSP streams only:** Realtime alerts require a live RTSP stream. When resolving a sensor in Step 2, verify the stream `url` starts with `rtsp://`. If the `url` is a file path (e.g. `"/data/vst/streamer_videos/video.mp4"`), the sensor is a file-based upload and cannot be used for realtime monitoring. Report: "Sensor '`<name>`' is a file-based sensor, not a live camera. Realtime alerts require a live RTSP stream."
 - **jq:** All JSON responses are piped through `jq .` for readability.
-- **Endpoint resolution:** Alert Bridge is at `http://host.openshell.internal:9080`, VST is at `http://host.openshell.internal:30888`. These are hardcoded — do not prompt the user for them.
+- **Endpoint resolution:** The host comes from the `$HOST_IP` environment variable — Alert Bridge at `http://${HOST_IP}:9080`, VST at `http://${HOST_IP}:30888`. The ports are fixed; do not prompt the user for the host or ports.
 - **Prompt passthrough:** The user's prompt is sent verbatim to the Alert Bridge `prompt` field. Do not rephrase, summarize, or alter it — the vision model needs the user's original intent.
 
 ---

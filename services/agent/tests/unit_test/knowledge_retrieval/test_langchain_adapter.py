@@ -15,7 +15,7 @@
 """Tests for lib.knowledge.adapters.langchain.
 
 The `langchain-chroma` / `langchain-nvidia-ai-endpoints` packages are an
-optional extra (`vss-agents[langchain]`) and aren't installed in the default
+optional extra (`nvidia-vss[langchain]`) and aren't installed in the default
 test env. The adapter does deferred imports inside `__init__`, so we inject
 fake modules into `sys.modules` BEFORE constructing the adapter — the
 deferred import resolves to our fakes and we never need the real packages.
@@ -82,7 +82,7 @@ class TestLangChainImport:
         from lib.knowledge.adapters.langchain import LangChainAdapter
         from lib.knowledge.adapters.langchain import LangChainConfig
 
-        with pytest.raises(ImportError, match=r"vss-agents\[langchain\]"):
+        with pytest.raises(ImportError, match=r"nvidia-vss\[langchain\]"):
             LangChainAdapter(LangChainConfig(persist_dir="/tmp/chroma"))
 
 

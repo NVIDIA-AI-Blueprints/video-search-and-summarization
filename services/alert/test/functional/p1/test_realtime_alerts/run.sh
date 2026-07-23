@@ -583,6 +583,143 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 8c: consolidate groups consecutive positives; raw still available
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8c: consolidate groups consecutive positives..."
+CONSOL_IDX="mdx-vlm-incidents-2099-01-01"
+CONSOL_SENSOR="p1-consolidation"
+curl -s -X DELETE "${ES_HOST}/${CONSOL_IDX}" >/dev/null 2>&1 || true
+for i in 1 2 3; do
+    ss=$(( (i - 1) * 20 )); ee=$(( ss + 15 ))
+    start=$(printf "2099-01-01T00:00:%02d.000Z" "$ss")
+    end=$(printf "2099-01-01T00:00:%02d.000Z" "$ee")
+    curl -s -X PUT "${ES_HOST}/${CONSOL_IDX}/_doc/${CONSOL_SENSOR}-${i}" \
+        -H "Content-Type: application/json" \
+        -d "{\"sensorId\":\"${CONSOL_SENSOR}\",\"category\":\"alert\",\"timestamp\":\"${start}\",\"end\":\"${end}\",\"info\":{\"requestId\":\"p1\",\"chunkIdx\":\"${i}\",\"verdict\":\"confirmed\"}}" \
+        >/dev/null 2>&1
+done
+curl -s -X POST "${ES_HOST}/${CONSOL_IDX}/_refresh" >/dev/null 2>&1
+
+CONSOL_WINDOW="start_time=2099-01-01T00:00:00Z&end_time=2099-01-01T01:00:00Z"
+RAW_CNT=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=false" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=true&${CONSOL_WINDOW}")
+CONS_CNT=$(echo "$CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+CONS_TOTAL=$(echo "$CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+CONS_FLAG=$(echo "$CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('isConsolidated','') if inc else '')" 2>/dev/null || echo "")
+# consolidate without a time window is rejected (a bounded window is required)
+NO_WINDOW_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$AB_HOST/api/v1/realtime/incidents?sensor_id=${CONSOL_SENSOR}&consolidate=true" 2>/dev/null || echo "0")
+
+if [ "$RAW_CNT" = "3" ] && [ "$CONS_CNT" = "1" ] && [ "$CONS_TOTAL" = "1" ] && [ "$CONS_FLAG" = "true" ] && [ "$NO_WINDOW_CODE" = "400" ]; then
+    print_status "ok" "PASS: 3 raw chunks -> 1 event (total=events=1); consolidate requires a window (400)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: consolidate (raw=$RAW_CNT cons=$CONS_CNT total=$CONS_TOTAL flag=$CONS_FLAG no_window=$NO_WINDOW_CODE)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${CONSOL_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
+# Test 8d: consolidation groups are isolated by (sensor, category)
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8d: consolidation grouping isolation by sensor and category..."
+ISO_IDX="mdx-vlm-incidents-2099-02-02"
+ISO_WINDOW="start_time=2099-02-02T00:00:00Z&end_time=2099-02-02T01:00:00Z"
+curl -s -X DELETE "${ES_HOST}/${ISO_IDX}" >/dev/null 2>&1 || true
+# sensor A / alert: two consecutive chunks (merge -> 1 event)
+# sensor A / intrusion: one chunk (separate category -> own event)
+# sensor B / alert: one chunk (separate sensor -> own event)
+iso_put() {  # <docId> <sensor> <category> <startISO> <endISO> <chunkIdx>
+    curl -s -X PUT "${ES_HOST}/${ISO_IDX}/_doc/$1" -H "Content-Type: application/json" \
+        -d "{\"sensorId\":\"$2\",\"category\":\"$3\",\"timestamp\":\"$4\",\"end\":\"$5\",\"info\":{\"requestId\":\"r\",\"chunkIdx\":\"$6\",\"verdict\":\"confirmed\"}}" \
+        >/dev/null 2>&1
+}
+iso_put isoA1 p1-iso-a alert     "2099-02-02T00:00:00.000Z" "2099-02-02T00:00:30.000Z" 1
+iso_put isoA2 p1-iso-a alert     "2099-02-02T00:00:25.000Z" "2099-02-02T00:00:55.000Z" 2
+iso_put isoA3 p1-iso-a intrusion "2099-02-02T00:00:00.000Z" "2099-02-02T00:00:30.000Z" 1
+iso_put isoB1 p1-iso-b alert     "2099-02-02T00:00:00.000Z" "2099-02-02T00:00:30.000Z" 1
+curl -s -X POST "${ES_HOST}/${ISO_IDX}/_refresh" >/dev/null 2>&1
+
+ISO_A=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=p1-iso-a&consolidate=true&${ISO_WINDOW}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+ISO_B=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=p1-iso-b&consolidate=true&${ISO_WINDOW}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+
+# sensor A -> 2 events (alert merged + intrusion); sensor B -> 1 event
+if [ "$ISO_A" = "2" ] && [ "$ISO_B" = "1" ]; then
+    print_status "ok" "PASS: groups isolated by (sensor, category) (A=2 events, B=1 event)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: grouping isolation (A=$ISO_A expected 2, B=$ISO_B expected 1)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${ISO_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
+# Test 8e: REG-009 — verifier-path docs are excluded from the consolidated view
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8e: verifier-path docs excluded from consolidated view (REG-009)..."
+MIX_IDX="mdx-vlm-incidents-2099-03-03"
+MIX_SENSOR="p1-mixed"
+MIX_WINDOW="start_time=2099-03-03T00:00:00Z&end_time=2099-03-03T01:00:00Z"
+curl -s -X DELETE "${ES_HOST}/${MIX_IDX}" >/dev/null 2>&1 || true
+# realtime RT-VLM chunk (carries info.chunkIdx) — MUST appear
+curl -s -X PUT "${ES_HOST}/${MIX_IDX}/_doc/rt1" -H "Content-Type: application/json" \
+    -d "{\"sensorId\":\"${MIX_SENSOR}\",\"category\":\"alert\",\"timestamp\":\"2099-03-03T00:00:00.000Z\",\"end\":\"2099-03-03T00:00:30.000Z\",\"info\":{\"requestId\":\"r\",\"chunkIdx\":\"1\",\"verdict\":\"confirmed\"}}" >/dev/null 2>&1
+# verifier-path doc (detection module, NO info.chunkIdx) — MUST be excluded
+curl -s -X PUT "${ES_HOST}/${MIX_IDX}/_doc/vf1" -H "Content-Type: application/json" \
+    -d "{\"sensorId\":\"${MIX_SENSOR}\",\"category\":\"alert\",\"timestamp\":\"2099-03-03T00:00:10.000Z\",\"end\":\"2099-03-03T00:00:40.000Z\",\"analyticsModule\":{\"id\":\"Collision Detection Module\"},\"info\":{\"verdict\":\"confirmed\"}}" >/dev/null 2>&1
+curl -s -X POST "${ES_HOST}/${MIX_IDX}/_refresh" >/dev/null 2>&1
+
+MIX_CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${MIX_SENSOR}&consolidate=true&${MIX_WINDOW}")
+MIX_EVENTS=$(echo "$MIX_CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+MIX_CC=$(echo "$MIX_CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('chunkCount','') if inc else '')" 2>/dev/null || echo "")
+MIX_RAW=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${MIX_SENSOR}&consolidate=false" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+
+# consolidated: 1 event from the realtime chunk only (chunkCount=1); raw: both docs
+if [ "$MIX_EVENTS" = "1" ] && [ "$MIX_CC" = "1" ] && [ "$MIX_RAW" = "2" ]; then
+    print_status "ok" "PASS: verifier doc excluded from consolidated (events=1, chunkCount=1), raw shows both (2)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: mixed-source (events=$MIX_EVENTS chunkCount=$MIX_CC raw=$MIX_RAW)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${MIX_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
+# Test 8f: rejected/no chunks are excluded from consolidation
+# ---------------------------------------------------------------------------
+print_status "wait" "Test 8f: rejected chunks excluded from consolidated view..."
+VD_IDX="mdx-vlm-incidents-2099-04-04"
+VD_SENSOR="p1-verdict-mix"
+VD_WINDOW="start_time=2099-04-04T00:00:00Z&end_time=2099-04-04T01:00:00Z"
+curl -s -X DELETE "${ES_HOST}/${VD_IDX}" >/dev/null 2>&1 || true
+# confirmed/yes chunk followed by an adjacent rejected/no chunk (same session)
+curl -s -X PUT "${ES_HOST}/${VD_IDX}/_doc/vd-ok" -H "Content-Type: application/json" \
+    -d '{"sensorId":"p1-verdict-mix","category":"alert","timestamp":"2099-04-04T00:00:00.000Z","end":"2099-04-04T00:00:30.000Z","info":{"requestId":"r","chunkIdx":"0","verdict":"confirmed","triggerPhrase":"yes"}}' >/dev/null 2>&1
+curl -s -X PUT "${ES_HOST}/${VD_IDX}/_doc/vd-no" -H "Content-Type: application/json" \
+    -d '{"sensorId":"p1-verdict-mix","category":"alert","timestamp":"2099-04-04T00:00:30.000Z","end":"2099-04-04T00:01:00.000Z","info":{"requestId":"r","chunkIdx":"1","verdict":"rejected","triggerPhrase":"no"}}' >/dev/null 2>&1
+curl -s -X POST "${ES_HOST}/${VD_IDX}/_refresh" >/dev/null 2>&1
+
+VD_CONS=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${VD_SENSOR}&category=alert&consolidate=true&${VD_WINDOW}")
+VD_EVENTS=$(echo "$VD_CONS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',-1))" 2>/dev/null || echo "-1")
+VD_CC=$(echo "$VD_CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('chunkCount','') if inc else '')" 2>/dev/null || echo "")
+VD_VERDICT=$(echo "$VD_CONS" | python3 -c "import sys,json; d=json.load(sys.stdin); inc=d.get('incidents',[]); print(inc[0].get('info',{}).get('verdict','') if inc else '')" 2>/dev/null || echo "")
+VD_RAW=$(do_request "GET" "/api/v1/realtime/incidents?sensor_id=${VD_SENSOR}&consolidate=false" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',-1))" 2>/dev/null || echo "-1")
+
+# consolidated: 1 event from the confirmed chunk only, verdict stays confirmed; raw: both docs
+if [ "$VD_EVENTS" = "1" ] && [ "$VD_CC" = "1" ] && [ "$VD_VERDICT" = "confirmed" ] && [ "$VD_RAW" = "2" ]; then
+    print_status "ok" "PASS: rejected chunk excluded (events=1, chunkCount=1, verdict=confirmed); raw shows both (2)"
+    ((PASSED++))
+else
+    print_status "fail" "FAIL: verdict-mix (events=$VD_EVENTS cc=$VD_CC verdict=$VD_VERDICT raw=$VD_RAW)"
+    ((FAILED++))
+fi
+curl -s -X DELETE "${ES_HOST}/${VD_IDX}" >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
 # Test 9: Caption-start failure — RTVI rejects generate_captions_alerts
 #         Expects: stream rolled back on RTVI, rule absent in AB
 # ---------------------------------------------------------------------------

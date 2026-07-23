@@ -308,7 +308,7 @@ class MetadataResponse(CommonBaseModel):
 
     version: str = Field(
         description="Service version.",
-        examples=["3.2.0"],
+        examples=["3.2.1"],
         max_length=64,
         pattern=VERSION_PATTERN,
     )

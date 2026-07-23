@@ -13,7 +13,7 @@ The sample includes GT, so the run produces evaluation metrics (L2 distance, rep
   - The inline run block self-heals: if `requests` is missing it creates a throwaway venv under `${TMPDIR:-/tmp}/amc-sample-test-venv` (nothing written to the repo).
   - If `python3 -m venv` itself fails with `ensurepip not available`, the inline block falls back to [`uv`](https://astral.sh/uv) (sudo-free, installed via `curl -LsSf https://astral.sh/uv/install.sh | sh`). If neither path is available: `sudo apt install -y python3-venv python3-pip` as a last resort.
 
-The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-modes) section.
+The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-calibration-modes) section.
 
 ## Quick Start for Agents
 
@@ -108,14 +108,17 @@ ls "$SAMPLE_DIR"
 
 ## Run Inline (No File Written)
 
-Run the test on the fly — pipe Python into `python3` via heredoc so nothing is saved into the user's repo. The block below is fully self-contained: it resolves `REPO_ROOT` via `git rev-parse`, reads `MS_PORT` from the warehouse-operations `.env`, picks (or creates) a Python with `requests` installed, and then pipes the inline script. Safe to copy/paste verbatim. Each invocation creates a fresh project.
+Run the test on the fly — pipe Python into `python3` via heredoc so nothing is saved into the user's repo. The block below is fully self-contained: it resolves `REPO_ROOT` via `git rev-parse`, reads `MS_PORT` and `HOST_IP` from the warehouse runtime override env, picks (or creates) a Python with `requests` installed, and then pipes the inline script. Safe to copy/paste verbatim. Each invocation creates a fresh project.
 
 ```bash
 # Resolve env
 export REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-ENV_FILE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env"
-export MS_PORT="$(grep ^VSS_AUTO_CALIBRATION_PORT "$ENV_FILE" 2>/dev/null | cut -d= -f2)"
+ENV_STABLE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env"
+ENV_RUNTIME="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+[ -f "$ENV_RUNTIME" ] || ENV_RUNTIME="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/overrides.env"
+export MS_PORT="$(grep ^VSS_AUTO_CALIBRATION_HOST_PORT "$ENV_RUNTIME" 2>/dev/null | cut -d= -f2)"
 export MS_PORT="${MS_PORT:-8010}"
+HOST_IP="$(grep ^HOST_IP "$ENV_RUNTIME" 2>/dev/null | cut -d= -f2 | tr -d '"')"
 export BASE_URL="http://${HOST_IP:-localhost}:${MS_PORT}/v1"
 # Optional: export SAMPLE_DIR=/abs/path/to/extracted/sample to override autodetection
 
@@ -210,22 +213,24 @@ print(f"Videos:     {[v.name for v in videos]}")
 
 s = requests.Session()
 
-# Step 1 — Create project
+# Create the sample-dataset project
 project_name = f"sample_test_{int(time.time())}"
 r = s.post(f"{BASE_URL}/create_project", data={"project_name": project_name})
 r.raise_for_status()
 project_id = r.json()["project_id"]
 print(f"[1] Created project {project_name} → {project_id}")
 
-# Step 2 — Upload videos (sorted; upload order defines the camera indices).
-# Same multipart pattern as videos.md § "Step 2 — Upload videos (sorted)",
-# iterating over this script's `videos` (the bundled cam_*.mp4).
-files, handles = [], []
-for v in videos:
-    f = open(v, "rb"); handles.append(f)
-    files.append(("files", (v.name, f, "video/mp4")))
-r = s.post(f"{BASE_URL}/upload_video_files/{project_id}", files=files, timeout=300)
-for f in handles: f.close()
+# Upload the bundled sample cameras; order defines camera indices.
+upload_parts, open_files = [], []
+try:
+    for video_path in videos:
+        handle = video_path.open("rb")
+        open_files.append(handle)
+        upload_parts.append(("files", (video_path.name, handle, "video/mp4")))
+    r = s.post(f"{BASE_URL}/upload_video_files/{project_id}", files=upload_parts, timeout=300)
+finally:
+    for handle in open_files:
+        handle.close()
 r.raise_for_status()
 print(f"[2] Uploaded {len(videos)} videos")
 
@@ -312,8 +317,8 @@ Average reprojection error 0(px)     : < 10
 ```bash
 PROJECT_ID=<id_from_step_1>
 # Calibration log lives under the projects dir, relative to the container
-# WorkingDir (/home/auto-calibration-ms/server) — so the path is projects/...,
-# NOT server/projects/... (that resolves to server/server/projects → no such file).
+# working directory. Use projects/...; do not prefix it with the
+# working-directory basename.
 docker exec vss-auto-calibration tail -F projects/project_${PROJECT_ID}/calibration.log
 ```
 

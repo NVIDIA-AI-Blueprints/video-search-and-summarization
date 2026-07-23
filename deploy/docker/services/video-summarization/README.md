@@ -17,7 +17,10 @@ Create a `.env.lvs-server-standalone` file with your configuration:
 
 ```bash
 # Container Configuration
-CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-long-video-summarization:3.1.0
+# For x86 and Jetson Thor platforms, use the plain tag:
+CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1
+# On SBSA / DGX Spark / Grace (server-class ARM64) hosts, use the -sbsa tag:
+# CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1-sbsa
 GPU_DEVICES=2,3
 
 # Port Configuration

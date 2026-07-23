@@ -480,11 +480,14 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.enable_silent_audio_in_udp_input = data.get("enable_silent_audio_in_udp_input", false).asBool();
         m_vmsConfig.enable_udp_input_dump = data.get("enable_udp_input_dump", false).asBool();
         m_vmsConfig.webrtc_out_default_resolution = data.get("webrtc_out_default_resolution", "").asString();
-#ifdef JETSON_PLATFORM
-        m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
-#else
-        m_vmsConfig.enable_ipc_path = false;
-#endif
+        if (isJetsonPlatform())
+        {
+            m_vmsConfig.enable_ipc_path = data.get("enable_ipc_path", false).asBool();
+        }
+        else
+        {
+            m_vmsConfig.enable_ipc_path = false;
+        }
         m_vmsConfig.ipc_src_buffer_timestamp_copy  = data.get("ipc_src_buffer_timestamp_copy", true).asBool();
         m_vmsConfig.ipc_src_connection_attempts    = data.get("ipc_src_connection_attempts", 5).asInt();
         m_vmsConfig.ipc_src_connection_interval_us = data.get("ipc_src_connection_interval_us", 1000000).asInt();
@@ -641,7 +644,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.cloud_storage_type = data.get("cloud_storage_type", StorageConstants::MINIO_TYPE).asString();
         m_vmsConfig.cloud_storage_endpoint = data.get("cloud_storage_endpoint", "http://127.0.0.1:9000").asString();
         m_vmsConfig.cloud_storage_access_key = data.get("cloud_storage_access_key", "admin").asString();
-        m_vmsConfig.cloud_storage_secret_key = data.get("cloud_storage_secret_key", "nvidia123!").asString();
+        m_vmsConfig.cloud_storage_secret_key = data.get("cloud_storage_secret_key", "").asString();
         m_vmsConfig.cloud_storage_bucket = data.get("cloud_storage_bucket", "videos").asString();
         m_vmsConfig.cloud_storage_region = data.get("cloud_storage_region", "").asString();
         m_vmsConfig.cloud_storage_use_ssl = data.get("cloud_storage_use_ssl", false).asBool();
@@ -765,6 +768,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.use_camera_groups = overlay.get("use_camera_groups", false).asBool();
         m_vmsConfig.enable_recentering = overlay.get("enable_recentering", false).asBool();
         m_vmsConfig.overlay_text_font_type = overlay.get("overlay_text_font_type", DEFAULT_CUOSD_FONT_TYPE).asString();
+        m_vmsConfig.bbox_debug_font_size = overlay.get("bbox_debug_font_size", 0).asInt();
         m_vmsConfig.bbox_tolerance_ms = overlay.get("bbox_tolerance_ms", 0).asInt();
         m_vmsConfig.enable_overlay_skip_frame = overlay.get("enable_overlay_skip_frame", false).asBool();
         m_vmsConfig.halo_safety_udp_port = overlay.get("halo_safety_udp_port", -1).asInt();
@@ -894,6 +898,25 @@ VmsConfigManager::VmsConfigManager()
     else
     {
         m_vmsConfig.module_endpoints[ModuleLiveStream] = LIVE_STREAM_MODULE_DEFAULT_ENDPOINT;
+    }
+
+    /* VST_USE_SDRC toggles between the direct (sensor-MS posts to
+       stream-processor REST API; default, no SDR/Envoy in the data path) and
+       scaled (SDR + Envoy route stream-bound APIs) deployment topologies. */
+    char *use_sdrc_env = getenv("VST_USE_SDRC");
+    if (use_sdrc_env != nullptr)
+    {
+        string val(use_sdrc_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.use_sdrc = (val == "true" || val == "1" || val == "yes");
+    }
+
+    char *enable_notif_env = getenv("VST_ENABLE_NOTIFICATION");
+    if (enable_notif_env != nullptr)
+    {
+        string val(enable_notif_env);
+        std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+        m_vmsConfig.enable_notification = (val == "true" || val == "1" || val == "yes");
     }
 
     // Observability configuration

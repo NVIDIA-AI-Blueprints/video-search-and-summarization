@@ -604,8 +604,8 @@ class VideoFileFrameGetter:
         self._adecodebin = None
         self._idecodebin = None
         self._vdecodebin = None
-        self._vdecodebin_h264 = None
-        self._vdecodebin_h265 = None
+        self._vdecodebin_cache = {}
+        self._vdecodebin_cache_signal_keys = set()
         self._rtspsrc = None
         self._udpsrc = None
         self._audio_eos = False
@@ -719,6 +719,7 @@ class VideoFileFrameGetter:
             except Exception as ex:
                 logger.debug("Failed to disconnect Gst signal handler %s: %s", handler_id, ex)
         self._gst_signal_handler_ids.clear()
+        self._vdecodebin_cache_signal_keys.clear()
 
         if self._bus is not None and self._bus_signal_watch_added:
             try:
@@ -726,6 +727,47 @@ class VideoFileFrameGetter:
             except Exception as ex:
                 logger.debug("Failed to remove Gst bus signal watch: %s", ex)
         self._bus_signal_watch_added = False
+
+    def _decoder_reuse_enabled(self) -> bool:
+        return os.environ.get("DISABLE_DECODER_REUSE", "true") == "false"
+
+    def _decoder_cache_key(self, codec: str):
+        return (
+            codec,
+            int(self._frame_width or 0),
+            int(self._frame_height or 0),
+        )
+
+    def _is_cached_decodebin(self, decodebin) -> bool:
+        return any(cached is decodebin for cached in self._vdecodebin_cache.values())
+
+    def _cache_decodebin(self, key, decodebin) -> None:
+        self._vdecodebin_cache[key] = decodebin
+
+    def _disconnect_cached_decodebin_from_pipeline(self) -> None:
+        if (
+            not self._pipeline
+            or not self._vdecodebin
+            or not self._is_cached_decodebin(self._vdecodebin)
+        ):
+            return
+        try:
+            self._pipeline.remove(self._vdecodebin)
+        except Exception as ex:
+            logger.debug("Failed to detach cached decoder from old pipeline: %s", ex)
+        finally:
+            self._vdecodebin = None
+
+    def _set_cached_decoders_null(self) -> None:
+        for key, decodebin in list(self._vdecodebin_cache.items()):
+            codec, width, height = key
+            self._set_element_null(
+                decodebin,
+                f"{codec.upper()} decoder {width}x{height}",
+                timeout_ns=DECODER_TEARDOWN_TIMEOUT_NS,
+            )
+        self._vdecodebin_cache.clear()
+        self._vdecodebin_cache_signal_keys.clear()
 
     def _append_file_frame_to_cache(self, image_tensor, pts_seconds: float) -> bool:
         with self._file_frame_cache_lock:
@@ -1331,50 +1373,47 @@ class VideoFileFrameGetter:
                 gstname = gststruct.get_name()
 
                 if gstname.find("video") != -1:
-                    if (
-                        gstname.find("h264") != -1
-                        and os.environ.get("DISABLE_DECODER_REUSE", "true") == "false"
-                    ):
-                        if not self._vdecodebin_h264:
-                            self._vdecodebin_h264 = Gst.ElementFactory.make("decodebin")
-                            pipeline.add(self._vdecodebin_h264)
-                            self._vdecodebin_h264.set_state(Gst.State.PLAYING)
+                    reusable_codec = None
+                    if gstname.find("h264") != -1:
+                        reusable_codec = "h264"
+                    elif gstname.find("h265") != -1:
+                        reusable_codec = "h265"
+
+                    if reusable_codec and self._decoder_reuse_enabled():
+                        decoder_key = self._decoder_cache_key(reusable_codec)
+                        self._vdecodebin = self._vdecodebin_cache.get(decoder_key)
+                        if not self._vdecodebin:
+                            self._vdecodebin = Gst.ElementFactory.make("decodebin")
+                            self._cache_decodebin(decoder_key, self._vdecodebin)
+                            pipeline.add(self._vdecodebin)
+                            self._vdecodebin.set_state(Gst.State.PLAYING)
+                            logger.debug(
+                                "Created reusable %s decoder for %sx%s",
+                                reusable_codec,
+                                decoder_key[1],
+                                decoder_key[2],
+                            )
+                        else:
+                            pipeline.add(self._vdecodebin)
+                            self._vdecodebin.link(self._q1)
+                            logger.debug(
+                                "Reusing cached %s decoder for %sx%s",
+                                reusable_codec,
+                                decoder_key[1],
+                                decoder_key[2],
+                            )
+                        if decoder_key not in self._vdecodebin_cache_signal_keys:
                             self._connect_gst_signal(
-                                self._vdecodebin_h264, "pad-added", cb_newpad_decodebin, self
+                                self._vdecodebin, "pad-added", cb_newpad_decodebin, self
                             )
                             self._connect_gst_signal(
-                                self._vdecodebin_h264,
+                                self._vdecodebin,
                                 "deep-element-added",
                                 lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
                                     elem, username, password, selff
                                 ),
                             )
-                        else:
-                            pipeline.add(self._vdecodebin_h264)
-                            self._vdecodebin_h264.link(self._q1)
-                        self._vdecodebin = self._vdecodebin_h264
-                    elif (
-                        gstname.find("h265") != -1
-                        and os.environ.get("DISABLE_DECODER_REUSE", "true") == "false"
-                    ):
-                        if not self._vdecodebin_h265:
-                            self._vdecodebin_h265 = Gst.ElementFactory.make("decodebin")
-                            pipeline.add(self._vdecodebin_h265)
-                            self._vdecodebin_h265.set_state(Gst.State.PLAYING)
-                            self._connect_gst_signal(
-                                self._vdecodebin_h265, "pad-added", cb_newpad_decodebin, self
-                            )
-                            self._connect_gst_signal(
-                                self._vdecodebin_h265,
-                                "deep-element-added",
-                                lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
-                                    elem, username, password, selff
-                                ),
-                            )
-                        else:
-                            pipeline.add(self._vdecodebin_h265)
-                            self._vdecodebin_h265.link(self._q1)
-                        self._vdecodebin = self._vdecodebin_h265
+                            self._vdecodebin_cache_signal_keys.add(decoder_key)
                     elif not self._vdecodebin:
                         self._vdecodebin = Gst.ElementFactory.make("decodebin")
                         pipeline.add(self._vdecodebin)
@@ -2217,16 +2256,15 @@ class VideoFileFrameGetter:
         except Exception as ex:
             logger.warning("%s NULL teardown failed: %s", description, ex)
 
-    def _set_pipeline_null_and_clear_refs(self):
+    def _set_pipeline_null_and_clear_refs(self, preserve_decoder_cache: bool = False):
         # Wait for the whole bin to reach NULL before clearing Python refs.
         # Otherwise GStreamer can dispose internal children like typefind or
         # decodebin while they are still PAUSED during error-path teardown.
+        if preserve_decoder_cache:
+            self._disconnect_cached_decodebin_from_pipeline()
         self._set_element_null(self._pipeline, "Pipeline")
         self._disconnect_gst_callbacks()
-        for dec_name, dec in (
-            ("H264 decoder", self._vdecodebin_h264),
-            ("H265 decoder", self._vdecodebin_h265),
-        ):
+        if not preserve_decoder_cache:
             # Cached decoders own a CUDA decoder context. Use a long
             # finite timeout (DECODER_TEARDOWN_TIMEOUT_NS, default 120 s):
             # short bounds let the Python ref drop while the context is
@@ -2239,11 +2277,11 @@ class VideoFileFrameGetter:
             # recover after 2 minutes if the decoder genuinely wedges.
             # The pipeline-level call above keeps the shorter 5 s bound
             # where hangs are more likely and don't leak CUDA.
-            self._set_element_null(dec, dec_name, timeout_ns=DECODER_TEARDOWN_TIMEOUT_NS)
+            self._set_cached_decoders_null()
         self._pipeline = None
-        self._clear_pipeline_elements()
+        self._clear_pipeline_elements(clear_decoder_cache=not preserve_decoder_cache)
 
-    def destroy_pipeline(self):
+    def destroy_pipeline(self, preserve_decoder_cache: bool = False):
         # Release cached CUDA frame tensors before pipeline teardown
         with self._file_frame_cache_lock:
             self._cached_frames = None
@@ -2259,14 +2297,14 @@ class VideoFileFrameGetter:
             self._copy_stream = None
         self._live_stream_chunk_decoded_callback = None
         self._on_stream_error_callback = None
-        self._set_pipeline_null_and_clear_refs()
+        self._set_pipeline_null_and_clear_refs(preserve_decoder_cache=preserve_decoder_cache)
         if self._gdino:
             self._gdino = None
         # Force PyTorch to return freed CUDA memory to the device
         gc.collect()
         torch.cuda.empty_cache()
 
-    def _destroy_pipeline_before_current_decode(self):
+    def _destroy_pipeline_before_current_decode(self, preserve_decoder_cache: bool = False):
         """Destroy a reused file pipeline without losing this chunk's cache.
 
         get_frames() creates a fresh cache for the current chunk before it
@@ -2284,7 +2322,7 @@ class VideoFileFrameGetter:
             self._cached_frames_pts = None
 
         try:
-            self.destroy_pipeline()
+            self.destroy_pipeline(preserve_decoder_cache=preserve_decoder_cache)
         finally:
             with self._file_frame_cache_lock:
                 if current_cached_frames is not None and current_cached_frames_pts is not None:
@@ -2293,12 +2331,13 @@ class VideoFileFrameGetter:
 
     # Debug functionality
     # Dump cached frames
-    def _clear_pipeline_elements(self):
+    def _clear_pipeline_elements(self, clear_decoder_cache: bool = True):
         self._bus = None
         self._loop = None
-        self._vdecodebin_h264 = None
-        self._vdecodebin_h265 = None
         self._vdecodebin = None
+        if clear_decoder_cache:
+            self._vdecodebin_cache.clear()
+            self._vdecodebin_cache_signal_keys.clear()
         self._adecodebin = None
         self._idecodebin = None
         self._uridecodebin = None
@@ -2470,12 +2509,12 @@ class VideoFileFrameGetter:
 
             def backup_decodebin():
                 # If codec or resolution has changed, remove the decodebin from the pipeline
-                # and keep the decodebin backed up if old codec is h264 or h265
+                # and keep reusable decoders backed up under their codec/resolution key.
                 if self._pipeline:
 
                     if self._vdecodebin:
                         self._pipeline.remove(self._vdecodebin)
-                        if self._vdecodebin not in [self._vdecodebin_h264, self._vdecodebin_h265]:
+                        if not self._is_cached_decodebin(self._vdecodebin):
                             self._vdecodebin.set_state(Gst.State.NULL)
                 self._vdecodebin = None
 
@@ -2496,7 +2535,9 @@ class VideoFileFrameGetter:
             if self._pipeline and (
                 is_file_changed or (self._enable_audio and self._adecodebin is None)
             ):
-                self._destroy_pipeline_before_current_decode()
+                self._destroy_pipeline_before_current_decode(
+                    preserve_decoder_cache=self._decoder_reuse_enabled()
+                )
             else:
                 if self._adecodebin and self._enable_audio:
                     self._audio_present = True

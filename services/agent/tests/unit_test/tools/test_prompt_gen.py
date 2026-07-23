@@ -14,8 +14,8 @@
 # limitations under the License.
 """Unit tests for prompt_gen module."""
 
-from vss_agents.tools.prompt_gen import PromptGenConfig
-from vss_agents.tools.prompt_gen import PromptGenInput
+from agent.tools.prompt_gen import PromptGenConfig
+from agent.tools.prompt_gen import PromptGenInput
 
 
 class TestPromptGenConfig:

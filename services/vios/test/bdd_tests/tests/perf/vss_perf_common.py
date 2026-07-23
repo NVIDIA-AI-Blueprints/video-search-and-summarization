@@ -78,10 +78,10 @@ DEFAULT_PLATFORM_PLACEHOLDER: Dict[str, Any] = {
     "gpu": {"model": DEFAULT_GPU_MODEL_UNKNOWN, "count": 0}
 }
 # MinIO (override via env: MINIO_ENDPOINT, MINIO_BUCKET, MINIO_ACCESS_KEY, MINIO_SECRET_KEY)
-DEFAULT_MINIO_ENDPOINT = "10.111.52.248:9000"
+DEFAULT_MINIO_ENDPOINT = "localhost:9000"
 DEFAULT_MINIO_BUCKET = "perf-results"
-DEFAULT_MINIO_ACCESS_KEY = "admin"
-DEFAULT_MINIO_SECRET_KEY = "vss_automation"
+DEFAULT_MINIO_ACCESS_KEY = "minioadmin"
+DEFAULT_MINIO_SECRET_KEY = "minioadmin"
 
 
 # -----------------------------------------------------------------------------

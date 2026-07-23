@@ -18,7 +18,7 @@ ARG TARGETARCH
 ARG TARGETPLATFORM
 ARG PYTHON_VERSION=3.13
 ARG TAG=v3.1.7
-ARG IMG=nvcr.io/nvidian/distroless/python:${PYTHON_VERSION}
+ARG IMG=nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}
 
 # Stage 1: Build Stage - Use a slim Python image to install dependencies
 FROM python:${PYTHON_VERSION}-slim AS build
@@ -48,7 +48,7 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/setuptools*
 RUN ln -s /usr/local/lib/python3.13/site-packages /python-packages
 
 # Stage 2: Production Stage - Use Distroless Python as the base image (per-platform)
-FROM --platform=$TARGETPLATFORM nvcr.io/nvidian/distroless/python:${PYTHON_VERSION}-${TAG} AS prefinal
+FROM nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}-${TAG} AS prefinal
 ARG TARGETARCH
 
 # Set the working directory in the final stage
@@ -57,7 +57,7 @@ WORKDIR /app
 # Copy Python runtime dependencies from the build stage
 COPY --from=build /python-packages /usr/local/lib/python3.13/site-packages
 
-FROM --platform=$TARGETPLATFORM busybox:1.36 AS strip
+FROM busybox:1.36 AS strip
 ARG TARGETARCH
 
 # Copy the full root filesystem from the prefinal image and remove unwanted artifacts

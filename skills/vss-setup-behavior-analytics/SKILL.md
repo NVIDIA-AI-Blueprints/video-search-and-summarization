@@ -8,6 +8,7 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment behavior-analytics"
 ---
+
 ## Purpose
 
 Deploy the behavior-analytics service standalone with the user's chosen entrypoint, config, and calibration.
@@ -58,7 +59,7 @@ The full operational walkthrough — entrypoint table, config-source options, ca
 
 - "Deploy behavior analytics" / "run behavior-analytics standalone"
 - "I just want to run analytics, not the full stack"
-- "Change the entrypoint to fusion_search / dev_example / analytics 3D / mv3dt"
+- "Change the entrypoint to search_and_alerts / analytics 3D / mv3dt"
 - "Use my own behavior-analytics config / calibration JSON"
 - "Point behavior-analytics at the warehouse-3d (or mv3dt) config without spinning up the rest of the warehouse profile"
 - "Dynamic config / dynamic calibration into a running behavior-analytics"
@@ -66,7 +67,7 @@ The full operational walkthrough — entrypoint table, config-source options, ca
 ## Prerequisites
 
 1. **Repo checkout** with `$VSS_APPS_DIR` pointing at `<repo>/deploy/docker/`. Required by the service compose's volume binds.
-2. **NGC credentials** — `$NGC_CLI_API_KEY` set so docker can pull the image. See [`../vss-deploy-profile/references/ngc.md`](../vss-deploy-profile/references/ngc.md).
+2. **NGC credentials** — `$NGC_CLI_API_KEY` set so docker can pull the image. See [`references/ngc-api-key-registry-login.md`](references/ngc-api-key-registry-login.md).
 3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
 4. **Optional broker** (Kafka / Redis Streams / MQTT). The container starts fine **without** one — the Kafka client retries a bounded number of times, then the app exits and `restart: always` cycles the container. Status will show `Restarting (N)` in `docker ps` until a broker is reachable. With a broker, dynamic config / dynamic calibration over `mdx-notification` become available.
 5. **Optional config / calibration files on disk** if the user is bringing their own.
@@ -77,7 +78,7 @@ If any required prerequisite fails, surface the gap before going further.
 
 Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its steps in order:
 
-1. Pick an entrypoint (analytics 2D / 3D / mv3dt, dev_example, fusion_search).
+1. Pick an entrypoint (analytics 2D / 3D / mv3dt, search_and_alerts).
 2. Choose a config — profile-shipped or custom.
 3. Choose a calibration — optional; profile-shipped or custom; otherwise the app waits for a dynamic-calibration notification.
 4. Decide whether a broker is reachable; if yes, point them at the dynamic-update flows.
@@ -119,7 +120,5 @@ Both flows live entirely on the broker — the producer can be `video-analytics-
 ## Routing rules
 
 - If the user wants "the full stack" (UI / agent / perception): hand off to [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md) with profile `warehouse` (or `alerts`). Don't run this skill in parallel.
-- If the user wants to publish a runtime config / calibration update to an already-running container: walk the [Dynamic updates](#dynamic-updates-runtime-no-restart) section above. Both flows need a reachable broker.
+- If the user wants to publish a runtime config / calibration update to an already-running container: walk the [Dynamic updates](#dynamic-updates-runtime-no-restart) section. Both flows need a reachable broker.
 - If the user describes a behavior-analytics behavior change they want to validate (new incident type, new ROI rule, new sensor): point them at [`references/configuration.md`](references/configuration.md), [`references/dynamic-config.md`](references/dynamic-config.md), or [`references/dynamic-calibration.md`](references/dynamic-calibration.md) before editing the JSON.
-
-bump:1

@@ -17,23 +17,29 @@
 enabled: false
 global: {}
 
+# HELM_RELEASE_CHANNEL_POLICY: Helm stays on an immutable NGC staging pin;
+# Docker developer profiles may independently follow GHCR develop-latest.
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-alert-verification
-  tag: "0.0.68"
+  repository: nvcr.io/nvstaging/vss-core/vss-alert-ms
+  tag: "3.3.0-26.07.10-e4c886ba00e5"
   pullPolicy: IfNotPresent
 replicas: 1
 
 # Parameterized from parent / profile. In K8s use service names. Leave "" for release-based defaults.
+# Redis has been removed from Alert MS: dedup/filter state is in-process
+# and durable state (verdict protection, alert configs) lives in Elasticsearch.
 kafkaBootstrapServers: ""
-redisHost: ""
-redisPort: "6379"
 elasticHosts: ""
 vlmBaseUrl: ""
-vlmName: "nvidia/cosmos-reason2-8b"
-# VST base for URLs passed to the VLM (video fetch). Default: in-cluster vst-ingress service. If global.vlmBaseUrl is set (remote VLM), default becomes global.externalScheme/Host/Port so the VLM can reach media via ingress (set vss-alert-bridge.vstBaseUrl explicitly if you use remote VLM without global.vlmBaseUrl).
+vlmName: "nvidia/cosmos3-nano-reasoner"
+# VST base for Alert Bridge media lookup (vst_config.base_url). Default: in-cluster
+# vss-vios-ingress service (Docker parity: always ${VST_INTERNAL_URL}). Public URLs
+# for remote VLM are rewritten via url_transform + EXTERNAL_IP/INTERNAL_IP, not by
+# flipping vst_config to global.externalHost.
 vstBaseUrl: ""
 
 externalIp: ""
+# Host:port for url_transform internal side (default: in-cluster vss-vios-ingress:30888).
 internalIp: ""
 
 # RTVI_VLM_MODEL_TO_USE passed to the container (default: vlmName)
@@ -57,8 +63,9 @@ resources: {}
 nodeSelector: {}
 tolerations: []
 
-# Block the main container until Kafka, Redis, and Elasticsearch accept TCP (avoids
+# Block the main container until Kafka and Elasticsearch accept TCP (avoids
 # startup crashes when alert-bridge runs before infra stack services are listening).
+# Redis is no longer a dependency of Alert MS.
 waitForDependencies:
   enabled: false
   image:
@@ -67,8 +74,6 @@ waitForDependencies:
     pullPolicy: IfNotPresent
   kafkaHost: ""
   kafkaPort: "9092"
-  redisHost: ""
-  redisPort: "6379"
   elasticsearchHost: ""
   elasticsearchPort: "9200"
   maxRetries: "90"

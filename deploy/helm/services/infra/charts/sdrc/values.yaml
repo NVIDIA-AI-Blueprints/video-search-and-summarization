@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-  tag: 3.0.0-prd.8
+  tag: 3.0.0-prd.10
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -23,6 +23,11 @@ service:
   envoyAdmin:
     type: ClusterIP
     port: 9902
+  # Compose parity: services/infra/sdrc/docker-compose.yaml exposes
+  # SDRC_PROXY_HOST_PORT (default 10000) -> 10000. VIOS uses this as
+  # STREAM_PROCESSOR_MODULE_ENDPOINT (see services/vios/vst.env).
+  envoyProxy:
+    port: 10000
 
 config:
   configMapName: sdrc-config

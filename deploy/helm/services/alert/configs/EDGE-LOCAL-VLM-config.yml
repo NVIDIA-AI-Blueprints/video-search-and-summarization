@@ -16,9 +16,8 @@
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $kafkaHost := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
-{{- $redisHost := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
 {{- $esHost := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
-{{- $cosmosHost := ternary (printf "%s-nvidia-cosmos-reason2-8b" .Release.Name) "nvidia-cosmos-reason2-8b" $pfx }}
+{{- $cosmosHost := ternary (printf "%s-nvidia-cosmos3-reasoner" .Release.Name) "nvidia-cosmos3-reasoner" $pfx }}
 {{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
 {{- $rawSubVlm := .Values.vlmBaseUrl | default "" | toString }}
 {{- $rawGlobVlm := index $g "vlmBaseUrl" | default "" | toString }}
@@ -29,23 +28,12 @@
 {{- $vlmUrl := trim (tpl $rawVlmPick .) }}
 {{- $subVn := trim (default "" .Values.vlmName) }}
 {{- $globVn := trim (default "" (index $g "vlmName")) }}
-{{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
-{{- $eh := index $g "externalHost" | default "" | trim }}
-{{- $es := index $g "externalScheme" | default "http" }}
-{{- $ep := index $g "externalPort" | default "" | trim }}
-{{- $globalVstCandidate := "" }}
-{{- if ne $eh "" }}
-{{- $globalVstCandidate = ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "") }}
-{{- end }}
+{{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos3-nano-reasoner" }}
 {{- $internalVst := printf "http://%s" $vstIngHost }}
+{{- /* vstBaseUrl: optional explicit override via tpl; when empty, always use in-cluster VST (Docker parity: ${VST_INTERNAL_URL}). */}}
 {{- $rawVst := .Values.vstBaseUrl | default "" | toString }}
 {{- $subVst := trim (tpl $rawVst .) }}
-{{- $remoteVlmConfigured := or (ne (trim (default "" (index $g "vlmBaseUrl"))) "") (ne (trim (default "" .Values.vlmBaseUrl)) "") }}
-{{- $vstBaseDefault := $internalVst }}
-{{- if and $remoteVlmConfigured (ne $globalVstCandidate "") }}
-{{- $vstBaseDefault = $globalVstCandidate }}
-{{- end }}
-{{- $vstBase := $subVst | default $vstBaseDefault }}
+{{- $vstBase := $subVst | default $internalVst }}
 # Helm-templated EDGE-LOCAL-VLM config (DGX-SPARK, IGX-THOR, AGX-THOR with local VLM)
 # Base directory for media used during alert review (optional)
 ALERT_REVIEW_MEDIA_BASE_DIR: {{ .Values.alertReviewMediaBaseDir | default "" | quote }}
@@ -94,34 +82,6 @@ event_bridge:
     group_id: 'alert-bridge-vlm-group'
     topics:
       incident: 'mdx-incidents'
-  redis_source:
-    host: "{{ .Values.redisHost | default $redisHost }}"
-    port: {{ .Values.redisPort }}
-    db: 0
-    dedup_ttl_seconds: 5
-    protect_confirmed_verdicts:
-      enabled: true
-      ttl_seconds: 600
-    end_time_delta_filter:
-      enabled: true
-      threshold_seconds: 3
-      ttl_seconds: 3600
-    end_time_in_dedup_key_categories: []
-    streams:
-      anomaly_stream: "alert-bridge-input-stream"
-      heartbeat_stream: "alert-bridge-heartbeats-stream"
-    consumer_group: "vlm_agents_group"
-    consumer_config:
-      block_time: 10
-      count: 1
-      batch_size: 1
-  redis_sink:
-    host: "{{ .Values.redisHost | default $redisHost }}"
-    port: {{ .Values.redisPort }}
-    db: 0
-    streams:
-      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
-      incidents_stream: "alert-bridge-incidents-stream"
 
 prompt:
   prefer_payload_prompt: false
@@ -135,6 +95,21 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   include_latency_info: false
+  # In-process event filtering / dedup tuning (no external store).
+  event_filters:
+    dedup_ttl_seconds: 5
+    protect_confirmed_verdicts:
+      enabled: true
+      ttl_seconds: 600
+      # Verdict-ES retry cooldown + hourly throttled expired-marker reaper.
+      es_retry_backoff_seconds: 30
+      retention_interval_seconds: 3600
+      retention_requests_per_second: 50
+    end_time_delta_filter:
+      enabled: true
+      threshold_seconds: 3
+      ttl_seconds: 3600
+    end_time_in_dedup_key_categories: []
 
 elastic:
   enabled: true

@@ -17,7 +17,7 @@
 
 #include "nvsurfacepool.h"
 
-#if defined(AARCH64_PLATFORM) || defined(JETSON_PLATFORM)
+#if defined(AARCH64_PLATFORM)
 #define OUTPUT_PLANE_NUM_BUFFERS 19
 #else
 #define OUTPUT_PLANE_NUM_BUFFERS 10
@@ -34,14 +34,15 @@ bool NvSurfacePool::allocateSurfaces (int num_surfaces, unsigned int target_widt
         buf_params.width       = target_width;
         buf_params.height      = target_height;
         buf_params.memType     = memType;
-#ifdef JETSON_PLATFORM
-        /* If Jetson GPU mode is enabled, use CUDA device memory */
-        if (memType == NVBUF_MEM_DEFAULT && g_isJetsonGpuMode)
+        if (isJetsonPlatform())
         {
-            memType = NVBUF_MEM_CUDA_DEVICE;
-            buf_params.memType = memType;
+            /* If Jetson GPU mode is enabled, use CUDA device memory */
+            if (memType == NVBUF_MEM_DEFAULT && g_useCudaDeviceMemory)
+            {
+                memType = NVBUF_MEM_CUDA_DEVICE;
+                buf_params.memType = memType;
+            }
         }
-#endif
         buf_params.colorFormat = format;
         buf_params.layout      = layout;
         buf_params.gpuId       = g_gpuIndex;
@@ -68,11 +69,14 @@ bool NvSurfacePool::allocateSurfaces (int num_surfaces, unsigned int target_widt
         FdIndexInfo fd_index_info;
         FD_Index_Pair fd_index_pair = std::make_pair(fd, i);
         fd_index_info.m_fdIndexPair = fd_index_pair;
-#ifdef JETSON_PLATFORM
-        fd_index_info.m_isTransformed = false;
-#else
-        fd_index_info.m_isTransformed = true; // in case of x86, transform is always true
-#endif
+        if (isJetsonPlatform())
+        {
+            fd_index_info.m_isTransformed = false;
+        }
+        else
+        {
+            fd_index_info.m_isTransformed = true; // in case of x86, transform is always true
+        }
         m_fdSurfaceQ.push(fd_index_info);
     }
     m_surfacesAllocated = true;

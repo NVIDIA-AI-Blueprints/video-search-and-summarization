@@ -2,13 +2,13 @@
 
 Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill (``../SKILL.md`` (see `../SKILL.md`)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
 
-Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC is enabled only by `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`. AMC is a service inside the `warehouse-operations` industry profile — env vars live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env).
+Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC is enabled only by `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`. AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
 
 ## What's different from base VSS
 
 - **Standalone microservice — not part of the VSS agent stack.** AMC ships its own MS + UI containers. The VSS agent, NIMs, VST, RTVI, etc. are **not** brought up by this skill — only the AMC backend and its web UI.
 - **AMC piggybacks on the `warehouse-operations` industry profile.** Warehouse calibration profiles load the env automatically; running `auto_calib` standalone requires the same env to be present.
-- **Default ports**: MS at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**); UI at `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`). MS uses `network_mode: host`, so 8010 is also the host port.
+- **Default ports**: MS container at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**) published on `${VSS_AUTO_CALIBRATION_HOST_PORT}` (default **8010**); UI container port `5000` published on `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` (default `5000`).
 - **VIOS auto-wired.** When deployed with a warehouse calibration profile, `VIOS_BASE_URL` is fetched from `${VST_INTERNAL_URL}`. No manual VIOS config needed if VST is running in the same compose.
 - **Optional VGGT model.** AMC works without VGGT, but model-based refinement needs `vggt_1B_commercial.pt` at `$VSS_DATA_DIR/auto-calib/vggt/` (the path the MS container mounts read-only). Skip this step unless the user explicitly wants VGGT.
 
@@ -16,20 +16,22 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 | Service | Container | Port | Image (sample — see compose for the authoritative path) | Compose source |
 |---|---|---|---|---|
-| AMC MS | `vss-auto-calibration` | `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`, host network) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
-| AMC UI | `vss-auto-calibration-ui` | `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
+| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
+| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
 
 > **Image references are illustrative.** The compose files above are the source of truth for the exact image repo and tag — they may differ by release. Don't pull a hand-typed path; read the resolved path from `docker compose config` / `resolved.yml` (Step 3) and let `docker compose up` pull it.
 
 ## Env recipe
 
-Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env) (the values below are the in-repo defaults):
+Set stable service defaults such as container ports in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env). Set host/profile runtime values such as host-published ports, `HOST_IP`, `VSS_APPS_DIR`, `VSS_DATA_DIR`, and credentials in `generated.env` initialized from `overrides.env`:
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `VSS_AUTO_CALIBRATION_PORT` | MS HTTP port (host-networked, so this is also the host port) | `8010` |
-| `VSS_AUTO_CALIBRATION_UI_PORT` | UI host port (UI publishes `:5000` inside the container) | `5000` |
-| `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). Defaults to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
+| `VSS_AUTO_CALIBRATION_PORT` | MS container HTTP port | `8010` |
+| `VSS_AUTO_CALIBRATION_HOST_PORT` | MS host-published port. Change in `generated.env`/`overrides.env` if `8010` conflicts. | `8010` |
+| `VSS_AUTO_CALIBRATION_UI_PORT` | UI container port fallback | `5000` |
+| `VSS_AUTO_CALIBRATION_UI_HOST_PORT` | UI host-published port. Change in `generated.env`/`overrides.env` if `5000` conflicts. | `5000` |
+| `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). For host access, set to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
 | `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see `rtsp.md`). Auto-set to `${VST_INTERNAL_URL}` when a warehouse profile with VST is running; for calibration-only RTSP use `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`. | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
@@ -38,15 +40,18 @@ Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../de
 
 ## Deployment flow
 
-Standard compose-centric workflow: env overrides → `docker compose --env-file .env config` dry-run → review → `docker compose up`.
+Standard compose-centric workflow: initialize `generated.env` from `overrides.env` → apply env overrides → `docker compose --env-file .env --env-file generated.env config` dry-run → review → `docker compose up` with the same env-file pair.
 
 ### Step 1 — NGC login
 
 AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org — e.g. `nvidia` for published releases — is whatever the compose files in the table above reference). The user's NGC key must have access to that namespace.
 
-The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell/env file. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
+The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell or warehouse `generated.env`. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
 ```bash
+if [ -f deploy/docker/industry-profiles/warehouse-operations/generated.env ]; then
+  set -a; . deploy/docker/industry-profiles/warehouse-operations/generated.env; set +a
+fi
 echo "NGC_CLI_API_KEY: $([ -n "${NGC_CLI_API_KEY}" ] && echo SET || echo 'NOT SET')"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
@@ -83,7 +88,7 @@ ls -lh "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
 
 ### Step 2b — If VIOS is already running, confirm `VIOS_BASE_URL`
 
-AMC's RTSP-stream calibration path calls VIOS over `${VIOS_BASE_URL}`. The warehouse-operations `.env` defaults to `VIOS_BASE_URL=${VST_INTERNAL_URL}` (which resolves to `http://${HOST_IP}:${VST_PORT}`). That default is correct when VIOS/VST comes up as part of the same compose stack — but if you're standing AMC up next to a **pre-existing** VIOS (separate image / different namespace / from another compose project), the default may point at nothing.
+AMC's RTSP-stream calibration path calls VIOS over `${VIOS_BASE_URL}`. The warehouse stable `.env` defaults to `VIOS_BASE_URL=${VST_INTERNAL_URL}` (which resolves using `HOST_IP` from the runtime env layer). That default is correct when VIOS/VST comes up as part of the same compose stack — but if you're standing AMC up next to a **pre-existing** VIOS (separate image / different namespace / from another compose project), the default may point at nothing.
 
 Detect first:
 
@@ -93,14 +98,14 @@ docker ps --format '{{.Names}}\t{{.Image}}' | grep -E "vst|vios|sensor-ms" || ec
 
 If VIOS is running, **before** the dry-run in Step 3:
 
-1. Confirm `VIOS_BASE_URL` is set in `industry-profiles/warehouse-operations/.env`. If the file leaves it commented out or empty, set it explicitly:
+1. Confirm `VIOS_BASE_URL` is set in the combined warehouse env. If you need to override it for this deployment, set it explicitly in `generated.env`:
    ```bash
-   grep -E "^VIOS_BASE_URL=" deploy/docker/industry-profiles/warehouse-operations/.env \
-     || echo 'VIOS_BASE_URL=${VST_INTERNAL_URL}' >> deploy/docker/industry-profiles/warehouse-operations/.env
+   grep -hE "^VIOS_BASE_URL=" deploy/docker/industry-profiles/warehouse-operations/generated.env deploy/docker/industry-profiles/warehouse-operations/.env \
+     || echo 'VIOS_BASE_URL=${VST_INTERNAL_URL}' >> deploy/docker/industry-profiles/warehouse-operations/generated.env
    ```
 2. Verify the URL actually points at the running VIOS. The default assumes `${HOST_IP}:${VST_PORT}` — check both:
    ```bash
-   grep -E "^(HOST_IP|VST_PORT)=" deploy/docker/industry-profiles/warehouse-operations/.env
+   grep -hE "^HOST_IP=" deploy/docker/industry-profiles/warehouse-operations/generated.env; grep -E "^VST_PORT=" deploy/docker/industry-profiles/warehouse-operations/.env
    docker port vst-ingress 2>/dev/null   # or whichever VIOS ingress container is running
    curl -sf -o /dev/null -w "%{http_code}\n" "http://${HOST_IP}:${VST_PORT}/"
    ```
@@ -110,7 +115,7 @@ If you don't intend to use AMC's RTSP-stream path (only sample-dataset or pre-re
 
 ### Step 3 — Enable an auto-calibration compose profile and deploy
 
-Pick the profile that matches the intent, then run the same **generate → confirm image access → bring up** sequence:
+Pick the profile that matches the intent, initialize the runtime env if needed, then run the same **generate → confirm image access → bring up** sequence:
 
 | Intent | `COMPOSE_PROFILES` value |
 |---|---|
@@ -119,15 +124,18 @@ Pick the profile that matches the intent, then run the same **generate → confi
 
 ```bash
 cd deploy/docker
+[ -f industry-profiles/warehouse-operations/generated.env ] || cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
+grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/generated.env \
+  || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "$(pwd)" >> industry-profiles/warehouse-operations/generated.env
 export COMPOSE_PROFILES=auto_calib   # or a bp_wh_auto_calib_* profile from the table above
 
 # 1. Generate the resolved compose for review
-docker compose --env-file industry-profiles/warehouse-operations/.env config > resolved.yml
+docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config > resolved.yml
 # Review resolved.yml — confirm vss-auto-calibration and vss-auto-calibration-ui appear
 
 # 2. Confirm the NGC key can access the AMC images before bringing the stack up.
 #    Image references are read from the resolved compose, so this tracks the release tag automatically.
-AMC_IMAGES=$(docker compose --env-file industry-profiles/warehouse-operations/.env config --images | grep auto-calibration)
+AMC_IMAGES=$(docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config --images | grep auto-calibration)
 if [ -z "$AMC_IMAGES" ]; then
   echo "No auto-calibration images found in the resolved compose."
   echo "Confirm COMPOSE_PROFILES is exported and the chosen profile includes vss-auto-calibration before continuing."
@@ -145,18 +153,27 @@ for img in $AMC_IMAGES; do
 done
 
 # 3. Bring up the stack (images are already local from the access check)
-docker compose --env-file industry-profiles/warehouse-operations/.env up -d
+docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env up -d
 ```
 
 ### Step 4 — Verify
 
 ```bash
-PORT=$(grep ^VSS_AUTO_CALIBRATION_PORT deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)
-UI_PORT=$(grep ^VSS_AUTO_CALIBRATION_UI_PORT deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)
-HOST_IP=$(hostname -I | awk '{print $1}')
+PORT=$(grep ^VSS_AUTO_CALIBRATION_HOST_PORT industry-profiles/warehouse-operations/generated.env | cut -d= -f2)
+UI_PORT=$(grep ^VSS_AUTO_CALIBRATION_UI_HOST_PORT industry-profiles/warehouse-operations/generated.env | cut -d= -f2)
+HOST_IP=$(grep ^HOST_IP industry-profiles/warehouse-operations/generated.env 2>/dev/null | cut -d= -f2 | tr -d '"')
+HOST_IP=${HOST_IP:-$(hostname -I | awk '{print $1}')}
 
-# MS ready
-curl -sf "http://localhost:${PORT:-8010}/v1/ready"
+# MS ready (cold pulls can take a bit after compose returns)
+READY_URL="http://localhost:${PORT:-8010}/v1/ready"
+for i in $(seq 1 24); do
+  if curl -sf "$READY_URL"; then
+    break
+  fi
+  echo "Waiting for AMC microservice readiness... ($i/24)"
+  sleep 5
+done
+curl -sf "$READY_URL"
 # Expected: {"code":0,"message":"VSS Auto Calibration Microservice is ready"}
 
 # UI reachable
@@ -187,7 +204,14 @@ mkdir -p "$PROJECTS_DIR"
 DEST=$(docker inspect vss-auto-calibration \
   --format '{{range .Mounts}}{{println .Source .Destination}}{{end}}' \
   | awk -v s="$PROJECTS_DIR" '$1==s {print $2}')
-DEST=${DEST:-/home/auto-calibration-ms/server/projects}
+if [ -z "$DEST" ]; then
+  WORKDIR=$(docker inspect vss-auto-calibration --format "{{.Config.WorkingDir}}")
+  if [ -z "$WORKDIR" ]; then
+    echo "ERROR: could not determine container working directory — is vss-auto-calibration running?" >&2
+    exit 1
+  fi
+  DEST="${WORKDIR%/}/projects"
+fi
 
 docker exec vss-auto-calibration sh -c \
   "touch '$DEST/.amc_write_test' && rm -f '$DEST/.amc_write_test'" \
@@ -195,7 +219,7 @@ docker exec vss-auto-calibration sh -c \
   || echo "projects directory is not writable by the container — apply the ACL below"
 ```
 
-> The container WorkingDir is `/home/auto-calibration-ms/server` and the projects dir mounts at `…/server/projects`, so a workdir-relative `server/projects` is wrong (it resolves to `server/server/projects` → "No such file or directory", which masks a real permission failure). Resolving the mount destination from `docker inspect` avoids this entirely.
+> The projects dir mounts under the container working directory. Use the mount destination resolved from `docker inspect`; a workdir-relative path with the working-directory basename prefixed can resolve to a nested non-existent path and mask a permission failure.
 
 If the write test does not succeed (the common case on a fresh host — see above), grant the container user access with a narrow ACL (ask the user before changing host permissions). This adds write access for UID 1000 only and leaves existing ownership intact:
 
@@ -207,14 +231,14 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 
 ## Success criteria
 
-- `curl http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` returns `{"code":0,"message":"VSS Auto Calibration Microservice is ready"}`.
+- `curl http://localhost:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready` returns `{"code":0,"message":"VSS Auto Calibration Microservice is ready"}`.
 - `vss-auto-calibration` reports `(healthy)` in `docker ps` (the compose healthcheck has a generous `start_period: 1000s`).
-- Web UI at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}` renders the AutoMagicCalib interface.
+- Web UI at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}` renders the AutoMagicCalib interface.
 
 ## Key Output
 
-- **Microservice**: `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_PORT:-8010}` — Swagger at `/docs`
-- **Web UI**: `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}` — project management, file upload, calibration, results
+- **Microservice**: `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}` — Swagger at `/docs`
+- **Web UI**: `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}` — project management, file upload, calibration, results
 - **Project state**: `${VSS_APPS_DIR}/services/auto-calibration/projects/` (bind-mounted into the MS container)
 - **VGGT model** (optional): `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` (read-only mount)
 
@@ -225,11 +249,11 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 | NGC key logs in but can't pull AMC images | The Step 3 access check stops with "Access Denied" / 401 on `docker pull` of a `vss-core` AMC image, before the stack starts | The key authenticates but lacks `vss-core` access. Ask the user for an NGC key with access to the `vss-core` namespace (do not silently reuse a key from earlier in the conversation — see Step 1 § Credential handling), re-run `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`, then retry Step 3. |
 | `docker login` itself is rejected | Step 1 login returns an authentication error | The key is invalid or expired. Ask the user for a current NGC key and log in again before continuing. |
 | `vss-auto-calibration` stays `(starting)` for >10 min | Healthcheck not green; MS not responding on `/v1/ready` | Check logs: `docker logs vss-auto-calibration`. Common cause: missing GPU access. Verify `runtime: nvidia` works: `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` |
-| UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/.env` and set to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS port fails. Fix by either: (i) moving the MS to a port the browser can reach — set `VSS_AUTO_CALIBRATION_PORT=8080` (or another allowed port) in the env, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
-| Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
+| UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/generated.env` and set it to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_HOST_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS host port fails. Fix by either: (i) moving the MS host publication to a port the browser can reach — set `VSS_AUTO_CALIBRATION_HOST_PORT=8080` (or another allowed port) in `generated.env`, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
+| Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different host port: edit `VSS_AUTO_CALIBRATION_HOST_PORT` or `VSS_AUTO_CALIBRATION_UI_HOST_PORT` in `industry-profiles/warehouse-operations/generated.env` (or source `overrides.env` before initialization), re-run dry-run + up. |
 | VGGT model not found in MS logs | MS log shows `VGGT model not found at /tmp/vggt_model/vggt_1B_commercial.pt` | Either download VGGT (Step 2) or ignore — AMC works without it. The warning is benign for non-VGGT runs. |
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |
-| VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy a warehouse calibration profile (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`) so VST is present, or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
+| VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy a warehouse calibration profile (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, or `bp_wh_auto_calib_mv3dt`) so VST is present, or set `VIOS_BASE_URL` explicitly in `generated.env` and `docker compose up -d` again. |
 | Container exits immediately | `docker ps` shows `vss-auto-calibration` as `Exited` | Check logs: `docker logs vss-auto-calibration`. Often a GPU device-ID mismatch or VGGT path typo. |
 | `create_project` returns `[Errno 13] Permission denied` | First `POST /v1/create_project` after a fresh deploy fails writing `projects/project_<id>` | The host `services/auto-calibration/projects` directory isn't writable by the container user (UID 1000). Run the Step 5 write test, then grant access with `setfacl -m u:1000:rwx ${VSS_APPS_DIR}/services/auto-calibration/projects` and retry. |
 
@@ -237,10 +261,10 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 
 ```bash
 cd deploy/docker
-COMPOSE_PROFILES=auto_calib docker compose --env-file industry-profiles/warehouse-operations/.env down
+COMPOSE_PROFILES=auto_calib docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
 
 # Or, if running as part of warehouse auto-calibration, tear down that profile:
-COMPOSE_PROFILES=bp_wh_auto_calib_2d docker compose --env-file industry-profiles/warehouse-operations/.env down
+COMPOSE_PROFILES=bp_wh_auto_calib_2d docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
 ```
 
 ## What comes next

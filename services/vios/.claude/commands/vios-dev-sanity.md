@@ -37,7 +37,7 @@ The agent reads the test plan **dynamically from the xlsx at runtime** — it do
 ```
 /vios-dev-sanity                                               # parse xlsx, show test plan, await instruction
 /vios-dev-sanity run all                                       # auto-detect deployment, execute all tests
-/vios-dev-sanity run all --url http://10.41.26.58:30888/vst   # run against a specific deployment
+/vios-dev-sanity run all --url http://<HOST>:30888/vst   # run against a specific deployment
 /vios-dev-sanity run all --filter WebRTC                       # run only WebRTC category tests
 /vios-dev-sanity run all --filter "Sensor Management"          # run only Sensor Management tests
 /vios-dev-sanity run all --xlsx /path/to/custom.xlsx           # use a different xlsx file
@@ -49,8 +49,8 @@ The agent reads the test plan **dynamically from the xlsx at runtime** — it do
 
 Explicitly target a specific VIOS deployment. The agent normalizes it automatically (strips hash fragment and trailing slash):
 ```
---url http://10.41.26.58:30888/vst/#/dashboard   # accepted
---url http://10.41.26.58:30888/vst               # accepted
+--url http://<HOST>:30888/vst/#/dashboard   # accepted
+--url http://<HOST>:30888/vst               # accepted
 ```
 
 **If omitted**: the agent auto-detects a running local deployment by probing `localhost`, `127.0.0.1`, and all local IPv4 addresses on port 30888. If nothing is found, it starts a deployment automatically using the `vios-deployment` skill.
@@ -70,7 +70,11 @@ Path to the xlsx test plan. Default: agent searches for `vios_dev_sanity.xlsx` i
 
 ### `--nvstreamer-url` flag
 
-NvStreamer base URL. If omitted, the agent derives it from the deployment's `compose.env` file or defaults to `http://<BASE_HOST>:31000`.
+NvStreamer base URL. If omitted, the agent auto-detects a **local** NvStreamer (running container's published port, or a probe of `http://localhost:31000`). The "add RTSP" / H265 tests use this local NvStreamer (`http://localhost:31000/...`) as their source.
+
+### Environment preflight
+
+Environment-specific values (IPs, hosts, ports, image tags) are not committed to the repo. The agent resolves them from the live environment at startup — running containers, `compose.env`, and the sensor API. Anything that cannot be auto-detected is requested **once, at the start**, before any test runs. Most commonly: if **no local NvStreamer is detected**, the agent prompts for a **NvStreamer IP** and uses `http://<that-ip>:31000` for the run. The agent also checks the NvStreamer stream count and, if fewer than two streams are present, asks you to add more before running (Video Wall and multi-sensor tests need at least two).
 
 ### `--update-xls` flag
 

@@ -17,18 +17,18 @@
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.chart_generator import BarChartData
-from vss_agents.tools.chart_generator import ChartData
-from vss_agents.tools.chart_generator import ChartFileFormat
-from vss_agents.tools.chart_generator import ChartGeneratorConfig
-from vss_agents.tools.chart_generator import ChartGeneratorInput
-from vss_agents.tools.chart_generator import ChartGenExecOutput
-from vss_agents.tools.chart_generator import ChartType
-from vss_agents.tools.chart_generator import PieChartData
-from vss_agents.tools.chart_generator import _str_input_converter
-from vss_agents.tools.chart_generator import convert_to_format
-from vss_agents.tools.chart_generator import plot_bar_chart
-from vss_agents.tools.chart_generator import plot_pie_chart
+from agent.tools.chart_generator import BarChartData
+from agent.tools.chart_generator import ChartData
+from agent.tools.chart_generator import ChartFileFormat
+from agent.tools.chart_generator import ChartGeneratorConfig
+from agent.tools.chart_generator import ChartGeneratorInput
+from agent.tools.chart_generator import ChartGenExecOutput
+from agent.tools.chart_generator import ChartType
+from agent.tools.chart_generator import PieChartData
+from agent.tools.chart_generator import _str_input_converter
+from agent.tools.chart_generator import convert_to_format
+from agent.tools.chart_generator import plot_bar_chart
+from agent.tools.chart_generator import plot_pie_chart
 
 
 class TestChartType:

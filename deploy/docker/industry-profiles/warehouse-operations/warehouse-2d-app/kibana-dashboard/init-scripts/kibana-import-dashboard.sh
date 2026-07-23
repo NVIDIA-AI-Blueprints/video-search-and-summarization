@@ -30,7 +30,7 @@ exit_with_msg(){
 ##############################
 import_dashboard(){
     echo -e "Importing Dashboards"
-    curl -X POST localhost:5601/kibana/api/saved_objects/_import?overwrite=true \
+    curl -X POST "${KIBANA_URL:-http://kibana:5601}/kibana/api/saved_objects/_import?overwrite=true" \
     -H "kbn-xsrf: true" \
     --form file=@"/opt/vss/kibana-objects.ndjson" || exit_with_msg "Curl command to import kibana dashboard failed with error code $?."
 }

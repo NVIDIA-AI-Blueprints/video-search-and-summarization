@@ -59,6 +59,14 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # corrupting an artifact name or escaping a path.
 SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
+# scenarios, not a dispatchable spec object. It has no `resources.platforms`,
+# so spec_platforms() would choke on it (list has no .get), and the agent can't
+# run it as a single spec. Real specs are named per scenario (deploy.json,
+# routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
+# never becomes a matrix leg.
+EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
+
 
 def list_changed_files() -> list[str]:
     """Changed files in the cumulative PR diff (base...mirror head).
@@ -124,6 +132,8 @@ def specs_for_skill(skill: str) -> list[tuple[str, str, str]]:
         if not d.is_dir():
             continue
         for p in sorted(d.glob("*.json")):
+            if p.name in EXCLUDED_SPEC_NAMES:
+                continue
             rel = p.relative_to(REPO_ROOT).as_posix()
             found.append((rel, eval_dir, p.stem))
     return found
@@ -131,6 +141,18 @@ def specs_for_skill(skill: str) -> list[tuple[str, str, str]]:
 
 def adapter_exists(skill: str) -> bool:
     return (ADAPTERS_DIR / skill / "generate.py").is_file()
+
+
+def list_skill_file_paths(skills_dir: Path | None = None) -> list[str]:
+    """Repo-relative paths to every SKILL.md file under the skills directory."""
+    root = skills_dir or (REPO_ROOT / "skills")
+    if not root.is_dir():
+        return []
+    return [
+        p.relative_to(root.parent).as_posix()
+        for p in sorted(root.rglob("SKILL.md"))
+        if p.is_file()
+    ]
 
 
 def spec_platforms(spec_path: str) -> list[str]:
@@ -158,7 +180,10 @@ def build_matrix(changed: list[str]) -> list[dict]:
 
     for f in changed:
         m = SPEC_RE.match(f)
-        if m:
+        # A changed `evals.json` is not a spec; let it fall through to the
+        # whole-skill rule below (and specs_for_skill keeps it out of that
+        # expansion too) rather than dispatching it as its own leg.
+        if m and Path(f).name not in EXCLUDED_SPEC_NAMES:
             changed_specs.add(f)
             continue
         m = SKILL_FILE_RE.match(f)
@@ -281,7 +306,11 @@ def emit(include: list[dict]) -> None:
 
 
 def main() -> int:
-    changed = list_changed_files()
+    DAILY_RUN = os.environ.get("DAILY_RUN")
+    if DAILY_RUN:
+        changed = list_skill_file_paths()
+    else:
+        changed = list_changed_files()
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)

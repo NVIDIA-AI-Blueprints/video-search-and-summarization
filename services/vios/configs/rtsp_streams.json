@@ -3,22 +3,22 @@
     [
         {
             "enabled":false,
-            "stream_in":"rtsp://admin:admin@10.24.216.161/h264",
+            "stream_in":"rtsp://<user>:<password>@<camera-ip>/h264",
             "name":"March"
         },
         {
             "enabled":false,
-            "stream_in":"rtsp://admin:nvidia123@10.24.217.243:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif",
+            "stream_in":"rtsp://<user>:<password>@<camera-ip>:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif",
             "name":"Amcrest"
         },
         {
-            "enabled":true,
-            "stream_in":"rtsp://admin:nvidia123@10.24.218.101:554/Streaming/Channels/101?transportmode=unicast&profile=Profile_1",
+            "enabled":false,
+            "stream_in":"rtsp://<user>:<password>@<camera-ip>:554/Streaming/Channels/101?transportmode=unicast&profile=Profile_1",
             "name":"Hikvision"
         },
         {
             "enabled":false,
-            "stream_in":"rtsp://nvidia:dsdsdsds@10.24.218.105/profile?token=media_profile1&SessionTimeout=60",
+            "stream_in":"rtsp://<user>:<password>@<camera-ip>/profile?token=media_profile1&SessionTimeout=60",
             "name":"Sony"
         },
         {

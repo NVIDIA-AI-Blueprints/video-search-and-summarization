@@ -21,9 +21,11 @@ enabled: false
 global: {}
 serviceAccount:
   create: false
+# HELM_RELEASE_CHANNEL_POLICY: Helm stays on an immutable NGC staging pin;
+# Docker developer profiles may independently follow GHCR develop-latest.
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-agent
-  tag: "3.2.0-26.05.5-c777a8d34f70"
+  tag: "3.3.0-65576357eb80"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -90,11 +92,11 @@ reportsBaseUrl: ""
 vssAgentExternalUrl: ""
 externalIp: ""
 vstInternalIp: ""
-vssAgentVersion: "3.2.0-26.05.5-c777a8d34f70"
+vssAgentVersion: "3.3.0-65576357eb80"
 lvsBackendService: ""
 
 # [Optional] HTTP-client timeouts (seconds) for the post-upload pipeline in
-# services/agent/src/vss_agents/api/video_ingest.py. Each value flows in as
+# services/agent/src/agent/api/video_ingest.py. Each value flows in as
 # a VIDEO_INGEST_*_TIMEOUT_SECONDS env var and is only emitted when set, so
 # leaving a key empty preserves whatever the agent's YAML config or the
 # DEFAULT_*_TIMEOUT_SECONDS module constants set (the canonical source of
@@ -171,6 +173,21 @@ env:
   value: ''
 - name: OPENAI_API_KEY
   value: ''
+# Patent-encumbered media codecs (H.264/H.265) are NOT bundled in the image for
+# licensing reasons. Defaults to 'true': opencv-python-headless is installed from
+# PyPI at container startup so video decoding works out of the box. Set to 'false'
+# to keep patent-encumbered codecs off at runtime too. Compose parity:
+# deploy/docker/services/agent/compose.yml.
+- name: INSTALL_PROPRIETARY_CODECS
+  value: 'true'
+# Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
+# deploy/docker/services/agent/compose.yml.
+- name: RAG_SERVER_URL
+  value: 'http://rag-server:8081/v1'
+- name: RAG_API_KEY
+  value: ''
+- name: KNOWLEDGE_COLLECTION
+  value: 'default'
 - name: COSMOS_EMBED_ENDPOINT
   value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-embed:8000" .Release.Name) "http://vss-rtvi-embed:8000" $pfx }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
 - name: ELASTIC_SEARCH_ENDPOINT
@@ -182,7 +199,7 @@ env:
 - name: LLM_BASE_URL
   value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
 - name: VLM_BASE_URL
-  value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+  value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos3-reasoner:8000" .Release.Name) "http://nvidia-cosmos3-reasoner:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
 - name: VST_EXTERNAL_URL
   value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
 - name: VST_INTERNAL_URL
@@ -190,7 +207,7 @@ env:
 - name: LLM_NAME
   value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
 - name: VLM_NAME
-  value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos-reason2-8b") }}'
+  value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos3-nano-reasoner") }}'
 - name: EVAL_LLM_JUDGE_NAME
   value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
 - name: EVAL_LLM_JUDGE_BASE_URL
@@ -203,7 +220,7 @@ env:
 - name: AGENT_BASE_URL
   value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
 - name: VSS_AGENT_VERSION
-  value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.5-c777a8d34f70" }}'
+  value: '{{ .Values.vssAgentVersion | default "3.3.0-65576357eb80" }}'
 # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).
 # Set ENABLE_AUDIO=true for Nemotron Nano Omni audio-aware VLM.
 - name: ENABLE_AUDIO

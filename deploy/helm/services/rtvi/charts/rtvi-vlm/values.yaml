@@ -18,23 +18,23 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
-  tag: "3.2.0-26.05.4"
+  repository: nvcr.io/nvidia/vss-core/vss-rt-vlm
+  tag: "3.2.1"
   pullPolicy: IfNotPresent
 replicas: 1
 
-# When true, use shared NIM VLM (nvidia-cosmos-reason2-8b) instead of loading model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
+# When true, use shared NIM VLM (nvidia-cosmos3-reasoner) instead of loading model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
 useSharedNim: false
-# NIM VLM service for useSharedNim: default <release>-nvidia-cosmos-reason2-8b:8000
+# NIM VLM service for useSharedNim: default <release>-nvidia-cosmos3-reasoner:8000
 sharedNimService: ""
 sharedNimPort: "8000"
 # Optional override of global.vlmBaseUrl / global.vlmName. Used only when nims.enabled below is false (remote VLM).
 vlmBaseUrl: ""
 # Optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME when useSharedNim (same idea as vss-agent.vlmName).
 vlmName: ""
-# When useSharedNim: VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME. Empty defaults to global.vlmName (e.g. nvidia/cosmos-reason2-8b), not vlmNameSlug.
+# When useSharedNim: VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME. Empty defaults to global.vlmName (e.g. nvidia/cosmos3-nano-reasoner), not vlmNameSlug.
 viaVlmOpenAiModelDeploymentName: ""
-# Umbrella installs: keep enabled in sync with top-level nims.enabled. true = in-cluster NIM (http://<release>-nvidia-cosmos-reason2-8b:…/v1). false = remote global.vlmBaseUrl / global.vlmName. If omitted, the template defaults to in-cluster (local LLM/VLM safe).
+# Umbrella installs: keep enabled in sync with top-level nims.enabled. true = in-cluster NIM (http://<release>-nvidia-cosmos3-reasoner:…/v1). false = remote global.vlmBaseUrl / global.vlmName. If omitted, the template defaults to in-cluster (local LLM/VLM safe).
 nims:
   enabled: true
 
@@ -134,8 +134,16 @@ env:
     value: ""
   - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
     value: ""
-  - name: ENABLE_LVS_CR2_TIMESTAMP_PROMPT
+  - name: RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE
     value: ""
+  - name: RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE
+    value: ""
+  - name: RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE
+    value: ""
+  - name: RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE
+    value: ""
+  - name: RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS
+    value: "false"
   - name: RTVI_EXTRA_ARGS
     value: ""
   - name: RTVI_RTSP_LATENCY

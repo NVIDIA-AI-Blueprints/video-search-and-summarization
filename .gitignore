@@ -3,10 +3,11 @@
 # Python
 __pycache__/
 *.pyc
-
-# OpenClaw plugin pack artifacts (staged by .openclaw/package.json prepack)
-.openclaw/*.tgz
-.openclaw/.skills.staged
+/services/agent/.coverage
+/services/agent/coverage.xml
+/services/agent/coverage-lib.xml
+/services/agent/.wheel-smoke/
+/services/agent/dist/
 
 # Runtime artifacts from the deploy flow — these carry live credentials
 # (NGC_CLI_API_KEY, NVIDIA_API_KEY, etc.) and resolved compose state,
@@ -14,7 +15,9 @@ __pycache__/
 # vss-deploy-profile skill on every deploy.
 **/generated.env
 deploy/docker/resolved.yml
+deploy/docker/rag-secret.override.yml
 
 *.log
 *checkpoint.*
 .orchestrator-artifacts/*
+.mdx_data/*

@@ -7,14 +7,15 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-deploy-profile`
-- Evaluation date: 2026-05-29
+- Evaluation date: 2026-07-18
 - NVSkills-Eval profile: `external`
+- Environment: `astra-sandbox`
 - Overall verdict: PASS
-- Tier 3 live agent evaluation: not available in this report
 
 ## Agents Used
 
-- Tier 3 agent details were not available in this report.
+- `claude-code`
+- `codex`
 
 ## Metrics Used
 
@@ -32,31 +33,32 @@ Underlying evaluation signals used in this run:
 
 ## Test Tasks
 
-Tier 3 evaluation task details were not available in this report.
+The evaluation dataset was not available in this report payload.
 
 ## Results
 
-Tier 3 dimension rollup was not available in this report.
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | N/A | N/A | N/A |
+| Correctness | N/A | N/A | N/A |
+| Discoverability | N/A | N/A | N/A |
+| Effectiveness | N/A | N/A | N/A |
+| Efficiency | N/A | N/A | N/A |
+
+Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 4 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 1 checks and found 2 total findings.
 
 Top findings:
 
-- MEDIUM QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/vss-deploy-profile/SKILL.md`)
-- MEDIUM QUALITY/quality_efficiency: Deeply nested references in alerts.md (`skills/vss-deploy-profile/SKILL.md`)
+- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-profile/SKILL.md`)
 - MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-profile/SKILL.md`)
-- LOW QUALITY/quality_efficiency: Non-descriptive filename: ngc.md (`skills/vss-deploy-profile/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
-
-Notable observations:
-
-- Context Deduplication: Collected 20 file(s)
-- Inter-Skill Deduplication: Parsed skill 'vss-deploy-profile': 176 char description
+This tier was not run or did not produce findings in this report.
 
 ## Publication Recommendation
 

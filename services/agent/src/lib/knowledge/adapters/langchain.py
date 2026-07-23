@@ -15,7 +15,7 @@
 """Retrieval-only LangChain adapter over a ChromaDB persist dir.
 
 Goes direct to `Chroma.asimilarity_search_with_score` — the retriever
-surface drops the per-doc score we need. Requires `vss-agents[langchain]`;
+surface drops the per-doc score we need. Requires `nvidia-vss[langchain]`;
 imports are deferred.
 """
 
@@ -85,9 +85,9 @@ class LangChainAdapter(BackendAdapter):
             from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
         except ImportError as e:
             raise ImportError(
-                "langchain backend requires the `vss-agents[langchain]` extra. "
+                "langchain backend requires the `nvidia-vss[langchain]` extra. "
                 "Install via:\n"
-                "  pip install 'vss-agents[langchain]'\n"
+                "  pip install 'nvidia-vss[langchain]'\n"
                 "Or pick a different backend (`frag_api` / `llama_index` / `es_caption`)."
             ) from e
 

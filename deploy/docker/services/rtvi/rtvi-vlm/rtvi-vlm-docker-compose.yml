@@ -18,12 +18,12 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.4}
+    image: ${VSS_RT_VLM_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-vlm}:${RTVI_VLM_IMAGE_TAG:-3.2.1}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
     runtime: nvidia
-    profiles: ["bp_wh_2d", "bp_developer_alerts_2d_vlm", "bp_developer_alerts_2d_cv", "bp_developer_base_2d_IGX-THOR", "bp_developer_base_2d_AGX-THOR", "bp_developer_lvs_2d"]
+    profiles: ["rtvi-vlm"]
     deploy:
       resources:
         reservations:
@@ -64,7 +64,7 @@ services:
       VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-1}"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${RTVI_VLM_GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
       VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
-      MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:hf-1208}"
+      MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final}"
       MODEL_IMPLEMENTATION_PATH: "${RTVI_VLM_MODEL_IMPLEMENTATION_PATH:-}"
       NUM_VLM_PROCS: "${RTVI_VLM_NUM_VLM_PROCS:-}"
       NUM_GPUS: "${RTVI_VLM_NUM_GPUS:-}"
@@ -98,7 +98,7 @@ services:
       # Bounded queue size for the async Kafka sender.
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
 
-      KAFKA_BOOTSTRAP_SERVERS: ${HOST_IP}:9092
+      KAFKA_BOOTSTRAP_SERVERS: ${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       NGC_API_KEY: "${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
       RTVI_EXTRA_ARGS: "${RTVI_EXTRA_ARGS:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
@@ -111,7 +111,11 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
       VSS_SKIP_INPUT_MEDIA_VERIFICATION: "${VSS_SKIP_INPUT_MEDIA_VERIFICATION:-}"
       RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT: "${RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT:-}"
-      ENABLE_LVS_CR2_TIMESTAMP_PROMPT: "${ENABLE_LVS_CR2_TIMESTAMP_PROMPT:-}"
+      RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE: "${RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE:-}"
+      RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE: "${RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE:-}"
+      RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE: "${RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE:-}"
+      RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE: "${RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE:-}"
+      RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS: "${RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS:-false}"
       # Timeout (sec) for blocking stream delete drain.
       RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC: "${RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC:-300}"
       # Optionally call CUDA empty-cache after result handling.

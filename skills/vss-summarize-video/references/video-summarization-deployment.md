@@ -8,6 +8,7 @@ service reference for the VSS 3.2.0 `lvs` profile.
 Source files:
 
 - `deploy/docker/developer-profiles/dev-profile-lvs/.env`
+- `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`
 - `deploy/docker/services/video-summarization/compose.yml`
 - `deploy/docker/services/video-summarization/configs/config.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
@@ -20,7 +21,7 @@ Key service signals in the current develop branch:
 | Compose profile | `bp_developer_lvs_2d` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
-| video summarization image | `${LVS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.0}` |
+| video summarization image | `${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.1}` (use `LVS_TAG=3.2.1-sbsa` on SBSA / DGX Spark / Grace) |
 | REST API | `http://<HOST_IP>:38111` |
 | Readiness | `GET /v1/ready` |
 | MCP port | `38112`, disabled by default in the developer profile |
@@ -60,11 +61,15 @@ docker compose --profile bp_developer_lvs_2d logs -f lvs-server
 
 ## Required Inputs
 
-The checked-in profile env file,
-`deploy/docker/developer-profiles/dev-profile-lvs/.env`, is the defaults file.
-For a deployment, follow `vss-deploy-profile` and apply overrides to
+The checked-in profile env files split stable defaults and runtime/profile defaults:
+`deploy/docker/developer-profiles/dev-profile-lvs/.env` is the stable-default layer,
+and `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env` is copied to
+`generated.env` for deployment-specific overrides. For a deployment, follow
+`vss-deploy-profile` and apply overrides to
 `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`, then resolve
-`deploy/docker/resolved.yml`. Do not edit the service compose directly.
+`deploy/docker/resolved.yml` using `.env` plus `generated.env`. Do not edit the service compose directly.
+Password values should come from the profile env or deployment overrides; do
+not add password defaults to the service compose file.
 
 Core required values:
 
@@ -84,8 +89,8 @@ Video summarization service values:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | video summarization image repository. |
-| `LVS_TAG` | `3.2.0` | video summarization image tag in current develop. |
+| `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | video summarization image repository. |
+| `LVS_TAG` | `3.2.1` (x86 / Jetson Thor); `3.2.1-sbsa` (SBSA / DGX Spark / Grace) | video summarization image tag in current develop. The tag must match the host CPU platform. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
@@ -149,7 +154,7 @@ services:
     image: neo4j:5.26.4
     container_name: graph-db
     environment:
-      NEO4J_AUTH: ${GRAPH_DB_USERNAME:-neo4j}/${GRAPH_DB_PASSWORD:-passneo4j}
+      NEO4J_AUTH: ${GRAPH_DB_USERNAME:-neo4j}/${GRAPH_DB_PASSWORD:?GRAPH_DB_PASSWORD_required}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_server_bolt_listen__address: 0.0.0.0:${GRAPH_DB_BOLT_PORT:-7687}
       NEO4J_server_http_listen__address: 0.0.0.0:${GRAPH_DB_HTTP_PORT:-7474}
@@ -163,7 +168,7 @@ services:
       LVS_DATABASE_BACKEND: graph_db
       GRAPH_DB_HOST: 127.0.0.1
       GRAPH_DB_USERNAME: ${GRAPH_DB_USERNAME:-neo4j}
-      GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD:-passneo4j}
+      GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD:?GRAPH_DB_PASSWORD_required}
       GRAPH_DB_HTTP_PORT: ${GRAPH_DB_HTTP_PORT:-7474}
       GRAPH_DB_BOLT_PORT: ${GRAPH_DB_BOLT_PORT:-7687}
       LVS_EMB_ENABLE: "true"
@@ -180,7 +185,7 @@ services:
     image: arangodb/arangodb:3.12.4
     container_name: arango-db
     environment:
-      ARANGO_ROOT_PASSWORD: ${ARANGO_DB_PASSWORD:-passroot}
+      ARANGO_ROOT_PASSWORD: ${ARANGO_DB_PASSWORD:?ARANGO_DB_PASSWORD_required}
     ports:
       - ${ARANGO_DB_PORT:-8529}:${ARANGO_DB_PORT:-8529}
     command:
@@ -195,7 +200,7 @@ services:
       LVS_DATABASE_BACKEND: graph_db_arango
       ARANGO_DB_HOST: 127.0.0.1
       ARANGO_DB_USERNAME: ${ARANGO_DB_USERNAME:-root}
-      ARANGO_DB_PASSWORD: ${ARANGO_DB_PASSWORD:-passroot}
+      ARANGO_DB_PASSWORD: ${ARANGO_DB_PASSWORD:?ARANGO_DB_PASSWORD_required}
       ARANGO_DB_PORT: ${ARANGO_DB_PORT:-8529}
       LVS_EMB_ENABLE: "true"
       LVS_EMB_MODEL_NAME: ${LVS_EMB_MODEL_NAME}
@@ -209,7 +214,9 @@ same dry-run path used by `vss-deploy-profile`:
 
 ```bash
 cd "$REPO/deploy/docker"
-docker compose --env-file developer-profiles/dev-profile-lvs/generated.env \
+docker compose \
+  --env-file developer-profiles/dev-profile-lvs/.env \
+  --env-file developer-profiles/dev-profile-lvs/generated.env \
   -f compose.yml -f <db-override.yml> \
   config > resolved.yml
 ```
@@ -248,36 +255,29 @@ RT-VLM values:
 |---|---|---|
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing RT-VLM URL. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing RT-VLM URL. |
-| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason2` | RT-VLM backend selector for default integrated mode. |
-| `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Default integrated checkpoint. |
+| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | RT-VLM backend selector for default integrated mode. |
+| `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default integrated checkpoint. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw captions to Kafka. |
 | `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw captions topic. |
 
 ## Model Id Rule
 
-For the default integrated RT-VLM path:
-
-```bash
-VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
-```
-
-`VLM_NAME` must match the id returned by:
+`VLM_NAME`, when configured, must match the id returned by:
 
 ```bash
 curl -sf "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'
 ```
 
-Do not replace it with the friendly model name unless the endpoint advertises
-that exact id.
+Use the endpoint response as authoritative; do not assume an image tag, NIM
+profile name, or friendly name is also the serving id.
 
 ## Helm Notes
 
 The Helm service chart lives at `deploy/helm/services/video-summarization`.
 Important 3.2 values:
 
-- `image.repository: nvcr.io/nvstaging/vss-core/vss-video-summarization`
-- `image.tag: "3.2.0"`
+- `image.repository: nvcr.io/nvidia/vss-core/vss-video-summarization`
+- `image.tag: "3.2.1"` (use `"3.2.1-sbsa"` on SBSA / DGX Spark / Grace hosts)
 - `service.backendPort: 38111`
 - `service.mcpPort: 38112`
 - `KAFKA_ENABLED: "true"`

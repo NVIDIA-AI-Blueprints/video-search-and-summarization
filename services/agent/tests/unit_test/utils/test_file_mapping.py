@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/file_mapping.py."""
+"""Tests for agent/utils/file_mapping.py."""
 
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -20,10 +20,10 @@ from unittest.mock import patch
 
 import pytest
 
-from vss_agents.utils.file_mapping import FileMapping
-from vss_agents.utils.file_mapping import StorageType
-from vss_agents.utils.file_mapping import VideoFileInfo
-from vss_agents.utils.file_mapping import resolve_video_file
+from agent.utils.file_mapping import FileMapping
+from agent.utils.file_mapping import StorageType
+from agent.utils.file_mapping import VideoFileInfo
+from agent.utils.file_mapping import resolve_video_file
 
 
 class TestStorageType:
@@ -249,7 +249,7 @@ class TestResolveVideoFile:
             }
         )
 
-        with patch("vss_agents.utils.file_mapping.file_mapping", test_mapping):
+        with patch("agent.utils.file_mapping.file_mapping", test_mapping):
             path, needs_cleanup = await resolve_video_file("test.mp4", 0.0, 10.0)
 
         assert path == str(video_file)
@@ -260,7 +260,7 @@ class TestResolveVideoFile:
         """Test resolving nonexistent file."""
         test_mapping = FileMapping()
 
-        with patch("vss_agents.utils.file_mapping.file_mapping", test_mapping):
+        with patch("agent.utils.file_mapping.file_mapping", test_mapping):
             with pytest.raises(ValueError, match="not found"):
                 await resolve_video_file("nonexistent.mp4", 0.0, 10.0)
 
@@ -277,7 +277,7 @@ class TestResolveVideoFile:
             }
         )
 
-        with patch("vss_agents.utils.file_mapping.file_mapping", test_mapping):
+        with patch("agent.utils.file_mapping.file_mapping", test_mapping):
             with pytest.raises(ValueError, match="VST download tool not available"):
                 await resolve_video_file("vst-file.mp4", 0.0, 10.0, vst_download_tool=None)
 
@@ -295,7 +295,7 @@ class TestResolveVideoFile:
             }
         )
 
-        with patch("vss_agents.utils.file_mapping.file_mapping", test_mapping):
+        with patch("agent.utils.file_mapping.file_mapping", test_mapping):
             with pytest.raises(ValueError, match="Local file not found"):
                 await resolve_video_file("missing.mp4", 0.0, 10.0)
 
@@ -318,7 +318,7 @@ class TestResolveVideoFile:
         mock_result.local_file_path = "/tmp/downloaded_clip.mp4"
         mock_download_tool.ainvoke = AsyncMock(return_value=mock_result)
 
-        with patch("vss_agents.utils.file_mapping.file_mapping", test_mapping):
+        with patch("agent.utils.file_mapping.file_mapping", test_mapping):
             with patch("tempfile.mkdtemp", return_value="/tmp/vst_clip_test"):
                 path, needs_cleanup = await resolve_video_file(
                     "vst-video.mp4", 0.0, 10.0, vst_download_tool=mock_download_tool
@@ -344,6 +344,6 @@ class TestResolveVideoFile:
             }
         )
 
-        with patch("vss_agents.utils.file_mapping.file_mapping", test_mapping):
+        with patch("agent.utils.file_mapping.file_mapping", test_mapping):
             with pytest.raises(NotImplementedError, match="VSS storage type not yet supported"):
                 await resolve_video_file("vss-video.mp4", 0.0, 10.0)

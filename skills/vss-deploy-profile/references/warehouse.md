@@ -1,6 +1,6 @@
 # Warehouse Blueprint Reference
 
-Blueprint: VSS Warehouse — RT-DETR (2D) / Sparse4D (3D) / MV3DT (multi-view 3D tracking with BEV Fusion) perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using `industry-profiles/warehouse-operations/.env`.
+Blueprint: VSS Warehouse — RT-DETR (2D) / Sparse4D (3D) / MV3DT (multi-view 3D tracking with BEV Fusion) perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using the warehouse `.env` plus `generated.env` env-file pair.
 
 The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data (videos and models) is the only artifact you may need to acquire; see [App Data](#app-data).
 
@@ -13,7 +13,7 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 | Profile Name | MODE | BP_PROFILE | SAMPLE_VIDEO_DATASET | NUM_STREAMS | LLM | RTVI VLM |
 |---|---|---|---|---|---|---|
 | 2D Vision AI Profile | `2d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-loading-dock-3cams-synthetic` | 3 | none | none |
-| 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `local_shared` / `remote` / `none` | **always local** |
+| 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `remote` / `none` | **always local** |
 | 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
 | MV3DT Vision AI Profile | `mv3dt` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
 | Warehouse Auto-Calibration | `2d` / `3d` / `mv3dt` | `bp_wh_auto_calib` | (same as mode default) | (same as mode default) | none | none |
@@ -85,7 +85,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 | Container | Port |
 |---|---|
-| `vss-haproxy-ingress` | `HAPROXY_PORT` (default `7777`) |
+| `vss-haproxy-ingress` | `HAPROXY_HOST_PORT` (host, default `7777`) → `HAPROXY_PORT` (container, default `7777`) |
 | `vss-agent-ui` (Next.js) | 3000 |
 | `vss-agent` | `VSS_AGENT_PORT` (default `8000`) |
 | `vss-va-mcp` | `VSS_VA_MCP_PORT` (default `9901`) |
@@ -104,8 +104,8 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 | Container | Port | When |
 |---|---|---|
-| LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` or `local_shared` |
-| `vss-rtvi-vlm` (real-time VLM) | 8018 | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
+| LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` |
+| `vss-rtvi-vlm` (real-time VLM) | `RTVI_VLM_PORT` (default `8018`) | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
 | `vss-alert-bridge` | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
 > **No VLM NIM container.** VSS has two VLM paths: a standalone **VLM NIM** (controlled by `VLM_MODE` / `VLM_NAME_SLUG`, used by base/alerts/lvs/search profiles) and an integrated **RTVI VLM** (`vss-rtvi-vlm`). The warehouse blueprint uses **RTVI VLM only** — `vss-rtvi-vlm` is always deployed via the hardcoded compose profile `bp_wh_2d`, and `vss-agent` connects to it directly. Because warehouse does not use the standalone VLM NIM path, `VLM_MODE=none` and `VLM_NAME_SLUG=none` in the warehouse `.env`. There is no `vlm_*` slice in `COMPOSE_PROFILES`, so VLM NIM containers (e.g. `cosmos-reason2-8b` on port 30082) are never deployed.
@@ -125,11 +125,9 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | RT-CV perception (DeepStream — RT-DETR for 2D, Sparse4D for 3D, MV3DT for mv3dt) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse profiles |
 | RTVI VLM — always local | `RT_VLM_DEVICE_ID` (default: `1`) | `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local` |
-| LLM NIM sharing the RTVI VLM device | `SHARED_LLM_VLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local_shared` |
 
-`LLM_MODE` accepts `local`, `local_shared`, `remote`, or `none`:
+`LLM_MODE` accepts `local`, `remote`, or `none`:
 - `local` — LLM NIM on its own GPU (`LLM_DEVICE_ID`)
-- `local_shared` — LLM NIM colocated with RTVI VLM on `SHARED_LLM_VLM_DEVICE_ID` (use when GPU count is limited)
 - `remote` — point at an external LLM endpoint via `LLM_BASE_URL` (no LLM NIM deployed)
 - `none` — no LLM, for `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`
 
@@ -137,14 +135,13 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 
 ## Access Points
 
-**Prefer the HAProxy ingress (port `7777`)** — it gives a single browser-reachable origin and rewrites paths to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
+**Prefer the HAProxy ingress (host port `7777`)** — it gives a single browser-reachable origin and rewrites paths to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
 
-### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_PORT>` — default `<EXTERNAL_IP>:7777`)
+### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_HOST_PORT>` — default `<EXTERNAL_IP>:7777`)
 
 | Path | Backend | Profile |
 |---|---|---|
 | `/` | `vss-agent-ui` (Next.js) | `bp_wh` (returns 503 in `bp_wh_kafka`/`bp_wh_redis` — no UI backend) |
-| `/vst`, `/vst/...` | `vss-vios-ingress` (VST / VIOS UI) | All |
 | `/storage`, `/storage/...` | `vst-storage` (compat → `/vst/storage/...`) | All |
 | `/kibana`, `/kibana/...` | `kibana` | `bp_wh`, or kafka/redis extended (2D or 3D) |
 | `/video-analytics-api`, `.../...` | `vss-video-analytics-api` | `bp_wh`, or kafka/redis extended |
@@ -169,14 +166,17 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
 | Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
 | Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
-| VST UI (direct) | `http://<HOST_IP>:30888/vst` | Prefer `/vst` via HAProxy |
+| VST UI | `http://<HOST_IP>:30888/vst/` | All — direct port, not proxied via HAProxy |
 
-`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, follow the same secure-link pattern as the other VSS profiles (`SKILL.md` Step 1c). The HAProxy `h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`) — wrong Host headers get a 404 from haproxy.
+`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. The HAProxy `h_main` ACL routes browser traffic through `${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`; for local defaults this is `${EXTERNAL_IP}:${HAPROXY_HOST_PORT}`. Wrong Host headers get a 404 from haproxy.
 
 ## Compose File Structure
 
 Deployed from `<repo>/deploy/docker/` (the repo's compose root) using:
-- `industry-profiles/warehouse-operations/.env` — all configuration
+- `industry-profiles/warehouse-operations/.env` — profile-specific stable defaults
+- `services/<service>/*.env` — shared service defaults loaded through compose include `env_file` entries
+- `industry-profiles/warehouse-operations/overrides.env` — checked-in deployment/profile override defaults
+- `industry-profiles/warehouse-operations/generated.env` — per-deploy working copy created from `overrides.env`
 - `compose.yml` — root top-level include (foundational, monitoring, vst, industry-profiles, etc.)
   - `industry-profiles/compose.yml` — industry sub-include
     - `industry-profiles/warehouse-operations/compose.yml` — warehouse sub-include
@@ -192,7 +192,7 @@ App data (sample videos, perception models) is **not** bundled with the repo. Pi
 |---|---|---|
 | `<repo>/data` | Quick start — drop assets into the repo's `data/` directory | `<repo>/data` |
 | Custom local path | Existing dataset on a non-repo path (e.g. `/mnt/warehouse-data`) | user-provided path |
-| NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` **or** `nvstaging/vss-warehouse/vss-warehouse-app-data:<version>` (staging keys land here) |
+| NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` |
 
 Ask the user which source they want and whether they already have the assets on disk. Only run the NGC download (next subsection) when they explicitly choose the NGC source.
 
@@ -200,9 +200,9 @@ Ask the user which source they want and whether they already have the assets on 
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| App data (videos, models) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` **or** `nvstaging/vss-warehouse/vss-warehouse-app-data:<version>` | `vss-warehouse-app-data_v<version>/` |
+| App data (videos, models) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` | `vss-warehouse-app-data_v<version>/` |
 
-> **Org may be `nvidia` or `nvstaging`.** Production keys access the canonical `nvidia/...` path; staging / NVIDIAN keys typically only see `nvstaging/...`. If you get `403 Access Denied` on one, retry with the other before assuming the resource is missing. Confirm by running `ngc org list` to see which orgs the current key belongs to.
+> **Org:** use the canonical `nvidia/...` resource path for the published 3.2.0 bundle. If you get `403 Access Denied`, confirm the NGC key has access to the published VSS warehouse resource.
 
 ## Known Limitations
 
@@ -223,7 +223,7 @@ Ask the user which source they want and whether they already have the assets on 
 | **Redeploy** (`.env` change, clean restart, broken stack) | [Redeploy](#redeploy). Skips Phases 1–4 — host is already set up and artifacts exist. |
 | **Tear down only** (stop and remove containers/volumes; keep files on disk) | [Lifecycle: Tear down](#lifecycle-tear-down). |
 
-**`<repo>`** — path to your `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env`. If you don't know the repo path, **ask explicitly** before running shell commands.
+**`<repo>`** — path to your `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. If `generated.env` does not exist yet, initialize it from `overrides.env` before editing. If you don't know the repo path, **ask explicitly** before running shell commands.
 
 ---
 
@@ -244,7 +244,10 @@ cd <repo>/deploy/docker
 
 # Hard teardown — `-v` ensures named volumes are also removed.
 # Containers + network + project's named volumes all go.
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  down -v
 
 # Sweep any leftover anonymous/dangling volumes from prior partial runs.
 docker volume prune -f
@@ -253,9 +256,8 @@ docker volume prune -f
 docker system prune -f
 
 # Wipe bind-mounted state under $VSS_DATA_DIR/data_log/* AND revert
-# blueprint-configurator backups. Resolves VSS_DATA_DIR from the env file,
-# so pass the SAME env you used with `docker compose --env-file ...`.
-bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
+# blueprint-configurator backups. Resolves VSS_DATA_DIR from generated.env.
+bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
 ```
 
 ### Lifecycle: Bring up
@@ -266,10 +268,16 @@ Pulls images and builds the perception container (~10–15 min first run). If `d
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
 cd <repo>/deploy/docker
 
-docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
+# Brev only: export before docker compose so COMPOSE_PROFILES and BREV_ENV_ID
+# are available for variable substitution. Skip on non-Brev hosts.
+export BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment 2>/dev/null)
+export COMPOSE_PROFILES=<literal-value-from-generated-env>   # e.g. bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
+
+printf '%s' "$NGC_CLI_API_KEY" | docker login --username '$oauthtoken' --password-stdin nvcr.io
 
 nohup docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
   up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"
@@ -290,7 +298,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 - 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
 - 3D extra: `vss-rtvi-cv-config-adaptor`
 - MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
-- `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
+- `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
 - `bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration, and VST subset
@@ -343,27 +351,16 @@ canonical reference.
 
 #### 1.3 Configure API Key
 
-If no key: go to https://ngc.nvidia.com → **Setup → API Keys → Generate Personal Key** (set **NGC Catalog** permission). Copy immediately.
+Generate and export the key as in [`ngc.md` § Configure NGC API Key](ngc.md#configure-ngc-api-key) — the same `read -rs` handoff and security guidance apply. Or configure interactively: `ngc config set`.
 
 > **Important:** NGC API keys may look like base64. Use the key exactly as provided — **do not base64-decode it.**
 
-```bash
-export NGC_CLI_API_KEY='<key>'
-echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
-```
-
-Or configure interactively: `ngc config set`
-
-> Never commit the NGC API key to version control.
-
 #### 1.4 Verify NGC Access
 
-Image paths in `deploy/docker/` reference **both** `nvcr.io/nvidia/vss-core/...` (public org) and `nvcr.io/nvstaging/vss-core/...` (staging org). Which one your key resolves depends on your NGC org membership — list both teams and the warehouse resources visible to it. Confirm the actual paths against `<repo>/deploy/docker/services/**/compose*.{yml,yaml}` and the warehouse `.env` (e.g. `PERCEPTION_IMAGE`, `BEV_FUSION_MV3DT_IMAGE`).
+Image paths in `deploy/docker/` reference the published `nvcr.io/nvidia/vss-core/...` artifacts. Confirm the key can access those images and the warehouse resources before deploying.
 
 ```bash
-# Probe both orgs — at least one should succeed for warehouse to deploy
-ngc registry image list "nvidia/vss-core/*"     2>&1 | head -10
-ngc registry image list "nvstaging/vss-core/*"  2>&1 | head -10
+ngc registry image list "nvidia/vss-core/*" 2>&1 | head -10
 ```
 
 **`Missing org` error** → run `ngc config set` (or write `~/.ngc/config` directly) and match the org to the one used when generating the key. Run `ngc org list` to see which orgs the current key has access to before guessing.
@@ -371,6 +368,15 @@ ngc registry image list "nvstaging/vss-core/*"  2>&1 | head -10
 ---
 
 ### Phase 2: System Prerequisites
+
+**Detect if this is a Brev-managed instance first:**
+
+```bash
+grep "BREV_ENV_ID" /etc/environment && echo "Brev instance — apply Brev-specific steps" \
+  || echo "Not Brev — standard deployment"
+```
+
+If `BREV_ENV_ID` is present, also complete [§2.7 Brev-specific host setup](#27-brev-specific-host-setup-brev-deployments-only) below, apply the [Brev Secure Link Overrides](#brev-secure-link-overrides) in Phase 5, and run the [post-deploy Brev steps](#after-deploy-brev). For Brev architecture and secure-link troubleshooting, see [`brev.md`](brev.md) — warehouse uses the same generated-env pattern, with overrides written to `industry-profiles/warehouse-operations/generated.env`.
 
 Run each check in order. **If a check fails, automatically install and re-verify — do not wait for the user.** Only stop if a requirement cannot be met automatically (unsupported hardware, insufficient RAM/CPU).
 
@@ -616,6 +622,39 @@ free -h  # 64 GB+ RAM
 df -h /  # 500 GB+ SSD
 ```
 
+#### 2.7 Brev-specific host setup (Brev deployments only)
+
+These steps are required on any Brev-provisioned instance and are not covered by the standard system prerequisites above.
+
+**UFW — allow Docker bridge networks to reach host services**
+
+`vss-rtvi-vlm` runs on the Docker bridge network (`mdx_default`, subnet `172.18.0.0/16`) and needs to reach host-network services (HAProxy, VST). UFW blocks this by default:
+
+```bash
+sudo ufw allow from 172.17.0.0/16
+sudo ufw allow from 172.18.0.0/16
+```
+
+**CDI spec — regenerate both locations**
+
+The NVIDIA Container Toolkit writes CDI specs to two paths. The `/var/run/cdi/` copy can be stale (referencing `/dev/dri/cardN` devices that don't exist on headless GPU instances), causing all GPU containers to fail to start with `failed to stat CDI host device`. Always regenerate both:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml
+```
+
+**`/etc/hosts` — resolve Brev domains locally**
+
+Host-network containers (e.g. `vss-alert-bridge`) validate video clip URLs that contain the Brev domain. Without a local hosts entry, the request goes to Cloudflare which blocks non-443 ports:
+
+```bash
+HOST_IP=$(hostname -I | awk '{print $1}')
+BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment)
+echo "${HOST_IP} 7777-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
+echo "${HOST_IP} 30888-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
+```
+
 ---
 
 ### Phase 3: Interactive Configuration
@@ -696,6 +735,31 @@ MINIMAL_PROFILE=""       # extended
 
   Once the calibration file is ready, redeploy with the full warehouse profile.
 
+#### Q6 — LLM Placement (`bp_wh` only)
+
+Skip for `bp_wh_kafka`, `bp_wh_redis`, and `bp_wh_auto_calib` (set `LLM_MODE=none` for those).
+
+For `bp_wh`, **always ask explicitly** — do not default to `local`:
+
+> "How should the LLM be deployed?
+> - **local** — LLM NIM on its own GPU (`LLM_DEVICE_ID`, default `2`). Requires a third GPU.
+> - **remote** — point at an external LLM endpoint via `LLM_BASE_URL` (e.g. `https://integrate.api.nvidia.com`). No LLM NIM deployed. Requires `NVIDIA_API_KEY` — log in to the [NVIDIA NIM API catalog](https://build.nvidia.com) and get a NIM Catalog API key.
+> - **none** — disable LLM entirely."
+
+`vst-rtvi-vlm` (RTVI VLM) is **always** deployed locally for `bp_wh_2d`.
+
+```bash
+nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
+```
+
+| GPU count | Recommended LLM mode |
+|---|---|
+| ≥ 3 GPUs | `local` — dedicated GPU for LLM NIM |
+| 2 GPUs, RTVI VLM uses > 50 % of GPU 1 VRAM | `remote` — RTVI VLM leaves insufficient room for LLM NIM |
+| 1 GPU | `remote` or `none` |
+
+If the user chooses `remote`, also confirm `LLM_BASE_URL` and `NVIDIA_API_KEY` are set.
+
 ---
 
 ### Phase 4: Acquire App Data (first run only)
@@ -722,15 +786,27 @@ See [App Data → NGC app-data download](#ngc-app-data-download-optional) for th
 
 ---
 
-### Phase 5: Configure the warehouse .env
+### Phase 5: Configure the warehouse env files
 
-Edit `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`. Keys below match the actual file — only the values listed need editing for a typical deploy; the rest have working defaults.
+Initialize `<repo>/deploy/docker/industry-profiles/warehouse-operations/generated.env` from `overrides.env`, then edit `generated.env` for deployment selectors, credentials, host paths, hardware choices, and host-published port conflicts. Stable service knobs such as `MINIMAL_PROFILE`, fixed default device IDs, and service container ports remain in `.env`.
 
 ```bash
-# --- Deployment selectors (Phase 3 answers go here) ---
+cd <repo>/deploy/docker
+cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
+# Ensure blueprint-configurator reads the same generated override layer.
+grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/generated.env \
+  || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "$(pwd)" >> industry-profiles/warehouse-operations/generated.env
+```
+
+Keys below match the actual files — only the values listed need editing for a typical deploy; the rest have working defaults.
+
+```bash
+# --- Deployment selectors: generated.env (Phase 3 answers go here) ---
 MODE=<2d|3d|mv3dt>
 BP_PROFILE=<bp_wh|bp_wh_kafka|bp_wh_redis|bp_wh_auto_calib>
 STREAM_TYPE=<kafka|redis>           # ignored by bp_wh and bp_wh_auto_calib; set for bp_wh_kafka / bp_wh_redis
+
+# --- Stable profile size: .env ---
 MINIMAL_PROFILE="true"              # or "" for extended (bp_wh_kafka / bp_wh_redis only)
 
 SAMPLE_VIDEO_DATASET="<dataset-name>"
@@ -744,20 +820,19 @@ HARDWARE_PROFILE=H100
 RT_CV_DEVICE_ID='0'                 # perception (always local)
 RT_VLM_DEVICE_ID='1'                # RTVI VLM, bp_wh only (always local)
 LLM_DEVICE_ID='2'                   # bp_wh + LLM_MODE=local
-SHARED_LLM_VLM_DEVICE_ID='2'        # bp_wh + LLM_MODE=local_shared (LLM colocated with RTVI VLM)
 
 # --- LLM (bp_wh only; set LLM_MODE=none for bp_wh_kafka / bp_wh_redis / bp_wh_auto_calib) ---
 # RTVI VLM has no mode — it is always deployed locally for bp_wh.
-LLM_MODE=local                      # local | local_shared | remote | none
+LLM_MODE=local                      # local | remote | none
 LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
 LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
 # LLM_BASE_URL — only when LLM_MODE=remote
 
 # --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
 # vss-rtvi-vlm is always deployed for bp_wh (hardcoded in compose profile bp_wh_2d).
-VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
-RTVI_VLM_MODEL_TO_USE=cosmos-reason2
+VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 
 # --- MQTT (mv3dt only — cross-camera messaging for BEV Fusion) ---
 MQTT_HOST=localhost
@@ -771,7 +846,8 @@ VSS_DATA_DIR="<repo>/data"
 # --- Networking ---
 HOST_IP='<HOST_IP>'
 EXTERNAL_IP="${HOST_IP}"             # browser-reachable hostname/IP (Brev: secure-link domain)
-HAPROXY_PORT=7777                    # ingress for VSS UI
+HAPROXY_HOST_PORT=7777               # host-published ingress for VSS UI
+HAPROXY_PORT=7777                    # HAProxy container listen port
 
 # --- Credentials ---
 NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for local NIMs + image pulls
@@ -779,7 +855,109 @@ NVIDIA_API_KEY=''                              # required for build.nvidia.com r
 OPENAI_API_KEY=''                              # required for OpenAI remote endpoints
 ```
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.2.0-26.05.1"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa-26.05.1"`. Apply the same pattern to `BEV_FUSION_MV3DT_TAG` (mv3dt only), `RTVI_VLM_IMAGE_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG`.
+#### Brev Secure Link Overrides
+
+Brev secure links use a hostname of the form `<port>-<env>.brevlab.com` (e.g. `7777-abc123.brevlab.com`) — the HAProxy port is prefixed directly to the Brev environment ID. The Brev reverse proxy terminates TLS and forwards to the container's HAProxy port, so browser-facing URLs must use `https`/`wss` on port `443` (the standard HTTPS port, which can be omitted from URLs).
+
+After editing the main `generated.env` values above, apply these overrides in the **same** `generated.env` file when deploying on Brev:
+
+```ini
+# --- Brev secure link overrides ---
+# Replace <BREV_ENV_ID> with your Brev environment ID (e.g. vbi9qjb1x).
+# Find it via: echo "$BREV_ENV_ID" or from the Brev dashboard URL.
+HAPROXY_HOST_PORT=7777
+HAPROXY_PORT=7777
+VSS_PUBLIC_HTTP_PROTOCOL=https
+VSS_PUBLIC_WS_PROTOCOL=wss
+VSS_PUBLIC_HOST=7777-<BREV_ENV_ID>.brevlab.com
+VSS_PUBLIC_PORT=443
+```
+
+##### Browser-facing URLs (automatically covered by VSS_PUBLIC_* overrides)
+
+These compose template variables all use `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}` (or the `wss` variant) and resolve correctly once the overrides above are applied:
+
+| Compose variable | Resolves to (Brev) | Compose file |
+|---|---|---|
+| `VSS_AGENT_EXTERNAL_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com` | `services/agent/compose.yml` |
+| `VSS_AGENT_REPORTS_BASE_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/static/` | `services/agent/compose.yml` |
+| `VST_EXTERNAL_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com` | `services/agent/compose.yml` |
+| `NEXT_PUBLIC_AGENT_API_URL_BASE` | `https://7777-<BREV_ENV_ID>.brevlab.com/api/v1` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_SIDEBAR_CHAT_AGENT_API_URL_BASE` | `https://7777-<BREV_ENV_ID>.brevlab.com/api/v1` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_VST_API_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/vst/api` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_MDX_WEB_API_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/video-analytics-api` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_ALERTS_API_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/alert-bridge/api/v1` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL` | `wss://7777-<BREV_ENV_ID>.brevlab.com/websocket` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_SIDEBAR_CHAT_WEBSOCKET_CHAT_COMPLETION_URL` | `wss://7777-<BREV_ENV_ID>.brevlab.com/websocket` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL` | `https://7777-<BREV_ENV_ID>.brevlab.com/kibana` | `services/ui/compose.yml` |
+
+##### Internal service-to-service URLs (no Brev override needed)
+
+These URLs stay on the internal host network — containers talk to each other via `HOST_IP` or `localhost`, never through the Brev reverse proxy:
+
+| Variable | Template | Compose file |
+|---|---|---|
+| `VIDEO_ANALYSIS_MCP_URL` | `http://vss-va-mcp:${VSS_VA_MCP_PORT}` | `services/agent/agent.env` |
+| `LLM_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
+| `VLM_BASE_URL` | `http://${HOST_IP}:${VLM_PORT}` | `services/agent/compose.yml` |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | `services/rtvi/rtvi.env` |
+| `ALERT_BRIDGE_URL` | `http://alert-bridge:${ALERT_BRIDGE_PORT}` | `services/alert/alert.env` |
+| `PHOENIX_ENDPOINT` | `http://phoenix:6006` | `services/agent/agent.env` |
+| `VST_INTERNAL_URL` | `http://vst-ingress:30888` | `services/vios/vst.env` |
+| `EVAL_LLM_JUDGE_BASE_URL` | `http://${HOST_IP}:${LLM_PORT}` | `services/agent/compose.yml` |
+| `VST_INGRESS_ENDPOINT` | `vst-ingress:30888/vst` (no scheme) | `services/vios/vst.env` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` | `services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` |
+| Healthcheck endpoints | `http://localhost:8000/...` | all compose files |
+
+`vss-rtvi-vlm` (`services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`) has **no browser-facing URLs** — it consumes RTSP streams and publishes to Kafka/Redis. All its URLs (Kafka bootstrap, OTEL, Redis, healthcheck) are internal.
+
+##### HTTP chat completion URLs (use HOST_IP directly)
+
+Two UI variables bypass the `VSS_PUBLIC_*` template and use `HOST_IP` directly:
+
+| Variable | Template | Compose file |
+|---|---|---|
+| `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL` | `http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/chat/stream` | `services/ui/compose.yml` |
+| `NEXT_PUBLIC_SIDEBAR_CHAT_HTTP_CHAT_COMPLETION_URL` | `http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/chat/stream` | `services/ui/compose.yml` |
+
+In HTTP chat mode, the browser posts to the UI's same-origin `/api/chat` route. The Next.js API handler then uses these `HOST_IP` URLs server-side to reach `vss-agent` on the host network. The `vss-agent-ui` container runs in bridge mode (`ports: 3000:3000`), so `HOST_IP` is the reachable route from UI server to agent. For browser-visible chat traffic, HAProxy routes `/api/chat` to `vss-agent-ui`, and routes `/chat` / `/websocket` to `vss-agent` (see [Access Points](#access-points)).
+
+##### Map URL (disabled by default)
+
+| Variable | Template | Compose file |
+|---|---|---|
+| `NEXT_PUBLIC_MAP_URL` | `${NEXT_PUBLIC_MAP_URL:-http://${EXTERNAL_IP}:3002}` | `services/ui/compose.yml` |
+
+Uses `EXTERNAL_IP:3002` directly (not `VSS_PUBLIC_*`). The map tab is **disabled by default** for warehouse (`NEXT_PUBLIC_ENABLE_MAP_TAB=false`). If enabled on Brev, create a secure link for port `3002` and override explicitly: `NEXT_PUBLIC_MAP_URL=https://3002-<BREV_ENV_ID>.brevlab.com`.
+
+> **Do not** use the old `http://7777-<BREV_ENV_ID>.brevlab.com:7777` form — the Brev reverse proxy does not expose the raw HAProxy port. Using `http` with `:7777` will fail with connection refused or mixed-content errors in the browser.
+
+##### `COMPOSE_PROFILES` — set as a literal string on Brev
+
+The `COMPOSE_PROFILES` variable in warehouse `generated.env` is normally copied from the `overrides.env` shell-style template:
+
+```ini
+COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}
+```
+
+Some Docker Compose versions do not expand variable references within `--env-file` values, leaving the literal `${BP_PROFILE}` string unexpanded. Always override it with the resolved value in `generated.env` for the chosen profile:
+
+```bash
+# Example for bp_wh + 2d + remote LLM (nemotron-nano-9b-v2)
+COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2
+
+# Example for bp_wh + 2d + local LLM
+COMPOSE_PROFILES=bp_wh_2d,llm_local_nvidia-nemotron-nano-9b-v2
+```
+
+##### `vss-rtvi-vlm` bridge network access + socat proxy (Brev only)
+
+`vss-rtvi-vlm` runs on the Docker bridge network and needs to resolve Brev secure-link domains to fetch video clips for VLM verification. These steps are applied **after the stack is up** — see [After deploy — Brev](#after-deploy-brev).
+
+> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. The variable is defined as a template inside `overrides.env`/`generated.env` and is not expanded by `--env-file` in all Docker Compose versions. Set it as a literal value directly in `generated.env` (e.g. `COMPOSE_PROFILES=bp_wh_2d,llm_remote_nvidia-nemotron-nano-9b-v2`) and also `export COMPOSE_PROFILES=bp_wh_2d,...` in the shell before running `docker compose up`.
+
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.3.0-26.07.1"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.1"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
 
 ---
 
@@ -803,6 +981,7 @@ ngc config current 2>/dev/null | grep -q "apikey" && echo "NGC config: key prese
 cd <repo>/deploy/docker
 docker compose -f compose.yml \
   --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
   config | grep "container_name"
 ```
 
@@ -824,7 +1003,53 @@ Run **[Lifecycle: Monitor](#lifecycle-monitor)** using the same `LOG` as Phase 8
 
 ## After deploy
 
-See [Access Points](#access-points) for service URLs.
+The deploy script prints the actual access points once the stack is up. For the full URL tables (standard and Brev), see [`warehouse-debug.md` — Service Access Points](warehouse-debug.md#service-access-points).
+
+See [Access Points](#access-points) for the full HAProxy route table and direct-port diagnostics table.
+
+---
+
+## After deploy — Brev
+
+Run these steps once the stack is healthy. Re-apply after any `vss-rtvi-vlm` restart.
+
+```bash
+BREV_ENV_ID=$(awk -F= '/^BREV_ENV_ID=/{gsub(/"/, "", $2); print $2; exit}' /etc/environment)
+```
+
+**1. Start socat TLS proxy** (create cert once per host, start after every host reboot):
+
+```bash
+# Create self-signed cert — once per host
+sudo openssl req -x509 -newkey rsa:2048 \
+  -keyout /etc/ssl/private/vst-proxy.key \
+  -out /etc/ssl/certs/vst-proxy.crt \
+  -days 3650 -nodes \
+  -subj "/CN=30888-${BREV_ENV_ID}.brevlab.com" 2>/dev/null
+sudo cat /etc/ssl/private/vst-proxy.key /etc/ssl/certs/vst-proxy.crt > /tmp/vst-proxy.pem
+
+# Start proxy — re-run after every host reboot
+sudo nohup socat OPENSSL-LISTEN:443,bind=172.18.0.1,cert=/tmp/vst-proxy.pem,verify=0,fork \
+  TCP:127.0.0.1:30888 > /tmp/socat.log 2>&1 &
+ss -tlnp | grep ':443'   # confirm listening
+```
+
+This TLS proxy allows `vss-rtvi-vlm` (Docker bridge network) to reach VST over `https://30888-<BREV_ENV_ID>.brevlab.com` via the bridge gateway `172.18.0.1:443`.
+
+**2. Inject Brev domain entries into `vss-rtvi-vlm`** (re-apply after every container restart):
+
+```bash
+docker exec -u root vss-rtvi-vlm sh -c "
+  echo '172.18.0.1 7777-${BREV_ENV_ID}.brevlab.com' >> /etc/hosts
+  echo '172.18.0.1 30888-${BREV_ENV_ID}.brevlab.com' >> /etc/hosts
+"
+
+# Verify
+docker exec vss-rtvi-vlm getent hosts 7777-${BREV_ENV_ID}.brevlab.com
+# Expected: 172.18.0.1   7777-<BREV_ENV_ID>.brevlab.com
+```
+
+With both steps complete, `vss-rtvi-vlm` can resolve Brev secure-link domains to the bridge gateway and reach HAProxy (port 7777) and VST (port 30888) for clip downloads.
 
 ---
 
@@ -887,4 +1112,8 @@ When adding new cameras to the MV3DT profile, run the MV3DT utility scripts unde
 | `vss-configurator` health check failing | Wait 60s and recheck (60s start period) |
 | Low FPS | GPU oversaturated — reduce `NUM_STREAMS` and redeploy |
 | Dataset/mode mismatch | `nv-warehouse-4cams` → `bp_wh` + `MODE=2d`; `warehouse-4cams-20mx20m-synthetic` → `MODE=3d` or `MODE=mv3dt` |
+| Brev: UI loads but API calls fail / mixed-content errors | `VSS_PUBLIC_*` overrides not applied — URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com`. Apply [Brev secure link overrides](#brev-secure-link-overrides) and redeploy |
+| Brev: HAProxy returns 404 | `Host:` header doesn't match `h_main` ACL — verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`) |
+| Brev: WebSocket connection refused | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not set to `443` |
 | Redeploy / reset without reinstall | [Redeploy](#redeploy) |
+

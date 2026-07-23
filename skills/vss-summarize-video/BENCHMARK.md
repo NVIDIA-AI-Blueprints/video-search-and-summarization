@@ -7,14 +7,15 @@ This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the s
 ## Evaluation Summary
 
 - Skill: `vss-summarize-video`
-- Evaluation date: 2026-05-29
+- Evaluation date: 2026-07-18
 - NVSkills-Eval profile: `external`
+- Environment: `astra-sandbox`
 - Overall verdict: PASS
-- Tier 3 live agent evaluation: not available in this report
 
 ## Agents Used
 
-- Tier 3 agent details were not available in this report.
+- `claude-code`
+- `codex`
 
 ## Metrics Used
 
@@ -32,30 +33,31 @@ Underlying evaluation signals used in this run:
 
 ## Test Tasks
 
-Tier 3 evaluation task details were not available in this report.
+The evaluation dataset was not available in this report payload.
 
 ## Results
 
-Tier 3 dimension rollup was not available in this report.
+| Dimension | Num | `claude-code` | `codex` |
+|---|---:|---:|---:|
+| Security | N/A | N/A | N/A |
+| Correctness | N/A | N/A | N/A |
+| Discoverability | N/A | N/A | N/A |
+| Effectiveness | N/A | N/A | N/A |
+| Efficiency | N/A | N/A | N/A |
+
+Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
 
 ## Tier 1: Static Validation Summary
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 9 checks and found 3 total findings.
+Tier 1 validation passed with observations. NVSkills-Eval ran 1 checks and found 1 total findings.
 
 Top findings:
 
-- LOW SCHEMA/unexpected_file: Unexpected 'skill-card.md' in skill root (`skills/vss-summarize-video/skill-card.md`)
-- LOW SCHEMA/unexpected_file: Unexpected 'skill.oms.sig' in skill root (`skills/vss-summarize-video/skill.oms.sig`)
 - LOW SCHEMA/author_format: Author must be of the form 'Name <email@host>' (`skills/vss-summarize-video/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 
-Tier 2 validation passed. NVSkills-Eval ran 2 checks and found 0 total findings.
-
-Notable observations:
-
-- Context Deduplication: Collected 7 file(s)
-- Inter-Skill Deduplication: Parsed skill 'vss-summarize-video': 162 char description
+This tier was not run or did not produce findings in this report.
 
 ## Publication Recommendation
 

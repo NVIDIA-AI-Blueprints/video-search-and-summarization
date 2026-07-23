@@ -34,8 +34,8 @@ gathering, comment posting, and analysis — it is simply **scoped to a
 single `(skill, spec)`** instead of looping over all of them.
 
 Parallelism now comes from the matrix + the brev pool: N legs run
-concurrently and contend for hardware-matching boxes via the existing
-per-box `flock`. No leg ever backgrounds work; the SDK-side hardening
+concurrently and contend for hardware-matching boxes via a `run_leg.py`
+wrapper-held per-box `flock`. No leg ever backgrounds work; the SDK-side hardening
 (`disallowed_tools` for `Task*`/`BashOutput`/`KillShell` + a PreToolUse
 hook rejecting `run_in_background`/`&`/`nohup`) guarantees it.
 
@@ -59,8 +59,8 @@ push to pull-request/<N>
 │                                                                │
 │  each leg:  EVAL_SKILL / EVAL_SPEC set                         │
 │    → foreground agent, single-spec mode (AGENTS.md override)   │
-│    → ensure adapter+dataset → flock a matching box             │
-│    → uvx harbor run (synchronous, this spec only)              │
+│    → ensure adapter+dataset → pick a matching box              │
+│    → run_leg.py (flock + synchronous Harbor, this spec only)   │
 │    → gather results → POST ITS OWN per-spec comment            │
 │    → DONE:/BLOCKED:                                            │
 │    → upload this leg's results artifact                        │
@@ -116,7 +116,7 @@ cleanly to multi-platform specs (each platform parallelizes onto its own
 runner) and makes the per-`(spec,platform)` output root automatic.
 
 `max-parallel` is capped near the `vss-eval-*` box count so legs don't
-all grab runner slots only to block on `flock`. `fail-fast: false` so one
+all grab runner slots only to wait inside `run_leg.py`. `fail-fast: false` so one
 failing leg doesn't cancel the others.
 
 ## What changes in code
@@ -126,11 +126,11 @@ failing leg doesn't cancel the others.
 | `.github/skill-eval/plan_matrix.py` | **new.** Pure-Python, no LLM. Reads the diff (local `git diff`) — or, on a manual sweep, enumerates the picked skill's specs — applies the rules above, prints `matrix` JSON + `has_targets` to `$GITHUB_OUTPUT`. Unit-testable offline. |
 | `.github/workflows/skills-eval.yml` | **rewrite.** `plan` job → `eval` matrix job, on push AND `workflow_dispatch` (a manual sweep feeds the picked skill's specs into the same matrix; legs write to `$GITHUB_STEP_SUMMARY` since there's no PR). |
 | `.github/skill-eval/skills_eval_agent.py` | **small add.** New single-spec mode keyed on `EVAL_SKILL`/`EVAL_SPEC`: skip the diff/detection (plan already decided), build a user prompt scoped to one spec, otherwise reuse the existing SDK session, options, hardening, and DONE/BLOCKED enforcement verbatim. |
-| `.github/skill-eval/AGENTS.md` | **add a "Single-spec mode" section** (parallel to "Manual full-sweep mode"): when `EVAL_SPEC` is set, skip step 1's diff — you are handed exactly one `(skill, spec)`; run steps 2–7 for it only, post the one comment, emit the marker. Everything else (hard rules, fleet selection § 5a, flock § 5b, harbor invocation, result format, failure modes) applies unchanged. |
+| `.github/skill-eval/AGENTS.md` | **add a "Single-spec mode" section** (parallel to "Manual full-sweep mode"): when `EVAL_SPEC` is set, skip step 1's diff — you are handed exactly one `(skill, spec)`; run steps 2–7 for it only, post the one comment, emit the marker. Everything else (hard rules, fleet selection § 5a, wrapper-held lock § 5b, harbor invocation, result format, failure modes) applies unchanged. |
 
 The background-task removal is already in place (`disallowed_tools` +
 PreToolUse hook); each leg's foreground agent therefore *must* drive
-harbor synchronously.
+`run_leg.py` synchronously.
 
 ## Unchanged on purpose
 
@@ -159,13 +159,17 @@ concurrent sibling's live dataset) — each leg cleans only its own scratch
 and age-GCs *other* run_ids. `run_id` is in the key too, so two different
 PRs' runs on the same host don't collide either.
 
-**Box mutex.** The per-box `flock /tmp/brev/<box>.lock` serializes trials
-on a box. This is a valid mutex **only while all eval legs run on one
-host** — flock is host-local. If the `vss-skill-eval-runner` label ever
-spans multiple hosts, two legs could lock their own local files and both
-drive the same brev box (docker/port collision + trajectory corruption
-via `start()`'s archive-on-start racing a live session). Keep the label
-pinned to one host, or move the lock onto the box itself.
+**Box mutex.** `run_leg.py` opens `/tmp/brev/<box>.lock`, takes an
+exclusive `flock`, and keeps that file descriptor open while it launches
+every Harbor subprocess for the leg. This serializes trials on a box and
+avoids the broken pattern where an agent acquires a lock in one shell
+call and runs Harbor in a later shell call after the FD has closed. The
+mutex is still valid **only while all eval legs run on one host** — flock
+is host-local. If the `vss-skill-eval-runner` label ever spans multiple
+hosts, two legs could lock their own local files and both drive the same
+brev box (docker/port collision + trajectory corruption via `start()`'s
+archive-on-start racing a live session). Keep the label pinned to one
+host, or move the lock onto the box itself.
 
 ## Open questions / future
 

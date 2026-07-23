@@ -19,6 +19,7 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include "mm_utils.h"
+#include "utils.h"
 #include "nvhwdetection.h"
 #include "gstnvvideodecoder.h"
 
@@ -334,10 +335,11 @@ GstPadProbeReturn NvDecodeBin::padProbeCB (GstPad * pad, GstPadProbeInfo * info)
         ** The value 6 is set to match the buffers allocated in Encoder class
         */
         g_object_set (G_OBJECT (m_decoder), "num-extra-surfaces", DECODER_EXTRA_SURFACES  , nullptr);
-#ifndef JETSON_PLATFORM 
+        if (!isJetsonPlatform())
+        {
         g_object_set (G_OBJECT (m_decoder), "cudadec-memtype"   , CUDA_DEC_MEM_TYPE_DEVICE, nullptr);
         g_object_set (G_OBJECT (m_decoder), "gpu-id"   , g_gpuIndex, nullptr);
-#endif
+        }
     }
 
     gst_element_set_state (m_decoder, GST_STATE_PLAYING);
@@ -379,13 +381,16 @@ dbin_element_added (GstElement * dbin, GstElement * element, gpointer data)
     {
         if (!strcmp ((GST_OBJECT_NAME (factory)), NV_V4L2_DECODER))
         {
-    #ifndef JETSON_PLATFORM 
+            if (!isJetsonPlatform())
+            {
             g_object_set (G_OBJECT (element), "num-extra-surfaces", DECODER_EXTRA_SURFACES  , nullptr);
             g_object_set (G_OBJECT (element), "cudadec-memtype"   , CUDA_DEC_MEM_TYPE_DEVICE, nullptr);
             g_object_set (G_OBJECT (element), "gpu-id"   , g_gpuIndex, nullptr);
-    #else
+            }
+            else
+            {
             g_object_set (G_OBJECT (element), "num-extra-surfaces", 10, nullptr);
-    #endif
+            }
             // Apply low-latency mode based on B-frame presence from stream config
             if (GET_CONFIG().enable_dec_low_latency_mode)
             {
@@ -400,11 +405,14 @@ dbin_element_added (GstElement * dbin, GstElement * element, gpointer data)
                 if (!hasBframes)
                 {
                     LOG(info) << "B-frames NOT present (from stream config), enabling low-latency decoder mode" << endl;
-#ifndef JETSON_PLATFORM
+                    if (!isJetsonPlatform())
+                    {
                     g_object_set(G_OBJECT(element), "low-latency-mode", true, nullptr);
-#else
+                    }
+                    else
+                    {
                     g_object_set(G_OBJECT(element), "disable-dpb", true, nullptr);
-#endif
+                    }
                 }
                 else
                 {
@@ -529,10 +537,6 @@ GstElement* NvDecodeBin::create(bool is_image_capture)
 
     if (m_useNvV4l2Dec == true)
     {
-#ifdef JETSON_PLATFORM
-        Resolution resolution;
-        resolution = GET_CONFIG().webrtc_out_default_resolution;
-#endif
         /* Adding seperate CB for HW mode, as we need to set properties of HW decoder */
         g_signal_connect (G_OBJECT(m_decoder), "element-added", G_CALLBACK (dbin_element_added), this);
     }

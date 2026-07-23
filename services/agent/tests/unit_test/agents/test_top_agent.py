@@ -14,6 +14,7 @@
 # limitations under the License.
 """Unit tests for top_agent module."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -25,18 +26,19 @@ from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda
 import pytest
 
-from vss_agents.agents.data_models import AgentMessageChunk
-from vss_agents.agents.data_models import AgentMessageChunkType
-from vss_agents.agents.data_models import AgentRequestOptions
-from vss_agents.agents.search_agent import SearchAgentInput
-from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
-from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
-from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
-from vss_agents.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
-from vss_agents.agents.top_agent import TopAgent
-from vss_agents.agents.top_agent import TopAgentRequest
-from vss_agents.agents.top_agent import TopAgentState
-from vss_agents.agents.top_agent import strip_frontend_tags
+from agent.agents.data_models import AgentMessageChunk
+from agent.agents.data_models import AgentMessageChunkType
+from agent.agents.data_models import AgentRequestOptions
+from agent.agents.search_agent import SearchAgentInput
+from agent.agents.top_agent import EMPTY_MESSAGES_ERROR
+from agent.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
+from agent.agents.top_agent import NO_INPUT_ERROR_MESSAGE
+from agent.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
+from agent.agents.top_agent import TopAgent
+from agent.agents.top_agent import TopAgentRequest
+from agent.agents.top_agent import TopAgentState
+from agent.agents.top_agent import _augment_context_clip_offsets
+from agent.agents.top_agent import strip_frontend_tags
 
 
 class TestTopAgentConstants:
@@ -227,7 +229,7 @@ class TestRequestOptionsContext:
                 yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content="done")
 
         monkeypatch.setattr(
-            "vss_agents.agents.top_agent.ContextState.get",
+            "agent.agents.top_agent.ContextState.get",
             lambda: SimpleNamespace(conversation_id=SimpleNamespace(get=lambda: "thread-1")),
         )
 
@@ -253,7 +255,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_agent_node_passes_request_options_context_without_forcing_tool_call(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         captured = {}
 
@@ -292,7 +294,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_agent_node_passes_request_options_context_to_plan_exec_prompt(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         captured = {}
 
@@ -326,7 +328,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_plan_node_includes_request_options_context(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         captured = {}
 
@@ -355,7 +357,7 @@ class TestRequestOptionsContext:
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_tool(self, monkeypatch):
         chunks = []
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: chunks.append)
 
         class SearchTool:
             def __init__(self):
@@ -400,7 +402,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_with_search_agent_schema(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         class SearchTool:
             args_schema = SearchAgentInput
@@ -436,7 +438,7 @@ class TestRequestOptionsContext:
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_subagent_trace(self, monkeypatch):
         chunks = []
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: chunks.append)
 
         search_tool = MagicMock()
         search_tool.args_schema = MagicMock()
@@ -497,3 +499,239 @@ class TestTopAgentRequestUseCritic:
     def test_use_critic_set_false(self):
         req = TopAgentRequest(messages=[], use_critic=False)
         assert req.use_critic is False
+
+
+class TestAugmentContextClipOffsets:
+    """Tests for _augment_context_clip_offsets (+Chat [Context] offset rewriting)."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_vst(self, monkeypatch):
+        """Patch VST helpers so the stream starts at 00:00:00Z (offsets == wall-clock seconds)."""
+
+        async def fake_get_name_to_stream_id_map(*args, **kwargs):
+            return {"cam1": "stream-cam1", "cam2": "stream-cam2"}
+
+        async def fake_get_timeline(stream_id, *args, **kwargs):
+            return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
+
+        monkeypatch.setattr("agent.agents.top_agent.get_name_to_stream_id_map", fake_get_name_to_stream_id_map)
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", fake_get_timeline)
+
+    @pytest.mark.asyncio
+    async def test_empty_message_returns_unchanged(self):
+        assert await _augment_context_clip_offsets("") == ""
+
+    @pytest.mark.asyncio
+    async def test_no_context_block_returns_unchanged(self):
+        msg = "what is in the third clip?"
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_missing_array_after_prefix_returns_unchanged(self):
+        msg = "look here [Context: not-an-array"
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_left_unchanged(self):
+        msg = "[Context: [not valid json ]"
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_non_list_payload_returns_unchanged(self):
+        msg = '[Context: {"mediaType": "sensor-clip"}]'
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_non_dict_clip_entry_skipped(self):
+        msg = 'x [Context: ["just-a-string"]]'
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_non_sensor_clip_untouched(self):
+        clips = [{"mediaType": "image", "sensorName": "cam1"}]
+        msg = f"look [Context: {json.dumps(clips)}]"
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_missing_time_fields_skipped(self):
+        clips = [{"mediaType": "sensor-clip", "sensorName": "cam1"}]
+        msg = f"x [Context: {json.dumps(clips)}]"
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_sensor_clip_gets_offsets(self):
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam1",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            }
+        ]
+        msg = f"what is here? [Context: {json.dumps(clips)}]"
+
+        out = await _augment_context_clip_offsets(msg)
+
+        assert out != msg
+        assert out.startswith("what is here? [Context: ")
+        # Parse the rewritten block back out to assert on structured values.
+        payload_start = out.index("[", len("what is here? [Context:"))
+        augmented, _ = json.JSONDecoder().raw_decode(out, payload_start)
+        assert augmented[0]["startOffset"] == 30.0
+        assert augmented[0]["endOffset"] == 60.0
+        # Original ISO fields are preserved (non-destructive).
+        assert augmented[0]["startTime"] == "2025-01-01T00:00:30.000Z"
+        assert augmented[0]["endTime"] == "2025-01-01T00:01:00.000Z"
+
+    @pytest.mark.asyncio
+    async def test_text_around_block_is_preserved(self):
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam1",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            }
+        ]
+        msg = f"before [Context: {json.dumps(clips)}] after"
+
+        out = await _augment_context_clip_offsets(msg)
+
+        assert out.startswith("before [Context: ")
+        assert out.endswith("] after")
+        assert "startOffset" in out
+
+    @pytest.mark.asyncio
+    async def test_stream_map_failure_keeps_message(self, monkeypatch):
+        async def boom(*args, **kwargs):
+            raise RuntimeError("VST down")
+
+        monkeypatch.setattr("agent.agents.top_agent.get_name_to_stream_id_map", boom)
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam1",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            }
+        ]
+        msg = f"x [Context: {json.dumps(clips)}]"
+
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_timeline_failure_keeps_message(self, monkeypatch):
+        async def boom(*args, **kwargs):
+            raise RuntimeError("timeline down")
+
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", boom)
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam1",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            }
+        ]
+        msg = f"x [Context: {json.dumps(clips)}]"
+
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_unknown_sensor_skipped(self):
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "not-a-known-sensor",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            }
+        ]
+        msg = f"x [Context: {json.dumps(clips)}]"
+
+        assert await _augment_context_clip_offsets(msg) == msg
+
+    @pytest.mark.asyncio
+    async def test_sensor_name_that_is_stream_id_is_accepted(self):
+        # sensorName is already a stream ID present in the map values.
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "stream-cam1",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            }
+        ]
+        msg = f"x [Context: {json.dumps(clips)}]"
+
+        out = await _augment_context_clip_offsets(msg)
+
+        payload_start = out.index("[", len("x [Context:"))
+        augmented, _ = json.JSONDecoder().raw_decode(out, payload_start)
+        assert augmented[0]["startOffset"] == 30.0
+        assert augmented[0]["endOffset"] == 60.0
+
+    @pytest.mark.asyncio
+    async def test_repeated_sensor_dedups_timeline_calls(self, monkeypatch):
+        """Two clips from the same sensor should trigger only one timeline lookup."""
+        timeline_calls: list[str] = []
+
+        async def counting_get_timeline(stream_id, *args, **kwargs):
+            timeline_calls.append(stream_id)
+            return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
+
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", counting_get_timeline)
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam1",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            },
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam1",
+                "startTime": "2025-01-01T00:02:00.000Z",
+                "endTime": "2025-01-01T00:03:00.000Z",
+            },
+        ]
+        msg = f"x [Context: {json.dumps(clips)}]"
+
+        out = await _augment_context_clip_offsets(msg)
+
+        # Only one timeline round-trip despite two clips from the same sensor.
+        assert timeline_calls == ["stream-cam1"]
+        payload_start = out.index("[", len("x [Context:"))
+        augmented, _ = json.JSONDecoder().raw_decode(out, payload_start)
+        assert augmented[0]["startOffset"] == 30.0
+        assert augmented[1]["startOffset"] == 120.0
+        assert augmented[1]["endOffset"] == 180.0
+
+    @pytest.mark.asyncio
+    async def test_distinct_sensors_each_fetched_once(self, monkeypatch):
+        timeline_calls: list[str] = []
+
+        async def counting_get_timeline(stream_id, *args, **kwargs):
+            timeline_calls.append(stream_id)
+            return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
+
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", counting_get_timeline)
+        clips = [
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam1",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            },
+            {
+                "mediaType": "sensor-clip",
+                "sensorName": "cam2",
+                "startTime": "2025-01-01T00:00:30.000Z",
+                "endTime": "2025-01-01T00:01:00.000Z",
+            },
+        ]
+        msg = f"x [Context: {json.dumps(clips)}]"
+
+        await _augment_context_clip_offsets(msg)
+
+        assert sorted(timeline_calls) == ["stream-cam1", "stream-cam2"]

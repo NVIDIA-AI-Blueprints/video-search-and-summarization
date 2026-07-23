@@ -25,7 +25,7 @@ OUT="${2:-$SCRIPT_DIR/configs/config.yml}"
 
 # Allowlist of variables to expand. Add new placeholders here when the
 # template starts referencing additional variables.
-ALLOWED_VARS='${HOST_IP} ${NUM_STREAMS} ${NUM_SENSORS} ${ALERTS_2D_ENABLE}'
+ALLOWED_VARS='${HOST_IP} ${NUM_STREAMS} ${NUM_SENSORS} ${ALERTS_2D_ENABLE} ${RTVI_CV_WDM_KFK_ENABLE} ${VST_USE_SDRC_ENABLE}'
 
 if [ ! -f "$TMPL" ]; then
   echo "render-config.sh: template not found: $TMPL" >&2
@@ -40,25 +40,35 @@ fi
 NUM_STREAMS="${NUM_STREAMS:-$NUM_SENSORS}"
 NUM_SENSORS="${NUM_SENSORS:-$NUM_STREAMS}"
 
-# Auto-derive ALERTS_2D_ENABLE from COMPOSE_PROFILES: true iff the active
-# profile set contains "bp_wh_2d" (the only variant that runs
-# docker-workload-alerts-2d). Comma boundaries on both sides prevent partial
-# matches like "bp_wh_2d_extra".
+# Auto-derive ALERTS_2D_ENABLE from the warehouse variant selector: true iff
+# the active workload is the 2D agents profile (the only variant that runs
+# docker-workload-alerts-2d).
 #
-# A pre-set ALERTS_2D_ENABLE is left untouched so callers can force one, and
-# the derivation is skipped when COMPOSE_PROFILES is not present (e.g. callers
-# who invoked `docker compose --profile ...` without exporting the env var, or
-# direct host invocations as documented in the header). The fallback below
-# then guarantees envsubst always receives a well-formed boolean, so the
-# rendered template never emits `enable: ` (null) for the 2D-alerts workload.
-if [ -n "${COMPOSE_PROFILES:-}" ] && [ -z "${ALERTS_2D_ENABLE:-}" ]; then
-  case ",${COMPOSE_PROFILES}," in
-    *,bp_wh_2d,*) ALERTS_2D_ENABLE=true ;;
-    *)            ALERTS_2D_ENABLE=false ;;
+# A pre-set ALERTS_2D_ENABLE is left untouched so callers can force one. When
+# BP_PROFILE/MODE are absent (for direct host invocations as documented in the
+# header), the fallback below still guarantees envsubst receives a well-formed
+# boolean, so the rendered template never emits `enable: ` (null).
+if [ -z "${ALERTS_2D_ENABLE:-}" ]; then
+  case "${BP_PROFILE:-}:${MODE:-}" in
+    bp_wh:2d) ALERTS_2D_ENABLE=true ;;
+    *)        ALERTS_2D_ENABLE=false ;;
   esac
 fi
 ALERTS_2D_ENABLE="${ALERTS_2D_ENABLE:-false}"
-export NUM_STREAMS NUM_SENSORS ALERTS_2D_ENABLE
+VST_USE_SDRC_ENABLE="${VST_USE_SDRC_ENABLE:-${VST_USE_SDRC:-false}}"
+
+
+# RT-CV SDR consumes Kafka notifications for Kafka-backed warehouse profiles and
+# Redis stream events for Redis-backed profiles. Derive this from STREAM_TYPE so
+# native docker compose and blueprint-deploy render the same workload config.
+if [ -z "${RTVI_CV_WDM_KFK_ENABLE:-}" ]; then
+  case "${STREAM_TYPE:-}" in
+    redis) RTVI_CV_WDM_KFK_ENABLE=false ;;
+    *)     RTVI_CV_WDM_KFK_ENABLE=true ;;
+  esac
+fi
+RTVI_CV_WDM_KFK_ENABLE="${RTVI_CV_WDM_KFK_ENABLE:-true}"
+export NUM_STREAMS NUM_SENSORS ALERTS_2D_ENABLE RTVI_CV_WDM_KFK_ENABLE VST_USE_SDRC_ENABLE
 
 if ! command -v envsubst >/dev/null 2>&1; then
   if command -v apk >/dev/null 2>&1; then

@@ -1,5 +1,5 @@
 ## Description: <br>
-Deploy and operate the RTVI-CV-3D stack (Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras. <br>
+Deploy and operate the RTVI-CV-3D microservice as MV3DT (MODE=mv3dt): per-camera DeepStream perception plus BEV Fusion over calibrated cameras. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,10 +9,16 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying the RTVI-CV-3D/MV3DT multi-camera 3D detection and tracking stack for warehouse video analytics without the full agent/LLM/VLM stack. <br>
+Developers and engineers deploying multi-camera 3D detection and tracking (MV3DT) using the NVIDIA VSS warehouse blueprint without the full agent, LLM, or VLM stack. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Yes] <br>
+**Credential Type(s):** [API key] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
@@ -42,7 +48,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 6 evaluation tasks (all positive skill-activation cases) with 2 attempts per task, using NVSkills-Eval external profile. <br>
+Evaluated against 3 evaluation tasks in astra-sandbox environment using NVSkills-Eval external profile with 50% pass threshold. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -66,19 +72,14 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 8 | 100% (+17%) | 100% (+8%) |
-| Correctness | 8 | 91% (-1%) | 92% (+36%) |
-| Discoverability | 8 | 63% (-5%) | 64% (+7%) |
-| Effectiveness | 8 | 84% (+2%) | 80% (+40%) |
-| Efficiency | 8 | 48% (-2%) | 50% (+5%) |
-
-## Testing Completed: <br>
-**[x] Agent Red-Teaming** <br>
-**[ ] Network Security** <br>
-**[ ] Product Security** <br>
+| Security | 3 | 100% (+0%) | 100% (+0%) |
+| Correctness | 3 | 100% (+75%) | 83% (+52%) |
+| Discoverability | 3 | 94% (+56%) | 87% (+47%) |
+| Effectiveness | 3 | 74% (+68%) | 63% (+48%) |
+| Efficiency | 3 | 80% (+42%) | 81% (+33%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+3.2.1 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

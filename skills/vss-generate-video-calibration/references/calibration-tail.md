@@ -12,7 +12,7 @@ import os
 import time
 from urllib.parse import urlparse
 
-# Step A — Verify project
+# Verify the project before calibration
 s.post(f"{BASE_URL}/verify_project/{project_id}").raise_for_status()
 
 # Step B — Start calibration (detector_type is a /calibrate argument; not consumed by /v1/config)
@@ -21,7 +21,7 @@ s.post(f"{BASE_URL}/calibrate/{project_id}",
 
 # Surface where to watch progress before the long poll begins.
 _host = urlparse(BASE_URL).hostname or "<HOST_IP>"
-_ui_port = os.environ.get("VSS_AUTO_CALIBRATION_UI_PORT", "5000")
+_ui_port = os.environ.get("VSS_AUTO_CALIBRATION_UI_HOST_PORT") or os.environ.get("VSS_AUTO_CALIBRATION_UI_PORT", "5000")
 _root = BASE_URL.rsplit("/v1", 1)[0]
 print("[B] Calibration started")
 print(f"    Project:  {project_id}")

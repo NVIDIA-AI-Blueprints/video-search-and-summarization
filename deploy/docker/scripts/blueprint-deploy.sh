@@ -37,6 +37,7 @@ vlm_model_type=""
 llm_env_file=""
 vlm_env_file=""
 hardware_profile=""
+use_sbsa_images="false"
 
 # Flags to track explicitly provided options
 options_provided=()
@@ -68,9 +69,9 @@ function warehouse_bp_profile_valid_for_mode() {
 
 function warehouse_default_bp_profile() {
   local _mode="${1}"
-  local _deploy_env="${2}"
+  shift
   local _from_env
-  _from_env="$(get_env_value "${_deploy_env}" "BP_PROFILE")"
+  _from_env="$(get_env_value_from_files "BP_PROFILE" "$@")"
   if [[ -n "${_from_env}" ]] && warehouse_bp_profile_valid_for_mode "${_mode}" "${_from_env}"; then
     echo "${_from_env}"
     return 0
@@ -151,10 +152,43 @@ function get_env_value() {
   local _val
   if [[ -f "${_env_file}" ]]; then
     _val="$(grep "^${_var_name}=" "${_env_file}" 2>/dev/null | cut -d'=' -f2- | head -1)"
-    _val="${_val#[\'\"]}"
-    _val="${_val%[\'\"]}"
+    _val="${_val#\"}"; _val="${_val%\"}"
+    _val="${_val#\'}"; _val="${_val%\'}"
     echo "${_val}"
   fi
+}
+
+function env_file_has_var() {
+  local _env_file="${1}"
+  local _var_name="${2}"
+  [[ -f "${_env_file}" ]] && grep -q "^${_var_name}=" "${_env_file}" 2>/dev/null
+}
+
+function get_env_value_from_files() {
+  local _var_name="${1}"
+  shift
+  local _env_file _val="" _found="false"
+  for _env_file in "$@"; do
+    if env_file_has_var "${_env_file}" "${_var_name}"; then
+      _val="$(get_env_value "${_env_file}" "${_var_name}")"
+      _found="true"
+    fi
+  done
+  if [[ "${_found}" == "true" ]]; then
+    echo "${_val}"
+  fi
+}
+
+function env_var_defined_in_files() {
+  local _var_name="${1}"
+  shift
+  local _env_file
+  for _env_file in "$@"; do
+    if env_file_has_var "${_env_file}" "${_var_name}"; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 function mask_secret() {
@@ -251,6 +285,9 @@ function usage() {
   echo "  --vlm-model-type               nim or openai (when --use-remote-vlm)"
   echo "  --llm-env-file                 Path to LLM env file"
   echo "  --vlm-env-file                 Path to VLM env file"
+  echo "  --use-sbsa-images              Use SBSA-tagged image variants (e.g. RTVI CV) from commented lines in .env"
+  echo "                                   • Enabled automatically for -H DGX-SPARK"
+  echo "                                   • Use with -H OTHER on GB300/Spark-class hosts that need SBSA images"
   echo ""
   echo "Options for 'up' and 'down':"
   echo "  -n, --dry-run                    Print commands without executing them"
@@ -271,12 +308,25 @@ function contains_element() {
   return 1
 }
 
+# Swap non-SBSA image tag lines for commented *sbsa* variants in generated.env (DGX-SPARK or --use-sbsa-images).
+function apply_sbsa_image_tags_to_env() {
+  local _generated_env="${1}"
+  local _reason="${2}"
+  local _key
+  while IFS= read -r _key; do
+    [[ -z "${_key}" ]] && continue
+    sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
+    sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
+    echo "[INFO] Swapped to SBSA (${_reason}): ${_key}"
+  done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
+}
+
 function validate_args() {
   local _args _valid_args _all_good
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -315,7 +365,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   while true; do
@@ -400,6 +450,11 @@ function process_args() {
         shift
         vlm_env_file="${1}"
         options_provided+=("vlm-env-file")
+        shift
+        ;;
+      --use-sbsa-images)
+        use_sbsa_images="true"
+        options_provided+=("use-sbsa-images")
         shift
         ;;
       -i | --host-ip)
@@ -491,14 +546,20 @@ function process_args() {
 
     if [[ -n "${deployment}" ]] && contains_element "${deployment}" "${_valid_deployments[@]}"; then
       local _deploy_env="${deployment_directory}/$(deployment_rel_path "${deployment}")/.env"
+      local _deploy_overrides_env="${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env"
       if [[ ! -f "${_deploy_env}" ]]; then
         echo "[ERROR] Deployment .env file not found: ${_deploy_env}"
         ((_all_good++))
       fi
+      if [[ ! -f "${_deploy_overrides_env}" ]]; then
+        echo "[ERROR] Deployment overrides env file not found: ${_deploy_overrides_env}"
+        ((_all_good++))
+      fi
     fi
 
-    if [[ -n "${deployment}" ]] && [[ -f "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" ]]; then
+    if [[ -n "${deployment}" ]] && [[ -f "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" ]] && [[ -f "${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env" ]]; then
       local _deploy_env="${deployment_directory}/$(deployment_rel_path "${deployment}")/.env"
+      local _deploy_overrides_env="${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env"
 
       # Mode: default 2d
       if ! contains_element "mode" "${options_provided[@]}"; then
@@ -506,27 +567,27 @@ function process_args() {
       fi
       # Profile: default from .env when valid for MODE, else mode-specific default
       if ! contains_element "bp-profile" "${options_provided[@]}"; then
-        bp_profile="$(warehouse_default_bp_profile "${mode}" "${_deploy_env}")"
+        bp_profile="$(warehouse_default_bp_profile "${mode}" "${_deploy_env}" "${_deploy_overrides_env}")"
       fi
       # HARDWARE_PROFILE: default from .env for any warehouse mode/profile when -H not passed
       if [[ "${deployment}" == "warehouse" ]]; then
         if ! contains_element "hardware-profile" "${options_provided[@]}"; then
-          hardware_profile="$(get_env_value "${_deploy_env}" "HARDWARE_PROFILE")"
+          hardware_profile="$(get_env_value_from_files "HARDWARE_PROFILE" "${_deploy_env}" "${_deploy_overrides_env}")"
         fi
       fi
       # LLM/VLM: populate from .env when not provided (2d only: warehouse bp_wh)
       if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
         if ! contains_element "llm-device-id" "${options_provided[@]}"; then
-          llm_device_id="$(get_env_value "${_deploy_env}" "LLM_DEVICE_ID")"
+          llm_device_id="$(get_env_value_from_files "LLM_DEVICE_ID" "${_deploy_env}" "${_deploy_overrides_env}")"
         fi
         if ! contains_element "vlm-device-id" "${options_provided[@]}"; then
-          vlm_device_id="$(get_env_value "${_deploy_env}" "VLM_DEVICE_ID")"
+          vlm_device_id="$(get_env_value_from_files "VLM_DEVICE_ID" "${_deploy_env}" "${_deploy_overrides_env}")"
         fi
         if ! contains_element "llm-model-type" "${options_provided[@]}"; then
-          llm_model_type="$(get_env_value "${_deploy_env}" "LLM_MODEL_TYPE")"
+          llm_model_type="$(get_env_value_from_files "LLM_MODEL_TYPE" "${_deploy_env}" "${_deploy_overrides_env}")"
         fi
         if ! contains_element "vlm-model-type" "${options_provided[@]}"; then
-          vlm_model_type="$(get_env_value "${_deploy_env}" "VLM_MODEL_TYPE")"
+          vlm_model_type="$(get_env_value_from_files "VLM_MODEL_TYPE" "${_deploy_env}" "${_deploy_overrides_env}")"
         fi
       fi
 
@@ -565,7 +626,7 @@ function process_args() {
       fi
       # Elasticsearch mode: default cpu; populate from .env when not provided
       if ! contains_element "elasticsearch-mode" "${options_provided[@]}"; then
-        elasticsearch_mode="$(get_env_value "${_deploy_env}" "ELASTICSEARCH_MODE")"
+        elasticsearch_mode="$(get_env_value_from_files "ELASTICSEARCH_MODE" "${_deploy_env}" "${_deploy_overrides_env}")"
         elasticsearch_mode="${elasticsearch_mode:-cpu}"
       fi
     fi
@@ -596,12 +657,12 @@ function process_args() {
         if contains_element "use-remote-llm" "${options_provided[@]}"; then
           _llm_mode="remote"
         else
-          _llm_mode="$(get_env_value "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "LLM_MODE")"
+          _llm_mode="$(get_env_value_from_files "LLM_MODE" "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env")"
         fi
         if contains_element "use-remote-vlm" "${options_provided[@]}"; then
           _vlm_mode="remote"
         else
-          _vlm_mode="$(get_env_value "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "VLM_MODE")"
+          _vlm_mode="$(get_env_value_from_files "VLM_MODE" "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env")"
         fi
         if [[ "${_llm_mode}" =~ ^(local|local_shared)$ ]] || [[ "${_vlm_mode}" =~ ^(local|local_shared)$ ]]; then
           echo "[ERROR] NGC_CLI_API_KEY is required for 'up' when LLM_MODE or VLM_MODE is local or local_shared (warehouse bp_wh)"
@@ -636,6 +697,13 @@ function print_args() {
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
       echo "hardware-profile:          ${hardware_profile}"
     fi
+    if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${use_sbsa_images}" == "true" ]]; then
+      if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
+        echo "use-sbsa-images:           true (DGX-SPARK)"
+      else
+        echo "use-sbsa-images:           true (--use-sbsa-images)"
+      fi
+    fi
     if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
       [[ -n "${llm}" ]] && echo "llm:                       ${llm}"
       [[ -n "${vlm}" ]] && echo "vlm:                       ${vlm}"
@@ -654,10 +722,11 @@ function print_args() {
 }
 
 function state_up() {
-  local _deploy_rel _deploy_dir _source_env _generated_env
+  local _deploy_rel _deploy_dir _source_env _overrides_env _generated_env
   _deploy_rel="$(deployment_rel_path "${deployment}")"
   _deploy_dir="${deployment_directory}/${_deploy_rel}"
   _source_env="${_deploy_dir}/.env"
+  _overrides_env="${_deploy_dir}/overrides.env"
   _generated_env="${_deploy_dir}/generated.env"
 
   echo "[INFO] Generating environment file for deployment '${deployment}'..."
@@ -666,18 +735,29 @@ function state_up() {
     echo "[ERROR] Source .env file not found: ${_source_env}"
     exit 1
   fi
+  if [[ ! -f "${_overrides_env}" ]]; then
+    echo "[ERROR] Overrides env file not found: ${_overrides_env}"
+    exit 1
+  fi
 
-  cp "${_source_env}" "${_generated_env}"
-  echo "[INFO] Copied ${_source_env} to ${_generated_env}"
+  cp "${_overrides_env}" "${_generated_env}"
+  echo "[INFO] Copied ${_overrides_env} to ${_generated_env}"
+
+  ensure_generated_env_trailing_newline() {
+    if [[ -s "${_generated_env}" ]] && [[ "$(tail -c 1 "${_generated_env}" | wc -l)" -eq 0 ]]; then
+      printf '\n' >> "${_generated_env}"
+    fi
+  }
+  ensure_generated_env_trailing_newline
 
   # Append compose-wide defaults for variables not already defined in the profile
-  local _compose_defaults="${deployment_directory}/vst/compose-defaults.env"
+  local _compose_defaults="${deployment_directory}/services/vios/compose-defaults.env"
   if [[ -f "${_compose_defaults}" ]]; then
     while IFS= read -r line || [[ -n "${line}" ]]; do
       [[ "${line}" =~ ^[[:space:]]*# ]] && continue
       [[ -z "${line// }" ]] && continue
       local _var_name="${line%%=*}"
-      if ! grep -q "^${_var_name}=" "${_generated_env}"; then
+      if ! env_var_defined_in_files "${_var_name}" "${_source_env}" "${_generated_env}"; then
         echo "${line}" >> "${_generated_env}"
       fi
     done < "${_compose_defaults}"
@@ -737,13 +817,13 @@ function state_up() {
     if [[ -n "${llm_base_url}" ]] || contains_element "use-remote-llm" "${options_provided[@]}"; then
       _llm_mode="remote"
     else
-      _llm_mode="$(get_env_value "${_source_env}" "LLM_MODE")"
+      _llm_mode="$(get_env_value_from_files "LLM_MODE" "${_source_env}" "${_overrides_env}")"
       _llm_mode="${_llm_mode:-local}"
     fi
     if [[ -n "${vlm_base_url}" ]] || contains_element "use-remote-vlm" "${options_provided[@]}"; then
       _vlm_mode="remote"
     else
-      _vlm_mode="$(get_env_value "${_source_env}" "VLM_MODE")"
+      _vlm_mode="$(get_env_value_from_files "VLM_MODE" "${_source_env}" "${_overrides_env}")"
       _vlm_mode="${_vlm_mode:-local}"
     fi
     set_env_var "LLM_MODE" "${_llm_mode}"
@@ -829,7 +909,7 @@ function state_up() {
     local _sample_dataset _num_streams
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
-      _num_streams="$(get_env_value "${_source_env}" "NUM_STREAMS")"
+      _num_streams="$(get_env_value_from_files "NUM_STREAMS" "${_source_env}" "${_overrides_env}")"
       _num_streams="${_num_streams:-$(warehouse_num_streams "${mode}" "${bp_profile}")}"
     else
       _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
@@ -837,21 +917,36 @@ function state_up() {
     fi
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
+
+    # Select explicit service-list variable for the active warehouse variant.
+    local _minimal_profile _cp_var
+    _minimal_profile="$(get_env_value_from_files "MINIMAL_PROFILE" "${_source_env}" "${_overrides_env}")"
+    case "${bp_profile}_${mode}" in
+      bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
+      bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
+      bp_wh_redis_2d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_2D" ;;
+      bp_wh_auto_calib_2d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_2D" ;;
+      bp_wh_kafka_3d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
+      bp_wh_redis_3d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
+      bp_wh_auto_calib_3d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_3D" ;;
+      bp_wh_kafka_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_KAFKA_MV3DT" ;;
+      bp_wh_redis_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_REDIS_MV3DT" ;;
+      bp_wh_auto_calib_mv3dt) _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT" ;;
+      *)
+        echo "[ERROR] Unknown warehouse bp-profile/mode combination: ${bp_profile}/${mode}"
+        return 1
+        ;;
+    esac
+    if [[ -n "${_minimal_profile}" ]] && ([[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]); then
+      _cp_var="${_cp_var}_MINIMAL"
+    fi
+    set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
   fi
 
-  # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
-  # comment the uncommented line (non-sbsa) and uncomment the sbsa line. Discover keys from the file.
-  # Comment format may be "# VAR=..." or "#VAR=..." (optional space after #).
   if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
-    local _key
-    while IFS= read -r _key; do
-      [[ -z "${_key}" ]] && continue
-      # Comment the uncommented line for this key when value does not contain sbsa
-      sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
-      # Uncomment the commented line for this key when value contains sbsa
-      sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (DGX-SPARK): ${_key}"
-    done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
+    apply_sbsa_image_tags_to_env "${_generated_env}" "DGX-SPARK"
+  elif [[ "${use_sbsa_images}" == "true" ]]; then
+    apply_sbsa_image_tags_to_env "${_generated_env}" "${hardware_profile:-OTHER} (--use-sbsa-images)"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
@@ -894,16 +989,27 @@ function state_up() {
       nvcr.io 2>/dev/null || echo "[WARN] Docker login to nvcr.io may have failed (required for pulling images)"
   fi
 
+  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
+  local _compose_file_args_text=" ${_compose_file_args[*]}"
+  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
+
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
   else
-    cd "${deployment_directory}" && docker compose \
-      --env-file "${_deploy_rel}/generated.env" \
-      up \
-      --detach \
-      --force-recreate \
-      --build
+    if ! (
+      cd "${deployment_directory}" && docker compose \
+        "${_compose_file_args[@]}" \
+        --env-file "${_deploy_rel}/.env" \
+        --env-file "${_deploy_rel}/generated.env" \
+        up \
+        --detach \
+        --force-recreate \
+        --build
+    ); then
+      echo "[ERROR] docker compose up failed for deployment '${deployment}'"
+      return 1
+    fi
   fi
 
   echo "[INFO] State up completed"

@@ -17,7 +17,9 @@
 
 #pragma once
 
-#ifndef JETSON_PLATFORM
+// CudaLoader wraps the CUDA driver/runtime for the discrete-GPU (Thor/SBSA/x86)
+// path. It is compiled on every platform in the unified aarch64 build but only
+// instantiated at runtime when !isJetsonPlatform().
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
@@ -47,4 +49,3 @@ private:
     CudaLoader();
     ~CudaLoader();
 };
-#endif

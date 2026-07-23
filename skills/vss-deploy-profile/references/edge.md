@@ -104,6 +104,44 @@ SKILL.md pre-flight smoke test does not install it.
 > sudo su -c 'echo performance > <VIC_DEVFREQ_PATH>/governor'
 > ```
 
+### Unified-memory GPU budget (reserve ≥ 0.2)
+<a id="unified-memory-budget"></a>
+
+On these platforms CPU, GPU, OS page cache, and every container draw from **one**
+shared pool, so a GPU-memory *fraction* — `NIM_GPU_MEM_FRACTION` / `NIM_KVCACHE_PERCENT`
+for NIM-served models (the DGX-Spark base LLM and Cosmos VLM run as NIMs), or
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION` for RT-VLM (alerts / lvs / Thor) — is a slice of
+memory that is **not all free**.
+vLLM measures *free* at startup and aborts before loading the model if free is
+below what the fraction asks for (`desired = util × total`):
+
+```text
+ValueError: Free memory on device (X/124.61 GiB) on startup is less than desired
+GPU memory utilization (0.8, 99.69 GiB). Decrease GPU memory utilization …
+```
+
+which surfaces in VSS as `Engine core initialization failed` /
+`Failed to load VLM on GPU 0`.
+
+**Rule:** compute each fraction against *actual free* memory and leave **≥ 0.2 of
+total** (~20%) as reserve — `util ≤ free/total − 0.2` — and for co-resident
+services keep the **sum** of their fractions `≤ 0.8`:
+
+```bash
+# DGX Spark reports free/total via nvidia-smi (Thor/Tegra often reports N/A — see below)
+set -- $(nvidia-smi --query-gpu=memory.free,memory.total --format=csv,noheader,nounits | head -1 | tr -d ',')
+free=$1; total=$2
+awk -v f="$free" -v t="$total" 'BEGIN{u=f/t-0.2; if(u<0)u=0; printf "max util ~ %.2f  (free %d / total %d MiB; 0.2 reserve)\n", u, f, t}'
+```
+
+The conservative per-service defaults already aim for this on a clean box (each
+fraction ≈ 0.4, so two co-resident services sum to ≤ 0.8): the standalone DGX-Spark
+LLM NIM recipe below sets `NIM_GPU_MEM_FRACTION=0.4`, and `dev-profile.sh`'s
+`get_rtvi_vllm_gpu_memory_utilization()` returns `0.4` for RT-VLM. If other tenants
+are resident (so `free` is lower than the formula's value), **lower the fractions to
+fit**. If `nvidia-smi` can't read free (Thor/Tegra often reports `[N/A]`), keep the
+conservative ~0.4 and drop by `0.05` on the first `Free … less than desired` abort.
+
 ## DGX Spark - Nano 9B v2 DGX Spark NIM + local Cosmos Reason2 VLM
 
 Start the LLM as a standalone local NIM on port `30081`:
@@ -159,8 +197,8 @@ Then apply env overrides to `dev-profile-base/generated.env`:
 | `LLM_NAME_SLUG` | `none` | Remote mode skips local LLM compose services |
 | `HARDWARE_PROFILE` | `DGX-SPARK` | Selects the DGX Spark VLM env file |
 | `VLM_MODE` | `local_shared` | VLM stays local on the shared edge GPU |
-| `VLM_NAME` | `nvidia/cosmos-reason2-8b` | Default local VLM |
-| `VLM_NAME_SLUG` | `cosmos-reason2-8b` | Compose-managed VLM service |
+| `VLM_NAME` | `nvidia/cosmos3-nano-reasoner` | Default local VLM |
+| `VLM_NAME_SLUG` | `cosmos3-reasoner` | Compose-managed VLM service |
 | `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 | `VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
 
@@ -172,7 +210,7 @@ VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-ag
 ```
 
 Then follow `SKILL.md` Steps 3-5 (resolve compose, normalize, `up -d`). The
-`cosmos-reason2-8b` NIM compose automatically loads
+`cosmos3-reasoner` NIM compose automatically loads
 `hw-DGX-SPARK-shared.env`, which caps the VLM side for shared edge memory.
 
 ## Future compose-supported DGX Spark path
@@ -187,8 +225,8 @@ run the standalone NIM. Instead use the compose-managed local-shared path:
 | `LLM_NAME` | `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` |
 | `LLM_NAME_SLUG` | `nvidia-nemotron-nano-9b-v2-dgx-spark` |
 | `LLM_MODE` | `local_shared` |
-| `VLM_NAME` | `nvidia/cosmos-reason2-8b` |
-| `VLM_NAME_SLUG` | `cosmos-reason2-8b` |
+| `VLM_NAME` | `nvidia/cosmos3-nano-reasoner` |
+| `VLM_NAME_SLUG` | `cosmos3-reasoner` |
 | `VLM_MODE` | `local_shared` |
 | `LLM_DEVICE_ID` | `0` |
 | `VLM_DEVICE_ID` | `0` |
@@ -199,11 +237,11 @@ sequence limits from the standalone recipe above.
 
 ## AGX Thor / IGX Thor - Edge 4B fallback + rtvi-vlm
 
-On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason 2
+On Thor, the VLM falls back to **`rtvi-vlm` serving Cosmos Reason3 Nano BF16
 in-process**. The standalone `cosmos-reason2-8b` NIM service does not run on
-Thor. `rtvi-vlm` loads `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` itself and
+Thor. `rtvi-vlm` loads `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` itself and
 advertises it at `http://${HOST_IP}:8018/v1` under
-`VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208` with
+`VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` with
 `VLM_NAME_SLUG=none`.
 
 Remote VLM and `--vlm` swaps are not supported on Thor for `base` or

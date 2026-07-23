@@ -38,10 +38,12 @@ from confluent_kafka import Producer
 from google.protobuf import json_format
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
+SRC_ROOT = os.path.join(REPO_ROOT, "src")
+for _p in (SRC_ROOT, REPO_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-from mdx.anomaly.protobuf import Behavior as NvBehavior  # noqa: E402
+from mdx.protobuf import Behavior as NvBehavior  # noqa: E402
 
 
 DEFAULT_PAYLOAD = os.path.join(

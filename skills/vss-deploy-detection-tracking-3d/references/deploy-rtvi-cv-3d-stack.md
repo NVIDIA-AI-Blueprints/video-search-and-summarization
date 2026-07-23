@@ -1,6 +1,6 @@
 # Deploy the RTVI-CV-3D (MV3DT) stack
 
-The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run this **after** Q0/Q1/Q2/Q3 in SKILL.md resolved, calibration is on disk (either ship-with-repo for sample, or landed by [`calibration-workflow.md`](calibration-workflow.md), or user-supplied), and [`configure-cameras.md`](configure-cameras.md) has synced `NUM_STREAMS` to the calibration file count.
+The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run this **after** Q0/Q1/Q2/Q3 in SKILL.md resolved and calibration is on disk. For custom videos, RTSP, or user-supplied calibration, run [`configure-cameras.md`](configure-cameras.md) first so camera names and `NUM_STREAMS` are validated. The bundled sample dataset is already normalized.
 
 ## What this brings up
 
@@ -10,8 +10,8 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 
 | Container | Image | Role |
 |---|---|---|
-| `vss-rtvi-cv-mv3dt` | `nvcr.io/nvstaging/vss-core/vss-rt-cv:${PERCEPTION_TAG}` | Per-camera DeepStream perception |
-| `vss-rtvi-cv-bev-fusion` | `nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-bev-fusion:${BEV_FUSION_MV3DT_TAG}` | BEV Fusion — fuses per-camera detections to a single BEV frame |
+| `vss-rtvi-cv-mv3dt` | `nvcr.io/nvidia/vss-core/vss-rt-cv:${PERCEPTION_TAG}` | Per-camera DeepStream perception |
+| `vss-rtvi-cv-bev-fusion` | `nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:${BEV_FUSION_MV3DT_TAG}` | BEV Fusion — fuses per-camera detections to a single BEV frame |
 | `mosquitto` | `eclipse-mosquitto:2` | MQTT bus between perception and fusion |
 | `kafka` *or* `redis` | (per `STREAM_TYPE`) | Carries `mdx-raw` (input) and `mdx-bev` (output) |
 | `vss-broker-health-check` | (built locally) | Validates broker + creates topics (one-shot, exits 0) |
@@ -21,11 +21,11 @@ The actual `docker compose up` recipe. Parent: [`../SKILL.md`](../SKILL.md). Run
 | `vss-haproxy-ingress` | haproxy | Ingress — **present under MV3DT** (services are still reached on their direct ports) |
 | `vss-vios-postgres` (PostgreSQL) | postgres | Backing store for VST sensor-ms |
 | `sdr-controller` | (built locally) | SDR + Envoy consolidation (registers streamprocessing) |
-| `vss-configurator-mv3dt` (+ `*-init`) | `nvcr.io/nvstaging/vss-core/vss-configurator` | Sensor registration, DeepStream config materialization |
+| `vss-configurator-mv3dt` (+ `*-init`) | `nvcr.io/nvidia/vss-core/vss-configurator` | Sensor registration, DeepStream config materialization |
 | `vss-vios-nvstreamer-mv3dt` | nvstreamer | RTSP server for sample/videos data |
 | **`vss-behavior-analytics-mv3dt`** | analytics | 3D spatial analytics — always under `bp_wh_*_mv3dt`, **not** gated by `MINIMAL_PROFILE` |
 
-> **Auto-calibration is not part of this deploy.** AMC (`vss-auto-calibration` / `-ui`) is **not** in the `bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt` profile — those differ from the `bp_wh_auto_calib_mv3dt` / `auto_calib` profiles that enable AMC. When calibration is missing, the [`calibration-workflow.md`](calibration-workflow.md) chain brings AMC up separately (the `auto_calib` profile) and tears it down before this deploy. If you see `vss-auto-calibration` running alongside MV3DT, it's from that separate flow, not this one.
+> **Auto-calibration is not part of this deploy.** AMC (`vss-auto-calibration` / `-ui`) is **not** in the `bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt` final MV3DT profile. When calibration is missing, [`calibration-workflow.md`](calibration-workflow.md) delegates AMC setup and RTSP capture to the `vss-generate-video-calibration` skill, then tears AMC down before this deploy. If you see `vss-auto-calibration` running alongside MV3DT, it's from that separate calibration flow, not this one.
 
 ### Extra under extended (`MINIMAL_PROFILE=""`) — needed for VST overlays
 
@@ -46,36 +46,64 @@ These services share a single `${MINIMAL_PROFILE:+_extended}` gate — they come
 Don't trust `docker compose config` to catch missing bind-mount sources — it doesn't validate host paths. Run these first:
 
 ```bash
-ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_STABLE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+[ -f "${ENV_FILE}" ] || ENV_FILE="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/overrides.env"
 
-# Re-source key vars from .env so we can check them
-set -a; . "${ENV_FILE}"; set +a
+# Re-source stable defaults first, then runtime/profile overrides, so we can check them
+set -a; . "${ENV_STABLE}"; . "${ENV_FILE}"; set +a
 
-# 1. App-data layout
-for sub in videos models data_log; do
+# 1. App-data layout. RTSP still needs models and data_log, but not dataset MP4s.
+for sub in models data_log videos; do
   test -d "${VSS_DATA_DIR}/${sub}" || { echo "ERROR: ${VSS_DATA_DIR}/${sub} missing — VSS_DATA_DIR is not pointing at extracted vss-warehouse-app-data"; exit 1; }
 done
 
-# 2. Dataset videos
-test -d "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}" \
-  || { echo "ERROR: ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET} missing"; exit 1; }
-VIDEO_COUNT=$(ls "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"*.mp4 2>/dev/null | wc -l)
-echo "Found ${VIDEO_COUNT} videos under ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"
+# 2. Source-specific input check
+if [ "${SENSOR_INFO_SOURCE:-nvstreamer}" = "file" ]; then
+  SENSOR_FILE="${SENSOR_FILE_PATH:-${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json}"
+  test -f "${SENSOR_FILE}" || { echo "ERROR: SENSOR_FILE_PATH=${SENSOR_FILE} missing"; exit 1; }
+
+  if ! jq -e '.sensors | type == "array" and length > 0' "${SENSOR_FILE}" >/dev/null; then
+    echo "ERROR: ${SENSOR_FILE} must contain sensors[]"
+    exit 1
+  fi
+  if ! jq -e '.sensors[] | (.camera_name // "") != "" and (.rtsp_url // "") != "" and (.group_id // "") != "" and (.region // "") != ""' "${SENSOR_FILE}" >/dev/null; then
+    echo "ERROR: each RTSP sensor needs camera_name, rtsp_url, group_id, and region"
+    exit 1
+  fi
+
+  SENSOR_COUNT=$(jq '.sensors | length' "${SENSOR_FILE}")
+  if [ "${SENSOR_COUNT}" != "${NUM_STREAMS}" ]; then
+    echo "ERROR: camera_info sensors (${SENSOR_COUNT}) must equal NUM_STREAMS (${NUM_STREAMS})"
+    exit 1
+  fi
+
+  # Keeps the compose bind mount explicit even for external RTSP.
+  mkdir -p "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+  echo "RTSP sensor file OK: ${SENSOR_FILE} (${SENSOR_COUNT} sensors)"
+else
+  if [ ! -d "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}" ]; then
+    echo "ERROR: ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET} missing"
+    exit 1
+  fi
+  VIDEO_COUNT=$(ls "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"*.mp4 2>/dev/null | wc -l)
+  echo "Found ${VIDEO_COUNT} videos under ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/"
+fi
 
 # 3. Calibration mount
 CAL_DIR="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}"
 test -f "${CAL_DIR}/calibration.json" || { echo "ERROR: ${CAL_DIR}/calibration.json missing"; exit 1; }
 CAM_COUNT=$(ls "${CAL_DIR}/camInfo/"*.{yml,yaml} 2>/dev/null | wc -l)
 echo "Found ${CAM_COUNT} calibration files under ${CAL_DIR}/camInfo/"
+[ "${CAM_COUNT}" = "${NUM_STREAMS}" ] || { echo "ERROR: camInfo count (${CAM_COUNT}) must equal NUM_STREAMS (${NUM_STREAMS})"; exit 1; }
 
-# 4. The configurator enforces min(NUM_STREAMS, HARDWARE_PROFILE.max_streams_supported)
-#    and trims excess videos to match. See SKILL.md Prerequisites §3.
+# 4. The configurator enforces min(NUM_STREAMS, HARDWARE_PROFILE.max_streams_supported).
+#    For sample/videos it may trim dataset MP4s; for RTSP keep camera_info.json,
+#    calibration, and NUM_STREAMS already aligned before deploy.
 echo "NUM_STREAMS=${NUM_STREAMS}, HARDWARE_PROFILE=${HARDWARE_PROFILE}"
-echo "If max_streams_supported for ${HARDWARE_PROFILE}.mv3dt is < ${NUM_STREAMS},"
-echo "the configurator will trim videos to that cap at deploy time."
 ```
 
-If videos < camera count and `HARDWARE_PROFILE.mv3dt.max_streams_supported` < camera count, the deploy will appear to succeed but you'll only get a subset of streams. Fix one of: source missing videos, raise `HARDWARE_PROFILE`-supported cap, or lower expectations.
+If `NUM_STREAMS` is above the supported MV3DT stream count for the hardware, the deploy may process only a subset of streams. For sample/videos, fix one of: source missing videos, raise the hardware-supported cap, or lower expectations. For RTSP, keep `camera_info.json`, calibration, and `NUM_STREAMS` at the supported count before deploy.
 
 ### Step 0a — Detect stale state from a prior deploy (redeploys only)
 
@@ -123,29 +151,41 @@ if docker ps --format '{{.Names}}' | grep -q '^vss-vios-sensor$'; then
   elif [ "${EXISTING}" != "${EXPECTED}" ]; then
     echo "STALE / MISMATCHED VST state — the registered sensors do not match this dataset."
     echo "A scoped reset is recommended before deploying (resets VST Postgres + named volumes):"
-    echo "  docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v"
-    echo "  bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup"
+    echo "  docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v"
+    echo "  bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env --skip-revert-from-oldest-backup"
   else
     echo "VST sensor set matches the expected dataset — no reset needed."
   fi
 fi
 ```
 
-`down -v` is destructive (drops the VST DB and broker volumes), so **confirm with the user via `AskUserQuestion` before running it.** Full discussion of `down -v` semantics is in [`teardown.md`](teardown.md); the targeted sensor-trim alternative is in [`configure-cameras.md`](configure-cameras.md) Step 5.
+`down -v` is destructive (drops the VST DB and broker volumes), so **ask the user for confirmation before running it.** Full discussion of `down -v` semantics is in [`teardown.md`](teardown.md); the targeted sensor-trim alternative is in [`configure-cameras.md`](configure-cameras.md) Step 5.
 
-### Step 0b — Patch hardcoded `streamprocessing` mounts (custom datasets only)
+### Step 0b — Align `streamprocessing` mounts for custom datasets
 
-`services/vios/streamprocessing/docker-compose.yaml` hardcodes two bind-mount sources to `sample-data/warehouse-4cams-20mx20m-synthetic/` regardless of `SAMPLE_VIDEO_DATASET`:
+`services/vios/streamprocessing/docker-compose.yaml` may include bind-mount sources that point at the bundled sample dataset. For custom datasets, update those sources to resolve through `${SAMPLE_VIDEO_DATASET}` so VST overlay configuration uses the same calibration dataset as the rest of the stack.
 
-```yaml
-# Under the `streamprocessing-ms-mv3dt:` service block — `streamprocessing-ms-3d:` mirrors the same pattern for MODE=3d.
-- ${VSS_APPS_DIR}/.../calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
-- ${VSS_APPS_DIR}/.../calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
+Under the `streamprocessing-ms-mv3dt:` service block (`streamprocessing-ms-3d:` mirrors the same pattern for MODE=3d), replace only these source fragments:
+
+The fragments appear embedded within the full `${VSS_APPS_DIR}/.../calibration/` source path; the sed block below handles this automatically.
+
+```text
+sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
+sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png
 ```
 
-VST reads from `/home/vst/vst_release/configs/calibration.json` when rendering 3D bbox overlays on each camera stream — so for any `SAMPLE_VIDEO_DATASET` other than `warehouse-4cams-20mx20m-synthetic`, **VST overlays project with the sample warehouse's `cameraMatrix` instead of yours**, even though every other consumer (perception, behavior-analytics, video-analytics-api) correctly uses your dataset's calibration. Symptom: bbox positions wildly off on the VST video wall, top-view widget shows the sample warehouse layout instead of yours, AMC/Kibana overlays look fine.
+with:
 
-Idempotent patch — no-op when slug is already the literal sample, no-op after a prior patch:
+```text
+sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json
+sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png
+```
+
+Keep each mount destination unchanged.
+
+VST reads from its container configuration directory when rendering 3D bbox overlays on each camera stream. If the mounts still point at the bundled sample dataset while `SAMPLE_VIDEO_DATASET` points at a custom dataset, VST overlays may use the sample `cameraMatrix` while perception, behavior-analytics, and video-analytics-api use the custom dataset calibration. Symptom: bbox positions do not align with the VST video wall, the top-view widget shows the sample warehouse layout, and AMC/Kibana overlays look as expected.
+
+Idempotent update — no-op when the sample dataset is in use, no-op after a prior update:
 
 ```bash
 COMPOSE_SP="${VSS_APPS_DIR}/services/vios/streamprocessing/docker-compose.yaml"
@@ -164,23 +204,28 @@ If the stack is **already running** when you discover this (Step 5 in [`verify-a
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up -d --no-deps --force-recreate streamprocessing-ms-mv3dt
 
 # VST's per-tab session caches the sensorIds, which change on streamprocessing recreate
 # → hard-refresh the VST tab (Ctrl+Shift+R) so the cached streamId is dropped.
 ```
 
-This is an upstream-bug workaround. When the compose source is fixed (`${SAMPLE_VIDEO_DATASET}` instead of the literal), this step becomes a true no-op and can be dropped from the skill.
+When the compose source already uses `${SAMPLE_VIDEO_DATASET}`, this step is a no-op and can be skipped.
 
 ## Step 1 — Env recipe
 
-Edit `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env`. The shipped `.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
+Initialize `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env` from `overrides.env`, then edit `generated.env` for MV3DT runtime/profile overrides. The stable `.env` remains the service-default layer. The shipped `overrides.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
 
 > **Also set `LLM_MODE=none`.** Some shipped `.env` variants default `LLM_MODE=local`, which adds `llm_local_<slug>` to `COMPOSE_PROFILES` and pulls up the local LLM NIM stack — unwanted for MV3DT-only and a heavy GPU/model download. MV3DT needs no LLM/VLM, so set both `LLM_MODE=none` and `VLM_MODE=none`.
 
 ```bash
-# All keys below live in industry-profiles/warehouse-operations/.env — locate by name (line numbers drift across releases).
+cd "${VSS_APPS_DIR}"
+cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
+grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/generated.env \
+  || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "${VSS_APPS_DIR}" >> industry-profiles/warehouse-operations/generated.env
+
+# All keys below live in industry-profiles/warehouse-operations/generated.env — locate by name (line numbers drift across releases).
 # Deployment selectors
 MODE=mv3dt
 BP_PROFILE=bp_wh_kafka                      # or bp_wh_redis
@@ -190,7 +235,11 @@ MINIMAL_PROFILE=""                          # EXTENDED (default for overlays)
 
 # Dataset + stream count
 SAMPLE_VIDEO_DATASET="<your-dataset-slug>"  # see "Slug" note below
-NUM_STREAMS=4                               # must equal camInfo count
+NUM_STREAMS=4                               # must equal camInfo count, and RTSP sensor count when used
+
+# RTSP input only. Leave unset/default for sample or local videos.
+# SENSOR_INFO_SOURCE=file
+# SENSOR_FILE_PATH="${VSS_APPS_DIR}/industry-profiles/warehouse-operations/camera_configs/camera_info.json"
 
 # Hardware — use the slug from SKILL.md Prerequisites §3 (canonical keys live in blueprint_config.yml)
 HARDWARE_PROFILE=H100                       # see SKILL.md Prerequisites §3 table
@@ -214,6 +263,33 @@ NGC_CLI_API_KEY='<your-ngc-key>'
 
 `COMPOSE_PROFILES` is computed automatically by the .env (search for `^COMPOSE_PROFILES=`): `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}` → for MV3DT this resolves to `bp_wh_kafka_mv3dt,llm_none_none`.
 
+### RTSP input — Sensor Info File
+
+For Q1 = `rtsp`, create a Sensor Info File and point `.env` at it before `docker compose up`. If calibration just ran through [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md), reuse that ordered stream list; only translate `camera_name` to the normalized MV3DT sensor IDs:
+
+```json
+{
+  "sensors": [
+    {
+      "camera_name": "Camera",
+      "rtsp_url": "rtsp://<host>:<port>/<stream>",
+      "group_id": "bev-sensor-1",
+      "region": "warehouse"
+    },
+    {
+      "camera_name": "Camera_01",
+      "rtsp_url": "rtsp://<host>:<port>/<stream>",
+      "group_id": "bev-sensor-1",
+      "region": "warehouse"
+    }
+  ]
+}
+```
+
+Required fields per sensor: `camera_name`, `rtsp_url`, `group_id`, and `region`. Use the same `camera_name` values that are in the normalized `calibration.json` (`Camera`, `Camera_01`, ...). `NUM_STREAMS`, `camera_info.json` sensor count, `calibration.json` sensor count, and `camInfo/` count must match. Static `NUM_STREAMS` is required for RTSP; the dynamic video-file counting path is for recorded videos only.
+
+For `sample` or `videos`, leave `SENSOR_INFO_SOURCE` unset/default (`nvstreamer`) and keep using the dataset video directory checks below.
+
 ### `VSS_DATA_DIR` — what to point it at
 
 This is the directory containing the **extracted** `vss-warehouse-app-data` tarball — **separate from the repo**. Expected layout:
@@ -226,34 +302,35 @@ This is the directory containing the **extracted** `vss-warehouse-app-data` tarb
 └── auto-calib/vggt/          optional VGGT model
 ```
 
-If you haven't extracted it yet, discover the latest tag rather than relying on a pinned one — release cuts and staging snapshots get re-published over time, and the most recent tag is rarely the one any doc still references:
+If you haven't extracted it yet, use the published warehouse app-data resource from the VSS 3.2.0 manifests:
 
 ```bash
 export NGC_CLI_API_KEY='<your-key>'
 
-# Discover what's actually published for your key. Try both orgs — most
-# keys see one or the other (not both). Release tags follow <maj>.<min>.<patch>;
-# staging tags are dated (e.g. v3.2.0-MMDDYYYY). Pick the most recent
-# UPLOAD_COMPLETE row that matches the perception/fusion image tag base
-# in .env (PERCEPTION_TAG=<base>-...). Mismatching app-data and image
-# versions is a common silent-deploy bug.
-NGC_CLI_ORG=nvidia    ngc registry resource list "nvidia/vss-warehouse/vss-warehouse-app-data:*"    --format_type ascii | head -10
-NGC_CLI_ORG=nvstaging ngc registry resource list "nvstaging/vss-warehouse/vss-warehouse-app-data:*" --format_type ascii | head -10
+NGC_CLI_ORG=nvidia ngc registry resource list "nvidia/vss-warehouse/vss-warehouse-app-data:*" --format_type ascii | head -10
 
-ORG=<nvidia-or-nvstaging>
-TAG=<picked-tag>
+ORG=nvidia
+TAG=3.2.0
 NGC_CLI_ORG="$ORG" ngc registry resource download-version "${ORG}/vss-warehouse/vss-warehouse-app-data:${TAG}"
 
 # The tarball extracts into a nested vss-warehouse-app-data/ directory — flatten it.
 cd "vss-warehouse-app-data_v${TAG#v}" || cd "vss-warehouse-app-data_${TAG}"
 tar -xvf vss-warehouse-app-data.tar.gz
-sudo chmod -R a+rX /path/to/vss-warehouse-app-data
+
+# Open read perms for container users. Auto-proceed when sudo is passwordless;
+# otherwise surface the command for the user to run.
+if sudo -n true 2>/dev/null; then
+  sudo chmod -R a+rX /path/to/vss-warehouse-app-data
+else
+  echo "Sudo requires a password on this host. Please run the command below in your shell, then confirm to continue:"
+  echo "  sudo chmod -R a+rX /path/to/vss-warehouse-app-data"
+fi
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
 
 After extraction, run the `mkdir -p` + scoped-ACL `data_log` permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 before deploy — kafka / elasticsearch / redis won't start without it.
 
-> Always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's `mv3dt` cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying.
+> For `sample` / `videos`, always verify the video count before deploy — the pre-flight check above prints it. If the count is lower than the dataset name implies (e.g. fewer than the four cameras in `warehouse-4cams-20mx20m-synthetic/`), the GPU's MV3DT cap (SKILL.md Prerequisites §3) determines whether this affects you: if the cap is at or below the present video count, the configurator's `keep_count` op uses what's there; if the cap is higher, source the additional cams separately before deploying. For `rtsp`, validate `camera_info.json` instead of video count.
 
 ### `SAMPLE_VIDEO_DATASET` slug
 
@@ -280,29 +357,29 @@ On DGX-SPARK, switch `PERCEPTION_TAG` to its `-sbsa` variant — comment the def
 
 ```bash
 # PERCEPTION_TAG ships an SBSA variant for DGX-SPARK — comment the default, uncomment the -sbsa line:
-# PERCEPTION_TAG="3.2.0-26.05.1"
-PERCEPTION_TAG="3.2.0-sbsa-26.05.1"
+# PERCEPTION_TAG="3.2.1"
+PERCEPTION_TAG="3.3.0-sbsa-26.07.1"
 ```
 
 The `blueprint-configurator` enforces this: on `HARDWARE_PROFILE=DGX-SPARK` it validates that `PERCEPTION_TAG` contains `sbsa`.
 
 **BEV Fusion needs no SBSA build.** `BEV_FUSION_MV3DT_TAG` is a single image that runs on all platforms including DGX-SPARK — leave it at its shipped tag. There is no `-sbsa` variant for it; don't hand-construct one (the pull would fail).
 
-Treat the shipped `.env` as the source of truth — swap only keys that carry a commented `-sbsa` line (currently `PERCEPTION_TAG`). The per-key list also lives in `vss-deploy-profile/references/warehouse.md` (search for "SBSA").
+Treat the generated runtime layer as the edit target — swap only keys that carry a commented `-sbsa` line (currently `PERCEPTION_TAG` / `RTVI_VLM_IMAGE_TAG` in `overrides.env`/`generated.env`). The per-key list also lives in `vss-deploy-profile/references/warehouse.md` (search for "SBSA").
 
 ## Step 2 — Dry-run
 
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   config | grep -E '(container_name|profiles:)' | head -80
 ```
 
 > **Filtering compose noise.** `docker compose config`/`up` prints a `level=warning msg="The \"VAR\" variable is not set. Defaulting to a blank string."` line for every variable that belongs to a profile you're **not** deploying (`EVAL_*`, `LVS_*`, `MILVUS_*`, `GF_*`, `VST_MCP_URL`, …). For MV3DT these are **expected and benign** — they are not a problem. To see only the lines that matter, drop them:
 >
 > ```bash
-> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env config 2>&1 >/dev/null \
+> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config 2>&1 >/dev/null \
 >   | grep -v 'variable is not set'
 > # Empty output = no real errors. Anything that still prints here is actionable —
 > # e.g. "couldn't find env file: ..." means a path in .env is wrong; fix before deploying.
@@ -338,13 +415,13 @@ If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` 
 > ```bash
 > cd "${VSS_APPS_DIR}"
 > # 1. Reset containers + named volumes
-> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+> docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v
 >
 > # 2. Clear host-side data_log — rotate it (non-destructive, keeps a backup):
 > ts=$(date +%Y%m%d_%H%M%S)
 > mv "${VSS_DATA_DIR}/data_log" "${VSS_DATA_DIR}/data_log.bak.${ts}"
 > #    ...or delete in place with the bundled script:
-> #    bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env --skip-revert-from-oldest-backup
+> #    bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env --skip-revert-from-oldest-backup
 >
 > # 3. Recreate the data_log subdirs and re-apply the scoped ACLs — see SKILL.md Prerequisites §4
 > #    (mkdir the subdirs, then setfacl for UIDs 70/999/1000 — NOT chmod 777).
@@ -355,6 +432,10 @@ If any of the core are missing, `COMPOSE_PROFILES` is wrong — re-check `MODE` 
 ```bash
 cd "${VSS_APPS_DIR}"
 
+# Re-source .env first, then generated.env, so VSS_DATA_DIR, MINIMAL_PROFILE,
+# and NGC_CLI_API_KEY are available to the shell checks below, not only to docker compose.
+set -a; . industry-profiles/warehouse-operations/.env; . industry-profiles/warehouse-operations/generated.env; set +a
+
 # NGC login (first time on this host)
 docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
 
@@ -364,7 +445,7 @@ docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
 # manifest inspect checks registry access only — no layer download — so it stays fast even though
 # the perception image is multi-GB (the real pull happens in the backgrounded `up --pull always`).
 VSS_CORE_IMAGES=$(docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env config --images \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config --images \
   | grep -E 'nvcr\.io/.*/vss-core/' | sort -u)
 if [ -z "$VSS_CORE_IMAGES" ]; then
   echo "No vss-core images in the resolved compose — confirm MODE=mv3dt and COMPOSE_PROFILES resolved to bp_wh_kafka_mv3dt before continuing."
@@ -376,17 +457,31 @@ for img in $VSS_CORE_IMAGES; do
     echo
     echo "NGC login succeeded, but this key does not have access to the required MV3DT image:"
     echo "  $img"
-    echo "vss-core is published under both nvidia/ and nvstaging/, and your key may only see one."
-    echo "Either point PERCEPTION_IMAGE / BEV_FUSION_MV3DT_IMAGE in .env at the org your key can pull,"
-    echo "or provide an NGC key with vss-core access, then retry."
+    echo "vss-core is published under nvidia/vss-core for VSS 3.2.0."
+    echo "Provide an NGC key with access to the published vss-core artifacts, then retry."
     exit 1
   fi
 done
 
+# Extended profile only: create the video-analytics API upload bind before compose
+# starts so Docker does not auto-create it with root-only permissions. The import
+# one-shot posts calibration.json and Top.png through vss-video-analytics-api-mv3dt,
+# which writes them under /web-api-app/files. If this path is not writable, the
+# importer can still exit 0 while the API logs EACCES and overlays never appear.
+MINIMAL_PROFILE_VAL=$(printf '%s' "${MINIMAL_PROFILE:-}" | tr -d '"')
+if [ "${MINIMAL_PROFILE_VAL}" != "true" ]; then
+  API_UPLOAD_DIR="${VSS_DATA_DIR:?VSS_DATA_DIR not set}/data_log/vss_video_analytics_api"
+  mkdir -p "${API_UPLOAD_DIR}"
+  command -v setfacl >/dev/null \
+    || { echo "ERROR: setfacl missing; install acl or make ${API_UPLOAD_DIR} writable by container UID 1000"; exit 1; }
+  setfacl -R    -m u:1000:rwx "${API_UPLOAD_DIR}"
+  setfacl -R -d -m u:1000:rwx "${API_UPLOAD_DIR}"
+fi
+
 # Bring up (~10–15 min first run — PERCEPTION image pull + BodyPose3DNet TRT engine build)
 LOG=${LOG:-/tmp/mv3dt-deploy.log}
 nohup docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"
@@ -412,7 +507,7 @@ Once perception logs an FPS line and `/tmp/fusion_ready` exists (check via `dock
 
 ## When deploy fails
 
-- Image pull 401 / 403 → the Step 3 access check should have caught this before bring-up; if it slips through, re-run `docker login nvcr.io` and verify `ngc registry image list "nvstaging/vss-core/*"` (or `nvidia/vss-core/*`) returns results. If only one org resolves, point `PERCEPTION_IMAGE` / `BEV_FUSION_MV3DT_IMAGE` in `.env` at that org.
+- Image pull 401 / 403 → the Step 3 access check should have caught this before bring-up; if it slips through, re-run `docker login nvcr.io` and verify `ngc registry image list "nvidia/vss-core/*"` returns results.
 - `error from registry: Incorrect Repository Format` mid-pull → Docker/Compose version incompatibility with the bare-tag local-build services in `services/infra/compose.yml`. See [`troubleshooting.md`](troubleshooting.md) — "`error from registry: Incorrect Repository Format` during compose pull" for a version-independent pre-build workaround and the Docker-pin alternative.
 - `unknown or invalid runtime name: nvidia` → install NVIDIA Container Toolkit (`vss-deploy-profile/references/prerequisites.md` §2.3).
 - `redis ... Can't open the log file: Permission denied`, `kafka ... /tmp/kafka-data/cluster_id: Permission denied`, or elasticsearch `AccessDeniedException` → `$VSS_DATA_DIR/data_log` isn't writable by the container UIDs. Run the `mkdir -p` + scoped-ACL permission step from [`../SKILL.md`](../SKILL.md) Prerequisites §4 and redeploy. Don't recursive-chown.

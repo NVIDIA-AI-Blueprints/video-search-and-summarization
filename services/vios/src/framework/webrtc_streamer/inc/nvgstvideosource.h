@@ -131,7 +131,7 @@ public:
     std::shared_ptr<NvCompositor> getCompositor() const { return m_commonVideoSource.getCompositor(); }
     std::shared_ptr<VideoWebRTCSender> getVideoSender() const { return m_commonVideoSource.getVideoSender(); }
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const { return m_commonVideoSource.getNativeStreamProducer(); }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     std::shared_ptr<NvIPCProducer> getIPCProducer() const { return m_commonVideoSource.getIPCProducer(); }
 #endif
 

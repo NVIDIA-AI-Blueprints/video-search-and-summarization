@@ -33,6 +33,15 @@ all: $(TARGET)
 $(TARGET): vstserver.pb.o vstserver.grpc.pb.o nvgrpc.o
 	$(CXX) $^ $(LDFLAGS2) -o $@
 
+# protoc emits the .pb.h / .grpc.pb.h headers as side-effects of the .cc rules
+# below, so make does not otherwise know which objects depend on them. Declare
+# the cross-file header dependencies explicitly (via the generated .cc, which is
+# a real target) so a parallel (-j) build generates the headers before compiling
+# the objects that #include them. Without this, the build intermittently fails
+# with "vstserver.pb.h" / "vstserver.grpc.pb.h: No such file or directory".
+vstserver.grpc.pb.o: vstserver.pb.cc
+nvgrpc.o: vstserver.pb.cc vstserver.grpc.pb.cc
+
 .PRECIOUS: %.grpc.pb.cc
 %.grpc.pb.cc: %.proto
 	$(PROTOC) -I $(PROTOS_PATH) --grpc_out=. --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN_PATH) $<

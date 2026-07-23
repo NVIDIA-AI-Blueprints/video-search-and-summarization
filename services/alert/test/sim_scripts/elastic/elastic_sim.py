@@ -142,13 +142,45 @@ def _doc_matches_term(doc: Dict[str, Any], term: Dict[str, Any]) -> bool:
     return True
 
 
+def _range_ok(value: Any, op: str, bound: Any) -> bool:
+    """Compare a (string/ISO-8601 or numeric) field value against a range bound."""
+    if value is None:
+        return False
+    try:
+        if op == "gte":
+            return value >= bound
+        if op == "lte":
+            return value <= bound
+        if op == "gt":
+            return value > bound
+        if op == "lt":
+            return value < bound
+    except TypeError:
+        return False
+    return True
+
+
 def _apply_query(docs: list, query: Dict[str, Any]) -> list:
-    """Apply a minimal subset of ES query DSL (term, bool.must)."""
+    """Apply a minimal subset of ES query DSL (term, exists, range, bool.must)."""
     if not query:
         return docs
 
     if "term" in query:
         return [d for d in docs if _doc_matches_term(d, query["term"])]
+
+    if "exists" in query:
+        field = query["exists"].get("field", "")
+        return [d for d in docs if _resolve_field(d.get("_source", {}), field) is not None]
+
+    if "range" in query:
+        result = docs
+        for field, bounds in query["range"].items():
+            for op, bound in bounds.items():
+                result = [
+                    d for d in result
+                    if _range_ok(_resolve_field(d.get("_source", {}), field), op, bound)
+                ]
+        return result
 
     if "bool" in query:
         must = query["bool"].get("must", [])
@@ -163,6 +195,13 @@ def _apply_query(docs: list, query: Dict[str, Any]) -> list:
 def create_app(state: Optional[ElasticSimState] = None) -> Flask:
     app = Flask(__name__)
     sim_state = state or ElasticSimState()
+
+    # Real Elasticsearch stamps this on every response; elasticsearch-py
+    # (sync and async) refuses the server without it.
+    @app.after_request
+    def _stamp_product_header(response):
+        response.headers.setdefault("X-Elastic-Product", "Elasticsearch")
+        return response
 
     @app.route("/", methods=["GET", "HEAD"])
     def root() -> Any:

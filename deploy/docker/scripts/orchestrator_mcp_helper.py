@@ -43,12 +43,62 @@ def read_etc_environment() -> dict[str, str]:
     return env
 
 
+def detect_brev_link_domain() -> str:
+    explicit_domain = os.environ.get("BREV_LINK_DOMAIN", "").strip()
+    if explicit_domain:
+        return explicit_domain
+
+    try:
+        result = subprocess.run(
+            ["netbird", "status", "-d"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        status_output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        skybridge_markers = ("skybridge", "brev.nvidia.com", "brev.dev")
+        if result.returncode == 0 and any(marker in status_output for marker in skybridge_markers):
+            return "apps.run.brev.nvidia.com"
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    return "brevlab.com"
+
+
+
+def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
+    """Return the running OpenShell sandbox container name for *sandbox_name*.
+
+    Uses OpenShell owner labels instead of the container name prefix/format
+    (``openshell-<name>-<id>``), which is an implementation detail.
+    """
+    result = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "--no-trunc",
+            "--filter",
+            "label=openshell.ai/managed-by=openshell",
+            "--filter",
+            f"label=openshell.ai/sandbox-name={sandbox_name}",
+            "--format",
+            "{{.Names}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return names[0] if names else None
+
+
 def build_vss_ui_url(port: int = 7777) -> str | None:
     brev_env_id = os.environ.get("BREV_ENV_ID", "").strip() or read_etc_environment().get("BREV_ENV_ID", "").strip()
     if not brev_env_id:
         return None
     link_prefix = os.environ.get("BREV_LINK_PREFIX", "").strip() or str(port)
-    return f"https://{link_prefix}-{brev_env_id}.brevlab.com/"
+    link_domain = detect_brev_link_domain()
+    return f"https://{link_prefix}-{brev_env_id}.{link_domain}/"
 
 
 def tool_call(

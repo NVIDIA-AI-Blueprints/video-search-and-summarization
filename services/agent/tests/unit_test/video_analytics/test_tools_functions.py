@@ -20,16 +20,15 @@ from unittest.mock import patch
 
 import pytest
 
-from vss_agents.video_analytics.tools import AnalyzeInput
-from vss_agents.video_analytics.tools import AverageSpeedsInput
-from vss_agents.video_analytics.tools import EmptyInput
-from vss_agents.video_analytics.tools import FovHistogramInput
-from vss_agents.video_analytics.tools import GetIncidentInput
-from vss_agents.video_analytics.tools import GetIncidentsInputBase
-from vss_agents.video_analytics.tools import GetIncidentsInputWithVLM
-from vss_agents.video_analytics.tools import GetSensorIdsInput
-from vss_agents.video_analytics.tools import VideoAnalyticsToolConfig
-from vss_agents.video_analytics.tools import video_analytics
+from agent.video_analytics.tools import AnalyzeInput
+from agent.video_analytics.tools import AverageSpeedsInput
+from agent.video_analytics.tools import EmptyInput
+from agent.video_analytics.tools import FovHistogramInput
+from agent.video_analytics.tools import GetIncidentInput
+from agent.video_analytics.tools import GetIncidentsInputWithVLM
+from agent.video_analytics.tools import GetSensorIdsInput
+from agent.video_analytics.tools import VideoAnalyticsToolConfig
+from agent.video_analytics.tools import video_analytics
 
 # Access the unwrapped async generator function
 _video_analytics_unwrapped = video_analytics.__wrapped__
@@ -44,6 +43,9 @@ class MockESClient:
         self._search_results = []
         self._aggregate_results = {}
         self._get_by_id_results = {}
+        # Records the index_key of every search() call so tests can assert
+        # which ES index (incidents vs vlm_incidents) was queried.
+        self.search_index_keys = []
 
     def set_search_results(self, results):
         self._search_results = results
@@ -58,6 +60,7 @@ class MockESClient:
         return self._get_by_id_results.get(f"{index_key}:{doc_id}")
 
     async def search(self, index_key, query_body, size=100, sort=None, source_includes=None, source_excludes=None):
+        self.search_index_keys.append(index_key)
         return self._search_results
 
     async def aggregate(self, index_key, query_body, aggs):
@@ -136,7 +139,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(group, "get_incident", GetIncidentInput(id="incident-123"))
                 assert result["Id"] == "incident-123"
@@ -150,7 +153,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(group, "get_incident", GetIncidentInput(id="nonexistent"))
                 assert result == {}
@@ -164,9 +167,9 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
-                result = await invoke_function(group, "get_incidents", GetIncidentsInputBase())
+                result = await invoke_function(group, "get_incidents", GetIncidentsInputWithVLM())
                 assert "incidents" in result
                 assert len(result["incidents"]) == 2
                 break
@@ -179,12 +182,12 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
                     "get_incidents",
-                    GetIncidentsInputBase(
+                    GetIncidentsInputWithVLM(
                         source="sensor-001",
                         source_type="sensor",
                         start_time="2025-01-15T00:00:00.000Z",
@@ -206,9 +209,9 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
-                result = await invoke_function(group, "get_incidents", GetIncidentsInputBase(max_count=10))
+                result = await invoke_function(group, "get_incidents", GetIncidentsInputWithVLM(max_count=10))
                 assert result["has_more"] is True
                 assert len(result["incidents"]) == 10
                 break
@@ -220,7 +223,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(group, "get_sensor_ids", GetSensorIdsInput())
                 assert "sensor-001" in result
@@ -234,7 +237,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(group, "get_sensor_ids", GetSensorIdsInput(place="Main Street"))
                 assert result == ["sensor-001"]
@@ -247,7 +250,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(group, "get_places", EmptyInput())
                 assert "San Jose" in result
@@ -278,7 +281,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
@@ -302,7 +305,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
@@ -331,7 +334,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
@@ -355,7 +358,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
@@ -379,7 +382,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
@@ -419,7 +422,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
@@ -459,7 +462,7 @@ class TestVideoAnalyticsFunctions:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group,
@@ -487,7 +490,7 @@ class TestVideoAnalyticsWithVLM:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None, vlm_verified=True)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(
                     group, "get_incidents", GetIncidentsInputWithVLM(vlm_verdict="confirmed")
@@ -506,7 +509,7 @@ class TestVideoAnalyticsNoCalibration:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 result = await invoke_function(group, "get_places", EmptyInput())
                 assert result == {}
@@ -523,7 +526,7 @@ class TestVideoAnalyticsNoCalibration:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None)
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 assert group is not None
                 break
@@ -539,7 +542,7 @@ class TestVideoAnalyticsIncludeConfig:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None, include=["get_incidents"])
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 all_funcs = await group.get_all_functions()
                 assert "video_analytics__get_incidents" in all_funcs
@@ -553,8 +556,99 @@ class TestVideoAnalyticsIncludeConfig:
 
         config = VideoAnalyticsToolConfig(embedding_model_name=None, include=[])
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
             async for group in _video_analytics_unwrapped(config, mock_builder):
                 all_funcs = await group.get_all_functions()
                 assert len(all_funcs) == 0
                 break
+
+
+class TestVlmVerifiedIndexSelection:
+    """Assert which ES index get_incident/get_incidents query for the runtime
+    vlm_verified value (True / False / omitted), with the config default as the
+    fallback. This protects the runtime-override-with-config-fallback behavior
+    from regressing (effective_vlm_verified -> incidents vs vlm_incidents)."""
+
+    @staticmethod
+    async def _run_get_incident(mock_builder, calibration, *, config_vlm, input_vlm):
+        mock_es = MockESClient("http://localhost:9200")
+        mock_es.set_get_by_id_results({"calibration:calibration": calibration})
+        mock_es.set_search_results([{"Id": "incident-1"}])
+        config = VideoAnalyticsToolConfig(embedding_model_name=None, vlm_verified=config_vlm)
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
+            async for group in _video_analytics_unwrapped(config, mock_builder):
+                await invoke_function(group, "get_incident", GetIncidentInput(id="incident-1", vlm_verified=input_vlm))
+                break
+        return mock_es.search_index_keys
+
+    @staticmethod
+    async def _run_get_incidents(mock_builder, calibration, incidents, *, config_vlm, input_vlm):
+        mock_es = MockESClient("http://localhost:9200")
+        mock_es.set_get_by_id_results({"calibration:calibration": calibration})
+        mock_es.set_search_results(incidents)
+        config = VideoAnalyticsToolConfig(embedding_model_name=None, vlm_verified=config_vlm)
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es):
+            async for group in _video_analytics_unwrapped(config, mock_builder):
+                await invoke_function(group, "get_incidents", GetIncidentsInputWithVLM(vlm_verified=input_vlm))
+                break
+        return mock_es.search_index_keys
+
+    # ---- get_incident -------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_get_incident_runtime_true_uses_vlm_index(self, mock_builder, sample_calibration_data):
+        keys = await self._run_get_incident(mock_builder, sample_calibration_data, config_vlm=False, input_vlm=True)
+        assert "vlm_incidents" in keys and "incidents" not in keys
+
+    @pytest.mark.asyncio
+    async def test_get_incident_runtime_false_uses_regular_index(self, mock_builder, sample_calibration_data):
+        keys = await self._run_get_incident(mock_builder, sample_calibration_data, config_vlm=True, input_vlm=False)
+        assert "incidents" in keys and "vlm_incidents" not in keys
+
+    @pytest.mark.asyncio
+    async def test_get_incident_omitted_falls_back_to_config_true(self, mock_builder, sample_calibration_data):
+        keys = await self._run_get_incident(mock_builder, sample_calibration_data, config_vlm=True, input_vlm=None)
+        assert "vlm_incidents" in keys and "incidents" not in keys
+
+    @pytest.mark.asyncio
+    async def test_get_incident_omitted_falls_back_to_config_false(self, mock_builder, sample_calibration_data):
+        keys = await self._run_get_incident(mock_builder, sample_calibration_data, config_vlm=False, input_vlm=None)
+        assert "incidents" in keys and "vlm_incidents" not in keys
+
+    # ---- get_incidents ------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_runtime_true_uses_vlm_index(
+        self, mock_builder, sample_calibration_data, sample_incidents
+    ):
+        keys = await self._run_get_incidents(
+            mock_builder, sample_calibration_data, sample_incidents, config_vlm=False, input_vlm=True
+        )
+        assert "vlm_incidents" in keys and "incidents" not in keys
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_runtime_false_uses_regular_index(
+        self, mock_builder, sample_calibration_data, sample_incidents
+    ):
+        keys = await self._run_get_incidents(
+            mock_builder, sample_calibration_data, sample_incidents, config_vlm=True, input_vlm=False
+        )
+        assert "incidents" in keys and "vlm_incidents" not in keys
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_omitted_falls_back_to_config_true(
+        self, mock_builder, sample_calibration_data, sample_incidents
+    ):
+        keys = await self._run_get_incidents(
+            mock_builder, sample_calibration_data, sample_incidents, config_vlm=True, input_vlm=None
+        )
+        assert "vlm_incidents" in keys and "incidents" not in keys
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_omitted_falls_back_to_config_false(
+        self, mock_builder, sample_calibration_data, sample_incidents
+    ):
+        keys = await self._run_get_incidents(
+            mock_builder, sample_calibration_data, sample_incidents, config_vlm=False, input_vlm=None
+        )
+        assert "incidents" in keys and "vlm_incidents" not in keys

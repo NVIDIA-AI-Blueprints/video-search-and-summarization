@@ -44,7 +44,11 @@ global:
   vlmBaseUrl: ""
   # NGC model ids — shared by vss-agent (LLM_NAME / VLM_NAME) and vss-summarization (LVS_LLM_MODEL_NAME, VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME). Override per subchart if needed.
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+  # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
+  # Mirrors docker dev-profile-lvs/.env: VST_USE_SDRC=true, VST_NGINX_MODE=vst-sdrc.
+  vios:
+    useSdrc: true
 
 # Set global.external* and optional global.kibanaPublicUrl in values-lvs.yaml. Images/replicas: charts/<name>/values.yaml.
 
@@ -78,9 +82,9 @@ infra:
       enabled: true
       env:
         ELASTICSEARCH_ILM_MIN_AGE: 4h
+        ELASTICSEARCH_ENABLE_EMBEDDINGS: "false"
         ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1536'
         ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: '768'
-        BP_PROFILE: bp_developer_lvs
   kibana:
     enabled: true
     init:
@@ -207,7 +211,7 @@ agent:
     vstInternalUrl: ""
     vstInternalIp: ""
     vssAgentExternalUrl: ""
-    vssAgentVersion: "3.2.0-26.05.5-c777a8d34f70"
+    vssAgentVersion: "3.3.0-65576357eb80"
     evalLlmJudgeName: ""
     evalLlmJudgeBaseUrl: ""
     reportsBaseUrl: ""
@@ -259,6 +263,14 @@ agent:
         value: ''
       - name: OPENAI_API_KEY
         value: ''
+      # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
+      # deploy/docker/services/agent/compose.yml.
+      - name: RAG_SERVER_URL
+        value: 'http://rag-server:8081/v1'
+      - name: RAG_API_KEY
+        value: ''
+      - name: KNOWLEDGE_COLLECTION
+        value: 'default'
       - name: COSMOS_EMBED_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-embed:8000" .Release.Name) "http://vss-rtvi-embed:8000" $pfx }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
       - name: ELASTIC_SEARCH_ENDPOINT
@@ -278,7 +290,7 @@ agent:
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos-reason2-8b_hf-1208") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_bf16-final") }}'
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
@@ -290,7 +302,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.5-c777a8d34f70" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.3.0-65576357eb80" }}'
       # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).
       # Set enableAudio=true for Nemotron Nano Omni audio-aware VLM.
       - name: ENABLE_AUDIO
@@ -458,7 +470,7 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
-    modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+    modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
     sharedNimPort: "8000"
     # Wait for the LVS Kafka broker and RTVI topics created by infra.kafka.topicJob.
     waitForKafka:
@@ -478,7 +490,7 @@ rtvi:
       - name: NVIDIA_VISIBLE_DEVICES
         value: "all"
       - name: VLM_MODEL_TO_USE
-        value: "cosmos-reason2"
+        value: "cosmos-reason3"
       - name: KAFKA_ENABLED
         value: "true"
       # Raw VLM event topic produced by rtvi-vlm; consumed by the shared
@@ -517,7 +529,7 @@ rtvi:
         value: ""
       - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
         value: ""
-      - name: ENABLE_LVS_CR2_TIMESTAMP_PROMPT
+      - name: RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS
         value: "true"
       - name: RTVI_EXTRA_ARGS
         value: ""

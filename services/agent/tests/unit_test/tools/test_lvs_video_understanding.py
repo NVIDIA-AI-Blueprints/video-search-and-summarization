@@ -22,9 +22,9 @@ from nat.builder.context import ContextState
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.lvs_video_understanding import LVSVideoUnderstandingConfig
-from vss_agents.tools.lvs_video_understanding import LVSVideoUnderstandingInput
-from vss_agents.tools.lvs_video_understanding import lvs_video_understanding
+from agent.tools.lvs_video_understanding import LVSVideoUnderstandingConfig
+from agent.tools.lvs_video_understanding import LVSVideoUnderstandingInput
+from agent.tools.lvs_video_understanding import lvs_video_understanding
 
 
 class TestLVSVideoUnderstandingConfig:
@@ -183,10 +183,10 @@ class TestLVSVideoUnderstandingInner:
         mock_ctx = MagicMock()
         mock_ctx.user_interaction_manager = mock_uim
 
-        with patch("vss_agents.tools.lvs_video_understanding.Context") as mock_context_class:
+        with patch("agent.tools.lvs_video_understanding.Context") as mock_context_class:
             mock_context_class.get.return_value = mock_ctx
-            with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientSession", return_value=mock_session):
-                with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientTimeout"):
+            with patch("agent.tools.lvs_video_understanding.aiohttp.ClientSession", return_value=mock_session):
+                with patch("agent.tools.lvs_video_understanding.aiohttp.ClientTimeout"):
                     gen = lvs_video_understanding.__wrapped__(config, mock_builder)
                     function_info = await gen.__anext__()
                     inner_fn = function_info.single_fn

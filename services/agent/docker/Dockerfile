@@ -42,11 +42,14 @@ COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
 COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
 COPY --chown=root:root --chmod=0444 agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
+COPY --chown=root:root --chmod=0555 agent/src/agent /vss-agent/src/agent
+# Keep the former runner-class import path available while deployments move
+# from the currently pinned pre-rename image to the repackaged image.
 COPY --chown=root:root --chmod=0555 agent/src/vss_agents /vss-agent/src/vss_agents
-# `lib/` is a sibling top-level package shipped in the same wheel
-# (see pyproject.toml `packages = ["src/vss_agents", "src/lib"]`); without
-# this copy, lib.knowledge would be missing from the built image.
+# `lib/` and `cli/` are sibling top-level packages shipped in the same wheel;
+# without these copies the hatchling build inside the image would fail.
 COPY --chown=root:root --chmod=0555 agent/src/lib /vss-agent/src/lib
+COPY --chown=root:root --chmod=0555 agent/src/cli /vss-agent/src/cli
 COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
 COPY --chown=root:root --chmod=0444 agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
 COPY --chown=root:root --chmod=0555 agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
@@ -59,7 +62,7 @@ RUN python3 /vss-agent/verify_ffmpeg_tarball.py
 RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=private \
     uv venv --seed .venv && \
     . .venv/bin/activate && \
-    uv sync --frozen --no-dev --no-editable --link-mode copy
+    uv sync --frozen --no-dev --no-editable --extra agent --link-mode copy
 
 RUN uv pip uninstall setuptools
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/setuptools
@@ -80,8 +83,27 @@ RUN find /vss-agent/.venv -type f -path "*/torch/bin/test_*" -delete && \
 # Remove imageio_ffmpeg binary if present (~76 MB) - not needed since we use opencv
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/null || true
 
+# OSRB: opencv-python-headless bundles FFmpeg libraries that contain patent-encumbered
+# codecs (H.264/H.265 in libavcodec, etc.). NVIDIA must not redistribute those, so the
+# default image ships WITHOUT OpenCV. Following the VST team's approach, we remove ALL
+# FFmpeg/codec libraries while building the container and provide an opt-in installer to
+# (re)install them at runtime. Video-decoding tools degrade gracefully (see
+# agent.utils.optional_cv2); operators opt in at container startup with
+# INSTALL_PROPRIETARY_CODECS=true, which installs opencv-python-headless from PyPI on
+# their own machine (see docker/install_proprietary_codecs.py).
+RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/cv2 \
+           /vss-agent/.venv/lib/python3.13/site-packages/opencv_python_headless.libs \
+           /vss-agent/.venv/lib/python3.13/site-packages/opencv_python_headless-*.dist-info \
+    && find /vss-agent/.venv \( \
+           -name 'libav*.so*' -o -name 'libswscale*.so*' -o -name 'libswresample*.so*' \
+           -o -name 'libpostproc*.so*' -o -name 'libx264*.so*' -o -name 'libx265*.so*' \
+           -o -name 'libde265*.so*' -o -name 'libopenh264*.so*' -o -name 'libkvazaar*.so*' \
+       \) -delete 2>/dev/null || true
+
 # Security patch stage - download patched OpenSSL libraries
-# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.19-1~deb12u2
+# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.20-1~deb12u2
+# (bumped from 3.0.19-1~deb12u2, which Debian rotated out of the security pool — the
+#  pinned URL started returning 404 and broke the image build).
 FROM debian:bookworm AS security-patches
 ARG TARGETARCH
 
@@ -90,9 +112,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends wget ca-certificates && \
     mkdir -p /patches && \
     if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.19-1~deb12u2_amd64.deb; \
+        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.19-1~deb12u2_arm64.deb; \
+        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb; \
     fi && \
     cd /patches && \
     dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \
@@ -139,9 +161,23 @@ COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/third_party/ffmpeg
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
 COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 
+# Entrypoint wrapper + opt-in proprietary-codec installer (read-only app resources).
+COPY --chown=root:root --chmod=0555 agent/docker/entrypoint.py /vss-agent/entrypoint.py
+COPY --chown=root:root --chmod=0555 agent/docker/install_proprietary_codecs.py /vss-agent/install_proprietary_codecs.py
+
 # NAT writes transient workflow state here at startup. Keep app resources
 # immutable, but provide a narrowly scoped writable scratch directory.
 RUN ["/usr/local/bin/python3", "-c", "import os; os.makedirs('/vss-agent/.tmp', exist_ok=True); os.chown('/vss-agent/.tmp', int(os.environ['VSS_RUNTIME_UID']), int(os.environ['VSS_RUNTIME_GID'])); os.chmod('/vss-agent/.tmp', 0o700)"]
+
+# Writable target for the opt-in proprietary-codec install (INSTALL_PROPRIETARY_CODECS=true).
+# Empty by default; nothing patent-encumbered ships in the image.
+RUN ["/usr/local/bin/python3", "-c", "import os; os.makedirs('/vss-agent/.codecs', exist_ok=True); os.chown('/vss-agent/.codecs', int(os.environ['VSS_RUNTIME_UID']), int(os.environ['VSS_RUNTIME_GID'])); os.chmod('/vss-agent/.codecs', 0o700)"]
+
+# Build-time OSRB guard: fail the build if any patent-encumbered FFmpeg/codec library
+# leaked into the final image. Mirrors .github/scripts/check_no_patented_codecs.py
+# (kept inline because .github/ is outside this Docker build context). Distroless has no
+# shell, so this runs via python exec form.
+RUN ["/usr/local/bin/python3", "-c", "import os,re,sys; pat=re.compile(r'^(libavcodec|libavformat|libavutil|libavfilter|libavdevice|libavresample|libavif|libswscale|libswresample|libpostproc|libx264|libx265|libde265|libopenh264|libkvazaar).*\\.so',re.I); hits=[os.path.join(r,f) for b in ('/vss-agent','/usr') if os.path.exists(b) for r,_,fs in os.walk(b) for f in fs if pat.match(f)]; sys.exit('FAIL: patent-encumbered codec libraries present in image:\\n'+'\\n'.join(sorted(hits))) if hits else print('OK: no patent-encumbered codec libraries in image')"]
 FROM runtime AS agent-runtime
 ARG TARGETARCH
 
@@ -163,6 +199,7 @@ WORKDIR /vss-agent
 # Switch to non-root user
 USER ${USER_ID}:${GROUP_ID}
 
-# Default CMD can be overridden by docker-compose
-ENTRYPOINT ["/vss-agent/.venv/bin/nat"]
+# Entrypoint wraps `nat` to optionally install proprietary codecs at startup
+# (INSTALL_PROPRIETARY_CODECS=true) before exec'ing nat with the given args.
+ENTRYPOINT ["/usr/local/bin/python3", "/vss-agent/entrypoint.py"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]

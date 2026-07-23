@@ -1,9 +1,9 @@
 ---
 name: vss-generate-video-calibration
-description: Use to run AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, and to deploy vss-auto-calibration when needed. Not for non-AMC calibration or runtime analytics.
+description: Use to run AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, and to deploy vss-auto-calibration when needed. Do not use for non-AMC calibration or runtime analytics.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.2.1"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -13,7 +13,7 @@ Run AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sampl
 
 ## Instructions
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`; load only the reference needed for the selected input mode.
 
 ## Examples
 
@@ -35,6 +35,10 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 
 Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. The input-resolution work differs per source; everything from `verify_project` onward is identical and lives in this file. Pick the right input-mode reference and pair it with the [Shared Calibration Tail](#shared-calibration-tail) below.
 
+Shared helper references are loaded only when needed:
+- Read [`references/common-steps.md`](references/common-steps.md) when a mode reference needs the shared `create_project`, video-upload, or handoff snippets.
+- Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the verify → calibrate → poll → results tail.
+
 ## Input Routing
 
 Match the user's request to a mode, then load that mode's reference for input collection, mode-specific API calls, and the full Python script.
@@ -51,7 +55,7 @@ Match the user's request to a mode, then load that mode's reference for input co
 ## Prerequisites (shared across calibration modes)
 
 - AMC microservice + UI running. If not, walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first.
-- Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` → `{"code":0,...}`.
+- Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready` → `{"code":0,...}`.
 - Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5--confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
 - Python 3 with `requests` installed (each input-mode reference includes a self-healing venv fallback for direct runs).
 
@@ -59,7 +63,7 @@ Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) l
 
 ## Shared Calibration Tail
 
-The verify → calibrate → poll → results sequence is identical regardless of input mode. After the mode-specific reference has uploaded videos / ingested RTSP clips / uploaded the bundled sample, run this tail.
+The verify → calibrate → poll → results sequence is identical regardless of input mode. After the mode-specific reference has uploaded videos / ingested RTSP clips / uploaded the bundled sample, run this tail. Use [`references/calibration-tail.md`](references/calibration-tail.md) for the shared Python snippet.
 
 ### Step A — Verify Project
 
@@ -114,7 +118,7 @@ Poll every 10 s. `project_info.project_state`:
 | `COMPLETED` | Finished |
 | `ERROR` | Failed — pull log via `GET /v1/amc/calibrate/<id>/log` |
 
-When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`), and the log endpoint so the user can watch progress while the run proceeds. During `RUNNING`, emit a progress line at least once a minute with elapsed time so a long run doesn't look stalled. On `ERROR`, fetch and show the last lines of `GET /v1/amc/calibrate/<id>/log` before stopping. Live logs can also be streamed via `GET /v1/calibrate/<project_id>/log/<type>/stream`.
+When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`), and the log endpoint so the user can watch progress while the run proceeds. During `RUNNING`, emit a progress line at least once a minute with elapsed time so a long run doesn't look stalled. On `ERROR`, fetch and show the last lines of `GET /v1/amc/calibrate/<id>/log` before stopping. Live logs can also be streamed via `GET /v1/calibrate/<project_id>/log/<type>/stream`.
 
 Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample).
 
@@ -131,13 +135,17 @@ Evaluation response includes `Average L2 distance(m)` and `Average reprojection 
 
 After `COMPLETED`, always give the user a way to review the result for that exact project, regardless of whether metrics exist:
 
-- **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`; open the project, then the Results page to view the overlay.
+- **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`; open the project, then the Results page to view the overlay.
 - **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
 - **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
 
-### Step E — (Optional) VGGT Refinement
+### Step E — VGGT Refinement
 
-Only if `vggt_state == "READY"` in project info (VGGT model must be staged — see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2):
+After the AMC run completes, always check `vggt_state` in project info. VGGT model staging is optional during setup and must not block the AMC result, but post-AMC handling follows the state:
+
+- If `vggt_state == "READY"` and the user explicitly requested VGGT refinement or staged VGGT during this setup flow, run VGGT refinement without asking again.
+- If `vggt_state == "READY"` but VGGT was already staged before this request and the user has not asked for VGGT-refined output, ask via `AskUserQuestion` whether to run refinement before starting it.
+- If VGGT is not ready, skip refinement and mention that VGGT refinement is available after staging the model (see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2).
 
 ```
 POST /v1/vggt/calibrate/<project_id>

@@ -58,10 +58,13 @@ jobs:
       # Primary path reads com.nvidia.vss.source_tree_sha from the image's
       # OCI manifest annotations (stamped by ci-vss-oss at build time) via the
       # OCI Distribution HTTP API. NGC_CLI_API_KEY is needed to pull the
-      # manifest from nvcr.io/nvstaging; without it the registry returns 401
+      # manifest from nvcr.io/nvidia; without it the registry returns 401
       # and the script falls back to git-SHA resolution.
+      # PR mirror branches are verified against their newly built GHCR candidate
+      # by build-dev-images.yml; their committed staging pin intentionally still
+      # points at the previous source tree until promotion.
       - name: Check vss-agent tag matches services/agent
-        if: steps.filter.outputs.skip != 'true'
+        if: steps.filter.outputs.skip != 'true' && !startsWith(github.ref_name, 'pull-request/')
         env:
           NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
         run: python3 .github/scripts/check_container_tag_source.py --image-name vss-agent

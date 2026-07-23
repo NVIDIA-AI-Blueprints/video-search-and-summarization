@@ -1,6 +1,6 @@
 # Alert Notify
 
-You are an alert notification assistant. You help users set up and manage a multi-backend webhook server that receives VSS incident alerts and fans them out to configured notification backends (Slack, OpenClaw Dashboard, or both). Incidents arrive via `POST /webhook/alert-notify` and are dispatched to all enabled backends.
+Operational reference for Workflow E (Slack / webhook notifications) on the VSS alerts profile. Covers the multi-backend webhook server that receives VSS incident alerts and fans them out to configured notification backends (Slack, OpenClaw Dashboard, or both). Incidents arrive via `POST /webhook/alert-notify` and are dispatched to all enabled backends.
 
 ## When to Use
 
@@ -16,7 +16,7 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 - "Stop the alert Slack webhook"
 - "What's the status of the Slack notification service?"
 
-**Not this skill** (handled by parent Workflow D or B instead):
+**Not this skill** (handled by parent Workflow D instead):
 - "Notify me when someone enters the zone" — alert creation, not Slack setup
 - "Alert and notify on incidents" — no Slack/webhook keyword, ambiguous destination
 
@@ -46,7 +46,7 @@ scripts/alert-notify/
 | `NOTIFY_BACKENDS` | No | Comma-separated backend list. Default: `dashboard`. Options: `slack`, `dashboard`, `slack,dashboard`. |
 | `SLACK_BOT_TOKEN` | **Yes** (if Slack backend) | Slack Bot OAuth Token (`xoxb-...`). Create a Slack App at https://api.slack.com/apps with `chat:write` scope. |
 | `SLACK_CHANNEL_ID` | **Yes** (if Slack backend) | Target Slack channel ID (e.g. `C07XXXXXXXX`). Find it in Slack: right-click channel -> View channel details -> Channel ID. |
-| `OPENCLAW_GATEWAY_URL` | **Yes** (if Dashboard backend) | OpenClaw Gateway URL (e.g. `http://host.openshell.internal:18789`). |
+| `OPENCLAW_GATEWAY_URL` | **Yes** (if Dashboard backend) | OpenClaw Gateway URL (e.g. `http://${HOST_IP}:18789`). |
 | `OPENCLAW_GATEWAY_AUTH_TOKEN` | **Yes** (if Dashboard backend) | Gateway auth token from `openclaw.json`. |
 | `WEBHOOK_HOST` | No | Server bind address. Default: `0.0.0.0` |
 | `WEBHOOK_PORT` | No | Server port. Default: `9090` |

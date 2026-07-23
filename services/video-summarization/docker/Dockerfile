@@ -26,18 +26,11 @@ ENV PIP_RETRIES=5
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# vss-ctx-rag transitively pulls opencv-python into /tmp/packages; strip it
-# so the headless variant (already in the base image via pyproject.toml) wins.
-# Only opencv_python-* (not opencv_python_headless-*) is matched.
 RUN uv pip install \
-        "vss-ctx-rag @ git+https://github.com/NVIDIA/context-aware-rag.git@release/3.0.0" \
-        "vss-ctx-rag-arango @ git+https://github.com/NVIDIA/context-aware-rag.git@release/3.0.0#subdirectory=packages/vss_ctx_rag_arango" \
-        --extra-index-url https://pypi.nvidia.com/ \
-        --python-version 3.13 --target /tmp/packages \
- && rm -rf /tmp/packages/cv2 /tmp/packages/opencv_python.libs \
-        /tmp/packages/opencv_python-*.dist-info \
- && uv pip install opencv-python-headless \
-        --python-version 3.13 --target /tmp/packages
+    "vss-ctx-rag @ git+https://github.com/NVIDIA/context-aware-rag.git@3.0.1" \
+    "vss-ctx-rag-arango @ git+https://github.com/NVIDIA/context-aware-rag.git@3.0.1#subdirectory=packages/vss_ctx_rag_arango" \
+    --extra-index-url https://pypi.nvidia.com/ \
+    --python-version 3.13 --target /tmp/packages
 
 # Ubuntu builder: shell-based operations only — user creation, config/source copy scripts
 FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS app-builder
@@ -213,6 +206,7 @@ COPY --from=app-builder /etc/group /etc/group
 COPY start_via.sh /opt/nvidia/via/
 COPY VERSION /opt/nvidia/via/
 
+COPY NVIDIA-Software-License-Agreement.pdf /opt/nvidia/via/
 COPY LICENSE /opt/mm/LICENSE
 LABEL com.nvidia.mm.nspect="NSPECT-MZI5-0FE7"
 

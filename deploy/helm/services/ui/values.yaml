@@ -17,9 +17,11 @@ enabled: false
 global: {}
 serviceAccount:
   create: false
+# HELM_RELEASE_CHANNEL_POLICY: Helm stays on an immutable NGC staging pin;
+# Docker developer profiles may independently follow GHCR develop-latest.
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-  tag: "3.2.0-26.05.5-c777a8d34f70"
+  tag: "3.2.1-26.07.1-dd945777eef9"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -90,6 +92,8 @@ env:
     value: "false"
   - name: NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE
     value: "Generate a report for incident {incidentId} with sensor id {sensorId}."
+  - name: NEXT_PUBLIC_ALERTS_TAB_VLM_VERIFIED_ALERT_REPORT_PROMPT_TEMPLATE
+    value: "Generate a verified incident report for incident {incidentId} with sensor id {sensorId}."
   - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
     value: "0"
   - name: NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB

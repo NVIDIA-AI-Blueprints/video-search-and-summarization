@@ -20,8 +20,8 @@ TOP := $(abspath $(lastword $(MAKEFILE_LIST))/..)
 # (see cicd_files/x86_64/devel and cicd_files/aarch64/devel), then either tag
 # to the defaults below or override per build on the environment / command line:
 #   make cc=0 X86_BUILD_IMAGE=<image> <target>
-AARCH64_CC_IMAGE ?= vios-build:aarch64-cross-compiler
-X86_BUILD_IMAGE  ?= vios-build:x86-24.04-cuda13.0.0
+AARCH64_CC_IMAGE ?= vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0
+X86_BUILD_IMAGE  ?= vios-build:x86-devel-ubuntu24.04-cuda13.2.0
 
 ifeq ($(cc),1)
 all:
@@ -51,9 +51,9 @@ TEST_TARGET := vst_test
 
 # Version for projects
 # Applicable for Rosie, VST, Tokkio
-VST_VERSION = 2.1.0-26.05.2
-MMS_VERSION = 2.1.0-26.05.2
-STREAMER_VERSION = 2.1.0-26.05.2
+VST_VERSION = 2.1.0-26.05.4
+MMS_VERSION = 2.1.0-26.05.4
+STREAMER_VERSION = 2.1.0-26.05.4
 
 SRCS := \
 	src/app/Main.cpp \
@@ -224,19 +224,23 @@ LDFLAGS += -lldap -llber
 else # Jetson or sbsa
 	CPPFLAGS +=	-I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp
 	CPPFLAGS += -I $(SYSROOT)/usr/include/opencv4/ \
-				-I /usr/include/
+				-I $(SYSROOT)/usr/include/
 	LDFLAGS += -L $(SYSROOT)/usr/lib/aarch64-linux-gnu/ $(SYSROOT)/usr/lib/aarch64-linux-gnu/lapack/liblapack.so.3
-	LDFLAGS += $(SYSROOT)/usr/lib/aarch64-linux-gnu/blas/libblas.so.3 -lopencv_core -lopencv_imgproc -lopencv_imgcodecs
+	LDFLAGS += $(SYSROOT)/usr/lib/aarch64-linux-gnu/blas/libblas.so.3 -L $(SYSROOT)/usr/lib/ -lopencv_core -lopencv_imgproc -lopencv_imgcodecs
 	CPPFLAGS += -DTEGRA_ACCELERATE
-ifneq ($(JETSON_PLATFORM),) # Jetson only
+	# IPC producer path (gstnvipcproducer) is compiled for all aarch64 targets now;
+	# link the ipc meta lib unconditionally on aarch64 (exercised at runtime on Orin).
 	LDFLAGS += -lnvdsgst_ipcmeta
-endif
 endif
 
 ifeq ($(arch),aarch64)
+# CUDA include root for the aarch64 target. The cross-compile container
+# (cicd_files/aarch64/devel) exports CUDA_TARGET_DIR via ENV; this ?=
+# default only affects direct/manual host-side invocations.
+CUDA_TARGET_DIR ?= /usr/local/cuda-13.0
 CPPFLAGS += -I $(SYSROOT)/.local/include \
-			-I $(SYSROOT)/usr/local/cuda-12.9/include \
-			-I $(SYSROOT)/usr/local/cuda-12.9/
+			-I $(CUDA_TARGET_DIR)/include \
+			-I $(CUDA_TARGET_DIR)/
 endif
 
 # Define targets & libraries for each module
@@ -443,15 +447,9 @@ endif
 
 ifeq ($(arch),aarch64)
 CPPFLAGS += -D USE_NV_ENC -D USE_NV_DEC
-ifneq ($(JETSON_PLATFORM),)
-CPPFLAGS += -D JETSON_PLATFORM
-else
+# Unified aarch64 build: always define AARCH64_PLATFORM. Orin vs Thor/SBSA is now
+# distinguished at runtime via isJetsonPlatform(), so a single aarch64 container runs on both.
 CPPFLAGS += -D AARCH64_PLATFORM
-endif
-
-ifeq ($(BUILD),R32)
-CPPFLAGS += -D JETSON_PLATFORM_R32
-endif
 endif
 
 all: $(APP)

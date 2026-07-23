@@ -28,7 +28,7 @@
 #include "../senders/videowebRTCsender.h"
 #include "../producers/native_stream_monitor.h"
 #include "../producers/nativestreamproducer.h"
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 #include "../producers/gstnvipcproducer.h"
 #include "../producers/ipcproducerpool.h"
 #endif
@@ -57,11 +57,16 @@ void SingleStreamPipelineBuilder::buildPipeline(const PipelineConfiguration& con
     } else if (config.getOverlay().enabled && config.getOverlay().bboxEnabled && 
                GET_CONFIG().enable_ipc_path == true)
     {
-#ifdef JETSON_PLATFORM
-        buildIPCPipeline(config);
-#else
-        buildStandardPipeline(config);
+#ifdef AARCH64_PLATFORM
+        if (isJetsonPlatform())
+        {
+            buildIPCPipeline(config);
+        }
+        else
 #endif
+        {
+            buildStandardPipeline(config);
+        }
     }
     else
     {
@@ -121,7 +126,7 @@ void SingleStreamPipelineBuilder::buildGodsEyeViewPipeline(const PipelineConfigu
     }
 }
 
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 void SingleStreamPipelineBuilder::buildIPCPipeline(const PipelineConfiguration& config)
 {
     LOG(info) << "Creating IPC Producer object" << endl;
@@ -273,10 +278,10 @@ void SingleStreamPipelineBuilder::destroyPipeline()
         m_decoder.reset();
         m_videoSender.reset();
         m_nativeStreamProducer.reset();
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
         m_ipcProducer.reset();
 #endif
-        
+
         // Phase 6: Destroy common components (encoder, transform, etc.)
         destroyCommonComponents();
         
@@ -556,11 +561,11 @@ void SingleStreamPipelineBuilder::setupConsumerPipeline(const PipelineConfigurat
             }
         }
     }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     else if (m_ipcProducer) {
         LOG(info) << "🔗 Using IPC Producer as source" << endl;
         LOG(info) << "🎨 IPC OVERLAY PIPELINE (with bbox enabled)" << endl;
-        
+
         if (m_overlay && !GET_OSD_INSTANCE()->isError() && m_overlay->isBboxEnabled()) {
             if (m_transform) {
                 m_ipcProducer->setConsumer(config.getPeerId(), m_transform);
@@ -606,7 +611,7 @@ void SingleStreamPipelineBuilder::stopPipeline()
     } else if (m_nativeStreamProducer) {
         m_nativeStreamProducer->removeConsumer(m_config.getPeerId());
     }
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
     else if (m_ipcProducer) {
         m_ipcProducer->removeConsumer(m_config.getPeerId());
     }

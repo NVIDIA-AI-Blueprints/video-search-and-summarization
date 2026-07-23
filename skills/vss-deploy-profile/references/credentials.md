@@ -4,7 +4,11 @@ Run this before mutating `generated.env` or starting any image pull. Validate cr
 
 ## Required By Mode
 
-- `NGC_CLI_API_KEY`: required for any local NIM image pull (`LLM_MODE` or `VLM_MODE` set to `local` / `local_shared`).
+- `NGC_CLI_API_KEY` or `NGC_API_KEY`: required for any local NIM image pull
+  (`LLM_MODE` or `VLM_MODE` set to `local` / `local_shared`). These are the
+  same underlying NGC personal API key with different consumer conventions:
+  the NGC CLI and VSS generated env use `NGC_CLI_API_KEY`; NIM / RT-VLM
+  containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
 - `HF_TOKEN`: required on edge targets that use the gated Edge 4B model.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
@@ -15,44 +19,65 @@ Run this before mutating `generated.env` or starting any image pull. Validate cr
 
 Surface discovered credentials to the user; do not auto-source them without confirmation.
 
-- If `$NGC_CLI_API_KEY` is unset but `~/.ngc/config` exists, extract the account metadata and ask: `Use NGC account <org>/<team> for the deploy?`
+- If either `$NGC_CLI_API_KEY` or `$NGC_API_KEY` is set, normalize both names
+  to the same resolved NGC key before probes and before writing
+  `generated.env`.
+- If both `$NGC_CLI_API_KEY` and `$NGC_API_KEY` are set and differ, stop and
+  ask which NGC personal API key to use. Do not silently choose one.
+- If neither NGC env var is set but `~/.ngc/config` exists, extract the
+  account metadata and ask: `Use NGC account <org>/<team> for the deploy?`
 - If `$HF_TOKEN` is unset but `~/.cache/huggingface/token` exists, ask before exporting it.
 
 ## Probes
 
-Run each probe only when the corresponding key is set. An unset key prints `skip`; compare the result with the chosen deployment mode before continuing.
+Run the credential-probe script. It validates each key that is set (`ok` /
+`invalid`), prints `skip` for unset keys, resolves `NGC_CLI_API_KEY` /
+`NGC_API_KEY` to one key, and reports a conflict when both are set and differ.
+Compare each result with the chosen deployment mode before continuing.
 
 ```bash
-# NGC — local NIM image pulls
-if [ -n "$NGC_CLI_API_KEY" ]; then
-  curl -sf -u "\$oauthtoken:$NGC_CLI_API_KEY" \
-    "https://authn.nvidia.com/token?service=ngc" >/dev/null \
-    && echo "NGC_CLI_API_KEY ok" || echo "NGC_CLI_API_KEY invalid (401/403)"
-else
-  echo "NGC_CLI_API_KEY not set — skip (required for any local NIM)"
-fi
-
-# build.nvidia.com — remote NIM endpoints
-if [ -n "$NVIDIA_API_KEY" ]; then
-  curl -sf -H "Authorization: Bearer $NVIDIA_API_KEY" \
-    "https://integrate.api.nvidia.com/v1/models" >/dev/null \
-    && echo "NVIDIA_API_KEY ok" || echo "NVIDIA_API_KEY invalid (401/403)"
-else
-  echo "NVIDIA_API_KEY not set — skip (required only for remote NIM)"
-fi
-
-# HF — edge only (gated Edge 4B)
-if [ -n "$HF_TOKEN" ]; then
-  status=$(curl -sf -o /dev/null -w '%{http_code}' \
-    -H "Authorization: Bearer $HF_TOKEN" \
-    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")
-  [ "$status" = "200" ] \
-    && echo "HF_TOKEN ok" \
-    || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
-else
-  echo "HF_TOKEN not set — skip (required only on edge with Edge 4B)"
-fi
+bash skills/vss-deploy-profile/scripts/check_credentials.sh
 ```
+
+After the NGC key validates, set **both** `NGC_CLI_API_KEY` and `NGC_API_KEY` to
+that one resolved key in `generated.env` — the NGC CLI and VSS env read
+`NGC_CLI_API_KEY`; NIM / RT-VLM containers read `NGC_API_KEY`. Do not leave only
+one set.
+
+This token probe is not sufficient for local NIM / RT-VLM deployments. It
+proves the key authenticates, but it does not prove that the key's org/team can
+access the selected `nvcr.io/...` images or `ngc:...` model repositories. After
+`resolved.yml` exists, run the artifact probes below before starting Compose.
+
+## Artifact Entitlement Probes
+
+Build the artifact list from the selected deployment:
+
+- `resolved.yml`: every `image:` under `nvcr.io/...` that Compose will pull.
+- `generated.env`: NGC-backed model/resource paths such as
+  `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`. Skip
+  `none`, `git:...`, local paths, and remote endpoint URLs.
+- Profile staging instructions: NGC model/resource downloads such as
+  alerts/search perception models.
+
+Probe each artifact with the normalized NGC key:
+
+- Container images: after `docker login nvcr.io`, run `docker manifest inspect
+  <nvcr.io/...>`, or use `ngc registry image info ...` when it maps cleanly to
+  an NGC image path. A `401` or `403` from a gated repository proves the key
+  lacks the required org/team entitlement.
+- NGC models/resources: run `ngc registry model info ...` or `ngc registry
+  resource info ...` for the exact repository and tag. Do not use `docker
+  manifest inspect` for non-OCI models or a raw `Authorization: Bearer <key>`
+  REST call; their expected failures are false entitlement signals. If the NGC
+  CLI is unavailable, use the selected gated container-image probe as the
+  org/team entitlement signal.
+- Profile-staged TAO/perception models: run the corresponding NGC model or
+  resource probe before downloading them.
+
+On `401`, `403`, permission, membership, or missing repository errors, stop
+and request an NGC key entitled to those artifacts. Do not defer this failure
+to image pull, model download, or NIM cold start.
 
 ## Remote Endpoint Probes
 
@@ -86,8 +111,9 @@ the user for the correct endpoint/model before mutating `generated.env`.
 ## Decision Rule
 
 A key reported `invalid` that the chosen mode needs, a `skip` for a key the
-mode requires, or a selected remote endpoint that fails `/v1/models` is a
-blocker. Prompt the user, re-probe, and do not proceed to env mutation until it
-resolves.
+mode requires, conflicting `NGC_CLI_API_KEY` / `NGC_API_KEY` values, selected
+NGC artifact access failure, or a selected remote endpoint that fails
+`/v1/models` is a blocker. Prompt the user, re-probe, and do not proceed to env
+mutation until it resolves.
 
 A `skip` for a key the mode does not use is fine.

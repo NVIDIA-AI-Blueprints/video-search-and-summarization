@@ -84,6 +84,35 @@ The root compose maps Elasticsearch data/log volumes to
 `$VSS_DATA_DIR/data_log/redis`. Missing or non-writable host directories can cause
 startup failures such as Kafka being unable to write `/tmp/kafka-data/cluster_id` or
 Elasticsearch being unable to open `gc.log`.
+
+### TURN / WebRTC relay
+
+The warehouse VST UI uses WebRTC for live playback. When VST containers run on the Compose bridge network, browsers cannot reach Docker-only media candidates directly, so `services/infra/compose.yml` includes a coturn-based `turnserver` service for warehouse profiles. It exposes the TURN listener and relay range on the host. Developer profiles do not start this TURN service.
+
+Default ports:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TURN_HOST_PORT` / `TURN_PORT` | `3478` | TURN UDP/TCP listener |
+| `TURN_MIN_RELAY_HOST_PORT` / `TURN_MAX_RELAY_HOST_PORT` | `49160` / `49200` | Host relay port range |
+| `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `49160` / `49200` | Container relay port range |
+
+Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile uses a non-secret default `TURN_USERNAME` and starts a `turnserver-init` job that generates a random password once in the `vss-turn-password` Docker volume. Coturn and VST mount that same generated file; the VST startup helper derives the static TURN URL in the format `user:password@host:port` from `TURN_USERNAME`, the generated password file, `TURN_PUBLIC_HOST`, and `TURN_HOST_PORT`.
+
+For the bundled turnserver, leave `VST_STATIC_TURNURL_LIST` empty:
+
+```env
+TURN_HOST_PORT=3478
+TURN_PORT=3478
+TURN_USERNAME=vss
+TURN_PASSWORD_BYTES=32
+VST_STATIC_TURNURL_LIST=
+```
+
+Remove the Compose-created `vss-turn-password` Docker volume and restart the warehouse profile to rotate the generated password. Only set `VST_STATIC_TURNURL_LIST` for external or multiple TURN endpoints; treat it as sensitive because it embeds TURN credentials.
+
+The warehouse VST streamprocessing startup helper also forces `network.use_coturn_auth_secret=false` and `network.coturn_turnurl_list_with_secret=[]`, matching the static username/password mode. Developer VST streamprocessing and NvStreamer services do not apply this WebRTC/TURN patch.
+
 ### LVS Compose notes
 
 Docker Compose does not use Kubernetes secrets or the NIM Operator. For the LVS profile, local model bring-up uses the **`NGC_CLI_API_KEY`** environment variable directly for image pulls and NIM/RT-VLM model access.
@@ -93,7 +122,7 @@ Default LVS model wiring:
 | Component | Local Compose behavior | Default model name |
 |-----------|------------------------|--------------------|
 | LLM | Starts the **`nvidia-nemotron-nano-9b-v2`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nvidia-nemotron-nano-9b-v2` |
-| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
+| VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` |
 
 For external endpoints, use the helper flags instead of editing Compose files directly:
 
@@ -107,7 +136,7 @@ export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
   --use-remote-llm \
   --use-remote-vlm \
   --llm nvidia/nvidia-nemotron-nano-9b-v2 \
-  --vlm nim_nvidia_cosmos-reason2-8b_hf-1208
+  --vlm nim_nvidia_cosmos3-nano-reasoner_bf16-final
 ```
 
 The helper probes **`${LLM_ENDPOINT_URL}/v1/models`** and **`${VLM_ENDPOINT_URL}/v1/models`**, and the agent config appends **`/v1`** to **`LLM_BASE_URL`** / **`VLM_BASE_URL`**. Do not include **`/v1`** in the endpoint environment variables.
@@ -146,14 +175,39 @@ Those numeric values are only an example shape for reducing cache pressure; vali
 
 The **warehouse** blueprint is driven by **`industry-profiles/warehouse-operations/`**
 
-1. **Edit environment**  
+1. **Download warehouse app data**
+
+```bash
+ngc \
+   registry \
+   resource \
+   download-version \
+   nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+
+# OR Manually download the tar file from NGC
+# URL https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
+
+# Extract the package
+
+cd vss-warehouse-app-data_v3.2.0
+tar -xvf vss-warehouse-app-data.tar.gz
+
+# Set permissions
+
+sudo chmod -R 777 /path/to/vss-warehouse-app-data
+
+# This is the path to the data directory. It is set in the industry-profiles/warehouse-operations/.env file for VSS_DATA_DIR.
+#VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
+```
+
+2. **Edit environment**  
    Update **`deploy/docker/industry-profiles/warehouse-operations/.env`** for your deployment:
 
    - **`MODE`**: `2d`, `3d`, or `mv3dt`
    - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` (see comments in that file for 2d, 3d, and mv3dt combinations)
    - **`MINIMAL_PROFILE`**, GPU hosts, API keys, and any other variables described in the file header
 
-2. **Start the stack**
+3. **Start the stack**
 
 ```bash
 cd /path/to/video-search-and-summarization/deploy/docker
@@ -163,7 +217,7 @@ docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/
 --build
 ```
 
-3. **Stop the stack**
+4. **Stop the stack**
 
 ```bash
 # Stop the running deployment
@@ -176,7 +230,7 @@ docker compose --env-file industry-profiles/warehouse-operations/.env down -v --
 docker volume ls -q -f "dangling=true" | xargs docker volume rm
 ```
 
-4. **Data / backup cleanup**  
+5. **Data / backup cleanup**  
    To reset **`data_log`** volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed, use **`deploy/docker/scripts/cleanup_all_datalog.sh`**.  
    Pass **`-e`** / **`--env-file`** with the **same env file** you used for **`docker compose --env-file …`**.
 

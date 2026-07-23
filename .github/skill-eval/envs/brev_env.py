@@ -53,6 +53,18 @@ BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 BREV_DOWNLOAD_RETRIES = int(os.environ.get("BREV_DOWNLOAD_RETRIES", "3"))
 BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5"))
 
+# Public relay used by the RT-VLM test suite. Operators can override it for
+# isolated environments, but the eval remains runnable without extra CI
+# configuration.
+DEFAULT_RTSP_SAMPLE_URL = (
+    "rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+)
+
+
+def _resolve_rtsp_sample_url() -> str:
+    """Return the operator-provided RTSP sample URL or the public default."""
+    return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
+
 
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
@@ -180,6 +192,33 @@ class BrevEnvironment(BaseEnvironment):
         # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
+        # Reap stray on-box agent processes left by a previous trial whose
+        # runner-side job was cancelled or SIGKILLed. Cancellation kills the
+        # runner-side harbor tree (releasing the box's flock, which dies with
+        # run_leg.py), but the agent launched *on the box* over SSH — and the
+        # Bash-tool children in its process groups — can survive and keep
+        # driving `docker compose up` / model pulls. The docker reset below
+        # removes containers, not host processes, so an unreaped orphan
+        # contends with this trial and can resurrect containers after the
+        # wipe (suspected in PR #1281's base/search legs losing SSH
+        # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
+        # legs died there). Must run before the /logs wipe and docker reset.
+        reap_result = await _run_brev_exec(
+            self._instance_name,
+            _stray_agent_reap_command(),
+            timeout=30,
+        )
+        if reap_result.return_code != 0:
+            tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"stray-agent reap failed on {self._instance_name}: "
+                f"exit {reap_result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Stray-agent reap on %s: %s",
+            self._instance_name, (reap_result.stdout or "").strip(),
+        )
+
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
         #
@@ -242,6 +281,28 @@ class BrevEnvironment(BaseEnvironment):
         )
         await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
 
+        # Clear Claude Code's background-task scratch before the new
+        # `claude --print` starts. Session JSONL archival above handles stale
+        # `/logs/agent/sessions/projects/*`, but completed background tasks
+        # can also leave markers under `/tmp/claude-<uid>/.../tasks`. Claude
+        # Code may surface those as fresh `<task-notification>` messages in
+        # the next session, polluting the trajectory before the eval prompt.
+        claude_task_cleanup_result = await _run_brev_exec(
+            self._instance_name,
+            _claude_task_scratch_cleanup_command(),
+            timeout=30,
+        )
+        if claude_task_cleanup_result.return_code != 0:
+            tail = (
+                claude_task_cleanup_result.stderr
+                or claude_task_cleanup_result.stdout
+                or ""
+            )[-500:]
+            raise RuntimeError(
+                f"claude task scratch cleanup failed on {self._instance_name}: "
+                f"exit {claude_task_cleanup_result.return_code}; tail:\n{tail}"
+            )
+
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
         # brev exec then sources).  Harbor's claude-code agent only
@@ -249,6 +310,12 @@ class BrevEnvironment(BaseEnvironment):
         # during deploy (NGC_CLI_API_KEY, NVIDIA_API_KEY) must land on
         # the instance out-of-band.
         forwarded: list[tuple[str, str]] = [
+            # The verifier's LLM judge (claude-agent-sdk) runs on the instance
+            # as whatever user the SSH grant lands as. On root-runner fleets
+            # claude refuses --dangerously-skip-permissions for root unless
+            # IS_SANDBOX=1 — without it every judge check dies with
+            # ProcessError(exit 1) and the trial scores 0.0.
+            ("IS_SANDBOX", "1"),
             # claude-code 2.1.x emits a `context_management` field in every
             # /v1/messages body to drive server-side thinking-block cleanup
             # (`clear_thinking_20251015`). NVIDIA's Anthropic-compatible
@@ -259,6 +326,9 @@ class BrevEnvironment(BaseEnvironment):
             # don't rely on extended thinking, so the cost is negligible.
             # Revisit if/when the proxy accepts the field.
             ("CLAUDE_CODE_DISABLE_THINKING", "1"),
+            # Dense-captioning evals require one URL that both the Brev host
+            # and its bridge-networked RT-VLM container can reach.
+            ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
         for key in (
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
@@ -306,20 +376,6 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
-        # Sync ~/video-search-and-summarization on the box to the PR's
-        # actual head SHA before any deploy/agent step reads it.
-        #
-        # Without this, every trial runs against whatever happened to be
-        # checked out on the box from a prior session — often a stale
-        # tarball-style checkout (no `.git`) with an obsolete directory
-        # layout (`deployments/` instead of `deploy/docker/`) and the
-        # pre-rename container names. The pre-deploy script generated
-        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
-        # only syncs on the *gold-solution* path; the trial's agent invokes
-        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
-        # PR_HEAD_SHA forwarded above never actually lands on disk.
-        await self._sync_repo_to_pr_head()
-
         # Wipe the warm-pool box's docker runtime to a clean slate so no
         # prior trial's deployment state can contaminate this one. Images are
         # preserved (re-pulling the image set is slow); all containers,
@@ -338,15 +394,92 @@ class BrevEnvironment(BaseEnvironment):
         # skips the reset and inherits whatever is on the box — run `step-1`
         # first, or reset by hand. Normal CI always runs `step-1` first on a
         # freshly reset box, so the gate is correct there.
+        #
+        # NOTE: docker reset runs BEFORE repo sync because running containers
+        # may have bind-mounted host paths inside $REPO (e.g.
+        # deploy/docker/data-dir/) and written root-owned files there. Without
+        # stopping them first, `git clean` in the repo sync step fails with
+        # "Permission denied" on those root-owned files/dirs.
+        # A spec's first trial (a single-step spec, or `step-1` of a
+        # multi-step chain) gets a clean slate; `step-2+` must PRESERVE the
+        # environment step-1 established. This one predicate gates every
+        # destructive box-prep action below — docker reset, host-data purge,
+        # AND the repo sync — because each of them tears down state the later
+        # step under test depends on. (`environment_dir.parent` is the task
+        # dir — named `step-N` for multi-step, the platform for single-step.)
         task_dir_name = self.environment_dir.parent.name
-        if task_dir_name.startswith("step-") and task_dir_name != "step-1":
+        is_first_trial = not (
+            task_dir_name.startswith("step-") and task_dir_name != "step-1"
+        )
+        if is_first_trial:
+            await self._reset_docker_runtime()
+            # Host bind-mount purge runs AFTER the docker reset so every
+            # container that writes into these dirs is already gone —
+            # purging first would race the writers and the dirs would be
+            # dirty again by the time the trial starts.
+            await self._purge_host_data_dirs()
+        else:
             logger.info(
-                "Skipping docker runtime reset on %s — %s of a multi-step spec "
-                "must preserve step-1's deployment state",
+                "Skipping docker reset, host purge, and repo sync on %s — %s "
+                "of a multi-step spec must preserve step-1's deployment state "
+                "and its live bind-mount host dirs (e.g. deploy/docker/data-dir/, "
+                "whose clip_storage/vst_data are bind-mounted into the still-"
+                "running VIOS containers)",
                 self._instance_name, task_dir_name,
             )
-        else:
-            await self._reset_docker_runtime()
+
+        # Sync ~/video-search-and-summarization on the box to the PR's
+        # actual head SHA before any deploy/agent step reads it.
+        #
+        # Gated to the FIRST trial only. `_sync_repo_to_pr_head`'s
+        # `git clean -fdx -e data/ -e .env` removes every untracked path not
+        # matched by its excludes. NOTE `-e data/` is a gitignore-style pattern
+        # with no leading slash, so it spares a directory named `data` at ANY
+        # depth (including `deploy/docker/data/`) — but NOT
+        # `deploy/docker/data-dir/`, whose name does not match. `data-dir/` is
+        # the host source of the LVS/VIOS bind mounts (clip_storage, vst_data,
+        # vst/temp_files, ...) whenever a deploy roots VSS_DATA_DIR there
+        # (dev-profile.sh's default). On `step-2+` the step-1 containers are
+        # still running and bind-mounted onto those dirs; cleaning them
+        # mid-chain unlinks the host inode out from under the containers —
+        # confirmed by the mount probe below: host inode gone, container still
+        # pinned to it, link count 0 — and uploads then fail with "Failed to
+        # open output file: No such file or directory" (PR #1227 /
+        # lvs_profile_summarize step-2, the reported symptom).
+        #
+        # That name dependency IS the non-determinism this bug showed: a deploy
+        # rooted at `deploy/docker/data/` survives the clean (spared by
+        # `-e data/`) so summarize works, while one rooted at `.../data-dir/`
+        # is deleted and breaks — same clean, opposite outcome, purely by
+        # folder name. Gating removes the lottery: no clean runs on step-2+,
+        # so neither root is ever touched.
+        #
+        # The re-sync is also redundant on later steps: the box is held by one
+        # `run_leg.py` flock across the whole chain and nothing mutates $REPO
+        # between steps, so it is already at PR_HEAD_SHA from step-1.
+        #
+        # Without this on the first trial, every trial runs against whatever
+        # happened to be checked out on the box from a prior session — often a
+        # stale tarball-style checkout (no `.git`) with an obsolete directory
+        # layout (`deployments/` instead of `deploy/docker/`) and the
+        # pre-rename container names. The pre-deploy script generated by
+        # `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+        # only syncs on the *gold-solution* path; the trial's agent invokes
+        # `/vss-deploy-profile` directly against `$REPO`, so without this step
+        # the PR_HEAD_SHA forwarded above never actually lands on disk.
+        # Permanent guardrail (non-fatal): probe the VIOS bind mounts right
+        # before and after the sync decision. The probes run on EVERY step,
+        # regardless of gating, so the log records the truth on both paths:
+        #   - step-2+ WITH this fix   -> before=healthy, after=healthy (sync
+        #     skipped, mounts preserved) — the fix, proven per run.
+        #   - step-2+ WITHOUT the fix -> before=healthy, after=stale (the
+        #     `git clean` deleted the data-dir root out from under the
+        #     containers) — the regression, caught loudly.
+        # Output lands in <trial>/artifacts/logs/artifacts/mount-probe.log.
+        await self._probe_bind_mount(f"{task_dir_name}:before-sync")
+        if is_first_trial:
+            await self._sync_repo_to_pr_head()
+        await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
         # The harness intentionally does NOT pre-deploy any VSS profile
         # here. Each eval spec's first `expects[]` query is responsible
@@ -439,6 +572,77 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _purge_host_data_dirs(self) -> None:
+        """Purge per-trial VSS state that lives in host bind-mounts.
+
+        `_reset_docker_runtime` removes containers/volumes/networks, but
+        several services persist state in **host directories bind-mounted
+        into the containers** — invisible to `docker volume rm`:
+
+        - `<root>/nvstreamer/videos{,-upload}/` — uploaded media. NvStreamer
+          auto-suffixes a new upload whose filename already exists, so a
+          leftover `warehouse_safety_0001.mp4` turns the next trial's upload
+          into `warehouse_safety_0001_5` and fails identifier-semantics
+          checks (observed: PR #1241 `nvstreamer_ops` step-1, six leftover
+          copies on the box).
+        - `<root>/nvstreamer/vst_data/` and `<root>/data_log/` — the
+          NvStreamer/VST sensor registry and runtime DB, so sensors from
+          prior trials survive the docker reset.
+        - `<root>/videos/nvstreamer/` — alternate layout used by some
+          profiles for the same uploaded-media state.
+
+        The GitLab `ci-vss-oss` eval jobs have always done the equivalent
+        ("Cleaning VSS_DATA_DIR data_log (kafka, elastic, redis, vst,
+        nvstreamer, ...)"); this brings the skill-eval harness to parity.
+
+        Roots are **globbed, not read from `$VSS_DATA_DIR`**: the env var is
+        chosen per-deploy inside the trial, and pool boxes accumulate more
+        than one root over time (observed: `/opt/vss-data` AND
+        `~/vss-data` on the same box). `$REPO/deploy/docker/data-dir` needs
+        no handling here — `_sync_repo_to_pr_head`'s `git clean` covers it.
+
+        Contents are deleted but the directories themselves are kept, so
+        operator-provisioned ownership/permissions on the mount points
+        survive. `sudo` is required — containers write these files as root.
+        Same first-trial-only gate as the docker reset: step-2+ of a
+        multi-step spec depends on the state step-1 uploaded.
+        """
+        cmd = r"""set -uo pipefail
+purged=""
+for root in /opt/vss-data "$HOME"/vss-data; do
+  [ -d "$root" ] || continue
+  for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
+    d="$root/$sub"
+    [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete || { echo "failed to purge $d" >&2; exit 1; }
+    purged="$purged $d"
+  done
+done
+# Fail loud if anything survived — a half-purged dir is the same silent
+# cross-trial contamination the docker-reset guard protects against.
+for d in $purged; do
+  n=$(sudo find "$d" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" = "0" ] || { echo "host data purge incomplete: $n entries remain in $d" >&2; exit 1; }
+done
+echo "host data purge OK:${purged:- nothing to purge}"
+"""
+        logger.info(
+            "Purging host bind-mount data dirs (data_log, nvstreamer state) on %s",
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"host data purge failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Host data purge on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
+        )
+
     async def _sync_repo_to_pr_head(self) -> None:
         """Reset `~/video-search-and-summarization` on the Brev box to the
         PR's actual head SHA. Runs once per trial, before any deploy or
@@ -496,7 +700,15 @@ fi
 # Drop leftover working-tree state from a prior trial, but keep data/
 # (sample-data extract — slow to re-pull from NGC) and any .env tweaks
 # the active trial may have placed.
-git clean -fdx -e data/ -e .env
+# A prior STEP's deploy may have chattr +i'd generated files (e.g.
+# deploy/docker/resolved.yml, developer-profiles/*/generated.env) — strip
+# the immutable bit or git clean dies with "Operation not permitted" and
+# kills the whole step chain.
+chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
+# Use sudo git clean as a fallback: prior docker containers may have created
+# root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
+# a non-root git clean cannot remove ("Permission denied").
+git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
@@ -511,6 +723,39 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             "Repo sync on %s: %s",
             self._instance_name, (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
+
+    async def _probe_bind_mount(self, label: str) -> None:
+        """Non-fatal guardrail: record the liveness of every discovered VIOS
+        bind mount on the box. Proves/guards against the step-2 data-dir
+        deletion (see the call sites around _sync_repo_to_pr_head). The
+        box-side probe tees its `MOUNTPROBE` lines to
+        /logs/artifacts/mount-probe.log (collected into the trial artifact) —
+        brev_env's Python logging is swallowed by harbor, so that file is the
+        reliable channel. NEVER raises: a probe fault must not perturb the
+        trial it only observes."""
+        try:
+            try:
+                from envs import mount_probe  # normal harbor import path
+            except ImportError:
+                import mount_probe  # PYTHONPATH=.github/skill-eval fallback
+            result = await _run_brev_exec(
+                self._instance_name, mount_probe.build_probe_command(label),
+                timeout=90,
+            )
+            lines = mount_probe.parse_probe_lines(result.stdout or "")
+            if not lines:
+                logger.warning(
+                    "[mount-probe] %s: no MOUNTPROBE output (rc=%s) stderr=%s",
+                    label, result.return_code, (result.stderr or "")[-200:],
+                )
+                return
+            for d in lines:
+                logger.info(
+                    "[mount-probe] %s",
+                    " ".join(f"{k}={v}" for k, v in d.items()),
+                )
+        except Exception as exc:  # noqa: BLE001 — diagnostic must never fail the trial
+            logger.warning("[mount-probe] %s failed (non-fatal): %r", label, exc)
 
     async def stop(self, delete: bool) -> None:
         """No-op — the instance stays running for reuse."""
@@ -643,23 +888,93 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         # base64 from brev CLI spinner/connection noise.
         import base64 as _b64, re as _re, subprocess as _sp
         marker = "__HARBOR_B64_" + uuid.uuid4().hex[:8] + "__"
+        # Stage the archive as a base64 FILE on the node, then fetch it in
+        # small slices with independent per-slice retries. A single-stream
+        # fetch dies on the flaky gateway (MAC / bad-packet corruption is
+        # near-certain above ~8MB), and a fresh session JSONL alone can be
+        # >10MB, so streaming in one exec is structurally unreliable.
+        remote_b64 = f"/tmp/.harbor_dl_{uuid.uuid4().hex[:8]}.b64"
         result = await _run_brev_exec(
             self._instance_name,
-            f"echo '{marker}START'; "
-            f"tar -czf - -C {shlex.quote(source_dir)} . 2>/dev/null | base64 -w 0; "
-            f"echo; echo '{marker}END'",
+            # Exclude bulky non-essential payloads (archived prior sessions,
+            # the tee'd raw stream) — harbor only needs the fresh session
+            # JSONLs + trajectory.
+            f"tar -czf - -C {shlex.quote(source_dir)} "
+            f"--exclude='./sessions-archive*' --exclude='./claude-code.txt' "
+            f"--exclude='*.tar.gz' --exclude='./sessions/debug' "
+            f". 2>/dev/null | base64 -w 0 > {remote_b64}; "
+            f"stat -c %s {remote_b64}",
             timeout=120,
         )
         if result.return_code != 0:
-            raise RuntimeError(f"Download dir failed: {result.stderr}")
-        stdout = result.stdout or ""
-        # Extract only the bytes between START and END markers
-        m = _re.search(rf"{marker}START\s*\n(.*?)\n{marker}END", stdout, _re.DOTALL)
-        if not m:
+            raise RuntimeError(f"Download dir failed (stage): {result.stderr}")
+        try:
+            # brev exec may append the instance name as a trailing line to
+            # stdout, so find the first line that is a valid integer (the
+            # stat -c %s output) rather than blindly taking [-1].
+            _lines = (result.stdout or "0").strip().splitlines()
+            total = None
+            for _l in reversed(_lines):
+                _l = _l.strip()
+                if _l.isdigit():
+                    total = int(_l)
+                    break
+            if total is None:
+                raise ValueError(f"no numeric line in stat output: {_lines!r}")
+        except ValueError:
             raise RuntimeError(
-                f"Download dir failed: markers not found in output "
-                f"(len={len(stdout)})"
+                f"Download dir failed: could not stat staged archive "
+                f"({(result.stdout or '')[-120:]})"
             )
+        chunk = 2 * 1024 * 1024  # 2MB of base64 per slice — survives the gateway
+        parts: list[str] = []
+        offset = 0
+        while offset < total:
+            piece = None
+            for attempt in range(4):
+                res = await _run_brev_exec(
+                    self._instance_name,
+                    f"echo '{marker}START'; "
+                    f"dd if={remote_b64} bs=64K skip={offset // 65536} "
+                    f"count={chunk // 65536} 2>/dev/null; "
+                    f"echo; echo '{marker}END'",
+                    timeout=180,
+                )
+                mm = _re.search(rf"{marker}START\s*\n(.*?)\n?{marker}END",
+                                res.stdout or "", _re.DOTALL)
+                if res.return_code == 0 and mm:
+                    got = _re.sub(r"[^A-Za-z0-9+/=]", "", mm.group(1))
+                    expected = min(chunk, total - offset)
+                    if len(got) == expected:
+                        piece = got
+                        break
+                logger.warning(
+                    "download slice @%d attempt %d/4 failed (rc=%s, got=%s/%s)",
+                    offset, attempt + 1, res.return_code,
+                    len(mm.group(1)) if mm else "no-markers",
+                    min(chunk, total - offset),
+                )
+                await asyncio.sleep(5)
+            if piece is None:
+                await _run_brev_exec(self._instance_name,
+                                     f"rm -f {remote_b64}", timeout=30)
+                raise RuntimeError(
+                    f"Download dir failed: slice at offset {offset} "
+                    f"unrecoverable after retries"
+                )
+            parts.append(piece)
+            offset += chunk
+        await _run_brev_exec(self._instance_name, f"rm -f {remote_b64}",
+                             timeout=30)
+
+        # Reassemble the slices behind a regex-Match-shaped shim so the
+        # base64-cleanup + decode + extraction pipeline below stays byte-for-
+        # byte identical to the original single-stream implementation (it
+        # consumes `m.group(1)`); only the transport above changed.
+        class _M:
+            def group(self, _i):
+                return "".join(parts)
+        m = _M()
         # Strip any remaining non-base64 chars (e.g. CR, stray spinner bytes)
         raw_b64 = "".join(c for c in m.group(1) if c in
                           "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
@@ -733,6 +1048,69 @@ def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+def _stray_agent_reap_command() -> str:
+    """SIGKILL leftover trial-agent processes from a prior session.
+
+    Matches the exact on-box trial invocation (`claude --verbose
+    --output-format=stream-json …`); the `[n]` bracket keeps this probe's
+    own argv — which contains the pattern text — from matching itself.
+    Kills each match's whole process group so detached Bash-tool children
+    (compose waiters, log tails) die with it, falling back to a plain kill
+    when the group lookup fails. Pids in this shell's own process group are
+    skipped — belt-and-suspenders so a caller whose argv somehow contains
+    the unbracketed pattern can never reap itself. Exits 0 whether or not
+    anything matched; a non-zero exit means the reap itself broke and the
+    caller fails loud.
+    """
+    return (
+        "PAT='claude --verbose --output-format=stream-jso[n]'; "
+        'SELF_PGID=$(ps -o pgid= -p $$ | tr -d " "); '
+        'PIDS=$(pgrep -f "$PAT" || true); '
+        "KILLED=''; "
+        'if [ -n "$PIDS" ]; then '
+        "  for pid in $PIDS; do "
+        '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d " " || true); '
+        '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then continue; fi; '
+        '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then '
+        '      kill -9 -- "-$PGID" 2>/dev/null || true; '
+        "    fi; "
+        '    kill -9 "$pid" 2>/dev/null || true; '
+        '    KILLED="$KILLED $pid"; '
+        "  done; "
+        "fi; "
+        'if [ -n "$KILLED" ]; then '
+        '  echo "[stray-agent-reap] killed pids:$KILLED"; '
+        "else "
+        '  echo "[stray-agent-reap] none"; '
+        "fi"
+    )
+
+
+def _claude_task_scratch_cleanup_command() -> str:
+    """Remove stale Claude Code background-task markers for this user.
+
+    Claude Code keys temp scratch by effective UID, e.g.
+    `/tmp/claude-1002/-home-shadeform/<session>/tasks/<id>.output`. Removing
+    the old `tasks/` dirs prevents completed background-command notifications
+    from being replayed into the next Harbor trial.
+    """
+    return (
+        "UID_NUM=$(id -u); "
+        'BASE="/tmp/claude-${UID_NUM}"; '
+        'if [ -d "$BASE" ]; then '
+        '  BEFORE=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        # No `2>/dev/null` on the rm step: a real cleanup failure's stderr must
+        # reach claude_task_cleanup_result.stderr so the RuntimeError tail isn't
+        # empty (the BEFORE/AFTER count-finds keep theirs — that noise is benign).
+        '  find "$BASE" -type d -name tasks -prune -exec rm -rf {} + || exit 1; '
+        '  AFTER=$(find "$BASE" -type d -name tasks -prune 2>/dev/null | wc -l); '
+        '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
+        'else '
+        '  echo "[claude-task-scratch] no scratch base $BASE"; '
+        "fi"
+    )
+
+
 def _kill_proc_group(proc: asyncio.subprocess.Process) -> None:
     """SIGKILL the child's whole process group.
 
@@ -766,19 +1144,28 @@ async def _load_registered_nodes() -> dict[str, dict]:
     """Return {lower_name: node_dict} from `brev ls nodes --json`.
     Cached per-process.  Safe to call on any host that has the brev CLI."""
     global _registered_nodes_cache
-    if _registered_nodes_cache is not None:
+    if _registered_nodes_cache:
         return _registered_nodes_cache
-    _registered_nodes_cache = {}
-    try:
-        result = await _run_brev("ls", "nodes", "--json", timeout=15)
-        nodes = _parse_brev_json(result.stdout) if result.stdout else []
-        for n in nodes:
-            name = (n.get("name") or "").strip()
-            if name:
-                _registered_nodes_cache[name.lower()] = n
-    except Exception as e:
-        logger.warning("brev ls nodes failed (registered nodes unavailable): %s", e)
-    return _registered_nodes_cache
+    # Retry transient CLI failures and NEVER cache an empty result from a
+    # failed call — one hiccup here used to poison the whole trial with
+    # "instance not found" (empty dict cached per-process, no second chance).
+    for attempt in range(4):
+        cache: dict[str, dict] = {}
+        try:
+            result = await _run_brev("ls", "nodes", "--json", timeout=15)
+            nodes = _parse_brev_json(result.stdout) if result.stdout else []
+            for n in nodes:
+                name = (n.get("name") or "").strip()
+                if name:
+                    cache[name.lower()] = n
+        except Exception as e:
+            logger.warning("brev ls nodes failed (attempt %s): %s", attempt + 1, e)
+        if cache:
+            _registered_nodes_cache = cache
+            return cache
+        await asyncio.sleep(5)
+    logger.warning("brev ls nodes returned no nodes after retries")
+    return {}
 
 
 async def _is_registered_node(name: str) -> bool:
@@ -895,7 +1282,15 @@ async def _run_brev_exec(
     brev CLI doesn't enter interactive mode.
     """
     if await _is_registered_node(instance):
+        # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
+        # forwarded ~/.eval_env) is never sourced, silently dropping
+        # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
+        command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
+    # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
+    # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
+    # are invisible to every command. Source it inline, same as SSH nodes.
+    command = f". ~/.eval_env 2>/dev/null || true; {command}"
     # brev exec <instance> <command> — brev handles SSH transparently
     cmd = ["brev", "exec", instance, command]
     logger.debug("brev exec: %s", command[:200])
@@ -930,6 +1325,27 @@ async def _run_brev_exec(
 
 
 async def _run_brev_copy(
+    src: str,
+    dst: str,
+    timeout: int = BREV_COPY_TIMEOUT,
+) -> ExecResult:
+    """Run ``brev copy <src> <dst>`` with transient-failure retries.
+
+    The brev gateway occasionally corrupts a connection mid-transfer
+    ("Bad packet length ... Connection corrupted"), which used to fail the
+    whole trial (AddTestsDirError). Copies are idempotent — retry."""
+    result = None
+    for attempt in range(3):
+        result = await _run_brev_copy_once(src, dst, timeout)
+        if result.return_code == 0:
+            return result
+        logger.warning("brev copy failed (attempt %s): %s",
+                       attempt + 1, (result.stderr or "")[-200:])
+        await asyncio.sleep(10)
+    return result
+
+
+async def _run_brev_copy_once(
     src: str,
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
@@ -1025,16 +1441,46 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
 
 
 def _parse_brev_json(raw: str | None) -> list[dict]:
-    """Strip trailing walkthrough text and parse JSON array from brev CLI."""
+    """Strip trailing walkthrough text and parse JSON from brev CLI.
+
+    Handles both the legacy bare-array format (``[{...}, ...]``) and the
+    newer wrapped format (``{"workspaces": [{...}, ...]}``) introduced in
+    recent brev CLI versions.
+    """
     if not raw:
         return []
+    # Try full parse first (handles both formats without bracket heuristics)
+    stripped = raw.strip()
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict) and "workspaces" in parsed:
+            return parsed["workspaces"]
+        return []
+    except json.JSONDecodeError:
+        pass
+    # Fallback: strip trailing walkthrough text after last `]`
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
     try:
-        return json.loads(raw[: bracket + 1])
-    except json.JSONDecodeError:
+        parsed = json.loads(raw[: bracket + 1])
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict) and "workspaces" in parsed:
+            return parsed["workspaces"]
         return []
+    except json.JSONDecodeError:
+        pass
+    # Last resort: extract the inner array from {"workspaces": [...]}
+    start = raw.find("[")
+    if start >= 0 and bracket > start:
+        try:
+            return json.loads(raw[start: bracket + 1])
+        except json.JSONDecodeError:
+            pass
+    return []
 
 
 async def _find_brev_instance(name: str) -> dict | None:
@@ -1054,13 +1500,20 @@ async def _find_brev_instance(name: str) -> dict | None:
         # A well-formed JSON array response (even if empty) is authoritative —
         # treat an empty-list response as "not a Brev-managed instance" and
         # fall through to the registered-node check.  Only truly empty stdout
-        # or missing closing `]` is transient.
-        if raw.strip() == "" or raw.rfind("]") < 0:
+        # or missing closing `]` is transient. An org with zero managed
+        # instances prints `null` (not `[]`) — also authoritative-empty, or
+        # every registered-external-node lookup would burn all retries here
+        # and report "instance not found" without ever checking nodes.
+        # (`null` may be followed by a "Please create a running instance…"
+        # banner on the same stream.)
+        if raw.strip().startswith("null"):
+            parsed = []
+        elif raw.strip() == "" or raw.rfind("]") < 0:
             logger.info("brev ls returned empty stdout (attempt %s) — retrying", attempt + 1)
             await asyncio.sleep(5)
             continue
-
-        parsed = _parse_brev_json(raw)
+        else:
+            parsed = _parse_brev_json(raw)
         for inst in parsed:
             if inst.get("name") == name:
                 return inst
@@ -1107,7 +1560,8 @@ async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None
 
 
 async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
-    """SSH in and count GPUs via nvidia-smi. Raises on mismatch."""
+    """SSH in and count GPUs via nvidia-smi. Raises only if the box has
+    FEWER GPUs than required — over-provisioned boxes are accepted (>=)."""
     result = await _run_brev_exec(
         instance_name,
         "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
@@ -1128,16 +1582,21 @@ async def _check_live_gpu_count(instance_name: str, required_count: int) -> None
             instance_name, result.stdout,
         )
         return
-    if actual != required_count:
+    # Over-provisioning is fine — a 1-GPU spec runs on a 2-GPU box with the
+    # 2nd GPU idle. Only UNDER-provisioning is fatal (a 2-GPU spec can't
+    # launch its second model on a 1-GPU box). The orchestrator still PREFERS
+    # an exact match for pool partitioning (AGENTS.md § 5a); this is the
+    # fallback gate. Returning (not raising) lets start() proceed to
+    # _reset_docker_runtime, so a fallback over-provisioned box still gets
+    # wiped before the trial deploys onto it.
+    if actual < required_count:
         raise RuntimeError(
             f"Brev instance '{instance_name}' has {actual} GPU(s) (live "
-            f"nvidia-smi); task requires exactly {required_count}. Pool "
-            f"partition mismatch — pick a fleet member with the matching "
-            f"GPU count (e.g. vss-eval-l40s-1g for 1-GPU, vss-eval-l40s* "
-            f"for 2-GPU)."
+            f"nvidia-smi); task requires at least {required_count}. Pick a "
+            f"fleet member with >= the required GPU count."
         )
     logger.info(
-        "Instance '%s' live gpu_count: %d (matches required %d)",
+        "Instance '%s' live gpu_count: %d (satisfies required >= %d)",
         instance_name, actual, required_count,
     )
 
@@ -1210,11 +1669,15 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
                 f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
             )
 
-    # gpu_count check — strict equality so pool partitioning works.
-    # A 1-GPU task on a 2-GPU box wastes capacity (the other GPU could
-    # serve a sibling 1-GPU trial in parallel); a 2-GPU task on a 1-GPU
-    # box can't even launch the second LLM/VLM. Strict match makes both
-    # cases loud at validate time instead of mid-trial.
+    # gpu_count check — require >= (over-provisioned OK), NOT strict equality.
+    # A 1-GPU spec runs fine on a 2-GPU box (2nd GPU idles); only an
+    # UNDER-provisioned box (fewer GPUs than required) can't launch the spec's
+    # second model and must be rejected. Pool partitioning is preserved by the
+    # orchestrator PREFERRING an exact match (AGENTS.md § 5a) — this is the
+    # validate-time gate for the fallback case. Crucially, because we no longer
+    # raise here for an over-provisioned box, start() proceeds to
+    # _reset_docker_runtime, so a fallback 2-GPU box is wiped clean before the
+    # trial deploys onto it.
     required_count = int(req.get("gpu_count", 1) or 0)
     if required_count > 0:
         catalog_count = await _get_instance_gpu_count_from_catalog(
@@ -1231,9 +1694,9 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
                 await _check_live_gpu_count(instance.get("name"), required_count)
             except RuntimeError as exc:
                 errors.append(str(exc))
-        elif catalog_count != required_count:
+        elif catalog_count < required_count:
             errors.append(
-                f"gpu_count: want exactly {required_count}, instance has "
+                f"gpu_count: want at least {required_count}, instance has "
                 f"{catalog_count} (instance_type={instance.get('instance_type')})"
             )
 
@@ -1250,7 +1713,7 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
         require_clauses = []
         if required_type:
             require_clauses.append(f"gpu_type={required_type!r}")
-        require_clauses.append(f"gpu_count={required_count}")
+        require_clauses.append(f"gpu_count>={required_count}")
         require_phrase = " + ".join(require_clauses)
         hint = (
             f"\n\nTo find a matching pool member, scan vss-eval-* "
@@ -1343,5 +1806,3 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
             "Instance '%s' driver: %s (>= required %s)",
             instance_name, actual, min_driver,
         )
-
-

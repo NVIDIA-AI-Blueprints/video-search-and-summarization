@@ -66,10 +66,10 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import cv2
 import numpy as np
 import tqdm
 
+from spatialai_data_utils.utils.optional_dependencies import import_cv2
 from spatialai_data_utils.visualization.box_3d import (
     draw_bbox3d_on_img,
     draw_box3d_corners_on_img,
@@ -264,6 +264,7 @@ def draw_bev_objects_bbox_in_image(
     if color is None:
         _validate_color_by(color_by)
     if isinstance(image, str):
+        cv2 = import_cv2("draw_bev_objects_bbox_in_image")
         img = cv2.imread(image)
         if img is None:
             raise FileNotFoundError(f"Failed to load image: {image}")

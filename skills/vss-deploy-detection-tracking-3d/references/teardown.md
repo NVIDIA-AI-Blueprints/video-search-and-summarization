@@ -9,11 +9,11 @@ This teardown is scoped to whatever this skill brought up — the same compose f
 ```bash
 cd "${VSS_APPS_DIR}"
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down -v
 ```
 
-`down -v` removes the MV3DT containers (perception, fusion, mosquitto, broker, VST sensor stack, configurator, nvstreamer, auto-calibration) **and** resets the named docker volumes (Kafka log, Postgres VST DB, Elasticsearch data, Logstash libs). This is the recommended path for any redeploy where:
+`down -v` removes the MV3DT containers (perception, fusion, mosquitto, broker, VST sensor stack, configurator, nvstreamer) **and** resets the named docker volumes (Kafka log, Postgres VST DB, Elasticsearch data, Logstash libs). This is the recommended path for any redeploy where:
 
 - the dataset or camera count changed (sensor records re-initialize from the new calibration),
 - the calibration file changed for the same dataset slug,
@@ -27,7 +27,7 @@ When you intend to bring the same dataset back up against the existing broker / 
 
 ```bash
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down
 ```
 
@@ -50,11 +50,11 @@ docker system prune -f
 
 The shipped cleanup script drops data dirs the warehouse stack writes to (Elasticsearch indexes, Kafka logs, VST sensor state, etc.).
 
-**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from `.env`, so reverting them isn't needed; leaving the flag off causes the script to source a placeholder `.env`, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
+**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from `.env`, so reverting them isn't needed; leaving the flag off can cause the script to revert generated/configured values, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
 
 ```bash
 bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
-  -e industry-profiles/warehouse-operations/.env \
+  -e industry-profiles/warehouse-operations/generated.env \
   --skip-revert-from-oldest-backup
 ```
 
@@ -79,11 +79,11 @@ If [`calibration-workflow.md`](calibration-workflow.md) deployed `auto_calib` se
 ```bash
 cd "${VSS_APPS_DIR}"
 COMPOSE_PROFILES=auto_calib docker compose \
-  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down
 ```
 
-When AMC came up under the warehouse profile gating (because `bp_wh_*_mv3dt` includes auto-calibration), Step 1 already removed it — no separate teardown needed.
+Normal MV3DT profiles (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`) do not include AMC. Auto-calibration warehouse profiles use `bp_wh_auto_calib_*`; if AMC is still running after the MV3DT teardown, use the command above.
 
 ## What is preserved across teardown
 
@@ -107,20 +107,29 @@ cd "${VSS_APPS_DIR}"
 
 # Stop everything, drop named volumes, drop locally-built images
 docker compose -f compose.yml \
-  --env-file industry-profiles/warehouse-operations/.env down -v --rmi local
+  --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down -v --rmi local
 
-# Clear bind-mounted AMC state — DESTRUCTIVE
-sudo rm -rf "${VSS_APPS_DIR}/services/auto-calibration/projects/"
-
-# Clear your own calibration outputs (keep the ship-with-repo sample!)
+# Clear bind-mounted AMC state — DESTRUCTIVE.
+# Auto-proceed when sudo is passwordless; otherwise surface the commands for the user.
 DATASET="${SAMPLE_VIDEO_DATASET:?}"
-if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
-  sudo rm -rf "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
+if sudo -n true 2>/dev/null; then
+  sudo rm -rf "${VSS_APPS_DIR}/services/auto-calibration/projects/"
+
+  # Clear your own calibration outputs (keep the ship-with-repo sample!)
+  if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
+    sudo rm -rf "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}"
+  fi
+else
+  echo "Sudo requires a password on this host. Please run the commands below in your shell, then confirm to continue:"
+  echo "  sudo rm -rf \"${VSS_APPS_DIR}/services/auto-calibration/projects/\""
+  if [ "${DATASET}" != "warehouse-4cams-20mx20m-synthetic" ]; then
+    echo "  sudo rm -rf \"${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${DATASET}\""
+  fi
 fi
 
 # Drop data_log and optionally revert .env (intentional this time)
 bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
-  -e industry-profiles/warehouse-operations/.env
+  -e industry-profiles/warehouse-operations/generated.env
 
 docker volume prune -f
 docker system prune -f

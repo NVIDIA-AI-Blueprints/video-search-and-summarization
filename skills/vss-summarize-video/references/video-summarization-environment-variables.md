@@ -6,12 +6,18 @@ video summarization debugging and request construction.
 
 ## Profile Env
 
-The checked-in `.env` is the defaults file. For an actual deployment, apply
-overrides to the generated profile env and resolve compose from that file:
+The checked-in `.env` is the stable-default layer and `overrides.env` is the
+runtime/profile default layer. For an actual deployment, initialize the generated
+profile env from `overrides.env`, apply overrides there, and resolve Compose with both
+`.env` and `generated.env`:
 
 ```text
 deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 ```
+
+Password values should be supplied by that profile env or deployment-specific
+overrides; the service compose file intentionally does not define password
+defaults.
 
 Core deployment:
 
@@ -49,12 +55,13 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.2.0-26.05.4` for x86 / Jetson-Tegra; `3.2.0-26.05.4-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4` and `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.2.0-26.05.4-sbsa`. |
+| `RTVI_VLM_IMAGE_TAG` | `3.2.1` for x86 / Jetson Thor; `3.2.1-sbsa` for SBSA / DGX Spark / Grace | RT-VLM image tag. Full images: `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1` and `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa`. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
-| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason2` | Default integrated backend selector. |
-| `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Default checkpoint. |
+| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |
+| `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default checkpoint. |
+| `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | empty; `5` for remote openai-compat LVS deployments | RT-VLM fixed-frame default used when LVS requests omit frame sampling overrides. Leave model-specific local defaults unchanged. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw caption events. |
 | `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw caption topic. |
@@ -65,8 +72,8 @@ Video summarization service:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | Image repository. |
-| `LVS_TAG` | `3.2.0` | Image tag in current develop. |
+| `LVS_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Image repository. |
+| `LVS_TAG` | `3.2.1` for x86 / Jetson Thor; `3.2.1-sbsa` for SBSA / DGX Spark / Grace | Image tag in current develop. Full images: `nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1` and `nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1-sbsa`. The LVS image tag must match the host CPU platform, same convention as `RTVI_VLM_IMAGE_TAG` above. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |
@@ -140,7 +147,7 @@ Neo4j graph backend with the open-source `neo4j:5.26.4` container:
 LVS_DATABASE_BACKEND=graph_db
 GRAPH_DB_HOST=127.0.0.1          # or ${HOST_IP}; avoid graph-db with host-networked lvs-server
 GRAPH_DB_USERNAME=neo4j
-GRAPH_DB_PASSWORD=passneo4j
+GRAPH_DB_PASSWORD=<neo4j-password>
 GRAPH_DB_HTTP_PORT=7474
 GRAPH_DB_BOLT_PORT=7687
 LVS_EMB_ENABLE=true
@@ -156,7 +163,7 @@ container:
 LVS_DATABASE_BACKEND=graph_db_arango
 ARANGO_DB_HOST=127.0.0.1         # or ${HOST_IP}; avoid arango-db with host-networked lvs-server
 ARANGO_DB_USERNAME=root
-ARANGO_DB_PASSWORD=passroot
+ARANGO_DB_PASSWORD=<arango-password>
 ARANGO_DB_PORT=8529
 LVS_EMB_ENABLE=true
 LVS_EMB_MODEL_NAME=nvidia/llama-3.2-nv-embedqa-1b-v2
@@ -186,8 +193,8 @@ the corresponding DB host env to a host-reachable address (`127.0.0.1` or
   `/models`; do not use RT-VLM `/v1/models` for `LVS_EMB_MODEL_NAME`.
 - Use `LVS_BACKEND_URL` for video summarization API calls and strip trailing `/v1` from VLM
   base URLs before appending `/v1/chat/completions`.
-- For 3.2 GA examples, prefer `/v1/summarize` and
-  `num_frames_per_second_or_fixed_frames_chunk`.
+- For 3.2 GA examples, prefer `/v1/summarize` and omit frame sampling fields
+  so RT-VLM applies the model-specific deployment default.
 - Do not add development-only API switches to GA instructions.
 - Do not switch to `graph_db` or `graph_db_arango` unless `LVS_EMB_ENABLE=true`
   and a reachable embedding endpoint are configured.

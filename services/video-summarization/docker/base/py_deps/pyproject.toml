@@ -28,7 +28,6 @@ dependencies = [
     "pyyaml==6.0.3",
     "kafka-python==2.2.15",
     "prometheus-client==0.25.0",
-    "opencv-python-headless==4.13.0.92",
     # CVE in urllib3 2.6.3 — pin direct dep to 2.7.0 (transitive via requests).
     "urllib3==2.7.0",
 ]

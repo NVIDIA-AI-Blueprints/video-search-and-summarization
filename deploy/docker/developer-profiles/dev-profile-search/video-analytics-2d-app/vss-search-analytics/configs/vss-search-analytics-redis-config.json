@@ -1,7 +1,7 @@
 
 {
 	"redis": {
-		"host": "localhost",
+		"host": "redis",
 		"port": 6379,
 		"group": "mdx-fusion-search-analytics-app",
 		"consumer": {
@@ -99,6 +99,10 @@
 		{
 			"name": "numWorkersForEmbedFiltering",
 			"value": "1"
+		},
+		{
+			"name": "numWorkersForIncidentGeneration",
+			"value": "0"
 		},
 		{
 			"name": "inSimulationMode",

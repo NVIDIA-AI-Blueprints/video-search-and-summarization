@@ -37,7 +37,16 @@ wants to attach appearance / visibility metadata. Lower-level box math
 import numpy as np
 from typing import List, Tuple
 from pyquaternion import Quaternion
-from nuscenes.utils.data_classes import Box as NuScenesBox
+
+try:
+    from nuscenes.utils.data_classes import Box as NuScenesBox
+except ModuleNotFoundError as exc:
+    # Only rewrite when nuscenes itself is absent; let other failures (e.g.
+    # nuscenes installed but cv2 missing) propagate without masking.
+    if exc.name == "nuscenes":
+        from spatialai_data_utils.utils.optional_dependencies import nuscenes_import_error
+        raise nuscenes_import_error(__name__) from exc
+    raise
 
 
 class AICityBox(NuScenesBox):

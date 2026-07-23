@@ -58,7 +58,13 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "setup action the trial requires. This pre-authorization covers "
+    "deployment and setup ONLY. It does NOT waive a user-facing safety "
+    "confirmation that a skill's own protocol requires before a destructive "
+    "action (for example, the two-step stop/delete protocol for an alert "
+    "rule): for those, still follow the skill — ask the yes/no confirmation "
+    "question and do NOT perform the destructive call, since no interactive "
+    "user will answer here."
 )
 
 # ---------------------------------------------------------------------------
@@ -163,6 +169,7 @@ def _task_toml(
     platform: str,
     mode: str,
     profile: str,
+    deploy_mode: str,
     step_idx: int,
     step_count: int,
     check_count: int,
@@ -171,11 +178,15 @@ def _task_toml(
     step_suffix: str,
 ) -> str:
     short = pspec["short_name"]
+    # Deploy-mode-aware label + keywords (verification CV vs VLM real-time).
+    is_cv = deploy_mode == "verification"
+    desc_label = "verification (CV)" if is_cv else "VLM real-time"
+    mode_keywords = '"cv", "verification"' if is_cv else '"vlm", "real-time"'
     lines = [
         "[task]",
         f'name = "nvidia-vss/vss-manage-alerts-{spec_stem}-{short}-{mode}{step_suffix}"',
-        f'description = "Alerts VLM real-time step {step_idx}/{step_count} on {platform}/{mode}"',
-        f'keywords = ["vss-manage-alerts", "vlm", "real-time", "{platform}", "{mode}"]',
+        f'description = "Alerts {desc_label} step {step_idx}/{step_count} on {platform}/{mode}"',
+        f'keywords = ["vss-manage-alerts", {mode_keywords}, "{platform}", "{mode}"]',
         "",
         "[environment]",
         'skills_dir = "/skills"',
@@ -219,6 +230,10 @@ def generate_platform_mode(
     short = pspec["short_name"]
     expects = rendered_spec.get("expects") or []
     profile: str = str(spec.get("profile", "alerts"))
+    # Deploy mode (real-time VLM vs verification CV), distinct from `mode`
+    # (LLM/VLM NIM placement); drives step-2+ context + task-metadata labels.
+    deploy_mode: str = str(spec.get("deploy_mode", "real-time"))
+    mode_label = "verification (CV)" if deploy_mode == "verification" else "real-time (VLM)"
 
     platform_dir = output_root / spec_stem / f"{short}-{mode}"
     platform_dir.mkdir(parents=True, exist_ok=True)
@@ -247,8 +262,8 @@ def generate_platform_mode(
         else:
             leading = [
                 f"Use the `/vss-manage-alerts` skill on this `{platform}` host.",
-                "The VSS **alerts** profile is already deployed in **real-time (VLM)** mode "
-                "with `remote-all` placement (deployed by step 1).",
+                f"The VSS **alerts** profile is already deployed in **{mode_label}** mode "
+                f"with `{mode}` placement (deployed by step 1).",
             ]
 
         instruction_lines = [
@@ -267,7 +282,14 @@ def generate_platform_mode(
                 "as separate trials — do not pre-execute them in this one."
             )
             instruction_lines.append("")
-        instruction_lines.append("Run autonomously without prompting for confirmation.")
+        instruction_lines.append(
+            "Run autonomously without prompting for confirmation, EXCEPT where the "
+            "skill's own protocol requires an explicit user confirmation before a "
+            "destructive action (e.g. the two-step stop/delete protocol for an alert "
+            "rule). In that case, follow the skill: ask the yes/no confirmation "
+            "question, state the rule ID and sensor, and stop without deleting "
+            "(there is no interactive user to answer 'yes')."
+        )
         instruction_lines.append("")
         (step_dir / "instruction.md").write_text("\n".join(instruction_lines) + "\n")
 
@@ -276,6 +298,7 @@ def generate_platform_mode(
             platform=platform,
             mode=mode,
             profile=profile,
+            deploy_mode=deploy_mode,
             step_idx=idx,
             step_count=len(expects),
             check_count=len(expect.get("checks") or []),
@@ -306,15 +329,35 @@ def generate_platform_mode(
         (solution_dir / "solve.sh").write_text(_solve_sh(platform, mode))
 
         # ---- skills/ -------------------------------------------------------
-        for src_dir, skill_name in [
+        # Always register the primary skill + deploy skill. Additionally
+        # register any extra skills the spec declares in its `skills` list
+        # (e.g. vss-manage-video-io-storage, needed so the agent has the
+        # NVStreamer/VIOS onboarding playbook for subscription specs that
+        # target sensors which a clean deploy does not seed). Extra skills
+        # are resolved as siblings of the primary skill dir.
+        skills_to_copy: list[tuple[Path | None, str]] = [
             (skill_dir, "vss-manage-alerts"),
             (deploy_skill_dir, "vss-deploy-profile"),
-        ]:
+        ]
+        already = {name for _, name in skills_to_copy}
+        for extra_name in spec.get("skills") or []:
+            if extra_name in already:
+                continue
+            extra_dir = skill_dir.parent / extra_name
+            skills_to_copy.append((extra_dir, extra_name))
+            already.add(extra_name)
+
+        for src_dir, skill_name in skills_to_copy:
             if src_dir and src_dir.exists():
                 dst = step_dir / "skills" / skill_name
                 if dst.exists():
                     shutil.rmtree(dst)
                 shutil.copytree(src_dir, dst)
+            elif src_dir is not None:
+                print(
+                    f"  WARN  declared skill '{skill_name}' not found at {src_dir} — skipped",
+                    file=sys.stderr,
+                )
 
     print(
         f"  GEN  vss-manage-alerts/{spec_stem}/{short}-{mode}  "
