@@ -36,7 +36,7 @@ functions:
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
 """
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[7]
 
 
 def _write_docker_service_envs(root: Path) -> None:

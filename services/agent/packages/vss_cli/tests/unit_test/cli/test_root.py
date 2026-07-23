@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-import vss_cli
+import vss_cli as cli
 
 
 def test_root_help_lists_registered_domains(capsys: pytest.CaptureFixture[str]) -> None:

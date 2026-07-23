@@ -247,7 +247,7 @@ functions:
 
 @pytest.fixture
 def agent_root() -> Path:
-    return Path(__file__).resolve().parents[4]
+    return Path(__file__).resolve().parents[6]
 
 
 def test_search_archive_cli_e2e_returns_search_output_json(

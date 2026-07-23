@@ -13,7 +13,7 @@ import pytest
 
 from vss_cli.search import _parse_args
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[7]
 SKILL_ROOT = REPOSITORY_ROOT / "skills" / "vss-search-archive"
 ADAPTER_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "adapters" / "vss-search-archive" / "generate.py"
 GENERIC_JUDGE_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "verifiers" / "generic_judge.py"
