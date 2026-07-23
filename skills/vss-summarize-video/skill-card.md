@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for report generation or live RTSP captioning. <br>
+Summarize recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to produce narrative summaries of recorded video clips, leveraging the LVS summarization microservice with HITL gating or a VLM fallback. <br>
+Developers and engineers who need to produce narrative summaries with timestamped events from recorded video using NVIDIA Video Search and Summarization services. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,30 +25,30 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Video Summarization API Reference](references/video-summarization-api.md) <br>
+- [End-to-End Example](references/end-to-end-example.md) <br>
+- [Video Summarization API](references/video-summarization-api.md) <br>
+- [HITL Prompts](references/hitl-prompts.md) <br>
+- [Video Summarization Debugging](references/video-summarization-debugging.md) <br>
 - [Video Summarization Deployment](references/video-summarization-deployment.md) <br>
 - [Video Summarization Environment Variables](references/video-summarization-environment-variables.md) <br>
-- [Video Summarization Debugging](references/video-summarization-debugging.md) <br>
-- [End-to-End Example](references/end-to-end-example.md) <br>
-- [HITL Prompts](references/hitl-prompts.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Analysis, Shell commands] <br>
-**Output Format:** [Markdown with verbatim backend output] <br>
+**Output Type(s):** [Analysis, API Calls, Shell commands] <br>
+**Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
 ## Evaluation Agents Used: <br>
-- `claude-code` <br>
-- `codex` <br>
+- claude-code <br>
+- codex <br>
 
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 1 evaluation task (positive skill-activation case) in the astra-sandbox environment using the external NVSkills-Eval profile. <br>
+3-Tier NVSkills-Eval evaluation in the astra-sandbox environment using the external profile. Overall verdict: PASS. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -58,25 +58,16 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
-Underlying evaluation signals used in this run: <br>
-- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
-- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
-- `accuracy`: Grades final-answer correctness against the reference answer. <br>
-- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
-- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
-- `token_efficiency`: Compares token usage with and without the skill. <br>
-
 
 
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 100% (+75%) | 67% (+45%) |
-| Discoverability | 1 | 100% (+50%) | 84% (+46%) |
-| Effectiveness | 1 | 76% (+56%) | 58% (+34%) |
-| Efficiency | 1 | 92% (+36%) | 77% (+30%) |
+| Security | N/A | N/A | N/A |
+| Correctness | N/A | N/A | N/A |
+| Discoverability | N/A | N/A | N/A |
+| Effectiveness | N/A | N/A | N/A |
+| Efficiency | N/A | N/A | N/A |
 
 ## Skill Version(s): <br>
 3.2.1 (source: frontmatter) <br>
