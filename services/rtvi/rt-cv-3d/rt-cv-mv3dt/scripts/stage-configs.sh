@@ -51,7 +51,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ -f "$ROOT/docker/.env" ]; then
   while IFS='=' read -r k v; do
     [[ "$k" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
-    [ -n "${!k:-}" ] || eval "export $k=\"$v\""
+    [ -n "${!k:-}" ] && continue          # already-exported value wins
+    v="${v%$'\r'}"                         # tolerate CRLF line endings
+    if [[ $v == \"*\" ]]; then v="${v#\"}"; v="${v%\"}"; fi   # strip paired "…"
+    if [[ $v == \'*\' ]]; then v="${v#\'}"; v="${v%\'}"; fi   # strip paired '…'
+    printf -v "$k" '%s' "$v" && export "$k"
   done < <(grep -E '^[A-Z_]+=' "$ROOT/docker/.env")
 fi
 

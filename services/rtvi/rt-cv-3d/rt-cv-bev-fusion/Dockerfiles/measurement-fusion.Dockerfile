@@ -39,6 +39,8 @@ RUN apt-get update \
 COPY deps.json /build/deps.json
 RUN curl -fsSL -o generate_metadata.sh \
         https://urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v0.3.sh \
+ && echo "4fd5572ea44fd724842fd4a69aac79101be503e01a9a5d743e08a997e9f39899  generate_metadata.sh" \
+      | sha256sum -c - \
  && chmod +x generate_metadata.sh \
  && ./generate_metadata.sh deps.json
 

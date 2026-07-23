@@ -97,6 +97,10 @@ services:
       timeout: 2s
       retries: 30
       start_period: 10s
+    depends_on:
+      kafka:
+        condition: service_healthy
+        required: false
 
   # ── Optional brokers (enable via COMPOSE_PROFILES; skip if you run your own) ──
 
