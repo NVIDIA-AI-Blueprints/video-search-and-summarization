@@ -1673,11 +1673,12 @@ function state_down() {
     fi
   done
 
-  echo "[INFO] Bringing down docker compose project 'mdx' (with volumes)..."
+  local _compose_project_name="${COMPOSE_PROJECT_NAME:-vss}"
+  echo "[INFO] Bringing down docker compose project '${_compose_project_name}' (with volumes)..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] docker compose -p mdx down -v --remove-orphans"
+    echo "[DRY-RUN] docker compose -p ${_compose_project_name} down -v --remove-orphans"
   else
-    docker compose -p mdx down -v --remove-orphans
+    docker compose -p "${_compose_project_name}" down -v --remove-orphans
   fi
 
   echo "[INFO] Removing dangling docker volumes..."
