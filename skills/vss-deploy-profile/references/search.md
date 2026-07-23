@@ -19,7 +19,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 
 | Service | Container | Port | Purpose |
 |---|---|---|---|
-| RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
+| RT-CV (DeepStream perception) | `vss-rtvi-cv` | 9000 | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
 | RT-Embed (Cosmos Embed1) | `vss-rtvi-embed` | 8017 | Video + text embedding generation |
 | LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
 | RT-VLM | `vss-rtvi-vlm` | 8018 | Local Cosmos3 inference or an OpenAI-compatible proxy to a remote VLM; serves Critique and `video_understanding` |

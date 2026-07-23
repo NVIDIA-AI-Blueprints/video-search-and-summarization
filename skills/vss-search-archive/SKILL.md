@@ -317,7 +317,10 @@ Report every final count. A successful DELETE response alone is not sufficient.
    decompose natural language. Preserve the requested object/action and use
    `--query`, an explicit `--search-mode`, `--attribute`, `--video-source`, time
    bounds, and the relevant query controls. For complex fusion requests, prefer
-   `--decomposed-json`; explicit flags override fields from that object.
+   `--decomposed-json`; explicit flags override fields from that object. For
+   worked examples of choosing a discovery strategy (wide-net, narrow-to-camera,
+   high-precision) and the flags each one uses, see
+   [Discovery modes](references/discovery_modes.md).
 4. Run the host command for the selected deployment. It validates named
    sources again against that deployment's VST listing before querying ES. Use
    `--output json --raw` when parsing the result: `--raw` selects compact JSON,

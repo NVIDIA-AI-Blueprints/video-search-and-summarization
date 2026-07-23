@@ -98,7 +98,7 @@ fi
 # Search exception: always probe local RT-VLM on :8018 (including remote mode,
 # where RT-VLM remains as the openai-compat proxy).
 if [ "${PROFILE:-}" = "search" ] || [ "${BP_PROFILE:-}" = "bp_developer_search" ]; then
-  curl -sf http://localhost:8018/v1/models | python3 -m json.tool
+  curl -sf "http://localhost:${RTVI_VLM_PORT:-8018}/v1/models" | python3 -m json.tool
 elif [ "${VLM_MODE:-}" = "remote" ]; then
   echo "VLM_MODE=remote — skip localhost:30082; probing ${VLM_BASE_URL:-<remote-vlm-base-url>}/v1/models"
   REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
