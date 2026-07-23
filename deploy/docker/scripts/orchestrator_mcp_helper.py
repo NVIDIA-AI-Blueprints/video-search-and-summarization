@@ -44,8 +44,22 @@ def read_etc_environment() -> dict[str, str]:
 
 
 def detect_brev_link_domain() -> str:
+    """Resolve the Brev/launchpad secure-link base domain for this host.
+
+    Precedence:
+      1. Explicit ``BREV_LINK_DOMAIN`` override.
+      2. Derived from the live NetBird management host (``*.netbird.*`` ->
+         ``*.apps.*``), e.g. ``stg.netbird.launchpad.nvidia.com`` ->
+         ``stg.apps.launchpad.nvidia.com``.
+      3. Legacy Skybridge markers -> ``apps.run.brev.nvidia.com``.
+      4. Fallback -> ``brevlab.com`` (with a loud red warning, since this is a
+         guess that is likely wrong off legacy Brev).
+
+    Prints the chosen domain and how it was determined.
+    """
     explicit_domain = os.environ.get("BREV_LINK_DOMAIN", "").strip()
     if explicit_domain:
+        print(f"[brev-link-domain] using BREV_LINK_DOMAIN override: {explicit_domain}")
         return explicit_domain
 
     try:
@@ -53,15 +67,35 @@ def detect_brev_link_domain() -> str:
             ["netbird", "status", "-d"],
             capture_output=True,
             text=True,
-            timeout=3,
+            timeout=15,
         )
-        status_output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+        status_output = f"{result.stdout or ''}\n{result.stderr or ''}"
+
+        # Derive from the NetBird management host: the secure-link edge shares the
+        # mesh base domain, e.g. stg.netbird.launchpad.nvidia.com ->
+        # stg.apps.launchpad.nvidia.com
+        match = re.search(
+            r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.netbird\.[a-z0-9.-]+", status_output, re.IGNORECASE
+        )
+        if match:
+            host = match.group(0).split("/")[0].split(":")[0].rstrip(".").lower()
+            domain = host.replace(".netbird.", ".apps.", 1)
+            print(f"[brev-link-domain] derived from NetBird management host '{host}': {domain}")
+            return domain
+
+        # Legacy Skybridge marker path.
         skybridge_markers = ("skybridge", "brev.nvidia.com", "brev.dev")
-        if result.returncode == 0 and any(marker in status_output for marker in skybridge_markers):
+        if result.returncode == 0 and any(m in status_output.lower() for m in skybridge_markers):
+            print("[brev-link-domain] Skybridge markers detected: apps.run.brev.nvidia.com")
             return "apps.run.brev.nvidia.com"
     except (OSError, subprocess.SubprocessError):
         pass
 
+    _RED, _RESET = "\033[31m", "\033[0m"
+    print(
+        f"{_RED}[brev-link-domain] WARNING: could not auto-detect the domain (no NetBird "
+        "management host or Skybridge markers found); falling back to 'brevlab.com'{_RESET}"
+    )
     return "brevlab.com"
 
 
