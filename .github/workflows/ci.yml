@@ -206,7 +206,7 @@ jobs:
         run: uv sync --group dev --extra agent --frozen
 
       - name: mypy
-        run: uv run mypy src/agent/
+        run: uv run mypy packages/vss_agents/src/vss_agents
 
   # ---------------------------------------------------------------------------
   # Job 3: Python tests (pytest + coverage)
@@ -256,7 +256,7 @@ jobs:
         timeout-minutes: 10
         run: |
           uv run pytest \
-            --cov=src/agent \
+            --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
@@ -317,12 +317,12 @@ jobs:
       - name: Build and test NAT-free base distribution
         run: |
           uv sync --frozen --no-dev --group cli-dev
-          uv run --no-sync mypy src/lib/_foundation src/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst
-          uv run --no-sync pytest tests/unit_test/lib tests/unit_test/cli -W error::RuntimeWarning -W error::ResourceWarning \
-            --cov=src/lib --cov=src/cli --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv run --no-sync mypy packages/vss_core/src/vss_core packages/vss_cli/src/vss_cli
+          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
           rm -rf dist
-          uv build
+          uv build --package nvidia-vss-core --package nvidia-vss-cli
 
       - name: Smoke-test built wheel in a clean environment
         run: |
