@@ -28,8 +28,8 @@ description: Compose VSS-based agent deployments from a natural-language capabil
 1. Parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks.
 2. Read the matching file under `references/profiles/`. In delta mode, compare all four and select exactly one current Base Profile; ask only when two are equally plausible.
 3. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
-4. If the request is an exact stock match, keep its authoritative service set unchanged and follow `references/deployment.md`.
-5. Otherwise compute the smallest delta from the Base Profile’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs.
-6. Write `_builds/<name>/overrides.env`. Write `_builds/<name>/compose.override.yml` only for a genuinely new service or a changed service definition. Treat `<name>` only as a filesystem label; never add it to `COMPOSE_PROFILES`.
-7. Validate the selected keys, env layering, resolved services, required peers, and requested success checks as specified in `references/composition.md`.
+4. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Base Profile’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs.
+5. Before writing delta artifacts or starting a stock or delta deployment, present a compact architecture diagram in the conversation. Show the Base Profile, added and removed capability owners and service keys, principal data flows and topics, external endpoints, and GPU/model placement. Do not save the diagram as a build artifact.
+6. In delta mode, write `_builds/<name>/overrides.env`. Write `_builds/<name>/compose.override.yml` only for a genuinely new service or a changed service definition. Treat `<name>` only as a filesystem label; never add it to `COMPOSE_PROFILES`.
+7. Validate the selected keys, env layering, resolved services, required peers, and requested success checks. Use the stock dry run in `references/deployment.md` or the delta checks in `references/composition.md`.
 8. If deployment was requested, follow `references/deployment.md` with the same Base Profile and delta artifacts used during validation.
