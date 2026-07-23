@@ -184,7 +184,7 @@ jobs:
           # The Sonar self-hosted runner cannot install system packages.
           # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
           # instead of requiring cairo headers and pkg-config on the runner.
-          uv sync --group dev --extra agent --frozen --no-install-package pycairo --no-install-package rlpycairo
+          uv sync --group dev --extra agent --extra cli --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run --no-sync pytest \
             --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \

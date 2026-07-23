@@ -203,7 +203,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: mypy
         run: uv run mypy packages/vss_agents/src/vss_agents
@@ -250,7 +250,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: pytest
         timeout-minutes: 10
@@ -316,7 +316,7 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen --no-dev --group cli-dev
+          uv sync --frozen --no-dev --group cli-dev --extra cli
           uv run --no-sync mypy packages/vss_core/src/vss_core packages/vss_cli/src/vss_cli
           uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
             --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
