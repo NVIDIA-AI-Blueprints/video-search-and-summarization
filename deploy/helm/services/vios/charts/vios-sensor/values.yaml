@@ -75,6 +75,11 @@ env:
     value: nvcentralizedb
   - name: CENTRALIZE_DB_USERNAME
     value: vst
+  # Compose parity: services/vios/initiator/docker-compose.yaml sets
+  # DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1 on the sensor/initiator container so
+  # DeepStream extracts a stable sensor id from RTSP source metadata.
+  - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+    value: "1"
   # STREAM_PROCESSOR_MODULE_ENDPOINT is set by the template from streamProcessorEndpoint
 
 # Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH. Optional PVCs for vst-data, vst-video.
