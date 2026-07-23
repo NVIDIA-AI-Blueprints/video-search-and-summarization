@@ -113,7 +113,7 @@ docker run --rm -it --user "$(id -u):$(id -g)" \
   -v "$(pwd)/results:/workspace/results" \
   -w /workspace \
   spatialai_data_utils \
-  python tools/validation_and_evaluation/run_validation_and_evaluation.py \
+  tools/validation_and_evaluation/run_validation_and_evaluation.py \
     --calibration_url <calibration-URL>
 ```
 

@@ -40,4 +40,8 @@ dependencies:
     version: 3.2.0
     repository: "file://../../services/nims"
     condition: nims.enabled
+  - name: rtvi
+    version: 3.2.1
+    repository: "file://../../services/rtvi"
+    condition: rtvi.enabled
 maintainers: []

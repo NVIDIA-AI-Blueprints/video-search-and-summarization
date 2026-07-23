@@ -125,6 +125,60 @@ is read-through by default), so updates apply without a restart. Set
 `persistence.cache_ttl_seconds > 0` to cache config reads at the cost of
 bounded cross-process staleness.
 
+## Pipeline modes & concurrency sizing
+
+`alert_agent.pipeline_mode` selects how per-message processing is dispatched
+(invalid values fail startup; unset derives from the legacy
+`async_io.enabled` flag):
+
+| Mode | Dispatch | VLM concurrency ceiling | Use |
+|---|---|---|---|
+| `sync` | inline in the batch worker | `num_workers` | default / rollback |
+| `thread_bridge` | dispatch thread pool, blocking wait | `async_dispatch_workers` | legacy async mode, rollback |
+| `event_loop` | coroutine-per-message on one persistent loop; async clients per stage (VLM `AsyncOpenAI`, VST `httpx`, sink/verdict `AsyncElasticsearch`) | `async_io.max_vlm_concurrent` | non-blocking mode: Kafka consumption decoupled from VLM latency |
+
+Knob meaning per mode:
+
+- `async_dispatch_workers` — thread_bridge: dispatch-pool thread count (the
+  throughput lever). event_loop: no pool is created; the value only serves as
+  the default for the per-service caps.
+- `async_dispatch_max_in_flight` — both async modes: global in-flight bound;
+  when full, hand-off pauses and backpressure reaches the Kafka consume loop.
+  It bounds memory, it does not raise the throughput ceiling.
+- `async_io.max_vlm_concurrent` / `max_vst_concurrent` — event_loop only:
+  per-service concurrency caps (asyncio semaphores).
+
+Sizing rule (event_loop): size against the **survivor rate** (events that
+pass dedup and reach the VLM — `rate(alert_bridge_events_after_dedup_total)`,
+peak value), not raw ingest:
+
+```
+max_vlm_concurrent ≈ peak_survivor_rate × VLM_latency_p95 × 1.4 (headroom)
+async_dispatch_max_in_flight ≈ 2–4 × max_vlm_concurrent
+```
+
+The sustainable rate ("knee") is `max_vlm_concurrent ÷ VLM_latency`; below it
+consumer lag stays flat, above it lag grows by design (bounded backpressure).
+
+### VLM concurrency ceiling benchmark (run before raising `max_vlm_concurrent`)
+
+`max_vlm_concurrent` must never exceed what the VLM backend actually serves
+concurrently — beyond that point requests queue inside the backend and its
+latency balloons instead of throughput improving. To find the ceiling:
+
+1. Deploy the VLM backend as in production (same GPU, memory-utilization and
+   batching settings).
+2. Ramp offered concurrency stepwise (e.g. 2 → 4 → 8 → 16 …), ≥60 s per step,
+   using representative clips.
+3. At each step record wait-excluded per-call latency
+   (`alert_bridge_vlm_duration_seconds`, with capacity-wait tracked
+   separately in `alert_bridge_capacity_wait_seconds`).
+4. The ceiling is the last step where per-call latency stays within ~120% of
+   the low-concurrency baseline; the next step marks saturation.
+5. Set `max_vlm_concurrent` at or below the ceiling. Watch
+   `alert_bridge_event_loop_vlm_in_flight` (never exceeds the cap) and
+   capacity-wait growth (backpressure building) in production.
+
 ## Usage
 
 Submit an alert over the REST API:
