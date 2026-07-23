@@ -24,23 +24,23 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.api.video_ingest import ENV_RTVI_CV_TIMEOUT_SECONDS
-from vss_agents.api.video_ingest import ENV_RTVI_EMBED_TIMEOUT_SECONDS
-from vss_agents.api.video_ingest import ENV_VST_STORAGE_TIMEOUT_SECONDS
-from vss_agents.api.video_ingest import ENV_VST_UPLOAD_TIMEOUT_SECONDS
-from vss_agents.api.video_ingest import VideoIngestResponse
-from vss_agents.api.video_ingest import VideoUploadCompleteInput
-from vss_agents.api.video_ingest import VideoUploadUrlInput
-from vss_agents.api.video_ingest import VideoUploadUrlResponse
-from vss_agents.api.video_ingest import _parse_optional_http_url
-from vss_agents.api.video_ingest import _parse_timeout_seconds
-from vss_agents.api.video_ingest import _resolve_timeout_seconds
-from vss_agents.api.video_ingest import _resolve_video_upload_config
-from vss_agents.api.video_ingest import _run_post_upload_processing
-from vss_agents.api.video_ingest import create_video_upload_complete_router
-from vss_agents.api.video_ingest import create_video_upload_router
-from vss_agents.api.video_ingest import register_video_upload
-from vss_agents.api.video_ingest import register_video_upload_complete
+from agent.api.video_ingest import ENV_RTVI_CV_TIMEOUT_SECONDS
+from agent.api.video_ingest import ENV_RTVI_EMBED_TIMEOUT_SECONDS
+from agent.api.video_ingest import ENV_VST_STORAGE_TIMEOUT_SECONDS
+from agent.api.video_ingest import ENV_VST_UPLOAD_TIMEOUT_SECONDS
+from agent.api.video_ingest import VideoIngestResponse
+from agent.api.video_ingest import VideoUploadCompleteInput
+from agent.api.video_ingest import VideoUploadUrlInput
+from agent.api.video_ingest import VideoUploadUrlResponse
+from agent.api.video_ingest import _parse_optional_http_url
+from agent.api.video_ingest import _parse_timeout_seconds
+from agent.api.video_ingest import _resolve_timeout_seconds
+from agent.api.video_ingest import _resolve_video_upload_config
+from agent.api.video_ingest import _run_post_upload_processing
+from agent.api.video_ingest import create_video_upload_complete_router
+from agent.api.video_ingest import create_video_upload_router
+from agent.api.video_ingest import register_video_upload
+from agent.api.video_ingest import register_video_upload_complete
 
 
 class TestVideoIngestResponse:
@@ -254,7 +254,7 @@ class TestRunPostUploadProcessing:
     @staticmethod
     def _timeline_patch(start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:10.000Z"):
         return patch(
-            "vss_agents.api.video_ingest.get_timeline",
+            "agent.api.video_ingest.get_timeline",
             new=AsyncMock(return_value=(start, end)),
         )
 
@@ -302,7 +302,7 @@ class TestRunPostUploadProcessing:
             }
         )
 
-        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("agent.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -334,7 +334,7 @@ class TestRunPostUploadProcessing:
             }
         )
 
-        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("agent.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -356,7 +356,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock()  # No CV or embed POSTs expected.
 
-        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("agent.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -380,7 +380,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock()
 
-        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("agent.api.video_ingest.httpx.AsyncClient", return_value=client):
             with pytest.raises(HTTPException) as exc_info:
                 await _run_post_upload_processing(
                     camera_name="clip",
@@ -407,7 +407,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock()
 
-        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("agent.api.video_ingest.httpx.AsyncClient", return_value=client):
             await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -432,7 +432,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock(return_value=cv_resp)
 
-        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("agent.api.video_ingest.httpx.AsyncClient", return_value=client):
             with pytest.raises(HTTPException) as exc_info:
                 await _run_post_upload_processing(
                     camera_name="clip",
@@ -505,7 +505,7 @@ class TestUploadCompleteRoute:
         body = VideoUploadCompleteInput(filename="clip.mp4")
 
         with patch(
-            "vss_agents.api.video_ingest._run_post_upload_processing",
+            "agent.api.video_ingest._run_post_upload_processing",
             new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="clip.mp4")),
         ) as mock_post:
             response = await route.endpoint(sensor_id="sensor-xyz", body=body)
@@ -526,7 +526,7 @@ class TestUploadCompleteRoute:
         body = VideoUploadCompleteInput()  # no filename
 
         with patch(
-            "vss_agents.api.video_ingest._run_post_upload_processing",
+            "agent.api.video_ingest._run_post_upload_processing",
             new=AsyncMock(
                 return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="sensor-xyz")
             ),
@@ -561,7 +561,7 @@ class TestUploadCompleteRoute:
         """The allowlist must cover VST UUIDs and dotted/underscored camera names."""
         route = self._build_router().routes[0]
         with patch(
-            "vss_agents.api.video_ingest._run_post_upload_processing",
+            "agent.api.video_ingest._run_post_upload_processing",
             new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id=ok_sensor_id, filename="clip.mp4")),
         ) as mock_post:
             await route.endpoint(sensor_id=ok_sensor_id, body=VideoUploadCompleteInput(filename="clip.mp4"))
@@ -577,7 +577,7 @@ class TestUploadCompleteRoute:
         ).routes[0]
 
         with patch(
-            "vss_agents.api.video_ingest._run_post_upload_processing",
+            "agent.api.video_ingest._run_post_upload_processing",
             new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="clip.mp4")),
         ) as mock_post:
             await route.endpoint(sensor_id="sensor-xyz", body=VideoUploadCompleteInput(filename="clip.mp4"))
@@ -594,7 +594,7 @@ class TestUploadCompleteRoute:
         ).routes[0]
 
         with patch(
-            "vss_agents.api.video_ingest._run_post_upload_processing",
+            "agent.api.video_ingest._run_post_upload_processing",
             new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="clip.mp4")),
         ) as mock_post:
             await route.endpoint(sensor_id="sensor-xyz", body=VideoUploadCompleteInput(filename="clip.mp4"))

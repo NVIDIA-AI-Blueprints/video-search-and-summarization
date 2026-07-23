@@ -18,8 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from vss_agents.api.health_endpoint import HealthEndpointConfig
-from vss_agents.api.health_endpoint import health_endpoint
+from agent.api.health_endpoint import HealthEndpointConfig
+from agent.api.health_endpoint import health_endpoint
 
 
 class TestHealthEndpointConfig:

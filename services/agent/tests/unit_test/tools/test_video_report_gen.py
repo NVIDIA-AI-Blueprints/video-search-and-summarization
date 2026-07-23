@@ -21,16 +21,16 @@ from unittest.mock import patch
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.video_report_gen import TimestampMatch
-from vss_agents.tools.video_report_gen import VideoReportGenInput
-from vss_agents.tools.video_report_gen import VideoReportGenOutput
-from vss_agents.tools.video_report_gen import _convert_markdown_to_pdf
-from vss_agents.tools.video_report_gen import _divide_video_into_chunks
-from vss_agents.tools.video_report_gen import _inject_video_clips
-from vss_agents.tools.video_report_gen import _normalize_chunk_timestamps
-from vss_agents.tools.video_report_gen import _parse_timestamps
-from vss_agents.tools.video_understanding import VideoUnderstandingInput
-from vss_agents.tools.video_understanding import VideoUnderstandingOffsetInput
+from agent.tools.video_report_gen import TimestampMatch
+from agent.tools.video_report_gen import VideoReportGenInput
+from agent.tools.video_report_gen import VideoReportGenOutput
+from agent.tools.video_report_gen import _convert_markdown_to_pdf
+from agent.tools.video_report_gen import _divide_video_into_chunks
+from agent.tools.video_report_gen import _inject_video_clips
+from agent.tools.video_report_gen import _normalize_chunk_timestamps
+from agent.tools.video_report_gen import _parse_timestamps
+from agent.tools.video_understanding import VideoUnderstandingInput
+from agent.tools.video_understanding import VideoUnderstandingOffsetInput
 
 
 class TestTimestampMatch:
@@ -403,9 +403,9 @@ class TestResourcesSectionFormatting:
     async def test_inject_video_clips_enable_audio_passes_disable_audio_false(self):
         """enable_audio=True must request VST clip URLs with disableAudio=false."""
         content = "Event at [5.0s-10.0s] description."
-        with patch("vss_agents.tools.video_report_gen.get_stream_id", new_callable=AsyncMock) as mock_stream:
+        with patch("agent.tools.video_report_gen.get_stream_id", new_callable=AsyncMock) as mock_stream:
             mock_stream.return_value = "stream-1"
-            with patch("vss_agents.tools.video_report_gen.get_video_url", new_callable=AsyncMock) as mock_clip:
+            with patch("agent.tools.video_report_gen.get_video_url", new_callable=AsyncMock) as mock_clip:
                 mock_clip.return_value = "http://vst-internal:30888/vst/storage/temp_files/clip.mp4"
                 result = await _inject_video_clips(
                     content,

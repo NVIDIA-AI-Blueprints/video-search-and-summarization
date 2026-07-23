@@ -12,17 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/data_models/vss.py."""
+"""Tests for agent/data_models/vss.py."""
 
 from datetime import UTC
 from datetime import datetime
 
 import pytest
 
-from vss_agents.data_models.vss import MediaInfoOffset
-from vss_agents.data_models.vss import float_to_int
-from vss_agents.data_models.vss import remove_timezone
-from vss_agents.data_models.vss import timestamp_validator
+from agent.data_models.vss import MediaInfoOffset
+from agent.data_models.vss import float_to_int
+from agent.data_models.vss import remove_timezone
+from agent.data_models.vss import timestamp_validator
 
 
 class TestFloatToInt:

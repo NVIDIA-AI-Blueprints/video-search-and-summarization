@@ -10,7 +10,9 @@ metadata:
     {{- include "elasticsearch.labels" . | nindent 4 }}
     app.kubernetes.io/component: elasticsearch-init
 spec:
-  ttlSecondsAfterFinished: 600
+  {{- with .Values.init.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   backoffLimit: {{ .Values.init.backoffLimit }}
   template:
     metadata:
@@ -42,9 +44,9 @@ spec:
               apk add --no-cache bash curl
               export ES_URL="${ELASTICSEARCH_URL}"
               export ELASTICSEARCH_ILM_MIN_AGE="${ELASTICSEARCH_ILM_MIN_AGE}"
+              export ELASTICSEARCH_ENABLE_EMBEDDINGS="${ELASTICSEARCH_ENABLE_EMBEDDINGS}"
               export ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM="${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM}"
               export ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM="${ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM}"
-              export BP_PROFILE="${BP_PROFILE}"
               bash /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh && \
               bash /opt/mdx/init-scripts/elasticsearch-template-creation.sh && \
               bash /opt/mdx/init-scripts/elasticsearch-ingest-pipeline-creation.sh
@@ -53,12 +55,12 @@ spec:
               value: {{ .Values.init.elasticsearchUrl | default (include "elasticsearch.httpServiceUrl" .) | quote }}
             - name: ELASTICSEARCH_ILM_MIN_AGE
               value: {{ .Values.init.env.ELASTICSEARCH_ILM_MIN_AGE | quote }}
+            - name: ELASTICSEARCH_ENABLE_EMBEDDINGS
+              value: {{ .Values.init.env.ELASTICSEARCH_ENABLE_EMBEDDINGS | quote }}
             - name: ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM
               value: {{ .Values.init.env.ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM | quote }}
             - name: ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM
               value: {{ .Values.init.env.ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM | quote }}
-            - name: BP_PROFILE
-              value: {{ .Values.init.env.BP_PROFILE | quote }}
           volumeMounts:
             - name: scripts
               mountPath: /opt/mdx/init-scripts

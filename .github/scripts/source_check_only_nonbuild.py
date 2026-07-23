@@ -58,7 +58,7 @@ SOURCE_PATHS = {
 #   pyproject.toml, uv.lock, src/, 3rdparty/, docker/*.py and the license
 #   files — so the service-root docs, tests/, stubs/ and CI-metadata files
 #   below never enter the build context. Note the patterns are anchored to the
-#   service root: src/vss_agents/**/README.md IS copied and must NOT be ignored.
+#   service root: src/agent/**/README.md IS copied and must NOT be ignored.
 #
 # vss-agent-ui: services/ui/.dockerignore excludes **/*.md and the
 #   *.test.{js,ts,tsx} / *.spec.{js,ts,tsx} files from the build context, so

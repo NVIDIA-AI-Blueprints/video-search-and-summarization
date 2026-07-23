@@ -21,12 +21,12 @@ from unittest.mock import patch
 
 import pytest
 
-from vss_agents.tools.vst.timeline import get_timeline
-from vss_agents.tools.vst.utils import VSTError
-from vss_agents.tools.vst.utils import delete_vst_sensor
-from vss_agents.tools.vst.utils import delete_vst_storage
-from vss_agents.tools.vst.utils import get_name_to_stream_id_map
-from vss_agents.tools.vst.utils import validate_video_url
+from agent.tools.vst.timeline import get_timeline
+from agent.tools.vst.utils import VSTError
+from agent.tools.vst.utils import delete_vst_sensor
+from agent.tools.vst.utils import delete_vst_storage
+from agent.tools.vst.utils import get_name_to_stream_id_map
+from agent.tools.vst.utils import validate_video_url
 
 # Sample mock data based on real VST server responses
 MOCK_STREAMS_RESPONSE = [
@@ -140,8 +140,8 @@ class TestGetNameToStreamIdMap:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
         ):
             result = await get_name_to_stream_id_map("http://localhost:30888")
 
@@ -157,8 +157,8 @@ class TestGetNameToStreamIdMap:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
         ):
             result = await get_name_to_stream_id_map("http://localhost:30888/")
 
@@ -171,8 +171,8 @@ class TestGetNameToStreamIdMap:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
             pytest.raises(RuntimeError, match="VST streams API returned status 500"),
         ):
             await get_name_to_stream_id_map("http://localhost:30888")
@@ -184,8 +184,8 @@ class TestGetNameToStreamIdMap:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
         ):
             result = await get_name_to_stream_id_map("http://localhost:30888")
 
@@ -202,8 +202,8 @@ class TestGetTimeline:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
         ):
             start_time, end_time = await get_timeline("24c5a7d6-39ce-442e-abf0-430f036b7a3d", "http://localhost:30888")
 
@@ -217,8 +217,8 @@ class TestGetTimeline:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
         ):
             start_time, end_time = await get_timeline(
                 "490bd636-32c3-4bcf-b1a6-f185d359631c", "http://localhost:30888/vst"
@@ -254,8 +254,8 @@ class TestGetTimeline:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
             pytest.raises(VSTError),
         ):
             await get_timeline("non-existent-stream-id", "http://localhost:30888")
@@ -289,8 +289,8 @@ class TestGetTimeline:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
         ):
             # Use sensor name "carryingcomputer_1" which maps to stream ID "24c5a7d6-39ce-442e-abf0-430f036b7a3d"
             start_time, end_time = await get_timeline("carryingcomputer_1", "http://localhost:30888")
@@ -305,8 +305,8 @@ class TestGetTimeline:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
             pytest.raises(VSTError, match="VST timelines API returned status 404"),
         ):
             await get_timeline("stream-id", "http://localhost:30888")
@@ -318,8 +318,8 @@ class TestGetTimeline:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
             patch.dict("os.environ", {"VST_BASE_URL": "http://env-vst:30888"}),
         ):
             start_time, _end_time = await get_timeline("24c5a7d6-39ce-442e-abf0-430f036b7a3d")
@@ -339,7 +339,7 @@ class TestDeleteVSTResources:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
             success, message = await delete_vst_sensor("http://localhost:30888/", "../../camera 1")
 
         assert success is True
@@ -370,7 +370,7 @@ class TestDeleteVSTResources:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
             success, message = await delete_vst_storage("http://localhost:30888/", sensor_id)
 
         assert success is True
@@ -390,7 +390,7 @@ class TestDeleteVSTResources:
         mock_session = create_mock_session(mock_timeline_response)
         mock_session.delete = MagicMock()
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
             success, message = await delete_vst_storage("http://localhost:30888", "stream-1")
 
         assert success is True
@@ -415,7 +415,7 @@ class TestValidateVideoUrl:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
             # Function returns None on success (no exception raised)
             await validate_video_url("http://example.com/video.mp4")
 
@@ -439,7 +439,7 @@ class TestValidateVideoUrl:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
             # The function should not raise and complete successfully
             await validate_video_url("http://example.com/video.mp4")
 
@@ -463,7 +463,7 @@ class TestValidateVideoUrl:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
+            patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
             pytest.raises(VSTError, match="URL validation failed"),
         ):
             await validate_video_url("http://example.com/video.mp4")
@@ -482,7 +482,7 @@ class TestValidateVideoUrl:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
             # Function returns None on success (no exception raised)
             await validate_video_url("http://example.com/video.mp4")
 
@@ -500,7 +500,7 @@ class TestValidateVideoUrl:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
             # Function returns None on success (no exception raised)
             await validate_video_url("http://example.com/video.mp4")
 
@@ -518,7 +518,32 @@ class TestValidateVideoUrl:
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session) as mock_cls:
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session) as mock_cls:
             await validate_video_url("http://example.com/video.mp4", timeout=60)
             # Verify ClientSession was called
             mock_cls.assert_called_once()
+
+
+class TestDeleteVSTSensorIdempotency:
+    """DELETE of an already-absent sensor must count as success.
+
+    VST storage deletion can cascade the sensor registration away before the
+    paired sensor delete runs; a 404 then means the goal state (absent) is
+    already met. Counting it as failure downgrades fully-clean deletions to
+    status "partial" (observed live in the search Harbor eval, run
+    29638556120 step-6).
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_vst_sensor_404_is_success(self):
+        mock_delete_response = create_mock_response(404, "{}")
+        mock_session = MagicMock()
+        mock_session.delete = MagicMock(return_value=mock_delete_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("agent.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session):
+            success, message = await delete_vst_sensor("http://localhost:30888", "gone-already")
+
+        assert success is True
+        assert message == "already absent"
