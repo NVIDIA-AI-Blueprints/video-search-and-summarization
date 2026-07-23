@@ -228,11 +228,6 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         default=None, description="Optional critic agent to verify search results with VLM"
     )
 
-    enable_critic: bool = Field(
-        default=False,
-        description="Configuration flag to enable/disable critic agent at a global level.",
-    )
-
     search_max_iterations: int = Field(
         default=1,
         ge=1,

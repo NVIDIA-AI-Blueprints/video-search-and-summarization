@@ -27,5 +27,10 @@
   and set `--cosmos-embed-model` explicitly.
 - **RTVI-CV text embedding absent:** repair RTVI-CV, or use
   `--allow-embed-only-fallback` only when dropping all attributes is intended.
+- **RT-VLM unavailable or critic results are `unverified`:** resolve the
+  deployment's RT-VLM endpoint and verify `/v1/models`, then inspect
+  `vss-rtvi-vlm` logs. In remote mode, RT-VLM remains local as the media proxy;
+  confirm it uses `openai-compat`, points `RTVI_VLM_ENDPOINT` at the remote
+  endpoint's `/v1`, and advertises the exact configured model name.
 - **Authenticated visual/media route:** use the operator-managed secret workflow; do not pass
   API keys through `vss` or copy a Secret to the host.
