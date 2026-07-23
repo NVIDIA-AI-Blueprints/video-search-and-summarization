@@ -141,6 +141,22 @@ for name in (
 import enhance_alert_with_vlm as eavw  # noqa: E402
 from enhance_alert_with_vlm import AnomalyEnhancer  # noqa: E402
 
+def _bind_real_stage_helpers(stub):
+    for _name in (
+        '_prepare_message_context', '_resolve_video_url', '_transform_video_urls',
+        '_handle_media_collection_failure', '_handle_url_validation_failure',
+        '_apply_vlm_response', '_apply_vlm_parse_failure',
+        '_publish_outcome_and_complete', '_handle_vlm_exception',
+        '_apply_vlm_exception', '_log_vlm_exception',
+    ):
+        setattr(stub, _name, getattr(AnomalyEnhancer, _name).__get__(stub))
+    for _name in (
+        '_classify_vst_failure', '_classify_vst_failure_reason',
+        '_classify_pre_processing_failure', '_extract_root_cause',
+    ):
+        setattr(stub, _name, getattr(AnomalyEnhancer, _name))
+
+
 # Import the REAL dispatch mixin once at module top — after the
 # ``sys.modules.pop`` above — so later tests inside this file don't
 # re-trigger an import that might hit a stub left by a sibling test
@@ -161,6 +177,7 @@ class TestProcessSingleMessageUsesSuppliedStamp:
 
     def _make_stub(self):
         stub = Mock(spec=AnomalyEnhancer)
+        _bind_real_stage_helpers(stub)
         # Skip every downstream side-effect: early-skip path handles
         # C9 counter and then returns. We reach into the no-prompt
         # branch by flipping skip=False — simplest setup.
@@ -175,6 +192,8 @@ class TestProcessSingleMessageUsesSuppliedStamp:
         supplied = "2025-01-01T00:00:05.123456+00:00"
 
         stub = Mock(spec=AnomalyEnhancer)
+
+        _bind_real_stage_helpers(stub)
         stub._set_message_id_and_should_skip = Mock(return_value=False)
         stub.prompt_manager = Mock()
         stub.prompt_manager.get_prompts_for_message.return_value = (None, None)
@@ -208,6 +227,7 @@ class TestProcessSingleMessageUsesSuppliedStamp:
         path, test harnesses) the function stamps its own timestamp so
         the latency dict always has a value."""
         stub = Mock(spec=AnomalyEnhancer)
+        _bind_real_stage_helpers(stub)
         stub._set_message_id_and_should_skip = Mock(return_value=False)
         stub.prompt_manager = Mock()
         stub.prompt_manager.get_prompts_for_message.return_value = (None, None)
@@ -245,6 +265,7 @@ class TestProcessBatchVlmThreadsStampDown:
 
     def test_stamp_forwarded_to_process_single_message_with_mode(self, monkeypatch):
         stub = Mock(spec=AnomalyEnhancer)
+        _bind_real_stage_helpers(stub)
         stub.config = {
             'alert_agent': {'verify_only_finished_events': False},
         }

@@ -126,6 +126,7 @@ VLM_NAME=<model-name-served-there>
 RTVI_VLM_ENDPOINT=<remote-endpoint>/v1                   # WITH /v1 — RT-VLM-specific
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
+RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=5
 NVIDIA_API_KEY=<key if required>
 ```
 
@@ -189,6 +190,7 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 - **RT-VLM AND LVS image tags must match the CPU platform.** x86 and Jetson Thor platforms, including AGX/IGX Thor, use the non-sbsa tags: `RTVI_VLM_IMAGE_TAG=3.2.1` (`nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1`) and `LVS_TAG=3.2.1` (`nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1`). SBSA server-ARM platforms, including DGX Spark and Grace, use the sbsa tags: `RTVI_VLM_IMAGE_TAG=3.2.1-sbsa` (`nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa`) and `LVS_TAG=3.2.1-sbsa` (`nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1-sbsa`). LLM-side, follow `edge.md`: DGX Spark uses the standalone DGX Spark Nano 9B NIM, while AGX/IGX Thor still uses the Edge 4B fallback.
 - **Don't co-deploy a standalone Cosmos NIM with RT-VLM.** Standalone `vlm_local_*_cosmos3-reasoner` or any other `vlm_local_*_<slug>` profile must NOT be active for LVS. Verify by checking that `resolved.yml` doesn't have the default standalone `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu` services, or any other standalone VLM NIM service, alongside `rtvi-vlm`.
 - **`VLM_MODE=remote` ⇒ `RTVI_VLM_MODEL_PATH=none`.** Forgetting this leaves RT-VLM trying to load weights AND proxy at the same time → startup hang or OOM.
+- **Remote openai-compat frame sampling defaults to five fixed frames per chunk in Docker.** The Docker deployment writes `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=5` for remote LVS unless that environment variable has an explicit value. Override the deployment default for endpoints with a different image prompt limit. Leave the Docker variable empty for integrated/local models unless their documented capability requires an override. LVS summarize requests should omit request-level frame sampling fields so they cannot override the deployment policy.
 - **`/v1` suffix mismatch.** `VLM_BASE_URL` no `/v1`; `RTVI_VLM_ENDPOINT` yes `/v1`. The skill should always write both consistently when going remote.
 
 ## Key capabilities

@@ -57,6 +57,11 @@ if PROMETHEUS_ENABLED:
         DEDUP_CACHE_OCCUPANCY,
         E2E_DURATION,
         E2E_DURATION_BY_SENSOR,
+        CAPACITY_WAIT_DURATION,
+        DISPATCH_IN_FLIGHT,
+        DISPATCH_WAIT_DURATION,
+        EVENT_LOOP_VLM_IN_FLIGHT,
+        EVENT_LOOP_VST_IN_FLIGHT,
         EVENTS_AFTER_DEDUP,
         EVENTS_AFTER_DEDUP_BY_SENSOR,
         EVENTS_DROPPED,
@@ -502,12 +507,15 @@ def observe_pipeline_latency(
     kafka_con     = timestamps.get("kafkaConsumedAt")  or timestamps.get("kafka_consumed_at")
     worker_asgn   = timestamps.get("workerAssignedAt") or timestamps.get("worker_assigned_at")
     elastic_ready = timestamps.get("elasticReadyAt")   or timestamps.get("elastic_ready_at")
+    task_disp     = timestamps.get("taskDispatchedAt") or timestamps.get("task_dispatched_at")
+    task_start    = timestamps.get("taskStartedAt")    or timestamps.get("task_started_at")
     event_end = message.get("end")
     sensor_id = message.get("sensorId")
 
     upstream = iso_delta_seconds(event_end, kafka_pub)
     kafka_lag = iso_delta_seconds(kafka_pub, kafka_con)
     queue_wait = iso_delta_seconds(kafka_con, worker_asgn)
+    dispatch_wait = iso_delta_seconds(task_disp, task_start)
     e2e = iso_delta_seconds(event_end, elastic_ready)
 
     _observe(UPSTREAM_DURATION, upstream)
@@ -516,6 +524,7 @@ def observe_pipeline_latency(
     _observe_by_sensor(KAFKA_LAG_DURATION_BY_SENSOR, kafka_lag, sensor_id)
     _observe(WORKER_QUEUE_WAIT_DURATION, queue_wait)
     _observe_by_sensor(WORKER_QUEUE_WAIT_DURATION_BY_SENSOR, queue_wait, sensor_id)
+    _observe(DISPATCH_WAIT_DURATION, dispatch_wait)
     _observe(E2E_DURATION, e2e)
     _observe_by_sensor(E2E_DURATION_BY_SENSOR, e2e, sensor_id)
 
@@ -625,6 +634,40 @@ def inc_async_dispatch_fallback(reason: str) -> None:
         operation="dispatch_message",
         reason=reason,
     ).inc()
+
+
+def set_dispatch_in_flight(count: int) -> None:
+    """Set the live count of in-flight dispatched messages."""
+    if not PROMETHEUS_ENABLED:
+        return
+    DISPATCH_IN_FLIGHT.set(max(0, count))
+
+
+def observe_capacity_wait(service: str, seconds: float) -> None:
+    """Record time spent waiting for a per-service concurrency slot."""
+    if not PROMETHEUS_ENABLED:
+        return
+    CAPACITY_WAIT_DURATION.labels(service=service).observe(max(0.0, seconds))
+
+
+def inc_capacity_in_flight(service: str) -> None:
+    """Increment the per-service in-flight gauge (capacity slot acquired)."""
+    if not PROMETHEUS_ENABLED:
+        return
+    if service == "vlm":
+        EVENT_LOOP_VLM_IN_FLIGHT.inc()
+    elif service == "vst":
+        EVENT_LOOP_VST_IN_FLIGHT.inc()
+
+
+def dec_capacity_in_flight(service: str) -> None:
+    """Decrement the per-service in-flight gauge (capacity slot released)."""
+    if not PROMETHEUS_ENABLED:
+        return
+    if service == "vlm":
+        EVENT_LOOP_VLM_IN_FLIGHT.dec()
+    elif service == "vst":
+        EVENT_LOOP_VST_IN_FLIGHT.dec()
 
 
 def inc_events_skipped_confirmed(message=None) -> None:

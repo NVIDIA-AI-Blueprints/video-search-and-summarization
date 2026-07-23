@@ -520,24 +520,36 @@ class TestSplitAicityMtmcWithExplicitClassTable:
 
 
 class TestWeightedAverage:
-    """``_weighted_average`` drops missing keys instead of zeroing them."""
+    """``_weighted_average`` scores scenes missing from *values* as 0 over
+    the full GT-weighted evaluation set (regression guard for the
+    missing-warehouse leaderboard bug)."""
 
     def test_intersects_keys_and_normalizes(self):
-        """Final = sum(w_i * v_i) / sum(w_i) over keys present in both."""
+        """Final = sum(w_i * v_i) / sum(w_i) when every scene has a value."""
         weights = {"a": 100, "b": 200, "c": 700}
         values = {"a": 0.5, "b": 0.25, "c": 0.1}
         # 100*0.5 + 200*0.25 + 700*0.1 = 170; / 1000 = 0.17
         assert _weighted_average(weights, values) == pytest.approx(0.17)
 
-    def test_missing_value_keys_excluded_not_zeroed(self):
-        """A scene missing from *values* must not pull the mean toward zero."""
+    def test_missing_value_keys_scored_as_zero(self):
+        """A scene present in the GT weights but missing from *values*
+        (e.g. a warehouse omitted from the submission) must count as 0
+        with its full weight, NOT be dropped from the mean — otherwise a
+        partial submission could out-score a complete one."""
         weights = {"a": 100, "b": 200}
-        values = {"a": 0.5}  # 'b' has weight but no value
-        # Only key 'a' participates: 100*0.5 / 100 = 0.5.
-        assert _weighted_average(weights, values) == pytest.approx(0.5)
+        values = {"a": 0.5}  # 'b' has GT weight but no predicted value
+        # Full denominator (100 + 200); 'b' contributes 0:
+        #   (100*0.5 + 200*0.0) / 300 = 0.1666...
+        assert _weighted_average(weights, values) == pytest.approx(50.0 / 300.0)
 
-    def test_empty_intersection_returns_zero(self):
-        assert _weighted_average({"a": 1}, {"b": 0.5}) == 0.0
+    def test_all_scenes_missing_returns_zero(self):
+        """No scored scene at all -> 0 (full denominator, zero numerator)."""
+        assert _weighted_average({"a": 1, "b": 2}, {}) == 0.0
+
+    def test_zero_total_weight_returns_zero(self):
+        """A degenerate all-zero-weight set (e.g. every scene truncated to
+        0 GT rows) returns 0 without dividing by zero."""
+        assert _weighted_average({"a": 0, "b": 0}, {"a": 0.9}) == 0.0
 
 
 # ---------------------------------------------------------------------------
