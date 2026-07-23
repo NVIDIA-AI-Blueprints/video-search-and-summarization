@@ -12,8 +12,8 @@ metadata:
 
 ## References
 
-- [`references/composition.md`](references/composition.md) — delta-profile rules, Foundation selection, artifact contract, and validation.
-- [`references/deployment.md`](references/deployment.md) — shared stock and delta deployment lifecycle.
+- [`references/composition.md`](references/composition.md) — delta-profile rules, Foundation selection, build artifact contract, resolution, and validation.
+- [`references/deployment.md`](references/deployment.md) — resolved Compose deployment lifecycle.
 - [`references/profiles/`](references/profiles/) — current developer profile capabilities, exact service sets, owner mappings, knobs, readiness checks, and sources.
 - [`references/services/`](references/services/) — capability-owner contracts for service keys, required peers, configurable environment knobs, and sources.
 
@@ -35,6 +35,6 @@ metadata:
 3. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
 4. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Foundation’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs.
 5. Before writing delta artifacts or starting a stock or delta deployment, present a compact architecture diagram in the conversation. Show the Foundation, added and removed capability owners and service keys, principal data flows and topics, external endpoints, and GPU/model placement. Do not save the diagram as a build artifact.
-6. In delta mode, write `_builds/<name>/overrides.env`. Write `_builds/<name>/compose.override.yml` only for a genuinely new service or a changed service definition. Treat `<name>` only as a filesystem label; never add it to `COMPOSE_PROFILES`.
-7. Validate the selected keys, env layering, resolved services, required peers, and requested success checks. Use the stock dry run in `references/deployment.md` or the delta checks in `references/composition.md`.
-8. If deployment was requested, follow `references/deployment.md` with the same Foundation and delta artifacts used during validation.
+6. For every stock or delta build, write `_builds/<name>/override.env`, `_builds/<name>/compose.yml`, and `_builds/<name>/resolved.yml`. Put the Foundation, the full effective `COMPOSE_PROFILES`, and every customized environment value in `override.env`. Make `compose.yml` include the root `deploy/docker/compose.yml` plus only changed or new service Compose files, if any. Treat `<name>` only as a filesystem label; never add it to `COMPOSE_PROFILES`.
+7. Generate `resolved.yml` with `docker compose config` using the ordered env layers in `references/composition.md`, normalize dangling optional dependencies with `scripts/normalize_resolved_yml.py`, then validate the selected keys, fully resolved environment, services, images, required peers, and requested success checks against that exact file.
+8. If deployment was requested, deploy the exact `_builds/<name>/resolved.yml` validated in the previous step and follow `references/deployment.md` for readiness and teardown.

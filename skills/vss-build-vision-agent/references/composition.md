@@ -4,6 +4,7 @@
 - [Select the foundation](#select-the-foundation)
 - [Compute the delta](#compute-the-delta)
 - [Artifact contract](#artifact-contract)
+- [Resolve](#resolve)
 - [Validate](#validate)
 - [Sources](#sources)
 
@@ -11,9 +12,9 @@
 
 A Foundation is one reviewed, current developer profile selected as the closest
 starting point for a request. A Delta Profile is the smallest environment and
-optional Compose overlay applied to exactly one Foundation. The Foundation
-remains in place; the delta does not copy its `.env`, `overrides.env`, Compose
-files, configs, or skill bundle.
+optional Compose service-definition patch applied to exactly one Foundation.
+The Foundation remains in place; the delta does not copy its `.env`,
+`overrides.env`, Compose files, configs, or skill bundle.
 
 Current Foundations:
 
@@ -61,72 +62,121 @@ Service activation alone is never a Compose-definition change.
 
 ## Artifact contract
 
-Write only:
+Always write:
 
 ```text
 _builds/<name>/
-├── overrides.env
-└── compose.override.yml   # optional
+├── override.env
+├── compose.yml
+├── resolved.yml
+└── patches/               # optional; changed or new services only
 ```
 
 `<name>` is a filesystem label supplied by the user or a neutral description of
 the requested build. It is never a Compose profile.
 
-`overrides.env` contains:
+`override.env` contains:
 
-1. `BASE_PROFILE=<base|alerts|lvs|search>` naming the Foundation for current tooling compatibility.
+1. `FOUNDATION=<base|alerts|lvs|search>`.
 2. The full effective `COMPOSE_PROFILES` after additions and removals.
-3. Only environment values that differ from the Foundation.
+3. Every customized environment value. Do not repeat unchanged Foundation
+   defaults.
 
-Do not write secrets unless the user explicitly requests a local deploy file;
-prefer exported shell variables for credentials. `_builds/` is gitignored.
+`compose.yml` is the build entrypoint. With no service-definition changes:
 
-Create `compose.override.yml` only when:
+```yaml
+include:
+  - path:
+      - ../../deploy/docker/compose.yml
+```
+
+When a service definition must change, append its patch after the root Compose
+file:
+
+```yaml
+include:
+  - path:
+      - ../../deploy/docker/compose.yml
+      - ./patches/<service>.yml
+```
+
+The ordered `path` list merges the patch into the included root model before
+including it in the build. Use Docker Compose 2.20.3 or newer.
+
+Create a file under `patches/` only when:
 
 - a requested service does not exist in the root Compose graph; or
 - an existing service definition must change in a way Compose env interpolation
   cannot express.
 
-An override may contain only the changed or new `services:` entries. Reuse the
+A patch may contain only the changed or new `services:` entries. Reuse the
 canonical service key. Do not copy unchanged services, volumes, networks, or
-profile files.
+profile files. Add multiple patch paths after the root file when multiple
+service definitions change.
 
-## Validate
+`resolved.yml` is the fully interpolated output of `docker compose config`.
+Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
+effective service set and its dependencies are serialized. Normalization then
+removes their now-redundant service profile gates. It is the exact, standalone
+Compose model used directly for validation, deployment, readiness, and teardown.
+
+All three primary files are required in stock and delta mode. `_builds/` is
+gitignored because `override.env` and `resolved.yml` can contain credentials.
+Keep them local and never commit them.
+
+## Resolve
 
 From the repository root:
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
-FOUNDATION="$(sed -n 's/^BASE_PROFILE=//p' "$REPO/_builds/<name>/overrides.env")"
-FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 BUILD_DIR="$REPO/_builds/<name>"
+FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
+FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 
-compose_args=(
+env_args=(
   --env-file "$REPO/deploy/docker/containers.env"
   --env-file "$FOUNDATION_DIR/.env"
   --env-file "$FOUNDATION_DIR/overrides.env"
-  --env-file "$BUILD_DIR/overrides.env"
-  -f "$REPO/deploy/docker/compose.yml"
+  --env-file "$BUILD_DIR/override.env"
 )
-[ ! -f "$BUILD_DIR/compose.override.yml" ] ||
-  compose_args+=(-f "$BUILD_DIR/compose.override.yml")
 
-docker compose "${compose_args[@]}" config --quiet
-docker compose "${compose_args[@]}" config --services
-docker compose "${compose_args[@]}" config --images
+docker compose "${env_args[@]}" \
+  -f "$BUILD_DIR/compose.yml" \
+  config --no-consistency > "$BUILD_DIR/resolved.yml"
+
+uv run "$REPO/skills/vss-build-vision-agent/scripts/normalize_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml"
+```
+
+The env layers are ordered from broad defaults to build-specific customization;
+later values override earlier values. Regenerate `resolved.yml` whenever
+`override.env`, `compose.yml`, a patch, or a Foundation source changes.
+Normalization removes only optional dependency references to services omitted
+by profile filtering, then removes service profile gates from the already
+filtered model. It fails rather than remove a missing required dependency.
+
+## Validate
+
+```bash
+BUILD_DIR="$REPO/_builds/<name>"
+
+docker compose -f "$BUILD_DIR/resolved.yml" config --quiet
+docker compose -f "$BUILD_DIR/resolved.yml" config --services
+docker compose -f "$BUILD_DIR/resolved.yml" config --images
 ```
 
 Then verify:
 
-- `BASE_PROFILE` names one current developer profile as the Foundation.
+- `FOUNDATION` names one current developer profile.
 - Every `COMPOSE_PROFILES` token exists in the current Compose graph after env
   interpolation.
 - The resolved service list is non-empty.
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
-- No unrequested service definition is present in `compose.override.yml`.
-- The resolved configuration contains no unresolved `${...}` value required by
-  a selected service.
+- No unrequested service definition is present in a patch.
+- `resolved.yml` contains no unresolved `${...}` interpolation and every
+  selected service's environment is filled in.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 

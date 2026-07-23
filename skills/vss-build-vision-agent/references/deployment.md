@@ -1,26 +1,7 @@
 # Deployment
 
-## Stock mode
-
-Use the checked-in helper for an unchanged developer profile:
-
-```bash
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile <base|alerts|lvs|search> \
-  --hardware-profile <hardware> \
-  --dry-run
-
-# After reviewing the dry run:
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile <base|alerts|lvs|search> \
-  --hardware-profile <hardware>
-```
-
-For alerts, also select the requested verification or real-time mode using the
-helper's current `--mode` option. Inspect `dev-profile.sh --help` for model,
-endpoint, device, and dry-run flags; do not guess flags from memory.
-
-Before running:
+Use the same build artifacts and resolved Compose lifecycle for stock and delta
+builds. Before resolving:
 
 - confirm Docker, the NVIDIA runtime, and the requested GPUs are available;
 - export `NGC_CLI_API_KEY` for local NVIDIA images/models;
@@ -28,48 +9,67 @@ Before running:
 - set or confirm host paths and browser-reachable ingress values;
 - check the selected profile reference for stock-specific knobs and readiness.
 
-## Delta mode
+## Resolve
 
-Use the same four env layers used for composition validation. Never copy or edit
-the Foundation files.
+Never copy or edit the Foundation files. Generate the exact deployment model
+from the root Compose graph, optional changed-service patches, and four ordered
+env layers:
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
-FOUNDATION="$(sed -n 's/^BASE_PROFILE=//p' "$BUILD_DIR/overrides.env")"
+FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
 FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 
-compose_args=(
+env_args=(
   --env-file "$REPO/deploy/docker/containers.env"
   --env-file "$FOUNDATION_DIR/.env"
   --env-file "$FOUNDATION_DIR/overrides.env"
-  --env-file "$BUILD_DIR/overrides.env"
-  -f "$REPO/deploy/docker/compose.yml"
+  --env-file "$BUILD_DIR/override.env"
 )
-[ ! -f "$BUILD_DIR/compose.override.yml" ] ||
-  compose_args+=(-f "$BUILD_DIR/compose.override.yml")
 
-docker compose "${compose_args[@]}" config --quiet
-docker compose "${compose_args[@]}" config --services
-docker compose "${compose_args[@]}" config --images
-docker compose "${compose_args[@]}" up -d
+docker compose "${env_args[@]}" \
+  -f "$BUILD_DIR/compose.yml" \
+  config --no-consistency > "$BUILD_DIR/resolved.yml"
+
+uv run "$REPO/skills/vss-build-vision-agent/scripts/normalize_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml"
 ```
 
-Do not deploy until the resolved services, images, GPU placement, model
-endpoints, public ingress, and requested capability checks have been reviewed.
-If the user explicitly requested autonomous execution, the request itself is
-the approval to continue.
+## Review and deploy
+
+Validate and review the exact standalone file that will be deployed:
+
+```bash
+docker compose -f "$BUILD_DIR/resolved.yml" config --quiet
+docker compose -f "$BUILD_DIR/resolved.yml" config --services
+docker compose -f "$BUILD_DIR/resolved.yml" config --images
+```
+
+Confirm the resolved services, fully filled environment, images, GPU placement,
+model endpoints, public ingress, and requested capability checks. Then deploy
+that exact file:
+
+```bash
+docker compose -f "$BUILD_DIR/resolved.yml" up -d
+```
+
+`COMPOSE_PROFILES` has already filtered the source graph during resolution.
+Normalization removes the remaining service profile gates, so no Foundation
+env file or profile flag is needed at deployment time.
 
 ## Readiness
 
 First require a non-empty expected service list and acceptable container states:
 
 ```bash
-expected="$(docker compose "${compose_args[@]}" config --services | wc -l)"
-actual="$(docker compose "${compose_args[@]}" ps --all -q | wc -l)"
+resolved_args=(-f "$BUILD_DIR/resolved.yml")
+
+expected="$(docker compose "${resolved_args[@]}" config --services | wc -l)"
+actual="$(docker compose "${resolved_args[@]}" ps --all -q | wc -l)"
 [ "$expected" -gt 0 ] && [ "$actual" -ge "$expected" ]
 
-if docker compose "${compose_args[@]}" ps --all --format json |
+if docker compose "${resolved_args[@]}" ps --all --format json |
    jq -e 'select((.State == "running" or
                   (.State == "exited" and .ExitCode == 0)) | not)' >/dev/null
 then
@@ -85,10 +85,10 @@ deployment successful.
 
 ## Stop
 
-Use the same `compose_args`:
+Use the same resolved model:
 
 ```bash
-docker compose "${compose_args[@]}" down
+docker compose -f "$BUILD_DIR/resolved.yml" down
 ```
 
 Do not remove volumes unless the user explicitly requests data deletion.
@@ -96,7 +96,6 @@ Do not remove volumes unless the user explicitly requests data deletion.
 ## Sources
 
 - `deploy/docker/README.md`
-- `deploy/docker/scripts/dev-profile.sh`
 - `deploy/docker/compose.yml`
 - `deploy/docker/containers.env`
 - `deploy/docker/developer-profiles/dev-profile-*/.env`
