@@ -54,7 +54,9 @@ class TestLLMJudgeMetricInit:
     def test_missing_prompt_raises(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test"
-        with patch("vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
+        with patch(
+            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
+        ):
             with patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -65,7 +67,9 @@ class TestLLMJudgeMetricInit:
     def test_valid_init(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
-        with patch("vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
+        with patch(
+            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
+        ):
             with patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -81,24 +85,28 @@ class TestLLMJudgeMetricInit:
     def test_with_thinking_tag(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
-        with patch(
-            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag",
-            return_value="<thinking>",
-        ):
-            with patch(
+        with (
+            patch(
+                "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag",
+                return_value="<thinking>",
+            ),
+            patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={"thinking": True},
-            ):
-                metric = LLMJudgeMetric(
-                    llm=mock_llm,
-                    single_field_comparison_prompt="Compare {field_context} ref: {reference} act: {actual}",
-                )
-                assert metric.thinking_tag == "<thinking>"
+            ),
+        ):
+            metric = LLMJudgeMetric(
+                llm=mock_llm,
+                single_field_comparison_prompt="Compare {field_context} ref: {reference} act: {actual}",
+            )
+            assert metric.thinking_tag == "<thinking>"
 
     def test_with_multi_field_prompt(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
-        with patch("vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
+        with patch(
+            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
+        ):
             with patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -118,7 +126,9 @@ class TestLLMJudgeMetricEvaluate:
     def mock_metric(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
-        with patch("vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
+        with patch(
+            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
+        ):
             with patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -168,7 +178,9 @@ class TestLLMJudgeMetricInvokeLLM:
     def mock_metric(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
-        with patch("vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
+        with patch(
+            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
+        ):
             with patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -215,7 +227,9 @@ class TestLLMJudgeMetricFieldDiscovery:
     def mock_metric(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
-        with patch("vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
+        with patch(
+            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
+        ):
             with patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -237,7 +251,9 @@ class TestLLMJudgeMetricFieldDiscovery:
     async def test_missing_multi_field_prompt_raises(self):
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
-        with patch("vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None):
+        with patch(
+            "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_thinking_tag", return_value=None
+        ):
             with patch(
                 "vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge.get_llm_reasoning_bind_kwargs",
                 return_value={},

@@ -578,13 +578,15 @@ async def test_include_subset_exposes_only_requested_tools(tmp_path: Path):
 async def test_startup_bootstrap_failure(tmp_path: Path):
     config = _make_orchestrator_config(tmp_path)
     builder = MagicMock()
-    with patch(
-        "vss_agents.orchestrator.tools.ensure_data_directories",
-        side_effect=RuntimeError("permission denied"),
+    with (
+        patch(
+            "vss_agents.orchestrator.tools.ensure_data_directories",
+            side_effect=RuntimeError("permission denied"),
+        ),
+        pytest.raises(RuntimeError, match="Startup directory bootstrap failed"),
     ):
-        with pytest.raises(RuntimeError, match="Startup directory bootstrap failed"):
-            async with vss_orchestrator(config, builder):
-                pass
+        async with vss_orchestrator(config, builder):
+            pass
 
 
 @pytest.mark.asyncio

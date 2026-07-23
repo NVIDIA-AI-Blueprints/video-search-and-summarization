@@ -21,8 +21,8 @@ import os
 import tarfile
 import time
 
-from vss_agents.tools.code_executor.docker_backend.image_builder import ImageBuilder
 import docker
+from vss_agents.tools.code_executor.docker_backend.image_builder import ImageBuilder
 
 logger = logging.getLogger(__name__)
 

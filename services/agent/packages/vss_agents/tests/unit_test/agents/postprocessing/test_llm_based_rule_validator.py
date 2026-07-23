@@ -58,7 +58,9 @@ class TestLLMBasedRuleValidatorValidate:
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(return_value=llm_output)
 
         with (
-            patch("vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""),
+            patch(
+                "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""
+            ),
             patch(
                 "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -75,7 +77,9 @@ class TestLLMBasedRuleValidatorValidate:
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(return_value=llm_output)
 
         with (
-            patch("vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""),
+            patch(
+                "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""
+            ),
             patch(
                 "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -94,7 +98,9 @@ class TestLLMBasedRuleValidatorValidate:
         structured.ainvoke = AsyncMock(side_effect=[OutputParserException("parse error"), llm_output])
 
         with (
-            patch("vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""),
+            patch(
+                "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""
+            ),
             patch(
                 "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -112,7 +118,9 @@ class TestLLMBasedRuleValidatorValidate:
         structured.ainvoke = AsyncMock(side_effect=OutputParserException("parse error"))
 
         with (
-            patch("vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""),
+            patch(
+                "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""
+            ),
             patch(
                 "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -130,7 +138,9 @@ class TestLLMBasedRuleValidatorValidate:
         structured.ainvoke = AsyncMock(side_effect=RuntimeError("unexpected"))
 
         with (
-            patch("vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""),
+            patch(
+                "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""
+            ),
             patch(
                 "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_llm_reasoning_bind_kwargs",
                 return_value={},
@@ -149,7 +159,9 @@ class TestLLMBasedRuleValidatorValidate:
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(return_value=llm_output)
 
         with (
-            patch("vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""),
+            patch(
+                "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_thinking_tag", return_value=""
+            ),
             patch(
                 "vss_agents.agents.postprocessing.validators.llm_based_rule_validator.get_llm_reasoning_bind_kwargs",
                 return_value={},

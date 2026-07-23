@@ -140,14 +140,15 @@ dev = [
 
 [tool.ruff]
 line-length = 120
-select = ["E", "F", "I", "N", "W", "B", "C4", "UP", "ARG", "SIM", "TCH", "Q", "RUF"]
-
-[tool.ruff.per-file-ignores]
-"__init__.py" = ["F401"]
-"tests/*" = ["ARG001", "ARG002", "SIM117", "B017"]
 
 [tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "C4", "UP", "ARG", "SIM", "TCH", "Q", "RUF"]
 ignore = ["E501", "W505", "SIM108", "B024"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+# Tests at any depth (packages/<dist>/tests/**); mock args + nested `with`.
+"**/tests/**" = ["ARG001", "ARG002", "SIM117", "B017"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -157,10 +158,10 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-[tool.ruff.pycodestyle]
+[tool.ruff.lint.pycodestyle]
 max-doc-length = 120
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 force-sort-within-sections = true
 known-first-party = ["vss_core", "vss_cli", "vss_agents"]
 known-third-party = ["langchain", "llama_index", "crewai", "semantic_kernel", "mem0ai", "zep_cloud"]
