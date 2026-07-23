@@ -234,15 +234,7 @@ class BrevEnvironment(BaseEnvironment):
             self._instance_name,
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            # Use trailing slashes on /logs/ /tests/ etc. because /logs is a
-            # symlink on pool boxes (-> /opt/dlami/nvme/logs); without the
-            # trailing slash `chown -R` changes only the symlink itself and
-            # never traverses into the target directory, leaving freshly-created
-            # subdirs (verifier/, artifacts/) owned by root — which makes the
-            # verifier crash with PermissionError when it tries to write
-            # reward.txt (observed: every trial on g7e fleet since the symlink
-            # was introduced).
-            "sudo chown -R $(whoami):$(id -gn) /logs/ /tests/ /solution/ /skills/",
+            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
         # Fail loud: this is the load-bearing artifacts wipe. A silent failure
