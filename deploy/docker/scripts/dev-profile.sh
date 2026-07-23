@@ -1380,7 +1380,7 @@ function state_up() {
   elif [[ -n "${vlm}" ]]; then
     set_env_var "VLM_NAME_SLUG" "$(get_vlm_slug "${vlm}")"
     if [[ "${vlm}" == "nvidia/cosmos3-reasoner" ]]; then
-      local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value "${_source_env}" "NIM_MODEL_SIZE")}"
+      local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value_from_files "NIM_MODEL_SIZE" "${_source_env}" "${_overrides_env}")}"
       _nim_model_size="${_nim_model_size:-nano}"
       set_env_var "VLM_NAME" "nvidia/cosmos3-${_nim_model_size}-reasoner"
     else
@@ -1717,14 +1717,19 @@ function state_up() {
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
   else
-    cd "${deployment_directory}" && docker compose \
-      --env-file containers.env \
-      --env-file "developer-profiles/dev-profile-${profile}/.env" \
-      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
-      up \
-      --detach \
-      --force-recreate \
-      --build
+    if ! (
+      cd "${deployment_directory}" && docker compose \
+        --env-file containers.env \
+        --env-file "developer-profiles/dev-profile-${profile}/.env" \
+        --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+        up \
+        --detach \
+        --force-recreate \
+        --build
+    ); then
+      echo "[ERROR] docker compose up failed for developer profile '${profile}'"
+      return 1
+    fi
   fi
 
   echo "[INFO] State up completed"
