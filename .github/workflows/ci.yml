@@ -134,6 +134,33 @@ jobs:
             -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}" \
             $YAML_FILES
 
+  codec-installer-test:
+    name: Validate codec artifacts
+    needs: prepare-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Validate codec installers
+        run: |
+          EMBED_INSTALLER=services/rtvi/rt-embed/src/scripts/install_codecs_nonroot.sh
+          VLM_INSTALLER=services/rtvi/rt-vlm/src/scripts/install_codecs_nonroot.sh
+          bash -n "$EMBED_INSTALLER"
+          bash -n "$VLM_INSTALLER"
+          cmp "$EMBED_INSTALLER" "$VLM_INSTALLER"
+          CODEC_VALIDATE_ONLY=true bash "$EMBED_INSTALLER"
+          CODEC_VALIDATE_ONLY=true CODEC_DEB_ARCH=arm64 bash "$EMBED_INSTALLER"
+
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)
   # ---------------------------------------------------------------------------
@@ -910,6 +937,7 @@ jobs:
     needs:
       - prepare-source
       - lint
+      - codec-installer-test
       - typecheck
       - security
       - frontend-lint
