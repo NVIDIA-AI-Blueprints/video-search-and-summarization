@@ -53,7 +53,7 @@ init:
   nodeSelector: {}
   image:
     repository: alpine
-    tag: "3.23.4"
+    tag: "3.23.5"
     pullPolicy: IfNotPresent
   backoffLimit: 10
   ttlSecondsAfterFinished: null
