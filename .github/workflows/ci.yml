@@ -936,6 +936,7 @@ jobs:
     needs:
       - prepare-source
       - lint
+      - codec-installer-test
       - typecheck
       - security
       - frontend-lint
