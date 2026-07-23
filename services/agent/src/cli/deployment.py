@@ -289,6 +289,10 @@ def discover_docker_host_endpoints(profile: str) -> dict[str, str]:
         "agent_url": f"http://127.0.0.1:{_env_port(env, 'VSS_AGENT_HOST_PORT', default=8000)}",  # NOSONAR
         "vst_url": f"http://127.0.0.1:{_env_port(env, 'VST_INGRESS_HOST_PORT', 'VST_PORT', default=30888)}",  # NOSONAR
         "es_url": f"http://127.0.0.1:{_env_port(env, 'ELASTICSEARCH_HOST_PORT', default=9200)}",  # NOSONAR
+        # RT-VLM proxy: host-published loopback port (compose DNS rtvi-vlm:8000 is
+        # not reachable from the host, where this CLI runs). Keyed on RTVI_VLM_PORT
+        # only — VLM_PORT is the separate Cosmos VLM NIM, not the RT-VLM proxy.
+        "rtvi_vlm_url": f"http://127.0.0.1:{_env_port(env, 'RTVI_VLM_PORT', default=8018)}",  # NOSONAR
     }
 
 

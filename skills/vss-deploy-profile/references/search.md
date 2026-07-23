@@ -4,24 +4,25 @@ Profile: `search` | Blueprint: `bp_developer_search` | Mode: `2d`
 
 > **Alpha feature** — not recommended for production.
 
-Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. The Search workflow uses an optional **Critique agent** that re-checks retrieval results — this requires a VLM endpoint (local or remote).
+Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. RT-VLM is always part of the search profile: it serves the optional **Critique agent** and the always-available `video_understanding` tool. Critic verification is controlled per request with `use_critic`.
 
 ## What's different from `base` and `lvs`
 
-- **Three always-on GPU services:** `rtvi-cv` (DeepStream perception), `rtvi-embed` (Cosmos Embed1 embeddings), and the **LLM**. There is no Cosmos VLM NIM in the default LVS-style integrated path; the VLM is only deployed when the Critique agent needs it.
-- **Critique agent needs a VLM.** If the user enables Critique (default in the UI: `use_critic=true`), the deploy must provide a reachable VLM endpoint — either remote or co-located on the available GPUs.
-- **LLM shares its GPU with RT-Embed by default.** Reference profile defaults: `RT_CV_DEVICE_ID=0` and `RT_EMBED_DEVICE_ID=1` in `dev-profile-search/.env`; `LLM_DEVICE_ID=1` and `VLM_DEVICE_ID=2` in `dev-profile-search/overrides.env`. The LLM must leave headroom for RT-Embed on GPU 1.
+- **Four always-on GPU services:** `rtvi-cv` (DeepStream perception), `rtvi-embed` (Cosmos Embed1 embeddings), the **LLM**, and `vss-rtvi-vlm`. Search does not deploy a standalone Cosmos VLM NIM.
+- **RT-VLM serves two consumers.** The Critique agent uses it when `use_critic=true` (default), and `video_understanding` uses it independently.
+- **Default local layout uses three GPUs.** `RT_CV_DEVICE_ID=0`; `RT_EMBED_DEVICE_ID=1` and `LLM_DEVICE_ID=1`; `RT_VLM_DEVICE_ID=2`. The LLM must leave headroom for RT-Embed on GPU 1.
+- **Remote VLM still uses a local RT-VLM proxy.** `vss-rtvi-vlm` runs in `openai-compat` mode and forwards inference to the selected remote endpoint.
 
 ## What gets deployed
 
-Container names below are the actual `container_name:` keys from `deploy/docker/services/**/compose.yml`. LLM/VLM NIM containers are named after the selected model (default shown; varies with `LLM_NAME_SLUG` / `VLM_NAME_SLUG`).
+Container names below are the actual `container_name:` keys from `deploy/docker/services/**/compose.yml`. The LLM NIM container is named after `LLM_NAME_SLUG`; the VLM is always `vss-rtvi-vlm`.
 
 | Service | Container | Port | Purpose |
 |---|---|---|---|
-| RT-CV (DeepStream perception) | `vss-rtvi-cv` | — (host net) | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
+| RT-CV (DeepStream perception) | `vss-rtvi-cv` | 9000 | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
 | RT-Embed (Cosmos Embed1) | `vss-rtvi-embed` | 8017 | Video + text embedding generation |
 | LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
-| VLM | depends on placement; default `nvidia-cosmos3-reasoner` (NIM) or `vss-rtvi-vlm` (RT-VLM) | 30082 (NIM) / 8018 (RT-VLM) | **Only if Critique enabled** — see [VLM placement](#vlm-placement) |
+| RT-VLM | `vss-rtvi-vlm` | 8018 | Local Cosmos3 inference or an OpenAI-compatible proxy to a remote VLM; serves Critique and `video_understanding` |
 | VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls, embed search, critique |
 | VSS Agent UI | `vss-agent-ui` | 3000 | Search tab |
 | VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest |
@@ -36,103 +37,66 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
 | Embed (RT-Embed) | `nvidia/Cosmos-Embed1-448p-anomaly-detection` | — | RT-Embed (port 8017), `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` |
 | Perception (RT-CV) | siglip2 v1.1 + RTDETR (warehouse) | — | RT-CV (DeepStream pipeline) |
-| VLM (only when Critique on) | `nvidia/cosmos3-nano-reasoner` (default) | `cosmos3-reasoner` | NIM or RT-VLM — see [VLM placement](#vlm-placement) |
+| VLM (RT-VLM) | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` (default local checkpoint) | `VLM_NAME_SLUG=none`; activated via the `rtvi-vlm` compose profile | RT-VLM (port 8018) |
 
 ## VLM placement
 
-Decide where the VLM goes **before writing any env**. Pick the first option that applies, in order.
+RT-VLM is always selected with `VLM_MODEL_TYPE=rtvi` and `VLM_NAME_SLUG=none`; the `vss-rtvi-vlm` container is activated by the explicit `rtvi-vlm` compose profile (no `vlm_*` NIM profile), the same way `base`/`lvs` deploy RT-VLM. Choose whether RT-VLM loads the model locally or proxies a remote endpoint.
 
 ```
-Critique disabled?                                   → no VLM at all; skip this section
+User supplied or approved a remote VLM endpoint?     → Path A: RT-VLM remote proxy
    │
    ▼
-User supplied a remote VLM endpoint?                 → Path A: Remote VLM
+DEFAULT — at least 3 GPUs available?                 → Path B: local RT-VLM on GPU 2
    │
    ▼
-DEFAULT — co-locate VLM on GPU 0 with RT-CV          → Path B: VLM shares GPU 0
-   │                                                          (NUM_STREAMS=16 on H100/RTX PRO 6000;
-   │                                                           NUM_STREAMS=8 on L40S/A40/Thor/GB10)
-   ▼
-User explicitly wants a 3rd GPU layout
-AND a 3rd GPU is free?                               → Path C: VLM on dedicated 3rd GPU
+Only 2 GPUs available?                               → Path A: remote VLM required
 ```
 
-The default placement is **Path B** — co-locate VLM on GPU 0 with RT-CV. Big GPUs (H100, RTX PRO 6000) hold the default `NUM_STREAMS=16` even with the VLM co-resident; smaller GPUs (L40S, A40, Thor, GB10) need `NUM_STREAMS=8` to leave VRAM for the VLM. This works on every supported 2- or 3-GPU host without escalation.
+The default is **Path B**, with RT-CV on GPU 0, RT-Embed + LLM on GPU 1, and RT-VLM on GPU 2. On a two-GPU Brev host, use Path A; `dev-profile.sh` intentionally rejects local RT-VLM there rather than silently overcommitting either GPU.
 
-Path C is rarely needed — only when the user explicitly asks for the dedicated-GPU layout (e.g. they have a 3rd GPU sitting idle and want to keep RT-CV's GPU 0 untouched).
+### Path A — RT-VLM proxy to a remote VLM
 
-If even the per-GPU default doesn't fit (very large VLM, or smaller GPU than the supported set), drop `NUM_STREAMS` further but **confirm with the user before going below 8** — the perception pipeline becomes throughput-limited and the user should know. If even `NUM_STREAMS=1` won't close the math, escalate to Path A (remote) per the two-trigger rule in [`base.md` § When to use remote LLM/VLM](base.md#when-to-use-remote-llmvlm).
-
-### Path A — Remote VLM (user supplied)
-
-Triggered when the user provides a VLM endpoint URL or asks for `remote-vlm` / `remote-all`. Edit `dev-profile-search/generated.env`:
+Triggered when the user provides a VLM endpoint URL, asks for `remote-vlm` / `remote-all`, or approves remote placement because fewer than three GPUs are available. RT-VLM remains local as the media-processing/OpenAI-compatible proxy:
 
 ```bash
 VLM_MODE=remote
 VLM_BASE_URL=<remote-endpoint>                           # no trailing /v1
 VLM_NAME=<model-name-served-there>
+VLM_NAME_SLUG=none                                      # rtvi-vlm is activated by the explicit rtvi-vlm compose profile
+VLM_MODEL_TYPE=rtvi
+VLM_PORT=30082                                          # compatibility value for remote mode
+RTVI_VLM_ENDPOINT=<remote-endpoint>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+RT_VLM_DEVICE_ID=0                                      # proxy still requests the configured GPU runtime
 NVIDIA_API_KEY=<key if required>
-# Free up the device that would otherwise host VLM
-VLM_DEVICE_ID=                                           # unused in remote mode
 ```
 
-The Critique agent points the VLM tool at `${VLM_BASE_URL}/v1`. No local VLM container is started.
+The resolved compose must include profile `rtvi-vlm` and container `vss-rtvi-vlm`. `VLM_BASE_URL` has no `/v1`; `RTVI_VLM_ENDPOINT` includes `/v1`.
 
-### Path B — Default: co-locate VLM on GPU 0 with RT-CV
+### Path B — Default: local RT-VLM on dedicated GPU 2
 
-This is the default placement for any 2- or 3-GPU host without a remote VLM. Put the VLM on GPU 0 next to RT-CV. `NUM_STREAMS` depends on the GPU:
-
-| GPU | `NUM_STREAMS` (Path B default) | Reason |
-|---|---|---|
-| H100 80 GB SXM/HBM3 | **16** | 80 GB has plenty of room for VLM + RT-CV at full throughput |
-| H100 PCIe / NVL (80 GB) | **16** | Same |
-| RTX PRO 6000 (Blackwell, 96 GB) | **16** | Same |
-| L40S (48 GB) | **8** | 48 GB needs RT-CV halved to leave VRAM for the VLM |
-| A40 (48 GB) | **8** | Same |
-| Thor / GB10 (DGX Spark, ≤ 64 GB unified) | **8** | Edge — unified memory, smaller VLM headroom |
-
-Edit `dev-profile-search/generated.env`:
+Use this on a host with at least three free GPUs:
 
 ```bash
 RT_CV_DEVICE_ID=0
 RT_EMBED_DEVICE_ID=1
 LLM_DEVICE_ID=1                                          # LLM shares GPU 1 with RT-Embed
-VLM_DEVICE_ID=0                                          # VLM shares GPU 0 with RT-CV
+VLM_DEVICE_ID=2
+RT_VLM_DEVICE_ID=2
 LLM_MODE=local_shared
-VLM_MODE=local_shared
-NUM_STREAMS=16                                           # 16 on H100/RTX PRO 6000; 8 on L40S/A40/Thor/GB10
+VLM_MODE=local
+VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
+VLM_NAME_SLUG=none
+VLM_MODEL_TYPE=rtvi
+VLM_PORT=8018
+RTVI_VLM_MODEL_TO_USE=cosmos-reason3
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=<hardware-derived value>
 ```
 
-**Sizing logic for GPU 0 (RT-CV + VLM):**
-
-1. **Compute the VLM budget.** From [`base.md` § Sizing math](base.md#sizing-math) — VLM weights × 1.3. E.g. Cosmos Reason2 8B at FP16 ≈ 20.8 GB; Cosmos Reason1 7B ≈ 18.2 GB.
-2. **Set `NIM_KVCACHE_PERCENT` on the VLM** = `VLM_total / GPU_VRAM`, rounded up by 0.05 for headroom. H100 80 GB with CR2: 20.8 / 80 = 0.26 → set **0.30**. L40S 48 GB with CR2: 20.8 / 48 = 0.43 → set **0.45**.
-3. **RT-CV takes the rest.** RT-CV doesn't have a `--gpu-memory-utilization` knob — it consumes whatever's free, scaled by `NUM_STREAMS`. With the per-GPU defaults above, it sits comfortably alongside any standard VLM.
-4. **Verify with logs.** `docker logs vss-rtvi-cv` for OOM, `docker logs <vlm>` for the KV-cache report. If RT-CV drops frames, lower `NUM_STREAMS` further (with user confirmation if going below 8).
-
-**`NUM_STREAMS=8` is the agent's floor.** If the per-GPU default doesn't fit (e.g. an unsupported small GPU, or a much larger VLM than the standard set), **stop and ask the user** before lowering past 8 — going below 8 means real perception throughput loss. The user should pick between (a) accepting fewer streams, (b) switching to a smaller VLM (CR1 7B vs CR2 8B), or (c) Path A (remote VLM). Same two-trigger rule as [`base.md` § When to use remote LLM/VLM](base.md#when-to-use-remote-llmvlm).
-
-**Escalate to Path A automatically** only if even `NUM_STREAMS=1` can't close — i.e. VLM resident size > 0.85 × GPU_VRAM. The standard CR1/CR2/Qwen3-VL set never hits that on H100 80 GB; on L40S 48 GB a Cosmos2 FP16 VLM fits with NUM_STREAMS=8 and no escalation needed.
-
-### Path C — VLM on a dedicated 3rd GPU (full RT-CV throughput)
-
-Use this when the user explicitly wants the full `NUM_STREAMS=16` perception throughput **and** has a 3rd GPU free. Edit `dev-profile-search/generated.env`:
-
-```bash
-RT_CV_DEVICE_ID=0
-RT_EMBED_DEVICE_ID=1
-LLM_DEVICE_ID=1                                          # shares GPU 1 with RT-Embed
-VLM_DEVICE_ID=2                                          # dedicated
-LLM_MODE=local_shared                                    # LLM + RT-Embed share GPU 1
-VLM_MODE=local                                           # VLM gets GPU 2 alone
-NUM_STREAMS=16                                           # full throughput — RT-CV has GPU 0 to itself
-```
-
-Sizing notes:
-
-- **GPU 0 (RT-CV) — full GPU.** With no co-resident, RT-CV's DeepStream pipeline runs `NUM_STREAMS=16` comfortably on any supported GPU (H100, RTX PRO 6000, L40S). The upstream perf guide doesn't publish a single GB number for RT-CV; the [RT-Embed max-streams table](#rt-embed-sizing) is for the embedding service, not perception. If you push beyond 16 streams, watch GPU 0 utilization with `nvidia-smi -l 5` and back off if it saturates.
-- **GPU 1 (LLM + RT-Embed)** — for the default Cosmos-Embed1 (Triton/ONNX), no util override is needed. The LLM keeps a normal `NIM_KVCACHE_PERCENT` per the per-GPU table in [Worked example](#worked-example--llm--rt-embed-on-gpu-1). Only override RT-Embed's `VLLM_GPU_MEMORY_UTILIZATION` if you've switched to `VLM_MODEL_TO_USE=vllm-compatible` — see [RT-Embed sizing](#rt-embed-sizing) below.
-- **GPU 2 (VLM) — dedicated.** Use the relevant compose under `nim/<vlm-slug>/` per [`base.md` § Swapping a different LLM/VLM](base.md#swapping-a-different-llmvlm). For default `cosmos3-reasoner` (nano FP8), NIM defaults are fine.
+The resolved compose must include profile `rtvi-vlm` and container `vss-rtvi-vlm`. Use `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, not `NIM_KVCACHE_PERCENT`, to size RT-VLM.
 
 ## Sizing — RT-Embed and RT-CV knobs
 
@@ -238,15 +202,15 @@ That's it. No compose-file tweak required for the default Cosmos-Embed1 deployme
 
 > **Verifying under load.** Watch `docker logs vss-rtvi-embed` and `nvidia-smi -l 5` on GPU 1 while pushing `NUM_STREAMS=16` of test video. If RT-Embed's resident memory exceeds ~12 GB, raise the budget (e.g. 12 → 15 GB → recompute LLM `NIM_KVCACHE_PERCENT`). If the LLM OOMs at startup, it usually means RT-Embed grabbed more than 10 GB before the LLM allocated; constrain RT-Embed by lowering `NUM_STREAMS` or `RTVI_EMBED_NUM_VLM_PROCS` (10 → 4).
 
-For Path B (default — VLM on GPU 0 with RT-CV), the math is on GPU 0 instead: budget the VLM via [`base.md`](base.md#sizing-math), set its `NIM_KVCACHE_PERCENT` to `VLM_total / GPU_VRAM` rounded up, and let RT-CV consume the rest at the per-GPU `NUM_STREAMS` (16 on H100/RTX PRO 6000, 8 on L40S/A40/Thor/GB10). See [Path B](#path-b--default-co-locate-vlm-on-gpu-0-with-rt-cv) above.
+RT-VLM uses dedicated GPU 2 in the default search layout, so its budget is independent of the RT-CV stream count. Size it with `RTVI_VLLM_GPU_MEMORY_UTILIZATION`; continue to size the LLM + RT-Embed pair on GPU 1 with the table above.
 
 ## Hard rules
 
-- **Critique enabled ⇒ a VLM endpoint must be reachable.** UI default is `use_critic=true`; the agent will fail at query time if no VLM is configured. Either set up Path A/B/C, or document with the user that they need to disable Critique in the UI.
-- **L40S (48 GB) cannot host LLM + RT-Embed shared at FP16.** Move to a 2-GPU host (LLM on its own GPU) or pick FP8 LLM. Then the VLM placement question still applies; on 2× L40S, both GPUs are taken by RT-Embed and LLM/VLM, so RT-CV gets a 3rd GPU — escalate per Path A if not available.
+- **RT-VLM must always be reachable.** Disabling Critique does not remove this requirement because `video_understanding` still uses RT-VLM.
+- **Default local search requires three GPUs.** On a two-GPU host, use the remote-proxy path for the VLM. L40S (48 GB) may also require a quantized or remote LLM because the LLM shares GPU 1 with RT-Embed.
 - **Edge platforms (DGX Spark / Thor) are not supported for `search` yet** — track upstream blueprint for support. Use SBSA image tags (`-sbsa-`) when they land.
 - **`RESERVED_DEVICE_IDS` and `FIXED_SHARED_DEVICE_IDS` come from defaults** in `dev-profile-search/.env` (`'0'` and `'1'` respectively). They tell `dev-profile.sh` which devices not to reassign — the skill works at the env-file level, so leave them as-is unless changing the layout meaningfully (e.g. swapping which GPU hosts RT-CV vs RT-Embed).
-- **`/v1` quirk** — `LLM_BASE_URL` / `VLM_BASE_URL` no `/v1` (agent appends). RT-VLM-style `RTVI_VLM_ENDPOINT` (only relevant if you use RT-VLM as the critique VLM) yes `/v1`.
+- **`/v1` quirk** — `LLM_BASE_URL` / `VLM_BASE_URL` have no `/v1` (the client appends it). In remote-proxy mode, `RTVI_VLM_ENDPOINT` does include `/v1`.
 
 ## Key capabilities
 
@@ -269,7 +233,7 @@ See [`base.md` — Endpoints](base.md#endpoints-after-deploy) for how `${PUBLIC}
 | nvstreamer | own secure link `https://31000-<id>.brevlab.com` on Brev (see [`brev.md`](brev.md)); else `http://<HOST_IP>:31000/` |
 | RT-Embed (direct) | `http://<HOST_IP>:8017/` |
 | Elasticsearch (direct) | `http://<HOST_IP>:9200/` |
-| VLM (direct, Path B/C) | `http://<HOST_IP>:30082/v1/` (NIM) or `http://<HOST_IP>:8018/v1/` (RT-VLM) |
+| RT-VLM (direct) | `http://<HOST_IP>:8018/v1/` |
 
 ## Env file location
 
@@ -331,6 +295,7 @@ Set `HF_TOKEN` in `deploy/docker/developer-profiles/dev-profile-search/.env` (de
 ## Debugging
 
 - **`docker logs vss-rtvi-embed`** — confirms model load and `Maximum concurrency for X tokens per GPU: Y x` line. If it OOMs, lower `RTVI_EMBED_NUM_VLM_PROCS` (10 → 4) or `NUM_STREAMS`.
-- **`docker logs vss-rtvi-cv`** — DeepStream perception pipeline logs. If GPU 0 OOMs in Path B (default, VLM co-located), drop `NUM_STREAMS` first (with user confirmation if going below 8), then revisit VLM `NIM_KVCACHE_PERCENT`.
+- **`docker logs vss-rtvi-cv`** — DeepStream perception pipeline logs. If GPU 0 OOMs, lower `NUM_STREAMS`.
+- **`docker logs vss-rtvi-vlm`** — RT-VLM model/proxy startup and inference logs. Confirm `curl -sf http://localhost:8018/v1/models` before testing Critique or `video_understanding`.
 - **Embedding queries return zero hits** — check shared `logstash` is consuming `mdx-embed-filtered` and that the ES index `mdx-embed-filtered-2025-01-01` exists.
-- **Critique returns "no VLM configured"** — confirm `VLM_BASE_URL` resolves and the resolved compose includes a VLM service or `VLM_MODE=remote` is set.
+- **Critique returns `unverified` / "no VLM configured"** — confirm `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, the resolved compose includes the `rtvi-vlm` profile and `vss-rtvi-vlm` container, and its `/v1/models` endpoint returns the configured `VLM_NAME`. For remote mode also verify `RTVI_VLM_MODEL_TO_USE=openai-compat`, `RTVI_VLM_MODEL_PATH=none`, and `RTVI_VLM_ENDPOINT=<remote>/v1`.

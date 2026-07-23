@@ -61,6 +61,7 @@ from vss_api_models import (
     CompletionResponseChoice,
     CompletionUsage,
     DeleteFileResponse,
+    DeleteIndexResponse,
     GenerateCaptionsRequest,
     GenerateCaptionsResponse,
     ListFilesResponse,
@@ -1708,6 +1709,46 @@ class ViaServer:
         # POST /v1/stream/add when metadata.prompt is set (auto-inference);
         # LVS no longer triggers RTVI captioning. See
         # docs/streaming_rtvi_kafka_logstash.md for the operator workflow.
+
+        # ======================= Asset Index Cleanup API
+
+        @self._app.delete(
+            f"{API_PREFIX}/assets/{{asset_id}}/index",
+            summary="Delete Elasticsearch index for an asset",
+            description=(
+                "Drop the per-asset Elasticsearch index (`default_<asset_id>`) created "
+                "during summarization. Prevents shard-cap exhaustion when many assets are "
+                "summarized without being explicitly cleaned up. Idempotent on a missing "
+                "index. Returns `deleted=false` when CA-RAG is disabled."
+            ),
+            responses={
+                200: {"description": "Successful Response."},
+                **add_common_error_responses([500]),
+            },
+            tags=["Summarization"],
+        )
+        async def delete_asset_index(
+            asset_id: Annotated[
+                UUID,
+                Path(description="Asset ID whose Elasticsearch index should be deleted."),
+            ],
+        ) -> DeleteIndexResponse:
+            asset_id_str = str(asset_id)
+            logger.info("delete_asset_index: asset_id=%s", asset_id_str)
+            try:
+                result = self._stream_handler.drop_collection_for_asset(
+                    asset_id_str, force_legacy=True
+                )
+            except Exception as e:
+                logger.warning("drop_collection_for_asset failed for %s: %s", asset_id_str, e)
+                raise ViaException(
+                    f"Failed to delete index for asset {asset_id_str}: {e}",
+                    "InternalServerError",
+                    500,
+                )
+            deleted = "error" not in result and not result.get("skipped", False)
+            detail = result.get("reason") or result.get("error") or None
+            return DeleteIndexResponse(asset_id=asset_id_str, deleted=deleted, detail=detail)
 
         # ======================= Recommended Config API
 
