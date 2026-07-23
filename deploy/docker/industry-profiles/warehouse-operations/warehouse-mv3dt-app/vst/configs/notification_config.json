@@ -1,0 +1,15 @@
+{
+  "message_broker": {
+    "enable_notification": true,
+    "enable_notification_consumer": true,
+    "use_message_broker_consumer": "kafka",
+    "message_broker_topic_consumer": "mdx-bev",
+    "use_message_broker": "redis",
+    "message_broker_payload_key": "sensor.id",
+    "message_broker_topic": "vst.event",
+    "message_broker_metadata_topic": "mdx-bev",
+    "redis_server_env_var": "redis:6379",
+    "kafka_server_address": "kafka:29092",
+    "mqtt_broker_address": "tcp://172.17.0.1:1883"
+  }
+}
