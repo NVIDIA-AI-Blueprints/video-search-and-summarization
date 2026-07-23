@@ -13,10 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# DeepStream configs for profileMode standalone-2d (warehouse 2D + file sources).
+# DeepStream configs for profileMode standalone-2d (warehouse 2D + SDRC-provisioned live sources).
 
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-2d") }}
 {{- $bundle := "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs" }}
+{{- $warehouse := .Values.standaloneWarehouse | default dict }}
+{{- $kafka := $warehouse.kafka | default dict }}
+{{- $rawTopic := $kafka.rawTopic | default "mdx-raw" }}
+{{- $kafkaBootstrap := include "vss-rtvi-cv.kafkaBootstrap" . }}
+{{- $kafkaParts := splitList ":" $kafkaBootstrap }}
+{{- $kafkaHost := first $kafkaParts }}
+{{- $kafkaPort := "9092" }}
+{{- if gt (len $kafkaParts) 1 }}
+{{- $kafkaPort = last $kafkaParts }}
+{{- end }}
+{{- $kafkaConn := printf "%s;%s;%s" $kafkaHost $kafkaPort $rawTopic }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -35,6 +46,8 @@ data:
   ds-main-config.txt: |
 {{- $c := replace "ll-config-file=ds-nvdcf-accuracy-tracker-config.yml" (printf "ll-config-file=%s/ds-nvdcf-accuracy-tracker-config.yml" $bundle) $content }}
 {{- $c = replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) $c }}
+{{- $c = replace "msg-broker-conn-str=localhost;9092;mdx-raw" (printf "msg-broker-conn-str=%s" $kafkaConn) $c }}
+{{- $c = replace "topic=mdx-raw" (printf "topic=%s" $rawTopic) $c }}
 {{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
 {{ $c | nindent 4 }}
 {{- end }}

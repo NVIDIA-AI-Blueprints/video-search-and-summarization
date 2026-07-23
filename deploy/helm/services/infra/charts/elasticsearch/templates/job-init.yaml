@@ -10,7 +10,9 @@ metadata:
     {{- include "elasticsearch.labels" . | nindent 4 }}
     app.kubernetes.io/component: elasticsearch-init
 spec:
-  ttlSecondsAfterFinished: 600
+  {{- with .Values.init.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   backoffLimit: {{ .Values.init.backoffLimit }}
   template:
     metadata:

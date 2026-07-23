@@ -22,7 +22,9 @@ metadata:
     app.kubernetes.io/name: vss-broker-health-check
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  ttlSecondsAfterFinished: 300
+  {{- with .Values.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   backoffLimit: 60
   template:
     metadata:
