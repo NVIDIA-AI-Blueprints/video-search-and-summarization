@@ -49,26 +49,38 @@ index-strategy = "unsafe-best-match"
 # Security: constrain transitive dependencies to patch HIGH/CRITICAL CVEs.
 constraint-dependencies = [
     "authlib>=1.7.2,<1.8",          # Fix GHSA-wvwj-cvrp-7pv5 + new BDSAs for cache-CSRF in starlette_client.OAuth and jwk-header signature bypass (both flagged on 1.6.12)
-    "cryptography>=46.0.7",         # Fix CVE-2026-26007 + name constraint bypass flagged on 46.0.5
+    "cffi==2.0.0",                  # Keep permissive MIT metadata; cffi 2.1.0 reports MIT-0, which is not yet accepted by the repository license gate
+    "cryptography>=48.0.1",         # Fix GHSA-537c-gmf6-5ccf
+    "langchain>=1.3.9,<1.4",        # Fix GHSA-gr75-jv2w-4656
     "langchain-community>=0.3.27",  # Fix CVE-2025-6984 (XXE in EverNoteLoader)
-    "langchain-core>=1.3.3,<1.4",   # Fix GHSA-pjwx-r37v-7724 + GHSA-qh6h-p6c9-ff54 + prior SSRF/CVE fixes
-    "langgraph>=1.1.10,<1.2",       # Fix BDSA: JsonPlusSerializer RCE flagged on 1.0.8/1.0.9
-    "langgraph-checkpoint>=4.0.0",  # Fix CVE-2025-64439 & CVE-2026-27794
-    "litellm>=1.84.0,<1.85",        # Fix /guardrails/test_custom_code RCE + privilege escalation + JWT/OIDC userinfo cache misuse
+    "langchain-core>=1.4.9,<1.5",   # Required by the fixed LangChain release line
+    "langgraph>=1.2.5,<1.3",        # Required by the fixed LangChain release line
+    "langgraph-checkpoint>=4.0.0",  # Fix CVE-2025-64439 (RCE in JsonPlusSerializer) & CVE-2026-27794 (BaseCache pickle)
+    "litellm>=1.84.0,<1.85",        # Fix /guardrails/test_custom_code RCE + privilege escalation + JWT/OIDC userinfo cache misuse (all flagged on 1.83.14)
     "lxml>=6.1.0,<6.2",             # Fix GHSA-vfmq-68hx-4jfw
-    "mako>=1.3.12",                 # Fix GHSA-2h4p-vjrc-8xpq
-    "pillow>=12.2.0",               # Fix GHSA-whj4-6x5x-4v2j + CVE-2026-25990
-    "pygments>=2.20.0",             # Fix BDSA: ReDoS in AdlLexer
-    "pyjwt>=2.12.0,<2.13",          # Fix GHSA-752w-5fwx-jx9f
-    "pypdf>=6.7.3",                 # Fix CVE-2026-27888 & CVE-2026-27628
-    "python-multipart>=0.0.27",     # Fix GHSA-pp6c-gr5w-3c5g
-    "tornado>=6.5.5,<6.6",          # Fix GHSA-fqwm-6jpj-5wxc, GHSA-qjxf-f2mg-c6mc
-    "urllib3>=2.7.0",               # Fix GHSA-mf9v-mfxr-j63j & GHSA-qccp-gfcp-xxvc
+    "mako>=1.3.12",                 # Fix GHSA-2h4p-vjrc-8xpq (path traversal in TemplateLookup, Windows-only)
+    "pillow>=12.3.0",               # Fix Pillow advisories through 12.2.0
+    "pygments>=2.20.0",             # Fix BDSA: ReDoS in AdlLexer (lexers/archetype.py) flagged on 2.19.x
+    "pyjwt>=2.13.0,<2.14",          # Fix PyJWT advisories through 2.12.1
+    "pypdf>=6.7.3",                 # Fix CVE-2026-27888 (XFA decompression bomb) & CVE-2026-27628 (infinite loop)
+    "pytest>=9.0.3",                # Fix GHSA-6w46-j5rx-g56g
+    "python-multipart>=0.0.31",     # Fix multipart advisories through 0.0.28
+    "starlette>=1.3.1",             # Fix Starlette advisories through 0.52.1
+    "tokenizers==0.22.2",           # Keep the stable release while prereleases are globally enabled
+    "tornado>=6.5.7,<6.6",          # Fix Tornado advisories through 6.5.5
+    "transformers>=5.5.0,<6",       # Fix Transformers advisories through 5.4
+    "urllib3>=2.7.0",               # Fix GHSA-mf9v-mfxr-j63j (decompression bomb in streaming API) & GHSA-qccp-gfcp-xxvc (cross-origin header leak on proxied redirects)
 ]
 
 # Override nvidia-nat-core's fastapi~=0.119.0 pin to allow starlette>=0.49.1
 override-dependencies = [
-    "fastapi>=0.121.0",
+    "cryptography>=48.0.1",
+    "fastapi>=0.139.2",
+    "huggingface-hub>=1.5.0",
+    "langgraph>=1.2.5,<1.3",
+    "oci; python_version < '0'",    # NAT's optional OCI provider is unused; omit its LGPL crc32c dependency
+    "pytest>=9.0.3",
+    "starlette>=1.3.1",
 ]
 
 [[tool.uv.index]]
@@ -143,7 +155,7 @@ dev = [
     "ipykernel>=6.29.5",
     "ipython>=9.0.2",
     "pre-commit>=4.2.0",
-    "nvidia-nat[test]==1.6.0",
+    "nvidia-nat[test]==1.8.0",
     "types-requests>=2.32.4.20260107",
     "types-markdown>=3.10.0.20251106",
     "types-python-dateutil>=2.9.0.20260124",
@@ -153,7 +165,7 @@ dev = [
 # heavy deps (spacy/weave/presidio closure) never enter the shipped runtime
 # closure the OSRB license-diff inventories. Matches develop's structure.
 eval = [
-    "nvidia-nat[langchain,weave]==1.6.0",
+    "nvidia-nat[langchain,weave]==1.8.0",
     "nvdataset>=0.77",
     "spacy>=3.7,<4.0",
 ]

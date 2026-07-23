@@ -113,8 +113,8 @@ class ImageBuilder:
     def _generate_dockerfile(
         self,
         base_image: str,
-        system_packages: None | list[str] = None,
-        language_packages: None | list[str] = None,
+        system_packages: list[str] | None = None,
+        language_packages: list[str] | None = None,
     ) -> str:
         """Generate Dockerfile content based on config"""
 
@@ -190,8 +190,8 @@ class ImageBuilder:
         self,
         image: str,
         base_image: str,
-        system_packages: None | list[str] = None,
-        language_packages: None | list[str] = None,
+        system_packages: list[str] | None = None,
+        language_packages: list[str] | None = None,
         force_rebuild: bool = False,
     ) -> str:
         """Build Docker image for specified language"""
