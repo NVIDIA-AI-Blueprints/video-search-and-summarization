@@ -15,8 +15,9 @@
 
 # values-build-endpoint.yaml
 # Override file for deploying with NVIDIA Build Endpoint (hosted NIMs).
-# LLM and VLM inference runs at https://integrate.api.nvidia.com -- no local
-# GPU required for those models. Perception and RTVI Embed still run locally.
+# LLM inference runs at https://integrate.api.nvidia.com. VLM calls route through
+# vss-rtvi-vlm (openai-compat proxy) which forwards to the same hosted endpoint.
+# Perception and RTVI Embed still run locally.
 #
 # Usage:
 #   helm upgrade --install vss-search ./dev-profile-search \
@@ -32,19 +33,111 @@
 vios:
   enabled: true
 
+global:
+  vlmBaseUrl: "https://integrate.api.nvidia.com"
+  vlmName: "nvidia/cosmos3-nano-reasoner"
+
 # Disable local NIM deployments
 nims:
+  enabled: false
   nemotron:
     enabled: false
   cosmos3:
     enabled: false
 
-# Point agent LLM / VLM / eval to hosted endpoint
+# Point agent LLM / eval to hosted endpoint. VLM stays on in-cluster vss-rtvi-vlm (VLM_MODEL_TYPE=rtvi).
 agent:
   vss-agent:
     llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
     llmBaseUrl: "https://integrate.api.nvidia.com"
     vlmName: "nvidia/cosmos3-nano-reasoner"
-    vlmBaseUrl: "https://integrate.api.nvidia.com"
     evalLlmJudgeName: "nvidia/nvidia-nemotron-nano-9b-v2"
     evalLlmJudgeBaseUrl: "https://integrate.api.nvidia.com"
+
+# Route remote VLM through vss-rtvi-vlm (same pattern as dev-profile-lvs remote VLM).
+rtvi:
+  vss-rtvi-vlm:
+    useSharedNim: true
+    nims:
+      enabled: false
+    # Full list is required because the subchart replaces `env` rather than merging.
+    env:
+      - name: OPENAI_API_KEY
+        value: "NOAPIKEYSET"
+      - name: OPENAI_API_VERSION
+        value: ""
+      - name: NVIDIA_API_KEY
+        value: "NOAPIKEYSET"
+      - name: NVIDIA_VISIBLE_DEVICES
+        value: "all"
+      - name: VLM_MODEL_TO_USE
+        value: "openai-compat"
+      # Search critic is request/response over HTTP; no VLM event publishing.
+      - name: KAFKA_ENABLED
+        value: "false"
+      - name: ERROR_MESSAGE_TOPIC
+        value: "vision-llm-errors"
+      - name: LOG_LEVEL
+        value: "INFO"
+      - name: ENABLE_OTEL_MONITORING
+        value: "false"
+      - name: ENABLE_REDIS_ERROR_MESSAGES
+        value: "false"
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "http://otel-collector:4318"
+      - name: OTEL_METRIC_EXPORT_INTERVAL
+        value: "60000"
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: ""
+      - name: OTEL_TRACES_EXPORTER
+        value: "otlp"
+      - name: NUM_GPUS
+        value: "1"
+      - name: NUM_VLM_PROCS
+        value: ""
+      - name: MODEL_IMPLEMENTATION_PATH
+        value: ""
+      - name: HF_TOKEN
+        value: ""
+      - name: INSTALL_PROPRIETARY_CODECS
+        value: "false"
+      - name: FORCE_SW_AV1_DECODER
+        value: ""
+      - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
+        value: ""
+      - name: RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS
+        value: "true"
+      - name: RTVI_EXTRA_ARGS
+        value: ""
+      - name: RTVI_RTSP_LATENCY
+        value: ""
+      - name: RTVI_RTSP_TIMEOUT
+        value: ""
+      - name: RTVI_RTSP_RECONNECTION_INTERVAL
+        value: "5"
+      - name: RTVI_RTSP_RECONNECTION_WINDOW
+        value: "60"
+      - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
+        value: "10"
+      - name: VLLM_GPU_MEMORY_UTILIZATION
+        value: ""
+      - name: VLM_BATCH_SIZE
+        value: ""
+      - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
+        value: "1"
+      - name: VLM_INPUT_WIDTH
+        value: ""
+      - name: VLM_INPUT_HEIGHT
+        value: ""
+      - name: VLM_SYSTEM_PROMPT
+        value: ""
+      - name: VSS_NUM_GPUS_PER_VLM_PROC
+        value: ""
+      - name: VSS_SKIP_INPUT_MEDIA_VERIFICATION
+        value: ""
+      - name: VLM_MODEL_SUPPORTS_AUDIO
+        value: "false"
+      - name: VLM_TRUST_REMOTE_CODE
+        value: "false"
+      - name: VLM_VIDEO_PRUNING_RATE
+        value: "0.0"
