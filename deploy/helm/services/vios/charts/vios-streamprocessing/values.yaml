@@ -90,8 +90,6 @@ env:
   # Compose parity: services/vios/streamprocessing/docker-compose.yaml sets
   # DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1 on every streamprocessing container so
   # DeepStream extracts a stable sensor id from RTSP source metadata.
-  - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
-    value: "1"
   # SENSOR_MODULE_ENDPOINT and VST_INGRESS_ENDPOINT are set by the template from sensorModuleEndpoint / vstIngressEndpoint (with release-based defaults)
 
 # Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH, CLIP_STORAGE_PATH. Optional PVCs for vst-data, vst-video, streamer-videos. temp-files stays EmptyDir.
