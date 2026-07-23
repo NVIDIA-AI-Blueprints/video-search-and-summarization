@@ -5,9 +5,9 @@
 
 The skill translates a natural-language capability description into either a
 stock developer-profile deployment or a delta overlay on exactly one current
-developer profile. Delta artifacts live under `_builds/<name>/` and contain
-`overrides.env` plus an optional `compose.override.yml` only when a service
-definition changes.
+developer profile. Build artifacts live under `_builds/<name>/` and always
+contain `override.env`, `compose.yml`, and a directly deployable
+`resolved.yml`. Optional service-definition patches live under `patches/`.
 
 The specs exercise profile routing, canonical service selection, lean artifact
 generation, Compose validation, and optional runtime deployment. The spec's
@@ -164,7 +164,7 @@ def generate_solve_script(
     artifact_expected: bool,
 ) -> str:
     """Gold solution stub — verifier drives assertions independently;
-    solve.sh confirms the delta artifact for build turns."""
+    solve.sh confirms the resolved artifact contract for build turns."""
     lines = [
         "#!/bin/bash\n"
         f"# Gold solution: vss-build-vision-agent / {build_profile} on {platform}\n"
@@ -177,13 +177,16 @@ def generate_solve_script(
     if artifact_expected:
         lines.extend(
             [
-                'if [ ! -f "${BUILD_DIR}/overrides.env" ]; then\n',
-                '    echo "Delta output missing: ${BUILD_DIR}/overrides.env"\n',
-                "    exit 1\n",
-                "fi\n",
-                'grep -q "^BASE_PROFILE=" "${BUILD_DIR}/overrides.env"\n',
-                'grep -q "^COMPOSE_PROFILES=" "${BUILD_DIR}/overrides.env"\n',
-                'echo "Delta output found at ${BUILD_DIR}/overrides.env; verifier will drive the assertions."\n',
+                "for artifact in override.env compose.yml resolved.yml; do\n",
+                '    if [ ! -f "${BUILD_DIR}/${artifact}" ]; then\n',
+                '        echo "Build output missing: ${BUILD_DIR}/${artifact}"\n',
+                "        exit 1\n",
+                "    fi\n",
+                "done\n",
+                'grep -q "^FOUNDATION=" "${BUILD_DIR}/override.env"\n',
+                'grep -q "^COMPOSE_PROFILES=" "${BUILD_DIR}/override.env"\n',
+                'docker compose -f "${BUILD_DIR}/resolved.yml" config --quiet\n',
+                'echo "Resolved build output found at ${BUILD_DIR}; verifier will drive the assertions."\n',
             ]
         )
     else:
@@ -319,9 +322,11 @@ def generate_task(
         # ---- solution/ -----------------------------------------------------
         solution_dir = step_dir / "solution"
         solution_dir.mkdir(exist_ok=True)
-        query = str(expect.get("query", "")).lower()
-        proposal_only = "do not write files" in query
-        artifact_expected = not proposal_only
+        artifact_expected = expect.get("artifact_expected", True)
+        if not isinstance(artifact_expected, bool):
+            raise ValueError(
+                f"expects[{idx}].artifact_expected must be a JSON boolean"
+            )
         (solution_dir / "solve.sh").write_text(
             generate_solve_script(platform, build_profile, artifact_expected)
         )
