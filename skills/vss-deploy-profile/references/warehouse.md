@@ -19,7 +19,7 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 | Warehouse Auto-Calibration | `2d` / `3d` / `mv3dt` | `bp_wh_auto_calib` | (same as mode default) | (same as mode default) | none | none |
 | Standalone Auto-Calibration | any | n/a (standalone service list) | n/a | n/a | none | none |
 
-`COMPOSE_PROFILES` is an explicit list of Docker **service names** for the active variant. Each service carries its own `profiles: ["<service-name>"]`, and the checked-in `overrides.env` template defines one `COMPOSE_PROFILES_WH_*` list per variant. Copy `overrides.env` to `generated.env`, apply the deployment overrides there, and point `COMPOSE_PROFILES` at the list matching `BP_PROFILE`, `MODE`, and `MINIMAL_PROFILE`. Do not invoke `blueprint-deploy.sh` from this skill. The `bp_wh` service list includes `rtvi-vlm` directly; warehouse does not use a separate `vlm_*` NIM slice.
+`COMPOSE_PROFILES` is an explicit list of service-scoped Docker Compose **profile names** for the active variant. Each service carries its own `profiles: ["<service-profile-name>"]`, and the checked-in `overrides.env` template defines one `COMPOSE_PROFILES_WH_*` list per variant. Copy `overrides.env` to `generated.env`, apply the deployment overrides there, and point `COMPOSE_PROFILES` at the list matching `BP_PROFILE`, `MODE`, and `MINIMAL_PROFILE`. Do not invoke `blueprint-deploy.sh` from this skill. The `bp_wh` service list includes `rtvi-vlm` directly; warehouse does not use a separate `vlm_*` NIM slice.
 
 ## Deployment Size (Kafka/Redis Variants Only)
 
@@ -225,7 +225,7 @@ Ask the user which source they want and whether they already have the assets on 
 | Goal | Where to start |
 |------|----------------|
 | **New machine / first install** | [Full deploy (Phases 1-9)](#full-deploy-phases-1-9). Run phases in order; each must pass before the next. |
-| **Redeploy** (`.env` change, clean restart, broken stack) | [Redeploy](#redeploy). Skips Phases 1–4 — host is already set up and artifacts exist. |
+| **Redeploy** (`generated.env` change, clean restart, broken stack) | [Redeploy](#redeploy). Skips Phases 1–4 — host is already set up and artifacts exist. |
 | **Tear down only** (stop and remove containers/volumes; keep files on disk) | [Lifecycle: Tear down](#lifecycle-tear-down). |
 
 **`<repo>`** — path to your `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. If `generated.env` does not exist yet, initialize it from `overrides.env` before editing. If you don't know the repo path, **ask explicitly** before running shell commands.
@@ -669,7 +669,7 @@ echo "${HOST_IP} 30888-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
 
 ### Phase 3: Interactive Configuration
 
-**Ask these four questions before touching `.env`.**
+**Ask these four questions before creating or editing `generated.env`.**
 
 #### Q1 — Deployment Mode
 
@@ -947,7 +947,18 @@ Uses `EXTERNAL_IP:3002` directly (not `VSS_PUBLIC_*`). The map tab is **disabled
 
 ##### `COMPOSE_PROFILES` — select and resolve the service list
 
-Under the profile-inversion model, `COMPOSE_PROFILES` is an explicit list of Docker **service names** for the active variant — not a `${BP_PROFILE}_${MODE}` token. The checked-in `overrides.env` template defines one list per variant (`COMPOSE_PROFILES_WH_2D`, `COMPOSE_PROFILES_WH_KAFKA_2D`, …). After copying that template to `generated.env`, set its `COMPOSE_PROFILES` selector to the list matching the chosen `BP_PROFILE`, `MODE`, and `MINIMAL_PROFILE`:
+Under the profile-inversion model, `COMPOSE_PROFILES` is an explicit list of service-scoped Docker Compose **profile names** for the active variant — not a `${BP_PROFILE}_${MODE}` token. The checked-in `overrides.env` template defines one list per variant (`COMPOSE_PROFILES_WH_2D`, `COMPOSE_PROFILES_WH_KAFKA_2D`, …). After copying that template to `generated.env`, set its `COMPOSE_PROFILES` selector to the list matching the chosen `BP_PROFILE`, `MODE`, and `MINIMAL_PROFILE`:
+
+| `BP_PROFILE` | `MODE` | Extended selector | Minimal selector |
+|---|---|---|---|
+| `bp_wh` | `2d` | `COMPOSE_PROFILES_WH_2D` | not supported |
+| `bp_wh_kafka` | `2d` | `COMPOSE_PROFILES_WH_KAFKA_2D` | `COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL` |
+| `bp_wh_redis` | `2d` | `COMPOSE_PROFILES_WH_REDIS_2D` | `COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL` |
+| `bp_wh_kafka` | `3d` | `COMPOSE_PROFILES_WH_KAFKA_3D` | `COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL` |
+| `bp_wh_redis` | `3d` | `COMPOSE_PROFILES_WH_REDIS_3D` | `COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL` |
+| `bp_wh_kafka` | `mv3dt` | `COMPOSE_PROFILES_WH_KAFKA_MV3DT` | `COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL` |
+| `bp_wh_redis` | `mv3dt` | `COMPOSE_PROFILES_WH_REDIS_MV3DT` | `COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL` |
+| `bp_wh_auto_calib` | `2d` / `3d` / `mv3dt` | `COMPOSE_PROFILES_WH_AUTO_CALIB_2D` / `COMPOSE_PROFILES_WH_AUTO_CALIB_3D` / `COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT` | not applicable; these lists are already minimal by composition |
 
 ```ini
 # generated.env examples
@@ -982,7 +993,7 @@ echo "$COMPOSE_PROFILES"
 
 `vss-rtvi-vlm` runs on the Docker bridge network and needs to resolve Brev secure-link domains to fetch video clips for VLM verification. These steps are applied **after the stack is up** — see [After deploy — Brev](#after-deploy-brev).
 
-> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-name list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Source the warehouse `.env` + active `generated.env` as shown above; `set -a` exports the resolved value before `docker compose up`.
+> **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Source the warehouse `.env` + active `generated.env` as shown above; `set -a` exports the resolved value before `docker compose up`.
 
 > **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.3.0-26.07.1"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.1"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`.
 

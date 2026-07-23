@@ -279,7 +279,7 @@ variant when requested). MV3DT lists do not include an LLM or VLM slice.
 
 ### RTSP input — Sensor Info File
 
-For Q1 = `rtsp`, create a Sensor Info File and point `.env` at it before `docker compose up`. If calibration just ran through [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md), reuse that ordered stream list; only translate `camera_name` to the normalized MV3DT sensor IDs:
+For Q1 = `rtsp`, create a Sensor Info File and set `SENSOR_INFO_SOURCE=file` plus `SENSOR_FILE_PATH` in the active `generated.env` before `docker compose up`. If calibration just ran through [`../../vss-generate-video-calibration/references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md), reuse that ordered stream list; only translate `camera_name` to the normalized MV3DT sensor IDs:
 
 ```json
 {
@@ -367,7 +367,7 @@ ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calib
 
 The only platform that needs an `-sbsa` image tag is **DGX-SPARK**, and only for the **Perception** image. Every other platform uses the shipped non-SBSA tags — including **AGX-THOR / IGX-THOR** (ARM64, but confirmed **not** to need SBSA), GB200, and all x86 GPUs. Do not infer SBSA from the platform being ARM64.
 
-On DGX-SPARK, switch `PERCEPTION_TAG` to its `-sbsa` variant — comment the default and uncomment the `-sbsa` line shipped beside it in `.env`:
+On DGX-SPARK, switch `PERCEPTION_TAG` to its `-sbsa` variant in the active `generated.env`; the checked-in alternatives are documented together in the `overrides.env` template:
 
 ```bash
 # PERCEPTION_TAG ships an SBSA variant for DGX-SPARK — comment the default, uncomment the -sbsa line:
@@ -396,7 +396,7 @@ docker compose -f compose.yml \
 > docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config 2>&1 >/dev/null \
 >   | grep -v 'variable is not set'
 > # Empty output = no real errors. Anything that still prints here is actionable —
-> # e.g. "couldn't find env file: ..." means a path in .env is wrong; fix before deploying.
+> # e.g. "couldn't find env file: ..." means a path in the combined env layers is wrong; fix generated.env before deploying.
 > ```
 
 **Extended** (`MINIMAL_PROFILE=""`) — confirm these are present in addition to the always-deployed core:

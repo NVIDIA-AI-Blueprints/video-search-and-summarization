@@ -226,17 +226,21 @@ docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | tail -60
 ### `mosquitto` unhealthy
 
 **Cause(s):**
-- `MQTT_HOST` / `MQTT_PORT` in `.env` don't match the mosquitto container's actual host/port.
+- The effective `MQTT_HOST` / `MQTT_PORT` values from `.env` plus `generated.env` don't match the mosquitto container's actual host/port.
 - Mosquitto's bind port (`1883` by default) already in use on the host.
 
 **Diagnose:**
 ```bash
-grep -E '^MQTT_(HOST|PORT)=' "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+set -a
+. "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+. "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+set +a
+printf 'MQTT_HOST=%s\nMQTT_PORT=%s\n' "${MQTT_HOST}" "${MQTT_PORT}"
 ss -tlnp | grep ':1883'                         # port collision check
 docker logs --tail 50 mosquitto 2>&1 | tail
 ```
 
-**Fix:** Set `MQTT_HOST=localhost`, `MQTT_PORT=1883` (mosquitto uses `network_mode: host`). If another process has 1883, stop it (or pick a different `MQTT_PORT` and redeploy).
+**Fix:** Override `MQTT_HOST=localhost` and `MQTT_PORT=1883` in `generated.env` (mosquitto uses `network_mode: host`). If another process has 1883, stop it or choose a different `MQTT_PORT` in `generated.env`, then redeploy.
 
 ### BEV out of sync — frames look stale or duplicated
 
@@ -363,7 +367,7 @@ In the VST UI itself, overlays are off by default per stream — enable via the 
 
 ### `error from registry: Incorrect Repository Format` during compose pull
 
-**Symptom:** `docker compose up --pull always --build` aborts mid-pull with `error from registry: Incorrect Repository Format`. No containers are created. Failure is non-deterministic across Docker / Compose versions — what works on one host fails on another with the same `.env`.
+**Symptom:** `docker compose up --pull always --build` aborts mid-pull with `error from registry: Incorrect Repository Format`. No containers are created. Failure is non-deterministic across Docker / Compose versions — what works on one host fails on another with the same env inputs.
 
 **Cause:** A handful of services in `services/infra/compose.yml` are locally built but declared with bare-tag `image:` fields (e.g. `image: elasticsearch` — no registry, no version). With `--pull always`, compose tries to resolve those references against the default registry (Docker Hub) before considering the build context. Some Docker / Compose versions reject the resolution outright and abort the whole `up`; others fall through to the build and succeed. The repo-side fix is to scope these references (e.g. `image: <project>-elasticsearch:local`); until that lands, work around it from the deploy side.
 
