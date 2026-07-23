@@ -1,0 +1,13 @@
+{{- $name := "vss-rtvi-cv" -}}
+{{- with index .Subcharts "rtvi" -}}
+{{- with index .Subcharts "vss-rtvi-cv" -}}
+{{- $name = include "vss-rtvi-cv.fullname" . -}}
+{{- end -}}
+{{- end -}}
+Warehouse 3D app profile rendered.
+
+Main workload:
+  StatefulSet: {{ $name }}
+  Profile: standalone-3d
+
+Override rtvi.vss-rtvi-cv.ngcAppDataResourceVersion and vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion when using a different NGC warehouse app-data resource.

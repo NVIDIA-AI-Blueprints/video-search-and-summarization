@@ -116,14 +116,14 @@ index:
 pip install 'torch>=2.10.0' --index-url https://download.pytorch.org/whl/cpu   # or CUDA build
 pip install 'pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@33824be' \
     --no-build-isolation
-pip install spatialai-data-utils==2.0.1 \
+pip install spatialai-data-utils==2.0.2 \
     --extra-index-url=https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple
 # add optional extras as needed, e.g. the evaluation stack:
-#   pip install 'spatialai-data-utils[eval]==2.0.1' --extra-index-url=...
+#   pip install 'spatialai-data-utils[eval]==2.0.2' --extra-index-url=...
 ```
 
 If you already have a CUDA `torch` in your environment (e.g. from
-sparse4d), skip step 1. Bump `==2.0.1` to the version you want to
+sparse4d), skip step 1. Bump `==2.0.2` to the version you want to
 install; available versions can be browsed at
 <https://edge.urm.nvidia.com/artifactory/sw-metropolis-pypi/spatialai-data-utils/>.
 

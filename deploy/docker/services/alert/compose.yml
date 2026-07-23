@@ -15,9 +15,11 @@
 
 services:
   alert-bridge:
-    image: ${ALERT_BRIDGE_IMAGE:-nvcr.io/nv-metropolis-dev/met-vlm-as-verifier/vss-alert-ms:async-io-fix}
+    # TODO(temporary): hardcoded to the async-io PR image for eval testing.
+    # Revert to the parameterized VSS_ALERT_IMAGE/VSS_ALERT_TAG form before merging upstream.
+    image: ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:pr-1332-fa569cdc3b08
     container_name: vss-alert-bridge
-    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["alert-bridge"]
     restart: unless-stopped
     ports:
       - ${ALERT_BRIDGE_HOST_PORT:-9080}:${ALERT_BRIDGE_PORT:-9080}

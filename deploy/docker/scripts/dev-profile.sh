@@ -137,6 +137,46 @@ function get_vlm_slug() {
   esac
 }
 
+# Map CLI --vlm friendly names to RT-VLM MODEL_PATH for integrated (local) mode.
+# Used by base/alerts/lvs; search still uses standalone NIM slugs via get_vlm_slug.
+# Returns empty for unknown / unsupported names.
+function get_rtvi_vlm_model_path() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/cosmos-reason1-7b) echo "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic" ;;
+    nvidia/cosmos-reason2-8b) echo "ngc:nim/nvidia/cosmos-reason2-8b:hf-0303" ;;
+    nvidia/cosmos3-reasoner) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" ;;
+    Qwen/Qwen3-VL-8B-Instruct) echo "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" ;;
+    *) echo "" ;;
+  esac
+}
+
+function get_rtvi_vlm_model_to_use() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/cosmos-reason1-7b) echo "cosmos-reason1" ;;
+    nvidia/cosmos-reason2-8b) echo "cosmos-reason2" ;;
+    nvidia/cosmos3-reasoner) echo "cosmos-reason3" ;;
+    Qwen/Qwen3-VL-8B-Instruct) echo "vllm-compatible" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Derive the /v1/models id RT-VLM advertises from MODEL_PATH.
+# NGC: ngc:nim/<org>/<model>:<tag> → nim_<org>_<model>_<tag> ('.' in tag → '_', matching ngc_model_downloader).
+# HF git: git:https://huggingface.co/<org>/<repo> → <repo> (best-effort; confirm via /v1/models after boot).
+function get_rtvi_vlm_name_from_model_path() {
+  local _path="${1}"
+  if [[ "${_path}" == ngc:* ]]; then
+    local _rest="${_path#ngc:}"
+    echo "${_rest}" | tr '/:' '__' | tr '.' '_'
+  elif [[ "${_path}" == git:* ]]; then
+    basename "${_path#git:}"
+  else
+    basename "${_path}"
+  fi
+}
+
 # Mode: accepted CLI values verification | real-time; written to MODE in env as 2d_cv | 2d_vlm
 function get_mode_env_value() {
   local _mode="${1}"
@@ -469,7 +509,8 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
-  echo "                                     - nvidia/cosmos3-reasoner          (NIM_MODEL_SIZE=nano|super → VLM_NAME=nvidia/cosmos3-{size}-reasoner)"
+  echo "                                     - nvidia/cosmos3-reasoner          (search: NIM_MODEL_SIZE=nano|super → nvidia/cosmos3-{size}-reasoner;"
+  echo "                                                                         base/alerts/lvs: maps to RT-VLM MODEL_PATH + /v1/models basename)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -1270,6 +1311,10 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    # Alerts VLM mode uses a different explicit service list than CV mode.
+    if [[ "${mode_env}" == "2d_vlm" ]]; then
+      set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+    fi
   fi
 
   # ===== LLM Configuration =====
@@ -1365,14 +1410,22 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Base/alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason3 is only valid when the
   # local rtvi-vlm container is serving the integrated checkpoint).
   # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
+    # LVS requests defer frame sampling to RT-VLM. Default remote endpoints to
+    # five frames per chunk unless their profile or environment overrides it.
+    if [[ "${profile}" == "lvs" ]]; then
+      local _configured_frame_default
+      _configured_frame_default="$(get_env_value_from_files "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "${_source_env}" "${_overrides_env}")"
+      local _remote_frame_default="${RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK:-${_configured_frame_default}}"
+      set_env_var "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "${_remote_frame_default:-5}"
+    fi
   fi
 
   # Handle custom weights for VLM
@@ -1410,20 +1463,11 @@ function state_up() {
     set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
   fi
 
-  # Alerts or base profile on IGX-THOR or AGX-THOR: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "base" ]]); then
-    set_env_var "VLM_NAME_SLUG" "none"
-    set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-    set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
-    set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
-    set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
-    set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
-  fi
-  # Alerts/LVS profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if  ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]); then
+  # Base/alerts/LVS for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed RT-VLM configuration)
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     # Local VLM only: rtvi-vlm serves the VLM locally on the Compose network.
-    # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports. VLM_NAME and
+    # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports.
     # VLM_NAME and RTVI_VLM_MODEL_PATH come from the profile env files unless hardware/remote settings override them.
     if [[ "${vlm_mode}" != "remote" ]]; then
       set_env_var "VLM_BASE_URL" "http://rtvi-vlm:8000"
@@ -1453,18 +1497,46 @@ function state_up() {
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+      # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
+      if [[ "${profile}" == "base" ]]; then
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
+      else
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+      fi
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
-    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+    if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -z "${vlm}" ]]; then
       set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
       set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
     fi
+    # Honor --vlm for local RT-VLM: map friendly CLI name → MODEL_PATH + advertised basename.
+    # (Standalone NIM slug/VLM_NAME from the generic --vlm block above is overwritten here.)
+    if [[ "${vlm_mode}" != "remote" ]] && [[ -n "${vlm}" ]]; then
+      local _rtvi_path _rtvi_to_use _rtvi_name
+      _rtvi_path="$(get_rtvi_vlm_model_path "${vlm}")"
+      if [[ -z "${_rtvi_path}" ]]; then
+        echo "[ERROR] VLM '${vlm}' is not supported as an integrated RT-VLM checkpoint for profile ${profile}."
+        exit 1
+      fi
+      _rtvi_name="$(get_rtvi_vlm_name_from_model_path "${_rtvi_path}")"
+      _rtvi_to_use="$(get_rtvi_vlm_model_to_use "${vlm}")"
+      set_env_var "RTVI_VLM_MODEL_PATH" "${_rtvi_path}"
+      set_env_var "VLM_NAME" "${_rtvi_name}"
+      if [[ -n "${_rtvi_to_use}" ]]; then
+        set_env_var "RTVI_VLM_MODEL_TO_USE" "${_rtvi_to_use}"
+      fi
+    fi
   fi
-  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
-  # (alerts defaults to VLM_MODEL_TYPE=rtvi via profile env files, so it does not need this override)
-  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
+  # Base local VLM always uses the rtvi_vlm agent profile (overrides default to rtvi; keep explicit for Thor/history).
+  # Remote VLM may still set VLM_MODEL_TYPE via --vlm-model-type / profile remote defaults above.
+  if [[ "${profile}" == "base" ]] && [[ "${vlm_mode}" != "remote" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
+    local _compose_profiles
+    _compose_profiles="$(get_env_value "${_generated_env}" "COMPOSE_PROFILES")"
+    case ",${_compose_profiles}," in
+      *,rtvi-vlm,*) ;;
+      *) set_env_var "COMPOSE_PROFILES" "${_compose_profiles},rtvi-vlm" ;;
+    esac
   fi
 
   # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
@@ -1629,6 +1701,23 @@ function state_up() {
     set_vss_linux_kernel_settings
   fi
 
+  # Resolve and display the managed container channel before deployment.
+  set -a
+  # shellcheck disable=SC1091
+  source "${deployment_directory}/containers.env"
+  set +a
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  echo "[INFO] Resolved compose images:"
+  (
+    cd "${deployment_directory}"
+    docker compose \
+      --env-file containers.env \
+      --env-file "developer-profiles/dev-profile-${profile}/.env" \
+      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+      config --images | sort -u
+  )
+
   # Docker login to nvcr.io
   echo "[INFO] Logging into nvcr.io..."
   if [[ "${dry_run}" == "true" ]]; then
@@ -1643,9 +1732,10 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
   else
     cd "${deployment_directory}" && docker compose \
+      --env-file containers.env \
       --env-file "developer-profiles/dev-profile-${profile}/.env" \
       --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
       up \

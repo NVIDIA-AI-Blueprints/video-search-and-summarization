@@ -15,7 +15,7 @@
 """In-process adapter using the `nvidia-rag` library.
 
 Milvus-backed; same `filter_expr` shape as `frag_api`. Choose `frag_lib` to
-run the full RAG Blueprint pipeline in-process. Requires `vss-agents[frag_lib]`;
+run the full RAG Blueprint pipeline in-process. Requires `nvidia-vss[frag_lib]`;
 imports are deferred.
 """
 
@@ -85,7 +85,7 @@ class FragLibAdapter(BackendAdapter):
             raise ImportError(
                 "frag_lib backend requires the `nvidia-rag>=2.4.0` package. "
                 "Install via:\n"
-                "  pip install 'vss-agents[frag_lib]'\n"
+                "  pip install 'nvidia-vss[frag_lib]'\n"
                 "Or switch to the `frag_api` backend if you have a deployed rag-server."
             ) from e
 

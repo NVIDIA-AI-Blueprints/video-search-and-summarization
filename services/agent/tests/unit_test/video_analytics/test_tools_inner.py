@@ -19,8 +19,8 @@ from unittest.mock import patch
 
 import pytest
 
-from vss_agents.video_analytics.tools import VideoAnalyticsToolConfig
-from vss_agents.video_analytics.tools import video_analytics
+from agent.video_analytics.tools import VideoAnalyticsToolConfig
+from agent.video_analytics.tools import video_analytics
 
 
 class TestVideoAnalyticsInitialization:
@@ -45,7 +45,7 @@ class TestVideoAnalyticsInitialization:
             }
         }
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
             gen = video_analytics.__wrapped__(config, mock_builder)
             group = await gen.__anext__()
         assert group is not None
@@ -59,7 +59,7 @@ class TestVideoAnalyticsInitialization:
         mock_es_client = AsyncMock()
         mock_es_client.get_by_id.side_effect = RuntimeError("ES unavailable")
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
             gen = video_analytics.__wrapped__(config, mock_builder)
             group = await gen.__anext__()
         assert group is not None
@@ -73,7 +73,7 @@ class TestVideoAnalyticsInitialization:
         mock_es_client = AsyncMock()
         mock_es_client.get_by_id.return_value = None
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
             gen = video_analytics.__wrapped__(config, mock_builder)
             group = await gen.__anext__()
         assert group is not None
@@ -94,7 +94,7 @@ class TestVideoAnalyticsInitialization:
             }
         }
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
             gen = video_analytics.__wrapped__(config, mock_builder)
             group = await gen.__anext__()
         assert group is not None
@@ -109,7 +109,7 @@ class TestVideoAnalyticsInitialization:
         mock_es_client = AsyncMock()
         mock_es_client.get_by_id.return_value = {"calibration": {"sensors": []}}
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
             gen = video_analytics.__wrapped__(config, mock_builder)
             group = await gen.__anext__()
         assert group is not None
@@ -124,7 +124,7 @@ class TestVideoAnalyticsInitialization:
         mock_es_client = AsyncMock()
         mock_es_client.get_by_id.return_value = {"calibration": {"sensors": []}}
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
             gen = video_analytics.__wrapped__(config, mock_builder)
             group = await gen.__anext__()
         assert group is not None
@@ -139,7 +139,7 @@ class TestVideoAnalyticsInitialization:
         mock_es_client = AsyncMock()
         mock_es_client.get_by_id.return_value = {"calibration": {"sensors": []}}
 
-        with patch("vss_agents.video_analytics.tools.ESClient", return_value=mock_es_client):
+        with patch("agent.video_analytics.tools.ESClient", return_value=mock_es_client):
             gen = video_analytics.__wrapped__(config, mock_builder)
             group = await gen.__anext__()
         assert group is not None

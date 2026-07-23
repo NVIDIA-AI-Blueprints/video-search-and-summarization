@@ -36,13 +36,13 @@ repos:
     pass_filenames: false
     require_serial: true
 
-  # Mirrors CI job "Type Check (mypy)" step: uv run mypy src/vss_agents/
+  # Mirrors CI job "Type Check (mypy)" step: uv run mypy src/agent/
   - id: mypy
     name: mypy (agent)
-    entry: bash -c 'cd services/agent && uv run mypy src/vss_agents/'
+    entry: bash -c 'cd services/agent && uv run mypy src/agent/'
     language: system
     types: [python]
-    files: ^services/agent/src/vss_agents/
+    files: ^services/agent/src/agent/
     pass_filenames: false
     require_serial: true
 

@@ -41,7 +41,7 @@ sed -i "/^\[streammux\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" $C
 sed -i "/^\[primary-gie\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" $CONFIG_FILE
 
 
-if [[ $HARDWARE_PROFILE == "DGX-SPARK" || $HARDWARE_PROFILE == "DGX-THOR" ]]; then
+if [[ $HARDWARE_PROFILE == "DGX-SPARK" || $HARDWARE_PROFILE == "IGX-THOR" ]]; then
     # Replace or add msg-conv-msg2p-lib property in sink1 group
     echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv.so for sink1 group... #####"
     # First, remove any existing msg-conv-msg2p-lib line within [sink1] section
@@ -57,7 +57,7 @@ else
     sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so' $CONFIG_FILE
 fi
 
-if [[ $HARDWARE_PROFILE == "DGX-THOR" ]]; then
+if [[ $HARDWARE_PROFILE == "IGX-THOR" ]]; then
     # Set compute-hw=2 under tracker section in CONFIG_FILE
     echo "##### Setting compute-hw=2 in tracker section of $CONFIG_FILE... #####"
     sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' $CONFIG_FILE

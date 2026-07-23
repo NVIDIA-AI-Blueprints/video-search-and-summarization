@@ -61,6 +61,7 @@ RT-VLM:
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default checkpoint. |
+| `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | empty; `5` for remote openai-compat LVS deployments | RT-VLM fixed-frame default used when LVS requests omit frame sampling overrides. Leave model-specific local defaults unchanged. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw caption events. |
 | `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw caption topic. |
@@ -192,8 +193,8 @@ the corresponding DB host env to a host-reachable address (`127.0.0.1` or
   `/models`; do not use RT-VLM `/v1/models` for `LVS_EMB_MODEL_NAME`.
 - Use `LVS_BACKEND_URL` for video summarization API calls and strip trailing `/v1` from VLM
   base URLs before appending `/v1/chat/completions`.
-- For 3.2 GA examples, prefer `/v1/summarize` and
-  `num_frames_per_second_or_fixed_frames_chunk`.
+- For 3.2 GA examples, prefer `/v1/summarize` and omit frame sampling fields
+  so RT-VLM applies the model-specific deployment default.
 - Do not add development-only API switches to GA instructions.
 - Do not switch to `graph_db` or `graph_db_arango` unless `LVS_EMB_ENABLE=true`
   and a reachable embedding endpoint are configured.
