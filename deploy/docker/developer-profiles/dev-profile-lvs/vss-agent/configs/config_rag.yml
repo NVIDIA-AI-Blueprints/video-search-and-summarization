@@ -239,8 +239,8 @@ functions:
   #   top_k: 5
   #   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   #   backend_config:
-  #     # Optional. Defaults to arango; custom providers can use provider_config.
-  #     provider: arango
+  #     # Optional. Defaults to arango_graph; custom providers can use provider_config.
+  #     provider: arango_graph
   #     # Provider-specific connection settings. These can also come from
   #     # ARANGO_* env vars.
   #     provider_config:
