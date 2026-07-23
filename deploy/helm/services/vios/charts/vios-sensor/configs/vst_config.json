@@ -148,20 +148,6 @@
 		"download_files_timeout_secs": 120,
 		"picture_api_timeout_secs": 20
 	},
-	"notifications":
-	{
-		"enable_notification": true,
-		"enable_notification_consumer": true,
-		"use_message_broker_consumer" : "redis",
-		"message_broker_topic_consumer": "mdx-raw",
-		"use_message_broker" : "redis",
-		"message_broker_payload_key": "sensor.id",
-		"message_broker_topic": "vst.event",
-		"message_broker_metadata_topic": "mdx-raw",
-		"redis_server_env_var": "__REDIS_ADDRESS__",
-		"kafka_server_address": "__KAFKA_ADDRESS__",
-		"mqtt_broker_address": "__MQTT_BROKER_ADDRESS__"
-	},
 	"debug":
 	{
 		"enable_perf_logging":true,
