@@ -139,6 +139,7 @@ def generate_task(
     skill_dir: Path,
     deploy_skill_dir: Path | None,
     video_io_skill_dir: Path | None,
+    query_analytics_skill_dir: Path | None = None,
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'] — i.e.
     step-<k>/ subdirs under ``<profile>/<platform_short>/`` per AGENTS.md § 4.
@@ -238,6 +239,7 @@ def generate_task(
             (skill_dir,        "vss-generate-video-report"),
             (deploy_skill_dir, "vss-deploy-profile"),
             (video_io_skill_dir,   "vss-manage-video-io-storage"),
+            (query_analytics_skill_dir, "vss-query-analytics"),
         ]
         for src, name in copies:
             if src and src.exists():
@@ -276,6 +278,10 @@ def main() -> None:
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument(
+        "--query-analytics-skill-dir", default=None,
+        help="Path to skills/vss-query-analytics (optional — spec steps 5-7 use /vss-query-analytics)",
+    )
+    parser.add_argument(
         "--spec", default=None,
         help="Path to spec JSON (default: <skill-dir>/evals/base_profile_report.json)",
     )
@@ -290,6 +296,7 @@ def main() -> None:
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
+    query_analytics_skill_dir = Path(args.query_analytics_skill_dir) if args.query_analytics_skill_dir else None
     spec_path = (
         Path(args.spec)
         if args.spec
@@ -319,7 +326,7 @@ def main() -> None:
         print(f"  GEN  vss-generate-video-report/{profile}/{task_id}")
         generate_task(
             platform, profile, spec, output_root, skill_dir,
-            deploy_skill_dir, video_io_skill_dir,
+            deploy_skill_dir, video_io_skill_dir, query_analytics_skill_dir,
         )
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
