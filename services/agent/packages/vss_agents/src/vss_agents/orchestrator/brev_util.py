@@ -20,12 +20,19 @@ truth for the environment id and per-port secure-link FQDNs.
 
 from __future__ import annotations
 
-from enum import StrEnum
 import json
 import os
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
+
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 on some notebook/eval hosts.
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

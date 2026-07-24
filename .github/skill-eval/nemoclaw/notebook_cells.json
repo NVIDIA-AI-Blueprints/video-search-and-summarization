@@ -2,7 +2,7 @@
   "notebooks": [
     {
       "notebook": "deploy/docker/scripts/deploy_nemoclaw.ipynb",
-      "insert_parameters_before": "86f7662c",
+      "insert_parameters_before": "e67f6da4",
       "cells": [
         "994c77c2",
         "47d20bb1",
@@ -15,9 +15,7 @@
         "s34-code",
         "s35-code",
         "s36-code",
-        "s37-code",
-        "s37-ui-code",
-        "verify-code"
+        "s37-code"
       ]
     },
     {

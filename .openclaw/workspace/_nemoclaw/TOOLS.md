@@ -80,8 +80,8 @@ on the host. Stop and tell the user.
 ## Deployment
 
 Deployment is delegated to the VSS Orchestrator MCP server at
-`http://host.openshell.internal:9988/mcp`, registered natively in the
-NemoClaw sandbox with the canonical `nemoclaw sandbox mcp add` command.
+`http://host.openshell.internal:9988/mcp`, registered in OpenClaw through its
+bundled `mcporter` adapter and constrained by the custom OpenShell policy.
 Prefer native `vss_orchestrator__*` tools when OpenClaw exposes them. Do **not** invoke
 `deploy/docker/scripts/dev-profile.sh`, scan for repo paths, or prompt the
 user for `HARDWARE_PROFILE` / `NGC_CLI_API_KEY` — the MCP server inherits

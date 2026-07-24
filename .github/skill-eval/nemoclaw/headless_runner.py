@@ -145,42 +145,81 @@ def post_hook(url: str, token: str, payload: dict[str, Any], timeout: int) -> di
 
 
 def _gateway_reachable(sandbox_name: str) -> bool:
-    result = _sandbox_exec(
-        sandbox_name,
-        "curl -fsS http://127.0.0.1:18789/health >/dev/null",
-        timeout=20,
-    )
+    try:
+        result = _sandbox_exec(
+            sandbox_name,
+            "curl -fsS http://127.0.0.1:18789/health >/dev/null",
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return False
     return result.returncode == 0
 
 
 def ensure_openclaw_gateway(sandbox_name: str, log_dir: Path) -> None:
     if _gateway_reachable(sandbox_name):
         return
-    recover_script = """
-rm -f /tmp/openclaw-dashboard.log /tmp/openclaw-gateway-restart.log
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl --user daemon-reload >>/tmp/openclaw-gateway-restart.log 2>&1 || true
-  systemctl --user restart openclaw-gateway >>/tmp/openclaw-gateway-restart.log 2>&1 || true
-fi
-if command -v openclaw >/dev/null 2>&1; then
-  nohup openclaw dashboard >/tmp/openclaw-dashboard.log 2>&1 &
-fi
-"""
-    recover = _sandbox_exec(sandbox_name, recover_script, timeout=60)
-    (log_dir / "openclaw_gateway_recover.log").write_text(
-        f"returncode={recover.returncode}\nstdout:\n{recover.stdout}\nstderr:\n{recover.stderr}\n",
-        encoding="utf-8",
-    )
-    for _ in range(10):
+
+    attempts: list[str] = []
+    try:
+        restart = _run(
+            ["nemoclaw", "sandbox", "gateway", "restart", sandbox_name],
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired as exc:
+        restart = None
+        attempts.append(f"managed restart timed out: {exc}")
+    else:
+        attempts.append(
+            "managed restart\n"
+            f"returncode={restart.returncode}\n"
+            f"stdout:\n{restart.stdout or ''}\n"
+            f"stderr:\n{restart.stderr or ''}"
+        )
+
+    if restart is not None and restart.returncode == 0:
+        for _ in range(10):
+            if _gateway_reachable(sandbox_name):
+                (log_dir / "openclaw_gateway_recover.log").write_text(
+                    "\n\n".join(attempts) + "\n",
+                    encoding="utf-8",
+                )
+                return
+            time.sleep(3)
+
+    try:
+        recover = _run(
+            ["nemoclaw", "sandbox", "recover", sandbox_name],
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        attempts.append(f"sandbox recover timed out: {exc}")
+    else:
+        attempts.append(
+            "sandbox recover\n"
+            f"returncode={recover.returncode}\n"
+            f"stdout:\n{recover.stdout or ''}\n"
+            f"stderr:\n{recover.stderr or ''}"
+        )
+
+    for _ in range(20):
         if _gateway_reachable(sandbox_name):
+            (log_dir / "openclaw_gateway_recover.log").write_text(
+                "\n\n".join(attempts) + "\n",
+                encoding="utf-8",
+            )
             return
         time.sleep(3)
+    (log_dir / "openclaw_gateway_recover.log").write_text(
+        "\n\n".join(attempts) + "\n",
+        encoding="utf-8",
+    )
     raise RuntimeError(f"OpenClaw gateway in sandbox {sandbox_name} is not reachable")
 
 
 def _openclaw_cli_command(prompt: str, timeout_s: int) -> str:
     session_id = os.environ.get("GITHUB_RUN_ID", f"ci-{int(time.time())}")
-    no_proxy = "localhost,127.0.0.1,::1,10.200.0.1,host.openshell.internal"
+    no_proxy = "localhost,127.0.0.1,::1,10.200.0.1"
     ca_path = "/etc/openshell-tls/ca-bundle.pem"
     return (
         "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
@@ -205,14 +244,73 @@ def collect_openclaw_cli_log(sandbox_name: str, log_dir: Path) -> None:
     (log_dir / "openclaw-agent.log").write_text(result.stdout or "", encoding="utf-8")
 
 
+def _agent_json_documents(raw: str) -> list[Any]:
+    """Decode OpenClaw's plain JSON or log-prefixed JSON output."""
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else [parsed]
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    documents: list[Any] = []
+    index = 0
+    while index < len(raw):
+        if raw[index] not in "[{":
+            index += 1
+            continue
+        try:
+            parsed, end = decoder.raw_decode(raw, index)
+        except json.JSONDecodeError:
+            index += 1
+            continue
+        documents.extend(parsed if isinstance(parsed, list) else [parsed])
+        index = end
+    return documents
+
+
+def _openclaw_visible_text(raw: str) -> list[str]:
+    """Return user-visible assistant payload text from supported envelopes."""
+    text: list[str] = []
+    for document in _agent_json_documents(raw):
+        if not isinstance(document, dict):
+            continue
+        status = document.get("status")
+        if isinstance(status, str) and status.lower() in {"error", "failed", "failure"}:
+            continue
+        if document.get("error"):
+            continue
+        payloads = document.get("payloads")
+        result = document.get("result")
+        if payloads is None and isinstance(result, dict):
+            result_status = result.get("status")
+            if (
+                isinstance(result_status, str)
+                and result_status.lower() in {"error", "failed", "failure"}
+            ):
+                continue
+            if result.get("error"):
+                continue
+            payloads = result.get("payloads")
+        if not isinstance(payloads, list):
+            continue
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("isError") is True or payload.get("error"):
+                continue
+            value = payload.get("text")
+            if isinstance(value, str) and value.strip():
+                text.append(value.strip())
+    return text
+
+
 def _openclaw_log_completed(log_dir: Path) -> bool:
     try:
         text = (log_dir / "openclaw-agent.log").read_text(encoding="utf-8")
     except OSError:
         return False
-    return "finalAssistantVisibleText" in text and bool(
-        re.search(r'"(?:finishReason|stopReason)"\s*:\s*"stop"', text)
-    )
+    return bool(_openclaw_visible_text(text))
 
 
 def _openclaw_cli_state(sandbox_name: str) -> str:
@@ -226,7 +324,24 @@ def _openclaw_cli_state(sandbox_name: str) -> str:
         "fi",
         timeout=30,
     )
-    return (result.stdout or "").strip().splitlines()[-1] if result.stdout else "unknown"
+    lines = (result.stdout or "").strip().splitlines()
+    state = lines[-1].strip() if lines else "unknown"
+    return state if state in {"missing", "running", "stopped"} else "unknown"
+
+
+def _openclaw_cli_returncode(sandbox_name: str) -> int | None:
+    result = _sandbox_exec(
+        sandbox_name,
+        f"cat {OPENCLAW_RUN_DIR}/openclaw-agent.rc 2>/dev/null || true",
+        timeout=30,
+    )
+    lines = (result.stdout or "").strip().splitlines()
+    if not lines:
+        return None
+    try:
+        return int(lines[-1].strip())
+    except ValueError:
+        return None
 
 
 def stop_openclaw_cli(sandbox_name: str) -> None:
@@ -249,8 +364,13 @@ def _start_openclaw_cli_async(sandbox_name: str, prompt: str, timeout_s: int, lo
         "set -u; "
         f"mkdir -p {OPENCLAW_RUN_DIR}; "
         f"rm -f {OPENCLAW_RUN_DIR}/openclaw-agent.log "
-        f"{OPENCLAW_RUN_DIR}/openclaw-agent.pid {OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
-        f"sh -lc {shlex.quote(inner)} > {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>&1 & "
+        f"{OPENCLAW_RUN_DIR}/openclaw-agent.pid {OPENCLAW_RUN_DIR}/openclaw-agent.rc "
+        f"{OPENCLAW_RUN_DIR}/openclaw-agent.rc.tmp; "
+        f"( sh -lc {shlex.quote(inner)}; rc=$?; "
+        f"printf '%s\\n' \"$rc\" > {OPENCLAW_RUN_DIR}/openclaw-agent.rc.tmp; "
+        f"mv {OPENCLAW_RUN_DIR}/openclaw-agent.rc.tmp "
+        f"{OPENCLAW_RUN_DIR}/openclaw-agent.rc; "
+        f"exit \"$rc\" ) > {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>&1 & "
         "pid=$!; "
         f"echo $pid > {OPENCLAW_RUN_DIR}/openclaw-agent.pid; "
         "echo started"
@@ -305,35 +425,40 @@ def run_openclaw_cli(
     state = "unknown"
 
     while time.time() < deadline:
-        collect_openclaw_cli_log(sandbox_name, log_dir)
-        if _openclaw_log_completed(log_dir):
-            returncode = 0
-            error = ""
-            error_type = ""
-            completed = True
-            break
-        state = _openclaw_cli_state(sandbox_name)
+        try:
+            state = _openclaw_cli_state(sandbox_name)
+        except subprocess.TimeoutExpired:
+            time.sleep(poll_sec)
+            continue
         if state == "stopped":
             collect_openclaw_cli_log(sandbox_name, log_dir)
-            if _openclaw_log_completed(log_dir):
+            cli_returncode = _openclaw_cli_returncode(sandbox_name)
+            if cli_returncode == 0 and _openclaw_log_completed(log_dir):
                 returncode = 0
                 error = ""
                 error_type = ""
                 completed = True
-            else:
+            elif cli_returncode == 0:
                 returncode = 1
-                error = "OpenClaw process stopped before final output was emitted"
+                error = "OpenClaw process exited successfully without assistant payload text"
+                error_type = "OpenClawMissingOutput"
+            elif cli_returncode is None:
+                returncode = 1
+                error = "OpenClaw process stopped without recording its exit status"
+                error_type = "OpenClawMissingExitStatus"
+            else:
+                returncode = cli_returncode
+                error = f"OpenClaw process exited with status {cli_returncode}"
                 error_type = "OpenClawStopped"
+            break
+        if state == "missing":
+            returncode = 1
+            error = "OpenClaw process state files are missing"
+            error_type = "OpenClawMissingState"
             break
         time.sleep(poll_sec)
 
-    if not completed:
-        collect_openclaw_cli_log(sandbox_name, log_dir)
-        if _openclaw_log_completed(log_dir):
-            returncode = 0
-            error = ""
-            error_type = ""
-            completed = True
+    collect_openclaw_cli_log(sandbox_name, log_dir)
 
     with (log_dir / "openclaw-launch.log").open("a", encoding="utf-8") as handle:
         handle.write(

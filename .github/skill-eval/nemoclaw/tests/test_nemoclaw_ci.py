@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import builtins
 import contextlib
 import importlib.util
 import io
@@ -14,6 +15,7 @@ import textwrap
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -75,6 +77,9 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(ids.count("ci-parameters-1"), 1)
         self.assertEqual(ids.count("ci-parameters-2"), 1)
         self.assertIn("ci-persist-env", ids)
+        self.assertNotIn("s37-ui-code", ids)
+        self.assertNotIn("verify-code", ids)
+        self.assertLess(ids.index("ci-parameters-1"), ids.index("e67f6da4"))
 
     def test_build_notebook_injects_parameters_before_derived_cell(self):
         source = {
@@ -256,7 +261,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "streamable-http")
         self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9988/mcp")
-        self.assertEqual(defaults["MCP_URL"], "http://host.openshell.internal:9988/mcp")
+        self.assertEqual(defaults["MCP_URL"], "http://127.0.0.1:9988/mcp")
 
     def test_parameter_cell_accepts_ngc_api_key_alias(self):
         defaults = {
@@ -339,6 +344,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             defaults["VSS_ORCHESTRATOR_MCP_URL"],
             "http://host.openshell.internal:9988/mcp",
         )
+        self.assertEqual(defaults["MCP_URL"], "http://127.0.0.1:9988/mcp")
 
     def test_agent_setup_cell_compiles_from_split_vss_notebook(self):
         notebook = json.loads(
@@ -351,6 +357,139 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertIn("run_uv_sync", source)
         self.assertIn('"uv", "sync", "--no-dev", "--extra", "agent"', source)
         compile(source, "deploy_vss_orchestrator.ipynb:c13aaf5e", "exec")
+
+    def test_ci_parameters_drive_nemoclaw_provider_derivation(self):
+        notebook = json.loads(
+            (REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_nemoclaw.ipynb").read_text()
+        )
+        sources = {
+            cell.get("id"): "".join(cell.get("source", ""))
+            for cell in notebook["cells"]
+        }
+        namespace: dict[str, object] = {}
+        ci_env = {
+            "LLM_REMOTE_URL": "https://inference-api.example",
+            "LLM_REMOTE_MODEL": "nvidia/example-model",
+            "NVIDIA_API_KEY": "nvapi-ci",
+            "VSS_REPO_DIR": str(REPO_ROOT),
+        }
+
+        with (
+            mock.patch.dict(os.environ, ci_env, clear=True),
+            mock.patch("subprocess.check_output", return_value="hooks-token\n"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            exec(sources["994c77c2"], namespace)
+            exec(sources["47d20bb1"], namespace)
+            exec(notebook_adapter.PARAMETER_SOURCE, namespace)
+            exec(sources["e67f6da4"], namespace)
+
+        self.assertEqual(namespace["NEMOCLAW_PROVIDER"], "custom")
+        self.assertEqual(namespace["NEMOCLAW_ENDPOINT_URL"], "https://inference-api.example/v1")
+        self.assertEqual(namespace["NEMOCLAW_MODEL"], "nvidia/example-model")
+        self.assertEqual(namespace["COMPATIBLE_API_KEY"], "nvapi-ci")
+
+    def test_split_notebooks_use_refactored_brev_util_path(self):
+        expected_parts = (
+            '"packages"',
+            '"vss_agents"',
+            '"src"',
+            '"vss_agents"',
+            '"orchestrator"',
+            '"brev_util.py"',
+        )
+        for notebook_name, cell_id in (
+            ("deploy_nemoclaw.ipynb", "e67f6da4"),
+            ("deploy_vss_orchestrator.ipynb", "20b35654"),
+        ):
+            notebook = json.loads(
+                (REPO_ROOT / "deploy" / "docker" / "scripts" / notebook_name).read_text()
+            )
+            cells = [cell for cell in notebook["cells"] if cell.get("id") == cell_id]
+            self.assertEqual(len(cells), 1)
+            source = "".join(cells[0].get("source", ""))
+            brev_util_line = next(
+                line for line in source.splitlines() if line.startswith("BREV_UTIL_PATH = ")
+            )
+            for part in expected_parts:
+                self.assertIn(part, brev_util_line)
+            self.assertNotIn('/ "agent" / "orchestrator"', brev_util_line)
+
+    def test_composed_notebook_separates_host_and_sandbox_mcp_urls(self):
+        manifest = json.loads(
+            (
+                REPO_ROOT
+                / ".github"
+                / "skill-eval"
+                / "nemoclaw"
+                / "notebook_cells.json"
+            ).read_text()
+        )
+        notebooks = [
+            json.loads((REPO_ROOT / item["notebook"]).read_text())
+            for item in manifest["notebooks"]
+        ]
+        built = notebook_adapter.build_notebooks(notebooks, manifest)
+        sources = {
+            cell.get("id"): "".join(cell.get("source", ""))
+            for cell in built["cells"]
+        }
+
+        self.assertIn('"mcporter", "config", "add", "vss_orchestrator"', sources["s36-code"])
+        self.assertIn('"--url", VSS_ORCHESTRATOR_MCP_URL', sources["s36-code"])
+        self.assertIn('"--scope", "home"', sources["s36-code"])
+        self.assertIn(
+            '"mcporter", "config", "get", "vss_orchestrator", "--json"',
+            sources["s36-code"],
+        )
+        self.assertNotIn("!nemoclaw sandbox mcp", sources["s36-code"])
+        self.assertIn("NEMOCLAW_RECREATE_SANDBOX", sources["s31-code"])
+        self.assertIn("if _exit_code != 0 or _recreate_sandbox:", sources["s31-code"])
+        self.assertIn(
+            "check_mcp_health(MCP_URL, AGENT_DIR)",
+            sources["042eabd1"],
+        )
+        self.assertIn(
+            'MCP_URL = f"http://127.0.0.1:{MCP_PORT}/mcp"',
+            sources["20b35654"],
+        )
+
+    def test_policy_allows_supported_docker_bridge_ranges_for_host_routes(self):
+        policy = (
+            REPO_ROOT / "assets" / "vss_nemoclaw_policy.yaml"
+        ).read_text(encoding="utf-8")
+        host_route_count = policy.count("host: host.openshell.internal")
+
+        self.assertGreater(host_route_count, 0)
+        self.assertEqual(policy.count("- 172.19.0.0/16"), host_route_count)
+
+    def test_brev_util_imports_without_stdlib_strenum(self):
+        path = (
+            REPO_ROOT
+            / "services"
+            / "agent"
+            / "packages"
+            / "vss_agents"
+            / "src"
+            / "vss_agents"
+            / "orchestrator"
+            / "brev_util.py"
+        )
+        spec = importlib.util.spec_from_file_location("brev_util_py310_compat", path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        original_import = builtins.__import__
+
+        def import_without_strenum(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "enum" and "StrEnum" in fromlist:
+                raise ImportError("simulated Python 3.10 enum")
+            return original_import(name, globals, locals, fromlist, level)
+
+        with mock.patch("builtins.__import__", side_effect=import_without_strenum):
+            spec.loader.exec_module(module)
+
+        self.assertEqual(module.BrevEnvKey.BREV_ENV_ID.value, "BREV_ENV_ID")
 
 
 class SkillsEvalAgentProtocolTest(unittest.TestCase):
@@ -545,19 +684,17 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         def fake_run(cmd, *, timeout=30):
             call_index = len(calls)
             calls.append(tuple(cmd))
-            if call_index > 0:
+            if call_index in {2, 4}:
                 return subprocess.CompletedProcess(
                     cmd,
                     0,
-                    stdout=(
-                        '{"result":{"payloads":[{"text":"done"}],'
-                        '"meta":{"agentMeta":{"lastCallUsage":{"input":12,'
-                        '"cacheRead":3,"cacheWrite":4}}},'
-                        '"completion":{"finishReason":"stop"},'
-                        '"finalAssistantVisibleText":"done"}}'
-                    ),
+                    stdout='{"result":{"payloads":[{"text":"done"}]}}',
                     stderr="",
                 )
+            if call_index == 1:
+                return subprocess.CompletedProcess(cmd, 0, stdout="stopped\n", stderr="")
+            if call_index == 3:
+                return subprocess.CompletedProcess(cmd, 0, stdout="0\n", stderr="")
             return subprocess.CompletedProcess(cmd, 0, stdout="started", stderr="")
 
         with tempfile.TemporaryDirectory() as td:
@@ -587,11 +724,48 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
         script = base64.b64decode(encoded).decode("utf-8")
         self.assertIn("echo started", script)
+        self.assertIn("openclaw-agent.rc", script)
+        self.assertIn("openclaw-agent.rc.tmp", script)
+        self.assertIn("mv /tmp/vss-skill-eval-openclaw/openclaw-agent.rc.tmp", script)
         self.assertNotIn("while kill -0", script)
         self.assertIn("--message", script)
         self.assertNotIn("--local", script)
         self.assertIn("--json", script)
         self.assertIn("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1", script)
+        self.assertIn("NO_PROXY=localhost,127.0.0.1,::1,10.200.0.1", script)
+        no_proxy_exports = [
+            part
+            for part in script.split("; ")
+            if part.startswith(("export NO_PROXY=", "export no_proxy="))
+        ]
+        self.assertEqual(len(no_proxy_exports), 2)
+        self.assertTrue(all("host.openshell.internal" not in part for part in no_proxy_exports))
+
+    def test_openclaw_completion_accepts_v0080_json_envelopes(self):
+        fixtures = (
+            '{"result":{"payloads":[{"text":"done"}]}}',
+            '{"payloads":[{"text":"done"}]}',
+            'openclaw info\\n{"result":{"payloads":[{"text":"done"}]}}\\n',
+        )
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            for fixture in fixtures:
+                (log_dir / "openclaw-agent.log").write_text(fixture, encoding="utf-8")
+                self.assertTrue(headless_runner._openclaw_log_completed(log_dir))
+
+            (log_dir / "openclaw-agent.log").write_text(
+                '{"result":{"payloads":[]}}',
+                encoding="utf-8",
+            )
+            self.assertFalse(headless_runner._openclaw_log_completed(log_dir))
+
+            for fixture in (
+                '{"status":"error","payloads":[{"text":"not complete"}]}',
+                '{"result":{"error":"boom","payloads":[{"text":"not complete"}]}}',
+                '{"payloads":[{"isError":true,"text":"not complete"}]}',
+            ):
+                (log_dir / "openclaw-agent.log").write_text(fixture, encoding="utf-8")
+                self.assertFalse(headless_runner._openclaw_log_completed(log_dir))
 
     def test_collect_openclaw_cli_log_copies_sandbox_output(self):
         calls: list[tuple[str, ...]] = []
@@ -794,13 +968,12 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertTrue(all("\n" not in arg and "\r" not in arg for arg in command))
         self.assertIn("base64 -d", " ".join(command))
 
-    def test_gateway_recovery_uses_openshell_not_nemoclaw_recover(self):
+    def test_gateway_recovery_uses_managed_nemoclaw_restart(self):
         calls: list[tuple[str, ...]] = []
         gateway_checks = iter([False, True])
         previous = {
             "_run": headless_runner._run,
             "_gateway_reachable": headless_runner._gateway_reachable,
-            "shutil_which": headless_runner.shutil_which,
         }
 
         def fake_run(cmd, *, timeout=30):
@@ -811,25 +984,67 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             log_dir = Path(td)
             headless_runner._run = fake_run
             headless_runner._gateway_reachable = lambda sandbox: next(gateway_checks)
-            headless_runner.shutil_which = lambda name: "/usr/bin/openshell" if name == "openshell" else None
             try:
                 headless_runner.ensure_openclaw_gateway("demo", log_dir)
             finally:
                 headless_runner._run = previous["_run"]
                 headless_runner._gateway_reachable = previous["_gateway_reachable"]
-                headless_runner.shutil_which = previous["shutil_which"]
 
             recover_log = (log_dir / "openclaw_gateway_recover.log").read_text(encoding="utf-8")
 
+        self.assertIn("managed restart", recover_log)
         self.assertIn("returncode=0", recover_log)
-        command_text = "\n".join(" ".join(call) for call in calls)
-        self.assertIn("openshell sandbox exec -n demo", command_text)
-        self.assertNotIn("nemoclaw demo recover", command_text)
-        wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
-        encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
-        script = base64.b64decode(encoded).decode("utf-8")
-        self.assertIn("openclaw dashboard", script)
-        self.assertIn("systemctl --user restart openclaw-gateway", script)
+        self.assertEqual(
+            calls,
+            [("nemoclaw", "sandbox", "gateway", "restart", "demo")],
+        )
+
+    def test_gateway_probe_treats_exec_timeout_as_unreachable(self):
+        previous = headless_runner._sandbox_exec
+
+        def timeout(*args, **kwargs):
+            raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout", 20))
+
+        headless_runner._sandbox_exec = timeout
+        try:
+            self.assertFalse(headless_runner._gateway_reachable("demo"))
+        finally:
+            headless_runner._sandbox_exec = previous
+
+    def test_gateway_recovery_falls_back_to_sandbox_recover(self):
+        calls: list[tuple[str, ...]] = []
+        gateway_checks = iter([False, True])
+        previous = {
+            "_run": headless_runner._run,
+            "_gateway_reachable": headless_runner._gateway_reachable,
+        }
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(tuple(cmd))
+            returncode = 1 if "restart" in cmd else 0
+            return subprocess.CompletedProcess(cmd, returncode, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._run = fake_run
+            headless_runner._gateway_reachable = lambda sandbox: next(gateway_checks)
+            try:
+                headless_runner.ensure_openclaw_gateway("demo", log_dir)
+            finally:
+                headless_runner._run = previous["_run"]
+                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+
+            recover_log = (log_dir / "openclaw_gateway_recover.log").read_text(encoding="utf-8")
+
+        self.assertIn("managed restart", recover_log)
+        self.assertIn("sandbox recover", recover_log)
+        self.assertEqual(
+            calls,
+            [
+                ("nemoclaw", "sandbox", "gateway", "restart", "demo"),
+                ("nemoclaw", "sandbox", "recover", "demo"),
+            ],
+        )
 
 
 class NemoClawSmokeRunnerTest(unittest.TestCase):
@@ -2270,6 +2485,40 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
         self.assertTrue(api[0])
         self.assertTrue(ui[0])
         self.assertTrue(phoenix[0])
+
+    def test_nemoclaw_deploy_profile_verifier_reads_v0080_payload_text(self):
+        previous = nemoclaw_deploy_profile_verifier.LOG_PATH
+        with tempfile.TemporaryDirectory() as td:
+            log_path = Path(td) / "openclaw-agent.log"
+            log_path.write_text(
+                "openclaw info\n"
+                + json.dumps(
+                    {
+                        "status": "ok",
+                        "result": {
+                            "payloads": [
+                                {
+                                    "text": (
+                                        "vss-agent health checks passing: 200 OK; "
+                                        "https://7777-x.brevlab.com/; "
+                                        "vss-haproxy-ingress running"
+                                    )
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            nemoclaw_deploy_profile_verifier.LOG_PATH = log_path
+            try:
+                raw, final = nemoclaw_deploy_profile_verifier._openclaw_text()
+            finally:
+                nemoclaw_deploy_profile_verifier.LOG_PATH = previous
+
+        self.assertIn("openclaw info", raw)
+        self.assertIn("vss-agent health checks passing: 200 OK", final)
+        self.assertIn("vss-haproxy-ingress running", final)
 
     def test_missing_eval_spec_does_not_generate_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:

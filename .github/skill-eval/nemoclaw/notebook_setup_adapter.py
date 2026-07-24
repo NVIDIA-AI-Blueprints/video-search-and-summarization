@@ -109,7 +109,10 @@ VSS_ORCHESTRATOR_MCP_TYPE = (
     os.environ.get("VSS_ORCHESTRATOR_MCP_TYPE", "streamable-http").strip()
     or "streamable-http"
 )
-MCP_URL = VSS_ORCHESTRATOR_MCP_URL
+MCP_URL = _notebook_default(
+    "MCP_URL",
+    f"http://127.0.0.1:{os.environ.get('VSS_ORCHESTRATOR_MCP_PORT', '9988')}/mcp",
+)
 os.environ["VSS_ORCHESTRATOR_MCP_URL"] = VSS_ORCHESTRATOR_MCP_URL
 os.environ["VSS_ORCHESTRATOR_MCP_TYPE"] = VSS_ORCHESTRATOR_MCP_TYPE
 if NEMOCLAW_ENDPOINT_URL:
