@@ -30,7 +30,7 @@ check_ES_status(){
 
     # Wait for ES to come up
     until curl --output /dev/null --silent --head --fail -XGET "$ES_URL"; do
-        if [ ${ES_CONNECTION_RETRY_ATTEMPTS} -eq ${ES_CONNECTION_MAX_ATTEMPTS} ];then
+        if [[ ${ES_CONNECTION_RETRY_ATTEMPTS} -eq ${ES_CONNECTION_MAX_ATTEMPTS} ]];then
             exit_with_msg "Max attempts to connect to ES reached."
         fi
 
@@ -57,13 +57,13 @@ create_index_template(){
       --insecure)
 
     curl_exit_code=$?
-    if [ $curl_exit_code -ne 0 ]; then
+    if [[ $curl_exit_code -ne 0 ]]; then
         exit_with_msg "Curl command failed with exit code ${curl_exit_code} for template '${template_name}'. Error: ${response}"
     fi
 
     http_code=$(echo "$response" | tail -n1)
     echo "HTTP code: ${http_code}"
-    if [ "$http_code" != "200" ]; then
+    if [[ "$http_code" != "200" ]]; then
         response_body=$(echo "$response"| sed '$d')
         exit_with_msg "Failed to create index template '${template_name}'.\n  Status code: ${http_code}\n  Response: ${response_body}"
     fi
