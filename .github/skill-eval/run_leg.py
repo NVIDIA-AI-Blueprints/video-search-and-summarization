@@ -40,6 +40,28 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
+RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
+RTX4090_ALL_TESTS = frozenset({
+    "vss-manage-alerts",
+    "vss-deploy-detection-tracking-2d",
+    "vss-manage-video-io-storage",
+})
+RTX4090_TESTS = {
+    "vss-ask-video": frozenset({"base_profile_video_understanding"}),
+    "vss-generate-video-report": frozenset({"base_profile_report"}),
+    "vss-deploy-profile": frozenset({
+        "base", "lvs", "alerts_vlm", "alerts_cv",
+    }),
+    "vss-summarize-video": frozenset({
+        "lvs_profile_summarize", "lvs_api_ops",
+    }),
+    "vss-query-analytics": frozenset({"query_analytics"}),
+    "vss-deploy-video-embedding": frozenset({"standalone_deploy"}),
+    "vss-generate-video-calibration": frozenset({"auto-calibration"}),
+    "vss-setup-behavior-analytics": frozenset({"standalone_deploy"}),
+    "vss-setup-video-analytics-api": frozenset({"standalone_deploy"}),
+    "vss-deploy-dense-captioning": frozenset({"standalone_api"}),
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -289,6 +311,133 @@ def _list_brev_instances() -> list[dict]:
     return []
 
 
+def _list_registered_nodes() -> list[dict]:
+    """Snapshot registered external nodes from ``brev ls nodes --json``.
+
+    The CLI intentionally keeps registered nodes out of ``brev ls --json``.
+    Treat a well-formed empty array (or ``null``) as authoritative, but retry
+    empty/malformed output because transient auth/RPC failures otherwise make
+    the external pool disappear for the whole lock wait.
+    """
+    for attempt in range(4):
+        try:
+            proc = subprocess.run(
+                ["brev", "ls", "nodes", "--json"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            print(
+                f"[run-leg] brev ls nodes failed (attempt {attempt + 1}): {exc}",
+                flush=True,
+            )
+            time.sleep(5)
+            continue
+        raw = (proc.stdout or "").strip()
+        if raw.startswith("null"):
+            return []
+        if raw and raw.rfind("]") >= 0:
+            return _parse_brev_json(raw)
+        print(
+            f"[run-leg] brev ls nodes returned empty stdout "
+            f"(attempt {attempt + 1})",
+            flush=True,
+        )
+        time.sleep(5)
+    return []
+
+
+def _registered_gpu_hint(name: str) -> str:
+    """Infer hardware only for operator-controlled ``vss-eval-*`` names.
+
+    ``brev ls nodes --json`` currently reports name/status but no GPU model.
+    The pool's documented prefixes are therefore the only available hardware
+    contract. Unknown prefixes return empty so GPU-requiring legs fail closed.
+    """
+    normalized = name.lower()
+    if normalized.startswith(RTX4090_PREFIX):
+        return "GEFORCE RTX 4090"
+    if normalized.startswith("vss-eval-rtx"):
+        return "RTX PRO 6000"
+    if normalized.startswith("vss-eval-l40s"):
+        return "L40S"
+    if normalized.startswith("vss-eval-h100"):
+        return "H100"
+    return ""
+
+
+def _parse_pool_names(raw: str) -> set[str]:
+    return {
+        name.lower()
+        for name in re.split(r"[\s,]+", raw.strip())
+        if name
+    }
+
+
+def _rtx4090_supports(skill: str | None, spec_stem: str | None) -> bool:
+    """Whether resource data supports this exact test on a 24 GB RTX 4090."""
+    if not skill or not spec_stem:
+        return False
+    return (
+        skill in RTX4090_ALL_TESTS
+        or spec_stem in RTX4090_TESTS.get(skill, ())
+    )
+
+
+def _registered_pool_allowlist(
+    skill: str | None = None,
+    spec_stem: str | None = None,
+) -> set[str]:
+    """Registered nodes approved for this test.
+
+    ``BREV_REGISTERED_POOL`` contains full-capability workers. The separate
+    RTX 4090 pool is intentionally capability-routed because those 24 GB
+    cards cannot safely satisfy every RTX PRO 6000 task.
+    """
+    names = _parse_pool_names(os.environ.get("BREV_REGISTERED_POOL", ""))
+    if _rtx4090_supports(skill, spec_stem):
+        names.update(_parse_pool_names(os.environ.get("BREV_RTX4090_POOL", "")))
+    return names
+
+
+def _list_pool_instances(
+    skill: str | None = None,
+    spec_stem: str | None = None,
+) -> list[dict]:
+    """Return managed instances plus connected registered pool nodes."""
+    instances = list(_list_brev_instances())
+    seen = {(inst.get("name") or "").lower() for inst in instances}
+    registered_allowlist = _registered_pool_allowlist(skill, spec_stem)
+    rtx4090_allowlist = _parse_pool_names(
+        os.environ.get("BREV_RTX4090_POOL", "")
+    )
+    if not registered_allowlist:
+        return instances
+    for node in _list_registered_nodes():
+        name = (node.get("name") or "").strip()
+        if (
+            not name
+            or name.lower() in seen
+            or name.lower() not in registered_allowlist
+        ):
+            continue
+        status = (node.get("status") or "").upper()
+        instances.append({
+            **node,
+            "name": name,
+            # Managed instances say RUNNING; registered nodes say Connected.
+            "status": "RUNNING" if status == "CONNECTED" else status,
+            "gpu": _registered_gpu_hint(name),
+            "instance_type": "registered-external-node",
+            "_registered": True,
+            "_rtx4090_capability_routed": (
+                name.lower() in rtx4090_allowlist
+                and name.lower().startswith(RTX4090_PREFIX)
+            ),
+        })
+        seen.add(name.lower())
+    return instances
+
+
 def _loose_gpu_match(want: str, have: str) -> bool:
     """`RTX PRO 6000` ⊆ `RTX PRO SERVER 6000` — all tokens of `want` must
     appear in `have` (substring fallback for dashed variants). Mirrors
@@ -301,46 +450,71 @@ def _loose_gpu_match(want: str, have: str) -> bool:
 def _name_gpu_count_hint(name: str) -> int | None:
     """Fleet-naming gpu_count hint: `*-1g*` → 1, `*-2g*` → 2 (AGENTS.md
     pool convention). None when the name encodes nothing."""
+    if name.lower().startswith(RTX4090_PREFIX):
+        return 1
     match = re.search(r"-(\d)g(?:-|$)", name)
     return int(match.group(1)) if match else None
 
 
-def pool_candidates(metadata: dict) -> list[str]:
+def pool_candidates(
+    metadata: dict,
+    spec_stem: str | None = None,
+) -> list[str]:
     """Eligible `vss-eval-*` boxes for this leg, best-first.
 
     Hardware-hard, software-free (AGENTS.md § 5a): RUNNING + gpu_type
-    token match. Exact name-hinted gpu_count matches sort first so the
-    pool stays partitioned (don't tie up a 2-GPU box with 1-GPU work);
-    over-provisioned boxes remain as fallback — brev_env validates the
-    final pick with `gpu_count >=` and the box is reset either way.
+    token match. Dedicated registered nodes sort before managed cloud
+    instances; exact name-hinted gpu_count matches sort first within each
+    tier. Over-provisioned boxes remain valid — brev_env validates the final
+    pick with live nvidia-smi and the box is reset either way.
     gpu_count == 0 (remote-all / GPU-independent) accepts any RUNNING box.
     """
     required_type = (metadata.get("gpu_type") or "").upper()
     required_count = int(metadata.get("gpu_count", 1) or 0)
+    skill = metadata.get("skill") or os.environ.get("EVAL_SKILL") or None
+    spec_stem = (
+        spec_stem
+        or metadata.get("spec_stem")
+        or os.environ.get("EVAL_SPEC_STEM")
+        or None
+    )
 
-    names: list[str] = []
-    for inst in _list_brev_instances():
+    candidates: list[tuple[str, bool]] = []
+    for inst in _list_pool_instances(skill, spec_stem):
         name = inst.get("name") or ""
         if not name.startswith("vss-eval-"):
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
             continue
+        if inst.get("_registered") and required_count > 0:
+            count_hint = _name_gpu_count_hint(name)
+            if count_hint is not None and count_hint < required_count:
+                continue
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
             itype = (inst.get("instance_type") or "").upper()
+            capability_routed = (
+                bool(inst.get("_rtx4090_capability_routed"))
+                and _rtx4090_supports(skill, spec_stem)
+            )
             # Accept via instance_type when `gpu` is a transient "-"/"" flake
             # (brev catalog refresh) — same soft-fail brev_env applies.
             if not (_loose_gpu_match(required_type, gpu)
-                    or _loose_gpu_match(required_type, itype)):
+                    or _loose_gpu_match(required_type, itype)
+                    or capability_routed):
                 continue
-        names.append(name)
+        candidates.append((name, bool(inst.get("_registered"))))
 
-    def sort_key(name: str) -> tuple[int, str]:
+    def sort_key(candidate: tuple[str, bool]) -> tuple[int, int, str]:
+        name, registered = candidate
         hint = _name_gpu_count_hint(name)
         exact = 0 if (required_count > 0 and hint == required_count) else 1
-        return (exact, name)
+        # Use the dedicated registered pool before consuming managed cloud
+        # capacity. Within each pool tier, preserve exact-count partitioning.
+        # BrevEnvironment validates the chosen node with live nvidia-smi.
+        return (0 if registered else 1, exact, name.lower())
 
-    return sorted(names, key=sort_key)
+    return [name for name, _ in sorted(candidates, key=sort_key)]
 
 
 @contextlib.contextmanager
@@ -592,7 +766,9 @@ def main(argv: list[str] | None = None) -> int:
                   flush=True)
             candidates_fn = lambda: [pinned]  # noqa: E731
         else:
-            candidates_fn = lambda: pool_candidates(metadata)  # noqa: E731
+            candidates_fn = (  # noqa: E731
+                lambda: pool_candidates(metadata, args.spec_stem)
+            )
         with hold_pool_lock(
             candidates_fn, args.lock_dir, args.lock_timeout_sec
         ) as instance:
