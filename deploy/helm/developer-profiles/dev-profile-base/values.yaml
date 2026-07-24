@@ -154,8 +154,8 @@ vssIngress:
   # agent.vss-agent.rtviVlmServiceName, then vss-rtvi-vlm. Do not use vlmNameSlug
   # here — with vlmNameSlug=none that would resolve to a non-existent Service.
   vlm:
-    enabled: false
-    serviceName: ""
+    enabled: true
+    serviceName: "vss-rtvi-vlm"
     servicePort: 8000
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)
