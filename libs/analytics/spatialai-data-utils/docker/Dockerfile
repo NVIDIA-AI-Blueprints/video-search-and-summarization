@@ -82,6 +82,10 @@ WORKDIR /spatialai_data_utils
 
 COPY docker/deps.json deps.json
 
+# Vendored from urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v1.0.sh
+# Copied in locally instead of curl-at-build-time so the build does not depend on Artifactory reachability.
+COPY docker/generate_metadata.sh generate_metadata.sh
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         g++=4:14.2.0-1 \
@@ -91,7 +95,6 @@ RUN apt-get update && \
         libglib2.0-0t64=2.84.4-3~deb13u3 \
         libgomp1=14.2.0-19 && \
     mkdir -p /var/lib/dpkg/status.d && \
-    curl -o generate_metadata.sh https://urm.nvidia.com/artifactory/sw-gpu-ucs-hardened-debian/tools/generate_metadata_v0.3.sh && \
     chmod +x generate_metadata.sh && \
     ./generate_metadata.sh deps.json && \
     if [ "$TARGETARCH" = "arm64" ]; then \
@@ -118,7 +121,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     fi
 
 COPY Pipfile Pipfile.lock ./
-COPY README.md LICENSE NOTICE 3rdParty_Licenses.md NVIDIA-Software-License-Agreement.pdf ./
+COPY README.md NOTICE 3rdParty_Licenses.md ./
 COPY release ./release
 COPY spatialai_data_utils ./spatialai_data_utils
 
@@ -161,7 +164,7 @@ RUN pip install --no-cache-dir ./release[eval] && \
     pip uninstall -y wheel pipenv pip
 
 RUN mkdir -p /runtime/licenses /runtime/workspace/results && \
-    cp 3rdParty_Licenses.md LICENSE NOTICE NVIDIA-Software-License-Agreement.pdf /runtime/licenses/ && \
+    cp 3rdParty_Licenses.md NOTICE /runtime/licenses/ && \
     chown -R "${APP_UID}:${APP_GID}" /runtime && \
     chmod -R 775 /runtime/workspace/results
 
