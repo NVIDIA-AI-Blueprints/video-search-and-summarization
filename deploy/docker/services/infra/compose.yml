@@ -195,8 +195,7 @@ services:
     build:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/kafka-health-check.Dockerfile
-      target: kafka-with-jq
-      network: host
+      target: kafka-cli-jq
     image: vss-kafka-topic-init
     container_name: vss-kafka-topics
     profiles: ["kafka-topic-init-container"]

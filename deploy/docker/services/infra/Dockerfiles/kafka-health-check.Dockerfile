@@ -18,7 +18,7 @@
 # so jq is fetched in a separate Alpine stage and copied in.
 #
 # Build targets:
-#   kafka-with-jq      - cp-kafka + jq (shared; used by kafka-topic-init-container)
+#   kafka-cli-jq       - cp-kafka + jq (shared; used by kafka-topic-init-container)
 #   kafka-health-check - broker/topic readiness check (default)
 
 FROM alpine:3.24.1 AS jq-fetch
@@ -35,7 +35,7 @@ RUN apk add --no-cache curl=8.21.0-r0 \
     && curl -fsSL -o /jqbin/jq "$JQ_URL" \
     && chmod +x /jqbin/jq
 
-FROM confluentinc/cp-kafka:8.3.0 AS kafka-with-jq
+FROM confluentinc/cp-kafka:8.3.0 AS kafka-cli-jq
 
 USER root
 RUN mkdir -p /home/appuser/jqbin
@@ -44,7 +44,7 @@ RUN chown -R appuser:appuser /home/appuser/jqbin
 ENV PATH="/home/appuser/jqbin:${PATH}"
 USER appuser
 
-FROM kafka-with-jq AS kafka-health-check
+FROM kafka-cli-jq AS kafka-health-check
 
 USER root
 COPY --chmod=755 ./broker-health-check/scripts/check-kafka-health.sh /scripts/check-kafka-health.sh
