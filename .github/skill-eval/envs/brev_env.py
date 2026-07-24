@@ -422,6 +422,7 @@ class BrevEnvironment(BaseEnvironment):
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE",
             "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR",
+            "NEMOCLAW_GATEWAY_PORT",
             "OPENAI_API_KEY", "NVIDIA_BASE_URL", "OPENSHELL_PROVIDER_NAME",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
@@ -465,11 +466,12 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
-        # Wipe the warm-pool box's docker runtime to a clean slate so no
-        # prior trial's deployment state can contaminate this one. Images are
-        # preserved (re-pulling the image set is slow); all containers,
-        # user-defined networks, and volumes are removed. See
-        # _reset_docker_runtime for why this is blanket, not VSS-scoped.
+        # Wipe the warm-pool box's docker runtime to a clean slate so no prior
+        # trial's deployment state can contaminate this one. Images are
+        # preserved. NemoClaw trials also preserve a valid OpenShell gateway
+        # infrastructure bridge; every other user-defined network is removed.
+        # See _reset_docker_runtime for why the reset is otherwise blanket,
+        # not VSS-scoped.
         #
         # Gate: ONLY on a spec's first trial — a single-step spec (task dir is
         # the platform, e.g. `rtxpro6000bw`) or `step-1` of a multi-step spec.
@@ -501,7 +503,9 @@ class BrevEnvironment(BaseEnvironment):
             task_dir_name.startswith("step-") and task_dir_name != "step-1"
         )
         if is_first_trial:
-            await self._reset_docker_runtime()
+            await self._reset_docker_runtime(
+                preserve_openshell_gateway=_uses_nemoclaw(meta),
+            )
             # Host bind-mount purge runs AFTER the docker reset so every
             # container that writes into these dirs is already gone.
             await self._purge_host_data_dirs()
@@ -528,13 +532,31 @@ class BrevEnvironment(BaseEnvironment):
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
 
-    async def _reset_docker_runtime(self) -> None:
+    async def _reset_docker_runtime(
+        self,
+        *,
+        preserve_openshell_gateway: bool = False,
+    ) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
 
         Removes **all** containers (running + stopped), **all** volumes
-        (named + anonymous), and **all** user-defined networks, while
-        **preserving images** — re-pulling the multi-GB VSS/NIM image set on
-        every trial would dominate wall-clock.
+        (named + anonymous), and user-defined networks while **preserving
+        images** — re-pulling the multi-GB VSS/NIM image set on every trial
+        would dominate wall-clock. NemoClaw callers may also preserve the
+        OpenShell gateway's exact ``openshell-docker`` infrastructure network.
+
+        The network exception is required because NemoClaw's Linux
+        Docker-driver gateway is a host process. OpenShell creates and records
+        the bridge route when that process starts, but a healthy reused
+        gateway does not recreate the network before its next sandbox create.
+        Pruning the now-unused bridge after container cleanup therefore leaves
+        the live gateway accepting requests but every new sandbox failing with
+        ``network openshell-docker not found``. Preserving that one empty
+        bridge keeps the running gateway's recorded route valid. Before it is
+        preserved, its driver, OpenShell ownership label, and IPv4 IPAM gateway
+        are validated. If it is already absent, ``_ensure_nemoclaw_ready``
+        releases any surviving host gateway listener before onboarding starts
+        a new gateway and recreates the bridge coherently.
 
         Why blanket, not VSS-project-scoped: trials reach a deploy through
         heterogeneous paths — direct `docker compose --profile …`, the
@@ -560,37 +582,127 @@ class BrevEnvironment(BaseEnvironment):
         re-wipes the caches and re-pays the cold start. The per-trial harbor
         timeout already budgets for a cold deploy.
 
-        Runs as the normal (docker-group) user — the same identity the
-        trial's deploy uses; no sudo. `network prune` leaves the built-in
-        bridge/host/none networks, which is correct. Fails loud (`set -u`,
-        explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
-        if any container, volume, or user-defined network survives, so a
-        half-reset box surfaces as a trial error rather than silent cross-trial
+        Runs as the normal (docker-group) user — the same identity the trial's
+        deploy uses; no sudo. Fails loud if the daemon is unreachable or dies
+        mid-reset, Docker enumeration/removal fails, the preserved OpenShell
+        network is not the expected managed IPv4 bridge, or any container,
+        volume, or unexpected user-defined network survives. A half-reset box
+        therefore surfaces as a trial error rather than silent cross-trial
         contamination.
         """
-        cmd = r"""set -uo pipefail
+        cmd = r"""set -euo pipefail
 docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
-cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
-vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
-docker network prune -f >/dev/null 2>&1 || true
-# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
-# died mid-script would make the count commands below print nothing and the
-# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
-# this check, so the remaining TOCTOU window is negligible.
+cids=$(docker ps -aq) || { echo "failed to enumerate docker containers" >&2; exit 1; }
+if [ -n "$cids" ]; then
+  docker rm -f $cids >/dev/null || {
+    echo "failed to remove docker containers during reset" >&2
+    exit 1
+  }
+fi
+vols=$(docker volume ls -q) || { echo "failed to enumerate docker volumes" >&2; exit 1; }
+if [ -n "$vols" ]; then
+  docker volume rm -f $vols >/dev/null || {
+    echo "failed to remove docker volumes during reset" >&2
+    exit 1
+  }
+fi
+preserve_openshell_gateway=__PRESERVE_OPENSHELL_GATEWAY__
+openshell_network=openshell-docker
+validate_openshell_network() {
+  network_id="$1"
+  network_driver=$(docker network inspect --format '{{.Driver}}' "$network_id") || {
+    echo "failed to inspect driver for OpenShell network $network_id" >&2
+    return 1
+  }
+  network_owner=$(docker network inspect \
+    --format '{{index .Labels "openshell.ai/managed-by"}}' "$network_id") || {
+    echo "failed to inspect owner for OpenShell network $network_id" >&2
+    return 1
+  }
+  network_gateways=$(docker network inspect \
+    --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' "$network_id") || {
+    echo "failed to inspect IPAM for OpenShell network $network_id" >&2
+    return 1
+  }
+  [ "$network_driver" = "bridge" ] || {
+    echo "refusing to preserve OpenShell network with driver $network_driver" >&2
+    return 1
+  }
+  [ "$network_owner" = "openshell" ] || {
+    echo "refusing to preserve OpenShell network without managed ownership label" >&2
+    return 1
+  }
+  has_ipv4_gateway=0
+  for network_gateway in $network_gateways; do
+    if python3 -c \
+      'import ipaddress,sys; raise SystemExit(ipaddress.ip_address(sys.argv[1]).version != 4)' \
+      "$network_gateway"; then
+      has_ipv4_gateway=1
+      break
+    fi
+  done
+  [ "$has_ipv4_gateway" = "1" ] || {
+    echo "refusing to preserve OpenShell network without an IPv4 IPAM gateway" >&2
+    return 1
+  }
+}
+network_ids=$(docker network ls --filter type=custom -q) || {
+  echo "failed to enumerate docker networks during reset" >&2
+  exit 1
+}
+for network_id in $network_ids; do
+  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
+    echo "failed to inspect docker network $network_id during reset" >&2
+    exit 1
+  }
+  if [ "$preserve_openshell_gateway" = "1" ] && \
+     [ "$network_name" = "$openshell_network" ]; then
+    validate_openshell_network "$network_id"
+    continue
+  fi
+  docker network rm "$network_id" >/dev/null || {
+    echo "failed to remove docker network $network_name ($network_id)" >&2
+    exit 1
+  }
+done
+# Re-confirm the daemon survived the reset before checking postconditions.
 docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
 rc=$(docker ps -aq | wc -l | tr -d ' ')
 rv=$(docker volume ls -q | wc -l | tr -d ' ')
-# Only user-defined networks should be gone; the built-in bridge/host/none
-# are never removable, so filter to type=custom. A surviving user network
-# would collide ("network already exists" / address-range clash) on the next
-# `compose up`, so it must fail the reset like a surviving container/volume.
-rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
+# Only a validated OpenShell infrastructure bridge may remain, and only when
+# the NemoClaw caller requested it.
+rn=0
+surviving_network_ids=$(docker network ls --filter type=custom -q) || {
+  echo "failed to enumerate surviving docker networks" >&2
+  exit 1
+}
+for network_id in $surviving_network_ids; do
+  network_name=$(docker network inspect --format '{{.Name}}' "$network_id") || {
+    echo "failed to inspect surviving docker network $network_id" >&2
+    exit 1
+  }
+  if [ "$preserve_openshell_gateway" = "1" ] && \
+     [ "$network_name" = "$openshell_network" ]; then
+    validate_openshell_network "$network_id"
+  else
+    rn=$((rn + 1))
+  fi
+done
 if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
-  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
+  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} unexpected user-defined networks remain" >&2
   exit 1
 fi
-echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
+image_layers=$(docker images -q | wc -l | tr -d ' ')
+if [ "$preserve_openshell_gateway" = "1" ]; then
+  echo "docker runtime reset OK; images and valid OpenShell bridge preserved when present (${image_layers} layers)"
+else
+  echo "docker runtime reset OK; images preserved (${image_layers} layers)"
+fi
 """
+        cmd = cmd.replace(
+            "__PRESERVE_OPENSHELL_GATEWAY__",
+            "1" if preserve_openshell_gateway else "0",
+        )
         logger.info(
             "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
             self._instance_name,
@@ -685,6 +797,73 @@ stage() {{
 stage "begin setup on $(hostname)"
 default_gateway_state_dir="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
 gateway_state_dir="${{NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR:-$default_gateway_state_dir}}"
+gateway_port="${{NEMOCLAW_GATEWAY_PORT:-8080}}"
+case "$gateway_port" in
+  ""|*[!0-9]*)
+    echo "Invalid NEMOCLAW_GATEWAY_PORT: $gateway_port" >&2
+    exit 1
+    ;;
+esac
+if [ "$gateway_port" -lt 1024 ] || [ "$gateway_port" -gt 65535 ]; then
+  echo "NEMOCLAW_GATEWAY_PORT is outside 1024-65535: $gateway_port" >&2
+  exit 1
+fi
+gateway_port_is_free() {{
+  python3 - "$gateway_port" <<'__NEMOCLAW_PORT_PROBE__'
+import socket
+import sys
+
+sock = socket.socket()
+try:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+__NEMOCLAW_PORT_PROBE__
+}}
+openshell_network_names="$(docker network ls \
+  --filter type=custom --format '{{{{.Name}}}}')" || {{
+  echo "Failed to inspect the OpenShell Docker network before NemoClaw setup" >&2
+  exit 1
+}}
+if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
+  if gateway_port_is_free; then
+    stage "OpenShell bridge is absent and gateway port $gateway_port is free; fresh onboarding will recreate it"
+  else
+    stage "OpenShell bridge is absent while gateway port $gateway_port is busy; releasing the scoped host gateway"
+    gateway_release_module="$HOME/.nemoclaw/source/dist/lib/tunnel/gateway-port-release.js"
+    if ! command -v node >/dev/null 2>&1 || [ ! -f "$gateway_release_module" ]; then
+      echo "Cannot safely release the stale OpenShell gateway: pinned NemoClaw gateway release module is unavailable" >&2
+      exit 1
+    fi
+    GATEWAY_RELEASE_MODULE="$gateway_release_module" \
+    GATEWAY_RELEASE_PORT="$gateway_port" \
+      node <<'__NEMOCLAW_GATEWAY_RELEASE__'
+const modulePath = process.env.GATEWAY_RELEASE_MODULE;
+const port = Number(process.env.GATEWAY_RELEASE_PORT);
+const runtime = require(modulePath);
+const result = runtime.releaseManagedGatewayPort({{
+  port,
+  confirmTimeoutMs: 5000,
+  confirmPollIntervalMs: 100,
+}});
+if (!result || result.released !== true) {{
+  console.error(
+    `Scoped NemoClaw gateway release failed for port ${{port}}: ` +
+      JSON.stringify(result),
+  );
+  process.exit(1);
+}}
+__NEMOCLAW_GATEWAY_RELEASE__
+    gateway_port_is_free || {{
+      echo "OpenShell gateway port $gateway_port is still busy after scoped release" >&2
+      exit 1
+    }}
+    stage "released stale host gateway on port $gateway_port; fresh onboarding will recreate its bridge"
+  fi
+fi
 recreate_value="$(printf '%s' "${{NEMOCLAW_RECREATE_SANDBOX:-1}}" | \
   sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
 case "$recreate_value" in
