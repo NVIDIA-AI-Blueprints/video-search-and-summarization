@@ -291,6 +291,13 @@ struct DeviceConfig
     int mega_simulation_delay_max_ms;
     string mega_simulation_base_time;
     int default_file_expiry_minutes;
+    // When true, the temp-file lookup in tryReuseCachedTempFile (video URL
+    // flow) and tryReuseCachedPictureUrl (picture URL flow) is bypassed -
+    // every request regenerates a fresh file. Inserts and DB tracking still
+    // happen so cleanup/expiry continue to work. Defaults to false so
+    // caching remains on; useful in dev/debug deployments where the caller
+    // wants to bypass the cache without re-rolling the cache key.
+    bool disable_url_caching;
     string ingress_endpoint;
     bool use_webrtc_hw_dec;
     bool recorder_enable_frame_drop;

@@ -15,11 +15,10 @@
 #include <utility>
 
 #include "absl/strings/string_view.h"
+#include "rtc_base/ip_address.h"
 #include "rtc_base/network_constants.h"
 
-namespace rtc {
-
-class IPAddress;
+namespace webrtc {
 
 enum class NetworkBindingResult {
   SUCCESS = 0,   // No error
@@ -37,7 +36,7 @@ enum class NetworkPreference {
   NOT_PREFERRED = -1,
 };
 
-const char* NetworkPreferenceToString(NetworkPreference preference);
+absl::string_view NetworkPreferenceToString(NetworkPreference preference);
 
 // This interface is set onto a socket server,
 // where only the ip address is known at the time of binding.
@@ -93,6 +92,9 @@ class NetworkMonitorInterface {
     // cards, where attempting to use all interfaces returned from getifaddrs
     // caused the connection to be dropped.
     bool available = true;
+
+    // Is this network using network slicing.
+    NetworkSlice slice = NetworkSlice::NO_SLICE;
   };
 
   NetworkMonitorInterface();
@@ -113,9 +115,9 @@ class NetworkMonitorInterface {
   // Bind a socket to an interface specified by ip address and/or interface
   // name. Only implemented on Android.
   virtual NetworkBindingResult BindSocketToNetwork(
-      int socket_fd,
-      const IPAddress& address,
-      absl::string_view interface_name) {
+      int /* socket_fd */,
+      const IPAddress& /* address */,
+      absl::string_view /* interface_name */) {
     return NetworkBindingResult::NOT_IMPLEMENTED;
   }
 
@@ -134,6 +136,7 @@ class NetworkMonitorInterface {
   std::function<void()> networks_changed_callback_;
 };
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_NETWORK_MONITOR_H_

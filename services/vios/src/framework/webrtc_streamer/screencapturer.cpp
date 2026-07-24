@@ -38,7 +38,7 @@ void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, st
 	if (result == webrtc::DesktopCapturer::Result::SUCCESS) {
 		int width = frame->rect().width();
 		int height = frame->rect().height();
-		rtc::scoped_refptr<webrtc::I420Buffer> I420buffer = webrtc::I420Buffer::Create(width, height);
+		webrtc::scoped_refptr<webrtc::I420Buffer> I420buffer = webrtc::I420Buffer::Create(width, height);
 
 		const int conversionResult = libyuv::ConvertToI420(frame->data(), frame->stride()*webrtc::DesktopFrame::kBytesPerPixel,
 			I420buffer->MutableDataY(), I420buffer->StrideY(),
@@ -50,7 +50,7 @@ void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, st
 			libyuv::kRotate0, ::libyuv::FOURCC_ARGB);									
 				
 		if (conversionResult >= 0) {
-			webrtc::VideoFrame videoFrame(I420buffer, webrtc::VideoRotation::kVideoRotation_0, rtc::TimeMicros());
+			webrtc::VideoFrame videoFrame(I420buffer, webrtc::VideoRotation::kVideoRotation_0, webrtc::TimeMicros());
 			if ( (m_height == 0) && (m_width == 0) ) {
 				broadcaster_.OnFrame(videoFrame);	
 
@@ -65,9 +65,9 @@ void DesktopCapturer::OnCaptureResult(webrtc::DesktopCapturer::Result result, st
 				}
 				int stride_y = width;
 				int stride_uv = (width + 1) / 2;
-				rtc::scoped_refptr<webrtc::I420Buffer> scaled_buffer = webrtc::I420Buffer::Create(width, height, stride_y, stride_uv, stride_uv);
+				webrtc::scoped_refptr<webrtc::I420Buffer> scaled_buffer = webrtc::I420Buffer::Create(width, height, stride_y, stride_uv, stride_uv);
 				scaled_buffer->ScaleFrom(*videoFrame.video_frame_buffer()->ToI420());
-				webrtc::VideoFrame frame = webrtc::VideoFrame(scaled_buffer, webrtc::kVideoRotation_0, rtc::TimeMicros());
+				webrtc::VideoFrame frame = webrtc::VideoFrame(scaled_buffer, webrtc::kVideoRotation_0, webrtc::TimeMicros());
 						
 				broadcaster_.OnFrame(frame);
 			}

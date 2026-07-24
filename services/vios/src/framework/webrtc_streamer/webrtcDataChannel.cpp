@@ -19,7 +19,7 @@
 
 WebrtcDataChannel* WebrtcDataChannel::m_instance = nullptr;
 
-void WebrtcDataChannel::addChannelObserver(std::string clientId, rtc::scoped_refptr<webrtc::DataChannelInterface> channel)
+void WebrtcDataChannel::addChannelObserver(std::string clientId, webrtc::scoped_refptr<webrtc::DataChannelInterface> channel)
 {
 	std::lock_guard<std::mutex> channelMap(m_channelMapMutex);
 	auto itr = m_channelObserverMap.find(clientId);

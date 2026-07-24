@@ -165,7 +165,8 @@ namespace nv_vms
             const std::string& deviceId, const std::string& streamId,
             int64_t startTimeMs, int64_t endTimeMs,
             const std::string& fileType = "",
-            const std::string& containerFormat = "") override;
+            const std::string& containerFormat = "",
+            const std::string& configHash = "") override;
         int updateTempFileExpiry(
             const std::string& filePath, int64_t newExpiryTimestamp) override;
 
