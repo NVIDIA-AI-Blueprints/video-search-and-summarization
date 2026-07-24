@@ -20,6 +20,10 @@ Tests are grouped by type so unit tests stay isolated from the rest:
 2. Make sure your VSS agent is running and configured in `config.yaml`
 3. Ensure Python dependencies are installed
 
+For Kafka and on-demand Prometheus latency/counter reports, see
+[`latency/README.md`](latency/README.md). The report includes a separate
+On-Demand API section for `alert_bridge_ondemand_*` metrics.
+
 ## Quick Start
 
 ### Using Docker Compose

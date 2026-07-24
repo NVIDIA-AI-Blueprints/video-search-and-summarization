@@ -21,7 +21,7 @@ and C20:
 
   * C17 — ``prom_query`` raises :class:`PromQueryError` on transport-level
     failures instead of calling ``sys.exit(1)`` from inside a low-level
-    helper. A single transient hiccup on one of ~30 PromQL queries must
+    helper. A single transient hiccup on one of the report's PromQL queries must
     not kill the entire report.
   * C18 — ``run_prometheus`` and ``run_elasticsearch`` return ``bool`` so
     ``main()`` can decide the process exit code after every section has
@@ -35,6 +35,8 @@ and C20:
     ``info.latency`` contract: a JSON string containing camelCase keys.
     Prior versions queried nested latency fields directly and silently
     returned zero ES hits.
+  * The aggregate Prometheus report includes the separate on-demand request,
+    completion, latency, and failure series without changing Kafka accounting.
 
 Run with: pytest test/latency/test_prometheus_latency_script.py -v
 """
@@ -376,6 +378,72 @@ class TestFailureSectionAlwaysPrints:
         # does, actually) — asserting once is enough to lock the
         # zero-division guard down.
         assert "N/A" in output
+
+
+class TestOnDemandReport:
+    def test_aggregate_report_prints_ondemand_series(self, capsys):
+        healthy = MagicMock()
+        healthy.raise_for_status.return_value = None
+
+        def fake_row(_base_url, metric, _window, _label_filter=""):
+            if "ondemand" in metric:
+                return (1.5, 1.0, 2.0, 2.5, 1)
+            return (None, None, None, None, 0)
+
+        def fake_counter(_base_url, metric, _window, label_filter=""):
+            if metric == "alert_bridge_ondemand_requests_total":
+                return 1 if label_filter == 'outcome="accepted"' else 0
+            if metric == "alert_bridge_ondemand_events_total":
+                return 1 if label_filter == 'verdict="unknown"' else 0
+            return 0
+
+        with patch.object(
+            prometheus_latency.requests, "get", return_value=healthy
+        ), patch.object(
+            prometheus_latency, "prom_fetch_row", side_effect=fake_row
+        ), patch.object(
+            prometheus_latency, "prom_counter", side_effect=fake_counter
+        ):
+            ok = prometheus_latency.run_prometheus(
+                "http://fake", "1h", "now"
+            )
+
+        output = capsys.readouterr().out
+        assert ok is True
+        assert "ON-DEMAND API" in output
+        assert "Background Processing" in output
+        assert "Request → Publish" in output
+        assert "Requests [total: 1]" in output
+        assert "Completed events [total: 1]" in output
+        assert "accepted                 1" in output
+        assert "unknown                  1" in output
+
+    def test_sensor_report_does_not_query_unlabelled_ondemand_series(self):
+        healthy = MagicMock()
+        healthy.raise_for_status.return_value = None
+        queried_metrics = []
+
+        def fake_row(_base_url, metric, _window, _label_filter=""):
+            queried_metrics.append(metric)
+            return (None, None, None, None, 0)
+
+        def fake_counter(_base_url, metric, _window, _label_filter=""):
+            queried_metrics.append(metric)
+            return 0
+
+        with patch.object(
+            prometheus_latency.requests, "get", return_value=healthy
+        ), patch.object(
+            prometheus_latency, "prom_fetch_row", side_effect=fake_row
+        ), patch.object(
+            prometheus_latency, "prom_counter", side_effect=fake_counter
+        ):
+            ok = prometheus_latency.run_prometheus(
+                "http://fake", "1h", "now", sensor_id="cam-1"
+            )
+
+        assert ok is True
+        assert not any("ondemand" in metric for metric in queried_metrics)
 
 
 # ── C20: ES latency payload contract ─────────────────────────────────────

@@ -69,6 +69,7 @@ def client(mock_service):
     sys.path.insert(0, _web_root)
     try:
         from web.main import app
+        from web.api import verification_routes as routes
         from web.api.verification_routes import get_ondemand_service
         from web.service.ondemand_verification_service import AlertTypeNotFoundError as _Err
     except (ImportError, Exception) as exc:
@@ -78,6 +79,8 @@ def client(mock_service):
         sys.modules.update(saved_modules)
 
     mock_service._AlertTypeNotFoundError = _Err
+    mock_service._request_counter = MagicMock()
+    routes.inc_ondemand_request = mock_service._request_counter
     app.dependency_overrides[get_ondemand_service] = lambda: mock_service
     yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
@@ -135,9 +138,16 @@ class TestOndemandHappyPath:
 
     def test_background_task_dispatched(self, client, mock_service):
         _post(client)
-        mock_service.process_and_publish.assert_called_once_with(
+        mock_service.process_and_publish.assert_called_once()
+        args = mock_service.process_and_publish.call_args.args
+        assert args[:3] == (
             SAMPLE_MESSAGE, "user prompt", "system prompt"
         )
+        assert isinstance(args[3], float)
+
+    def test_records_accepted_outcome(self, client, mock_service):
+        _post(client)
+        mock_service._request_counter.assert_called_once_with("accepted")
 
 
 # ---------------------------------------------------------------------------
@@ -209,17 +219,29 @@ class TestOndemandPrepareErrors:
         body = resp.json()
         assert body["status"] == "error"
         assert body["error"] == "unknown_category"
+        mock_service._request_counter.assert_called_once_with(
+            "unknown_category"
+        )
 
     def test_value_error_returns_400(self, client, mock_service):
         mock_service.prepare.side_effect = ValueError("bad input")
         resp = _post(client)
         assert resp.status_code == 400
         assert resp.json()["error"] == "invalid_request"
+        mock_service._request_counter.assert_called_once_with(
+            "invalid_request"
+        )
 
     def test_no_background_task_on_prepare_error(self, client, mock_service):
         mock_service.prepare.side_effect = ValueError("fail")
         _post(client)
         mock_service.process_and_publish.assert_not_called()
+
+    def test_unexpected_prepare_error_records_unknown(self, client, mock_service):
+        mock_service.prepare.side_effect = RuntimeError("unexpected")
+        resp = _post(client)
+        assert resp.status_code == 500
+        mock_service._request_counter.assert_called_once_with("unknown")
 
 
 # ---------------------------------------------------------------------------

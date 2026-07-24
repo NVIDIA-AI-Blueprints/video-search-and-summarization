@@ -81,6 +81,7 @@ class _ServiceContext:
         self.prompt_mgr.get_prompts_for_message.return_value = (user_prompt, system_prompt)
         self.mock_handler = MagicMock()
         self.mock_sink = MagicMock()
+        self.mock_completion_recorder = MagicMock()
 
         self._patches = [
             patch.object(_svc_mod, "load_config", return_value=_stub_config(max_media_count)),
@@ -89,6 +90,11 @@ class _ServiceContext:
             patch.object(_svc_mod, "PromptManager", return_value=self.prompt_mgr),
             patch.object(_svc_mod, "build_vlm_enhanced_sink", return_value=self.mock_sink),
             patch.object(_svc_mod, "DirectMediaHandler", return_value=self.mock_handler),
+            patch.object(
+                _svc_mod,
+                "record_ondemand_event_complete",
+                self.mock_completion_recorder,
+            ),
         ]
 
     def start(self):
@@ -215,6 +221,35 @@ class TestProcessAndPublish:
         assert call_kwargs["message"]["id"] == "test-123"
         assert call_kwargs["message"]["sensorId"] == "cam-77"
 
+    def test_records_completion_with_request_start(self, ctx):
+        msg, user, system = ctx.svc.prepare(_make_payload())
+
+        ctx.svc.process_and_publish(
+            msg, user, system, request_start_time=123.0
+        )
+
+        ctx.mock_completion_recorder.assert_called_once()
+        call_kwargs = ctx.mock_completion_recorder.call_args.kwargs
+        assert call_kwargs["request_start_time"] == 123.0
+        assert call_kwargs["message"] is msg
+        assert call_kwargs["failure_reason"] is None
+        assert isinstance(call_kwargs["processing_start_time"], float)
+
+    def test_records_background_exception_once_and_reraises(self, ctx):
+        msg, user, system = ctx.svc.prepare(_make_payload())
+        ctx.mock_handler.evaluate.side_effect = RuntimeError("sink down")
+
+        with pytest.raises(RuntimeError, match="sink down"):
+            ctx.svc.process_and_publish(
+                msg, user, system, request_start_time=123.0
+            )
+
+        ctx.mock_completion_recorder.assert_called_once()
+        assert (
+            ctx.mock_completion_recorder.call_args.kwargs["failure_reason"]
+            == "background_exception"
+        )
+
 
 # ---------------------------------------------------------------------------
 # __init__ — wiring
@@ -229,3 +264,10 @@ class TestInit:
         _svc_mod.DirectMediaHandler.assert_called_once()
         call_kwargs = _svc_mod.DirectMediaHandler.call_args.kwargs
         assert call_kwargs["vlm_enhanced_event_sink"] is ctx.mock_sink
+
+    def test_handler_built_with_ondemand_vlm_observer(self, ctx):
+        call_kwargs = _svc_mod.DirectMediaHandler.call_args.kwargs
+        assert (
+            call_kwargs["vlm_duration_observer"]
+            is _svc_mod.observe_ondemand_vlm_duration
+        )

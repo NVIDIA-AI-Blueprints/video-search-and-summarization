@@ -3,17 +3,22 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-ask-video skill.
 
-The vss-ask-video skill answers visual questions about a named sensor
-by calling ``POST /generate`` on the VSS agent, instructing it to invoke the
-``video_understanding`` tool.  It requires a **full-remote deployed VSS base
-profile** (deploy mode = ``remote-all``; both LLM and VLM via remote
-launchpad endpoints, no local NIMs required). It does NOT deploy VSS itself;
-the coordinator chains a deploy task in front, plus a VIOS seed step to
-upload the sample warehouse video.
+The vss-ask-video skill answers visual questions about a recorded clip by
+calling an OpenAI-compatible **VLM ``chat/completions`` endpoint directly**:
+it resolves a clip URL via VST/VIOS, picks the live VLM endpoint/model
+(NIM Cosmos on :30082 or RT-VLM on :8018/:30082), uploads the clip in the
+format the target VLM requires (``video_url`` / ``file_base64``), and
+returns the answer. It does **NOT** call ``POST
+/generate`` on the VSS agent and does **not** require the NAT agent to be
+running — only a reachable VLM endpoint plus VST. It does NOT deploy VSS
+itself; the coordinator chains a deploy task in front (or points the skill
+at an already-running VLM endpoint), plus a VIOS seed step to upload the
+sample warehouse video.
 
-Because vss-ask-video is a thin wrapper around POST /generate — purely
-HTTP, GPU-independent at the harness level — the spec targets **ONE platform**
-by default (L40S — cheapest available host).  Override with ``--platform``.
+Because vss-ask-video drives the VLM endpoint over plain HTTP — the heavy
+lifting is on the (already-deployed) VLM, GPU-independent at the harness
+level — the spec targets **ONE platform** by default (L40S — cheapest
+available host).  Override with ``--platform``.
 
 ## Directory layout
 
@@ -95,24 +100,40 @@ def generate_test_script(step: int, spec_name: str) -> str:
 
 
 def generate_solve_script(platform: str) -> str:
-    """Gold solution — assumes VSS base profile is already deployed and a
+    """Gold solution — assumes VST and a VLM endpoint are reachable and a
     sample warehouse video is already uploaded via VIOS.  The verifier drives
-    the POST /generate assertion; the solution script asserts the agent is
-    live, then defers."""
+    the direct VLM chat/completions assertion; the solution script just
+    asserts the prerequisites (VST + a resolvable VLM endpoint) are live,
+    then defers. It deliberately does NOT require the VSS agent (:8000) —
+    vss-ask-video no longer calls POST /generate."""
     return (
         "#!/bin/bash\n"
         f"# Gold solution: vss-ask-video on {platform}\n"
-        "# The verifier calls POST /generate directly — the solution script\n"
-        "# just asserts VSS agent is reachable then defers to the verifier.\n"
+        "# vss-ask-video calls the VLM /v1/chat/completions endpoint directly\n"
+        "# (NOT POST /generate). The solution script asserts VST + a VLM\n"
+        "# endpoint are reachable, then defers to the verifier.\n"
         "set -euo pipefail\n"
         "\n"
-        "curl -sf --connect-timeout 5 "
-        "${VSS_AGENT_URL:-http://localhost:8000}/docs "
-        ">/dev/null || {\n"
-        "    echo 'VSS agent is not deployed — cannot solve vss-ask-video task'\n"
+        'HOST_IP="${HOST_IP:-localhost}"\n'
+        "\n"
+        "# VST must be up to resolve the clip URL.\n"
+        "curl -sf --connect-timeout 5 --max-time 10 \\\n"
+        '  "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null || {\n'
+        "    echo 'VST is not reachable on :30888 — cannot solve vss-ask-video task'\n"
         "    exit 1\n"
         "}\n"
-        "echo 'VSS agent is live — verifier will drive POST /generate.'\n"
+        "\n"
+        "# A VLM endpoint must resolve — try caller-provided VLM_ENDPOINT, then\n"
+        "# NIM Cosmos (:30082, base default), then RT-VLM (:8018, alerts/lvs).\n"
+        "vlm_ok=0\n"
+        'for base in "${VLM_ENDPOINT:-}" "http://${HOST_IP}:30082/v1" "http://${HOST_IP}:8018/v1"; do\n'
+        '    [ -n "$base" ] || continue\n'
+        '    if curl -sf --connect-timeout 5 --max-time 10 "${base}/models" >/dev/null; then\n'
+        '        echo "VLM endpoint reachable at ${base}"; vlm_ok=1; break\n'
+        "    fi\n"
+        "done\n"
+        '[ "$vlm_ok" = 1 ] || { echo \'No reachable VLM endpoint (:30082 / :8018 / VLM_ENDPOINT)\'; exit 1; }\n'
+        "echo 'Prerequisites live (VST + VLM) — verifier will drive the direct VLM call.'\n"
     )
 
 
@@ -172,7 +193,7 @@ def generate_task(
             "[task]",
             f'name = "nvidia-vss/vss-ask-video-{profile}-{platform_short}{step_suffix}"',
             f'description = "vss-ask-video query {idx}/{len(expects)} on {platform}"',
-            f'keywords = ["vss-ask-video", "generate", "{profile}", "{platform}"]',
+            f'keywords = ["vss-ask-video", "vlm", "chat-completions", "{profile}", "{platform}"]',
             "",
             "[environment]",
             'skills_dir = "/skills"',
@@ -192,8 +213,10 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vss-ask-video",
-            "# exercises POST /generate only, so there is no benefit to local NIMs.",
+            "# vss-ask-video calls the VLM chat/completions endpoint directly (not",
+            "# POST /generate). The VLM that serves the clip must be able to fetch the",
+            "# VST clip URL: prefer a LOCAL VLM (NIM :30082 / RT-VLM :8018) so the",
+            "# internal clip URL is reachable; a remote VLM forces inline frame upload.",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
