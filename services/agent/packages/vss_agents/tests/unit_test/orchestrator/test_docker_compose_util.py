@@ -153,6 +153,54 @@ class TestParseEnvFile:
         }
 
 
+class TestComposeSubprocessEnv:
+    def test_generated_env_removes_ambient_placement(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        env_file = tmp_path / "generated.env"
+        env_file.write_text(
+            _env_text(
+                "LLM_DEVICE_ID=0  # profile default",
+                "VLM_DEVICE_ID=0",
+                "RT_VLM_DEVICE_ID=0",
+                "LLM_MODE=local_shared",
+                "VLM_MODE=local_shared",
+            )
+            + "\n"
+        )
+        for key in (
+            "LLM_DEVICE_ID",
+            "VLM_DEVICE_ID",
+            "RT_VLM_DEVICE_ID",
+            "SHARED_LLM_VLM_DEVICE_ID",
+        ):
+            monkeypatch.setenv(key, "1")
+        monkeypatch.setenv("LLM_MODE", "local")
+        monkeypatch.setenv("VLM_MODE", "local")
+
+        result = dcu._compose_subprocess_env(env_file)
+
+        assert "LLM_DEVICE_ID" not in result
+        assert "VLM_DEVICE_ID" not in result
+        assert "RT_VLM_DEVICE_ID" not in result
+        assert "SHARED_LLM_VLM_DEVICE_ID" not in result
+        assert "LLM_MODE" not in result
+        assert "VLM_MODE" not in result
+
+    def test_compose_output_defaults_do_not_replace_explicit_values(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        env_file = tmp_path / "generated.env"
+        env_file.write_text("COMPOSE_PROGRESS=quiet\n")
+        monkeypatch.delenv("COMPOSE_ANSI", raising=False)
+
+        result = dcu._compose_subprocess_env(
+            env_file,
+            {"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"},
+        )
+
+        assert "COMPOSE_PROGRESS" not in result
+        assert result["COMPOSE_ANSI"] == "never"
+
+
 class TestFirstNonPlaceholder:
     def test_first_non_placeholder_skips_known_placeholders(self):
         result = dcu.first_non_placeholder(

@@ -1354,6 +1354,9 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("sudo rm -rf \"$stale_path\"", command)
         self.assertIn("git clean failed; repairing checkout ownership", command)
         self.assertIn("-path \"$REPO/data\" -prune", command)
+        self.assertEqual(command.count("-e /.env"), 3)
+        self.assertNotIn("-e .env", command)
+        self.assertIn("Nested dotenv files must be removed", command)
 
 
 class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):

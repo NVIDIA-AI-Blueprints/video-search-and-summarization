@@ -100,7 +100,18 @@ COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "LLM_NAME_SLUG",
     "VLM_NAME_SLUG",
 )
-_COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VLM_MODE"})
+_COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset(
+    {
+        "LLM_DEVICE_ID",
+        "LLM_MODE",
+        "RT_CV_DEVICE_ID",
+        "RT_EMBED_DEVICE_ID",
+        "RT_VLM_DEVICE_ID",
+        "SHARED_LLM_VLM_DEVICE_ID",
+        "VLM_DEVICE_ID",
+        "VLM_MODE",
+    }
+)
 
 
 class ValidationError(ValueError):
@@ -765,12 +776,24 @@ def render_generated_env(source_env_file: Path, resolved: dict[str, str]) -> str
     return "\n".join(lines) + "\n"
 
 
-def _compose_subprocess_env(extra_defaults: Mapping[str, str] = MappingProxyType({})) -> dict[str, str]:
+def _compose_subprocess_env(
+    env_file: Path,
+    extra_defaults: Mapping[str, str] = MappingProxyType({}),
+) -> dict[str, str]:
+    """Build a Compose process environment with the generated env authoritative.
+
+    Docker Compose gives the invoking shell precedence over ``--env-file`` for
+    interpolation. Remove every generated key, plus optional placement keys that
+    may be absent from the file, so Compose parses ``--env-file`` itself without
+    ambient host variables silently changing the resolved recipe.
+    """
     env = os.environ.copy()
-    for key in _COMPOSE_SHELL_ENV_BLOCKLIST:
+    generated_keys = parse_env_file(env_file).keys()
+    for key in _COMPOSE_SHELL_ENV_BLOCKLIST.union(generated_keys):
         env.pop(key, None)
     for key, value in extra_defaults.items():
-        env.setdefault(key, value)
+        if key not in generated_keys:
+            env.setdefault(key, value)
     return env
 
 
@@ -781,7 +804,7 @@ def resolve_compose(config: DryRunRecipe) -> str:
             cwd=str(config.deployments_dir),
             capture_output=True,
             text=True,
-            env=_compose_subprocess_env(),
+            env=_compose_subprocess_env(config.output_env_file),
         )
     except FileNotFoundError as exc:
         raise RuntimeError("docker command not found. Install Docker with Compose v2.") from exc
@@ -792,7 +815,10 @@ def resolve_compose(config: DryRunRecipe) -> str:
 
 def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path, *args: str) -> None:
     # Prefer plain, non-ANSI output so status logs are visible/persistent in non-interactive captures.
-    compose_env = _compose_subprocess_env({"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"})
+    compose_env = _compose_subprocess_env(
+        env_file,
+        {"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"},
+    )
     try:
         result = subprocess.run(
             ["docker", "compose", "-f", str(compose_file), "--env-file", str(env_file), *args],

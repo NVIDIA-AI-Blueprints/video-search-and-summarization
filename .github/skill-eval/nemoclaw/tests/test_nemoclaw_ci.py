@@ -2649,6 +2649,7 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             task_toml = (task_dir / "task.toml").read_text(encoding="utf-8")
             instruction = (task_dir / "instruction.md").read_text(encoding="utf-8")
             test_script = (task_dir / "tests" / "test.sh").read_text(encoding="utf-8")
+            solve_script = (task_dir / "solution" / "solve.sh").read_text(encoding="utf-8")
 
             self.assertIn('runner = "nemoclaw"', task_toml)
             self.assertIn('requires_mcp = true', task_toml)
@@ -2662,6 +2663,25 @@ class DeployProfileNemoClawAdapterTest(unittest.TestCase):
             self.assertTrue((task_dir / "tests" / "nemoclaw_deploy_profile.py").exists())
             prompt = (task_dir / "tests" / "nemoclaw_prompt.md").read_text(encoding="utf-8")
             self.assertIn("Use the `/vss-deploy-profile` skill", prompt)
+            self.assertIn("reserves exactly 1 GPU", prompt)
+            self.assertIn("only valid device ID is 0", prompt)
+            self.assertIn("Leave GPU device-ID overrides unset", prompt)
+            self.assertIn("shared placement on GPU 0", prompt)
+            self.assertIn("Never request GPU 1", prompt)
+            self.assertIn("git clean -fdx -e data/ -e /.env", solve_script)
+            self.assertNotIn("git clean -fdx -e data/ -e .env", solve_script)
+
+    def test_nemoclaw_prompt_bounds_multi_gpu_device_ids(self):
+        prompt = deploy_adapter.generate_nemoclaw_prompt(
+            "base",
+            "H100",
+            deploy_adapter.PROFILES["base"],
+            gpu_count=2,
+        )
+
+        self.assertIn("reserves exactly 2 GPUs", prompt)
+        self.assertIn("valid device IDs are 0 through 1", prompt)
+        self.assertIn("Never request an out-of-range device", prompt)
 
     def test_nemoclaw_deploy_profile_checks_include_openclaw_log_fallbacks(self):
         rendered = deploy_adapter._render_nemoclaw_eval_spec(
