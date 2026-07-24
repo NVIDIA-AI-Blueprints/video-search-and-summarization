@@ -1744,6 +1744,17 @@ else
         declare -a PUSH_PIDS=()
         declare -a PUSH_IMAGES=()
         declare -a PUSH_LOGS=()
+        # If a later module's build fails (exit 1) while an earlier module's push is
+        # still running in the background, that push would keep going and leave a
+        # partial image set in the registry. Trap EXIT to kill any outstanding
+        # pushes and remove their temp logs. On the happy path the pushes are already
+        # waited on below (and logs removed), so the trap is a no-op there.
+        _cleanup_bg_pushes() {
+            local _pid _lf
+            for _pid in "${PUSH_PIDS[@]}"; do kill "$_pid" 2>/dev/null || true; done
+            for _lf in "${PUSH_LOGS[@]}"; do rm -f "$_lf" 2>/dev/null || true; done
+        }
+        trap _cleanup_bg_pushes EXIT
         OVERALL_START_TIME=$(date +%s)
         MODULE_COUNT=0
         for module in "${MODULES[@]}"; do
@@ -1857,6 +1868,8 @@ else
                 exit 1
             fi
         fi
+        # All pushes completed and waited on -- drop the safety trap.
+        trap - EXIT
 
         print_container_build_summary_footer "$OVERALL_START_TIME" "$MODULE_COUNT"
     fi
