@@ -1569,7 +1569,7 @@ function state_up() {
       chmod -R 777 "${deployment_directory}/engines"
     fi
 
-    echo "[INFO] Alerts model download moved to compose init service (models-download-alerts)."
+    echo "[INFO] Alerts model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   if [[ "${profile}" == "search" ]]; then
@@ -1581,7 +1581,7 @@ function state_up() {
       mkdir -p "${data_directory}/data_log/vss_video_analytics_api"
     fi
 
-    echo "[INFO] Search model download moved to compose init service (models-download-search)."
+    echo "[INFO] Search model download runs in ds-start.sh phase 0 (perception)."
   fi
 
   # Set permissions on data_log directory

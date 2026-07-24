@@ -17,17 +17,6 @@ include:
 
 services:
 
-  models-download-warehouse-3d:
-    extends:
-      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: download-models
-    # Keep the downloader in the same profile so every 3D perception start includes it.
-    profiles: ["perception-3d"]
-    container_name: vss-rtvi-cv-init
-    volumes:
-      - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json:/opt/config/models-download.json:ro
-
   vss-behavior-analytics-3d:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
@@ -288,6 +277,7 @@ services:
     volumes:
       # General mountings
      - $VSS_DATA_DIR/models/:/opt/storage/
+     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json:/opt/config/models-download.json:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy:ro
@@ -312,9 +302,9 @@ services:
       NETWORK_WIDTH: 960
       NETWORK_HEIGHT: 540
       HARDWARE_PROFILE: $HARDWARE_PROFILE
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
-      models-download-warehouse-3d:
-        condition: service_completed_successfully
       sdr-controller:
         condition: service_started
       sensor-ms-3d:

@@ -100,43 +100,6 @@ spec:
             - name: models
               mountPath: /models-data
         {{- end }}
-        {{- if .Values.downloadModelsFromNgc }}
-        - name: wait-for-models
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - /bin/bash
-            - -c
-            - |
-              set -e
-              MODELS_ROOT="/models-data"
-              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
-              ELAPSED=0
-              while true; do
-                READY=true
-                {{- range .Values.ngcModelsToDownload }}
-                DEST_REL={{ .destPath | quote }}
-                MARKER="${MODELS_ROOT}/.${DEST_REL//\//__}.done"
-                if [[ ! -e "${MODELS_ROOT}/${DEST_REL}" || ! -f "${MARKER}" ]]; then
-                  READY=false
-                fi
-                {{- end }}
-                if [[ "${READY}" == "true" ]]; then
-                  break
-                fi
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
-                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
-                  exit 1
-                fi
-                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
-                sleep 15
-                ELAPSED=$((ELAPSED + 15))
-              done
-              echo "[INFO] Model files and completion markers present, proceeding."
-          volumeMounts:
-            - name: models
-              mountPath: /models-data
-        {{- end }}
         - name: ensure-mv3dt-engine-dirs
           image: busybox:1.37.0
           command:
@@ -175,11 +138,12 @@ spec:
         - name: vss-rtvi-cv
           image: {{ include "vss-rtvi-cv.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
           workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
           command:
             - bash
-            - -c
-            - ./ds-start-mv3dt.sh
+            - /startup-script/ds-start-mv3dt.sh
           {{- if .Values.httpPort }}
           ports:
             - name: http
@@ -238,14 +202,35 @@ spec:
               value: "http://localhost:4318"
             - name: OTEL_METRICS_EXPORTER
               value: "otlp"
+            {{- if .Values.downloadModelsFromNgc }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | quote }}
+                  key: {{ .Values.ngcApiKeySecretKey | quote }}
+            - name: MODELS_MANIFEST_PATH
+              value: "/startup-script/models-download.json"
+            - name: MODELS_DEST_ROOT
+              value: "/opt/storage"
+            - name: STORAGE_UID
+              value: {{ (.Values.ngcDownload.storageUid | default 1001) | quote }}
+            - name: STORAGE_GID
+              value: {{ (.Values.ngcDownload.storageGid | default 1001) | quote }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "auto"
+            - name: DOWNLOAD_MODELS_SCRIPT
+              value: "/startup-script/download-models.sh"
+            {{- else }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "never"
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: models
               mountPath: /opt/storage
-            - name: mv3dt-start
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
-              subPath: ds-start-mv3dt.sh
+            - name: startup-script
+              mountPath: /startup-script
               readOnly: true
             - name: mv3dt-cfg
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
@@ -261,13 +246,10 @@ spec:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
         - name: generated
           emptyDir: {}
-        - name: mv3dt-start
+        - name: startup-script
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-start
             defaultMode: 493
-            items:
-              - key: ds-start-mv3dt.sh
-                path: ds-start-mv3dt.sh
         - name: mv3dt-cfg
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt

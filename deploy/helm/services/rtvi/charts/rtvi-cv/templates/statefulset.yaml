@@ -47,43 +47,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
-        {{- if .Values.downloadModelsFromNgc }}
-        - name: wait-for-models
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - /bin/bash
-            - -c
-            - |
-              set -e
-              MODELS_ROOT="/models-data"
-              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
-              ELAPSED=0
-              while true; do
-                READY=true
-                {{- range .Values.ngcModelsToDownload }}
-                DEST_REL={{ .destPath | quote }}
-                MARKER="${MODELS_ROOT}/.${DEST_REL//\//__}.done"
-                if [[ ! -f "${MARKER}" || ! -e "${MODELS_ROOT}/${DEST_REL}" ]]; then
-                  READY=false
-                fi
-                {{- end }}
-                if [[ "${READY}" == "true" ]]; then
-                  break
-                fi
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
-                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
-                  exit 1
-                fi
-                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
-                sleep 15
-                ELAPSED=$((ELAPSED + 15))
-              done              
-              echo "[INFO] Model artifacts and completion markers present, proceeding."
-          volumeMounts:
-            - name: models
-              mountPath: /models-data
-        {{- end }}
         {{- if $engineCacheEnabled }}
         - name: prepare-engine-cache
           image: busybox:1.37.0
@@ -117,6 +80,8 @@ spec:
         - name: vss-rtvi-cv
           image: {{ include "vss-rtvi-cv.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
           workingDir: {{ .Values.workingDir | quote }}
           command:
             - bash
@@ -144,6 +109,28 @@ spec:
               value: {{ .Values.env.DS_MODE_FLAG | default "1" | quote }}
             - name: DS_MESSAGE_RATE
               value: {{ .Values.env.DS_MESSAGE_RATE | default "1" | quote }}
+            {{- if .Values.downloadModelsFromNgc }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | quote }}
+                  key: {{ .Values.ngcApiKeySecretKey | quote }}
+            - name: MODELS_MANIFEST_PATH
+              value: "/startup-script/models-download.json"
+            - name: MODELS_DEST_ROOT
+              value: "/opt/storage"
+            - name: STORAGE_UID
+              value: {{ (.Values.ngcDownload.storageUid | default 1001) | quote }}
+            - name: STORAGE_GID
+              value: {{ (.Values.ngcDownload.storageGid | default 1001) | quote }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "auto"
+            - name: DOWNLOAD_MODELS_SCRIPT
+              value: "/startup-script/download-models.sh"
+            {{- else }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "never"
+            {{- end }}
           volumeMounts:
             - name: startup-script
               mountPath: /startup-script
@@ -229,43 +216,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
-        {{- if .Values.downloadModelsFromNgc }}
-        - name: wait-for-models
-          image: {{ include "vss-rtvi-cv.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - /bin/bash
-            - -c
-            - |
-              set -e
-              MODELS_ROOT="/models-data"
-              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
-              ELAPSED=0
-              while true; do
-                READY=true
-                {{- range .Values.ngcModelsToDownload }}
-                DEST_REL={{ .destPath | quote }}
-                MARKER="${MODELS_ROOT}/.${DEST_REL//\//__}.done"
-                if [[ ! -f "${MARKER}" || ! -e "${MODELS_ROOT}/${DEST_REL}" ]]; then
-                  READY=false
-                fi
-                {{- end }}
-                if [[ "${READY}" == "true" ]]; then
-                  break
-                fi
-                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
-                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
-                  exit 1
-                fi
-                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
-                sleep 15
-                ELAPSED=$((ELAPSED + 15))
-              done
-              echo "[INFO] Model artifacts and completion markers present, proceeding."
-          volumeMounts:
-            - name: models
-              mountPath: /models-data
-        {{- end }}
         - name: wait-for-kafka
           image: busybox:1.37.0
           command:
@@ -282,6 +232,8 @@ spec:
         - name: vss-rtvi-cv
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
           workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
           command:
             - bash
@@ -358,6 +310,28 @@ spec:
               value: "otlp"
             - name: MDX_KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+            {{- if .Values.downloadModelsFromNgc }}
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | quote }}
+                  key: {{ .Values.ngcApiKeySecretKey | quote }}
+            - name: MODELS_MANIFEST_PATH
+              value: "/startup-script/models-download.json"
+            - name: MODELS_DEST_ROOT
+              value: "/opt/storage"
+            - name: STORAGE_UID
+              value: {{ (.Values.ngcDownload.storageUid | default 1001) | quote }}
+            - name: STORAGE_GID
+              value: {{ (.Values.ngcDownload.storageGid | default 1001) | quote }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "auto"
+            - name: DOWNLOAD_MODELS_SCRIPT
+              value: "/startup-script/download-models.sh"
+            {{- else }}
+            - name: DS_MODEL_DOWNLOAD
+              value: "never"
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

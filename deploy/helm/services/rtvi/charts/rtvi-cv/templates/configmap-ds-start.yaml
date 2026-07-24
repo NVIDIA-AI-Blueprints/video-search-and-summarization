@@ -11,4 +11,21 @@ metadata:
 data:
   ds-start.sh: |
 {{ .Files.Get "files/ds-start.sh" | indent 4 }}
+  download-models.sh: |
+{{ .Files.Get "files/download-models.sh" | indent 4 }}
+  {{- if .Values.downloadModelsFromNgc }}
+  models-download.json: |
+    {
+      "downloads": [
+{{- range $i, $m := .Values.ngcModelsToDownload }}
+        {
+          "model": {{ $m.model | quote }},
+          "sourcePath": {{ $m.sourcePath | quote }},
+          "destPath": {{ $m.destPath | quote }},
+          "org": {{ $m.org | default $.Values.ngcOrg | quote }}
+        }{{ if lt (add $i 1) (len $.Values.ngcModelsToDownload) }},{{ end }}
+{{- end }}
+      ]
+    }
+  {{- end }}
 {{- end }}

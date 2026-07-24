@@ -961,7 +961,7 @@ function state_up() {
     mkdir -p "${data_directory}/models"
     chmod -R 777 "${data_directory}/models" 2>/dev/null || true
     if [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
-      echo "[INFO] Warehouse RT-CV model download moved to compose init service (models-download-warehouse-*)."
+      echo "[INFO] Warehouse RT-CV model download runs in ds-start phase 0 (perception / ds-start-mv3dt)."
     fi
   fi
 
