@@ -44,13 +44,6 @@ dependencies = [
     "xhtml2pdf>=0.2.11",
 ]
 
-[project.optional-dependencies]
-eval = [
-    "nvidia-nat[langchain,weave]==1.6.0",
-    "nvdataset>=0.77",
-    "spacy>=3.7,<4.0",
-]
-
 [project.entry-points.'nat.components']
 vss_tools = "vss_agents.tools.register"
 vss_agents = "vss_agents.agents.register"

@@ -137,6 +137,14 @@ dev = [
     "types-python-dateutil>=2.9.0.20260124",
     "detect-secrets>=1.5.0",
 ]
+# Eval tooling is a dependency-group (dev-only), NOT a project extra, so its
+# heavy deps (spacy/weave/presidio closure) never enter the shipped runtime
+# closure the OSRB license-diff inventories. Matches develop's structure.
+eval = [
+    "nvidia-nat[langchain,weave]==1.6.0",
+    "nvdataset>=0.77",
+    "spacy>=3.7,<4.0",
+]
 
 [tool.ruff]
 line-length = 120

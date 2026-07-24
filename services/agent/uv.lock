@@ -3846,6 +3846,11 @@ dev = [
     { name = "types-pyyaml" },
     { name = "types-requests" },
 ]
+eval = [
+    { name = "nvdataset" },
+    { name = "nvidia-nat", extra = ["langchain", "weave"] },
+    { name = "spacy" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -3883,6 +3888,11 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
     { name = "types-requests", specifier = ">=2.32.4.20260107" },
 ]
+eval = [
+    { name = "nvdataset", specifier = ">=0.77", index = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple" },
+    { name = "nvidia-nat", extras = ["langchain", "weave"], specifier = "==1.6.0" },
+    { name = "spacy", specifier = ">=3.7,<4.0" },
+]
 
 [[package]]
 name = "nvidia-vss-agents"
@@ -3910,13 +3920,6 @@ dependencies = [
     { name = "xhtml2pdf" },
 ]
 
-[package.optional-dependencies]
-eval = [
-    { name = "nvdataset" },
-    { name = "nvidia-nat", extra = ["langchain", "weave"] },
-    { name = "spacy" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "docker", specifier = ">=7.1.0" },
@@ -3927,15 +3930,12 @@ requires-dist = [
     { name = "markdown", specifier = ">=3.4.0" },
     { name = "matplotlib", specifier = ">=3.8.0" },
     { name = "mcp", specifier = ">=1.23.0" },
-    { name = "nvdataset", marker = "extra == 'eval'", specifier = ">=0.77", index = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple" },
     { name = "nvidia-nat", extras = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"], specifier = "==1.6.0" },
-    { name = "nvidia-nat", extras = ["langchain", "weave"], marker = "extra == 'eval'", specifier = "==1.6.0" },
     { name = "nvidia-vss-core", editable = "packages/vss_core" },
     { name = "protobuf", specifier = ">=6.33.5" },
     { name = "pydantic-settings", specifier = "~=2.13" },
     { name = "python-multipart", specifier = ">=0.0.27" },
     { name = "sentence-transformers", specifier = ">=3.0.0" },
-    { name = "spacy", marker = "extra == 'eval'", specifier = ">=3.7,<4.0" },
     { name = "starlette", specifier = ">=0.49.1" },
     { name = "tiktoken", specifier = ">=0.9.0" },
     { name = "torch", marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'", specifier = ">=2.5.0" },
@@ -3943,7 +3943,6 @@ requires-dist = [
     { name = "urllib3", specifier = ">=2.7.0" },
     { name = "xhtml2pdf", specifier = ">=0.2.11" },
 ]
-provides-extras = ["eval"]
 
 [[package]]
 name = "nvidia-vss-cli"
