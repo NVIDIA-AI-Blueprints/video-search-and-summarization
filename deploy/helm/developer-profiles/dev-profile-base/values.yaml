@@ -149,6 +149,14 @@ vssIngress:
   vssAgentPort: 8000
   # Match vss-vios-ingress service port (30888).
   vstIngressPort: 30888
+  # Optional public OpenAI-compatible VLM endpoint. When enabled, /v1 routes
+  # to RT-VLM (vss-rtvi-vlm). Empty serviceName falls back to
+  # agent.vss-agent.rtviVlmServiceName, then vss-rtvi-vlm. Do not use vlmNameSlug
+  # here — with vlmNameSlug=none that would resolve to a non-existent Service.
+  vlm:
+    enabled: true
+    serviceName: "vss-rtvi-vlm"
+    servicePort: 8000
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)
   # only if you also want a separate dedicated Phoenix host rule.
