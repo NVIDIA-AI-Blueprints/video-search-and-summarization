@@ -94,7 +94,9 @@ def test_agent_extra_gates_the_nat_stack() -> None:
     meta_extras = meta["optional-dependencies"]
     assert "cli" in meta_extras
     assert "agent" in meta_extras
-    assert meta_extras["agent"] == ["nvidia-vss-agents"]
+    # `agent` pulls the agents dist (and bundles the cli dist so the full test
+    # suite installs via `--extra agent`); it must not inline the NAT stack.
+    assert "nvidia-vss-agents" in meta_extras["agent"]
 
     with (agent_root / "packages" / "vss_agents" / "pyproject.toml").open("rb") as stream:
         agents = tomllib.load(stream)["project"]

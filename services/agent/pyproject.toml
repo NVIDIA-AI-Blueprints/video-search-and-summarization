@@ -112,7 +112,11 @@ dependencies = ["nvidia-vss-core"]
 
 [project.optional-dependencies]
 cli = ["nvidia-vss-cli"]
-agent = ["nvidia-vss-agents"]
+# `agent` bundles the cli distribution too: the full unit-test suite spans all
+# three packages (pytest testpaths), and the generic downstream test job only
+# installs `--extra agent`. Keeping cli here means `uv sync --extra agent`
+# resolves every package the suite imports. Do NOT drop nvidia-vss-cli.
+agent = ["nvidia-vss-agents", "nvidia-vss-cli"]
 all = ["nvidia-vss-agents", "nvidia-vss-cli"]
 
 [dependency-groups]

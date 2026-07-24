@@ -3811,6 +3811,7 @@ dependencies = [
 [package.optional-dependencies]
 agent = [
     { name = "nvidia-vss-agents" },
+    { name = "nvidia-vss-cli" },
 ]
 all = [
     { name = "nvidia-vss-agents" },
@@ -3856,6 +3857,7 @@ eval = [
 requires-dist = [
     { name = "nvidia-vss-agents", marker = "extra == 'agent'", editable = "packages/vss_agents" },
     { name = "nvidia-vss-agents", marker = "extra == 'all'", editable = "packages/vss_agents" },
+    { name = "nvidia-vss-cli", marker = "extra == 'agent'", editable = "packages/vss_cli" },
     { name = "nvidia-vss-cli", marker = "extra == 'all'", editable = "packages/vss_cli" },
     { name = "nvidia-vss-cli", marker = "extra == 'cli'", editable = "packages/vss_cli" },
     { name = "nvidia-vss-core", editable = "packages/vss_core" },
