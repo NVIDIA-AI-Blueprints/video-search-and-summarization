@@ -93,17 +93,21 @@ kafkaBrokerConnStr: ""
 forceModelsStorageFromValues: false
 
 modelsVolume: {}
+# When true, ds-start phase 0 downloads ngcModelsToDownload into the models PVC.
+# When false, set DS_MODEL_DOWNLOAD=never on the main container.
 downloadModelsFromNgc: true
+# Retained for operators; wait-for-models init was removed. Prefer startupProbe budgets.
 downloadModelsFromNgcWaitSeconds: 900
 downloadModelsJob:
   ttlSecondsAfterFinished: null
-# Opaque secret for NGC CLI (download Jobs). Not the docker-registry pull secret.
+# Opaque secret for NGC CLI (ds-start download phase + app-data Job). Not the docker-registry pull secret.
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"
 ngcDownload:
   storageUid: 1001
   storageGid: 1001
+  # Unused for model download after Job removal; kept for compatibility / app-data tooling.
   image:
     repository: docker.io/library/ubuntu
     tag: "22.04"

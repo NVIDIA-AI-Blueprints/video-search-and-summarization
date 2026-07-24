@@ -41,6 +41,65 @@ require_file() {
     fi
 }
 
+# Phase 0: manifest-driven NGC model acquisition (replaces Compose/Helm download init).
+# DS_MODEL_DOWNLOAD=never skips; auto skips when no manifest is mounted.
+ensure_models_from_manifest() {
+    local mode="${DS_MODEL_DOWNLOAD:-auto}"
+    [[ "$mode" == "never" ]] && return 0
+
+    local manifest="${MODELS_MANIFEST_PATH:-}"
+    if [[ -z "$manifest" || ! -f "$manifest" ]]; then
+        if [[ "$mode" == "auto" ]]; then
+            return 0
+        fi
+        echo "ERROR: MODELS_MANIFEST_PATH must point to an existing manifest when DS_MODEL_DOWNLOAD=${mode}" >&2
+        exit 1
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "ERROR: model download requires root (Option A); start the container as UID 0" >&2
+        exit 1
+    fi
+
+    local script="${DOWNLOAD_MODELS_SCRIPT:-}"
+    if [[ -z "$script" || ! -f "$script" ]]; then
+        for candidate in /opt/scripts/download-models.sh /startup-script/download-models.sh; do
+            if [[ -f "$candidate" ]]; then
+                script="$candidate"
+                break
+            fi
+        done
+    fi
+    if [[ -z "$script" || ! -f "$script" ]]; then
+        echo "ERROR: download-models.sh not found (expected /opt/scripts or /startup-script)" >&2
+        exit 1
+    fi
+
+    echo "##### Model download phase (manifest=${manifest}, script=${script}) #####"
+    bash "$script"
+}
+
+# Drop to STORAGE_UID/GID before exec'ing the perception binary (Option A).
+exec_as_runtime_user() {
+    local uid="${STORAGE_UID:-1001}"
+    local gid="${STORAGE_GID:-1001}"
+    if [[ "$(id -u)" -ne 0 ]]; then
+        exec "$@"
+    fi
+    echo "##### Dropping privileges to ${uid}:${gid} before application exec #####"
+    if command -v setpriv >/dev/null 2>&1; then
+        exec setpriv --reuid="$uid" --regid="$gid" --clear-groups -- "$@"
+    fi
+    if command -v runuser >/dev/null 2>&1; then
+        exec runuser -u "#${uid}" -g "#${gid}" -- "$@"
+    fi
+    if command -v gosu >/dev/null 2>&1; then
+        exec gosu "${uid}:${gid}" "$@"
+    fi
+    echo "ERROR: no privilege-drop tool found (need setpriv, runuser, or gosu)" >&2
+    exit 1
+}
+
 resolve_config_file() {
     local default_file="$1"
     local configured_file="${DS_CONFIG_FILE:-$default_file}"
@@ -81,7 +140,7 @@ patch_vision_encoder_configs_if_enabled() {
     local vision_encoder_tokenizer_dir="${vision_encoder_model}_${vision_encoder_version}_tokenizer"
     local onnx_path="${vision_encoder_storage}/${vision_encoder_onnx_file}"
 
-    require_file "$onnx_path" "Expected ONNX artifact for DS_VISION_ENCODER=true; the model download init step may not have completed."
+    require_file "$onnx_path" "Expected ONNX artifact for DS_VISION_ENCODER=true; ensure_models_from_manifest may not have completed."
 
     for cfg in "${DS_CONFIG_DIR}/ds-main-config.txt" "${DS_CONFIG_DIR}/ds-main-redis-config.txt"; do
         [[ -f "$cfg" ]] || continue
@@ -107,7 +166,7 @@ start_rtdetr_warehouse()
 
     cat "$config_file"
     echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -t 0 -l 5 --message-rate $DS_MESSAGE_RATE $extra_flags"
-    exec ./metropolis_perception_app -c "$config_file" \
+    exec_as_runtime_user ./metropolis_perception_app -c "$config_file" \
         -m "$DS_MODE_FLAG" -t 0 -l 5 \
         --message-rate "$DS_MESSAGE_RATE" \
         $extra_flags
@@ -224,7 +283,7 @@ start_rtdetr_gdino()
 
     cat "$config_file"
     echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -t 0 -l 5 --message-rate $DS_MESSAGE_RATE $extra_flags"
-    exec ./metropolis_perception_app -c "$config_file" \
+    exec_as_runtime_user ./metropolis_perception_app -c "$config_file" \
         -m "$DS_MODE_FLAG" -t 0 -l 5 \
         --message-rate "$DS_MESSAGE_RATE" \
         $extra_flags
@@ -250,13 +309,14 @@ start_sparse4d_warehouse()
 
     cat "$config_file"
     echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -l 5"
-    exec ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5
+    exec_as_runtime_user ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5
 }
 
 echo "===== DeepStream Perception ====="
 echo "DS_MODEL_FAMILY=$DS_MODEL_FAMILY  STREAM_TYPE=$STREAM_TYPE  DS_MODE_FLAG=$DS_MODE_FLAG"
 echo "DS_VISION_ENCODER=$DS_VISION_ENCODER"
 
+ensure_models_from_manifest
 stage_mounted_configs_if_present
 patch_vision_encoder_configs_if_enabled
 

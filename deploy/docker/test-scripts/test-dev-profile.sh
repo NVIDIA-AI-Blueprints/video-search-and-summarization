@@ -818,26 +818,26 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# Alerts profile: dry-run should indicate model download was moved to compose init service.
+# Alerts profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_alerts="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p alerts -i 127.0.0.1 -m verification -d > "${_out_alerts}" 2>&1
-if grep -q "Alerts model download moved to compose init service (models-download-alerts)." "${_out_alerts}" && ! grep -q "ngc registry model download-version" "${_out_alerts}"; then
-  echo "PASS: alerts dry-run output reflects compose-init model download handoff"
+if grep -q "Alerts model download runs in ds-start.sh phase 0 (perception)." "${_out_alerts}" && ! grep -q "ngc registry model download-version" "${_out_alerts}"; then
+  echo "PASS: alerts dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts dry-run output should show compose-init handoff and no direct NGC model download commands"
+  echo "FAIL: alerts dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_alerts}"
 
-# Search profile: dry-run should indicate model download was moved to compose init service.
+# Search profile: dry-run should indicate model download runs in ds-start phase 0.
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Search model download moved to compose init service (models-download-search)." "${_out_search}" && ! grep -q "ngc registry model download-version" "${_out_search}"; then
-  echo "PASS: search dry-run output reflects compose-init model download handoff"
+if grep -q "Search model download runs in ds-start.sh phase 0 (perception)." "${_out_search}" && ! grep -q "ngc registry model download-version" "${_out_search}"; then
+  echo "PASS: search dry-run output reflects ds-start phase-0 model download"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output should show compose-init handoff and no direct NGC model download commands"
+  echo "FAIL: search dry-run output should show ds-start phase-0 handoff and no direct NGC model download commands"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
@@ -893,11 +893,43 @@ if ! grep -q '^onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx$' "
   ((_warehouse_model_config_failed++)) || true
 fi
 
-if grep -E 'models/mtmc|models/sparse4d/ov' \
+if grep -E 'models/mtmc|models/sparse4d/ov|models-download-warehouse-' \
   "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
   "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
   "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml" >/dev/null; then
-  echo "FAIL: warehouse Compose perception mounts should not reference the legacy app-data model layout"
+  echo "FAIL: warehouse Compose should not use legacy app-data model mounts or download init services"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+for _wh_yml in \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"; do
+  if ! grep -q 'models-download.json:/opt/config/models-download.json:ro' "${_wh_yml}"; then
+    echo "FAIL: ${_wh_yml} should mount models-download.json for ds-start phase 0"
+    ((_warehouse_model_config_failed++)) || true
+  fi
+done
+
+_rtvi_compose="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/compose.yaml"
+if grep -q '^  download-models:' "${_rtvi_compose}" \
+  || ! grep -q 'download-models.sh' "${_rtvi_compose}" \
+  || ! grep -q 'user: "0:0"' "${_rtvi_compose}"; then
+  echo "FAIL: base rtvi-cv compose should drop download-models service and run perception as root with download script mounted"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_helm_job="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/job-download-models.yaml"
+_helm_ss="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset.yaml"
+if [[ -e "${_helm_job}" ]] \
+  || grep -q 'wait-for-models' "${_helm_ss}" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-2d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-3d.yaml" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml" \
+  || ! grep -q 'ensure_models_from_manifest' \
+    "${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-cv/ds-start.sh" \
+    "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/ds-start.sh"; then
+  echo "FAIL: no-init download contract missing (Job/wait removed; ensure_models present)"
   ((_warehouse_model_config_failed++)) || true
 fi
 
@@ -924,25 +956,26 @@ if grep -q 'downloadModelsFromNgc: true' "${_helm_mv3dt_values}" \
   && grep -q 'model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_helm_mv3dt_values}" \
   && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_mv3dt_values}" \
   && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_mv3dt_values}" \
-  && grep -q 'name: wait-for-models' "${_helm_mv3dt_statefulset}" \
+  && grep -q 'DS_MODEL_DOWNLOAD' "${_helm_mv3dt_statefulset}" \
   && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_mv3dt_statefulset}" \
+  && ! grep -q 'wait-for-models' "${_helm_mv3dt_statefulset}" \
   && ! grep -Eq 'prepare-mv3dt-models|runtime-storage|rtdetrPvcSubPath|bodyPosePvcSubPath' \
     "${_helm_mv3dt_statefulset}" "${_helm_mv3dt_defaults}"; then
-  echo "PASS: warehouse Helm MV3DT uses per-file models, marker wait, and direct PVC storage"
+  echo "PASS: warehouse Helm MV3DT uses per-file models via ds-start phase 0 and direct PVC storage"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: warehouse Helm MV3DT should use flattened model downloads without legacy app-data model copies"
+  echo "FAIL: warehouse Helm MV3DT should use flattened model downloads without wait-for-models or legacy copies"
   ((TESTS_FAILED++)) || true
 fi
 
 BLUEPRINT_DEPLOY="${REPO_ROOT}/deploy/docker/scripts/blueprint-deploy.sh"
-if grep -Fq 'Warehouse RT-CV model download moved to compose init service (models-download-warehouse-*).' "${BLUEPRINT_DEPLOY}" \
+if grep -Fq 'Warehouse RT-CV model download runs in ds-start phase 0' "${BLUEPRINT_DEPLOY}" \
   && grep -q 'mkdir -p "${data_directory}/models"' "${BLUEPRINT_DEPLOY}" \
   && ! grep -q 'models/mv3dt/BodyPose3DNet' "${BLUEPRINT_DEPLOY}"; then
-  echo "PASS: blueprint-deploy.sh prepares flattened warehouse models dir and delegates RT-CV download to compose init"
+  echo "PASS: blueprint-deploy.sh prepares flattened warehouse models dir and delegates RT-CV download to ds-start"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: blueprint-deploy.sh should create flattened models/ and log compose-init warehouse model download handoff"
+  echo "FAIL: blueprint-deploy.sh should create flattened models/ and log ds-start warehouse model download"
   ((TESTS_FAILED++)) || true
 fi
 

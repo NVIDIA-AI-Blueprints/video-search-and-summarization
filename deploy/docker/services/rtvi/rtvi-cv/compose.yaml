@@ -15,50 +15,22 @@
 
 # Perception service — standalone and base for blueprint `extends`.
 #
-# Uses the published `vss-rt-cv` image plus a bind-mounted `ds-start.sh`
-# from this repo. Blueprints extend `perception` and add config/model mounts.
+# Uses the published `vss-rt-cv` image plus bind-mounted `ds-start.sh` and
+# `download-models.sh` from this repo. Blueprints extend `perception` and add
+# config/model mounts. Model acquisition runs as phase 0 inside ds-start.sh
+# when a models-download.json manifest is mounted (Option A: start as root,
+# drop to STORAGE_UID/GID before exec).
 #
-# Bind mount for `ds-start.sh` uses a path relative to this file (`./ds-start.sh`)
-# so it stays correct whether VSS_APPS_DIR points at `deploy/docker/` or
-# another layout. (Do not use ${VSS_APPS_DIR}/rtvi/rtvi-cv/... here — that
-# duplicates the segment when MDX is already .../deploy/docker/rtvi/rtvi-cv.)
+# Bind mounts use paths relative to this file (`./ds-start.sh`) so they stay
+# correct whether VSS_APPS_DIR points at `deploy/docker/` or another layout.
 #
 # Standalone: from this directory, `docker compose -f compose.yaml up`
 
 services:
-  download-models:
-    image: ${DOWNLOAD_MODELS_IMAGE:-docker.io/library/ubuntu}:${DOWNLOAD_MODELS_TAG:-22.04}
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 6g
-        reservations:
-          cpus: '0.5'
-          memory: 1g
-    volumes:
-      - type: bind
-        source: ./download-models.sh
-        target: /opt/scripts/download-models.sh
-        read_only: true
-    environment:
-      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
-      STORAGE_UID: ${STORAGE_UID:-1001}
-      STORAGE_GID: ${STORAGE_GID:-1001}
-      MODELS_MANIFEST_PATH: ${MODELS_MANIFEST_PATH:-/opt/config/models-download.json}
-      MODELS_DEST_ROOT: ${MODELS_DEST_ROOT:-/opt/storage}
-      VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
-      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
-    command:
-      - bash
-      - /opt/scripts/download-models.sh
-
   perception:
     image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.2}
     entrypoint: []
+    user: "0:0"
     runtime: nvidia
     container_name: vss-rtvi-cv
     ports:
@@ -81,6 +53,10 @@ services:
         source: ./ds-start.sh
         target: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
         read_only: true
+      - type: bind
+        source: ./download-models.sh
+        target: /opt/scripts/download-models.sh
+        read_only: true
     environment:
       DS_MODEL_FAMILY: ${DS_MODEL_FAMILY:-rtdetr-warehouse}
       DS_CONFIG_FILE: ${DS_CONFIG_FILE:-}
@@ -97,6 +73,13 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
       HARDWARE_PROFILE: ${HARDWARE_PROFILE}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY:-}
+      MODELS_MANIFEST_PATH: ${MODELS_MANIFEST_PATH:-/opt/config/models-download.json}
+      MODELS_DEST_ROOT: ${MODELS_DEST_ROOT:-/opt/storage}
+      STORAGE_UID: ${STORAGE_UID:-1001}
+      STORAGE_GID: ${STORAGE_GID:-1001}
+      DS_MODEL_DOWNLOAD: ${DS_MODEL_DOWNLOAD:-auto}
+      DOWNLOAD_MODELS_SCRIPT: /opt/scripts/download-models.sh
     command:
       - bash
       - -c

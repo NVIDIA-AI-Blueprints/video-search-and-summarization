@@ -45,7 +45,7 @@ Create **two** secrets with the same NGC API key. Defaults in `charts/rtvi-cv/va
 | NGC CLI (download Jobs) | `ngc-api` | Opaque | `NGC_CLI_API_KEY` |
 | Image pull (`nvcr.io`) | `ngc-docker-reg-secret` | docker-registry | `.dockerconfigjson` |
 
-**1. Opaque secret** (NGC CLI for `job-download-ngc-app-data` / `job-download-models`):
+**1. Opaque secret** (NGC CLI for `job-download-ngc-app-data` and RT-CV `ds-start` model download):
 
 ```bash
 kubectl create secret generic ngc-api \

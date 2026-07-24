@@ -110,7 +110,7 @@ preview the commands and generated environment without starting containers.
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
 - **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.json` manifests. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) runs as phase 0 of the perception startup script (`ds-start.sh` / MV3DT `ds-start-mv3dt.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
 
 ### Direct Compose usage and data directories
 
@@ -254,7 +254,7 @@ Compose from **`deploy/docker`**.
 Warehouse uses two acquisition paths:
 
 - The `vss-warehouse-app-data` NGC resource remains the source for videos, playback, and calibration data.
-- Each RT-CV profile uses a `models-download-warehouse-*` init service to download its versioned NGC model packages into the flattened `$VSS_DATA_DIR/models/` tree before perception starts.
+- Each RT-CV profile mounts its `models-download.json` on perception and downloads versioned NGC model packages into the flattened `$VSS_DATA_DIR/models/` tree during `ds-start` phase 0.
 
 Download and extract the warehouse app data:
 
@@ -271,7 +271,7 @@ ngc \
 cd vss-warehouse-app-data_v3.2.0
 tar -xvf vss-warehouse-app-data.tar.gz
 
-# Prepare the writable model destination used by the model-download init service
+# Prepare the writable model destination used by ds-start phase-0 download
 
 sudo mkdir -p /path/to/vss-warehouse-app-data/models
 sudo chmod 0777 /path/to/vss-warehouse-app-data/models

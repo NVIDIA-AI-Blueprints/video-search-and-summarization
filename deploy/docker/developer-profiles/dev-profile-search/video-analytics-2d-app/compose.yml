@@ -85,21 +85,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  models-download-search:
-    extends:
-      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: download-models
-    profiles: ["perception-2d-init"]
-    container_name: vss-rtvi-cv-init
-    volumes:
-      - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/models-download.json:/opt/config/models-download.json:ro
-    environment:
-      VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
-      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
-      STORAGE_UID: ${STORAGE_UID:-1001}
-      STORAGE_GID: ${STORAGE_GID:-1001}
-
   perception-2d-fusion:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
@@ -109,8 +94,9 @@ services:
     volumes:
       # Config file mounts (read-only; canonical ds-start.sh stages mounted-configs -> configs)
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/models-download.json:/opt/config/models-download.json:ro
 
-      # Models directory — RT-DETR + vision encoder models (downloaded by init container)
+      # Models directory — RT-DETR + vision encoder models (downloaded by ds-start phase 0)
       - $VSS_DATA_DIR/models/:/opt/storage/
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
@@ -123,9 +109,9 @@ services:
       DS_SHOW_SENSOR_ID: "false"
       VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
       VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      DS_MODEL_DOWNLOAD: auto
     depends_on:
-      models-download-search:
-        condition: service_completed_successfully
       sensor-ms:
         condition: service_started
       broker-health-check:
