@@ -20,7 +20,7 @@ kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-
 
 | Owner | Service profile keys |
 |---|---|
-| Search | `vss-search-analytics-2d-fusion`, `vss-video-analytics-api-fusion` |
+| Search | `vss-search-analytics-2d-fusion` |
 | RT-CV | `perception-2d-init`, `perception-2d-fusion` |
 | RT-Embed | `rtvi-embed` |
 | RT-VLM | `rtvi-vlm` |
