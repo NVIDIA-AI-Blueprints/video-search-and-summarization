@@ -51,7 +51,8 @@ docker compose -f "$BUILD_DIR/resolved.yml" config --images
 
 Confirm the resolved services, fully filled environment, images, GPU placement,
 model endpoints, public ingress, checked-in bind sources, and requested
-capability checks. Then deploy that exact file:
+capability checks. Run the mandatory check/create gate in
+[`data-directory.md`](data-directory.md), then deploy that exact file:
 
 ```bash
 docker compose -f "$BUILD_DIR/resolved.yml" up -d
