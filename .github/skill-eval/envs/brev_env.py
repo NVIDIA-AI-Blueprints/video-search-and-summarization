@@ -419,6 +419,9 @@ class BrevEnvironment(BaseEnvironment):
             "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             "NEMOCLAW_FALLBACK_ENDPOINT_URL", "NEMOCLAW_FALLBACK_MODEL",
             "NEMOCLAW_PREFERRED_API", "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
+            "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
+            "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE",
+            "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR",
             "OPENAI_API_KEY", "NVIDIA_BASE_URL", "OPENSHELL_PROVIDER_NAME",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
@@ -680,6 +683,52 @@ stage() {{
   printf '[nemoclaw-setup] %s %s\n' "$(date -Is)" "$*"
 }}
 stage "begin setup on $(hostname)"
+default_gateway_state_dir="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
+gateway_state_dir="${{NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR:-$default_gateway_state_dir}}"
+recreate_value="$(printf '%s' "${{NEMOCLAW_RECREATE_SANDBOX:-1}}" | \
+  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+case "$recreate_value" in
+  1|true|yes)
+    if [ "$gateway_state_dir" != "$default_gateway_state_dir" ]; then
+      stage "skipping ownership repair for explicit OpenShell gateway state override"
+    else
+      for state_path in \
+        "$HOME/.local" \
+        "$HOME/.local/state" \
+        "$HOME/.local/state/nemoclaw" \
+        "$gateway_state_dir"; do
+        if [ -L "$state_path" ]; then
+          echo "Refusing to repair through symlinked OpenShell gateway state path: $state_path" >&2
+          exit 1
+        fi
+      done
+      current_uid="$(id -u)"
+      current_gid="$(id -g)"
+      for db_name in openshell.db openshell.db-wal openshell.db-shm; do
+        db_path="$gateway_state_dir/$db_name"
+        if [ -L "$db_path" ]; then
+          echo "Refusing to repair symlinked OpenShell gateway database: $db_path" >&2
+          exit 1
+        fi
+        [ -e "$db_path" ] || continue
+        db_uid="$(stat -c %u -- "$db_path")"
+        if [ "$db_uid" = "$current_uid" ]; then
+          continue
+        fi
+        if [ "$db_uid" != "0" ]; then
+          echo "Refusing to repair OpenShell gateway database with unexpected uid $db_uid: $db_path" >&2
+          exit 1
+        fi
+        if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; then
+          echo "Passwordless sudo is required to repair root-owned OpenShell gateway state: $db_path" >&2
+          exit 1
+        fi
+        sudo -n chown --no-dereference "$current_uid:$current_gid" -- "$db_path"
+        stage "repaired root-owned OpenShell gateway database: $db_path"
+      done
+    fi
+    ;;
+esac
 if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   stage "installing system packages for uv sync"
   sudo -n apt-get update -qq || sudo -n apt-get update -qq || \

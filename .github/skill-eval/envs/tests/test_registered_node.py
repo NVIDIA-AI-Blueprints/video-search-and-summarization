@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -374,6 +375,121 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("NEMOCLAW_PRESTAGE_ALERTS_MODELS", command)
         self.assertIn("models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx", command)
         self.assertIn("models/rtdetr-its/model_epoch_035.fp16.onnx", command)
+        repair_index = command.index(
+            'default_gateway_state_dir="$HOME/.local/state/nemoclaw/'
+        )
+        adapter_index = command.index(
+            "python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py"
+        )
+        self.assertLess(repair_index, adapter_index)
+        self.assertIn(
+            "for db_name in openshell.db openshell.db-wal openshell.db-shm",
+            command,
+        )
+        self.assertIn('if [ "$db_uid" != "0" ]', command)
+        self.assertIn(
+            'chown --no-dereference "$current_uid:$current_gid" -- "$db_path"',
+            command,
+        )
+        self.assertNotIn("chown -R $gateway_state_dir", command)
+
+        repair_end = command.index("if command -v apt-get", repair_index)
+        repair_script = "set -e\nstage() { :; }\n" + command[repair_index:repair_end]
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            state_dir = (
+                home
+                / ".local"
+                / "state"
+                / "nemoclaw"
+                / "openshell-docker-gateway"
+            )
+            state_dir.mkdir(parents=True)
+            for db_name in ("openshell.db", "openshell.db-wal", "openshell.db-shm"):
+                (state_dir / db_name).write_text("test\n", encoding="utf-8")
+
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            sudo_log = Path(td) / "sudo.log"
+            fake_stat = fake_bin / "stat"
+            fake_stat.write_text("#!/bin/sh\nprintf '0\\n'\n", encoding="utf-8")
+            fake_stat.chmod(0o755)
+            fake_sudo = fake_bin / "sudo"
+            fake_sudo.write_text(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SUDO_LOG\"\n",
+                encoding="utf-8",
+            )
+            fake_sudo.chmod(0o755)
+            repair_env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "SUDO_LOG": str(sudo_log),
+                "NEMOCLAW_RECREATE_SANDBOX": " Yes ",
+            }
+            repaired = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=repair_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(repaired.returncode, 0, repaired.stderr)
+            chown_calls = [
+                line
+                for line in sudo_log.read_text(encoding="utf-8").splitlines()
+                if "chown --no-dereference" in line
+            ]
+            self.assertEqual(len(chown_calls), 3)
+            for db_name in ("openshell.db", "openshell.db-wal", "openshell.db-shm"):
+                self.assertTrue(any(db_name in line for line in chown_calls))
+
+            (state_dir / "openshell.db-wal").unlink()
+            (state_dir / "openshell.db-wal").symlink_to(state_dir / "openshell.db")
+            rejected = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=repair_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("Refusing to repair symlinked", rejected.stderr)
+
+            calls_before_override = sudo_log.read_text(encoding="utf-8")
+            override_env = {
+                **repair_env,
+                "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR": str(Path(td) / "outside"),
+            }
+            skipped = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=override_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(skipped.returncode, 0, skipped.stderr)
+            self.assertEqual(
+                sudo_log.read_text(encoding="utf-8"),
+                calls_before_override,
+            )
+
+            nemoclaw_dir = state_dir.parent
+            real_nemoclaw_dir = nemoclaw_dir.with_name("nemoclaw-real")
+            nemoclaw_dir.rename(real_nemoclaw_dir)
+            nemoclaw_dir.symlink_to(real_nemoclaw_dir, target_is_directory=True)
+            rejected_parent = subprocess.run(
+                ["bash", "-c", repair_script],
+                env=repair_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected_parent.returncode, 0)
+            self.assertIn(
+                "Refusing to repair through symlinked",
+                rejected_parent.stderr,
+            )
 
     async def test_nemoclaw_launcher_bypasses_outer_claude(self):
         calls = []
