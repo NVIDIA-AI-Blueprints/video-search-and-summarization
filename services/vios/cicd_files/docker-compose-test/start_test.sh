@@ -710,20 +710,35 @@ run_build_commands() {
     # and is provided via the IMAGE_REGISTRY env var consumed by build.sh.
     # Use an array so an empty value expands to nothing and a value containing
     # whitespace/globs is passed as a single argument (no word-splitting).
-    local -a base_tag_arg=()
+    local -a build_args=()
     if [[ -n "${VST_BASE_TAG:-}" ]]; then
-        base_tag_arg=("base-tag=${VST_BASE_TAG}")
+        build_args+=("base-tag=${VST_BASE_TAG}")
         info "Using prebuilt base image tag: ${VST_BASE_TAG}"
+    fi
+
+    # Optional per-arch image tag + push, supplied by CI for the MULTIARCH publish
+    # flow (e.g. BUILD_TAG=2.1.0-amd64-26.05.5 on the amd64 node, 2.1.0-arm64-...
+    # on the arm64 node) so the built images are pushed and later merged into a
+    # multiarch manifest. Unset for a plain local build-and-test (images stay
+    # local at their default tag and are not pushed). Registry/org still comes
+    # from IMAGE_REGISTRY/NVSTREAMER_IMAGE_REGISTRY; only the tag is referenced.
+    if [[ -n "${BUILD_TAG:-}" ]]; then
+        build_args+=("tag=${BUILD_TAG}")
+        info "Building images with tag: ${BUILD_TAG}"
+    fi
+    if [[ "${PUSH_IMAGES:-}" == "1" || "${PUSH_IMAGES:-}" == "true" ]]; then
+        build_args+=("push=1")
+        info "Images will be pushed after build"
     fi
 
     # Build nvstreamer
     info "Building nvstreamer for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container nvstreamer "${base_tag_arg[@]}" || error "nvstreamer build failed"
+        ./build.sh container nvstreamer "${build_args[@]}" || error "nvstreamer build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container nvstreamer "${base_tag_arg[@]}" || error "nvstreamer build failed"
+        ./build.sh arch=${ARCH} container nvstreamer "${build_args[@]}" || error "nvstreamer build failed"
     fi
 
     # Build sensor + stream-processor in a single call. build.sh cleans each
@@ -734,10 +749,10 @@ run_build_commands() {
     info "Building sensor and stream-processor for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container module=sensor,streamprocessing "${base_tag_arg[@]}" || error "sensor/stream-processor build failed"
+        ./build.sh container module=sensor,streamprocessing "${build_args[@]}" || error "sensor/stream-processor build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=sensor,streamprocessing "${base_tag_arg[@]}" || error "sensor/stream-processor build failed"
+        ./build.sh arch=${ARCH} container module=sensor,streamprocessing "${build_args[@]}" || error "sensor/stream-processor build failed"
     fi
 }
 
