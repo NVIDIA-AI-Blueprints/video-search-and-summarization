@@ -58,11 +58,6 @@ capability checks. Run the mandatory check/create gate in
 docker compose -f "$BUILD_DIR/resolved.yml" up -d --pull always
 ```
 
-Always refresh registry images before deployment. A moving tag such as
-`develop-latest` can point at a new registry manifest while the deployment host
-still maps that tag to an older local image. `--force-recreate` replaces
-containers but does not refresh that mapping; `--pull always` does.
-
 `COMPOSE_PROFILES` has already filtered the source graph during resolution.
 Normalization removes the remaining service profile gates, so no Foundation
 env file or profile flag is needed at deployment time.
