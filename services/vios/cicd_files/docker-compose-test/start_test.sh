@@ -726,18 +726,18 @@ run_build_commands() {
         ./build.sh arch=${ARCH} container nvstreamer "${base_tag_arg[@]}" || error "nvstreamer build failed"
     fi
 
-    # Build sensor + stream-processor
+    # Build sensor + stream-processor in a single call. build.sh cleans each
+    # module before building it (MODULE=<m> make clean) for a multi-module build,
+    # so the between-module clean is preserved while the shared framework compiles
+    # once instead of being wiped and rebuilt per module. A single initial clean
+    # gives a fresh start after the nvstreamer build.
     info "Building sensor and stream-processor for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container module=sensor "${base_tag_arg[@]}" || error "sensor build failed"
-        ./build.sh clean || error "clean build failed"
-        ./build.sh container module=streamprocessing "${base_tag_arg[@]}" || error "stream-processor build failed"
+        ./build.sh container module=sensor,streamprocessing "${base_tag_arg[@]}" || error "sensor/stream-processor build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=sensor "${base_tag_arg[@]}" || error "sensor build failed"
-        ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=streamprocessing "${base_tag_arg[@]}" || error "stream-processor build failed"
+        ./build.sh arch=${ARCH} container module=sensor,streamprocessing "${base_tag_arg[@]}" || error "sensor/stream-processor build failed"
     fi
 }
 
