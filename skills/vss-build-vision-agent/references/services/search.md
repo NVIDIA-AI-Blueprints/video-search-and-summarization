@@ -12,8 +12,8 @@
   profile's VIOS/NvStreamer path.
 - Agent search requires `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, and
   `ELASTIC_SEARCH_INDEX`.
-- RT-VLM is required only when critique is enabled; omit it when critique is
-  disabled.
+- Critique is enabled by default, so RT-VLM is required unless the user
+  explicitly disables critique.
 
 ## Configuration knobs
 
@@ -23,7 +23,7 @@
 | `STREAM_TYPE` | Select the checked-in Kafka or Redis analytics config. |
 | `COSMOS_EMBED_ENDPOINT` | Point the Agent at RT-Embed. |
 | `ELASTIC_SEARCH_ENDPOINT`, `ELASTIC_SEARCH_INDEX` | Point the Agent at indexed search data. |
-| `ENABLE_CRITIC` | Add or remove critique VLM requirements. |
+| `ENABLE_CRITIC` | Keep critique enabled by default; set to `false` only when the user explicitly disables critique. |
 
 ## Sources
 
