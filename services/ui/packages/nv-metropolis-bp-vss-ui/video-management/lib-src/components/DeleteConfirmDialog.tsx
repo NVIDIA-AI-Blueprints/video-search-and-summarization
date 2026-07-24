@@ -37,10 +37,15 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   // visible. Snapshotting keeps the displayed list stable for the dialog's
   // entire open lifetime.
   const [snapshot, setSnapshot] = useState<StreamInfo[]>(streams);
+  // Collapsed by default so large selections don't blow out dialog height;
+  // "+ N more" expands so the user can verify every item before confirming
+  // (NVBug 6242161).
+  const [listExpanded, setListExpanded] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setSnapshot(streams);
+      setListExpanded(false);
     }
     // Intentionally only re-snapshot on open transition, not on every streams change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,9 +65,11 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   if (!isOpen) return null;
 
   const count = snapshot.length;
-
-  const previewNames = snapshot.slice(0, MAX_NAMES_PREVIEW).map((s) => s.name);
-  const remaining = Math.max(0, count - previewNames.length);
+  const allNames = snapshot.map((s) => s.name);
+  const remaining = Math.max(0, count - MAX_NAMES_PREVIEW);
+  const visibleNames = listExpanded || remaining === 0
+    ? allNames
+    : allNames.slice(0, MAX_NAMES_PREVIEW);
 
   const handleBackdropClick = () => {
     if (!isDeleting) onCancel();
@@ -126,10 +133,12 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
             Are you sure you want to delete the following?
           </p>
 
-          {previewNames.length > 0 && (
+          {visibleNames.length > 0 && (
+            // Fixed max height whether collapsed or expanded so "+ N more" only
+            // reveals more rows via scroll instead of growing the dialog (NVBug 6242161).
             <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-neutral-900 max-h-40 overflow-auto">
               <ul className="m-0 p-0 list-none text-sm text-gray-700 dark:text-gray-300 divide-y divide-gray-200 dark:divide-gray-700">
-                {previewNames.map((name, idx) => (
+                {visibleNames.map((name, idx) => (
                   <li
                     key={`${name}-${idx}`}
                     className="px-3 py-2 flex items-center gap-2 min-h-9 leading-5"
@@ -141,9 +150,30 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
                     <span className="truncate" title={name}>{name}</span>
                   </li>
                 ))}
-                {remaining > 0 && (
-                  <li className="px-3 py-2 min-h-9 flex items-center text-xs text-gray-500 dark:text-gray-400 italic leading-5">
-                    + {remaining} more
+                {remaining > 0 && !listExpanded && (
+                  <li className="px-3 py-2 min-h-9 flex items-center leading-5">
+                    <button
+                      type="button"
+                      onClick={() => setListExpanded(true)}
+                      data-testid="delete-confirm-show-more"
+                      className="text-xs italic text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 rounded"
+                      aria-expanded="false"
+                    >
+                      + {remaining} more
+                    </button>
+                  </li>
+                )}
+                {remaining > 0 && listExpanded && (
+                  <li className="sticky bottom-0 px-3 py-2 min-h-9 flex items-center leading-5 bg-gray-50 dark:bg-neutral-900 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      type="button"
+                      onClick={() => setListExpanded(false)}
+                      data-testid="delete-confirm-show-less"
+                      className="text-xs italic text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 rounded"
+                      aria-expanded="true"
+                    >
+                      Show less
+                    </button>
                   </li>
                 )}
               </ul>

@@ -79,7 +79,7 @@ describe('DeleteConfirmDialog — preview list', () => {
     expect(screen.queryByText(/more$/)).not.toBeInTheDocument();
   });
 
-  it('caps preview at 5 names and shows "+ N more" footer for larger selections', () => {
+  it('caps preview at 5 names and shows a clickable "+ N more" for larger selections', () => {
     const streams = Array.from({ length: 8 }, (_, i) =>
       makeStream({ name: `cam-${i + 1}`, streamId: `s-${i + 1}` }),
     );
@@ -91,7 +91,56 @@ describe('DeleteConfirmDialog — preview list', () => {
     }
     // Sixth onward are collapsed into the footer
     expect(screen.queryByText('cam-6')).not.toBeInTheDocument();
-    expect(screen.getByText('+ 3 more')).toBeInTheDocument();
+    const showMore = screen.getByTestId('delete-confirm-show-more');
+    expect(showMore).toHaveTextContent('+ 3 more');
+    expect(showMore).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('expands the full list when "+ N more" is clicked (NVBug 6242161)', () => {
+    const streams = Array.from({ length: 8 }, (_, i) =>
+      makeStream({ name: `cam-${i + 1}`, streamId: `s-${i + 1}` }),
+    );
+    renderDialog({ streams });
+
+    fireEvent.click(screen.getByTestId('delete-confirm-show-more'));
+
+    for (let i = 1; i <= 8; i++) {
+      expect(screen.getByText(`cam-${i}`)).toBeInTheDocument();
+    }
+    expect(screen.queryByTestId('delete-confirm-show-more')).not.toBeInTheDocument();
+    const showLess = screen.getByTestId('delete-confirm-show-less');
+    expect(showLess).toHaveTextContent('Show less');
+    expect(showLess).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('collapses back to the preview cap when "Show less" is clicked', () => {
+    const streams = Array.from({ length: 8 }, (_, i) =>
+      makeStream({ name: `cam-${i + 1}`, streamId: `s-${i + 1}` }),
+    );
+    renderDialog({ streams });
+
+    fireEvent.click(screen.getByTestId('delete-confirm-show-more'));
+    fireEvent.click(screen.getByTestId('delete-confirm-show-less'));
+
+    expect(screen.getByText('cam-5')).toBeInTheDocument();
+    expect(screen.queryByText('cam-6')).not.toBeInTheDocument();
+    expect(screen.getByTestId('delete-confirm-show-more')).toBeInTheDocument();
+  });
+
+  it('resets expanded state when the dialog is closed and reopened', () => {
+    const streams = Array.from({ length: 8 }, (_, i) =>
+      makeStream({ name: `cam-${i + 1}`, streamId: `s-${i + 1}` }),
+    );
+    const { rerender } = renderDialog({ streams });
+
+    fireEvent.click(screen.getByTestId('delete-confirm-show-more'));
+    expect(screen.getByText('cam-8')).toBeInTheDocument();
+
+    rerender(<DeleteConfirmDialog {...defaultProps} isOpen={false} streams={streams} />);
+    rerender(<DeleteConfirmDialog {...defaultProps} isOpen={true} streams={streams} />);
+
+    expect(screen.queryByText('cam-6')).not.toBeInTheDocument();
+    expect(screen.getByTestId('delete-confirm-show-more')).toBeInTheDocument();
   });
 
   it('omits the preview list block entirely when there are no streams to display', () => {
