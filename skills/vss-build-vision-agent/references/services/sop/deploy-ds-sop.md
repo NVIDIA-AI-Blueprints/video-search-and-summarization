@@ -108,12 +108,13 @@ Models are **not** baked into the image — stage on the host before bring-up. D
 
 ## Testing
 
-- **Profile eval (this bundle):** `skills/vss-build-vision-agent/references/services/sop/evals/sop_deployment.json` — an operational
-  eval (build-vision-agent convention: `{skills, resources, expects:[{query, checks}]}`) that
-  validates the **delivered scope**: deploy the full profile → all containers Up → ELK
-  `mdx-vlm-captions-*` shows REAL step responses (not all `(10)`), with the JSON Logstash pipeline
-  registered. The VSS-Agent / report-generation phase is **out of scope** (see `integrate-ds-sop.md`
-  § Scope & divergences).
+- **Profile eval:** `skills/vss-build-vision-agent/eval/profile_sop_1_compliance_monitoring.json` —
+  a build-vision-agent family eval (`{skills, profile, resources, env, expects}`) running the full
+  lifecycle: propose the SOP delta → build + validate `_builds/sop-1/` → deploy → runtime-verify
+  SOP detection in ELK (REAL step responses, not all `(10)`, JSON Logstash pipeline registered) →
+  runtime-verify the skill-driven SOP compliance report (get_sop_* + vss-generate-video-report
+  Mode C). Only the legacy VSS-Agent / `/generate` report path stays out of scope (see
+  `integrate-ds-sop.md` § Scope & divergences).
 - **Blueprint full suite (reference):** `vss-sop-skills/vss-sop-test` (`scripts/vss_sop_test.py`)
   runs 4 phases — service health, ELK pipeline, VIOS recording/livestream, and VSS-Agent end-to-end
   (incl. report generation). Phases 1–3 overlap this eval; Phase 4 (agent/report) only applies once

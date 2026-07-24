@@ -160,9 +160,11 @@ caveats (seen on `develop-latest`) need handling:
 - **Detailed contracts of record** (this folder): `sop/integrate-ds-sop.md`,
   `sop/deploy-ds-sop.md`, `sop/integrate-sop-report.md`, `sop/deploy-sop-report.md`, `sop/build-ds-sop.md`.
 - **Assets** (this folder): `sop/sop-report/sop-report-override.yml` (the mount override),
-  `sop/sop-vlm-captions-json-logstash.conf`, `sop/evals/sop_deployment.json`. The `get_sop_*`
-  patch + VA-MCP config are **downloaded at build time** from the public SOP repo (see
-  § Patch specifics) — **not shipped in this repo**.
+  `sop/sop-vlm-captions-json-logstash.conf`. The `get_sop_*` patch + VA-MCP config are
+  **downloaded at build time** from the public SOP repo (see § Patch specifics) — **not shipped
+  in this repo**.
+- **Profile eval**: `eval/profile_sop_1_compliance_monitoring.json` (build-vision-agent family:
+  propose → build + validate → deploy → runtime detection + report).
 - **Report rendering**: `skills/vss-generate-video-report/` (Mode C; `assets/sop-compliance-report.md`).
 - **Upstream**: `deploy/docker/services/agent/compose.yml` (`vss-va-mcp`), ELK / Kafka / VIOS Compose.
 - **SOP source**: `NVIDIA/sop-monitoring-blueprints` (public, branch `main`, `0dd472f`) —
