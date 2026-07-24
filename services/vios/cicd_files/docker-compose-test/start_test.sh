@@ -456,6 +456,8 @@ services:
         condition: service_healthy
       sensor-ms:
         condition: service_healthy
+      streamprocessing-ms-1:
+        condition: service_healthy
     environment:
       - DASHBOARD_API_ENDPOINT=${DASHBOARD_API_ENDPOINT:-http://localhost:8000}
       - GIT_BRANCH=${GIT_BRANCH:-unknown}
@@ -791,6 +793,19 @@ ensure_bdd_test_image() {
     info "Built BDD test image: $image"
 }
 
+# Return 0 if the host answers with ANY HTTP response on the given port (server
+# up), else 1. Mirrors oneclick_dc_deployment.py::_http_endpoint_responds (a
+# 4xx/5xx still means the HTTP server is alive and listening). Prefers curl;
+# falls back to a TCP-connect check when curl is unavailable.
+nvstreamer_http_ready() {
+    local port=$1
+    if command -v curl >/dev/null 2>&1; then
+        curl -s -o /dev/null -m 3 "http://${CURRENT_IP}:${port}"
+    else
+        timeout 3 bash -c "exec 3<>/dev/tcp/${CURRENT_IP}/${port}" 2>/dev/null
+    fi
+}
+
 run_docker_compose() {
     # Ensure BDD test reports directory exists before starting containers
     ensure_bdd_reports_dir || error "Failed to ensure BDD reports directory exists"
@@ -815,16 +830,36 @@ run_docker_compose() {
     done
     docker compose --env-file ./compose.env up -d "${ns_services[@]}" || error "Failed to start nvstreamer containers"
 
-    # Wait for nvstreamer containers to initialize
-    info "Waiting for nvstreamer containers to initialize..."
-    info "Step 1: (300s remaining)"
-    sleep 100
-
-    info "Step 2: (200s remaining)"
-    sleep 100
-
-    info "Step 3: (100s remaining)"
-    sleep 100
+    # Wait until each active NVStreamer instance answers on its HTTP port instead
+    # of a fixed sleep. Any HTTP response (incl. 4xx/5xx) means the server is up.
+    # Modeled on oneclick_dc_deployment.py::_wait_for_nvstreamer_http_ready --
+    # returns as soon as all are reachable; caps at NVSTREAMER_READY_TIMEOUT
+    # (default 300s, same ceiling as the old 3x100s sleep).
+    local ns_ready_timeout="${NVSTREAMER_READY_TIMEOUT:-300}"
+    local ns_deadline=$(( $(date +%s) + ns_ready_timeout ))
+    local -a ns_pending=()
+    for ((i = 0; i < NVSTREAMER_COUNT; i++)); do
+        ns_pending+=("$((NVSTREAMER_PORT_BASE + i))")
+    done
+    info "Waiting for NVStreamer HTTP endpoints on ports ${ns_pending[*]} (timeout ${ns_ready_timeout}s)..."
+    while (( ${#ns_pending[@]} > 0 )); do
+        local -a ns_still=()
+        local ns_port
+        for ns_port in "${ns_pending[@]}"; do
+            if nvstreamer_http_ready "$ns_port"; then
+                info "NVStreamer reachable on http://${CURRENT_IP}:${ns_port}"
+            else
+                ns_still+=("$ns_port")
+            fi
+        done
+        ns_pending=( ${ns_still[@]+"${ns_still[@]}"} )
+        (( ${#ns_pending[@]} == 0 )) && break
+        if (( $(date +%s) >= ns_deadline )); then
+            info "WARNING: timed out after ${ns_ready_timeout}s waiting for NVStreamer HTTP; still pending ports: ${ns_pending[*]} -- proceeding anyway"
+            break
+        fi
+        sleep 3
+    done
 
     info "Nvstreamer container status after init wait:"
     docker ps -a --filter "name=nvstreamer" --format 'table {{.Names}}\t{{.Status}}' || true
