@@ -1,0 +1,35 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "in-2",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2,
+        "modes": [
+          "harbor",
+          "shared"
+        ]
+      }
+    }
+  },
+  "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC access, and the VSS repository at `{{repo_root}}`. This generation eval builds an RT-CV detection/tracking delta from the current `search` developer profile. The build label is `in-2`, never a Compose profile. Embeddings, Search analytics/API, Agent/UI/ingress, tracing, RT-VLM, and LLM inference are explicitly excluded.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-agent` to build this deployment under `_builds/in-2/`: \"Provide streaming and on-demand object detection and multi-object tracking for class `person` using RT-DETR on RT-CV. Keep streamed and uploaded video retrievable through VIOS. Publish bounding boxes, class labels, confidence, timestamps, sensor IDs, and track IDs to Kafka and store them in Elasticsearch.\" Target `{{platform}}`, validate the resolved Compose configuration, and do not deploy.",
+      "checks": [
+        "`{{repo_root}}/_builds/in-2/override.env` exists and declares `FOUNDATION=search` and the full effective `COMPOSE_PROFILES`.",
+        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-search,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.",
+        "The exact set therefore excludes `rtvi-embed`, `rtvi-vlm`, `vss-search-analytics-2d-fusion`, `vss-video-analytics-api-fusion`, `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, and LLM NIM keys.",
+        "`perception-2d-fusion` is used as the RT-CV key; `perception-2d` and `perception-alerts` are not substituted.",
+        "`COMPOSE_PROFILES` contains no `in-2`, aggregate, `bp_developer_*`, or other invented profile key.",
+        "The delta contains only requested environment changes such as `HARDWARE_PROFILE=RTXPRO6000BW`, `ENABLE_CRITIC=false`, RT-CV model/device settings, source count, paths, and reachable host values; unchanged Search defaults are not copied.",
+        "`_builds/in-2/compose.yml` includes `../../deploy/docker/compose.yml`, and `_builds/in-2/patches/` is absent because all selected services exist and no service definition changes are requested.",
+        "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and no copied Foundation `.env`, copied root Compose project, patched tree, manifest, allow-list, or generated skill bundle.",
+        "Resolution uses `containers.env`, Search `.env`, Search `overrides.env`, and `_builds/in-2/override.env`, in that order, with the build `compose.yml`; normalized `resolved.yml` validates directly, required peers resolve, excluded services do not resolve, no selected profile token is unknown, no service retains a `profiles:` gate, no real `${...}` interpolation remains unresolved, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and every checked-in bind source exists with the expected file/directory type.",
+        "No file under `{{repo_root}}/deploy/docker/` is modified."
+      ]
+    }
+  ]
+}
