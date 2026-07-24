@@ -186,6 +186,8 @@ def generate_solve_script(
                 'grep -q "^FOUNDATION=" "${BUILD_DIR}/override.env"\n',
                 'grep -q "^COMPOSE_PROFILES=" "${BUILD_DIR}/override.env"\n',
                 'docker compose -f "${BUILD_DIR}/resolved.yml" config --quiet\n',
+                'uv run "${REPO_ROOT}/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" '
+                '"${BUILD_DIR}/resolved.yml" --repo-root "${REPO_ROOT}"\n',
                 'echo "Resolved build output found at ${BUILD_DIR}; verifier will drive the assertions."\n',
             ]
         )
