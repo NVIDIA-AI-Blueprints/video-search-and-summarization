@@ -204,6 +204,49 @@ class SelectImagesTest(unittest.TestCase):
             commit_change(repo, "services/ui-tools/x.js", "v1\n", "other folder")
             self.assertEqual(selected_names(repo, before), [])
 
+    def test_repository_inventory_builds_both_analytics_images(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        by_name = {entry["name"]: entry for entry in inventory["images"]}
+
+        expected = {
+            "vss-video-analytics-api": "services/analytics/video-analytics-api",
+            "vss-behavior-analytics": "services/analytics/behavior-analytics",
+        }
+        for name, context in expected.items():
+            entry = by_name[name]
+            self.assertTrue(entry["ghcr_build"])
+            self.assertEqual(entry["strategy"], "build")
+            self.assertEqual(entry["context"], context)
+            self.assertEqual(entry["source_path"], context)
+            self.assertEqual(
+                entry["platforms"], ["linux/amd64", "linux/arm64"]
+            )
+
+        va_entries, _ = dci.select_images(
+            inventory, ["services/analytics/video-analytics-api/src/app.ts"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in va_entries],
+            ["vss-video-analytics-api"],
+        )
+
+        ba_entries, _ = dci.select_images(
+            inventory, ["services/analytics/behavior-analytics/src/app.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in ba_entries],
+            ["vss-behavior-analytics"],
+        )
+
+        agent_entries, _ = dci.select_images(
+            inventory, ["services/agent/app.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in agent_entries],
+            ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
+        )
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
