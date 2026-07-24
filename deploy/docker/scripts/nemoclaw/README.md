@@ -1,10 +1,11 @@
-# NemoClaw + VSS (canonical CLI flow)
+# NemoClaw + VSS setup flow
 
-VSS creates and configures its NemoClaw/OpenClaw sandbox using **only canonical
-upstream NemoClaw, OpenShell, and OpenClaw commands** — there is no VSS-specific
-install/patch script and no hand-editing of `openclaw.json`. The flow is driven
-from [`deploy_nemoclaw_vss.ipynb`](../deploy_nemoclaw_vss.ipynb) (section 3); this
-document is the equivalent command reference for running it by hand.
+VSS creates and configures its NemoClaw/OpenClaw sandbox with upstream NemoClaw,
+OpenShell, OpenClaw, and the `mcporter` adapter bundled in the pinned OpenClaw
+image. There is no VSS-specific install/patch script and no hand-editing of
+`openclaw.json`. The flow is driven from
+[`deploy_nemoclaw.ipynb`](../deploy_nemoclaw.ipynb) (section 3); this document is
+the equivalent command reference for running it by hand.
 
 > Removed in favour of this flow: `init_nemoclaw.sh` and `update_openclaw_config.py`.
 > The VSS OpenClaw *plugin* (`.openclaw/{index.ts,package.json,openclaw.plugin.json}`)
@@ -14,19 +15,23 @@ document is the equivalent command reference for running it by hand.
 ## Prerequisites
 
 - A recent NemoClaw release pinned via `NEMOCLAW_INSTALL_REF` that ships the
-  `nemoclaw sandbox {policy add, skill install, mcp add, config set, upload}`
-  subcommands.
+  `nemoclaw sandbox {policy add, skill install, exec, config set, upload}`
+  subcommands and an OpenClaw image with `mcporter`.
 - `docker`, `node`/`npm`, `nemoclaw`, and `openshell` on `PATH`.
 - Provider credentials in the environment (`NVIDIA_API_KEY`, or
   `NEMOCLAW_ENDPOINT_URL` + `COMPATIBLE_API_KEY` for a custom OpenAI-compatible
   endpoint).
 - This repo checked out so the policy, skills, and workspace docs are available.
 
-## Canonical flow
+## Setup flow
+
+This private host-side MCP command reference uses the OpenClaw runtime. Hermes
+requires an authenticated public HTTPS MCP endpoint registered through
+NemoClaw's managed MCP command.
 
 ```bash
 SB="${NEMOCLAW_SANDBOX_NAME:-demo}"
-RUNTIME="${AGENT_RUNTIME:-openclaw}"          # openclaw (default) or hermes
+RUNTIME="openclaw"
 REPO="$(git rev-parse --show-toplevel)"
 
 # 1. Install NemoClaw (pinned)
@@ -58,8 +63,14 @@ for md in "$REPO"/.openclaw/workspace/_nemoclaw/*.md ; do
   nemoclaw sandbox upload "$SB" "$md" /sandbox/.openclaw/workspace/
 done
 
-# 6. Register the host-side VSS Orchestrator MCP (OpenShell-enforced Streamable HTTP)
-nemoclaw sandbox mcp "$SB" add vss_orchestrator --url http://host.openshell.internal:9988/mcp
+# 6. Register the host-side VSS Orchestrator MCP in OpenClaw.
+#    The custom VSS OpenShell policy controls access to this private route.
+nemoclaw sandbox exec "$SB" -- \
+  mcporter config add vss_orchestrator \
+    --url http://host.openshell.internal:9988/mcp \
+    --scope home
+nemoclaw sandbox exec "$SB" -- \
+  mcporter config get vss_orchestrator --json
 
 # 7. Sandbox config: only the optional webhooks need config set.
 #    gateway.* (incl. controlUi.allowedOrigins) is rejected — it comes from
@@ -73,9 +84,12 @@ openshell forward start --background 18789 "$SB"
 nemoclaw sandbox gateway token "$SB"
 ```
 
-## Why canonical
+## Why the local MCP uses `mcporter`
 
-Keeping the flow on first-class NemoClaw commands means VSS and NemoClaw stay
-decoupled: NemoClaw version upgrades, new agent runtimes (e.g. Hermes via
-`--agent hermes`), and new features are picked up without VSS having to
-patch, post-edit, or re-implement installer/onboard behaviour.
+NemoClaw v0.0.80's managed MCP boundary requires an authenticated public HTTPS
+endpoint. The VSS Orchestrator is intentionally host-local and unauthenticated;
+it is reachable only through the route allowed by
+`assets/vss_nemoclaw_policy.yaml`. The notebook therefore uses the same
+`mcporter` OpenClaw adapter that NemoClaw v0.0.80 uses internally, but registers
+the private URL directly. Other agent runtimes should use an authenticated
+public HTTPS MCP endpoint with the managed `nemoclaw sandbox mcp add` command.

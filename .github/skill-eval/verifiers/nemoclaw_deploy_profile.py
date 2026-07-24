@@ -50,6 +50,37 @@ def _find_value(obj: Any, key: str) -> str:
     return ""
 
 
+def _payload_text(event: dict[str, Any]) -> str:
+    status = event.get("status")
+    if isinstance(status, str) and status.lower() in {"error", "failed", "failure"}:
+        return ""
+    if event.get("error"):
+        return ""
+    payloads = event.get("payloads")
+    result = event.get("result")
+    if payloads is None and isinstance(result, dict):
+        result_status = result.get("status")
+        if (
+            isinstance(result_status, str)
+            and result_status.lower() in {"error", "failed", "failure"}
+        ):
+            return ""
+        if result.get("error"):
+            return ""
+        payloads = result.get("payloads")
+    if not isinstance(payloads, list):
+        return ""
+    return "\n".join(
+        text.strip()
+        for payload in payloads
+        if isinstance(payload, dict)
+        and payload.get("isError") is not True
+        and not payload.get("error")
+        and isinstance((text := payload.get("text")), str)
+        and text.strip()
+    )
+
+
 def _openclaw_text() -> tuple[str, str]:
     try:
         raw = LOG_PATH.read_text(encoding="utf-8", errors="replace")
@@ -57,7 +88,7 @@ def _openclaw_text() -> tuple[str, str]:
         return "", ""
     final = ""
     for event in _iter_json_objects(raw):
-        final = _find_value(event, "finalAssistantVisibleText") or final
+        final = _find_value(event, "finalAssistantVisibleText") or _payload_text(event) or final
     return raw, final
 
 

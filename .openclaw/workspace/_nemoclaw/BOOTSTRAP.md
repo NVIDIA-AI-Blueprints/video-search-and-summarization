@@ -21,11 +21,12 @@ through the VSS Orchestrator MCP server.
 
 ## Step 2: Confirm the MCP server
 
-Follow the handshake-and-discover procedure in `TOOLS.md` (initialize →
-`notifications/initialized` → `tools/list`), then call the prerequisite-check
-tool — its exact name comes from `tools/list`. It reports Docker, NVIDIA
-Container Toolkit, GPU layout, NGC reachability, and the active hardware
-profile. If any check fails, tell the user to run the corresponding cell in
+Call the native `vss_orchestrator__prereqs` tool. If native MCP tools are not
+available, follow the streamable HTTP handshake in `TOOLS.md` (initialize →
+`notifications/initialized`) and call the same stable tool name directly; do
+not call `tools/list`. The prerequisite tool reports Docker, NVIDIA Container
+Toolkit, GPU layout, NGC reachability, and the active hardware profile. If any
+check fails, tell the user to run the corresponding cell in
 `deploy/docker/scripts/deploy_nemoclaw.ipynb` or
 `deploy/docker/scripts/deploy_vss_orchestrator.ipynb` (the notebooks live on
 the host, not in the sandbox — do not try to read, list, find, or open them
@@ -41,8 +42,7 @@ from inside the sandbox; just tell the user). Do not invoke `nvidia-smi`,
 
 When the user picks a profile, call the orchestrator's compose-generate tool,
 then compose-up, then poll the compose-status tool until it returns
-`success` or `error`. Use the names returned by `tools/list`, not guessed
-names.
+`success` or `error`. Use the stable names documented in `TOOLS.md`.
 
 ---
 
