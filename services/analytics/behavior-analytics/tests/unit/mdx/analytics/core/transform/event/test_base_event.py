@@ -307,7 +307,7 @@ class TestGetEventsFunctionality:
         event_behavior = result[0]
         assert event_behavior.event.type == DirectionEnum.IN.value  # First point is outside
     
-    def test_get_events_no_crossesion(self):
+    def test_get_events_no_crossing(self):
         """Test get_events when trip doesn't intersect with object."""
         behavior = self.create_mock_behavior(length=10)
         mock_obj = MockObject("obj1")
