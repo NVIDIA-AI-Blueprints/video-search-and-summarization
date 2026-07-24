@@ -615,14 +615,25 @@ ensure_base_image() {
         return 0
     fi
 
+    # Not in the local store. Try to PULL the prebuilt base from the registry
+    # before falling back to building it -- pulling is the fast path and the whole
+    # point of a prebuilt base image. Only build when the tag genuinely does not
+    # exist in the registry (e.g. a brand-new base tag not yet published).
+    echo "[auto-deps] VST Runtime base-image not in local store; attempting pull: $base_image_name"
+    if docker pull "$base_image_name"; then
+        echo "[auto-deps] Pulled prebuilt base-image: $base_image_name"
+        return 0
+    fi
+    echo "[auto-deps] Pull failed (base-image tag not published in the registry?)."
+
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
-        echo "[ERROR] VST Runtime base-image not found: $base_image_name"
-        echo "        Build it explicitly with:   ./build.sh base-container"
+        echo "[ERROR] VST Runtime base-image not found locally or in registry: $base_image_name"
+        echo "        Build+publish it once with:  ./build.sh base-container push=1"
         echo "        Or omit 'no-auto-deps' to let this script build it for you."
         exit 1
     fi
 
-    echo "[auto-deps] Base image missing — building it now ($base_image_name)."
+    echo "[auto-deps] Base image unavailable — building it now ($base_image_name)."
     echo "            Pass 'no-auto-deps' to fail instead of auto-building."
     build_base_image 0  # 0 = don't push during auto-build
 }
