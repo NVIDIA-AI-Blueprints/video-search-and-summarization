@@ -27,4 +27,13 @@
 {{- end }}
 {{- end }}
 {{- end }}
-{{- define "vss-alert-bridge.image" -}}{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}{{- end -}}
+{{- define "vss-alert-bridge.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-alert-ms" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}

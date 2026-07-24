@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Card, CardContent, Typography, Box, IconButton } from '@mui/material';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
@@ -40,7 +41,7 @@ class DashboardWidgetErrorBoundary extends Component<Props, State> {
     }
 
     public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-        console.error(`Dashboard widget error in ${this.props.widgetName || 'Unknown'}:`, error, errorInfo);
+        LOG.error(`Dashboard widget error in ${this.props.widgetName || 'Unknown'}:`, error, errorInfo);
     }
 
     private handleRetry = () => {

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Menu, MenuItem, IconButton, Tooltip } from '@mui/material';
 import { Tune } from '@mui/icons-material';
 
@@ -22,16 +22,25 @@ interface QualityMenuProps {
     onSettingChange: (setting: string) => void;
     currentSetting: string;
     show?: boolean;
+    /** Portal container for the menu. Set to the fullscreen element so the menu is visible in fullscreen. */
+    container?: Element | null;
+    /** Notifies the parent when the menu opens/closes (used to keep fullscreen controls visible). */
+    onOpenChange?: (open: boolean) => void;
 }
 
-const QualityMenu: React.FC<QualityMenuProps> = ({ onSettingChange, currentSetting, show = true }) => {
+const QualityMenu: React.FC<QualityMenuProps> = ({ onSettingChange, currentSetting, show = true, container, onOpenChange }) => {
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const open = Boolean(anchorEl);
 
+    useEffect(() => {
+        onOpenChange?.(open);
+    }, [open]);
+
     if (!show) return null;
 
+    // Toggle: clicking the trigger while open closes the menu.
     const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-        setAnchorEl(event.currentTarget);
+        setAnchorEl(prev => (prev ? null : event.currentTarget));
     };
 
     const handleClose = () => {
@@ -57,6 +66,7 @@ const QualityMenu: React.FC<QualityMenuProps> = ({ onSettingChange, currentSetti
                 anchorEl={anchorEl}
                 open={open}
                 onClose={handleClose}
+                container={container}
                 anchorOrigin={{
                     vertical: 'top',
                     horizontal: 'center',

@@ -11,9 +11,9 @@
 #ifndef P2P_BASE_CANDIDATE_PAIR_INTERFACE_H_
 #define P2P_BASE_CANDIDATE_PAIR_INTERFACE_H_
 
-namespace cricket {
+#include "api/candidate.h"
 
-class Candidate;
+namespace webrtc {
 
 class CandidatePairInterface {
  public:
@@ -23,6 +23,19 @@ class CandidatePairInterface {
   virtual const Candidate& remote_candidate() const = 0;
 };
 
-}  // namespace cricket
+// Specific implementation of the interface, suitable for being a
+// data member of other structs.
+struct CandidatePair final : public CandidatePairInterface {
+  ~CandidatePair() override = default;
+
+  const Candidate& local_candidate() const override { return local; }
+  const Candidate& remote_candidate() const override { return remote; }
+
+  Candidate local;
+  Candidate remote;
+};
+
+}  //  namespace webrtc
+
 
 #endif  // P2P_BASE_CANDIDATE_PAIR_INTERFACE_H_

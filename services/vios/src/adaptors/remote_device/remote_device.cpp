@@ -65,7 +65,7 @@ int RemoteDevice::connect()
     LOG(verbose) << __PRETTY_FUNCTION__ << endl;
     std::chrono::seconds monitorInterval(SENSOR_MONITOR_INTERVAL);
     m_sensorStatusMonitoring = make_unique<Bosma::Scheduler>(SENSOR_MONITOR_THREAD_COUNT);
-    m_sensorStatusMonitoring->interval(monitorInterval, [=]() {
+    m_sensorStatusMonitoring->interval(monitorInterval, [this]() {
         syncSensorStatus();
     });
     return 0;
@@ -89,7 +89,7 @@ void RemoteDevice::syncSensorStatus()
     m_dataChannelTasks.clear();
     for (const auto& remoteId : remoteIds)
     {
-        m_dataChannelTasks.push_back(async::spawn([=]() -> void
+        m_dataChannelTasks.push_back(async::spawn([this, remoteId]() -> void
         {
             syncSensorStatus(remoteId);
         }));

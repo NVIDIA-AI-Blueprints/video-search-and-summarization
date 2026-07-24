@@ -16,17 +16,18 @@
 
 #include <vector>
 
+#include "api/environment/environment.h"
+#include "api/units/data_rate.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video/video_bitrate_allocator.h"
 #include "api/video_codecs/video_codec.h"
 #include "rtc_base/experiments/rate_control_settings.h"
-#include "rtc_base/experiments/stable_target_rate_experiment.h"
 
 namespace webrtc {
 
 class SimulcastRateAllocator : public VideoBitrateAllocator {
  public:
-  explicit SimulcastRateAllocator(const VideoCodec& codec);
+  SimulcastRateAllocator(const Environment& env, const VideoCodec& codec);
   ~SimulcastRateAllocator() override;
 
   SimulcastRateAllocator(const SimulcastRateAllocator&) = delete;
@@ -59,7 +60,6 @@ class SimulcastRateAllocator : public VideoBitrateAllocator {
   int NumTemporalStreams(size_t simulcast_id) const;
 
   const VideoCodec codec_;
-  const StableTargetRateExperiment stable_rate_settings_;
   const RateControlSettings rate_control_settings_;
   std::vector<bool> stream_enabled_;
   bool legacy_conference_mode_;

@@ -15,7 +15,9 @@
 
 #include <string>
 
-namespace rtc {
+#include "absl/strings/string_view.h"
+
+namespace webrtc {
 
 constexpr uint16_t kNetworkCostMax = 999;
 constexpr uint16_t kNetworkCostCellular2G = 980;
@@ -31,6 +33,26 @@ constexpr uint16_t kNetworkCostMin = 0;
 // so that e.g a "plain" WIFI is prefered over a VPN over WIFI
 // everything else being equal.
 constexpr uint16_t kNetworkCostVpn = 1;
+
+// TODO: bugs.webrtc.org/466507512 - network slices are not currently
+// differentiated so as to reduce the possibility of collisions amongst network
+// costs. Differentiation may require a more extensible approach.
+
+// Add -2 to the network cost when using network slicing so that e.g. premium 5G
+// slice is preferred over regular 5G, everything else being equal.
+constexpr uint16_t kNetworkCostSlice = -2;
+
+// Aliases for correct wrap-around with network slice cost.
+constexpr uint16_t kNetworkCostCellular5GSlice =  // 248
+    static_cast<uint16_t>(kNetworkCostCellular5G + kNetworkCostSlice);
+constexpr uint16_t kNetworkCostCellular5GVpnSlice =  // 249
+    static_cast<uint16_t>(kNetworkCostCellular5G + kNetworkCostVpn +
+                          kNetworkCostSlice);
+constexpr uint16_t kNetworkCostCellularSlice =  // 898
+    static_cast<uint16_t>(kNetworkCostCellular + kNetworkCostSlice);
+constexpr uint16_t kNetworkCostCellularVpnSlice =  // 899
+    static_cast<uint16_t>(kNetworkCostCellular + kNetworkCostVpn +
+                          kNetworkCostSlice);
 
 // alias
 constexpr uint16_t kNetworkCostHigh = kNetworkCostCellular;
@@ -67,6 +89,19 @@ constexpr AdapterType kAllAdapterTypes[] = {
     ADAPTER_TYPE_CELLULAR_5G,
 };
 
-}  // namespace rtc
+// Network slice is a property of a network, primarily used in 5G and beyond.
+// It allows for the creation of multiple logical networks on a shared physical
+// infrastructure, each optimized for specific use cases. This is not about
+// whether the network is 3G/4G/5G/6G, but rather a feature available within
+// some of those network generations (e.g., 5G).
+enum class NetworkSlice {
+  NO_SLICE = 0,
+  UNIFIED_COMMUNICATIONS = 1,
+};
+
+absl::string_view NetworkSliceToString(NetworkSlice network_slice);
+
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_NETWORK_CONSTANTS_H_

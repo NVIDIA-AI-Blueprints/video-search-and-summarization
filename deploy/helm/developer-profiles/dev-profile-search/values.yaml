@@ -30,6 +30,10 @@ global:
   vios:
     useSdrc: true
 
+  ngcApiSecret:
+    name: ngc-api-key-secret
+    key: NGC_API_KEY
+
   # rtviInternalIngress lives under `global` so the agent sub-chart's env-var
   # templates (rendered via `tpl` in the agent context) can read it — only
   # `global.*` propagates across sub-charts. When enabled, this drives:
@@ -708,9 +712,6 @@ vss-agent-ui:
   global:
     externalHost: ''
     imagePullPolicy: IfNotPresent
-  image:
-    repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.1-26.07.1-dd945777eef9"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
