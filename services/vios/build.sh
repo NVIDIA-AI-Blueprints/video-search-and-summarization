@@ -586,14 +586,23 @@ ensure_toolchain_image() {
         return 0
     fi
 
+    # Not in the local store. Try to PULL it from the registry first (the toolchain
+    # images are published in the gitlab registry) before building it locally.
+    echo "[auto-deps] Toolchain image not in local store; attempting pull: $image_name"
+    if docker pull "$image_name"; then
+        echo "[auto-deps] Pulled toolchain image: $image_name"
+        return 0
+    fi
+    echo "[auto-deps] Pull failed (toolchain image not published in the registry?)."
+
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
-        echo "[ERROR] Toolchain image not found: $image_name"
+        echo "[ERROR] Toolchain image not found locally or in registry: $image_name"
         echo "        Build it explicitly with:   ./build.sh toolchain"
         echo "        Or omit 'no-auto-deps' to let this script build it for you."
         exit 1
     fi
 
-    echo "[auto-deps] Toolchain image missing — building it now ($image_name)."
+    echo "[auto-deps] Toolchain image unavailable — building it now ($image_name)."
     echo "            Pass 'no-auto-deps' to fail instead of auto-building."
     echo "            (auto-built deps are never pushed; use './build.sh toolchain push=1' explicitly)"
     build_toolchain_image 0   # 0 = never push from the auto-build path
@@ -1729,6 +1738,12 @@ else
     elif [[ $CONTAINER -eq 1 ]]; then
         echo "Building and containerizing specified modules"
         declare -a cont_array
+        # Background-push bookkeeping: overlap each image's upload (network I/O)
+        # with the next module's compile + docker build (CPU). All pushes are
+        # waited on after the loop, and any failure fails the script.
+        declare -a PUSH_PIDS=()
+        declare -a PUSH_IMAGES=()
+        declare -a PUSH_LOGS=()
         OVERALL_START_TIME=$(date +%s)
         MODULE_COUNT=0
         for module in "${MODULES[@]}"; do
@@ -1807,15 +1822,15 @@ else
             print_per_image_build_timing_line "$MODULE_BUILD_START_TIME"
 
             if [[ $PUSH -eq 1 ]]; then
-                echo "Pushing Docker image: $imagename"
-                docker push "$imagename"
-
-                # Check if Docker push was successful
-                if [[ $? -ne 0 ]]; then
-                    echo -e "[ERROR] Docker push failed for image: $imagename"
-                    exit 1
-                fi
-                echo -e "Docker push succeeded for image: $imagename"
+                # Push in the background so the next module's compile + docker build
+                # overlaps this image's upload. Output is captured per-image and
+                # printed when the push is waited on after the loop.
+                push_log=$(mktemp)
+                echo "Pushing Docker image (background): $imagename"
+                docker push "$imagename" > "$push_log" 2>&1 &
+                PUSH_PIDS+=("$!")
+                PUSH_IMAGES+=("$imagename")
+                PUSH_LOGS+=("$push_log")
             fi
 
             MODULE_COUNT=$((MODULE_COUNT + 1))
@@ -1823,6 +1838,25 @@ else
             # Change back to the previous directory
             cd - || exit 1
         done
+
+        # Wait for all background pushes; print their output and fail on any error.
+        if [[ ${#PUSH_PIDS[@]} -gt 0 ]]; then
+            push_failed=0
+            for pi in "${!PUSH_PIDS[@]}"; do
+                if wait "${PUSH_PIDS[$pi]}"; then
+                    echo -e "Docker push succeeded for image: ${PUSH_IMAGES[$pi]}"
+                else
+                    echo -e "[ERROR] Docker push failed for image: ${PUSH_IMAGES[$pi]}"
+                    push_failed=1
+                fi
+                cat "${PUSH_LOGS[$pi]}" 2>/dev/null || true
+                rm -f "${PUSH_LOGS[$pi]}"
+            done
+            if [[ $push_failed -ne 0 ]]; then
+                echo -e "[ERROR] One or more Docker pushes failed."
+                exit 1
+            fi
+        fi
 
         print_container_build_summary_footer "$OVERALL_START_TIME" "$MODULE_COUNT"
     fi
