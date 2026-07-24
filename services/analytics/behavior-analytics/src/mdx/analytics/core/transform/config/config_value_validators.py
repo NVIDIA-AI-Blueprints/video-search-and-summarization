@@ -235,6 +235,7 @@ APP_VALUE_VALIDATORS: dict[str, ValueValidator] = {
     "incidentObjectTtl": _int(min=0),
     "stateManagementFilter": _json_list_of_str(),
     "imageLocationMode": _enum("center", "bottom_center"),
+    "roiEventDetectionMode": _enum("coordinate", "bbox"),
     "in3dMode": _bool(),
     "advancedOverlay": _bool(),
     "inSimulationMode": _bool(),

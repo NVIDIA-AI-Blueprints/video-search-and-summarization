@@ -26,10 +26,11 @@ video analytics api  -- upsert/upsert-all/delete -->  mdx-notification
                                                             |
                                                             v
                                               CalibrationFileMonitor.on_moved
-                                              (watchdog, main process)
+                                              (watchdog, per-worker)
                                                             |
                                                             v
                                               CalibrationBase.reload_data
+                                              (per-worker)
                                                             |
                                               schema-validate (defense-in-depth) -> update_calibration_info -> _load_data
 ```
@@ -82,7 +83,7 @@ src/mdx/analytics/core/transform/calibration/
                                      # schemas/ajv/calibration.json
 ```
 
-Wired up in `src/mdx/analytics/core/app/app_runner.py` (one `CalibrationListener` and one `CalibrationBase`-derived instance per main process). Unlike dynamic config, calibration is **not** per-worker — workers pickle the parent's calibration at fork time and the live updates happen in the parent's watcher. Workers see the new sensor map by reading at use-time via the parent's `CalibrationBase` reference.
+The split mirrors dynamic config. The **main process** runs a single `CalibrationListener` (wired up in `src/mdx/analytics/core/app/app_runner.py`): it drains `mdx-notification` and atomic-writes files into `CALIBRATION_DIR`. **Each worker** — spawned, not forked (`mp.get_context("spawn")`), so it starts a fresh interpreter with no inherited parent state — builds its own `CalibrationBase`-derived instance in `BaseApp.__init__` and calls `start_listen()`, which runs a **per-worker** watchdog `Observer` on `CALIBRATION_DIR`. Workers race each other to apply the same file in their own process (`on_moved -> reload_data`), so every worker independently reloads the new sensor map. There is no shared parent calibration object and nothing is pickled across the process boundary.
 
 ---
 
@@ -163,7 +164,7 @@ See `src/mdx/analytics/core/transform/calibration/calibration_dynamic.py` and th
 ## Known limitations and gotchas
 
 1. **Validation is strict on `upsert-all` / `upsert`, lenient on `delete`.** If video-analytics-api's stored data has historically-acceptable-but-now-schema-violating sensors, a `delete` referencing those sensors still works. An `upsert-all` carrying those sensors would be rejected — the operator must fix the stored data first.
-2. **Reload is single-process.** The main process owns the watcher; workers share the parent's `CalibrationBase` instance via fork. There's no per-worker watchdog on `CALIBRATION_DIR` (in contrast to `CONFIG_DIR`).
+2. **Reload is per-worker (redundant by design).** The main process only listens and writes files; each spawned worker runs its own watchdog on `CALIBRATION_DIR` and reloads independently, so every worker applies each update on its own (same split as `CONFIG_DIR`). Because workers are spawned (not forked), there is no shared calibration object — a bug in one worker's reload can't corrupt another's, but N workers each re-parse the same file. The listener never deletes files after writing; a separate pruner thread reaps anything older than `CALIBRATION_RETAIN_SECONDS` so disk usage stays bounded without a move-vs-read race.
 3. **Stale-timestamp filter is monotone.** `CalibrationListener` rejects any notification whose `timestamp` is `<= last_insert_timestamp`. After a Kafka offset reset (or replay from offset 0), old notifications are silently skipped. This is intentional — out-of-order deliveries would otherwise corrupt the in-memory map.
 4. **`globalROIs` is not read.** Legacy test fixtures use `globalROIs` (CamelCase). Production code reads `rois` (lowercase). The vendored schema follows `rois`. Migration of legacy data is operator-owned.
 5. **No ACK back to video analytics api.** The dynamic-config flow publishes `ack` after applying; the calibration flow does not. A worker-side validation failure is observable only via container logs (`calibration schema violation (...)`).

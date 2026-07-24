@@ -257,6 +257,8 @@ class StateMgmtBase:
             return None, None, None
 
         coordinates = [msg.object.coordinate for msg in in_order_msgs]
+        # Per-frame bboxes kept aligned 1:1 with ``coordinates`` (and thus ``points``).
+        bboxes = [msg.object.bbox for msg in in_order_msgs]
         embeddings = [
             msg.object.embedding.vector
             for msg in (in_order_msgs + in_tolerance_msgs)
@@ -264,13 +266,16 @@ class StateMgmtBase:
             and msg.object.embedding and msg.object.embedding.vector
         ]
         last_x_points = coordinates[-min_trip_length_minus_one:]
+        last_x_bboxes = bboxes[-min_trip_length_minus_one:]
 
         new_state = ObjectState(
             id=message_key,
             start=in_order_msgs[0].timestamp,
             end=in_order_msgs[-1].timestamp,
             points=coordinates,
+            bboxes=bboxes,
             lastXpoints=last_x_points,
+            lastXbboxes=last_x_bboxes,
             tail_ts=[m.timestamp for m in in_order_msgs[-TAIL_CAP:]],
         )
 
@@ -290,6 +295,7 @@ class StateMgmtBase:
         
         # Prepare trip data (combination of old and new)
         trip_points = state.lastXpoints + new_state.points
+        trip_bboxes = state.lastXbboxes + new_state.bboxes
         if new_state.time_interval != 0 and len(new_state.points) > 1:
             interval = new_state.time_interval / (len(new_state.points) - 1)
         else:
@@ -300,6 +306,7 @@ class StateMgmtBase:
         for msg in in_order_msgs:
             if state.sample_phase == 0:
                 state.points.append(msg.object.coordinate)
+                state.bboxes.append(msg.object.bbox)
                 if state.sampling == 1:
                     state.tail_ts.append(msg.timestamp)
             state.sample_phase = (state.sample_phase + 1) % state.sampling
@@ -319,6 +326,7 @@ class StateMgmtBase:
                 rel_idx = bisect.bisect_right(state.tail_ts, ts)
                 abs_idx = len(state.points) - len(state.tail_ts) + rel_idx
                 state.points.insert(abs_idx, msg.object.coordinate)
+                state.bboxes.insert(abs_idx, msg.object.bbox)
                 state.tail_ts.insert(rel_idx, ts)
 
         # Halving: phase parity shift preserves exact 1-in-N continuity across the boundary.
@@ -327,10 +335,12 @@ class StateMgmtBase:
             state.sample_phase += state.sampling * (j % 2)
             state.sampling *= 2
             state.points = state.points[::2]
+            state.bboxes = state.bboxes[::2]
             state.tail_ts = []
 
         state.end = new_state.end
         state.lastXpoints = trip_points[-min_trip_length_minus_one:]
+        state.lastXbboxes = trip_bboxes[-min_trip_length_minus_one:]
         self._update_object_state_model(state, embeddings)
 
         # Create trip state
@@ -339,6 +349,7 @@ class StateMgmtBase:
             start=trip_start,
             end=new_state.end,
             points=trip_points,
+            bboxes=trip_bboxes,
         )
 
         self.state[message_key] = state
@@ -375,6 +386,7 @@ class StateMgmtBase:
             timeInterval=state.time_interval,
             embeddings=model_to_embeddings(state.model),
             locations=tr.geo_location,
+            locationsBboxes=state.bboxes,
             smoothLocations=tr.smooth_geo_location,
             distance=tr.distance,
             speed=tr.speed,
