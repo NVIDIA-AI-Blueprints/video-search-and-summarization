@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options.root = "../../../.."
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vss_agents"]
+
+[project]
+name = "nvidia-vss-agents"
+dynamic = ["version"]
+requires-python = ">=3.13,<3.15"
+description = "NVIDIA VSS NAT-based agent application (tools, agents, APIs, evaluators)"
+license = "Apache-2.0"
+keywords = ["ai", "rag", "agents"]
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+# Depends on core; carries the NAT stack. Keep sorted!!!
+dependencies = [
+    "docker>=7.1.0",
+    "duckdb>=1.5.0.dev44",
+    "langchain-core >= 1.3.3",
+    "langchain-nvidia-ai-endpoints>=1.0.4",
+    "langgraph-checkpoint >= 4.0.0",
+    "markdown>=3.4.0",
+    "matplotlib>=3.8.0",
+    "mcp >= 1.23.0",
+    "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.6.0",
+    "nvidia-vss-core",
+    "protobuf>=6.33.5",
+    "pydantic-settings~=2.13",
+    "python-multipart>=0.0.27",
+    "sentence-transformers>=3.0.0",
+    "starlette >= 0.49.1",
+    "tiktoken>=0.9.0",
+    "torch>=2.5.0",
+    "urllib3>=2.7.0",
+    "xhtml2pdf>=0.2.11",
+]
+
+[project.entry-points.'nat.components']
+vss_tools = "vss_agents.tools.register"
+vss_agents = "vss_agents.agents.register"
+vss_api = "vss_agents.api.register"
+vss_va_mcp = "vss_agents.video_analytics.tools"
+vss_orchestrator_mcp = "vss_agents.orchestrator.tools"
+vss_evaluators = "vss_agents.evaluators.register"
+vst_tools = "vss_agents.tools.vst.register"
+vss_knowledge_layer = "vss_agents.register_knowledge_layers"
+
+[tool.uv.sources]
+nvidia-vss-core = { workspace = true }
+langchain-nvidia-ai-endpoints = { index = "pypi" }
+torch = [
+    { index = "pytorch-cpu", marker = "platform_machine == 'x86_64' or platform_machine == 'aarch64'" },
+]
