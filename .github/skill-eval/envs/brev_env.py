@@ -494,56 +494,33 @@ class BrevEnvironment(BaseEnvironment):
         # step under test depends on. (`environment_dir.parent` is the task
         # dir — named `step-N` for multi-step, the platform for single-step.)
         task_dir_name = self.environment_dir.parent.name
-        is_later_multistep = task_dir_name.startswith("step-") and task_dir_name != "step-1"
+        is_first_trial = not (
+            task_dir_name.startswith("step-") and task_dir_name != "step-1"
+        )
+        if is_first_trial:
+            await self._reset_docker_runtime()
+            # Host bind-mount purge runs AFTER the docker reset so every
+            # container that writes into these dirs is already gone.
+            await self._purge_host_data_dirs()
+        else:
+            logger.info(
+                "Skipping docker reset, host purge, and repo sync on %s — %s "
+                "of a multi-step spec must preserve step-1's deployment state",
+                self._instance_name, task_dir_name,
+            )
+
+        # Preserve develop's first-step-only repo-sync guard and its mount
+        # probes. Later steps depend on the live bind mounts created by step 1.
+        await self._probe_bind_mount(f"{task_dir_name}:before-sync")
+        if is_first_trial:
+            await self._sync_repo_to_pr_head()
+        await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
         if _uses_nemoclaw(meta):
-            if is_later_multistep:
-                logger.info(
-                    "Skipping docker runtime reset on %s — %s of a multi-step "
-                    "NemoClaw spec must preserve step-1's deployment state",
-                    self._instance_name, task_dir_name,
-                )
-            else:
-                # NemoClaw trials need a clean VSS host first, then an OpenClaw
-                # sandbox. Reset Docker before notebook setup creates the
-                # OpenClaw/NemoClaw containers.
-                await self._reset_docker_runtime()
-
-            # Sync ~/video-search-and-summarization on the box to the PR's
-            # actual head SHA before notebook setup or agent steps read it.
-            await self._sync_repo_to_pr_head()
             await self._ensure_nemoclaw_ready(meta)
-        else:
-            if is_later_multistep:
-                logger.info(
-                    "Skipping docker runtime reset on %s — %s of a multi-step spec "
-                    "must preserve step-1's deployment state",
-                    self._instance_name, task_dir_name,
-                )
-            else:
-                await self._reset_docker_runtime()
 
-            # Sync ~/video-search-and-summarization on the box to the PR's
-            # actual head SHA before any deploy/agent step reads it.
-            #
-            # Without this, every trial runs against whatever happened to be
-            # checked out on the box from a prior session — often a stale
-            # tarball-style checkout (no `.git`) with an obsolete directory
-            # layout (`deployments/` instead of `deploy/docker/`) and the
-            # pre-rename container names. The pre-deploy script generated
-            # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
-            # only syncs on the *gold-solution* path; the trial's agent invokes
-            # `/vss-deploy-profile` directly against `$REPO`, so without this step the
-            # PR_HEAD_SHA forwarded above never actually lands on disk.
-            await self._sync_repo_to_pr_head()
-
-            # The harness intentionally does NOT pre-deploy any VSS profile
-            # here. Each eval spec's first `expects[]` query is responsible
-            # for invoking `/vss-deploy-profile` (or the appropriate
-            # standalone-deploy runbook) — making the deploy step visible
-            # in the trial's reward + trajectory rather than hidden in the
-            # env provider. The previous `_ensure_prerequisite_deployed`
-            # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
+        # The harness intentionally does NOT pre-deploy any VSS profile here.
+        # Each eval spec's first `expects[]` query owns that visible action.
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
@@ -628,6 +605,42 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _purge_host_data_dirs(self) -> None:
+        """Purge per-trial VSS state that lives in host bind-mounts."""
+        cmd = r"""set -uo pipefail
+purged=""
+for root in /opt/vss-data "$HOME"/vss-data; do
+  [ -d "$root" ] || continue
+  for sub in data_log nvstreamer/videos nvstreamer/videos-upload nvstreamer/vst_data videos/nvstreamer; do
+    d="$root/$sub"
+    [ -d "$d" ] || continue
+    sudo find "$d" -mindepth 1 -delete || { echo "failed to purge $d" >&2; exit 1; }
+    purged="$purged $d"
+  done
+done
+for d in $purged; do
+  n=$(sudo find "$d" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" = "0" ] || { echo "host data purge incomplete: $n entries remain in $d" >&2; exit 1; }
+done
+echo "host data purge OK:${purged:- nothing to purge}"
+"""
+        logger.info(
+            "Purging host bind-mount data dirs (data_log, nvstreamer state) on %s",
+            self._instance_name,
+        )
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"host data purge failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Host data purge on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
+        )
+
     async def _ensure_nemoclaw_ready(self, meta: dict) -> None:
         """Run the setup-only notebook subset and readiness probes.
 
@@ -683,12 +696,12 @@ python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-ev
 stage "installed notebook dependencies"
 python3 .github/skill-eval/nemoclaw/notebook_setup_adapter.py \
   --execute \
-  --output /tmp/skill-eval/nemoclaw/deploy_nemoclaw_vss.executed.ipynb \
+  --output /tmp/skill-eval/nemoclaw/setup.executed.ipynb \
   --env-out /tmp/skill-eval/nemoclaw/nemoclaw.env \
   --timeout {cell_timeout}
 stage "notebook setup adapter completed"
 if [ "${{NEMOCLAW_PRESTAGE_ALERTS_MODELS:-1}}" != "0" ]; then
-  DATA_DIR="$REPO/deployments/data-dir"
+  DATA_DIR="$REPO/deploy/docker/data-dir"
   mkdir -p "$DATA_DIR/models/gdino" "$DATA_DIR/models/rtdetr-its"
   : > "$DATA_DIR/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
   : > "$DATA_DIR/models/rtdetr-its/model_epoch_035.fp16.onnx"

@@ -42,14 +42,6 @@ headless_runner = load_module(
     "nemoclaw_headless_runner",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "headless_runner.py",
 )
-openclaw_stream_patch = load_module(
-    "openclaw_stream_patch",
-    REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "patch_openclaw_streaming.py",
-)
-update_openclaw_config = load_module(
-    "update_openclaw_config",
-    REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "update_openclaw_config.py",
-)
 readiness = load_module(
     "nemoclaw_readiness",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
@@ -72,12 +64,16 @@ class NotebookSetupAdapterTest(unittest.TestCase):
     def test_sidecar_manifest_matches_current_notebook_cells(self):
         manifest_path = REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "notebook_cells.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        source = json.loads((REPO_ROOT / manifest["notebook"]).read_text(encoding="utf-8"))
+        sources = [
+            json.loads((REPO_ROOT / item["notebook"]).read_text(encoding="utf-8"))
+            for item in manifest["notebooks"]
+        ]
 
-        built = notebook_adapter.build_notebook(source, manifest)
+        built = notebook_adapter.build_notebooks(sources, manifest)
 
         ids = [cell.get("id") for cell in built["cells"]]
-        self.assertIn("ci-parameters", ids)
+        self.assertEqual(ids.count("ci-parameters-1"), 1)
+        self.assertEqual(ids.count("ci-parameters-2"), 1)
         self.assertIn("ci-persist-env", ids)
 
     def test_build_notebook_injects_parameters_before_derived_cell(self):
@@ -238,7 +234,6 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             "NVIDIA_API_KEY",
             "VSS_ORCHESTRATOR_MCP_URL",
             "VSS_ORCHESTRATOR_MCP_TYPE",
-            "VSS_ORCHESTRATOR_MCP_SSE_PORT",
         )
         previous = {key: os.environ.get(key) for key in env_keys}
         for key in env_keys:
@@ -259,8 +254,9 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(defaults["NEMOCLAW_MODEL"], "nvidia/example-model")
         self.assertEqual(defaults["COMPATIBLE_API_KEY"], "nvapi-ci")
         self.assertEqual(defaults["OPENCLAW_DISABLE_STREAMING_TOOL_CALLS"], "1")
-        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
-        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9989/sse")
+        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "streamable-http")
+        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_URL"], "http://host.openshell.internal:9988/mcp")
+        self.assertEqual(defaults["MCP_URL"], "http://host.openshell.internal:9988/mcp")
 
     def test_parameter_cell_accepts_ngc_api_key_alias(self):
         defaults = {
@@ -338,20 +334,23 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
         self.assertEqual(defaults["OPENCLAW_HOOKS_PATH"], "/hooks")
         self.assertEqual(defaults["NEMOCLAW_INSTALL_REF"], "")
-        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "sse")
+        self.assertEqual(defaults["VSS_ORCHESTRATOR_MCP_TYPE"], "streamable-http")
+        self.assertEqual(
+            defaults["VSS_ORCHESTRATOR_MCP_URL"],
+            "http://host.openshell.internal:9988/mcp",
+        )
 
-    def test_agent_setup_cell_allows_managed_python_downloads(self):
-        notebook = json.loads((REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_nemoclaw_vss.ipynb").read_text())
+    def test_agent_setup_cell_compiles_from_split_vss_notebook(self):
+        notebook = json.loads(
+            (REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_vss_orchestrator.ipynb").read_text()
+        )
         setup_cells = [cell for cell in notebook["cells"] if cell.get("id") == "c13aaf5e"]
         self.assertEqual(len(setup_cells), 1)
         source = "".join(setup_cells[0].get("source", ""))
 
-        self.assertIn('uv_env["UV_PYTHON_DOWNLOADS"] = "automatic"', source)
-        self.assertIn('run_uv(["uv", "python", "install", "3.13"])', source)
-        self.assertIn('run_uv(["uv", "venv", "--clear", "--python", "3.13"])', source)
-        self.assertIn("stdout tail", source)
-        self.assertIn("stderr tail", source)
-        compile(source, "deploy_nemoclaw_vss.ipynb:c13aaf5e", "exec")
+        self.assertIn("run_uv_sync", source)
+        self.assertIn('"uv", "sync", "--no-dev", "--extra", "agent"', source)
+        compile(source, "deploy_vss_orchestrator.ipynb:c13aaf5e", "exec")
 
 
 class SkillsEvalAgentProtocolTest(unittest.TestCase):
@@ -2161,177 +2160,6 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("Total: `10m 0s`", report)
         self.assertIn("| RTXPRO6000BW | PASS 1 (7/7) | 1 | 10m 0s | n/a | n/a | n/a |", report)
         self.assertIn("[artifacts](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/actions/runs/999)", report)
-
-
-class OpenClawStreamPatchTest(unittest.TestCase):
-    def test_patch_openai_chat_completions_disables_streaming_tools(self):
-        source = textwrap.dedent(
-            """
-            function buildOpenAICompletionsParams(context) {
-              return {
-                model: context.model,
-                messages: context.messages,
-                stream: true,
-                stream_options: {
-                  include_usage: true,
-                },
-                temperature: 0,
-              };
-            }
-            function buildOpenAIResponsesParams(context) {
-              return { stream: true };
-            }
-            """
-        )
-
-        updated, found, changed = openclaw_stream_patch.patch_source(source)
-
-        self.assertTrue(found)
-        self.assertTrue(changed)
-        self.assertIn("stream: false", updated)
-        self.assertNotIn("stream_options", updated.split("buildOpenAIResponsesParams", 1)[0])
-        self.assertNotIn("stream: true", updated)
-
-    def test_patch_openai_responses_disables_streaming_tools(self):
-        source = textwrap.dedent(
-            """
-            function buildOpenAIResponsesParams(context) {
-              return {
-                model: context.model,
-                input: context.input,
-                stream: true,
-                stream_options: {
-                  include_usage: true,
-                },
-              };
-            }
-            """
-        )
-
-        updated, found, changed = openclaw_stream_patch.patch_source(source)
-
-        self.assertTrue(found)
-        self.assertTrue(changed)
-        self.assertIn("stream: false", updated)
-        self.assertNotIn("stream_options", updated)
-
-    def test_patch_ignores_references_before_real_function_definition(self):
-        source = textwrap.dedent(
-            """
-            const selected = buildOpenAICompletionsParams;
-            const unrelated = { stream: true };
-            function buildOpenAICompletionsParams(context) {
-              return {
-                stream: true,
-                stream_options: { include_usage: true },
-              };
-            }
-            """
-        )
-
-        updated, found, changed = openclaw_stream_patch.patch_source(source)
-
-        self.assertTrue(found)
-        self.assertTrue(changed)
-        self.assertIn("const unrelated = { stream: true };", updated)
-        self.assertIn("stream: false", updated)
-
-
-class InitNemoClawScriptTest(unittest.TestCase):
-    def test_dashboard_forward_cleanup_handles_stale_port_listener(self):
-        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("kill_stale_dashboard_listeners", source)
-        self.assertIn("lsof -tiTCP", source)
-        self.assertIn("kill_stale_dashboard_listeners \"$port\"", source)
-        self.assertIn("start_dashboard_forward \"$port\" \"$forward_log\"", source)
-        self.assertIn("retrying start", source)
-
-    def test_existing_sandbox_path_refreshes_tunnel_and_recovers_stale_state(self):
-        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("ensure_nemoclaw_tunnel", source)
-        self.assertIn("NEMOCLAW_EXISTING_SANDBOX_READY_TIMEOUT", source)
-        self.assertIn("rerunning NemoClaw setup", source)
-        self.assertIn("onboard_or_install_sandbox", source)
-
-    def test_onboard_preflights_openshell_gateway_firewall(self):
-        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("allow_openshell_gateway_bridge", source)
-        self.assertIn("NEMOCLAW_CONFIGURE_UFW_GATEWAY", source)
-        self.assertIn("sudo -n ufw allow from", source)
-        self.assertLess(
-            source.index("allow_openshell_gateway_bridge", source.index("onboard_or_install_sandbox()")),
-            source.index("run_onboard", source.index("onboard_or_install_sandbox()")),
-        )
-
-    def test_gateway_restart_explicitly_starts_openclaw_dashboard(self):
-        source = (REPO_ROOT / "deploy" / "docker" / "scripts" / "nemoclaw" / "init_nemoclaw.sh").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("NEMOCLAW_GATEWAY_READY_TIMEOUT", source)
-        self.assertIn("systemctl --user restart openclaw-gateway", source)
-        self.assertIn("nohup openclaw dashboard", source)
-        self.assertIn("/tmp/openclaw-dashboard.log", source)
-        self.assertIn("dump_openclaw_gateway_diagnostics", source)
-
-
-class UpdateOpenClawConfigTest(unittest.TestCase):
-    def test_registers_sse_mcp_server(self):
-        data: dict = {}
-
-        changed = update_openclaw_config.update_mcp_server(
-            data,
-            name="vss_orchestrator",
-            url="http://host.openshell.internal:9989/sse",
-            server_type="sse",
-        )
-
-        self.assertTrue(changed)
-        self.assertEqual(
-            data["mcp"]["servers"]["vss_orchestrator"],
-            {"type": "sse", "url": "http://host.openshell.internal:9989/sse"},
-        )
-
-    def test_write_remote_file_avoids_stdin_streaming(self):
-        calls = []
-        previous = update_openclaw_config.sandbox_exec
-
-        def fake_sandbox_exec(sandbox_name, remote_args, capture_output=False, input_text=None):
-            calls.append(
-                {
-                    "sandbox_name": sandbox_name,
-                    "remote_args": remote_args,
-                    "capture_output": capture_output,
-                    "input_text": input_text,
-                }
-            )
-            return subprocess.CompletedProcess(remote_args, 0, stdout="", stderr="")
-
-        update_openclaw_config.sandbox_exec = fake_sandbox_exec
-        try:
-            update_openclaw_config.write_remote_file(
-                "demo",
-                "/sandbox/.openclaw/openclaw.json",
-                '{"mcp":{"servers":{}}}\n',
-            )
-        finally:
-            update_openclaw_config.sandbox_exec = previous
-
-        self.assertGreaterEqual(len(calls), 2)
-        self.assertIsNone(calls[0]["input_text"])
-        self.assertEqual(calls[0]["remote_args"][0], "python3")
-        self.assertEqual(calls[0]["remote_args"][1], "-c")
-        self.assertEqual(calls[0]["remote_args"][3], "/sandbox/.openclaw/openclaw.json.tmp")
-        self.assertNotIn("\n", calls[0]["remote_args"][-1])
 
 
 class OrchestratorMcpHelperCompatTest(unittest.TestCase):

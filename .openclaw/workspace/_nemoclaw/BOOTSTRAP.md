@@ -26,8 +26,11 @@ Follow the handshake-and-discover procedure in `TOOLS.md` (initialize →
 tool — its exact name comes from `tools/list`. It reports Docker, NVIDIA
 Container Toolkit, GPU layout, NGC reachability, and the active hardware
 profile. If any check fails, tell the user to run the corresponding cell in
-`deploy/docker/scripts/deploy_vss_orchestrator.ipynb` (the notebook lives on the host, not in the sandbox — do not try to read, list, find, or open it from inside the sandbox; just tell the user). Do not invoke `nvidia-smi`, `ngc`, or `dev-profile.sh`
-yourself.
+`deploy/docker/scripts/deploy_nemoclaw.ipynb` or
+`deploy/docker/scripts/deploy_vss_orchestrator.ipynb` (the notebooks live on
+the host, not in the sandbox — do not try to read, list, find, or open them
+from inside the sandbox; just tell the user). Do not invoke `nvidia-smi`,
+`ngc`, or `dev-profile.sh` yourself.
 
 ---
 

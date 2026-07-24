@@ -126,20 +126,21 @@ Schema:
 
 ## NemoClaw runner
 
-The NemoClaw runner keeps `deploy/docker/scripts/deploy_nemoclaw_vss.ipynb`
-as the human runbook. CI does not edit the notebook. Instead,
+The NemoClaw runner keeps `deploy/docker/scripts/deploy_nemoclaw.ipynb` and
+`deploy/docker/scripts/deploy_vss_orchestrator.ipynb` as the human runbooks.
+CI does not edit the notebooks. Instead,
 `.github/skill-eval/nemoclaw/notebook_setup_adapter.py` builds a temporary
-notebook from stable cell ids listed in `notebook_cells.json`, injects CI
-parameters from environment variables, executes setup-only cells, and writes
-the executed notebook plus `/tmp/skill-eval/nemoclaw/nemoclaw.env` on the
-Brev worker.
+combined notebook from stable cell ids listed in `notebook_cells.json`,
+injects CI parameters from environment variables into both setup phases,
+executes setup-only cells, and writes the executed notebook plus
+`/tmp/skill-eval/nemoclaw/nemoclaw.env` on the Brev worker.
 
 Once readiness passes, Harbor still invokes `-a claude-code`. In NemoClaw
 mode that Claude process is only a launcher: `instruction.md` tells it to run
 `.github/skill-eval/nemoclaw/headless_runner.py`, which posts the actual skill
 prompt to OpenClaw hooks. The NemoClaw/OpenClaw agent then uses the same
-repository `skills/` content installed by the OpenClaw plugin and the VSS
-Orchestrator MCP server exposed by the notebook setup.
+repository `skills/` content installed with the canonical NemoClaw CLI and
+the VSS Orchestrator MCP server exposed by the notebook setup.
 
 The NemoClaw smoke runner publishes the same high-level `Harbor Eval` Markdown
 shape as the Claude Code path, with NemoClaw runtime details, failing checks,
@@ -278,7 +279,7 @@ disown
 
 **`AddTestsDirError` / `DownloadVerifierDirError`.** File upload/download to the Brev instance failed. Check `brev exec <instance> "echo ok"` works manually. Clear `/tests /logs /skills` on the instance and retry.
 
-**Pool exhausted for `<platform>`.** No `vss-eval-*` pool member matches the trial's `gpu_type` after the 1800s wait window (`brev ls` polled every 5 min). The agent emits `BLOCKED: pool exhausted for <platform>` and exits. Provisioning new pool members is the operator's job — `brev create vss-eval-<name>` with the matching instance type, then bring it online; the next CI run picks it up automatically via the `^vss-eval-*` fleet scan.
+**Pool exhausted for `<platform>`.** No `vss-eval-*` pool member matches the trial's `gpu_type` after the 21000s wait window (`brev ls` polled every 5 min). The agent emits `BLOCKED: pool exhausted for <platform>` and exits. Provisioning new pool members is the operator's job — `brev create vss-eval-<name>` with the matching instance type, then bring it online; the next CI run picks it up automatically via the `^vss-eval-*` fleet scan.
 
 **Brev auth expired mid-run.** The CI run emits `BLOCKED: brev auth expired`. The `brev-keepalive.timer` systemd user unit keeps the access token warm, but only an interactive `brev login --auth nvidia` can refresh a fully-expired refresh token.
 
