@@ -1,0 +1,139 @@
+import java.nio.file.Files
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING
+
+buildscript {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+      classpath "org.yaml:snakeyaml:2.2"
+    }
+}
+
+plugins {
+  id 'com.github.johnrengelman.shadow' version '8.1.1'
+  id 'java'
+}
+
+ext {
+    shadowGradlePluginVersion = '8.1.1'
+}
+
+// load versions.yml from core before loading rubyUtils.gradle
+import org.yaml.snakeyaml.Yaml
+
+def versionsFile = file(LOGSTASH_CORE_PATH + "/../versions.yml")
+gradle.ext.versions = new Yaml().load(versionsFile.text)
+
+apply from: LOGSTASH_CORE_PATH + "/../rubyUtils.gradle"
+
+// ===========================================================================
+// plugin info
+// ===========================================================================
+group                      'nv' // must match the package of the main plugin class
+version                    "${file("VERSION").text.trim()}" // read from required VERSION file
+description                = "Logstash Java input plugin that reads from Redis Streams via consumer groups (XREADGROUP), with optional Protocol Buffer decoding."
+pluginInfo.licenses        = ['Apache-2.0'] // list of SPDX license IDs
+pluginInfo.longDescription = "This gem is a Logstash plugin required to be installed on top of the Logstash core pipeline using \$LS_HOME/bin/logstash-plugin install gemname. This gem is not a stand-alone program"
+pluginInfo.authors         = ['Nvidia VSS']
+pluginInfo.email           = ['']
+pluginInfo.homepage        = ""
+pluginInfo.pluginType      = "input"
+pluginInfo.pluginClass     = "RedisStream"
+pluginInfo.pluginName      = "redis_stream" // must match the @LogstashPlugin annotation in the main plugin class
+// ===========================================================================
+
+java {
+  sourceCompatibility = JavaVersion.VERSION_21
+  targetCompatibility = JavaVersion.VERSION_21
+}
+
+
+repositories {
+    mavenCentral()
+}
+
+
+shadowJar {
+    archiveClassifier.set('')
+    // Do not ship Logstash core's log4j bootstrap config inside the plugin jar.
+    // It points log4j at org.logstash.log.LogstashMessageFactory, which is not
+    // loadable during the vendor/validate step and makes log4j 2.24+ hard-fail;
+    // at runtime Logstash provides its own log4j configuration anyway.
+    exclude 'log4j2.component.properties'
+}
+
+dependencies {
+    implementation 'org.apache.commons:commons-lang3:3.7'
+    implementation 'org.apache.logging.log4j:log4j-api:2.25.4'
+    implementation 'org.apache.logging.log4j:log4j-core:2.25.4'
+ 
+    implementation fileTree(dir: LOGSTASH_CORE_PATH, include: "**/logstash-core.jar")
+    implementation 'redis.clients:jedis:6.1.0'
+    
+    // Protobuf dependencies
+    implementation 'com.google.protobuf:protobuf-java:4.28.3'
+    implementation 'com.google.protobuf:protobuf-java-util:4.28.3'
+    // Gson for JSON mapping (imported directly in RedisStream.java). Pinned to the version
+    // jedis resolves to (2.13.1) so the direct and transitive versions stay aligned.
+    implementation 'com.google.code.gson:gson:2.13.1'
+
+    // Test dependencies
+    testImplementation 'junit:junit:4.13.2'
+    // The unit tests instantiate Logstash core types (e.g. ConfigurationImpl), which
+    // reference JRuby at runtime. jruby-complete (version pinned by Logstash's
+    // versions.yml) puts JRuby on the test classpath — the standard approach used by
+    // the official logstash-input-java_input_example plugin.
+    testImplementation "org.jruby:jruby-complete:${gradle.ext.versions.jruby.version}"
+}
+
+clean {
+    delete "${projectDir}/Gemfile"
+    delete "${projectDir}/" + pluginInfo.pluginFullName() + ".gemspec"
+    delete "${projectDir}/lib/"
+    delete "${projectDir}/vendor/"
+    new FileNameFinder().getFileNames(projectDir.toString(), pluginInfo.pluginFullName() + "-?.?.?.gem").each { filename ->
+        delete filename
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+tasks.register("vendor"){
+    dependsOn shadowJar
+    doLast {
+        String vendorPathPrefix = "vendor/jar-dependencies"
+        String projectGroupPath = project.group.replaceAll('\\.', '/')
+        File projectJarFile = file("${vendorPathPrefix}/${projectGroupPath}/${pluginInfo.pluginFullName()}/${project.version}/${pluginInfo.pluginFullName()}-${project.version}.jar")
+        projectJarFile.getParentFile().mkdirs()
+        Files.copy(file("$buildDir/libs/${project.name}-${project.version}.jar").toPath(), projectJarFile.toPath(), REPLACE_EXISTING)
+        validatePluginJar(projectJarFile, project.group)
+    }
+}
+
+tasks.register("generateRubySupportFiles") {
+    doLast {
+        generateRubySupportFilesForPlugin(project.description, project.group, version)
+    }
+}
+
+tasks.register("removeObsoleteJars") {
+    doLast {
+        new FileNameFinder().getFileNames(
+                projectDir.toString(),
+                "vendor/**/" + pluginInfo.pluginFullName() + "*.jar",
+                "vendor/**/" + pluginInfo.pluginFullName() + "-" + version + ".jar").each { f ->
+            delete f
+        }
+    }
+}
+
+tasks.register("gem"){
+    dependsOn = [downloadAndInstallJRuby, removeObsoleteJars, vendor, generateRubySupportFiles]
+    doLast {
+        buildGem(projectDir, buildDir, pluginInfo.pluginFullName() + ".gemspec")
+    }
+}
