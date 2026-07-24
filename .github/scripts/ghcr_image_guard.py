@@ -69,6 +69,27 @@ def preflight_decision(
     )
 
 
+def reuse_decision(
+    labels: ImageManifestLabels | None,
+    reason: str | None,
+    expected_tree_sha: str,
+) -> tuple[bool, str]:
+    """Return ``(reuse, message)`` for the content-addressed re-tag path.
+
+    ``reuse`` is True only when a content-addressed image already exists AND
+    carries the exact source-tree SHA we would otherwise build — in which case
+    the caller can re-tag from it instead of rebuilding identical content.
+
+    Fail-*open* to a rebuild: a missing content tag, a mislabelled one, or any
+    fetch error just means "no safe shortcut — build normally". Unlike
+    preflight, this can never fail the job; the worst case is the status quo.
+    """
+    if labels and labels.source_tree_sha == expected_tree_sha:
+        return True, "content-addressed image already published; re-tagging instead of rebuilding"
+    detail = labels.source_tree_sha if labels else f"<no label: {reason}>"
+    return False, f"no reusable image for this content ({detail}); building"
+
+
 def verify_decision(
     labels: ImageManifestLabels | None,
     reason: str | None,
@@ -121,6 +142,14 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     return 1 if action == "fail" else 0
 
 
+def cmd_reuse(args: argparse.Namespace) -> int:
+    labels, reason, _ = read_image_manifest_labels(args.ref)
+    reuse, message = reuse_decision(labels, reason, args.expect_tree_sha)
+    print(f"{args.ref}: {message}")
+    _emit_output("reuse", "true" if reuse else "false")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     labels, reason, _ = read_image_manifest_labels(args.ref)
     ok, message = verify_decision(
@@ -142,6 +171,12 @@ def main() -> int:
     preflight.add_argument("--ref", required=True, help="registry/name:tag")
     preflight.add_argument("--expect-tree-sha", required=True)
 
+    reuse = sub.add_parser(
+        "reuse", help="check whether a content-addressed image can be re-tagged"
+    )
+    reuse.add_argument("--ref", required=True, help="registry/name:content-tag")
+    reuse.add_argument("--expect-tree-sha", required=True)
+
     verify = sub.add_parser("verify", help="verify pushed labels match the source")
     verify.add_argument("--ref", required=True)
     verify.add_argument("--expect-tree-sha", required=True)
@@ -149,7 +184,9 @@ def main() -> int:
     verify.add_argument("--expect-image-name", required=True)
 
     args = parser.parse_args()
-    return {"preflight": cmd_preflight, "verify": cmd_verify}[args.command](args)
+    return {"preflight": cmd_preflight, "reuse": cmd_reuse, "verify": cmd_verify}[
+        args.command
+    ](args)
 
 
 if __name__ == "__main__":
