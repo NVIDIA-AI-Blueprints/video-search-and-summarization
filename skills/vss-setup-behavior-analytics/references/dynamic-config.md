@@ -217,7 +217,7 @@ Workers are separate processes (multiprocessing). Each has its own `AppConfig` a
 - **Main**: a single `ConfigListener` consumes `mdx-notification`, validates, atomically writes a file into `CONFIG_DIR`, applies on its local `AppConfig`, and acks.
 - **Each worker**: a `ConfigFileMonitor` watches `CONFIG_DIR` and applies the same file via its own `ConfigApplier`.
 
-This keeps Kafka consumer count at one per main process (multi-replica fan-out still works because each main has a unique `_config_replica_tag = uuid.uuid4().hex` Kafka group suffix) while every worker still picks up updates without going across the wire.
+This keeps Kafka consumer count at one per main process (multi-replica fan-out still works because each main has a unique `_config_listener_replica_tag = uuid.uuid4().hex` Kafka group suffix) while every worker still picks up updates without going across the wire.
 
 ---
 
