@@ -15,6 +15,15 @@ from release_set import load_inventory, validate_release_set
 from update_pr_ghcr_candidates import GitHubApi, download_release_set
 
 
+def has_ghcr_build_entries(release_set: dict) -> bool:
+    """Whether downstream has newly built GHCR images to accept/promote."""
+    return any(
+        image.get("strategy") == "build"
+        and str(image.get("image", "")).startswith("ghcr.io/")
+        for image in release_set.get("images", [])
+    )
+
+
 def downstream_variables(release_set: dict) -> dict[str, str]:
     encoded = base64.b64encode(
         (json.dumps(release_set, separators=(",", ":")) + "\n").encode()
@@ -39,6 +48,7 @@ def main() -> int:
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     github_env = os.environ.get("GITHUB_ENV", "").strip()
+    github_output = os.environ.get("GITHUB_OUTPUT", "").strip()
     if not args.sha or not github_env:
         raise SystemExit(
             "SHA and GITHUB_ENV are required"
@@ -78,9 +88,16 @@ def main() -> int:
         output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
         output.write(json.dumps(variables, separators=(",", ":")) + "\n")
         output.write("EOF\n")
+    has_builds = has_ghcr_build_entries(release_set)
+    if github_output:
+        with Path(github_output).open("a") as output:
+            output.write(
+                f"has_ghcr_build_entries={'true' if has_builds else 'false'}\n"
+            )
     print(
         f"Prepared release set {release_set['release_set_id']} "
-        f"for downstream acceptance ({len(release_set['images'])} images)."
+        f"for downstream acceptance ({len(release_set['images'])} images, "
+        f"GHCR builds: {'yes' if has_builds else 'no'})."
     )
     return 0
 
