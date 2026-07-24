@@ -939,7 +939,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | `kafkaBootstrapServers` | Kafka bootstrap servers injected into the pod | Empty, resolves to `kafka-kafka:9092`; standalone override uses `127.0.0.1:9092` |
 | `waitForKafka.enabled` | Run an init container that waits for Kafka and topics | `true`; standalone override sets `false` |
 | `waitForKafka.image.repository` | Kafka wait init container image repository | `confluentinc/cp-kafka` |
-| `waitForKafka.image.tag` | Kafka wait init container image tag | `8.3.0` |
+| `waitForKafka.image.tag` | Kafka wait init container image tag | `8.2.0` |
 | `waitForKafka.imagePullPolicy` | Kafka wait init container pull policy | `IfNotPresent` |
 | `waitForKafka.timeoutSeconds` | Kafka wait timeout | `1200` |
 | `waitForKafka.topics` | Kafka topics to wait for | `mdx-vlm`, `mdx-vlm-incidents` |

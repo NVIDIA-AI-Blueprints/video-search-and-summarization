@@ -45,7 +45,7 @@ services:
   # sdr-controller (which runs as root inside the container) without sudo.
   sdrc-init-dirs:
     profiles: ["sdrc"]
-    image: alpine:3.24.1
+    image: alpine:3.23.4
     user: "0:0"
     container_name: sdrc-init-dirs
     entrypoint: ["/bin/sh", "-c"]
@@ -66,7 +66,7 @@ services:
   # missing, so the alpine-based redis image works here as well.
   sdrc-render-config:
     profiles: ["sdrc"]
-    image: alpine:3.24.1
+    image: alpine:3.23.4
     user: "0:0"
     container_name: sdrc-render-config
     entrypoint: ["/bin/sh", "-c"]

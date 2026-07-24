@@ -18,7 +18,7 @@
 
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
     network_mode: "host"
     environment:
       ES_JAVA_OPTS: "-Xmx1024m -Xms256m"

@@ -1,4 +1,4 @@
-FROM alpine:3.24.1
+FROM alpine:3.23.4
 
 # Create a working directory
 WORKDIR /opt/mdx/
