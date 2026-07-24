@@ -351,8 +351,32 @@ update_compose_env() {
         -e "s|^VST_CONFIG_PATH=.*|VST_CONFIG_PATH=$VST_CONFIG_PATH|"
         -e "s|^VST_VOLUME=.*|VST_VOLUME=$VST_VOLUME|"
     )
-    [[ -n "$SENSOR_VERSION" ]]           && sed_args+=(-e "s|^\(VST_SENSOR_IMAGE=.*:\).*|\1${SENSOR_VERSION}|")
-    [[ -n "$STREAMPROCESSOR_VERSION" ]]  && sed_args+=(-e "s|^\(VST_STREAM_PROCESSOR_IMAGE=.*:\).*|\1${STREAMPROCESSOR_VERSION}|")
+    # Image references. When a private image registry is supplied via the
+    # IMAGE_REGISTRY env var (e.g. CI building ${IMAGE_REGISTRY}/vst-sensor and
+    # ${IMAGE_REGISTRY}/vst-streamprocessing), rewrite the FULL image reference
+    # (registry + name + tag) so the deploy uses the freshly-built images rather
+    # than the released images baked into compose.env. The registry/org is never
+    # hardcoded in this (public) script -- it comes from the environment.
+    # Without IMAGE_REGISTRY set, fall back to rewriting only the tag portion.
+    if [[ -n "${IMAGE_REGISTRY:-}" ]]; then
+        # Registry override: swap registry+name to the freshly-built images. Use the
+        # explicit version when provided; otherwise PRESERVE the tag already pinned in
+        # compose.env (backref \1) rather than forcing :latest, which could silently
+        # repin a pinned image when only IMAGE_REGISTRY is set (partial CI env).
+        if [[ -n "$SENSOR_VERSION" ]]; then
+            sed_args+=(-e "s|^VST_SENSOR_IMAGE=.*|VST_SENSOR_IMAGE=${IMAGE_REGISTRY}/vst-sensor:${SENSOR_VERSION}|")
+        else
+            sed_args+=(-e "s|^VST_SENSOR_IMAGE=.*:\([^:]*\)$|VST_SENSOR_IMAGE=${IMAGE_REGISTRY}/vst-sensor:\1|")
+        fi
+        if [[ -n "$STREAMPROCESSOR_VERSION" ]]; then
+            sed_args+=(-e "s|^VST_STREAM_PROCESSOR_IMAGE=.*|VST_STREAM_PROCESSOR_IMAGE=${IMAGE_REGISTRY}/vst-streamprocessing:${STREAMPROCESSOR_VERSION}|")
+        else
+            sed_args+=(-e "s|^VST_STREAM_PROCESSOR_IMAGE=.*:\([^:]*\)$|VST_STREAM_PROCESSOR_IMAGE=${IMAGE_REGISTRY}/vst-streamprocessing:\1|")
+        fi
+    else
+        [[ -n "$SENSOR_VERSION" ]]           && sed_args+=(-e "s|^\(VST_SENSOR_IMAGE=.*:\).*|\1${SENSOR_VERSION}|")
+        [[ -n "$STREAMPROCESSOR_VERSION" ]]  && sed_args+=(-e "s|^\(VST_STREAM_PROCESSOR_IMAGE=.*:\).*|\1${STREAMPROCESSOR_VERSION}|")
+    fi
 
     if ! sed "${sed_args[@]}" "$compose_env_file" > "$temp_compose_file"; then
         rm -f "$temp_compose_file"
@@ -624,8 +648,10 @@ update_nvstreamer_docker_compose() {
 
 # Function to update nvstreamer image tag in nvstreamer compose.env
 update_nvstreamer_image_tag() {
-    if [[ -z "$NVSTREAMER_VERSION" ]]; then
-        info "No nvstreamer version specified, preserving existing image tag"
+    # Nothing to do only when neither a private registry nor a version override
+    # is supplied -- then preserve the existing image reference as-is.
+    if [[ -z "${NVSTREAMER_IMAGE_REGISTRY:-}" && -z "$NVSTREAMER_VERSION" ]]; then
+        info "No nvstreamer registry/version specified, preserving existing image reference"
         return 0
     fi
 
@@ -639,18 +665,34 @@ update_nvstreamer_image_tag() {
     local temp_file
     temp_file=$(mktemp) || error "Failed to create temporary file for nvstreamer compose.env"
 
-    if ! sed -e "s|^\(NVSTREAMER_IMAGE=.*:\).*|\1${NVSTREAMER_VERSION}|" \
-            "$nvstreamer_compose_env" > "$temp_file"; then
+    # When a private registry is supplied via NVSTREAMER_IMAGE_REGISTRY, rewrite
+    # the FULL image reference (registry + tag) so the deploy uses the freshly-
+    # built nvstreamer image. The registry/org is never hardcoded here -- it comes
+    # from the environment. Otherwise, rewrite only the tag portion (original).
+    local ns_sed
+    if [[ -n "${NVSTREAMER_IMAGE_REGISTRY:-}" ]]; then
+        if [[ -n "$NVSTREAMER_VERSION" ]]; then
+            ns_sed="s|^NVSTREAMER_IMAGE=.*|NVSTREAMER_IMAGE=${NVSTREAMER_IMAGE_REGISTRY}:${NVSTREAMER_VERSION}|"
+        else
+            # Registry set, no explicit version: preserve the tag already pinned in
+            # compose.env (backref \1) instead of forcing :latest.
+            ns_sed="s|^NVSTREAMER_IMAGE=.*:\([^:]*\)$|NVSTREAMER_IMAGE=${NVSTREAMER_IMAGE_REGISTRY}:\1|"
+        fi
+    else
+        ns_sed="s|^\(NVSTREAMER_IMAGE=.*:\).*|\1${NVSTREAMER_VERSION}|"
+    fi
+
+    if ! sed -e "$ns_sed" "$nvstreamer_compose_env" > "$temp_file"; then
         rm -f "$temp_file"
-        error "Failed to update nvstreamer compose.env image tag"
+        error "Failed to update nvstreamer compose.env image reference"
     fi
 
     if ! mv "$temp_file" "$nvstreamer_compose_env"; then
         rm -f "$temp_file"
-        error "Failed to save nvstreamer compose.env image tag changes"
+        error "Failed to save nvstreamer compose.env image changes"
     fi
 
-    info "Successfully updated nvstreamer image tag to ${NVSTREAMER_VERSION} in compose.env"
+    info "Successfully updated nvstreamer image reference in compose.env"
 }
 
 # Function to run build commands
@@ -659,29 +701,43 @@ run_build_commands() {
     info "Running VST module build commands for architecture: ${ARCH}"
     info "TOP directory is: ${TOP}"
     cd "${TOP}" || error "Failed to change directory to TOP: ${TOP}"
-    
+
+    # Optional prebuilt base image tag, supplied by the caller (e.g. CI) via the
+    # VST_BASE_TAG env var. When set, forward it to build.sh as base-tag=<tag> so
+    # the app containers build FROM ${IMAGE_REGISTRY}/vst-base:<tag> (a prebuilt
+    # base) instead of rebuilding the base layer -- this optimizes build time.
+    # Only the tag is referenced here; the registry/org stays out of this script
+    # and is provided via the IMAGE_REGISTRY env var consumed by build.sh.
+    # Use an array so an empty value expands to nothing and a value containing
+    # whitespace/globs is passed as a single argument (no word-splitting).
+    local -a base_tag_arg=()
+    if [[ -n "${VST_BASE_TAG:-}" ]]; then
+        base_tag_arg=("base-tag=${VST_BASE_TAG}")
+        info "Using prebuilt base image tag: ${VST_BASE_TAG}"
+    fi
+
     # Build nvstreamer
     info "Building nvstreamer for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container nvstreamer || error "nvstreamer build failed"
+        ./build.sh container nvstreamer "${base_tag_arg[@]}" || error "nvstreamer build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container nvstreamer || error "nvstreamer build failed"
+        ./build.sh arch=${ARCH} container nvstreamer "${base_tag_arg[@]}" || error "nvstreamer build failed"
     fi
 
     # Build sensor + stream-processor
     info "Building sensor and stream-processor for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container module=sensor || error "sensor build failed"
+        ./build.sh container module=sensor "${base_tag_arg[@]}" || error "sensor build failed"
         ./build.sh clean || error "clean build failed"
-        ./build.sh container module=streamprocessing || error "stream-processor build failed"
+        ./build.sh container module=streamprocessing "${base_tag_arg[@]}" || error "stream-processor build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=sensor || error "sensor build failed"
+        ./build.sh arch=${ARCH} container module=sensor "${base_tag_arg[@]}" || error "sensor build failed"
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=streamprocessing || error "stream-processor build failed"
+        ./build.sh arch=${ARCH} container module=streamprocessing "${base_tag_arg[@]}" || error "stream-processor build failed"
     fi
 }
 
