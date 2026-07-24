@@ -22,6 +22,10 @@ class CandidateCoordinates:
     image: str
     tag: str
     tree_sha: str
+    # Content-addressed alias: identical source content shares this tag across
+    # commits, so a later build of unchanged content can re-tag from it instead
+    # of rebuilding (see ghcr_image_guard.py `reuse`).
+    content_tag: str
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,7 @@ def candidate_coordinates(
         image=f"ghcr.io/{normalized_owner}/vss/{image_name}",
         tag=tag,
         tree_sha=tree_sha,
+        content_tag=f"tree-{tree_sha}",
     )
 
 
@@ -158,6 +163,7 @@ def main() -> int:
                 "tag": coordinates.tag,
                 "tree_sha": coordinates.tree_sha,
                 "image": coordinates.image,
+                "content_tag": coordinates.content_tag,
             },
         )
         print(
