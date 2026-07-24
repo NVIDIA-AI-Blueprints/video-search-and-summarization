@@ -1946,6 +1946,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                         fullscreen, auto-hiding after mouse inactivity (YouTube/VLC style). */}
                                     {isActuallyFullScreen && (
                                         <Box
+                                            data-testid='fullscreen-controls-overlay'
                                             onMouseMove={showControls}
                                             onMouseEnter={showControls}
                                             onTouchStart={showControls}
