@@ -867,8 +867,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Unit-test the golden resolver and SSOT-aware name matching
+      - name: Unit-test static CI and deployment guards
         run: |
+          python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_release_channel_policy.py
           python3 .github/scripts/test_diagnose_sonarqube_failure.py
