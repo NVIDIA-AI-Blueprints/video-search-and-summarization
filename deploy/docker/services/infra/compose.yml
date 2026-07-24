@@ -23,7 +23,7 @@ include:
 
 services:
   turnserver-init:
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     profiles: ["turnserver-init"]
     container_name: vss-turnserver-init
     user: "0:0"
@@ -151,7 +151,7 @@ services:
     restart: "on-failure:5"
 
   kafka:
-    image: confluentinc/cp-kafka:8.2.0
+    image: confluentinc/cp-kafka:8.3.0
     volumes:
       - mdx-kafka:/tmp/kafka-data
       - $VSS_APPS_DIR/services/infra/kafka/scripts/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
@@ -192,7 +192,11 @@ services:
       start_period: 60s
 
   kafka-topic-init-container:
-    image: confluentinc/cp-kafka:8.2.0
+    build:
+      context: $VSS_APPS_DIR/services/infra
+      dockerfile: Dockerfiles/kafka-health-check.Dockerfile
+      target: kafka-base
+    image: vss-kafka-topic-init
     container_name: vss-kafka-topics
     profiles: ["kafka-topic-init-container"]
     volumes:
@@ -244,7 +248,7 @@ services:
       - $VSS_DATA_DIR/data_log/redis/log:/log
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.3.3
+    image: docker.elastic.co/kibana/kibana:9.4.3
     profiles: ["kibana"]
     volumes:
       - $VSS_APPS_DIR/services/infra/elk/kibana/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
@@ -263,7 +267,7 @@ services:
       start_period: 60s
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.3.3
+    image: docker.elastic.co/logstash/logstash:9.4.3
     profiles: ["logstash"]
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs

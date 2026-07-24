@@ -16,7 +16,7 @@
 replicas: 1
 image:
   repository: confluentinc/cp-kafka
-  tag: "8.2.0"
+  tag: "8.3.0"
   pullPolicy: IfNotPresent
 nodeId: "1"
 brokerId: "1"
