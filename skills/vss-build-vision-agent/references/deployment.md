@@ -88,15 +88,15 @@ deployment successful.
 
 ## Stop
 
-Use the same resolved model:
+Clean the complete `mdx` Compose project and its named volumes by default:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" down
+docker compose -p mdx -f "$BUILD_DIR/resolved.yml" down -v --remove-orphans
 ```
 
-Do not remove volumes unless the user explicitly requests data deletion. For a
-full host reclaim or cache-preserving cleanup, follow
-[`teardown.md`](teardown.md).
+This removes data volumes and model caches. Use the cache-preserving path only
+when the user explicitly requests it. Follow [`teardown.md`](teardown.md) for
+leftover containers, stale volumes, and bind-mounted data cleanup.
 
 ## Sources
 

@@ -1,28 +1,46 @@
 # Tear down an existing VSS deployment
 
+## Contents
+
+- [Default teardown](#default-teardown--clean-project-volumes)
+- [Cache-preserving teardown](#cache-preserving-teardown--explicit-opt-in)
+- [Bind-mounted data cleanup](#bind-mounted-data-cleanup)
+
 Always tear down **by project name** — every profile's `.env` sets
 `COMPOSE_PROJECT_NAME=mdx`, so the whole stack is labeled `mdx`. A plain
 `docker compose down` leaves named volumes and the project network behind, so
-target the `mdx` project and pass `-v --remove-orphans`. Two flavors, depending
-on whether you keep model caches.
+target the `mdx` project and pass `-v --remove-orphans`.
 
-## Full teardown — reclaim the host
+The default removes all project volumes, including model caches. Use the
+cache-preserving path only when the user explicitly asks to keep model caches.
+
+## Default teardown — clean project volumes
 
 Removes containers, the project network, **and all named volumes** (including
-multi-GB NIM/RTVI model caches). This is the canonical `dev-profile.sh` teardown.
+multi-GB NIM/RTVI model caches).
 
 ```bash
-docker compose -p mdx down -v --remove-orphans
-docker volume ls -q -f dangling=true | xargs -r docker volume rm   # sweep leftovers
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+docker compose -p mdx -f "$BUILD_DIR/resolved.yml" \
+  down -v --remove-orphans
+
+# Remove same-project volumes left by an older resolved model.
+docker volume ls -q \
+  --filter label=com.docker.compose.project=mdx \
+  | xargs -r docker volume rm
 ```
 
-- **`-p mdx`** removes everything labeled with the `mdx` project — robust even if
-  `resolved.yml` is stale or now describes a *different* profile. A file-scoped
-  `down` only touches what that file currently lists, leaving the rest behind.
+- **`-p mdx`** targets the shared VSS project. `--remove-orphans` also removes
+  same-project containers omitted from the current `resolved.yml`.
+- **`-f "$BUILD_DIR/resolved.yml"`** supplies the exact deployed Compose model;
+  project name alone is not a Compose configuration.
 - **`-v`** removes named volumes — without it ES / Kafka / Postgres / Milvus data
   **and** NIM/RTVI model caches all survive.
 - **`--remove-orphans`** frees the project network from leftover or host-networked
   containers so the network is deleted too.
+- The label-filtered sweep removes only volumes owned by the `mdx` Compose
+  project; never sweep every dangling volume on the host.
 
 `-v` drops NIM/RTVI model caches (multi-GB re-download next deploy). To keep them
 for an immediate redeploy or profile switch, use the cache-preserving teardown below.
@@ -31,34 +49,34 @@ for an immediate redeploy or profile switch, use the cache-preserving teardown b
 (ES/Kafka/Redis data, behavior-learning, VST/nvstreamer recordings) live on the host
 filesystem and survive any teardown — they poison the next run if left. After
 **either** flavor, also clear them with the sudo-gated
-[Step 0b — on-disk data-dir cleanup](#step-0b--cleanup-previous-stale-state-and-local-logs-data) below.
+[bind-mounted data cleanup](#bind-mounted-data-cleanup) below.
 
-## Cache-preserving teardown — before a redeploy or profile switch
+## Cache-preserving teardown — explicit opt-in
 
 Removes containers, the project network, and *stale data* volumes (ES indices,
 Kafka offsets, Postgres, nvstreamer recordings) but **keeps** model caches so the
-next deploy doesn't re-download them.
+next deploy doesn't re-download them. Do not select this path unless the user
+explicitly requests cache preservation.
 
-### Step 0 — Tear down any existing deployment
+### Tear down while preserving model caches
 
 Ask user to confirm to tear down the deployment before you proceed.
 
-Before every deploy, **always** stop any prior VSS stack. This is
-mandatory even if you think the host is clean, and especially when
-switching profiles (`base` → `search`, `alerts` verification →
-`alerts` real-time, etc.). Compose profile flags only *start* the
-services listed under the selected profile — they do NOT stop
-services from a previously-active profile, so containers from the
-prior deploy linger and pass unrelated container-name checks,
-contaminate results, and can bind ports the new deploy needs.
+When cache preservation was explicitly requested, still stop every prior VSS
+stack, especially when switching profiles (`base` → `search`, alerts
+verification → alerts real-time). Compose profile flags only start selected
+services; they do not stop services from a previous deployment.
 
 ```bash
-# Tear down by project name (matches dev-profile.sh: every profile sets
-# COMPOSE_PROJECT_NAME=mdx). This catches every mdx-labeled container/network
+# Tear down by the shared mdx project name. This catches every
+# mdx-labeled container/network
 # regardless of which resolved.yml is on disk. NO -v here — the cache-preserving
 # path keeps NIM/RTVI model caches; stale DATA volumes are removed explicitly
 # below. --remove-orphans frees + deletes the project network.
-docker compose -p mdx down --remove-orphans
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+docker compose -p mdx -f "$BUILD_DIR/resolved.yml" \
+  down --remove-orphans
 
 # Catch-all: remove every VSS-stack container the dev-profile compose
 # files bring up. Without this, leftovers from a prior deploy linger
@@ -85,30 +103,31 @@ docker network rm mdx_default 2>/dev/null || true
 # libs, nvstreamer recordings — while KEEPING model caches (rtvi-*, *_cache).
 # Names are <project>_<vol>; match on the volume-name suffix.
 docker volume ls -q \
+  --filter label=com.docker.compose.project=mdx \
   | grep -E '(mdx-elastic-(data|logs)|mdx-kafka|mdx-logstash-libs|phoenix-data|vios_pg_data|mdx-nvstreamer-(data|videos))$' \
   | xargs -r docker volume rm
 ```
 
-### Step 0b — Cleanup previous stale state and local logs, data.
+## Bind-mounted data cleanup
 
 Run after **either** teardown flavor above. Removing containers/volumes does **not**
 clear the bind-mounted on-disk data dirs; this step does. Ask the user to confirm
 before you proceed.
 
-Use the bundled cleanup helper. It clears every directory whose stale state can poison a fresh deploy: kafka logs, elasticsearch data + logs, redis data + log, behavior-learning data, video-analytics API state, calibration toolkit, VST/nvstreamer recordings, and any blueprint-configurator backup files. The same logic `dev-profile.sh` runs internally between deploys.
+Use the bundled cleanup helper. It clears every directory whose stale state can poison a fresh deploy: kafka logs, elasticsearch data + logs, redis data + log, behavior-learning data, video-analytics API state, calibration toolkit, VST/nvstreamer recordings, and any blueprint-configurator backup files.
 
 The cleaner needs **root**. Gate on sudo the same way the SKILL.md pre-flight does:
 if sudo is passwordless, run it; otherwise **do not** run it under automation —
 surface the command and let the user run it once, then resume.
 
 ```bash
-# Step 0 (teardown) runs BEFORE Step 1c initializes generated.env,
-# so on a fresh checkout / first deploy generated.env doesn't exist
-# yet — fall back to overrides.env. Once a prior deploy via this skill has
-# run, generated.env carries the actually-deployed override paths.
-PROFILE_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>"
-ENV_FILE="$PROFILE_DIR/generated.env"
-[ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/overrides.env"
+# Use the build-specific path and data values that produced resolved.yml.
+BUILD_DIR="$REPO/_builds/<name>"
+ENV_FILE="$BUILD_DIR/override.env"
+[ -f "$ENV_FILE" ] || {
+  echo "missing build override: $ENV_FILE" >&2
+  exit 1
+}
 
 # Sudo gate: passwordless sudo → run it; otherwise surface the exact command for
 # the user to run once (don't run privileged cleanup under non-interactive sudo).
