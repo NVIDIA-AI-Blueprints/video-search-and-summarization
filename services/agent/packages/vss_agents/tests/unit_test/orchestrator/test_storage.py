@@ -16,7 +16,10 @@
 
 from pathlib import Path
 
+import pytest
+
 from vss_agents.orchestrator.storage import ensure_alerts_engine_directories
+from vss_agents.orchestrator.storage import ensure_permissions
 from vss_agents.orchestrator.storage import resolve_config_path
 
 
@@ -28,6 +31,32 @@ def test_resolve_config_path_expands_tilde(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("HOME", str(fake_home))
 
     assert resolve_config_path("~/video-search-and-summarization/deploy/docker") == repo.resolve()
+
+
+def test_ensure_permissions_skips_broken_symlink_when_best_effort(tmp_path: Path):
+    data_log = tmp_path / "data_log" / "vst" / "temp_files"
+    data_log.mkdir(parents=True)
+    dangling = data_log / "stale_clip.mp4"
+    dangling.symlink_to("/home/vst/vst_release/streamer_videos/missing.mp4")
+    regular = data_log / "ok.txt"
+    regular.write_text("ok")
+    regular.chmod(0o644)
+
+    touched = ensure_permissions(tmp_path, relative_roots=("data_log",), best_effort=True)
+
+    assert dangling.is_symlink() and not dangling.exists()
+    assert regular in touched
+    assert dangling not in touched
+
+
+def test_ensure_permissions_raises_for_broken_symlink_when_not_best_effort(tmp_path: Path):
+    data_log = tmp_path / "data_log" / "vst" / "temp_files"
+    data_log.mkdir(parents=True)
+    dangling = data_log / "stale_clip.mp4"
+    dangling.symlink_to("/home/vst/vst_release/streamer_videos/missing.mp4")
+
+    with pytest.raises(RuntimeError, match=r"Broken symlink under data directory.*stale_clip\.mp4"):
+        ensure_permissions(tmp_path, relative_roots=("data_log",), best_effort=False)
 
 
 def test_ensure_alerts_engine_directories_creates_writable_engine_dirs(tmp_path: Path):

@@ -213,6 +213,18 @@ def ensure_required_directories(
     return created_paths
 
 
+def _broken_symlink_error(path: Path) -> RuntimeError:
+    """Build a clear error for a dangling symlink under a data directory."""
+    try:
+        target = os.readlink(path)
+    except OSError:
+        target = "<unknown>"
+    return RuntimeError(
+        f"Broken symlink under data directory while applying permissions: {path} -> {target}. "
+        "Remove or repair the dangling symlink, then restart."
+    )
+
+
 def ensure_permissions(
     data_directory: str | Path,
     *,
@@ -220,9 +232,17 @@ def ensure_permissions(
     mode: int = DEFAULT_PERMISSION_MODE,
     best_effort: bool = True,
 ) -> list[Path]:
-    """Recursively apply permissions under selected roots."""
+    """Recursively apply permissions under selected roots.
+
+    When ``best_effort`` is True, ``PermissionError`` and broken/dangling
+    symlinks are skipped. When False, those conditions raise.
+    """
 
     def chmod_if_allowed(path: Path) -> bool:
+        if path.is_symlink() and not path.exists():
+            if best_effort:
+                return False
+            raise _broken_symlink_error(path)
         try:
             os.chmod(path, mode)
             return True
@@ -230,6 +250,13 @@ def ensure_permissions(
             if not best_effort:
                 raise
             return False
+        except FileNotFoundError as exc:
+            # Race or dangling symlink that slipped past the pre-check.
+            if path.is_symlink() or not path.exists():
+                if best_effort:
+                    return False
+                raise _broken_symlink_error(path) from exc
+            raise
 
     root = Path(data_directory).expanduser().resolve()
     touched_paths: list[Path] = []
@@ -239,7 +266,7 @@ def ensure_permissions(
             continue
         if chmod_if_allowed(full_root):
             touched_paths.append(full_root)
-        for dirpath, dirnames, filenames in os.walk(full_root):
+        for dirpath, dirnames, filenames in os.walk(full_root, followlinks=False):
             dir_path = Path(dirpath)
             if chmod_if_allowed(dir_path):
                 touched_paths.append(dir_path)
