@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for agent/orchestrator/docker_compose_util.py."""
 
+import json
 from pathlib import Path
 from typing import ClassVar
 
@@ -21,7 +22,6 @@ import pytest
 import yaml
 
 from agent.orchestrator import docker_compose_util as dcu
-from agent.orchestrator import network_util
 
 
 def _env_text(*lines: str) -> str:
@@ -484,10 +484,12 @@ class TestBuildResolvedEnv:
         monkeypatch.delenv("VSS_DISABLE_BREV_PROXY_ENV", raising=False)
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("HOST_IP override should win"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "44.55.66.77")
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {"BREV_ENV_ID": "brev-from-etc"})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "brev-from-etc")
 
         def capture_brev_proxy_env(merged: dict[str, str], brev_env_id: str, *, explicit_link_domain: str = "") -> None:
-            brev_calls.append((merged["HOST_IP"], brev_env_id, merged["BREV_LINK_DOMAIN"], explicit_link_domain))
+            brev_calls.append(
+                (merged["HOST_IP"], brev_env_id, merged.get("BREV_LINK_DOMAIN", ""), explicit_link_domain)
+            )
 
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", capture_brev_proxy_env)
 
@@ -513,6 +515,21 @@ class TestBuildResolvedEnv:
     def test_build_resolved_env_forwards_link_domain_override_as_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        context_path = tmp_path / "environment-context.json"
+        context_path.write_text(
+            json.dumps(
+                {
+                    "environment_id": "brev-from-context",
+                    "ports": [
+                        {
+                            "destination_port": 7777,
+                            "fqdn": "7777-brev-from-context.stg.apps.launchpad.nvidia.com",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         recipe = _make_recipe(
             tmp_path,
             _env_text(
@@ -536,19 +553,14 @@ class TestBuildResolvedEnv:
         monkeypatch.delenv("BREV_ENV_ID", raising=False)
         monkeypatch.delenv("BREV_LINK_DOMAIN", raising=False)
         monkeypatch.delenv("VSS_DISABLE_BREV_PROXY_ENV", raising=False)
+        monkeypatch.setenv("BREV_ENVIRONMENT_CONTEXT_PATH", str(context_path))
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("HOST_IP override should win"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "44.55.66.77")
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {"BREV_ENV_ID": "brev-from-etc"})
-        monkeypatch.setattr(
-            network_util.subprocess,
-            "run",
-            lambda *_args, **_kwargs: pytest.fail("an explicit link domain must skip NetBird detection"),
-        )
 
         resolved = dcu.build_resolved_env(recipe)
 
         assert resolved["BREV_LINK_DOMAIN"] == "override.example.com"
-        assert resolved["VST_EXTERNAL_URL"] == "https://7777-brev-from-etc.override.example.com"
+        assert resolved["VST_EXTERNAL_URL"] == ("https://7777-brev-from-context.stg.apps.launchpad.nvidia.com")
 
     def test_build_resolved_env_can_disable_brev_proxy_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -576,7 +588,7 @@ class TestBuildResolvedEnv:
         monkeypatch.delenv("BREV_ENV_ID", raising=False)
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("HOST_IP override should win"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "44.55.66.77")
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {"BREV_ENV_ID": "brev-from-etc"})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "brev-from-etc")
         monkeypatch.setattr(
             dcu,
             "apply_brev_proxy_env",
@@ -611,7 +623,7 @@ class TestBuildResolvedEnv:
             ),
             hardware_profile="thor",
         )
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
@@ -642,7 +654,7 @@ class TestBuildResolvedEnv:
             env_overrides={"HARDWARE_PROFILE": "igx"},
             hardware_profile="thor",
         )
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
@@ -678,7 +690,7 @@ class TestBuildResolvedEnv:
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: pytest.fail("env EXTERNAL_IP should be used"))
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
@@ -720,7 +732,7 @@ class TestBuildResolvedEnv:
             ngc_cli_api_key="from-recipe-ngc",  # pragma: allowlist secret
             nvidia_api_key="from-recipe-nvidia",  # pragma: allowlist secret
         )
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
@@ -755,7 +767,7 @@ class TestBuildResolvedEnv:
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
@@ -799,7 +811,7 @@ class TestBuildResolvedEnv:
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
@@ -844,7 +856,7 @@ class TestBuildResolvedEnv:
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.8")
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
         resolved = dcu.build_resolved_env(recipe)
@@ -879,7 +891,7 @@ def _base_env(hardware_profile: str, *extra: str) -> tuple[str, ...]:
 def _patch_network(monkeypatch: pytest.MonkeyPatch, ip: str = "10.0.0.1") -> None:
     monkeypatch.setattr(dcu, "detect_internal_ip", lambda: ip)
     monkeypatch.setattr(dcu, "detect_external_ip", lambda: ip)
-    monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+    monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
     monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
 
 
@@ -1683,7 +1695,7 @@ class TestGenerateDryRunArtifacts:
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
-        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
         monkeypatch.setattr(dcu, "resolve_compose", lambda _config: "services: {}\n")
 

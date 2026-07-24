@@ -33,10 +33,10 @@ from pydantic import Field
 from pydantic import field_validator
 import yaml
 
-from .network_util import apply_brev_proxy_env
+from .brev_util import apply_brev_proxy_env
+from .brev_util import brev_environment_id
 from .network_util import detect_external_ip
 from .network_util import detect_internal_ip
-from .network_util import read_etc_environment
 from .storage import resolve_config_path
 from .storage import resolve_required_absolute_file
 
@@ -647,7 +647,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
             [
                 config.env_overrides.get("BREV_ENV_ID", ""),
                 os.environ.get("BREV_ENV_ID", ""),
-                read_etc_environment().get("BREV_ENV_ID", ""),
+                brev_environment_id(),
             ]
         )
     if brev_env_id:
