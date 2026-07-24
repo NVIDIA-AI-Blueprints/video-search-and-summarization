@@ -13,9 +13,8 @@ The pipeline ships several ready-to-run apps under `apps/`:
 - **analytics** — Analytics for warehouse / space-utilization workloads (`main_analytics_2d_app.py`, `main_analytics_3d_app.py`)
 - **smart_city** — Smart-city analytics (`main_smart_city_app.py`)
 - **public_safety** — Public safety detection (`main_public_safety_app.py`)
-- **fusion_search** — Fusion search analytics for video-search workloads (`main_fusion_search_analytics_app.py`)
+- **search_and_alerts** — Combined search (behaviors + video embeddings) and incident alerts for video-search workloads (`main_search_and_alerts_app.py`)
 - **playback** — Replay frames / AMR / embeddings from JSON for testing (`playback_frames.py`, `playback_amr.py`, `playback_embed.py`, …)
-- **dev_example** — Minimal app skeleton for video alerts (`main_dev_example_app.py`)
 
 Each app subclasses `BaseApp`, composes core pieces in `__init__`, registers processors, and hands off to `app_runner.run(AppClass)`. Library code lives under `src/mdx/analytics/core/`.
 
@@ -71,7 +70,6 @@ The default configurations live under [`configs/`](./configs/) (one JSON per pro
 | `redisStream` | host / port / db | Required when source/sink is `redisStream` |
 | `mqtt` | host / port / clientId | Required when source/sink is `mqtt` |
 | `app[].sourceType` / `app[].sinkType` | `kafka` \| `redisStream` \| `mqtt` | Stream broker selection |
-| `app[].coordinateSystem` | `image` \| `euclidean` \| `geo` | Coordinate system for spatial analytics |
 | `app[].behaviorMaxPoints` | int | Trajectory point cap per behavior. Default: `200` |
 | `app[].spaceAnalyticsIntervalSec` | float | Space-analytics emission interval (seconds). Default: `5.0` |
 | `sensors[].id` | string | Sensor identifier; `default` matches all sensors |

@@ -90,10 +90,6 @@
 			"value": "90"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "image"
-		},
-		{
 			"name": "sourceType",
 			"value": "kafka"
 		},

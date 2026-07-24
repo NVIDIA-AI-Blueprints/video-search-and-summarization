@@ -45,36 +45,36 @@ class TestableBaseEvent(BaseEvent[MockObject]):
                  direction_enum=DirectionEnum, event_name="test_event", event_type="test_type"):
         super().__init__(config, calibration, direction_enum, event_name, event_type)
         self._mock_objects = []
-        self._check_point_results = {}
-        self._intersect_results = {}
+        self._is_inside_results = {}
+        self._crosses_results = {}
     
     def set_mock_objects(self, objects: list[MockObject]):
         """Set mock objects for testing"""
         self._mock_objects = objects
     
-    def set_check_point_result(self, point: Point2D, sensor_id: str, obj_id: str, result: bool):
-        """Set result for _check_point method"""
+    def set_is_inside_result(self, point: Point2D, sensor_id: str, obj_id: str, result: bool):
+        """Set result for _is_inside method"""
         key = (point.x, point.y, sensor_id, obj_id)
-        self._check_point_results[key] = result
+        self._is_inside_results[key] = result
     
-    def set_intersect_result(self, sensor_id: str, obj_id: str, result: bool):
-        """Set result for _intersect method"""
+    def set_crosses_result(self, sensor_id: str, obj_id: str, result: bool):
+        """Set result for _crosses method"""
         key = (sensor_id, obj_id)
-        self._intersect_results[key] = result
+        self._crosses_results[key] = result
     
-    def _check_point(self, point: Point2D, sensor_id: str, obj_id: str) -> bool:
-        """Mock implementation of _check_point"""
+    def _is_inside(self, point: Point2D, sensor_id: str, obj_id: str, bbox=None) -> bool:
+        """Mock implementation of _is_inside"""
         key = (point.x, point.y, sensor_id, obj_id)
-        return self._check_point_results.get(key, False)
-    
+        return self._is_inside_results.get(key, False)
+
     def _get_objects(self, sensor_id: str) -> list[MockObject]:
         """Mock implementation of _get_objects"""
         return self._mock_objects
-    
-    def _intersect(self, trip: list[Point2D], sensor_id: str, obj_id: str) -> bool:
-        """Mock implementation of _intersect"""
+
+    def _crosses(self, trip: list[Point2D], sensor_id: str, obj_id: str, bboxes=None) -> bool:
+        """Mock implementation of _crosses"""
         key = (sensor_id, obj_id)
-        return self._intersect_results.get(key, False)
+        return self._crosses_results.get(key, False)
 
 
 class TestBaseEventFunctionality:
@@ -111,7 +111,8 @@ class TestBaseEventFunctionality:
         behavior.direction = "NE"
         behavior.distance = 15.0
         behavior.id = "behavior1"
-        behavior.object = Mock(spec=Object)
+        behavior.object = Object(id="obj1")
+        behavior.locationsBboxes = []
         behavior.place = Mock(spec=Place)
         
         if locations is None:
@@ -153,14 +154,14 @@ class TestBaseEventFunctionality:
         
         point = Point2D(x=10, y=20)
         
-        with pytest.raises(NotImplementedError, match="_check_point is not implemented"):
-            base_event._check_point(point, "sensor1", "obj1")
+        with pytest.raises(NotImplementedError, match="_is_inside is not implemented"):
+            base_event._is_inside(point, "sensor1", "obj1")
             
         with pytest.raises(NotImplementedError, match="_get_objects is not implemented"):
             base_event._get_objects("sensor1")
             
-        with pytest.raises(NotImplementedError, match="_intersect is not implemented"):
-            base_event._intersect([point], "sensor1", "obj1")
+        with pytest.raises(NotImplementedError, match="_crosses is not implemented"):
+            base_event._crosses([point], "sensor1", "obj1")
 
 
 class TestGetEventsFunctionality:
@@ -197,7 +198,8 @@ class TestGetEventsFunctionality:
         behavior.direction = "NE"
         behavior.distance = 15.0
         behavior.id = "behavior1"
-        behavior.object = Mock(spec=Object)
+        behavior.object = Object(id="obj1")
+        behavior.locationsBboxes = []
         behavior.place = Mock(spec=Place)
         
         if locations is None:
@@ -256,10 +258,10 @@ class TestGetEventsFunctionality:
             point = Point2D(x=i * 10.0, y=i * 5.0)
             # Half points inside, half outside for even distribution
             inside = i < min_trip_length // 2
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
         # Set intersection to true
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         # Execute
         result = self.base_event.get_events(behavior)
@@ -292,10 +294,10 @@ class TestGetEventsFunctionality:
             point = Point2D(x=i * 10.0, y=i * 5.0)
             # First point outside, then half inside for even distribution
             inside = i >= min_trip_length // 2
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
         # Set intersection to true
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         # Execute
         result = self.base_event.get_events(behavior)
@@ -305,7 +307,7 @@ class TestGetEventsFunctionality:
         event_behavior = result[0]
         assert event_behavior.event.type == DirectionEnum.IN.value  # First point is outside
     
-    def test_get_events_no_intersection(self):
+    def test_get_events_no_crossesion(self):
         """Test get_events when trip doesn't intersect with object."""
         behavior = self.create_mock_behavior(length=10)
         mock_obj = MockObject("obj1")
@@ -316,10 +318,10 @@ class TestGetEventsFunctionality:
         for i in range(min_trip_length):
             point = Point2D(x=i * 10.0, y=i * 5.0)
             inside = i < min_trip_length // 2
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
         # Set intersection to false
-        self.base_event.set_intersect_result("sensor1", "obj1", False)
+        self.base_event.set_crosses_result("sensor1", "obj1", False)
         
         result = self.base_event.get_events(behavior)
         assert result == []
@@ -335,10 +337,10 @@ class TestGetEventsFunctionality:
         for i in range(min_trip_length):
             point = Point2D(x=i * 10.0, y=i * 5.0)
             inside = i < 7  # 7 inside, 3 outside - uneven
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
         # Set intersection to true
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         result = self.base_event.get_events(behavior)
         assert result == []  # Should be empty due to uneven distribution
@@ -360,12 +362,12 @@ class TestGetEventsFunctionality:
         for i in range(min_trip_length):
             point = Point2D(x=i * 10.0, y=i * 5.0)
             inside = i < min_trip_length // 2
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
-            self.base_event.set_check_point_result(point, "sensor1", "obj2", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj2", inside)
         
         # Set intersection to true for both
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
-        self.base_event.set_intersect_result("sensor1", "obj2", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj2", True)
         
         result = self.base_event.get_events(behavior)
         assert len(result) == 2
@@ -387,10 +389,10 @@ class TestGetEventsFunctionality:
         for i in range(15):
             point = Point2D(x=i * 10.0, y=i * 5.0)
             inside = i % 2 == 0  # Alternating pattern
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
         # Set intersection to true
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         result = self.base_event.get_events(behavior)
         # Should have multiple events from different tracklets
@@ -408,10 +410,10 @@ class TestGetEventsFunctionality:
         for i in range(min_trip_length):
             point = Point2D(x=i * 10.0, y=i * 5.0)
             inside = i < min_trip_length // 2
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
         # Set intersection to true
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         with patch('mdx.analytics.core.utils.schema_util.point_list_to_geo_location'):
             result = self.base_event.get_events(behavior)
@@ -456,7 +458,8 @@ class TestGetEventsEdgeCases:
         behavior.direction = "NE"
         behavior.distance = 15.0
         behavior.id = "behavior1"
-        behavior.object = Mock(spec=Object)
+        behavior.object = Object(id="obj1")
+        behavior.locationsBboxes = []
         behavior.place = Mock(spec=Place)
         
         if locations is None:
@@ -482,7 +485,7 @@ class TestGetEventsEdgeCases:
         for i in range(2):
             point = Point2D(x=i * 10.0, y=i * 5.0)
             inside = i == 0  # First inside, second outside
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
         result = self.base_event.get_events(behavior)
         # Should return empty because min_trip_length (10) > behavior.length (2)
@@ -526,9 +529,9 @@ class TestGetEventsEdgeCases:
         for i in range(5):
             point = Point2D(x=i * 10.0, y=i * 5.0)
             inside = i < 1  # Only first point inside
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", inside)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", inside)
         
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         with patch('mdx.analytics.core.utils.schema_util.point_list_to_geo_location'):
             result = self.base_event.get_events(behavior)
@@ -545,9 +548,9 @@ class TestGetEventsEdgeCases:
         min_trip_length = 10
         for i in range(min_trip_length):
             point = Point2D(x=i * 10.0, y=i * 5.0)
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", True)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", True)
         
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         result = self.base_event.get_events(behavior)
         # Should be empty because side2 (outside points) = 0, side1 (inside points) = 10
@@ -564,9 +567,9 @@ class TestGetEventsEdgeCases:
         min_trip_length = 10
         for i in range(min_trip_length):
             point = Point2D(x=i * 10.0, y=i * 5.0)
-            self.base_event.set_check_point_result(point, "sensor1", "obj1", False)
+            self.base_event.set_is_inside_result(point, "sensor1", "obj1", False)
         
-        self.base_event.set_intersect_result("sensor1", "obj1", True)
+        self.base_event.set_crosses_result("sensor1", "obj1", True)
         
         result = self.base_event.get_events(behavior)
         # Should be empty because side1 (inside points) = 0, side2 (outside points) = 10
@@ -608,7 +611,8 @@ class TestGetEventsErrorHandling:
         behavior.direction = "NE"
         behavior.distance = 15.0
         behavior.id = "behavior1"
-        behavior.object = Mock(spec=Object)
+        behavior.object = Object(id="obj1")
+        behavior.locationsBboxes = []
         behavior.place = Mock(spec=Place)
         
         # Create default locations
@@ -707,7 +711,8 @@ class TestBaseEventIntegration:
         behavior.direction = "E"
         behavior.distance = 25.0
         behavior.id = f"behavior_{sensor_id}_{int(behavior.timestamp.timestamp())}"
-        behavior.object = Mock(spec=Object)
+        behavior.object = Object(id="obj1")
+        behavior.locationsBboxes = []
         behavior.object.id = "person_123"
         behavior.object.type = "person"
         behavior.place = Mock(spec=Place)
@@ -745,10 +750,10 @@ class TestBaseEventIntegration:
             point = Point2D(x=100.0 + i * 2.0, y=200.0 + (i % 3 - 1) * 0.5)
             # Person crosses tripwire when x >= 110
             inside_tripwire = point.x >= tripwire_x_center
-            self.base_event.set_check_point_result(point, "sensor1", "tripwire_main_entrance", inside_tripwire)
+            self.base_event.set_is_inside_result(point, "sensor1", "tripwire_main_entrance", inside_tripwire)
         
         # Set intersection to true (trajectory crosses tripwire)
-        self.base_event.set_intersect_result("sensor1", "tripwire_main_entrance", True)
+        self.base_event.set_crosses_result("sensor1", "tripwire_main_entrance", True)
         
         result = self.base_event.get_events(behavior)
         

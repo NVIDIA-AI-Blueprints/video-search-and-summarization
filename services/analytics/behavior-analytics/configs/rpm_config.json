@@ -81,10 +81,6 @@
 			"value": "0.5"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "image"
-		},
-		{
 			"name": "sourceType",
 			"value": "kafka"
 		},
