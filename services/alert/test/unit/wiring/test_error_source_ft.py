@@ -400,13 +400,16 @@ def _mode3_msg():
     }
 
 
-def _make_mode3_handler(parser=None):
+def _make_mode3_handler(parser=None, use_base64=False):
     return DirectMediaHandler(
         vlm_client=Mock(),
         vlm_enhanced_event_sink=Mock(),
         config={
             "alert_agent": {"media_download": {"enabled": True, "use_verdict": False}},
-            "vlm": {"model": "m"},
+            "vlm": {
+                "model": "m",
+                "vlm_media_source_using_base64": use_base64,
+            },
         },
         pluggable_parser=parser,
     )
@@ -462,6 +465,37 @@ class TestMode3DownloadFailureSetsMediaDownload:
             system_prompt='s',
         )
 
+        assert msg['info']['errorSource'] == ERROR_SOURCE_MEDIA_DOWNLOAD
+
+    @pytest.mark.parametrize(
+        ("media_type", "media_url"),
+        [
+            ("video", "https://cdn/video.mp4"),
+            ("image", "https://cdn/image.jpg"),
+        ],
+    )
+    def test_download_failure_sets_media_download(
+        self, media_type, media_url
+    ):
+        handler = _make_mode3_handler(use_base64=True)
+        handler.downloader.validate_url = Mock(return_value=(True, None))
+        handler.downloader.download = Mock(return_value=None)
+        msg = _mode3_msg()
+        msg['info']['media_urls'] = [media_url]
+
+        handler.evaluate(
+            worker_id=0,
+            message=msg,
+            info_block={
+                'media_type': media_type,
+                'media_urls': [media_url],
+            },
+            user_prompt='u',
+            system_prompt='s',
+        )
+
+        assert msg['info']['verificationResponseCode'] == '502'
+        assert msg['info']['verdict'] == 'verification-failed'
         assert msg['info']['errorSource'] == ERROR_SOURCE_MEDIA_DOWNLOAD
 
     def test_vlm_api_error_sets_vlm_api(self):

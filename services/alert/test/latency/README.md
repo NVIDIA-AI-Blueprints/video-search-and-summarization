@@ -22,7 +22,7 @@ Restart the Alert Agent for changes to take effect.
 
 ## (Optional) Enable Prometheus Metrics
 
-Alert Agent exposes a Prometheus scrape endpoint that tracks pipeline latency histograms, event counters, and verification failures. Two flags control this feature.
+Alert Agent exposes a Prometheus scrape endpoint that tracks Kafka pipeline latency, event counters, and verification failures, plus a separate `alert_bridge_ondemand_*` family for HTTP verification requests. Two flags control this feature.
 
 ### Master switch — environment variable
 
@@ -42,9 +42,9 @@ alert_agent:
     per_sensor_labels: true  # default: false
 ```
 
-When enabled, every aggregate metric (e.g. `alert_bridge_vst_duration_seconds`) also has a `*_by_sensor` variant labelled with `sensorId`. Each distinct sensor ID mints roughly 80 additional Prometheus series; the recorder caps distinct IDs at 128 (≈10k series total) and folds any overflow to `unknown_overflow`.
+When enabled, every aggregate Kafka pipeline metric (e.g. `alert_bridge_vst_duration_seconds`) also has a `*_by_sensor` variant labelled with `sensorId`. Each distinct sensor ID mints roughly 80 additional Prometheus series; the recorder caps distinct IDs at 128 (≈10k series total) and folds any overflow to `unknown_overflow`.
 
-> **Note:** `per_sensor_labels` has no effect unless `PROMETHEUS_METRICS_ENABLED=true`. Only enable it for deployments with a bounded sensor fleet and a known series budget.
+> **Note:** `per_sensor_labels` has no effect unless `PROMETHEUS_METRICS_ENABLED=true`. Only enable it for deployments with a bounded sensor fleet and a known series budget. On-demand metrics are always aggregate-only and are not affected by this setting.
 
 ## Step 1: Setup ES Pipeline (one-time)
 
@@ -101,7 +101,7 @@ Example:
 
 ## Step 3: Full Pipeline Metrics via Prometheus
 
-The bash script (`alert_bridge_latency.sh`) queries Elasticsearch and can only report on events that were fully indexed — it shows a subset of stages and no event counts or failure breakdown. `prometheus_latency.py` queries Prometheus (and optionally ES) to give a complete picture: all pipeline stages, event lifecycle counts, drop reasons, and verification failure reasons.
+The bash script (`alert_bridge_latency.sh`) queries Elasticsearch and can only report on events that were fully indexed — it shows a subset of stages and no event counts or failure breakdown. `prometheus_latency.py` queries Prometheus (and optionally ES) to report Kafka pipeline stages, lifecycle counts, drop reasons, and verification failures, plus aggregate on-demand request outcomes, completed-event verdicts, latency, and failures.
 
 **Requires:** `PROMETHEUS_METRICS_ENABLED=true` on the Alert Agent (see above). Prometheus must be scraping the Alert Agent's scrape port (default `9081`).
 
@@ -140,7 +140,7 @@ python3 prometheus_latency.py 2h localhost --prom-port 9090 --es-host localhost 
 
 ### Output
 
-The Prometheus section prints avg / p50 / p90 / p99 for every pipeline stage, followed by event lifecycle counts and a full failure-reason breakdown:
+The Prometheus section prints avg / p50 / p90 / p99 for every pipeline stage, followed by event lifecycle counts and a full failure-reason breakdown. The aggregate report also includes a separate **On-Demand API** section for `alert_bridge_ondemand_*` request outcomes, completed-event verdicts, VLM/background/E2E latency, and failure reasons. These series are intentionally separate from Kafka accounting and are omitted when `--sensor-id` is used because the API metrics do not carry a `sensorId` label.
 
 | Section | Metrics |
 |---------|---------|
@@ -148,10 +148,11 @@ The Prometheus section prints avg / p50 / p90 / p99 for every pipeline stage, fo
 | Event counts | Raw Kafka, Dropped (pre), After dedup, Confirmed / Rejected / Verification-fail / Unknown, Skipped (confirmed), Total published, VLM retry rate |
 | Events dropped | `end_time_delta`, `dedup`, `rate_limit` with counts and percentages |
 | Verification failures | Full VST + VLM failure taxonomy (16 reasons) with counts and percentages |
+| On-Demand API | Request outcomes, completed-event verdicts, VLM/background/request-to-publish latency, and on-demand failure reasons |
 
 ### Per-sensor modes
 
-Both flags require `alert_agent.metrics.per_sensor_labels: true` in `config.yaml`.
+Both flags require `alert_agent.metrics.per_sensor_labels: true` in `config.yaml`. The aggregate On-Demand API section is omitted with `--sensor-id` because on-demand metrics do not carry a `sensorId` label.
 
 ```bash
 # All-sensors table: confirmed / rejected / failed / dropped per sensorId

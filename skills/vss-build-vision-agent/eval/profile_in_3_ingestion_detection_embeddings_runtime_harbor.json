@@ -1,0 +1,42 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "in-3-runtime",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2,
+        "modes": [
+          "harbor",
+          "runtime",
+          "shared"
+        ]
+      }
+    }
+  },
+  "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This runtime eval builds and deploys a delta on the current `search` developer profile for both RT-CV detection and RT-Embed embeddings. Detection events flow through `mdx-raw`; embeddings flow through `mdx-embed` to Search behavior analytics and `mdx-embed-filtered` before Elasticsearch. The build label is directory metadata only.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-agent` to build and deploy under `_builds/in-3-runtime/`: \"Provide live and on-demand VIOS ingestion, per-frame RT-DETR detection and tracking with RT-CV, and video/frame embeddings with RT-Embed. Keep media retrievable. Publish and index both metadata streams.\" Target `{{platform}}`; retain `vss-search-analytics-2d-fusion`, set the embedding input topic to `mdx-embed`, exclude Agent/UI/ingress, Phoenix, Search query API, RT-VLM, and LLM NIMs, validate before deployment, prove both live and upload paths, and leave services running.",
+      "checks": [
+        "`_builds/in-3-runtime/override.env` exists with `FOUNDATION=search`, a full effective `COMPOSE_PROFILES`, and only customized environment values.",
+        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-search,vss-search-analytics-2d-fusion,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-embed,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`; explicitly excluded keys, including `rtvi-vlm`, are absent.",
+        "`RTVI_EMBED_KAFKA_TOPIC=mdx-embed` is effective and Behavior Analytics is selected as the producer of `mdx-embed-filtered`.",
+        "`ENABLE_CRITIC=false` is effective because VLM critique was excluded.",
+        "`COMPOSE_PROFILES` contains no build label, aggregate profile, or invented service key.",
+        "`_builds/in-3-runtime/compose.yml` includes `../../deploy/docker/compose.yml`, `patches/` is absent, and the build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) with no copied Foundation `.env`, copied root Compose project, patched tree, manifest, allow-list, or generated skill bundle.",
+        "Four-layer resolution uses `containers.env`, Search `.env`, Search `overrides.env`, and the build `override.env` with the build `compose.yml`; normalized `resolved.yml` validates directly, all selected keys resolve, no service retains a `profiles:` gate, no real `${...}` interpolation remains unresolved, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and every checked-in bind source exists with the expected file/directory type.",
+        "Deployment uses exactly `_builds/in-3-runtime/resolved.yml` without re-reading Foundation env files or supplying a profile flag.",
+        "All selected long-running containers are running or healthy, all selected one-shot containers exit 0, and excluded services are not running.",
+        "`curl -sf http://localhost:${RTVI_CV_HOST_PORT:-9000}/ready` returns HTTP 200, and RT-Embed readiness responds successfully.",
+        "An uploaded video remains retrievable through VIOS and produces both RT-CV and RT-Embed output.",
+        "A live NvStreamer source is registered through VIOS and both RT-CV and RT-Embed are driven from the runtime-discovered VIOS live-proxy URL.",
+        "Kafka end offsets for `mdx-raw`, `mdx-embed`, and `mdx-embed-filtered` are recorded before and after processing; all three increase.",
+        "Elasticsearch contains both detection documents and embedding documents attributable to the processed media.",
+        "No duplicate Kafka or Elasticsearch stack is deployed.",
+        "No file under `deploy/docker/` is modified, and the final response reports the Foundation, delta, changed knobs, readiness, playback, Kafka offsets, and Elasticsearch evidence."
+      ]
+    }
+  ]
+}

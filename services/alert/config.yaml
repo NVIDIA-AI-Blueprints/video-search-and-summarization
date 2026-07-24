@@ -207,6 +207,8 @@ alert_agent:
 
   metrics:
     # Requires PROMETHEUS_METRICS_ENABLED=true (env var) to have any effect.
+    # On-demand HTTP metrics use the separate alert_bridge_ondemand_* namespace
+    # and are aggregate-only; per_sensor_labels applies to Kafka metrics.
     # When false (default), the *_BY_SENSOR metric variants are never observed
     # (zero cardinality cost). When true, each distinct sensor ID mints ~12
     # additional Prometheus series per histogram — only enable for deployments

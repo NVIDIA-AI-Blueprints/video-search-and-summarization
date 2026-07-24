@@ -24,7 +24,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from openai import APITimeoutError, APIConnectionError, InternalServerError, UnprocessableEntityError, BadRequestError
 
@@ -177,6 +177,7 @@ class DirectMediaHandler:
         vlm_enhanced_event_sink,
         config: Dict[str, Any],
         pluggable_parser=None,
+        vlm_duration_observer: Optional[Callable[[float, Any], None]] = None,
     ):
         self.vlm_client = vlm_client
         self.vlm_enhanced_event_sink = vlm_enhanced_event_sink
@@ -187,6 +188,10 @@ class DirectMediaHandler:
         # as Mode-2 / Mode-VST so all three ingestion paths produce identical
         # info shape.
         self._pluggable_parser = pluggable_parser
+        # Optional workflow-specific instrumentation. The on-demand API
+        # injects its recorder while Kafka leaves this unset and continues to
+        # use the existing pipeline metrics, avoiding double counting.
+        self._vlm_duration_observer = vlm_duration_observer
         
         media_config = config.get('alert_agent', {}).get('media_download', {})
         self.enabled = media_config.get('enabled', True)
@@ -271,6 +276,19 @@ class DirectMediaHandler:
 
     # ── Evaluate methods ───────────────────────────────────────────────
 
+    def _observe_vlm_duration(
+        self, duration: float, sensor_id: Any
+    ) -> None:
+        """Invoke optional instrumentation without affecting processing."""
+        if self._vlm_duration_observer is None:
+            return
+        try:
+            self._vlm_duration_observer(duration, sensor_id)
+        except Exception:
+            logger.warning(
+                "VLM duration observer failed", exc_info=True
+            )
+
     def _evaluate_video(
         self,
         worker_id: int,
@@ -282,18 +300,27 @@ class DirectMediaHandler:
     ) -> None:
         """Evaluate a single video URL via shared media analyzer."""
         try:
-            start_time = time.time()
-            vlm_response = analyze_single_media(
-                vlm_client=self.vlm_client,
-                downloader=self.downloader,
-                media_path=video_url,
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
-                use_base64=self.vlm_media_source_using_base64,
-                config_overrides=config_overrides,
-            )
+            start_time = time.monotonic()
+            try:
+                vlm_response = analyze_single_media(
+                    vlm_client=self.vlm_client,
+                    downloader=self.downloader,
+                    media_path=video_url,
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    use_base64=self.vlm_media_source_using_base64,
+                    config_overrides=config_overrides,
+                )
+            finally:
+                if self._vlm_duration_observer is not None:
+                    duration = time.monotonic() - start_time
+                    self._observe_vlm_duration(
+                        duration, message.get("sensorId")
+                    )
 
-            duration = round(time.time() - start_time, 3)
+            if self._vlm_duration_observer is None:
+                duration = time.monotonic() - start_time
+            duration = round(duration, 3)
             response_content = vlm_response.content
             logger.info("VLM response received (direct video) [sensor=%s category=%s] duration=%.3fs",
                        message.get('sensorId', 'N/A'), message.get('category', 'N/A'), duration)
@@ -310,6 +337,7 @@ class DirectMediaHandler:
             self._publish_error(
                 message, user_prompt, system_prompt,
                 code=502, status=str(e),
+                error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
             )
         except Exception as e:
             self._handle_vlm_error(e, message, user_prompt, system_prompt)
@@ -329,19 +357,27 @@ class DirectMediaHandler:
                        len(media_urls),
                        message.get('sensorId', 'N/A'), message.get('category', 'N/A'))
 
-            start_time = time.time()
+            start_time = time.monotonic()
+            try:
+                vlm_response = analyze_multiple_images(
+                    vlm_client=self.vlm_client,
+                    downloader=self.downloader,
+                    media_urls=media_urls,
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    use_base64=self.vlm_media_source_using_base64,
+                    config_overrides=config_overrides,
+                )
+            finally:
+                if self._vlm_duration_observer is not None:
+                    duration = time.monotonic() - start_time
+                    self._observe_vlm_duration(
+                        duration, message.get("sensorId")
+                    )
 
-            vlm_response = analyze_multiple_images(
-                vlm_client=self.vlm_client,
-                downloader=self.downloader,
-                media_urls=media_urls,
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
-                use_base64=self.vlm_media_source_using_base64,
-                config_overrides=config_overrides,
-            )
-
-            duration = round(time.time() - start_time, 3)
+            if self._vlm_duration_observer is None:
+                duration = time.monotonic() - start_time
+            duration = round(duration, 3)
             response_content = vlm_response.content
             logger.info("VLM response received (%d image(s)) [sensor=%s category=%s] duration=%.3fs",
                        len(media_urls),
@@ -364,6 +400,7 @@ class DirectMediaHandler:
             self._publish_error(
                 message, user_prompt, system_prompt,
                 code=502, status=str(e),
+                error_source=ERROR_SOURCE_MEDIA_DOWNLOAD,
             )
         except Exception as e:
             self._handle_vlm_error(e, message, user_prompt, system_prompt)
