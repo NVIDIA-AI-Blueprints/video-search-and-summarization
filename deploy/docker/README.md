@@ -65,7 +65,7 @@ Each profile may also ship a **`.env`** under **`developer-profiles/<profile>/`*
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
 - **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search) is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.json` manifests. **Warehouse profiles do not use `models-download-*`** — they obtain models (and other app data) from the pre-extracted `VSS_DATA_DIR` bundle (see the warehouse section below).
+- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.json` manifests. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
 
 ### Direct Compose data directories
 
@@ -185,7 +185,10 @@ The **warehouse** blueprint is driven by **`industry-profiles/warehouse-operatio
 
 1. **Model and app-data inputs**
 
-Warehouse profiles obtain **all** required inputs — models, videos, and playback/calibration data — from the `vss-warehouse-app-data` NGC resource bundle, which you download and extract once and point `VSS_DATA_DIR` at. Unlike the developer profiles, warehouse does **not** use a `models-download-*` init service: the bundle is a whole-tree artifact consumed across several services via `VSS_DATA_DIR`, so it is pre-staged on the host (the Docker analogue of Helm's `job-download-ngc-app-data`).
+Warehouse uses two acquisition paths:
+
+- The `vss-warehouse-app-data` NGC resource remains the source for videos, playback, and calibration data.
+- Each RT-CV profile uses a `models-download-warehouse-*` init service to download its versioned NGC model packages into the flattened `$VSS_DATA_DIR/models/` tree before perception starts.
 
 Download and extract the warehouse app data:
 
@@ -204,9 +207,10 @@ ngc \
 cd vss-warehouse-app-data_v3.2.0
 tar -xvf vss-warehouse-app-data.tar.gz
 
-# Set permissions
+# Prepare the writable model destination used by the model-download init service
 
-sudo chmod -R 777 /path/to/vss-warehouse-app-data
+sudo mkdir -p /path/to/vss-warehouse-app-data/models
+sudo chmod 0777 /path/to/vss-warehouse-app-data/models
 
 # This is the path to the data directory. It is set in the industry-profiles/warehouse-operations/.env file for VSS_DATA_DIR.
 #VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
@@ -217,7 +221,10 @@ sudo chmod -R 777 /path/to/vss-warehouse-app-data
 
    - **`MODE`**: `2d`, `3d`, or `mv3dt`
    - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` (see comments in that file for 2d, 3d, and mv3dt combinations)
+   - **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse, Sparse4D, and BodyPose3DNet model packages required by the selected mode
    - **`MINIMAL_PROFILE`**, GPU hosts, API keys, and any other variables described in the file header
+
+   Model destinations are shared across profiles: RT-DETR is stored at `models/rtdetr_warehouse_v1.0.2.fp16.onnx`, Sparse4D at `models/sparse4d/sparse4d_warehouse_v2.2.onnx`, and BodyPose3DNet at `models/BodyPose3DNet/bodypose3dnet_accuracy.onnx`.
 
 3. **Start the stack**
 

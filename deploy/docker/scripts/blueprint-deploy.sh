@@ -651,23 +651,10 @@ function process_args() {
       fi
     fi
 
-    if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
+    if [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
       if [[ -z "${ngc_cli_api_key}" ]]; then
-        local _llm_mode _vlm_mode
-        if contains_element "use-remote-llm" "${options_provided[@]}"; then
-          _llm_mode="remote"
-        else
-          _llm_mode="$(get_env_value_from_files "LLM_MODE" "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env")"
-        fi
-        if contains_element "use-remote-vlm" "${options_provided[@]}"; then
-          _vlm_mode="remote"
-        else
-          _vlm_mode="$(get_env_value_from_files "VLM_MODE" "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" "${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env")"
-        fi
-        if [[ "${_llm_mode}" =~ ^(local|local_shared)$ ]] || [[ "${_vlm_mode}" =~ ^(local|local_shared)$ ]]; then
-          echo "[ERROR] NGC_CLI_API_KEY is required for 'up' when LLM_MODE or VLM_MODE is local or local_shared (warehouse bp_wh)"
-          ((_all_good++))
-        fi
+        echo "[ERROR] NGC_CLI_API_KEY is required for 'up' (warehouse RT-CV model downloads via compose init; also required for local NIM when BP_PROFILE=bp_wh)"
+        ((_all_good++))
       fi
     fi
   fi
@@ -971,8 +958,10 @@ function state_up() {
     fi
     mkdir -p "${data_directory}/videos/${_sample_dataset}"
     mkdir -p "${data_directory}/playback"
-    if [[ "${mode}" == "mv3dt" ]]; then
-      mkdir -p "${data_directory}/models/mv3dt/BodyPose3DNet"
+    mkdir -p "${data_directory}/models"
+    chmod -R 777 "${data_directory}/models" 2>/dev/null || true
+    if [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
+      echo "[INFO] Warehouse RT-CV model download moved to compose init service (models-download-warehouse-*)."
     fi
   fi
 

@@ -10,7 +10,7 @@
 
 echo "##### RT-DETR + MV3DT pipeline #####"
 
-MQTT_HOST=
+MQTT_HOST=${MQTT_HOST:-localhost}
 MQTT_PORT=${MQTT_PORT:-1883}
 MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
 cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
@@ -29,7 +29,7 @@ done
 
 if [ -n "${PROVIDED_PUB_SUB}" ]; then
   echo "Using provided pub/sub config: ${PROVIDED_PUB_SUB} (rewriting host:port to ${MQTT_ENDPOINT})"
-  sed -E "s|[0-9]+(\.[0-9]+){3}:[0-9]+|${MQTT_ENDPOINT}|g" "${PROVIDED_PUB_SUB}" > "${PUB_SUB_OUT}"
+  sed -E "s|[^[:space:];]+:[0-9]+;|${MQTT_ENDPOINT};|g" "${PROVIDED_PUB_SUB}" > "${PUB_SUB_OUT}"
 else
   mapfile -t CAM_NAMES < <(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; basename "${f}" .yml; done | sort -V)
   [ ${#CAM_NAMES[@]} -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }

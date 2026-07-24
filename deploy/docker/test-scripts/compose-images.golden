@@ -3,7 +3,6 @@
 # A diff in this file means a registry, image name, or default tag changed.
 deploy/docker/developer-profiles/dev-profile-alerts/compose.yml nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/developer-profiles/dev-profile-lvs/compose.yml nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml debian:12-slim
 deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
 deploy/docker/industry-profiles/smartcities/compose.yml nvcr.io/nvidia/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
@@ -15,8 +14,8 @@ deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-
 deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:3.2.0
-deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1
 deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.1
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/agent/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest
 deploy/docker/services/alert/compose.yml ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms:develop-latest
@@ -67,6 +66,7 @@ deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nv
 deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
+deploy/docker/services/rtvi/rtvi-cv/compose.yaml docker.io/library/ubuntu:22.04
 deploy/docker/services/rtvi/rtvi-cv/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.1
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion:3.2.0
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.1

@@ -836,6 +836,134 @@ else
 fi
 rm -f "${_out_search}"
 
+# --- Warehouse RT-CV model acquisition: manifests and flattened paths ---
+_warehouse_model_config_failed=0
+_warehouse_root="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations"
+_warehouse_2d_manifest="${_warehouse_root}/warehouse-2d-app/models-download.json"
+_warehouse_3d_manifest="${_warehouse_root}/warehouse-3d-app/models-download.json"
+_warehouse_mv3dt_manifest="${_warehouse_root}/warehouse-mv3dt-app/models-download.json"
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2",
+    "org": "nvidia",
+    "sourcePath": "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx",
+    "destPath": "rtdetr_warehouse_v1.0.2.fp16.onnx"
+  }]
+' "${_warehouse_2d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 2D manifest should download RT-DETR to the flattened model root"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  .downloads == [{
+    "model": "nvidia/tao/sparse4d_rn50:deployable_v2.2",
+    "org": "nvidia",
+    "sourcePath": "sparse4d_warehouse_v2.2.onnx",
+    "destPath": "sparse4d/sparse4d_warehouse_v2.2.onnx"
+  }]
+' "${_warehouse_3d_manifest}" >/dev/null; then
+  echo "FAIL: warehouse 3D manifest should download only Sparse4D to its flattened path"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! jq -e '
+  (.downloads | length) == 2
+  and any(.downloads[]; .model == "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2" and .destPath == "rtdetr_warehouse_v1.0.2.fp16.onnx")
+  and any(.downloads[]; .model == "nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0" and .sourcePath == "bodypose3dnet_accuracy.onnx" and .destPath == "BodyPose3DNet/bodypose3dnet_accuracy.onnx")
+' "${_warehouse_mv3dt_manifest}" >/dev/null; then
+  echo "FAIL: warehouse MV3DT manifest should download flattened RT-DETR and BodyPose3DNet artifacts"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ! -s "${_warehouse_root}/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy" ]]; then
+  echo "FAIL: warehouse 3D repository anchor asset is missing or empty"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if ! grep -q '^onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml" \
+  || ! grep -q '^engine_file: /opt/storage/sparse4d/model.engine$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml"; then
+  echo "FAIL: warehouse 3D config should use namespaced flattened model and engine paths"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if grep -E 'models/mtmc|models/sparse4d/ov' \
+  "${_warehouse_root}/warehouse-2d-app/warehouse-2d-app.yml" \
+  "${_warehouse_root}/warehouse-3d-app/warehouse-3d-app.yml" \
+  "${_warehouse_root}/warehouse-mv3dt-app/warehouse-mv3dt-app.yml" >/dev/null; then
+  echo "FAIL: warehouse Compose perception mounts should not reference the legacy app-data model layout"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_standalone_skill_defaults="${REPO_ROOT}/skills/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
+if grep -E 'vss-warehouse-app-data/models/(mtmc|sparse4d/ov)' "${_standalone_skill_defaults}" >/dev/null \
+  || ! grep -q 'ref: *nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'ref: *nvidia/tao/sparse4d_rn50:deployable_v2.2' "${_standalone_skill_defaults}" \
+  || ! grep -q 'kind: *repo' "${_standalone_skill_defaults}"; then
+  echo "FAIL: standalone detection skill should use NGC model packages and repository Sparse4D companions"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+if [[ ${_warehouse_model_config_failed} -eq 0 ]]; then
+  echo "PASS: warehouse RT-CV model manifests and flattened paths are aligned"
+  ((TESTS_PASSED++)) || true
+else
+  ((TESTS_FAILED++)) || true
+fi
+
+_helm_mv3dt_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml"
+_helm_mv3dt_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
+_helm_mv3dt_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
+if grep -q 'downloadModelsFromNgc: true' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_mv3dt_values}" \
+  && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_mv3dt_values}" \
+  && grep -q 'name: wait-for-models' "${_helm_mv3dt_statefulset}" \
+  && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_mv3dt_statefulset}" \
+  && ! grep -Eq 'prepare-mv3dt-models|runtime-storage|rtdetrPvcSubPath|bodyPosePvcSubPath' \
+    "${_helm_mv3dt_statefulset}" "${_helm_mv3dt_defaults}"; then
+  echo "PASS: warehouse Helm MV3DT uses per-file models, marker wait, and direct PVC storage"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse Helm MV3DT should use flattened model downloads without legacy app-data model copies"
+  ((TESTS_FAILED++)) || true
+fi
+
+BLUEPRINT_DEPLOY="${REPO_ROOT}/deploy/docker/scripts/blueprint-deploy.sh"
+if grep -Fq 'Warehouse RT-CV model download moved to compose init service (models-download-warehouse-*).' "${BLUEPRINT_DEPLOY}" \
+  && grep -q 'mkdir -p "${data_directory}/models"' "${BLUEPRINT_DEPLOY}" \
+  && ! grep -q 'models/mv3dt/BodyPose3DNet' "${BLUEPRINT_DEPLOY}"; then
+  echo "PASS: blueprint-deploy.sh prepares flattened warehouse models dir and delegates RT-CV download to compose init"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: blueprint-deploy.sh should create flattened models/ and log compose-init warehouse model download handoff"
+  ((TESTS_FAILED++)) || true
+fi
+
+_warehouse_3d_skill="${REPO_ROOT}/skills/vss-deploy-detection-tracking-3d"
+if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
+  "${_warehouse_3d_skill}/SKILL.md" \
+  "${_warehouse_3d_skill}/references" \
+  "${_warehouse_3d_skill}/evals" >/dev/null; then
+  echo "PASS: warehouse MV3DT skill uses flattened per-file model paths"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT skill should not reference legacy app-data model paths"
+  ((TESTS_FAILED++)) || true
+fi
+
+_compose_mv3dt_root="${_warehouse_root}/warehouse-mv3dt-app"
+_helm_mv3dt_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
+if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_mv3dt_start}" \
+  && grep -q 'PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml" \
+  && grep -q 'PERCEPTION_TAG:-3.3.0-26.07.1' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
+  echo "PASS: warehouse MV3DT startup script and perception fallback are aligned across Compose and Helm"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse MV3DT Compose and Helm startup semantics or perception fallback diverged"
+  ((TESTS_FAILED++)) || true
+fi
+
 # NGC download failures must stop before kernel setup, docker login, or compose.
 run_ngc_download_fail_fast_test() {
   local name="${1}"
