@@ -134,6 +134,33 @@ jobs:
             -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}" \
             $YAML_FILES
 
+  codec-installer-test:
+    name: Validate codec artifacts
+    needs: prepare-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Validate codec installers
+        run: |
+          EMBED_INSTALLER=services/rtvi/rt-embed/src/scripts/install_codecs_nonroot.sh
+          VLM_INSTALLER=services/rtvi/rt-vlm/src/scripts/install_codecs_nonroot.sh
+          bash -n "$EMBED_INSTALLER"
+          bash -n "$VLM_INSTALLER"
+          cmp "$EMBED_INSTALLER" "$VLM_INSTALLER"
+          CODEC_VALIDATE_ONLY=true bash "$EMBED_INSTALLER"
+          CODEC_VALIDATE_ONLY=true CODEC_DEB_ARCH=arm64 bash "$EMBED_INSTALLER"
+
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)
   # ---------------------------------------------------------------------------
@@ -233,6 +260,16 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
+
+      - name: Video summarization contracts
+        working-directory: ${{ github.workspace }}
+        run: |
+          uv run --project services/agent pytest \
+            .github/skill-eval/tests/test_generic_judge_trajectory_guidance.py \
+            .github/skill-eval/tests/test_lvs_deployment_config.py \
+            .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
+            .github/skill-eval/tests/test_vss_summarize_model_selection.py \
+            -q
 
       - name: Upload coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -862,6 +899,8 @@ jobs:
     needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 140
+    outputs:
+      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
     permissions:
       actions: read
       contents: read
@@ -871,6 +910,7 @@ jobs:
           persist-credentials: false
 
       - name: Wait for successful GHCR release set
+        id: release-set
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -900,6 +940,7 @@ jobs:
     needs:
       - prepare-source
       - lint
+      - codec-installer-test
       - typecheck
       - security
       - frontend-lint
@@ -909,6 +950,9 @@ jobs:
       - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
+    if: >-
+      success() &&
+      needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step

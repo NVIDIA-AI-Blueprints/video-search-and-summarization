@@ -16,13 +16,13 @@
     "id": "search-compose-generate",
     "question": "Generate the docker compose yaml for a VSS search profile.",
     "expected_skill": "vss-deploy-profile",
-    "ground_truth": "Loads vss-deploy-profile, routes to the search profile (references/search.md), and uses the same generated.env dry-run flow. Configures the search stack: Cosmos Embed1 embeddings via RT-Embed (vss-rtvi-embed, port 8017, MODEL_PATH git:huggingface Cosmos-Embed1-448p) indexed in Elasticsearch, with rtvi-cv + rtvi-embed + the LLM (default nvidia/nvidia-nemotron-nano-9b-v2) as the always-on GPU services. A VLM (cosmos3-reasoner NIM serving nvidia/cosmos3-nano-reasoner, or RT-VLM) is added only when the Critique agent is enabled, and the GPU device split (RT_CV_DEVICE_ID/RT_EMBED_DEVICE_ID/LLM_DEVICE_ID/VLM_DEVICE_ID) is respected.",
+    "ground_truth": "Loads vss-deploy-profile, routes to the search profile (references/search.md), and uses the same generated.env dry-run flow. Configures Cosmos Embed1 via RT-Embed (port 8017), RT-CV, the LLM, and always-on RT-VLM (vss-rtvi-vlm, port 8018) for Critique and video_understanding. Local mode loads Cosmos3 Nano BF16 in RT-VLM; remote mode keeps RT-VLM as an openai-compat proxy. Search always uses VLM_MODEL_TYPE=rtvi and VLM_NAME_SLUG=none, activating vss-rtvi-vlm via the explicit rtvi-vlm compose profile (like base/lvs).",
     "expected_behavior": [
       "Loads the vss-deploy-profile skill and routes to the search profile (references/search.md).",
       "Follows the same dry-run flow (overrides.env -> generated.env, `.env` + `generated.env` -> `config > resolved.yml` -> normalize_resolved_yml.py -> `up -d`), with both --env-file arguments present in the same order.",
-      "Configures the search stack: Cosmos Embed1 embeddings via RT-Embed (vss-rtvi-embed, port 8017) indexed in Elasticsearch, with rtvi-cv, rtvi-embed, and the LLM as the always-on GPU services.",
-      "On a multi-GPU host, assigns the device split explicitly (RT_CV_DEVICE_ID, RT_EMBED_DEVICE_ID, LLM_DEVICE_ID, VLM_DEVICE_ID) so the LLM leaves headroom for RT-Embed on the shared GPU — does not leave device assignment to default.",
-      "Adds a VLM (cosmos3-reasoner NIM with VLM_NAME=nvidia/cosmos3-nano-reasoner and VLM_NAME_SLUG=cosmos3-reasoner, or RT-VLM vss-rtvi-vlm) only when the Critique agent is enabled — does not unconditionally deploy a Cosmos VLM NIM in the default integrated path.",
+      "Configures the search stack with RT-CV, Cosmos Embed1 via RT-Embed (port 8017), the LLM, and always-on RT-VLM (port 8018); per-request Critique selection does not affect RT-VLM deployment because video_understanding also uses it.",
+      "On a multi-GPU host, assigns RT_CV_DEVICE_ID, RT_EMBED_DEVICE_ID, LLM_DEVICE_ID, VLM_DEVICE_ID, and RT_VLM_DEVICE_ID explicitly. The default local layout uses GPU 0 for RT-CV, GPU 1 for LLM + RT-Embed, and GPU 2 for RT-VLM; a two-GPU host uses the remote VLM proxy path.",
+      "Sets VLM_MODEL_TYPE=rtvi and VLM_NAME_SLUG=none so the resolved compose includes the rtvi-vlm profile and starts vss-rtvi-vlm. Remote mode also sets RTVI_VLM_MODEL_TO_USE=openai-compat, RTVI_VLM_MODEL_PATH=none, and RTVI_VLM_ENDPOINT with a /v1 suffix.",
       "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
     ]
   },

@@ -315,6 +315,16 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return env
 
 
+def load_profile_env(path: Path) -> dict[str, str]:
+    """Load a profile env file plus its sibling overrides.env when present."""
+
+    env = parse_env_file(path)
+    overrides = path.with_name("overrides.env")
+    if path.name == ".env" and overrides.is_file():
+        env.update(parse_env_file(overrides))
+    return env
+
+
 def first_non_placeholder(values: Iterable[str]) -> str:
     for value in values:
         normalized = value.strip()
@@ -391,14 +401,20 @@ def resolve_and_apply_profile_mode(
         raise ValidationError(f"profile_mode is required when profile={profile!r}. Supported values: {supported}.")
 
 
-def resolve_env_interpolation(value: str, env: Mapping[str, str]) -> str:
-    """Resolve simple $VAR and ${VAR} references using already-resolved env values."""
+def resolve_env_interpolation(value: str, env: Mapping[str, str], *, max_depth: int = 10) -> str:
+    """Resolve simple $VAR and ${VAR} references using env values."""
 
     def _replace(match: re.Match[str]) -> str:
         key = match.group("braced") or match.group("bare")
         return env.get(key, "")
 
-    return ENV_VAR_INTERPOLATION_PATTERN.sub(_replace, value)
+    resolved = value
+    for _ in range(max_depth):
+        next_resolved = ENV_VAR_INTERPOLATION_PATTERN.sub(_replace, resolved)
+        if next_resolved == resolved:
+            return next_resolved
+        resolved = next_resolved
+    return resolved
 
 
 def expand_env_value_references(env: dict[str, str]) -> None:
@@ -685,6 +701,14 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         if merged["MODE"] == MODE_2D_VLM and merged["VLM_MODE"] != MODE_REMOTE:
             vlm_port = merged.get("VLM_PORT", "").strip() or str(DEFAULT_ALERTS_VLM_PORT)
             merged["RTVI_VLM_ENDPOINT"] = f"{INTERNAL_URL_SCHEME}://{host_ip}:{vlm_port}/v1"
+
+    if (
+        config.profile == PROFILE_ALERTS
+        and merged.get("MODE") == MODE_2D_VLM
+        and "COMPOSE_PROFILES" not in config.env_overrides
+        and merged.get("COMPOSE_PROFILES_VLM", "").strip()
+    ):
+        merged["COMPOSE_PROFILES"] = "${COMPOSE_PROFILES_VLM}"
 
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")

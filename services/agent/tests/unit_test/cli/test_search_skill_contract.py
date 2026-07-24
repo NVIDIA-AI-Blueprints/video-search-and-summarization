@@ -114,7 +114,7 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert len(expects) == 6
     assert spec["profile"] == "search"
     assert spec["deploy_mode"] == "remote-all"
-    assert [len(expect["checks"]) for expect in expects] == [5, 3, 6, 7, 5, 5]
+    assert [len(expect["checks"]) for expect in expects] == [7, 3, 6, 7, 5, 5]
 
     contract = json.dumps(spec)
     operation_contract = json.dumps(expects[1:])
@@ -155,7 +155,11 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "without adding a `streamId` routing header" in " ".join(expects[2]["checks"])
     assert "without adding a `streamId` routing header" in fusion_checks
     assert "http://localhost:30888" not in json.dumps(expects[0]["checks"])
-    assert "RUNTIME_JSON.vst_url" in expects[0]["checks"][2]
+    # Setup checks[1]/2] are the RT-VLM readiness gates added for search-profile
+    # remote-all; RUNTIME_JSON.vst_url lives at checks[4] after that insertion.
+    assert "vss-rtvi-vlm" in expects[0]["checks"][1]
+    assert "RT-VLM `/v1/models`" in expects[0]["checks"][2]
+    assert "RUNTIME_JSON.vst_url" in expects[0]["checks"][4]
 
     judge_prompt = GENERIC_JUDGE_PATH.read_text(encoding="utf-8")
     assert "assistant tool calls only" in judge_prompt
@@ -168,6 +172,8 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "canonical upload filename `warehouse-ladder.mp4`" in setup_checks
     assert "never invoked the deprecated single-step" in setup_checks
     assert "same canonical source" in setup_checks
+    assert "vss-rtvi-vlm" in setup_checks
+    assert "RT-VLM `/v1/models`" in setup_checks
     setup_query = expects[0]["query"]
     assert "RUNTIME_JSON" in setup_query
     assert "RuntimeSnapshot.from_config_file" in setup_query

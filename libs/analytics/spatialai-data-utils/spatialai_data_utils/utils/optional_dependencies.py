@@ -84,13 +84,20 @@ def import_cv2(context: str):
     importing — and all non-OpenCV code paths keep working — when it is not
     installed. Raises a clear :class:`ImportError` with install instructions
     at call time instead of failing at import time.
+
+    Only a genuinely absent ``cv2`` (``ModuleNotFoundError`` with
+    ``exc.name == "cv2"``) is turned into the install hint; any other failure
+    (e.g. a broken OpenCV build whose C-extension import fails) propagates
+    unchanged so it is not masked as "not installed".
     """
     try:
         import cv2
-    except ImportError as exc:
-        raise ImportError(
-            f"{context} requires OpenCV (`cv2`) to be installed. {_OPENCV_INSTALL_HINT}"
-        ) from exc
+    except ModuleNotFoundError as exc:
+        if exc.name == "cv2":
+            raise ImportError(
+                f"{context} requires OpenCV (`cv2`) to be installed. {_OPENCV_INSTALL_HINT}"
+            ) from exc
+        raise
     return cv2
 
 

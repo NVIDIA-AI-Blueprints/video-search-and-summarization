@@ -18,7 +18,7 @@ services:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-lvs
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-lvs/Dockerfiles/kibana-dashboard.Dockerfile
-    profiles: ["bp_developer_lvs_2d"]
+    profiles: ["kibana-init-container-lvs"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     restart: on-failure
@@ -29,7 +29,7 @@ services:
   nvstreamer-lvs:
     image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
-    profiles: ["bp_developer_lvs_2d"]
+    profiles: ["nvstreamer-lvs"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}

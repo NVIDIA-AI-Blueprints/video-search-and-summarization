@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) profiles on GPU-equipped hosts for video analytics workflows. <br>
+Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) profiles on GPU-equipped hosts for video analytics applications. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,8 +25,8 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [VSS Prerequisites](https://docs.nvidia.com/vss/3.2.0/prerequisites.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
@@ -42,9 +42,6 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 
-## Evaluation Tasks: <br>
-Evaluated against 5 evaluation tasks in astra-sandbox environment using NVSkills-Eval external profile. <br>
-
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
 - Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
@@ -53,25 +50,16 @@ Reported benchmark dimensions: <br>
 - Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
 - Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
 
-Underlying evaluation signals used in this run: <br>
-- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
-- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
-- `accuracy`: Grades final-answer correctness against the reference answer. <br>
-- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
-- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
-- `token_efficiency`: Compares token usage with and without the skill. <br>
-
 
 
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 5 | 100% (+0%) | 90% (+10%) |
-| Correctness | 5 | 96% (+81%) | 89% (+67%) |
-| Discoverability | 5 | 90% (+70%) | 92% (+51%) |
-| Effectiveness | 5 | 80% (+75%) | 70% (+64%) |
-| Efficiency | 5 | 71% (+40%) | 88% (+40%) |
+| Security | N/A | N/A | N/A |
+| Correctness | N/A | N/A | N/A |
+| Discoverability | N/A | N/A | N/A |
+| Effectiveness | N/A | N/A | N/A |
+| Efficiency | N/A | N/A | N/A |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

@@ -29,7 +29,9 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   NIMService metadata.name (same slugs as dev-profile-base nims charts):
 
   1. Nemotron Nano 9B v2 (LLM):  nvidia-nemotron-nano-9b-v2:8000
-  2. Cosmos3 Reasoner (VLM):     nvidia-cosmos3-reasoner:8000  (when Cosmos3 subchart is enabled)
+  2. VLM (critic + video_understanding): vss-rtvi-vlm:8000  (rtvi.vss-rtvi-vlm, in-pod
+                                  Cosmos3 checkpoint; set nims.cosmos3.enabled=true to use
+                                  the standalone NIM instead)
   3. Eval / judge LLM uses the same endpoint as (1).
 
 =====================================================================
@@ -43,8 +45,8 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
     --set nims.global.ngcApiKey=<NGC_API_KEY> \
     --wait=false
 
-  Critic agent and Cosmos3 NIM are enabled by default.
-  To disable: --set global.enableCritic=false,nims.cosmos3.enabled=false
+  Critic verification is controlled per request with use_critic.
+  The vss-rtvi-vlm service also supports video_understanding and is enabled by default.
 
   Both bare IP and hostname formats are accepted for global.externalHost:
     --set global.externalHost=<NODE_IP>                          (bare IP)
