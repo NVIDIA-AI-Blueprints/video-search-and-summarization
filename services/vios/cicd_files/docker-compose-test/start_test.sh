@@ -742,10 +742,44 @@ run_build_commands() {
 }
 
 # Function to run docker compose
+# Ensure the BDD test-runner image referenced by docker-compose.test.yaml exists.
+# Order: use it if already local -> else try to pull (works when BDD_TEST_IMAGE
+# points at a registry image) -> else build it from the Dockerfile. The compose
+# `test` service uses ${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}, so export the same
+# value here to guarantee `docker compose up` resolves the identical reference.
+# The Jenkins node is pruned between runs, so this runs every test invocation.
+ensure_bdd_test_image() {
+    local image="${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}"
+    export BDD_TEST_IMAGE="$image"
+
+    if docker image inspect "$image" >/dev/null 2>&1; then
+        info "BDD test image already present locally: $image"
+        return 0
+    fi
+
+    info "BDD test image not in local store; attempting pull: $image"
+    if docker pull "$image"; then
+        info "Pulled BDD test image: $image"
+        return 0
+    fi
+    info "Pull failed for $image; building it from ${BDD_TESTS_DIR}/Dockerfile"
+
+    if [[ ! -f "$BDD_TESTS_DIR/Dockerfile" ]]; then
+        error "BDD test Dockerfile not found: $BDD_TESTS_DIR/Dockerfile"
+    fi
+    if ! docker build -t "$image" -f "$BDD_TESTS_DIR/Dockerfile" "$BDD_TESTS_DIR"; then
+        error "Failed to build BDD test image: $image"
+    fi
+    info "Built BDD test image: $image"
+}
+
 run_docker_compose() {
     # Ensure BDD test reports directory exists before starting containers
     ensure_bdd_reports_dir || error "Failed to ensure BDD reports directory exists"
-    
+
+    # Ensure the BDD test-runner image is available (pull, else build) before compose up
+    ensure_bdd_test_image || error "Failed to ensure BDD test image is available"
+
     info "Docker version: $(docker --version 2>&1)"
     info "Docker Compose version: $(docker compose version 2>&1)"
 
