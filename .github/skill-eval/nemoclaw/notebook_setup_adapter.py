@@ -207,6 +207,22 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _prepare_ci_nemoclaw_environment() -> None:
+    """Confirm migration only for the managed sandbox CI already recreates."""
+    recreate = os.environ.get("NEMOCLAW_RECREATE_SANDBOX", "1").strip() or "1"
+    os.environ["NEMOCLAW_RECREATE_SANDBOX"] = recreate
+    if recreate.lower() not in ("1", "true", "yes"):
+        return
+
+    sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
+    confirmation_key = "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE"
+    if sandbox_name and not os.environ.get(confirmation_key, "").strip():
+        # NemoClaw v0.0.80 requires this exact JSON list before migrating a
+        # legacy managed sandbox. Confirm only CI's selected sandbox so an
+        # unexpected second legacy sandbox still causes the installer to stop.
+        os.environ[confirmation_key] = json.dumps([sandbox_name], separators=(",", ":"))
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as fp:
         return json.load(fp)
@@ -447,6 +463,7 @@ def main(argv: list[str] | None = None) -> int:
 
     os.environ.setdefault("VSS_REPO_DIR", str(root))
     os.environ["NEMOCLAW_CI_ENV_OUT"] = str(Path(args.env_out).resolve())
+    _prepare_ci_nemoclaw_environment()
 
     if "notebooks" in manifest:
         if args.notebook:
