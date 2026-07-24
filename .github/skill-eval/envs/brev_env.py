@@ -1137,9 +1137,11 @@ fi
         - **Existing git checkout** — `git remote set-url` (handles
           cross-fork PRs) + `git fetch <PR_HEAD_SHA>` + hard reset.
 
-        Preserves `data/` (NGC sample bundle) and `.env` (active trial
-        overrides) on `git clean`. Fails loud — `set -euo pipefail` so
-        any sync error short-circuits start() before the agent runs.
+        Preserves `data/` (NGC sample bundle) and the repository-root
+        `.env` (active trial overrides) on `git clean`. Nested dotenv
+        files are deliberately removed so a prior trial cannot change
+        service runtime settings. Fails loud — `set -euo pipefail` so any
+        sync error short-circuits start() before the agent runs.
         """
         # PR_HEAD_SHA + PR_REPO come from the workflow step's env. Inject
         # them into this remote command directly instead of relying on
@@ -1171,23 +1173,25 @@ else
   git reset --hard FETCH_HEAD
 fi
 # Drop leftover working-tree state from a prior trial, but keep data/
-# (sample-data extract — slow to re-pull from NGC) and any .env tweaks
-# the active trial may have placed. Some VSS services write root-owned
-# bind-mount content under the checkout, so remove known deployment
-# output dirs with sudo before falling back to git clean.
+# (sample-data extract — slow to re-pull from NGC) and root .env tweaks
+# the active trial may have placed. Nested dotenv files must be removed:
+# services such as the orchestrator load them from their working directory.
+# Some VSS services write root-owned bind-mount content under the checkout,
+# so remove known deployment output dirs with sudo before falling back to
+# git clean.
 for stale_path in "$REPO/deployments" "$REPO/deploy/docker/data-dir"; do
   if [ -e "$stale_path" ]; then
     sudo rm -rf "$stale_path" || true
   fi
 done
-if ! git clean -fdx -e data/ -e .env; then
+if ! git clean -fdx -e data/ -e /.env; then
   echo "git clean failed; repairing checkout ownership and retrying" >&2
   sudo find "$REPO" \
     -path "$REPO/.git" -prune -o \
     -path "$REPO/data" -prune -o \
     -path "$REPO/.env" -prune -o \
     -exec chown -h "$(id -u):$(id -g)" {{}} + || true
-  git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+  git clean -fdx -e data/ -e /.env 2>/dev/null || sudo git clean -fdx -e data/ -e /.env
 fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """

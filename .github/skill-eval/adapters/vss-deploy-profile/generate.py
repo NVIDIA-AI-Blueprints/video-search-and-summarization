@@ -271,10 +271,30 @@ def _nemoclaw_required_tools(spec: dict) -> list[str]:
     ]
 
 
-def generate_nemoclaw_prompt(profile: str, platform: str, profile_def: dict) -> str:
+def generate_nemoclaw_prompt(
+    profile: str,
+    platform: str,
+    profile_def: dict,
+    gpu_count: int,
+) -> str:
     underlying = deploy_profile(profile)
     deploy_mode = profile_def.get("deploy_mode")
     mode_phrase = f" in {deploy_mode} mode" if deploy_mode else ""
+    if gpu_count <= 0:
+        gpu_requirement = (
+            "- This trial reserves no GPUs. Use remote model endpoints and never request a local GPU device."
+        )
+    elif gpu_count == 1:
+        gpu_requirement = (
+            "- This trial reserves exactly 1 GPU; the only valid device ID is 0. "
+            "Leave GPU device-ID overrides unset so the profile uses shared placement on GPU 0. "
+            "Never request GPU 1 or another out-of-range device."
+        )
+    else:
+        gpu_requirement = (
+            f"- This trial reserves exactly {gpu_count} GPUs; valid device IDs are 0 through {gpu_count - 1}. "
+            "Never request an out-of-range device."
+        )
     return "\n".join([
         "You are running inside the automated GitHub VSS skill evaluation with NemoClaw/OpenClaw.",
         "",
@@ -285,6 +305,7 @@ def generate_nemoclaw_prompt(profile: str, platform: str, profile_def: dict) -> 
         "- Use the VSS Orchestrator MCP server for deployment.",
         "- Do not run raw docker compose, dev-profile.sh, or host shell deploy commands directly.",
         "- Call the orchestrator flow: prereqs, docker_generate, docker_up, then docker_status until terminal.",
+        gpu_requirement,
         "- Summarize the final deployment state and any failing service if deployment fails.",
         "",
         "Run autonomously. The evaluation harness has already authorized the deployment.",
@@ -573,7 +594,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
         "    git -c advice.detachedHead=false checkout --force FETCH_HEAD",
         "    git reset --hard FETCH_HEAD",
         "fi",
-        "git clean -fdx -e data/ -e .env",
+        "git clean -fdx -e data/ -e /.env",
         "cd - > /dev/null",
         'mkdir -p "$REPO/data"',
         "",
@@ -730,7 +751,7 @@ def generate_task(
         )
         if nemoclaw:
             (tests_dir / "nemoclaw_prompt.md").write_text(
-                generate_nemoclaw_prompt(profile, platform, profile_def)
+                generate_nemoclaw_prompt(profile, platform, profile_def, gpu_count)
             )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
