@@ -24,7 +24,7 @@ cleanup_docker_environment() {
     echo "Using profile: $APP_NAME$APP_MODE $STREAMING_SERVICE"
     
     # Stop the Redis message extractor if it's running
-    if [ ! -z "$EXTRACTOR_PID" ]; then
+    if [[ ! -z "$EXTRACTOR_PID" ]]; then
         echo "Stopping Redis message extractor (PID: $EXTRACTOR_PID)..."
         kill $EXTRACTOR_PID 2>/dev/null || echo "Extractor process already stopped"
     fi
@@ -35,7 +35,7 @@ cleanup_docker_environment() {
     
     # Build the docker compose command with optional profile
     COMPOSE_CMD="docker compose -f infra/compose.yml -f apps/mdx-apps.yml"
-    if [ "$STREAMING_SERVICE" != "kafka" ]; then
+    if [[ "$STREAMING_SERVICE" != "kafka" ]]; then
         COMPOSE_CMD="$COMPOSE_CMD --profile $STREAMING_SERVICE"
     fi
     COMPOSE_CMD="$COMPOSE_CMD down --volumes"

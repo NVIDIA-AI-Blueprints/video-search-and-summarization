@@ -29,7 +29,7 @@ check_ES_status(){
 
     # Wait for ES to come up
     until curl --output /dev/null --silent --head --fail -XGET "$ES_URL"; do
-        if [ ${ES_CONNECTION_RETRY_ATTEMPTS} -eq ${ES_CONNECTION_MAX_ATTEMPTS} ];then
+        if [[ ${ES_CONNECTION_RETRY_ATTEMPTS} -eq ${ES_CONNECTION_MAX_ATTEMPTS} ]];then
             exit_with_msg "Max attempts to connect to ES reached."
         fi
 
@@ -74,7 +74,7 @@ create_ilm_policy() {
     http_code=$(echo "$response" | tail -n1)
     response_body=$(echo "$response" | sed '$d')
     echo "HTTP code: ${http_code}"
-    if [ "${http_code}" -ne 200 ]; then
+    if [[ "${http_code}" -ne 200 ]]; then
         echo "Error response from Elasticsearch:" >&2
         echo "${response_body}" >&2
         exit_with_msg "Curl command to create ${policy_name} in Elasticsearch failed with HTTP status ${http_code}."

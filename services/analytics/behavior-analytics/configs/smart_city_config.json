@@ -198,10 +198,6 @@
 			"value": "0.9"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "geo"
-		},
-		{
 			"name": "sourceType",
 			"value": "kafka"
 		},

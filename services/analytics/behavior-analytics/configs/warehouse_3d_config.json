@@ -142,10 +142,6 @@
 			"value": "[\"Agility_Digit_Humanoid\",\"Fourier_GR1_T2_Humanoid\",\"Person\", \"Nova_Carter\"]"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
-		},
-		{
 			"name": "sourceType",
 			"value": "kafka"
 		},
