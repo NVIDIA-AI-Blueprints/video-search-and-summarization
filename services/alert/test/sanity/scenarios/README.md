@@ -23,6 +23,7 @@ Common env knobs:
 |---|---|---|
 | `ES_HOST` / `ES_PORT` | localhost / 9200 | Elasticsearch endpoint |
 | `AB_HOST` / `AB_PORT` | localhost / 9080 | Alert Bridge REST endpoint |
+| `METRICS_HOST` / `METRICS_PORT` | `ES_HOST` / 9081 | Alert Bridge Prometheus scrape endpoint |
 | `BOOTSTRAP` | 127.0.0.1:9092 | Kafka bootstrap (for Kafka-inject drops) |
 | `CATEGORY` | (unset → keep payload's) | Override `category` in injected payload to one the deployment recognizes (must match a configured `alert_type` in `alert_type_config.json`) |
 | `SANITY_ALLOW_RESTART` | 0 | Set `1` to permit drops whose `apply()` restarts AB |
@@ -88,6 +89,11 @@ Beyond those four points, every probe is free-form code.
 3. If apply needs a new config snapshot, add it under `fixtures/`.
 
 Runner code does not change.
+
+`02-prometheus-metrics-present.case` checks that the port 9081 scrape contains
+the canonical Kafka pipeline and `alert_bridge_ondemand_*` series. It requires
+Alert Agent to start with `PROMETHEUS_METRICS_ENABLED=true`; in probe-only mode
+an unreachable endpoint is reported as skipped.
 
 ## Troubleshooting
 

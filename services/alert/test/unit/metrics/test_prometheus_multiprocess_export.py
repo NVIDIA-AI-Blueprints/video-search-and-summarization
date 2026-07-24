@@ -54,10 +54,29 @@ from metrics.prometheus_metrics import (
     REALTIME_RULES_ACTIVE,
     REALTIME_RULES_CREATED,
 )
+from metrics.recorder import (
+    inc_ondemand_request,
+    observe_ondemand_vlm_duration,
+    record_ondemand_event_complete,
+)
+import time
 
 REALTIME_RULES_CREATED.inc()
 REALTIME_RULES_ACTIVE.set(3)
 EVENTS_TOTAL_BY_SENSOR.labels(verdict='confirmed', sensorId='cam-int').inc(2)
+inc_ondemand_request('accepted')
+observe_ondemand_vlm_duration(1.25)
+now = time.monotonic()
+record_ondemand_event_complete(
+    request_start_time=now - 0.2,
+    processing_start_time=now - 0.1,
+    message={
+        'info': {
+            'verdict': 'confirmed',
+            'verificationResponseCode': 200,
+        },
+    },
+)
 """
 subprocess.check_call([sys.executable, "-c", child_code])
 
@@ -92,3 +111,18 @@ print(generate_latest(registry).decode("utf-8"))
     assert 'sensorId="cam-int"' in output
     assert 'verdict="confirmed"' in output
     assert "alert_bridge_events_total_by_sensor" not in output
+    assert re.search(
+        r'^alert_bridge_ondemand_requests_total\{outcome="accepted"\}\s+1\.0$',
+        output,
+        re.M,
+    )
+    assert re.search(
+        r'^alert_bridge_ondemand_events_total\{verdict="confirmed"\}\s+1\.0$',
+        output,
+        re.M,
+    )
+    assert re.search(
+        r"^alert_bridge_ondemand_vlm_duration_seconds_count\s+1\.0$",
+        output,
+        re.M,
+    )
