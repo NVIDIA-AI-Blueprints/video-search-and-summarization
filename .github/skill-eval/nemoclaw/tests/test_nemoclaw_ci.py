@@ -63,6 +63,55 @@ skills_eval_agent = load_module(
 
 
 class NotebookSetupAdapterTest(unittest.TestCase):
+    def test_ci_confirms_only_the_managed_sandbox_it_recreates(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "NEMOCLAW_SANDBOX_NAME": "demo",
+                "NEMOCLAW_RECREATE_SANDBOX": "1",
+            },
+            clear=True,
+        ):
+            notebook_adapter._prepare_ci_nemoclaw_environment()
+
+            self.assertEqual(
+                os.environ["NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE"],
+                '["demo"]',
+            )
+
+    def test_ci_does_not_confirm_legacy_migration_without_recreation(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "NEMOCLAW_SANDBOX_NAME": "demo",
+                "NEMOCLAW_RECREATE_SANDBOX": "0",
+            },
+            clear=True,
+        ):
+            notebook_adapter._prepare_ci_nemoclaw_environment()
+
+            self.assertNotIn(
+                "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE",
+                os.environ,
+            )
+
+    def test_ci_preserves_explicit_legacy_migration_confirmation(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "NEMOCLAW_SANDBOX_NAME": "demo",
+                "NEMOCLAW_RECREATE_SANDBOX": "1",
+                "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE": '["demo","other"]',
+            },
+            clear=True,
+        ):
+            notebook_adapter._prepare_ci_nemoclaw_environment()
+
+            self.assertEqual(
+                os.environ["NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE"],
+                '["demo","other"]',
+            )
+
     def test_sidecar_manifest_matches_current_notebook_cells(self):
         manifest_path = REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "notebook_cells.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
