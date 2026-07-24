@@ -1,7 +1,7 @@
 # Sanity Drop 02 — Prometheus metrics endpoint exposes canonical AB metrics
 #
 # Verifies the /metrics endpoint (port 9081) is reachable and emits the
-# load-bearing 4 counters + 3 histograms from the prometheus_metrics spec.
+# load-bearing Kafka and on-demand counters/histograms from the metrics spec.
 #
 # Apply phase (optional): toggling PROMETHEUS_METRICS_ENABLED requires editing
 # the compose .env file or compose env section, then restarting alert-bridge.
@@ -9,7 +9,7 @@
 # enabled and just probes.
 
 PROBE="probes/assert_metrics_present.sh"
-PROBE_ENV_REQUIRED_METRICS="alert_bridge_events_after_dedup_total,alert_bridge_events_total,alert_bridge_verification_failures_total,alert_bridge_events_dropped_total,alert_bridge_e2e_duration_seconds_bucket,alert_bridge_vlm_duration_seconds_bucket,alert_bridge_worker_processing_seconds_bucket"
+PROBE_ENV_REQUIRED_METRICS="alert_bridge_events_after_dedup_total,alert_bridge_events_total,alert_bridge_verification_failures_total,alert_bridge_events_dropped_total,alert_bridge_e2e_duration_seconds_bucket,alert_bridge_vlm_duration_seconds_bucket,alert_bridge_worker_processing_seconds_bucket,alert_bridge_ondemand_requests_total,alert_bridge_ondemand_events_total,alert_bridge_ondemand_verification_failures_total,alert_bridge_ondemand_e2e_duration_seconds_bucket,alert_bridge_ondemand_vlm_duration_seconds_bucket,alert_bridge_ondemand_processing_seconds_bucket"
 WAIT_TRAFFIC_SECONDS=0
 
 apply() {

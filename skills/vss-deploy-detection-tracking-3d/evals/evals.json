@@ -12,12 +12,12 @@
     ]
   },
   {
-    "id": "mv3dt-profile-size-overlays",
-    "question": "I'm deploying MV3DT and want bounding-box overlays on the VST video wall. Which profile should I use?",
+    "id": "mv3dt-deployment-size-overlays",
+    "question": "I'm deploying MV3DT and want bounding-box overlays on the VST video wall. Which deployment size should I use?",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "Recommends the extended profile (MINIMAL_PROFILE=\"\") because overlays require the ELK + video-analytics-api + import-calibration services to be populated; explains that minimal mode shows raw streams without overlays and that there is no minimal-plus-ELK middle path.",
+    "ground_truth": "Recommends the extended service list (MINIMAL_PROFILE=\"\") because overlays require the ELK + video-analytics-api + import-calibration services to be populated; explains that the _MINIMAL list shows raw streams without overlays and that there is no minimal-plus-ELK middle path.",
     "expected_behavior": [
-      "Chooses the extended profile (MINIMAL_PROFILE empty) for overlays.",
+      "Chooses the extended service list (MINIMAL_PROFILE empty) for overlays.",
       "Explains overlays need Elasticsearch / video-analytics-api, which minimal mode omits.",
       "Does not claim a 'minimal + ELK only' middle path exists."
     ]
