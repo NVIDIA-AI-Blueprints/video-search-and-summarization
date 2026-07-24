@@ -94,7 +94,9 @@ Use the same resolved model:
 docker compose -f "$BUILD_DIR/resolved.yml" down
 ```
 
-Do not remove volumes unless the user explicitly requests data deletion.
+Do not remove volumes unless the user explicitly requests data deletion. For a
+full host reclaim or cache-preserving cleanup, follow
+[`teardown.md`](teardown.md).
 
 ## Sources
 
