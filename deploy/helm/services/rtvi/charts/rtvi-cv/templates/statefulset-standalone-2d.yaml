@@ -113,7 +113,9 @@ spec:
               while true; do
                 READY=true
                 {{- range .Values.ngcModelsToDownload }}
-                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
+                DEST_REL={{ .destPath | quote }}
+                MARKER="${MODELS_ROOT}/.${DEST_REL//\//__}.done"
+                if [[ ! -e "${MODELS_ROOT}/${DEST_REL}" || ! -f "${MARKER}" ]]; then
                   READY=false
                 fi
                 {{- end }}
@@ -128,7 +130,7 @@ spec:
                 sleep 15
                 ELAPSED=$((ELAPSED + 15))
               done
-              echo "[INFO] Model files present, proceeding."
+              echo "[INFO] Model files and completion markers present, proceeding."
           volumeMounts:
             - name: models
               mountPath: /models-data

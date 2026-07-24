@@ -16,6 +16,17 @@
 include:
 
 services:
+  models-download-warehouse-mv3dt:
+    extends:
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      service: download-models
+    # Keep the downloader in the same profile so every MV3DT perception start includes it.
+    profiles: ["vss-rtvi-cv-mv3dt"]
+    container_name: vss-rtvi-cv-init
+    volumes:
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/models-download.json:/opt/config/models-download.json:ro
+
   vss-behavior-analytics-mv3dt:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
@@ -272,8 +283,7 @@ services:
     container_name: vss-rtvi-cv-mv3dt
 
     volumes:
-      - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
-      - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
+      - $VSS_DATA_DIR/models/:/opt/storage/
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/:/tmp/camInfo/
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
@@ -294,6 +304,8 @@ services:
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
     command: ["./ds-start-mv3dt.sh"]
     depends_on:
+      models-download-warehouse-mv3dt:
+        condition: service_completed_successfully
       sensor-ms-mv3dt:
         condition: service_started
       broker-health-check:

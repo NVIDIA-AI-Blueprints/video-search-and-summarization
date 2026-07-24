@@ -111,7 +111,8 @@ ngcDownload:
 ngcModelsToDownload:
   []
 
-# NGC *resource* bundle (videos + warehouse models) for warehouse standalone profile modes.
+# NGC *resource* bundle used for warehouse videos, playback, and calibration data.
+# RT-CV models are downloaded separately through ngcModelsToDownload.
 # Download Job unpacks the .tar.gz onto the shared -models PVC under vss-warehouse-app-data/.
 downloadNgcAppData: false
 ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
@@ -136,11 +137,6 @@ standaloneWarehouse:
   networkWidth: "960"
   networkHeight: "540"
   hardwareProfile: ""
-  # Sparse4D weights inside PVC (paths relative to PVC root; default matches NGC vss-warehouse-app-data layout).
-  sparse4dOnnxFile: sparse4d_warehouse_v2.2.onnx
-  sparse4dNpyFile: _ov_kmeans900_v2.2.npy
-  pvcOnnxSubPath: vss-warehouse-app-data/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx
-  pvcNpySubPath: vss-warehouse-app-data/models/sparse4d/ov/_ov_kmeans900_v2.2.npy
   mv3dt:
     instanceId: "0"
     batchSize: "4"
@@ -151,9 +147,6 @@ standaloneWarehouse:
     redisHost: ""
     redisPort: "6379"
     deepstreamEnableSensorIdExtraction: "0"
-    rtdetrOnnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
-    rtdetrPvcSubPath: vss-warehouse-app-data/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx
-    bodyPosePvcSubPath: vss-warehouse-app-data/models/mv3dt/BodyPose3DNet
     fusion:
       enabled: true
       image:

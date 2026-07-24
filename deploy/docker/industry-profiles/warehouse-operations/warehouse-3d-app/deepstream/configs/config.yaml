@@ -14,8 +14,8 @@
 # limitations under the License.
 
 # Inference Properties
-onnx_file: /opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.2.onnx
-engine_file: /opt/storage/model.engine
+onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx
+engine_file: /opt/storage/sparse4d/model.engine
 labels_file: /opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
 gpu_id: 0 # GPU ID to use for tensor operations
 batch_size: 1 # Sparse4D model batch size

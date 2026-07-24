@@ -79,16 +79,16 @@ spec:
             - name: models
               mountPath: /models-data
         {{- else }}
-        - name: wait-for-warehouse-models
+        - name: wait-for-warehouse-videos
           image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
             - |
-              echo "Waiting for MV3DT model files under /models-data ..."
+              echo "Waiting for bundled videos under /models-data/vss-warehouse-app-data/videos ..."
               elapsed=0
               timeout={{ .Values.downloadNgcAppDataWaitSeconds | default 3600 }}
-              until test -f "/models-data/{{ $mv3dt.rtdetrPvcSubPath }}" && test -d "/models-data/{{ $mv3dt.bodyPosePvcSubPath }}"; do
+              until test -d /models-data/vss-warehouse-app-data/videos; do
                 if test "${elapsed}" -ge "${timeout}"; then
                   echo "[ERROR] Timeout: mount NGC data or enable downloadNgcAppData"
                   exit 1
@@ -100,26 +100,55 @@ spec:
             - name: models
               mountPath: /models-data
         {{- end }}
-        - name: prepare-mv3dt-models
+        {{- if .Values.downloadModelsFromNgc }}
+        - name: wait-for-models
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              MODELS_ROOT="/models-data"
+              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
+              ELAPSED=0
+              while true; do
+                READY=true
+                {{- range .Values.ngcModelsToDownload }}
+                DEST_REL={{ .destPath | quote }}
+                MARKER="${MODELS_ROOT}/.${DEST_REL//\//__}.done"
+                if [[ ! -e "${MODELS_ROOT}/${DEST_REL}" || ! -f "${MARKER}" ]]; then
+                  READY=false
+                fi
+                {{- end }}
+                if [[ "${READY}" == "true" ]]; then
+                  break
+                fi
+                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
+                  exit 1
+                fi
+                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
+                sleep 15
+                ELAPSED=$((ELAPSED + 15))
+              done
+              echo "[INFO] Model files and completion markers present, proceeding."
+          volumeMounts:
+            - name: models
+              mountPath: /models-data
+        {{- end }}
+        - name: ensure-mv3dt-engine-dirs
           image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
             - |
               set -e
-              rtdetr_src="/models-data/{{ $mv3dt.rtdetrPvcSubPath }}"
-              bodypose_src="/models-data/{{ $mv3dt.bodyPosePvcSubPath }}"
-              test -f "${rtdetr_src}"
-              test -d "${bodypose_src}"
               mkdir -p /opt/storage/BodyPose3DNet
-              cp -f "${rtdetr_src}" "/opt/storage/{{ $mv3dt.rtdetrOnnxFile }}"
-              cp -a "${bodypose_src}/." /opt/storage/BodyPose3DNet/
-              chmod -R 777 /opt/storage || true
-              echo "[INFO] MV3DT model files prepared under /opt/storage"
+              chmod 0777 /opt/storage /opt/storage/BodyPose3DNet
+              echo "[INFO] MV3DT engine directories ready."
           volumeMounts:
             - name: models
-              mountPath: /models-data
-            - name: runtime-storage
               mountPath: /opt/storage
         {{- if eq ($sw.streamType | default "none") "kafka" }}
         - name: wait-for-kafka
@@ -212,7 +241,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-            - name: runtime-storage
+            - name: models
               mountPath: /opt/storage
             - name: mv3dt-start
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
@@ -230,8 +259,6 @@ spec:
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
-        - name: runtime-storage
-          emptyDir: {}
         - name: generated
           emptyDir: {}
         - name: mv3dt-start

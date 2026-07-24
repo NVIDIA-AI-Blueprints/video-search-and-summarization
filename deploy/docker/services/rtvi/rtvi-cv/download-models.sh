@@ -100,9 +100,10 @@ expand_manifest_to_json() {
   echo "$downloads_json" | jq -c --arg default_org "$NGC_ORG_DEFAULT" 'map(.org = (.org // $default_org))'
 }
 
-# Developer profiles acquire individual NGC *model* packages (nvidia/tao/*).
+# RT-CV developer and warehouse profiles acquire individual NGC *model* packages
+# (nvidia/tao/*) through this manifest-driven path.
 # Whole-tree NGC *resource* bundles (e.g. vss-warehouse-app-data) are intentionally NOT
-# handled here: warehouse profiles receive them via the pre-extracted VSS_DATA_DIR mount.
+# handled here: warehouse non-model app data is delivered separately.
 download_package() {
   local package_ref="$1"
   local org="$2"

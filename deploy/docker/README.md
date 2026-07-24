@@ -110,7 +110,7 @@ preview the commands and generated environment without starting containers.
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
 - **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search) is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.json` manifests. **Warehouse profiles do not use `models-download-*`** — they obtain models (and other app data) from the pre-extracted `VSS_DATA_DIR` bundle (see the warehouse section below).
+- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) is handled by profile-scoped init services (`models-download-*`) that extend the canonical `download-models` service and read per-profile `models-download.json` manifests. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
 
 ### Direct Compose usage and data directories
 
@@ -251,7 +251,10 @@ Compose from **`deploy/docker`**.
 
 1. **Model and app-data inputs**
 
-Warehouse profiles obtain **all** required inputs — models, videos, and playback/calibration data — from the `vss-warehouse-app-data` NGC resource bundle, which you download and extract once and point `VSS_DATA_DIR` at. Unlike the developer profiles, warehouse does **not** use a `models-download-*` init service: the bundle is a whole-tree artifact consumed across several services via `VSS_DATA_DIR`, so it is pre-staged on the host (the Docker analogue of Helm's `job-download-ngc-app-data`).
+Warehouse uses two acquisition paths:
+
+- The `vss-warehouse-app-data` NGC resource remains the source for videos, playback, and calibration data.
+- Each RT-CV profile uses a `models-download-warehouse-*` init service to download its versioned NGC model packages into the flattened `$VSS_DATA_DIR/models/` tree before perception starts.
 
 Download and extract the warehouse app data:
 
@@ -267,7 +270,14 @@ ngc \
 
 cd vss-warehouse-app-data_v3.2.0
 tar -xvf vss-warehouse-app-data.tar.gz
-sudo chmod -R 777 /path/to/vss-warehouse-app-data
+
+# Prepare the writable model destination used by the model-download init service
+
+sudo mkdir -p /path/to/vss-warehouse-app-data/models
+sudo chmod 0777 /path/to/vss-warehouse-app-data/models
+
+# This is the path to the data directory. It is set in the industry-profiles/warehouse-operations/.env file for VSS_DATA_DIR.
+#VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
 ```
 
 2. **Edit deployment overrides**
@@ -280,7 +290,7 @@ machine and selected warehouse scenario:
 - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
 - **`VSS_DATA_DIR`**: extracted warehouse app data directory
 - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
-- **`NGC_CLI_API_KEY`**, **`NVIDIA_API_KEY`**, **`OPENAI_API_KEY`** as needed
+- **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse, Sparse4D, and BodyPose3DNet model packages required by the selected mode; also **`NVIDIA_API_KEY`**, **`OPENAI_API_KEY`** as needed
 - **`MODE`**: `2d`, `3d`, or `mv3dt`
 - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`
 - **`HARDWARE_PROFILE`**, model settings, public ingress settings, and host-published ports
@@ -290,6 +300,8 @@ machine and selected warehouse scenario:
 `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`. Keep `MODE`,
 `BP_PROFILE`, `STREAM_TYPE`, sample dataset settings, and `COMPOSE_PROFILES`
 aligned with the comments in `overrides.env`.
+
+   Model destinations are shared across profiles: RT-DETR is stored at `models/rtdetr_warehouse_v1.0.2.fp16.onnx`, Sparse4D at `models/sparse4d/sparse4d_warehouse_v2.2.onnx`, and BodyPose3DNet at `models/BodyPose3DNet/bodypose3dnet_accuracy.onnx`.
 
 3. **Start the stack**
 
