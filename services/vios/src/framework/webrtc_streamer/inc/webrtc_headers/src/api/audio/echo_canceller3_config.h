@@ -23,6 +23,9 @@ struct RTC_EXPORT EchoCanceller3Config {
   // ranges. Returns true if and only of the config did not need to be changed.
   static bool Validate(EchoCanceller3Config* config);
 
+  // Produces a default configuration for multichannel.
+  static EchoCanceller3Config CreateDefaultMultichannelConfig();
+
   EchoCanceller3Config();
   EchoCanceller3Config(const EchoCanceller3Config& e);
   EchoCanceller3Config& operator=(const EchoCanceller3Config& other);
@@ -48,7 +51,7 @@ struct RTC_EXPORT EchoCanceller3Config {
     struct DelaySelectionThresholds {
       int initial;
       int converged;
-    } delay_selection_thresholds = {5, 20};
+    } delay_selection_thresholds = {.initial = 5, .converged = 20};
     bool use_external_delay_estimator = false;
     bool log_warning_on_delay_changes = false;
     struct AlignmentMixing {
@@ -57,8 +60,16 @@ struct RTC_EXPORT EchoCanceller3Config {
       float activity_power_threshold;
       bool prefer_first_two_channels;
     };
-    AlignmentMixing render_alignment_mixing = {false, true, 10000.f, true};
-    AlignmentMixing capture_alignment_mixing = {false, true, 10000.f, false};
+    AlignmentMixing render_alignment_mixing = {
+        .downmix = false,
+        .adaptive_selection = true,
+        .activity_power_threshold = 10000.f,
+        .prefer_first_two_channels = true};
+    AlignmentMixing capture_alignment_mixing = {
+        .downmix = false,
+        .adaptive_selection = true,
+        .activity_power_threshold = 10000.f,
+        .prefer_first_two_channels = false};
     bool detect_pre_echo = true;
   } delay;
 
@@ -78,13 +89,25 @@ struct RTC_EXPORT EchoCanceller3Config {
       float noise_gate;
     };
 
-    RefinedConfiguration refined = {13,     0.00005f, 0.05f,
-                                    0.001f, 2.f,      20075344.f};
-    CoarseConfiguration coarse = {13, 0.7f, 20075344.f};
+    RefinedConfiguration refined = {.length_blocks = 13,
+                                    .leakage_converged = 0.00005f,
+                                    .leakage_diverged = 0.05f,
+                                    .error_floor = 0.001f,
+                                    .error_ceil = 2.f,
+                                    .noise_gate = 20075344.f};
+    CoarseConfiguration coarse = {.length_blocks = 13,
+                                  .rate = 0.7f,
+                                  .noise_gate = 20075344.f};
 
-    RefinedConfiguration refined_initial = {12,     0.005f, 0.5f,
-                                            0.001f, 2.f,    20075344.f};
-    CoarseConfiguration coarse_initial = {12, 0.9f, 20075344.f};
+    RefinedConfiguration refined_initial = {.length_blocks = 12,
+                                            .leakage_converged = 0.005f,
+                                            .leakage_diverged = 0.5f,
+                                            .error_floor = 0.001f,
+                                            .error_ceil = 2.f,
+                                            .noise_gate = 20075344.f};
+    CoarseConfiguration coarse_initial = {.length_blocks = 12,
+                                          .rate = 0.9f,
+                                          .noise_gate = 20075344.f};
 
     size_t config_change_duration_blocks = 250;
     float initial_state_seconds = 2.5f;
@@ -219,8 +242,8 @@ struct RTC_EXPORT EchoCanceller3Config {
         size_t low;
         size_t high;
       };
-      SubbandRegion subband1 = {1, 1};
-      SubbandRegion subband2 = {1, 1};
+      SubbandRegion subband1 = {.low = 1, .high = 1};
+      SubbandRegion subband2 = {.low = 1, .high = 1};
       float nearend_threshold = 1.f;
       float snr_threshold = 1.f;
     } subband_nearend_detection;
@@ -233,6 +256,11 @@ struct RTC_EXPORT EchoCanceller3Config {
       float anti_howling_activation_threshold = 400.f;
       float anti_howling_gain = 1.f;
     } high_bands_suppression;
+
+    struct HighFrequencySuppression {
+      int limiting_gain_band = 16;
+      int bands_in_limiting_gain = 1;
+    } high_frequency_suppression;
 
     float floor_first_increase = 0.00001f;
     bool conservative_hf_suppression = false;

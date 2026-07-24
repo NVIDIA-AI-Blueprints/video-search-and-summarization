@@ -13,23 +13,24 @@
 
 #include <stddef.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <vector>
 
 #include "absl/algorithm/container.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "absl/types/variant.h"
-#include "api/array_view.h"
-#include "api/audio_codecs/audio_format.h"
-#include "api/rtp_headers.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
-#include "modules/rtp_rtcp/source/rtcp_packet/remote_estimate.h"
-#include "system_wrappers/include/clock.h"
+#include "modules/rtp_rtcp/source/rtcp_packet.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/congestion_control_feedback.h"
+#include "rtc_base/checks.h"
 
 #define RTCP_CNAME_SIZE 256  // RFC 3550 page 44, including null termination
 #define IP_PACKET_SIZE 1500  // we assume ethernet
@@ -37,9 +38,11 @@
 namespace webrtc {
 class RtpPacket;
 class RtpPacketToSend;
+class RtpPacketReceived;
+
 namespace rtcp {
 class TransportFeedback;
-}
+}  // namespace rtcp
 
 const int kVideoPayloadTypeFrequency = 90000;
 
@@ -75,13 +78,10 @@ enum RTPExtensionType : int {
   kRtpExtensionRepairedRtpStreamId,
   kRtpExtensionMid,
   kRtpExtensionGenericFrameDescriptor,
-  kRtpExtensionGenericFrameDescriptor00 [[deprecated]] =
-      kRtpExtensionGenericFrameDescriptor,
   kRtpExtensionDependencyDescriptor,
-  kRtpExtensionGenericFrameDescriptor02 [[deprecated]] =
-      kRtpExtensionDependencyDescriptor,
   kRtpExtensionColorSpace,
   kRtpExtensionVideoFrameTrackingId,
+  kRtpExtensionCorruptionDetection,
   kRtpExtensionNumberOfExtensions  // Must be the last entity in the enum.
 };
 
@@ -106,7 +106,7 @@ enum RTCPPacketType : uint32_t {
   kRtcpXrReceiverReferenceTime = 0x40000,
   kRtcpXrDlrrReportBlock = 0x80000,
   kRtcpTransportFeedback = 0x100000,
-  kRtcpXrTargetBitrate = 0x200000
+  kRtcpXrTargetBitrate = 0x200000,
 };
 
 enum class KeyFrameReqMethod : uint8_t {
@@ -123,6 +123,11 @@ enum RtxMode {
 };
 
 const size_t kRtxHeaderSize = 2;
+
+// Special values for SSRC, used when sending receiver reports from
+// receive-only endpoints.
+inline constexpr uint32_t kFallbackRtcpSsrcForVideo = 1;
+inline constexpr uint32_t kFallbackRtcpSsrcForAudio = 0xFA17FA17;
 
 struct RtpState {
   uint16_t sequence_number = 0;
@@ -161,16 +166,21 @@ class NetworkLinkRtcpObserver {
  public:
   virtual ~NetworkLinkRtcpObserver() = default;
 
-  virtual void OnTransportFeedback(Timestamp receive_time,
-                                   const rtcp::TransportFeedback& feedback) {}
-  virtual void OnReceiverEstimatedMaxBitrate(Timestamp receive_time,
-                                             DataRate bitrate) {}
+  virtual void OnTransportFeedback(
+      Timestamp /* receive_time */,
+      const rtcp::TransportFeedback& /* feedback */) {}
+  // RFC 8888 congestion control feedback.
+  virtual void OnCongestionControlFeedback(
+      Timestamp /* receive_time */,
+      const rtcp::CongestionControlFeedback& /* feedback */) {}
+  virtual void OnReceiverEstimatedMaxBitrate(Timestamp /* receive_time */,
+                                             DataRate /* bitrate */) {}
 
   // Called on an RTCP packet with sender or receiver reports with non zero
   // report blocks. Report blocks are combined from all reports into one array.
-  virtual void OnReport(Timestamp receive_time,
-                        rtc::ArrayView<const ReportBlockData> report_blocks) {}
-  virtual void OnRttUpdate(Timestamp receive_time, TimeDelta rtt) {}
+  virtual void OnReport(Timestamp /* receive_time */,
+                        std::span<const ReportBlockData> /* report_blocks */) {}
+  virtual void OnRttUpdate(Timestamp /* receive_time */, TimeDelta /* rtt */) {}
 };
 
 // NOTE! `kNumMediaTypes` must be kept in sync with RtpPacketMediaType!
@@ -184,27 +194,10 @@ enum class RtpPacketMediaType : size_t {
   // Again, don't forget to update `kNumMediaTypes` if you add another value!
 };
 
-struct RtpPacketSendInfo {
-  uint16_t transport_sequence_number = 0;
-  absl::optional<uint32_t> media_ssrc;
-  uint16_t rtp_sequence_number = 0;  // Only valid if `media_ssrc` is set.
-  uint32_t rtp_timestamp = 0;
-  size_t length = 0;
-  absl::optional<RtpPacketMediaType> packet_type;
-  PacedPacketInfo pacing_info;
-};
-
 class NetworkStateEstimateObserver {
  public:
   virtual void OnRemoteNetworkEstimate(NetworkStateEstimate estimate) = 0;
   virtual ~NetworkStateEstimateObserver() = default;
-};
-
-class TransportFeedbackObserver {
- public:
-  virtual ~TransportFeedbackObserver() = default;
-
-  virtual void OnAddPacket(const RtpPacketSendInfo& packet_info) = 0;
 };
 
 // Interface for PacketRouter to send rtcp feedback on behalf of
@@ -227,7 +220,7 @@ class StreamFeedbackObserver {
 
     // `rtp_sequence_number` and `is_retransmission` are only valid if `ssrc`
     // is populated.
-    absl::optional<uint32_t> ssrc;
+    std::optional<uint32_t> ssrc;
     uint16_t rtp_sequence_number;
     bool is_retransmission;
   };
@@ -249,25 +242,30 @@ class StreamFeedbackProvider {
 
 class RtcpRttStats {
  public:
+  virtual ~RtcpRttStats() = default;
   virtual void OnRttUpdate(int64_t rtt) = 0;
-
-  virtual int64_t LastProcessedRtt() const = 0;
-
-  virtual ~RtcpRttStats() {}
 };
 
 struct RtpPacketCounter {
   RtpPacketCounter()
-      : header_bytes(0), payload_bytes(0), padding_bytes(0), packets(0) {}
+      : header_bytes(0),
+        payload_bytes(0),
+        padding_bytes(0),
+        packets(0),
+        packets_with_ect1(0),
+        packets_with_ce(0) {}
 
   explicit RtpPacketCounter(const RtpPacket& packet);
   explicit RtpPacketCounter(const RtpPacketToSend& packet_to_send);
+  explicit RtpPacketCounter(const RtpPacketReceived& packet_received);
 
   void Add(const RtpPacketCounter& other) {
     header_bytes += other.header_bytes;
     payload_bytes += other.payload_bytes;
     padding_bytes += other.padding_bytes;
     packets += other.packets;
+    packets_with_ect1 += other.packets_with_ect1;
+    packets_with_ce += other.packets_with_ce;
     total_packet_delay += other.total_packet_delay;
   }
 
@@ -275,12 +273,15 @@ struct RtpPacketCounter {
     return header_bytes == other.header_bytes &&
            payload_bytes == other.payload_bytes &&
            padding_bytes == other.padding_bytes && packets == other.packets &&
+           packets_with_ect1 == other.packets_with_ect1 &&
+           packets_with_ce == other.packets_with_ce &&
            total_packet_delay == other.total_packet_delay;
   }
 
   // Not inlined, since use of RtpPacket would result in circular includes.
   void AddPacket(const RtpPacket& packet);
   void AddPacket(const RtpPacketToSend& packet_to_send);
+  void AddPacket(const RtpPacketReceived& packet_received);
 
   size_t TotalBytes() const {
     return header_bytes + payload_bytes + padding_bytes;
@@ -290,9 +291,11 @@ struct RtpPacketCounter {
   size_t payload_bytes;  // Payload bytes, excluding RTP headers and padding.
   size_t padding_bytes;  // Number of padding bytes.
   size_t packets;        // Number of packets.
+  size_t packets_with_ect1;  // Number of packets with ECT1 flag set to true.
+  size_t packets_with_ce;    // Number of packets with CE flag set to true.
   // The total delay of all `packets`. For RtpPacketToSend packets, this is
   // `time_in_send_queue()`. For receive packets, this is zero.
-  webrtc::TimeDelta total_packet_delay = webrtc::TimeDelta::Zero();
+  TimeDelta total_packet_delay = TimeDelta::Zero();
 };
 
 // Data usage statistics for a (rtp) stream.
@@ -340,16 +343,8 @@ struct StreamDataCounters {
 };
 
 class RtpSendRates {
-  template <std::size_t... Is>
-  constexpr std::array<DataRate, sizeof...(Is)> make_zero_array(
-      std::index_sequence<Is...>) {
-    return {{(static_cast<void>(Is), DataRate::Zero())...}};
-  }
-
  public:
-  RtpSendRates()
-      : send_rates_(
-            make_zero_array(std::make_index_sequence<kNumMediaTypes>())) {}
+  constexpr RtpSendRates() = default;
   RtpSendRates(const RtpSendRates& rhs) = default;
   RtpSendRates& operator=(const RtpSendRates&) = default;
 
@@ -372,6 +367,10 @@ class StreamDataCountersCallback {
  public:
   virtual ~StreamDataCountersCallback() {}
 
+  // TODO: webrtc:40644448 - Make this pure virtual.
+  virtual StreamDataCounters GetDataCounters(uint32_t ssrc) const {
+    RTC_CHECK_NOTREACHED();
+  }
   virtual void DataCountersUpdated(const StreamDataCounters& counters,
                                    uint32_t ssrc) = 0;
 };
@@ -385,11 +384,11 @@ struct RtpReceiveStats {
   // Interarrival jitter in samples.
   uint32_t jitter = 0;
   // Interarrival jitter in time.
-  webrtc::TimeDelta interarrival_jitter = webrtc::TimeDelta::Zero();
+  TimeDelta interarrival_jitter = TimeDelta::Zero();
 
   // Time of the last packet received in unix epoch,
   // i.e. Timestamp::Zero() represents 1st Jan 1970 00:00
-  absl::optional<Timestamp> last_packet_received;
+  std::optional<Timestamp> last_packet_received;
 
   // Counters exposed in RTCInboundRtpStreamStats, see
   // https://w3c.github.io/webrtc-stats/#inboundrtpstats-dict*
@@ -406,23 +405,12 @@ class BitrateStatisticsObserver {
                       uint32_t ssrc) = 0;
 };
 
-// Callback, used to notify an observer whenever the send-side delay is updated.
-class SendSideDelayObserver {
- public:
-  virtual ~SendSideDelayObserver() {}
-  virtual void SendSideDelayUpdated(int avg_delay_ms,
-                                    int max_delay_ms,
-                                    uint32_t ssrc) = 0;
-};
-
 // Callback, used to notify an observer whenever a packet is sent to the
 // transport.
-// TODO(asapersson): This class will remove the need for SendSideDelayObserver.
-// Remove SendSideDelayObserver once possible.
 class SendPacketObserver {
  public:
   virtual ~SendPacketObserver() = default;
-  virtual void OnSendPacket(uint16_t packet_id,
+  virtual void OnSendPacket(std::optional<uint16_t> packet_id,
                             Timestamp capture_time,
                             uint32_t ssrc) = 0;
 };
