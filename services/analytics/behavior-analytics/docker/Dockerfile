@@ -93,7 +93,6 @@ RUN echo "deb-src http://deb.debian.org/debian trixie main" >> /etc/apt/sources.
 # Copy python app here
 WORKDIR /behavior-analytics
 
-
 # Resolves issue with installing python package fiona on arch64
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
         apt-get update && \
