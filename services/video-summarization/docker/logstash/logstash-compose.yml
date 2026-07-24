@@ -19,7 +19,7 @@ name: lvs-logstash-standalone
 
 services:
   logstash:
-    image: docker.elastic.co/logstash/logstash:${LOGSTASH_VERSION:-9.3.3}
+    image: docker.elastic.co/logstash/logstash:${LOGSTASH_VERSION:-9.4.3}
     container_name: lvs-logstash
     # The stock image's ENTRYPOINT is /usr/local/bin/docker-entrypoint. We
     # override it so the conditional plugin install can run first, then

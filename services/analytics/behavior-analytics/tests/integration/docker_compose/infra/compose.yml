@@ -16,7 +16,7 @@
 services:
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
     network_mode: "host"
     environment:
       ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
@@ -48,7 +48,7 @@ services:
       - elasticsearch
 
   kafka:
-    image: confluentinc/cp-kafka:8.2.0
+    image: confluentinc/cp-kafka:8.3.0
     network_mode: "host"
     volumes:
       - mdx-kafka:/tmp/kafka-data
@@ -83,7 +83,7 @@ services:
       start_period: 60s
 
   kafka-topic-init-container:
-    image: confluentinc/cp-kafka:8.2.0
+    image: confluentinc/cp-kafka:8.3.0
     container_name: mdx-kafka-topics
     network_mode: "host"
     volumes:
@@ -173,7 +173,7 @@ services:
       KAFKA_TOPICS: "mdx-raw,mdx-bev,mdx-behavior,mdx-frames,mdx-events,mdx-space-utilization,mdx-incidents"
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.3.3
+    image: docker.elastic.co/kibana/kibana:9.4.3
     network_mode: "host"
     volumes:
       - $MDX_SAMPLE_APPS_DIR/infra/elk/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
@@ -190,7 +190,7 @@ services:
       start_period: 30s
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.3.3
+    image: docker.elastic.co/logstash/logstash:9.4.3
     network_mode: "host"
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs

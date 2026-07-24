@@ -34,7 +34,7 @@ Elasticsearch.
 ## How it runs
 
 There is **no custom Dockerfile**. The sidecar uses the stock
-`docker.elastic.co/logstash/logstash:9.3.3` image and installs the
+`docker.elastic.co/logstash/logstash:9.4.3` image and installs the
 `logstash-codec-protobuf` plugin on first container boot, caching the
 gem tree in a Docker named volume so subsequent recreates skip the
 install. All configuration (`config/logstash.yml`,
