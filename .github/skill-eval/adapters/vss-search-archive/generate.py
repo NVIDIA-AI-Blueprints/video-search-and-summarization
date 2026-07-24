@@ -9,12 +9,12 @@ sources. Search commands run from the repository checkout as ``uv run --project
 "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run --deployment docker
 --profile search ...``; they never run
 through a container/pod shell or a manually selected search endpoint.
-It runs against a **full-remote-deployed VSS search profile** (deploy mode
-= `remote-all`; LLM and VLM both remote — Cosmos Embed1 and Elasticsearch
-still run locally on the GPU host). The first generated step deploys that
-profile, then uses the agent-backed upload and completion handshake to seed
-the two named sample videos and their search indexes. Later steps reuse that
-prepared state.
+It runs against a **full-remote-model VSS search profile** (deploy mode
+= `remote-all`; LLM and underlying VLM inference use remote endpoints, while
+the RT-VLM media proxy, Cosmos Embed1, and Elasticsearch remain local on the
+GPU host). The first generated step deploys that profile, then uses the
+agent-backed upload and completion handshake to seed the two named sample
+videos and their search indexes. Later steps reuse that prepared state.
 
 Mirrors the vss-manage-video-io-storage adapter's shape — single-task-per-platform, step-chained
 under the spec's prerequisite profile name. The platform comes exclusively

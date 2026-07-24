@@ -1443,41 +1443,60 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
 def _parse_brev_json(raw: str | None) -> list[dict]:
     """Strip trailing walkthrough text and parse JSON from brev CLI.
 
-    Handles both the legacy bare-array format (``[{...}, ...]``) and the
-    newer wrapped format (``{"workspaces": [{...}, ...]}``) introduced in
-    recent brev CLI versions.
+    Handles legacy flat arrays (`[{...}, ...]`) and object envelopes such as
+    `{"workspaces": [{...}, ...]}`.
     """
     if not raw:
         return []
-    # Try full parse first (handles both formats without bracket heuristics)
-    stripped = raw.strip()
-    try:
-        parsed = json.loads(stripped)
+
+    def _extract_list(parsed: object) -> list[dict]:
         if isinstance(parsed, list):
             return parsed
-        if isinstance(parsed, dict) and "workspaces" in parsed:
-            return parsed["workspaces"]
+        if isinstance(parsed, dict):
+            for key in ("workspaces", "instances", "nodes"):
+                if isinstance(parsed.get(key), list):
+                    return parsed[key]
+            for value in parsed.values():
+                if isinstance(value, list):
+                    return value
         return []
+
+    # Try full parse first (handles both formats without bracket heuristics).
+    stripped = raw.strip()
+    try:
+        return _extract_list(json.loads(stripped))
     except json.JSONDecodeError:
         pass
-    # Fallback: strip trailing walkthrough text after last `]`
+
+    # Fallback: strip trailing walkthrough text after last `]`.
     bracket = raw.rfind("]")
     if bracket < 0:
         return []
+
+    # Try a full object envelope first; this handles `{"workspaces": [...]}` plus
+    # trailing CLI text.
+    brace_end = raw.rfind("}")
+    if brace_end > bracket:
+        try:
+            parsed = json.loads(raw[: brace_end + 1])
+            extracted = _extract_list(parsed)
+            if extracted:
+                return extracted
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback: extract the final flat JSON array prefix.
     try:
-        parsed = json.loads(raw[: bracket + 1])
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict) and "workspaces" in parsed:
-            return parsed["workspaces"]
-        return []
+        return _extract_list(json.loads(raw[: bracket + 1]))
     except json.JSONDecodeError:
         pass
-    # Last resort: extract the inner array from {"workspaces": [...]}
+
+    # Last resort: extract the inner-most array from an otherwise partial
+    # wrapper.
     start = raw.find("[")
     if start >= 0 and bracket > start:
         try:
-            return json.loads(raw[start: bracket + 1])
+            return _extract_list(json.loads(raw[start: bracket + 1]))
         except json.JSONDecodeError:
             pass
     return []
