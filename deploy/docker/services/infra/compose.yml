@@ -78,7 +78,7 @@ services:
     ports:
       - ${MQTT_HOST_PORT:-1883}:${MQTT_PORT:-1883}
     restart: always
-    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf", "-p", "${MQTT_PORT:-1883}"]
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     volumes:
       - $VSS_APPS_DIR/services/infra/mosquitto/configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     healthcheck:
