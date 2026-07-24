@@ -56,21 +56,31 @@ Models are **not** baked into the image — stage on the host before bring-up. D
 - **0 docs in ES** → most often `ENABLE_MESSAGING` not set to `1` (compose default is `false`, so nothing publishes to Kafka), or `DEFAULT_TOPIC` overridden away from `mdx-vlm-captions` (the code default). Also check **listener addressing**: the stack's Kafka is dual-listener — bridge-network peers (logstash, the shipped `.conf` defaults) use `kafka:29092`, while the host-networked DS-SOP uses the host-published EXTERNAL listener `:9092`; pointing either side at the other's listener silently connects to nothing. Also confirm the topic is **created**: `mdx-vlm-captions` must be listed in `KAFKA_TOPICS` for the Kafka topic-init (and broker-health-check) — otherwise the producer gets `UnknownTopicOrPartitionException` and nothing lands. (In the VSS ELK/Kafka stack it is already a standard topic — RT-VLM uses it too — so a profile that unions ELK normally has it.) See `integrate-ds-sop.md`.
 - **Kafka has messages but `mdx-vlm-captions-*` ES index is empty + Logstash logs `Google::Protobuf::ParseError`** → build-vision-agent's default ELK decodes this topic as PROTOBUF (RT-VLM), but DS-SOP emits JSON. **build-vision-agent CANNOT auto-wire this** — its Compose patches (`patches/<service>.yml`) only touch Compose YAML; no patch edits Logstash `pipelines.yml` or pipeline `.conf` files. So this is a **mandatory deploy-time step** build-vision-agent's deploy flow (or the operator) must run. Concrete procedure:
 
+  Stage into a **build-local copy** and repoint logstash's mount to it — **never edit the
+  tracked `deploy/docker/.../elk/logstash/` files** (that dirties upstream):
   ```bash
-  # 1. drop the shipped JSON pipeline into the patched logstash kafka-pipelines dir
-  #    (this dir mounts flat to /usr/share/logstash/pipelines/ in the container)
+  # 0. build-local copy of the stock logstash config+pipelines tree (untracked, under _builds/)
+  mkdir -p <BUILD_DIR>/patched/services/infra/elk/logstash
+  cp -r deploy/docker/services/infra/elk/logstash/. \
+        <BUILD_DIR>/patched/services/infra/elk/logstash/
+  # 1. drop the shipped JSON pipeline into the build-local kafka-pipelines dir
+  #    (mounts flat to /usr/share/logstash/pipelines/ in the container)
   cp <sop-ref-bundle>/sop-vlm-captions-json-logstash.conf \
      <BUILD_DIR>/patched/services/infra/elk/logstash/pipelines/kafka/
-  # 2. register a SEPARATE pipeline-id in the patched pipelines-kafka.yml (do NOT merge into mdx-lvs)
+  # 2. register a SEPARATE pipeline-id in the build-local pipelines-kafka.yml (do NOT merge into mdx-lvs)
   cat >> <BUILD_DIR>/patched/services/infra/elk/logstash/configs/pipelines-kafka.yml <<'YML'
   - pipeline.id: sop-vlm-captions-json
     path.config: "/usr/share/logstash/pipelines/sop-vlm-captions-json-logstash.conf"
   YML
-  # 3. restart logstash, then verify
+  # 3. in patches/logstash.yml, repoint logstash's config + pipelines volume SOURCES to the
+  #    build-local copy above; then restart and verify
   docker restart logstash
   curl -s 'http://localhost:9200/_cat/indices/mdx-vlm-captions*?v'   # expect docs.count > 0
   ```
-  See `integrate-ds-sop.md` § Known Integration Constraints → "ELK indexing". (A separate pipeline.id is additive — no upstream-config edit — and avoids the grok double-match/comma-laden-index issue of editing the shared conf in place.)
+  See `integrate-ds-sop.md` § Known Integration Constraints → "ELK indexing". A separate
+  pipeline.id is additive (avoids the grok double-match / comma-laden-index issue of editing
+  the shared conf), and staging in the build-local copy keeps the tracked upstream config
+  **untouched**.
 - **Redis / data_log perms** (ELK/VIOS peers) → `chmod -R 777 <MDX_DATA_DIR>/data_log` after first up; redis perm crash cascades to envoy proxies.
 - **`Failed to start recording` (HTTP 500) on VIOS sensor-add** → transient; the recorder retries succeed once the RTSP upstream is flowing.
 - **Live (realtime camera/source) input degenerates to all `(10) not belong` (`cv_boundary_score≈0` on every chunk)** → the live path uses **non-blocking, leaky** frame intake (`is_live` → drop-oldest / skip-new in `ds_sop_process.py`; source `leaky:2`), so if DDM-Net can't process frames as fast as they arrive (from the Basler camera or an RTSP source), the frame stream has gaps and boundary detection collapses. This is **GPU-throughput-dependent — NOT a fixed FPS limit**. The **on-demand file path blocks instead of dropping**, so it's unaffected at any FPS (a 30 fps file yields healthy boundary scores + real steps). On a capable GPU, DDM CV runs faster than realtime per 10 s @30 fps chunk, so a fast GPU sustains 30 fps live; only on a GPU where DDM falls behind do you need to **cap the source** to a sustainable rate — set `CAMERA_FPS_NUM`/`CAMERA_FPS_DEN` (e.g. `10`/`1`) or lower the source FPS. Prefer the on-demand path for deterministic validation regardless.

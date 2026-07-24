@@ -145,8 +145,15 @@ the image's other `video_analytics` tools and targets the old package layout):
 
 The image is the Foundation's stock `vss-va-mcp`
 (`ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest`); verify `VSS_AGENT_SITE_PACKAGES`
-(python minor) against it. The adaptation is a pure module move + graft — **no logic change**
-to the SOP tools.
+(python minor) against it. The adaptation is mostly a module move + graft, but two image-drift
+caveats (seen on `develop-latest`) need handling:
+
+- **Ensure the SOP captions index exists before querying.** The stock `es_client` on
+  `develop-latest` does not register the SOP captions index, so a query can fail before
+  returning data — make the `mdx-vlm-captions-*` index exist idempotently at startup.
+- **Do not add `from __future__ import annotations`** to the adapted modules. NAT evaluates
+  each tool's annotations at registration time; postponed annotations raise a `NameError` and
+  the `get_sop_*` tools never register.
 
 ## Sources
 
