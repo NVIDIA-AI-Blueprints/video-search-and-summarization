@@ -116,8 +116,10 @@ public class RedisStream implements Input {
     private volatile boolean stopped = false;
     private final CountDownLatch done = new CountDownLatch(1);
 
-    private JedisPool jedisPool;
-    
+    // Guard for jedisPool create/close across start() and stop() threads.
+    private final Object poolLock = new Object();
+    private volatile JedisPool jedisPool;
+
     // Cache for loaded descriptors (key: "descriptorPath:messageName")
     private final Map<String, Descriptors.Descriptor> descriptorCache = new HashMap<>();
 
@@ -170,14 +172,20 @@ public class RedisStream implements Input {
         // Main runner loop
         while (!stopped) {
             try {
-                // Lazy initialize connection pool
-                if (jedisPool == null) {
-                    jedisPool = connect();
+                // Lazy initialize connection pool. Synchronize with stop() so a pool
+                // created during shutdown is not leaked.
+                synchronized (poolLock) {
+                    if (stopped) {
+                        break;
+                    }
+                    if (jedisPool == null) {
+                        jedisPool = connect();
+                    }
                 }
-                
+
                 // Run the stream listener
                 streamRunner(consumerFn);
-                
+
             } catch (Exception e) {
                 logError(e);
                 if (resetForErrorRetry(e)) {
@@ -187,7 +195,7 @@ public class RedisStream implements Input {
                 }
             }
         }
-        
+
         done.countDown();
     }
 
@@ -233,7 +241,11 @@ public class RedisStream implements Input {
      * Main stream consumption logic
      */
     private void streamRunner(Consumer<Map<String, Object>> consumerFn) {
-        try (Jedis jedis = jedisPool.getResource()) {
+        JedisPool pool = jedisPool;
+        if (pool == null || pool.isClosed()) {
+            return;
+        }
+        try (Jedis jedis = pool.getResource()) {
             Map<byte[], StreamEntryID> streams = Collections.singletonMap(
                     streamKey.getBytes(StandardCharsets.UTF_8),
                     StreamEntryID.UNRECEIVED_ENTRY
@@ -339,11 +351,26 @@ public class RedisStream implements Input {
                 
                 // Hand off the event first, then ACK. ACK-ing before handoff would drop the
                 // message if the consumer throws; leaving it unacked lets Redis redeliver it.
+                // Note: if xack fails after accept, Redis may redeliver and produce a duplicate
+                // (at-least-once delivery).
                 consumerFn.accept(decodedEvent);
-                jedis.xack(streamKey, group, entry.getID());
-                
+                try {
+                    jedis.xack(streamKey, group, entry.getID());
+                } catch (Exception ackEx) {
+                    // Event already handed off; leave unacked so Redis can redeliver.
+                    // Callers should treat this plugin as at-least-once delivery.
+                    logger.error(
+                            "XACK failed after event was already handed to Logstash "
+                                    + "(entry {} may be redelivered / duplicated): {}",
+                            entry.getID(), ackEx.getMessage(), ackEx);
+                }
+
             } else {
-                logger.warn("Data field '{}' not found in stream entry", dataField);
+                // ACK malformed entries so they do not grow the consumer-group PEL forever.
+                logger.warn(
+                        "Data field '{}' not found in stream entry {}; acknowledging to avoid PEL growth",
+                        dataField, entry.getID());
+                jedis.xack(streamKey, group, entry.getID());
             }
 
         } catch (Exception e) {
@@ -351,6 +378,7 @@ public class RedisStream implements Input {
             // Don't ACK on failure - message will be redelivered
         }
     }
+
     /**
      * Log errors based on type
      */
@@ -393,17 +421,24 @@ public class RedisStream implements Input {
         }
 
         // Reset the connection to trigger reconnect
-        if (jedisPool != null) {
-            try {
-                jedisPool.close();
-            } catch (Exception ex) {
-                // ignore
-            }
-            jedisPool = null;
-        }
+        closeJedisPool();
 
         // Stoppable sleep - check stop flag during wait
         return stoppableSleep(1000);
+    }
+
+    private void closeJedisPool() {
+        synchronized (poolLock) {
+            JedisPool pool = jedisPool;
+            jedisPool = null;
+            if (pool != null && !pool.isClosed()) {
+                try {
+                    pool.close();
+                } catch (Exception ex) {
+                    logger.info("Error closing Jedis pool: {}", ex.getMessage());
+                }
+            }
+        }
     }
 
 
@@ -498,19 +533,17 @@ public class RedisStream implements Input {
             
             logger.info("Descriptor file loaded from {}, contains {} file descriptors", path, fds.getFileCount());
 
-            // Build FileDescriptors so we can look up the message
-            Map<String, Descriptors.FileDescriptor> fileMap = new HashMap<>();
-
+            // Index all FileDescriptorProtos first, then build them in dependency order.
+            // FileDescriptorSet order is not guaranteed to be topological.
+            Map<String, DescriptorProtos.FileDescriptorProto> protoByName = new HashMap<>();
             for (DescriptorProtos.FileDescriptorProto fdp : fds.getFileList()) {
-                Descriptors.FileDescriptor[] deps = new Descriptors.FileDescriptor[fdp.getDependencyCount()];
-                for (int i = 0; i < fdp.getDependencyCount(); i++) {
-                    String depName = fdp.getDependency(i);
-                    deps[i] = fileMap.get(depName);
-                }
-                Descriptors.FileDescriptor fd =
-                    Descriptors.FileDescriptor.buildFrom(fdp, deps);
-                fileMap.put(fd.getName(), fd);
-                logger.info("Loaded file descriptor: {}", fd.getName());
+                protoByName.put(fdp.getName(), fdp);
+            }
+
+            Map<String, Descriptors.FileDescriptor> fileMap = new HashMap<>();
+            Set<String> building = new HashSet<>();
+            for (String name : protoByName.keySet()) {
+                buildFileDescriptor(name, protoByName, fileMap, building);
             }
 
             // Now search for the message by its fullName (e.g. "nv.Frame")
@@ -527,7 +560,41 @@ public class RedisStream implements Input {
             throw new RuntimeException("Failed to load descriptor from " + path, e);
         }
     }
-    
+
+    /**
+     * Recursively build a FileDescriptor and its dependencies so descriptor files
+     * do not need to be topologically ordered.
+     */
+    private Descriptors.FileDescriptor buildFileDescriptor(
+            String name,
+            Map<String, DescriptorProtos.FileDescriptorProto> protoByName,
+            Map<String, Descriptors.FileDescriptor> fileMap,
+            Set<String> building) throws Descriptors.DescriptorValidationException {
+        Descriptors.FileDescriptor existing = fileMap.get(name);
+        if (existing != null) {
+            return existing;
+        }
+
+        DescriptorProtos.FileDescriptorProto fdp = protoByName.get(name);
+        if (fdp == null) {
+            throw new IllegalArgumentException("Missing dependency in descriptor set: " + name);
+        }
+        if (!building.add(name)) {
+            throw new IllegalArgumentException("Circular dependency in descriptor set involving: " + name);
+        }
+
+        Descriptors.FileDescriptor[] deps = new Descriptors.FileDescriptor[fdp.getDependencyCount()];
+        for (int i = 0; i < fdp.getDependencyCount(); i++) {
+            deps[i] = buildFileDescriptor(fdp.getDependency(i), protoByName, fileMap, building);
+        }
+
+        Descriptors.FileDescriptor fd = Descriptors.FileDescriptor.buildFrom(fdp, deps);
+        fileMap.put(name, fd);
+        building.remove(name);
+        logger.info("Loaded file descriptor: {}", fd.getName());
+        return fd;
+    }
+
     /**
      * Parse protobuf message using descriptor file (.desc)
      */
@@ -590,17 +657,7 @@ public class RedisStream implements Input {
     public void stop() {
         logger.info("Stop requested for Redis Stream Input plugin");
         stopped = true;
-        
-        // Clean shutdown of pool (matches Ruby's list_stop pattern)
-        JedisPool pool = jedisPool;
-        if (pool != null && !pool.isClosed()) {
-            try {
-                pool.close();
-            } catch (Exception e) {
-                logger.info("Error closing Jedis pool: {}", e.getMessage());
-            }
-        }
-        jedisPool = null;
+        closeJedisPool();
     }
 
     @Override
