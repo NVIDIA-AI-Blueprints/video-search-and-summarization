@@ -133,7 +133,8 @@ namespace vst_common
     void saveTempFileToDatabase(const string& deviceId, const string& filePath,
                                const string& streamId, size_t fileSize,
                                int64_t expiryTimestamp, int64_t createdTimestamp,
-                               int64_t startTimeMs, const string& fileType)
+                               int64_t startTimeMs, const string& fileType,
+                               const string& configHash)
     {
         auto dbHelper = GET_DB_INSTANCE();
         if (dbHelper)
@@ -147,6 +148,7 @@ namespace vst_common
             tempFileRecord.file_size_value = fileSize;
             tempFileRecord.start_time_ms_value = startTimeMs;
             tempFileRecord.file_type_value = fileType;
+            tempFileRecord.config_hash_value = configHash;
 
             int result = dbHelper->insertTempFileRecord(tempFileRecord);
             if (result == 0)
@@ -223,7 +225,7 @@ namespace vst_common
     VmsErrorCode processUrlGeneration(const string& buffer, const string& start_time,
                                      const string& expiryMinutesStr, shared_ptr<SensorInfo> sensor,
                                      shared_ptr<DeviceManager> deviceManager, Json::Value& response,
-                                     string& err_msg)
+                                     string& err_msg, const string& configHash = "")
     {
         // Determine if this is live or replay based on startTime presence
         bool isReplay = !start_time.empty();
@@ -275,7 +277,7 @@ namespace vst_common
         // Save temp file to database for cleanup
         saveTempFileToDatabase(deviceManager->getDeviceId(), tempFileName,
                              sensor->id, fileSize, expiryTimestamp, currentTimestamp,
-                             startTimeMs, nv_vms::TempFilesDBColumns::FILE_TYPE_IMAGE);
+                             startTimeMs, nv_vms::TempFilesDBColumns::FILE_TYPE_IMAGE, configHash);
 
         // Generate URL response
         generateUrlResponse(response, baseUrl, tempFileName, sensor->id,
@@ -1018,6 +1020,160 @@ namespace vst_common
         return true;
     }
 
+    std::string computeStableHash(const std::string& input)
+    {
+        std::string digest;
+        if (getSha256(input, digest) && !digest.empty())
+        {
+            return digest;
+        }
+        // SHA-256 should never fail on a healthy OpenSSL build, but we must
+        // not return "" - that would collide with the empty-hash rows used
+        // by the full-file symlink path in TEMP_VIDEO_FILES and resurrect
+        // the very bug we are guarding against. Emit a sentinel that is
+        // deterministic for the same input and contains a colon (not valid
+        // hex), so it can never look like a real SHA-256 digest. The
+        // sentinel fits comfortably inside the column's VARCHAR(64) limit.
+        LOG(error) << "[CACHE] SHA-256 failed for config-hash input ("
+                   << input.size() << " bytes); falling back to non-crypto sentinel."
+                   << " Cache partitioning still holds; collision resistance is degraded." << endl;
+        return "sha256-failed:" + std::to_string(input.size()) + ":" +
+               std::to_string(std::hash<std::string>{}(input));
+    }
+
+    // Sort a set-like overlay array by its canonical JSON representation.
+    // This helper is deliberately called only for fields whose order does
+    // not affect rendering. Positional arrays such as RGBA color values must
+    // retain their source order.
+    static void sortSetLikeJsonArray(Json::Value& array)
+    {
+        if (!array.isArray())
+        {
+            return;
+        }
+
+        std::vector<Json::Value> items;
+        items.reserve(array.size());
+        for (const auto& item : array)
+        {
+            items.push_back(item);
+        }
+        Json::StreamWriterBuilder writer;
+        writer["indentation"] = "";
+        std::sort(items.begin(), items.end(), [&](const auto& lhs, const auto& rhs) {
+            return Json::writeString(writer, lhs) < Json::writeString(writer, rhs);
+        });
+
+        array = Json::Value(Json::arrayValue);
+        for (const auto& item : items)
+        {
+            array.append(item);
+        }
+    }
+
+    static void sortSetLikeMember(Json::Value& object, const char* member)
+    {
+        if (object.isObject() && object.isMember(member))
+        {
+            sortSetLikeJsonArray(object[member]);
+        }
+    }
+
+    static void canonicalizePictureOverlay(Json::Value& overlay)
+    {
+        if (!overlay.isObject())
+        {
+            return;
+        }
+
+        // Backward-compatible schema.
+        sortSetLikeMember(overlay, "objectId");
+        sortSetLikeMember(overlay, "classType");
+
+        // New schema selectors are membership sets, not positional lists.
+        if (overlay.isMember("bbox"))
+        {
+            sortSetLikeMember(overlay["bbox"], "objectId");
+            sortSetLikeMember(overlay["bbox"], "classType");
+        }
+        if (overlay.isMember("tripwire"))
+        {
+            sortSetLikeMember(overlay["tripwire"], "id");
+        }
+        if (overlay.isMember("roi"))
+        {
+            sortSetLikeMember(overlay["roi"], "id");
+        }
+        sortSetLikeMember(overlay, "proximityClass");
+        sortSetLikeMember(overlay, "entrantClass");
+    }
+
+    std::string computePictureConfigHash(const std::string& queryString,
+                                         bool includeOverlayAndDebug)
+    {
+        // Pick the picture-API query params that AFFECT RENDERED BYTES. The
+        // connected-sensor renderer (getCameraPicture) reads width, height,
+        // overlay, debug. The disconnected-sensor renderer
+        // (getCameraPictureDisconnected) only reads width and height; it
+        // forces overlay off and never reads debug. Caller toggles
+        // `includeOverlayAndDebug` to match the renderer that will run, so
+        // requests that produce the same JPEG hit the same cache row.
+        //
+        // `configuration` is deliberately NOT hashed - no picture renderer
+        // reads it. Cache-lifetime knobs (expiryMinutes) and
+        // identity/time fields are also excluded; the temp-file lookup
+        // already keys by (stream_id, start_time_ms, file_type).
+        std::string overlayStr, widthStr, heightStr, debugStr;
+        if (includeOverlayAndDebug)
+        {
+            CivetServer::getParam(queryString, "overlay", overlayStr);
+            CivetServer::getParam(queryString, "debug",   debugStr);
+        }
+        CivetServer::getParam(queryString, "width",  widthStr);
+        CivetServer::getParam(queryString, "height", heightStr);
+
+        if (overlayStr.empty() && widthStr.empty() && heightStr.empty() && debugStr.empty())
+        {
+            // No output-affecting inputs - preserve legacy behavior so the
+            // picture cache still hits for callers that pass nothing.
+            return "";
+        }
+
+        Json::Value root(Json::objectValue);
+
+        auto addJsonField = [&](const char* key, const std::string& raw) {
+            if (raw.empty()) { return; }
+            Json::CharReaderBuilder rb;
+            Json::Value parsed;
+            std::string errs;
+            const auto reader = std::unique_ptr<Json::CharReader>(rb.newCharReader());
+            if (reader->parse(raw.data(), raw.data() + raw.size(), &parsed, &errs))
+            {
+                if (std::string(key) == "overlay")
+                {
+                    canonicalizePictureOverlay(parsed);
+                }
+                root[key] = parsed;
+            }
+            else
+            {
+                // Not valid JSON - hash the raw bytes so two different
+                // malformed inputs still partition correctly.
+                root[std::string(key) + "_raw"] = raw;
+            }
+        };
+
+        addJsonField("overlay", overlayStr);
+        if (!widthStr.empty())  { root["width"]  = widthStr; }
+        if (!heightStr.empty()) { root["height"] = heightStr; }
+        if (!debugStr.empty())  { root["debug"]  = debugStr; }
+
+        Json::StreamWriterBuilder builder;
+        builder["indentation"] = "";
+        const std::string serialized = Json::writeString(builder, root);
+        return computeStableHash(serialized);
+    }
+
     bool getSha256(const string &str, string &hashedStr)
     {
         EVP_MD_CTX *mdctx = nullptr;
@@ -1383,7 +1539,8 @@ namespace vst_common
     }
 
     VmsErrorCode getCameraPictureDisconnected(shared_ptr<DeviceManager> deviceManager, const string& sensor_id,
-                                               const string& query_string, Json::Value &response, bool isURLRequested)
+                                               const string& query_string, Json::Value &response, bool isURLRequested,
+                                               const string& configHash = "")
     {
         string err_msg;
         string start_time, w, h, expiryMinutesStr;
@@ -1456,7 +1613,7 @@ namespace vst_common
                     tempSensor->name = sensor_id;
                     CivetServer::getParam(query_string, "expiryMinutes", expiryMinutesStr);
                     VmsErrorCode urlResult = processUrlGeneration(buffer, start_time, expiryMinutesStr,
-                                                                  tempSensor, deviceManager, response, err_msg);
+                                                                  tempSensor, deviceManager, response, err_msg, configHash);
                     if (urlResult != VmsErrorCode::NoError)
                     {
                         LOG(error) << err_msg << endl;
@@ -1484,7 +1641,8 @@ namespace vst_common
 #endif
 
     VmsErrorCode getCameraPicture(shared_ptr<DeviceManager> deviceManager, const string sensor_id,
-                                    const string& query_string, Json::Value &response, bool isURLRequested)
+                                    const string& query_string, Json::Value &response, bool isURLRequested,
+                                    const string& configHash)
     {
 #if defined(LIVE_STREAM_MODULE) || defined(REPLAY_STREAM_MODULE) || defined(STREAMBRIDGE_MODULE)
         if (deviceManager)
@@ -1518,7 +1676,7 @@ namespace vst_common
                     goto report_error;
                 }
 
-                return getCameraPictureDisconnected(deviceManager, sensor_id, query_string, response, isURLRequested);
+                return getCameraPictureDisconnected(deviceManager, sensor_id, query_string, response, isURLRequested, configHash);
             }
             stream =  sensor->getStream(sensor_id);
             if (stream == nullptr)
@@ -1746,7 +1904,7 @@ namespace vst_common
                     {
                         // Process URL generation using helper function
                         VmsErrorCode urlResult = processUrlGeneration(buffer, start_time, expiryMinutesStr,
-                                                                    sensor, deviceManager, response, err_msg);
+                                                                    sensor, deviceManager, response, err_msg, configHash);
                         if (urlResult != VmsErrorCode::NoError)
                         {
                             LOG(error) << err_msg << endl;
@@ -2150,8 +2308,19 @@ namespace vst_common
     }
 
     bool tryReuseCachedPictureUrl(const string& deviceId, const string& sensorId, const string& startTime,
-                                  const string& expiryMinutesStr, TempFileScheduler& scheduler, Json::Value& response)
+                                  const string& expiryMinutesStr, TempFileScheduler& scheduler, Json::Value& response,
+                                  const string& configHash)
     {
+        // Operator kill switch: skip the cache-lookup step entirely so every
+        // /picture/url request regenerates. Inserts still happen so cleanup
+        // and expiry continue to track every produced file.
+        if (GET_CONFIG().disable_url_caching)
+        {
+            LOG(info) << "[CACHE] disable_url_caching=true; bypassing picture URL reuse "
+                      << "for sensorId=" << sensorId << endl;
+            return false;
+        }
+
         int64_t cachedStartMs = parseTimeToEpochMs(startTime);
         auto dbHelper = GET_DB_INSTANCE();
         if (cachedStartMs <= 0 || !dbHelper)
@@ -2159,9 +2328,13 @@ namespace vst_common
             return false;
         }
 
+        // The picture lookup has no container concept (always JPEG), so we
+        // pass containerFormat="" and rely on file_type=IMAGE + configHash to
+        // partition. configHash="" preserves legacy lookup semantics for
+        // callers with no overlay-affecting params.
         auto existing = dbHelper->findTempFileByStreamAndTime(
             deviceId, sensorId, cachedStartMs, 0,
-            nv_vms::TempFilesDBColumns::FILE_TYPE_IMAGE);
+            nv_vms::TempFilesDBColumns::FILE_TYPE_IMAGE, "", configHash);
 
         if (existing.file_path_value.empty() || !isFileExist(existing.file_path_value))
         {
@@ -2234,15 +2407,28 @@ namespace vst_common
             return VmsErrorCode::InvalidParameterError;
         }
 
+        // Compute the picture cache key once and use the same value for
+        // both the cache-lookup attempt and the post-generate insert so a
+        // repeat with the same overlay hits the row we just wrote instead
+        // of regenerating. Sensor connectivity decides which renderer will
+        // run inside getCameraPicture: the disconnected branch forces
+        // overlay off and ignores debug, so we must NOT partition the
+        // cache on those fields when that branch is going to run, or two
+        // requests that produce the same JPEG will create separate rows.
+        const bool sensorConnected =
+            (deviceManager && deviceManager->searchSensor(sensorId) != nullptr);
+        const std::string configHash =
+            computePictureConfigHash(queryString, /*includeOverlayAndDebug=*/sensorConnected);
+
         if (isURLRequested && !startTime.empty())
         {
-            if (tryReuseCachedPictureUrl(deviceId, sensorId, startTime, expiryMinutesStr, scheduler, response))
+            if (tryReuseCachedPictureUrl(deviceId, sensorId, startTime, expiryMinutesStr, scheduler, response, configHash))
             {
                 return VmsErrorCode::NoError;
             }
         }
 
-        VmsErrorCode ret = getCameraPicture(deviceManager, sensorId, queryString, response, isURLRequested);
+        VmsErrorCode ret = getCameraPicture(deviceManager, sensorId, queryString, response, isURLRequested, configHash);
 
         if (isURLRequested && ret == VmsErrorCode::NoError && !startTime.empty())
         {

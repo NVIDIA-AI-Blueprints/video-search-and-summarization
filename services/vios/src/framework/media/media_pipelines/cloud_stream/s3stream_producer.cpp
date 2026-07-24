@@ -1040,9 +1040,7 @@ bool CloudStreamProducer::createLocalFilePipeline()
                         failCount++;
                     }
 
-                    if (downloadCallback) {
-                        downloadCallback(filePair.first, result);
-                    }
+                    downloadCallback(filePair.first, result);
                 });
             }
             // Wait for all downloads to complete

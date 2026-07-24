@@ -11,8 +11,6 @@
 #ifndef API_RTC_EVENT_LOG_OUTPUT_H_
 #define API_RTC_EVENT_LOG_OUTPUT_H_
 
-#include <string>
-
 #include "absl/strings/string_view.h"
 
 namespace webrtc {

@@ -489,7 +489,7 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
                                 y: frameHeight + coord.y,
                             }));
 
-                            console.log('[VST_ANALYTICS_DEBUG] Transformed image calibration ROI coordinates:', {
+                            LOG.info('[VST_ANALYTICS_DEBUG] Transformed image calibration ROI coordinates:', {
                                 roiId: roi.id,
                                 frameHeight,
                                 original: rawCoords,
@@ -589,7 +589,7 @@ export const useAnalytics = ({ sensor, streamType, enqueueSnackbar }: UseAnalyti
                                 p2: { x: rawWireCoords.p2.x, y: frameHeight + rawWireCoords.p2.y },
                             };
 
-                            console.log('[VST_ANALYTICS_DEBUG] Transformed image calibration tripwire coordinates:', {
+                            LOG.info('[VST_ANALYTICS_DEBUG] Transformed image calibration tripwire coordinates:', {
                                 tripwireId: tripwire.id,
                                 frameHeight,
                                 originalWire: rawWireCoords,

@@ -11,10 +11,12 @@
 #ifndef MODULES_VIDEO_CODING_SVC_SCALABILITY_MODE_UTIL_H_
 #define MODULES_VIDEO_CODING_SVC_SCALABILITY_MODE_UTIL_H_
 
+#include <optional>
+
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/video_codec.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
@@ -25,7 +27,18 @@ enum class ScalabilityModeResolutionRatio {
 
 static constexpr char kDefaultScalabilityModeStr[] = "L1T2";
 
-RTC_EXPORT absl::optional<ScalabilityMode> ScalabilityModeFromString(
+// Scalability mode to be used if falling back to default scalability mode is
+// unsupported.
+static constexpr char kNoLayeringScalabilityModeStr[] = "L1T1";
+
+RTC_EXPORT std::optional<ScalabilityMode> MakeScalabilityMode(
+    int num_spatial_layers,
+    int num_temporal_layers,
+    InterLayerPredMode inter_layer_pred,
+    std::optional<ScalabilityModeResolutionRatio> ratio,
+    bool shift);
+
+RTC_EXPORT std::optional<ScalabilityMode> ScalabilityModeFromString(
     absl::string_view scalability_mode_string);
 
 InterLayerPredMode ScalabilityModeToInterLayerPredMode(
@@ -35,11 +48,19 @@ int ScalabilityModeToNumSpatialLayers(ScalabilityMode scalability_mode);
 
 int ScalabilityModeToNumTemporalLayers(ScalabilityMode scalability_mode);
 
-absl::optional<ScalabilityModeResolutionRatio> ScalabilityModeToResolutionRatio(
+std::optional<ScalabilityModeResolutionRatio> ScalabilityModeToResolutionRatio(
     ScalabilityMode scalability_mode);
+
+bool ScalabilityModeIsShiftMode(ScalabilityMode scalability_mode);
 
 ScalabilityMode LimitNumSpatialLayers(ScalabilityMode scalability_mode,
                                       int max_spatial_layers);
+
+// Returns the explicit scalability mode, if present. Otherwise, attempts to
+// construct an equivalent scalability mode based on codec specific info such
+// as spatial and/or temporal layer counts. If no scalability mode can be
+// inferred, returns L1T1.
+ScalabilityMode GetScalabilityModeFromVideoCodec(const VideoCodec& codec);
 
 }  // namespace webrtc
 

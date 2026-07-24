@@ -11,6 +11,8 @@
 #ifndef API_VIDEO_VIDEO_BITRATE_ALLOCATOR_H_
 #define API_VIDEO_VIDEO_BITRATE_ALLOCATOR_H_
 
+#include <cstdint>
+
 #include "api/units/data_rate.h"
 #include "api/video/video_bitrate_allocation.h"
 
@@ -20,13 +22,9 @@ struct VideoBitrateAllocationParameters {
   VideoBitrateAllocationParameters(uint32_t total_bitrate_bps,
                                    uint32_t framerate);
   VideoBitrateAllocationParameters(DataRate total_bitrate, double framerate);
-  VideoBitrateAllocationParameters(DataRate total_bitrate,
-                                   DataRate stable_bitrate,
-                                   double framerate);
   ~VideoBitrateAllocationParameters();
 
   DataRate total_bitrate;
-  DataRate stable_bitrate;
   double framerate;
 };
 

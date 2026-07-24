@@ -103,6 +103,36 @@ def select_replay_timestamp(streams: List[Dict[str, Any]],
     return None
 
 
+def select_full_file_time_range(streams: List[Dict[str, Any]],
+                                timelines: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Pick a stream + timeline where the request bounds match the timeline's
+    exact start/end. For file-based sensors (uploaded clips) one timeline maps
+    to one recording, so these are exactly the bounds that engage the
+    full-file fast path in tryFindFullFileMatch when no transformations are
+    requested. Used to verify the gate falls through to the overlay-aware
+    cache path once overlay/transcode/audio/uselibav are set.
+    """
+    for stream_obj in streams:
+        if not isinstance(stream_obj, dict):
+            continue
+        for stream_name in stream_obj.keys():
+            stream_data = timelines.get(stream_name)
+            if not isinstance(stream_data, dict):
+                continue
+            timeline_list = stream_data.get('timelines', [])
+            for timeline in timeline_list:
+                start_str = timeline.get('startTime')
+                end_str = timeline.get('endTime')
+                if not start_str or not end_str:
+                    continue
+                return {
+                    'stream_id': stream_name,
+                    'start_time': start_str,
+                    'end_time': end_str,
+                }
+    return None
+
+
 def select_video_time_range(streams: List[Dict[str, Any]],
                             timelines: Dict[str, Any],
                             duration_sec: int = 5) -> Optional[Dict[str, str]]:

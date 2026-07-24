@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Stage, Layer, Image, Line, Circle, Text } from 'react-konva';
 import { KonvaEventObject } from 'konva/lib/Node';
@@ -510,7 +511,7 @@ const CalibrationCanvas: React.FC<CalibrationCanvasProps> = ({
 
             // Ensure container has valid dimensions before fitting
             if (containerWidth <= 0 || containerHeight <= 0) {
-                console.warn('Container dimensions not ready for image fitting, skipping...');
+                LOG.warn('Container dimensions not ready for image fitting, skipping...');
                 return;
             }
 
@@ -521,7 +522,7 @@ const CalibrationCanvas: React.FC<CalibrationCanvasProps> = ({
 
             // Ensure scale is valid
             if (scale <= 0) {
-                console.warn('Invalid scale calculated, skipping image fitting...');
+                LOG.warn('Invalid scale calculated, skipping image fitting...');
                 return;
             }
 

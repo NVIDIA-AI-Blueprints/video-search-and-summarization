@@ -270,8 +270,8 @@ class Logger {
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
 
-            // retrieve the variable arguments
-            va_start(args, format.c_str());
+            // retrieve the variable arguments (last named parameter before ... must be used for va_start)
+            va_start(args, format);
             
             // Safe formatted output with bounds checking and null termination
             int written = vsnprintf(buffer, max_len, format.c_str(), args);
@@ -299,8 +299,8 @@ class Logger {
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
 
-            // retrieve the variable arguments
-            va_start(args, format.c_str());
+            // retrieve the variable arguments (last named parameter before ... must be used for va_start)
+            va_start(args, format);
             
             // Safe formatted output with bounds checking and null termination
             int written = vsnprintf(buffer, max_len, format.c_str(), args);

@@ -14,8 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Slider, Box, Tooltip, useTheme, useMediaQuery, CircularProgress } from '@mui/material';
+
+// Delay before committing a seek while the handle is being dragged but has paused.
+const SEEK_DEBOUNCE_MS = 300;
+
+// Formats a timestamp (ms) for the slider's value label.
+const formatValueLabel = (value: number): string => {
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? '' : format(date, 'HH:mm:ss.SSS');
+};
 import { styled } from '@mui/material/styles';
 import { format } from 'date-fns';
 import { Timeline } from '../../interfaces/interfaces';
@@ -45,11 +54,8 @@ interface TimeRangeSliderProps {
     getEventImage?: (imageKey: string) => string | undefined;
     loadingImages?: Record<string, boolean>;
     sensorId?: string;
-}
-
-interface ValueLabelProps {
-    children: React.ReactElement;
-    value: number;
+    /** Portal container for tooltips. Set to the fullscreen element so they show in fullscreen. */
+    container?: Element | null;
 }
 
 const StyledSlider = styled(Slider)(({ theme }) => ({
@@ -69,23 +75,35 @@ const StyledSlider = styled(Slider)(({ theme }) => ({
             display: 'none',
         },
     },
+    // Centered rounded label above the handle (replaces the offset teardrop). Positioned by MUI
+    // within the slider, so it stays correctly centered in both windowed and fullscreen modes.
     '& .MuiSlider-valueLabel': {
         lineHeight: 1.2,
         fontSize: 12,
-        background: 'unset',
-        padding: 0,
-        width: 32,
-        height: 32,
-        borderRadius: '50% 50% 50% 0',
-        backgroundColor: theme.palette.primary.main,
-        transformOrigin: 'bottom left',
-        transform: 'translate(50%, -100%) rotate(-45deg) scale(0)',
-        '&:before': { display: 'none' },
+        whiteSpace: 'nowrap',
+        padding: '3px 8px',
+        borderRadius: 6,
+        // Dark background with white text for strong contrast (the green primary was hard to read).
+        backgroundColor: 'rgba(33, 33, 33, 0.95)',
+        color: '#fff',
+        fontWeight: 600,
+        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.4)',
+        transformOrigin: 'bottom center',
+        transform: 'translateY(-100%) scale(0)',
         '&.MuiSlider-valueLabelOpen': {
-            transform: 'translate(50%, -100%) rotate(-45deg) scale(1)',
+            transform: 'translateY(-100%) scale(1)',
         },
-        '& > *': {
-            transform: 'rotate(45deg)',
+        // small pointer toward the handle
+        '&:before': {
+            display: 'block',
+            position: 'absolute',
+            content: '""',
+            width: 8,
+            height: 8,
+            bottom: 0,
+            left: '50%',
+            transform: 'translate(-50%, 50%) rotate(45deg)',
+            backgroundColor: 'inherit',
         },
     },
     '& .MuiSlider-mark': {
@@ -119,26 +137,6 @@ const StyledSlider = styled(Slider)(({ theme }) => ({
     },
 }));
 
-function ValueLabelComponent({ children, value }: ValueLabelProps) {
-    const formattedValue = useMemo(() => {
-        try {
-            const date = new Date(value);
-            if (isNaN(date.getTime())) {
-                return 'Invalid Date';
-            }
-            return format(date, 'HH:mm:ss.SSS');
-        } catch (error) {
-            return new Date(value).toLocaleString();
-        }
-    }, [value]);
-
-    return (
-        <Tooltip enterTouchDelay={0} placement='top' title={formattedValue}>
-            {children}
-        </Tooltip>
-    );
-}
-
 const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
     min,
     max,
@@ -153,6 +151,7 @@ const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
     getEventImage,
     loadingImages = {},
     sensorId,
+    container,
 }) => {
     const theme = useTheme();
     const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
@@ -218,41 +217,91 @@ const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
         }
     }, [validatedMinTime, validatedMaxTime, singleSelectMode]);
 
-    const handleChange = (event: Event, newValues: number | number[]) => {
-        // Check if click originated from an event marker
-        const isEventMarkerClick = (target: EventTarget | null): boolean => {
-            if (!target || !(target instanceof Element)) return false;
+    // Debounced seek: dragging the handle updates the position immediately for visual feedback,
+    // but the (expensive) seek API call is deferred until the user releases the handle
+    // (onChangeCommitted) or the handle stays still for SEEK_DEBOUNCE_MS. This avoids spamming
+    // seek requests during a drag.
+    const seekDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
-            // Check current element and walk up the DOM tree
-            let element: Element | null = target;
-            while (element) {
-                if (element.getAttribute('data-event-marker') === 'true') {
-                    return true;
-                }
-                element = element.parentElement;
+    const isValueDisabled = useCallback(
+        (value: number): boolean =>
+            combinedDisabledRanges.some(range => {
+                const rangeStart = new Date(range.startTime).getTime();
+                const rangeEnd = new Date(range.endTime).getTime();
+                return value >= rangeStart && value <= rangeEnd;
+            }),
+        [combinedDisabledRanges]
+    );
+
+    const commitSeek = useCallback(
+        (value: number) => {
+            if (!isValueDisabled(value)) {
+                onSingleTimeSelect?.(new Date(value).toISOString());
             }
-            return false;
-        };
+        },
+        [isValueDisabled, onSingleTimeSelect]
+    );
 
+    // Clear any pending seek on unmount.
+    useEffect(() => {
+        return () => {
+            if (seekDebounceRef.current) {
+                clearTimeout(seekDebounceRef.current);
+                seekDebounceRef.current = null;
+            }
+        };
+    }, []);
+
+    const isEventMarkerClick = (target: EventTarget | null): boolean => {
+        if (!target || !(target instanceof Element)) return false;
+        // Walk up the DOM tree from the event target.
+        let element: Element | null = target;
+        while (element) {
+            if (element.getAttribute('data-event-marker') === 'true') {
+                return true;
+            }
+            element = element.parentElement;
+        }
+        return false;
+    };
+
+    const handleChange = (event: Event, newValues: number | number[]) => {
         if (isEventMarkerClick(event.target)) {
             return;
         }
 
         if (singleSelectMode && !Array.isArray(newValues)) {
-            const isDisabled = combinedDisabledRanges.some(range => {
-                const rangeStart = new Date(range.startTime).getTime();
-                const rangeEnd = new Date(range.endTime).getTime();
-                return newValues >= rangeStart && newValues <= rangeEnd;
-            });
-
-            if (!isDisabled) {
+            if (!isValueDisabled(newValues)) {
+                // Update the handle position right away (visual), but debounce the seek call.
                 setSingleValue(newValues);
-                onSingleTimeSelect?.(new Date(newValues).toISOString());
+                if (seekDebounceRef.current) {
+                    clearTimeout(seekDebounceRef.current);
+                }
+                seekDebounceRef.current = setTimeout(() => {
+                    seekDebounceRef.current = null;
+                    commitSeek(newValues);
+                }, SEEK_DEBOUNCE_MS);
             }
         } else if (!singleSelectMode && Array.isArray(newValues)) {
             const [newMin, newMax] = newValues;
             setValues([newMin, newMax]);
             onChange([new Date(newMin).toISOString(), new Date(newMax).toISOString()]);
+        }
+    };
+
+    // Fires when the user releases the handle (mouse up / touch end / keyup): commit the seek
+    // immediately and cancel any pending debounce.
+    const handleChangeCommitted = (_event: React.SyntheticEvent | Event, newValues: number | number[]) => {
+        if (!singleSelectMode || Array.isArray(newValues)) {
+            return;
+        }
+        if (seekDebounceRef.current) {
+            clearTimeout(seekDebounceRef.current);
+            seekDebounceRef.current = null;
+        }
+        if (!isValueDisabled(newValues)) {
+            setSingleValue(newValues);
+            commitSeek(newValues);
         }
     };
 
@@ -343,6 +392,7 @@ const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
                             zIndex: 1200,
                         }}
                         componentsProps={{
+                            popper: { container },
                             tooltip: {
                                 sx: {
                                     bgcolor: 'rgba(0, 0, 0, 0.9)',
@@ -480,9 +530,10 @@ const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
                     min={validatedMinTime}
                     max={validatedMaxTime}
                     onChange={handleChange}
+                    onChangeCommitted={handleChangeCommitted}
                     valueLabelDisplay='auto'
+                    valueLabelFormat={formatValueLabel}
                     components={{
-                        ValueLabel: ValueLabelComponent,
                         Rail: props => (
                             <Rail {...props} disabledRanges={combinedDisabledRanges} min={validatedMinTime} max={validatedMaxTime} />
                         ),
