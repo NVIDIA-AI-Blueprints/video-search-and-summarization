@@ -407,7 +407,9 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertIn("run_uv_sync", source)
         self.assertIn('"uv", "sync", "--no-dev", "--extra", "agent"', source)
         self.assertIn("ensure_agent_venv", source)
-        self.assertIn('command.extend(["--clear", "--force"])', source)
+        self.assertIn('command.append("--clear")', source)
+        self.assertIn('if "--force" in uv_venv_help.stdout', source)
+        self.assertNotIn('command.extend(["--clear", "--force"])', source)
         self.assertIn("Refusing to replace symlinked orchestrator environment", source)
         compile(source, "deploy_vss_orchestrator.ipynb:c13aaf5e", "exec")
 
@@ -431,9 +433,13 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             venv_dir = agent_dir / ".venv"
             venv_dir.mkdir(parents=True)
             commands: list[tuple[list[str], dict[str, object]]] = []
+            supports_force = {"value": False}
 
             def fake_run(command, **kwargs):
                 commands.append((command, kwargs))
+                if command == ["uv", "venv", "--help"]:
+                    stdout = "      --force\\n" if supports_force["value"] else ""
+                    return subprocess.CompletedProcess(command, 0, stdout=stdout)
                 venv_python = venv_dir / "bin" / "python"
                 venv_python.parent.mkdir(parents=True, exist_ok=True)
                 venv_python.write_text("#!/bin/sh\n")
@@ -465,15 +471,23 @@ class NotebookSetupAdapterTest(unittest.TestCase):
                 },
             ):
                 ensure_agent_venv()
-            self.assertEqual(len(commands), 1)
-            command, kwargs = commands[0]
+            self.assertEqual(len(commands), 2)
+            help_command, help_kwargs = commands[0]
+            self.assertEqual(help_command, ["uv", "venv", "--help"])
+            self.assertEqual(help_kwargs["cwd"], str(agent_dir))
+            self.assertTrue(help_kwargs["check"])
+            self.assertTrue(help_kwargs["capture_output"])
+            self.assertTrue(help_kwargs["text"])
+            self.assertNotIn("VIRTUAL_ENV", help_kwargs["env"])
+            self.assertNotIn("UV_PROJECT_ENVIRONMENT", help_kwargs["env"])
+
+            command, kwargs = commands[1]
             self.assertEqual(
                 command,
                 [
                     "uv",
                     "venv",
                     "--clear",
-                    "--force",
                     "--python",
                     "3.10",
                     str(venv_dir),
@@ -485,7 +499,25 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             self.assertNotIn("UV_PROJECT_ENVIRONMENT", kwargs["env"])
 
             ensure_agent_venv()
-            self.assertEqual(len(commands), 1)
+            self.assertEqual(len(commands), 2)
+
+            (venv_dir / "bin" / "python").unlink()
+            supports_force["value"] = True
+            ensure_agent_venv()
+            self.assertEqual(len(commands), 4)
+            self.assertEqual(commands[2][0], ["uv", "venv", "--help"])
+            self.assertEqual(
+                commands[3][0],
+                [
+                    "uv",
+                    "venv",
+                    "--clear",
+                    "--force",
+                    "--python",
+                    "3.10",
+                    str(venv_dir),
+                ],
+            )
 
             target_dir = agent_dir / "target-venv"
             target_python = target_dir / "bin" / "python"
@@ -499,7 +531,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
                 RuntimeError, "Refusing to replace symlinked orchestrator environment"
             ):
                 ensure_agent_venv()
-            self.assertEqual(len(commands), 1)
+            self.assertEqual(len(commands), 4)
 
     def test_ci_parameters_drive_nemoclaw_provider_derivation(self):
         notebook = json.loads(
