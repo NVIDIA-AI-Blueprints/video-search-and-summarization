@@ -73,6 +73,7 @@ bdd_tests/
 │   │   ├── video_download_by_blocking_url.feature
 │   │   └── video_download_by_non_blocking_url.feature
 │   ├── picture/                  # 3 picture features
+│   ├── ui/                       # Browser-driven VIOS UI features
 │   ├── webrtc/                   # 5 WebRTC features
 │   │   ├── bbox_overlay.feature              # bbox/overlay rendering on live/replay/download (needs metadata fixture)
 │   │   ├── live_webrtc_stream.feature
@@ -99,6 +100,7 @@ bdd_tests/
 │   ├── file_upload/              # Upload tests + utilities
 │   ├── file_download/            # Download tests + utilities
 │   ├── picture/                  # Picture tests + utilities
+│   ├── ui/                       # Playwright browser tests
 │   ├── webrtc/                   # WebRTC tests + utilities
 │   ├── perf/                     # Performance tests + utilities
 │   └── unit_tests/               # Unit tests (API endpoint validation)
@@ -236,13 +238,11 @@ bdd_tests/
 | 78 | `test_list_storage_files_by_sensor` | MCP tool storage_file_list_by_sensor - validates JSON response | Unit |
 | 79 | `test_get_storage_file_paths_by_sensor` | MCP tool storage_file_path_by_sensor - validates JSON response | Unit |
 
-**Total Tests:** 138 scenarios across 33 test files
-- **Functional / Negative / Boundary / Stress Tests:** 82
-- **Non-Functional Tests:** 1 (comprehensive latency and performance testing)
-- **Unit Tests:** 55 (API endpoint validation across 7 services)
+**Total Tests:** 194 scenarios across 49 test files
 
-> Default `pytest` runs collect 128 tests; 10 are deselected by opt-in markers
-> (`@longrun`, `@needs_iptables`, `@needs_bbox_metadata`). See [Test Markers](#test-markers).
+> Default `pytest` runs skip environment-specific scenarios tagged with
+> `@longrun`, `@needs_iptables`, `@needs_bbox_metadata`, `@mcp_gateway`, or
+> `@ui`. See [Test Markers](#test-markers).
 
 ### Coverage notes
 
@@ -260,6 +260,7 @@ Some scenarios are opt-in via pytest markers. They are tagged in the feature fil
 | `needs_iptables` | Yes | Tests that require iptables / privileged Docker (e.g. WebRTC network-break simulation) | `pytest -m needs_iptables` |
 | `needs_bbox_metadata` | Yes | Tests that require a sensor seeded with stored bbox / overlay metadata from a Metropolis perception pipeline | `pytest -m needs_bbox_metadata` |
 | `mcp_gateway` | Yes | MCP gateway tests (require the vios-mcp container on port 8001) | `pytest -m mcp_gateway` |
+| `ui` | Yes | Playwright browser tests against a running VIOS UI | `pytest -m ui` |
 
 ### Examples
 
@@ -279,6 +280,9 @@ poetry run pytest -m needs_iptables tests/webrtc/
 # Run bbox-overlay tests against an environment seeded with metadata
 # (also requires tests.bbox_overlay_tests.test_parameters.bbox_stream_id in config.json):
 poetry run pytest -m needs_bbox_metadata tests/webrtc/test_bbox_overlay.py
+
+# Run the browser-driven fullscreen controls scenario:
+poetry run pytest -m ui tests/ui/test_video_player_fullscreen_controls.py
 ```
 
 ### Long-running tests (`@longrun`)
@@ -296,6 +300,36 @@ A few markers also require a value in `config.json` to be meaningful:
 
 - `needs_bbox_metadata` — set `tests.bbox_overlay_tests.test_parameters.bbox_stream_id` to the streamId of a sensor that already has stored bbox metadata.
 - Continuous-recording tests under `unit_tests/stream_recorder/continuous_recording.feature` — set `tests.continuous_recording_tests.test_parameters.alwaysOn_sensor_id` to the sensorId of an always-on RTSP sensor in the deployment. If missing, the scenarios skip with guidance.
+
+### Browser UI tests (`@ui`)
+
+Browser scenarios use Playwright with Chromium and are skipped unless `-m ui`
+is selected. Install the Python dependencies and browser runtime once:
+
+```bash
+poetry install
+poetry run playwright install chromium
+```
+
+Run the fullscreen-controls scenario against the URL in
+`config.json` (`api.base_url`):
+
+```bash
+poetry run pytest tests/ui/test_video_player_fullscreen_controls.py -m ui
+```
+
+Use a different VIOS UI URL or display the browser while debugging:
+
+```bash
+poetry run pytest tests/ui/test_video_player_fullscreen_controls.py -m ui \
+  --ui-base-url http://<HOST>:30888/vst/#
+poetry run pytest tests/ui/test_video_player_fullscreen_controls.py -m ui \
+  --headed
+```
+
+The VIOS deployment must be running and expose at least one live sensor. A
+missing live sensor skips the scenario; an unavailable UI or Chromium
+installation is reported as a test-environment error.
 
 ## Test Categories
 
@@ -534,6 +568,7 @@ poetry install
 # - requests, aiohttp (HTTP clients)
 # - aiortc (WebRTC implementation)
 # - websockets (WebSocket client)
+# - playwright (Chromium browser automation for opt-in UI tests)
 ```
 
 ### Setup Script (setup.sh)
@@ -1380,11 +1415,11 @@ sudo apt-get install -y \
 
 ## Statistics
 
-- **Total Tests:** 138 scenarios across 33 test files
-- **Test Categories:** 7 (upload, download, picture, webrtc, url_optimization, performance, unit tests)
-- **Unit Tests:** 55 scenarios across 7 services (live, replay, proxy, sensor, storage, recorder, MCP)
+- **Total Tests:** 194 scenarios across 49 test files
+- **Test Categories:** 8 (upload, download, picture, UI, webrtc, url_optimization, performance, unit tests)
+- **Unit Tests:** API scenarios across ingress, live, replay, proxy, sensor, storage, recorder, and MCP services
 - **Performance Tests:** 1 comprehensive latency test (40+ internal scenarios)
-- **Opt-in scenarios:** 10 (gated by `@longrun`, `@needs_iptables`, `@needs_bbox_metadata`)
+- **Opt-in scenarios:** gated by `@longrun`, `@needs_iptables`, `@needs_bbox_metadata`, `@mcp_gateway`, and `@ui`
 - **Shared Utilities:** 7 modules (one per category + unit test utils)
 
 ## Contributing
