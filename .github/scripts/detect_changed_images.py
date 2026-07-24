@@ -46,6 +46,11 @@ BUILD_CONTRACT_PATHS = (
     "deploy/docker/container-inventory.json",
 )
 
+# Agent, UI, and alert share VSS_CONTAINER_TAG and must move as one set.
+# Analytics images have independent tag variables and build only when their
+# own service source changes.
+SHARED_TAG_IMAGE_NAMES = frozenset({"vss-agent", "vss-agent-ui", "vss-alert-ms"})
+
 
 def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -116,13 +121,22 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
         if any(path.startswith(entry["source_path"] + "/") for path in changed)
     ]
     if changed_images:
-        # The managed agent/UI/alert set shares one VSS_CONTAINER_TAG. Publish
-        # every member under that tag so the shared develop/QA coordinate can
-        # switch the managed set with one environment variable.
-        names = ", ".join(entry["name"] for entry in changed_images)
+        selected_names = {entry["name"] for entry in changed_images}
+        if selected_names & SHARED_TAG_IMAGE_NAMES:
+            selected_names.update(
+                entry["name"]
+                for entry in buildable
+                if entry["name"] in SHARED_TAG_IMAGE_NAMES
+            )
+        selected = [
+            entry for entry in buildable if entry["name"] in selected_names
+        ]
+        changed_names = ", ".join(entry["name"] for entry in changed_images)
+        selected_names_text = ", ".join(entry["name"] for entry in selected)
         return (
-            buildable,
-            f"managed image(s) changed ({names}); building complete shared-tag set",
+            selected,
+            f"managed image(s) changed ({changed_names}); building "
+            f"{selected_names_text}",
         )
     return [], f"0 of {len(buildable)} images changed"
 
