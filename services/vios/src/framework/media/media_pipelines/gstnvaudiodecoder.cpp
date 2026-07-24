@@ -151,7 +151,11 @@ static GstBusSyncReply audio_bus_sync_handler (GstBus* /*bus*/, GstMessage* msg,
         if (err) g_error_free (err);
         g_free (dbg);
     }
-    return GST_BUS_PASS;
+    /* Drop (free) every message after logging. Nothing polls this bus -- there is
+    ** no gst_bus_add_watch/GMainLoop -- so returning GST_BUS_PASS would queue each
+    ** message on the async queue with no consumer, leaking memory for a long-lived
+    ** RTSP stream. GST_BUS_DROP frees the message immediately. */
+    return GST_BUS_DROP;
 }
 
 static void on_pad_added (GstElement *element, GstPad *pad, void *data)
