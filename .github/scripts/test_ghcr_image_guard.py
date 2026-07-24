@@ -24,7 +24,7 @@ from check_container_tag_source import (  # noqa: E402
     ImageManifestLabels,
     _fetch_bearer_token,
 )
-from ghcr_image_guard import preflight_decision, verify_decision  # noqa: E402
+from ghcr_image_guard import preflight_decision, reuse_decision, verify_decision  # noqa: E402
 
 TREE = "a" * 40
 OTHER_TREE = "b" * 40
@@ -59,6 +59,27 @@ class PreflightTest(unittest.TestCase):
     def test_same_content_rerun_skips(self):
         action, _ = preflight_decision(labels(), None, TREE)
         self.assertEqual(action, "skip")
+
+
+class ReuseTest(unittest.TestCase):
+    def test_same_content_reuses(self):
+        reuse, _ = reuse_decision(labels(), None, TREE)
+        self.assertTrue(reuse)
+
+    def test_missing_content_builds(self):
+        reuse, _ = reuse_decision(
+            None, "index fetch failed: GET https://x returned 404: Not Found", TREE
+        )
+        self.assertFalse(reuse)
+
+    def test_different_content_builds(self):
+        reuse, _ = reuse_decision(labels(tree=OTHER_TREE), None, TREE)
+        self.assertFalse(reuse)
+
+    def test_error_fails_open_to_build(self):
+        # Unlike preflight, an error never fails the job — it just builds.
+        reuse, _ = reuse_decision(None, "network error fetching https://x", TREE)
+        self.assertFalse(reuse)
 
     def test_different_content_fails(self):
         action, message = preflight_decision(labels(tree=OTHER_TREE), None, TREE)
