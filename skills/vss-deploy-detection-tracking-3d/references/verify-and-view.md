@@ -102,7 +102,7 @@ Confirm metadata is flowing end-to-end by watching the two topics MV3DT uses:
 
 ### Kafka path
 
-The shipped image is `confluentinc/cp-kafka:8.2.0`, which exposes `kafka-get-offsets`. The older `kafka-run-class kafka.tools.GetOffsetShell` does **not** exist in this image — `ClassNotFoundException`. Use:
+The shipped image is `confluentinc/cp-kafka:8.3.0`, which exposes `kafka-get-offsets`. The older `kafka-run-class kafka.tools.GetOffsetShell` does **not** exist in this image — `ClassNotFoundException`. Use:
 
 ```bash
 # Latest offsets — repeat after 30s, numbers must grow on both topics

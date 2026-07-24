@@ -22,7 +22,7 @@ services:
   # are root-owned (rm only needs write+exec on the parent dir).
   init-dirs:
     profiles: ["init-dirs"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     container_name: sdrc-init-dirs
@@ -45,7 +45,7 @@ services:
   # completing successfully.
   render-config:
     profiles: ["render-config"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -79,7 +79,7 @@ services:
 
   wdm-env-from-config:
     profiles: ["wdm-env-from-config"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     # yq image runs as non-root; bind-mounted ./.wdm-env is often root-owned — write as root.
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
@@ -120,7 +120,7 @@ services:
 
   wait-for-docker-workloads:
     profiles: ["wait-for-docker-workloads"]
-    image: alpine:3.23.4
+    image: alpine:3.24.1
     entrypoint: ["/bin/sh", "-c"]
     command:
       - apk add --no-cache docker-cli >/dev/null && /wait-for-docker-workloads.sh
