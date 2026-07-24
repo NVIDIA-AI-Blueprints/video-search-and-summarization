@@ -43,61 +43,122 @@ def read_etc_environment() -> dict[str, str]:
     return env
 
 
+def read_brev_environment_context(path: str | None = None) -> dict[str, Any]:
+    """Return the parsed Brev environment context, or ``{}`` when unavailable.
+
+    On Brev/launchpad hosts this file is the source of truth for the environment
+    id and the per-port secure-link FQDNs, e.g.::
+
+        {"environment_id": "juud6xh3e",
+         "ports": [{"destination_port": 18789,
+                    "fqdn": "18789-juud6xh3e.stg.apps.launchpad.nvidia.com"}, ...]}
+
+    *path* defaults to ``BREV_ENVIRONMENT_CONTEXT_PATH``. When neither is set,
+    returns ``{}`` (no hardcoded path).
+    """
+    if path is None:
+        path = os.environ.get("BREV_ENVIRONMENT_CONTEXT_PATH", "").strip()
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fp:
+            data = json.load(fp)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def brev_environment_id() -> str:
+    """Best-effort Brev environment id (``BREV_ENV_ID``).
+
+    Precedence: ``BREV_ENV_ID`` env var -> context file
+    (``BREV_ENVIRONMENT_CONTEXT_PATH``) -> ``/etc/environment``.
+    """
+    env_id = os.environ.get("BREV_ENV_ID", "").strip()
+    if env_id:
+        return env_id
+    context_id = str(read_brev_environment_context().get("environment_id", "")).strip()
+    if context_id:
+        return context_id
+    return read_etc_environment().get("BREV_ENV_ID", "").strip()
+
+
+def brev_secure_link_fqdn(destination_port: int) -> str | None:
+    """Return the secure-link FQDN mapped to *destination_port*, if published.
+
+    Reads the exact FQDN from the context file. Requires ``BREV_ENVIRONMENT_CONTEXT_PATH``.
+    """
+    ports = read_brev_environment_context().get("ports")
+    if not isinstance(ports, list):
+        return None
+    for entry in ports:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            if int(entry.get("destination_port")) != int(destination_port):
+                continue
+        except (TypeError, ValueError):
+            continue
+        fqdn = str(entry.get("fqdn", "")).strip()
+        if fqdn:
+            return fqdn
+    return None
+
+
+def _link_domain_from_brev_context() -> str:
+    """Derive the secure-link base domain from a port FQDN in the context file.
+
+    e.g. ``18789-juud6xh3e.stg.apps.launchpad.nvidia.com`` (env id ``juud6xh3e``)
+    -> ``stg.apps.launchpad.nvidia.com``.
+    """
+    context = read_brev_environment_context()
+    env_id = str(context.get("environment_id", "")).strip().lower()
+    ports = context.get("ports")
+    if not env_id or not isinstance(ports, list):
+        return ""
+    marker = f"-{env_id}."
+    for entry in ports:
+        if not isinstance(entry, dict):
+            continue
+        fqdn = str(entry.get("fqdn", "")).strip().lower()
+        if marker in fqdn:
+            return fqdn.split(marker, 1)[1]
+    return ""
+
+
 def detect_brev_link_domain() -> str:
     """Resolve the Brev/launchpad secure-link base domain for this host.
 
     Precedence:
       1. Explicit ``BREV_LINK_DOMAIN`` override.
-      2. Derived from the live NetBird management host (``*.netbird.*`` ->
-         ``*.apps.*``), e.g. ``stg.netbird.launchpad.nvidia.com`` ->
-         ``stg.apps.launchpad.nvidia.com``.
-      3. Legacy Skybridge markers -> ``apps.run.brev.nvidia.com``.
-      4. Fallback -> ``brevlab.com`` (with a loud red warning, since this is a
-         guess that is likely wrong off legacy Brev).
-
-    Prints the chosen domain and how it was determined.
+      2. Derived from the context file at ``BREV_ENVIRONMENT_CONTEXT_PATH``
+         (required; absolute source of truth for secure-link FQDNs).
     """
     explicit_domain = os.environ.get("BREV_LINK_DOMAIN", "").strip()
     if explicit_domain:
         print(f"[brev-link-domain] using BREV_LINK_DOMAIN override: {explicit_domain}")
         return explicit_domain
 
-    try:
-        result = subprocess.run(
-            ["netbird", "status", "-d"],
-            capture_output=True,
-            text=True,
-            timeout=15,
+    context_path = os.environ.get("BREV_ENVIRONMENT_CONTEXT_PATH", "").strip()
+    if not context_path:
+        _RED, _RESET = "\033[31m", "\033[0m"
+        print(
+            f"{_RED}[brev-link-domain] WARNING: BREV_ENVIRONMENT_CONTEXT_PATH is not set; "
+            f"cannot derive the secure-link domain{_RESET}"
         )
-        status_output = f"{result.stdout or ''}\n{result.stderr or ''}"
+        return ""
 
-        # Derive from the NetBird management host: the secure-link edge shares the
-        # mesh base domain, e.g. stg.netbird.launchpad.nvidia.com ->
-        # stg.apps.launchpad.nvidia.com
-        match = re.search(
-            r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.netbird\.[a-z0-9.-]+", status_output, re.IGNORECASE
-        )
-        if match:
-            host = match.group(0).split("/")[0].split(":")[0].rstrip(".").lower()
-            domain = host.replace(".netbird.", ".apps.", 1)
-            print(f"[brev-link-domain] derived from NetBird management host '{host}': {domain}")
-            return domain
-
-        # Legacy Skybridge marker path.
-        skybridge_markers = ("skybridge", "brev.nvidia.com", "brev.dev")
-        if result.returncode == 0 and any(m in status_output.lower() for m in skybridge_markers):
-            print("[brev-link-domain] Skybridge markers detected: apps.run.brev.nvidia.com")
-            return "apps.run.brev.nvidia.com"
-    except (OSError, subprocess.SubprocessError):
-        pass
+    context_domain = _link_domain_from_brev_context()
+    if context_domain:
+        print(f"[brev-link-domain] derived from {context_path}: {context_domain}")
+        return context_domain
 
     _RED, _RESET = "\033[31m", "\033[0m"
     print(
-        f"{_RED}[brev-link-domain] WARNING: could not auto-detect the domain (no NetBird "
-        "management host or Skybridge markers found); falling back to 'brevlab.com'{_RESET}"
+        f"{_RED}[brev-link-domain] WARNING: could not derive the domain from "
+        f"{context_path}; leaving BREV_LINK_DOMAIN unset{_RESET}"
     )
-    return "brevlab.com"
-
+    return ""
 
 
 def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
@@ -127,11 +188,16 @@ def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
 
 
 def build_vss_ui_url(port: int = 7777) -> str | None:
-    brev_env_id = os.environ.get("BREV_ENV_ID", "").strip() or read_etc_environment().get("BREV_ENV_ID", "").strip()
-    if not brev_env_id:
+    # Prefer the exact secure-link FQDN published in the context file.
+    fqdn = brev_secure_link_fqdn(port)
+    if fqdn:
+        return f"https://{fqdn}/"
+
+    brev_env_id = brev_environment_id()
+    link_domain = detect_brev_link_domain()
+    if not brev_env_id or not link_domain:
         return None
     link_prefix = os.environ.get("BREV_LINK_PREFIX", "").strip() or str(port)
-    link_domain = detect_brev_link_domain()
     return f"https://{link_prefix}-{brev_env_id}.{link_domain}/"
 
 
