@@ -51,12 +51,12 @@ manually call search backends.
 
 ## Deployment prerequisite
 
-This skill requires the VSS **search** profile. Resolve `AGENT_URL` and `ES_URL`
-from the selected deployment rather than assuming host ports: use the generated
-Docker profile ports, or a durable Kubernetes Ingress/operator-managed
-port-forward for the agent mutation endpoint and Elasticsearch. Authentication,
-if configured, must use the operator's approved mechanism and must not be copied
-into prompts or logs.
+This skill requires the VSS **search** profile. Resolve `AGENT_URL`, `ES_URL`,
+and `RTVI_VLM_URL` from the selected deployment rather than assuming host ports:
+use the generated Docker profile ports, or a durable Kubernetes
+Ingress/operator-managed port-forward for the agent mutation endpoint,
+Elasticsearch, and RT-VLM. Authentication, if configured, must use the
+operator's approved mechanism and must not be copied into prompts or logs.
 
 The deployment is not ready for archive search until its fully expanded
 `VST_EXTERNAL_URL` is reachable from the host that will consume search results.
@@ -75,9 +75,12 @@ Before an agent-backed source mutation:
 1. Probe the stack:
    ```bash
    curl -sfS --max-time 5 "${AGENT_URL}/health" >/dev/null \
-     && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null
+     && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null \
+     && curl -sfS --max-time 5 "${RTVI_VLM_URL}/v1/models" >/dev/null
    ```
-   (The second check confirms Elasticsearch is up — unique to the search profile.)
+   Elasticsearch is unique to the search profile. RT-VLM is also required: it
+   serves the critic and `video_understanding`, including when the underlying
+   VLM model is remote and RT-VLM remains as a local media proxy.
 
 2. **If the probe fails**, ask the user:
    > *"The selected VSS `search` profile endpoints are not reachable. Shall I deploy or reconnect it using the `/vss-deploy-profile` skill with `-p search`?"*
@@ -191,13 +194,14 @@ the video embedding index.
 ```bash
 PROFILE="${PROFILE:-search}"
 RUNTIME_JSON=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-  python -c 'import json,sys; from cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
+  python -c 'import json,sys; from cli.deployment import discover_docker,discover_docker_host_endpoints; from lib.search_core.runtime import RuntimeSnapshot; d=discover_docker(sys.argv[1]); r=RuntimeSnapshot.from_config_file(d.config_path, env=d.env).runtime; h=discover_docker_host_endpoints(sys.argv[1]); print(json.dumps({"agent_url":h["agent_url"],"es_url":h["es_url"],"vst_url":h["vst_url"],"rtvi_vlm_url":h["rtvi_vlm_url"],"vst_external_url":r.vst_external_url,"video_embed_index":r.video_embed_index,"behavior_index":r.behavior_index,"raw_index":r.frames_index})); d.close()' \
   "${PROFILE}") || exit 1
 
 printf '%s' "${RUNTIME_JSON}" | jq -e '
   (.agent_url | type == "string" and length > 0) and
   (.es_url | type == "string" and length > 0) and
   (.vst_url | type == "string" and length > 0) and
+  (.rtvi_vlm_url | type == "string" and length > 0) and
   (.video_embed_index | type == "string" and length > 0) and
   (.behavior_index | type == "string" and length > 0) and
   (.raw_index | type == "string" and length > 0) and
@@ -209,6 +213,7 @@ printf '%s' "${RUNTIME_JSON}" | jq -e '
 AGENT_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.agent_url') || exit 1
 ES_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.es_url') || exit 1
 VST_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.vst_url') || exit 1
+RTVI_VLM_URL=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.rtvi_vlm_url') || exit 1
 EMBED_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.video_embed_index') || exit 1
 BEHAVIOR_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.behavior_index') || exit 1
 RAW_INDEX=$(printf '%s' "${RUNTIME_JSON}" | jq -er '.raw_index') || exit 1
@@ -312,11 +317,17 @@ Report every final count. A successful DELETE response alone is not sufficient.
    decompose natural language. Preserve the requested object/action and use
    `--query`, an explicit `--search-mode`, `--attribute`, `--video-source`, time
    bounds, and the relevant query controls. For complex fusion requests, prefer
-   `--decomposed-json`; explicit flags override fields from that object.
+   `--decomposed-json`; explicit flags override fields from that object. For
+   worked examples of choosing a discovery strategy (wide-net, narrow-to-camera,
+   high-precision) and the flags each one uses, see
+   [Discovery modes](references/discovery_modes.md).
 4. Run the host command for the selected deployment. It validates named
    sources again against that deployment's VST listing before querying ES. Use
    `--output json --raw` when parsing the result: `--raw` selects compact JSON,
    and the unified `SearchOutput` remains an object with a `data` array.
+   See [CLI usage](references/cli_usage.md) for the full `vss search run` flag
+   reference and [Deployment resolution](references/deployment_resolution.md)
+   for how the `--deployment` selectors discover backends.
    Put the complete, concrete invocation (including `--output json --raw`) in a
    `SEARCH_COMMAND` array, then capture and validate its exact stdout. Do not
    continue after a nonzero CLI status or malformed output:
