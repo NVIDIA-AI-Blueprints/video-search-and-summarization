@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options.root = "../../../.."
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vss_cli"]
+
+[project]
+name = "nvidia-vss-cli"
+dynamic = ["version"]
+requires-python = ">=3.13,<3.15"
+description = "NVIDIA VSS command-line interface (NAT-free)"
+license = "Apache-2.0"
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+# cli only touches vss_core (search_core, _foundation) -- no agent/NAT deps.
+dependencies = [
+  "nvidia-vss-core",
+]
+
+[project.scripts]
+vss = "vss_cli:main"
+
+[tool.uv.sources]
+nvidia-vss-core = { workspace = true }

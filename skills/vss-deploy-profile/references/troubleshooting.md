@@ -28,7 +28,7 @@ If `resolved.yml` does not exist, return to `SKILL.md` Step 3 and run the compos
 | Symptom | Grep / check | Likely cause | Corrective action |
 |---|---|---|---|
 | REST call / endpoint returns connection refused | `curl -sf http://<host>:<port>/docs` or `/health`; `docker compose ps` | Target microservice is not running — crashed, never started, or wrong port. | Probe `/docs` or `/health`; if down, check the container logs, then redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill. |
-| `resolved.yml` contains `${...}` | `grep -n '\${' "$REPO/deploy/docker/resolved.yml"` | Compose did not see required env values such as `BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`, or `VLM_MODE`. This can cause every profile's services to deploy. | Fix the missing values in the profile `generated.env`, regenerate `resolved.yml`, re-run the grep check, then deploy. Full procedure under "Unexpanded `${...}`" below. |
+| `resolved.yml` contains `${...}` | `grep -n '\${' "$REPO/deploy/docker/resolved.yml"` | Compose did not see required env values such as the selected `COMPOSE_PROFILES_WH_*` list or the `LLM_MODE` / `VLM_MODE` model selectors. This can leave the deployment empty or omit the selected NIM. | Fix the missing values in the profile `generated.env`, regenerate `resolved.yml`, re-run the grep check, then deploy. Full procedure under "Unexpanded `${...}`" below. |
 | `docker compose up` says no `resolved.yml` | `test -f "$REPO/deploy/docker/resolved.yml"` | The dry-run step was skipped. | Run `docker compose --env-file "$ENV_SRC" --env-file "$ENV_GEN" config > "$REPO/deploy/docker/resolved.yml"` first. |
 | NIM container is up but `/generate` or model calls time out | `docker logs <nim-container> --tail 200` and `curl -sf http://<host>:<port>/v1/models` | NIM cold start or model still loading. | Keep polling `/v1/models` or the service health endpoint before retrying the agent request. Do not restart a loading NIM unless logs show a hard failure. |
 | `CUDA out of memory` | Search `docker logs <container> 2>&1` for `out of memory`. | LLM, VLM, RT-VLM, or embedding service is too large for the selected GPU placement. | Follow the profile sizing reference. Typical fixes are lowering `NIM_KVCACHE_PERCENT`, lowering `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, lowering max model length / max sequences, reducing streams, switching one side to remote mode with user approval, or freeing GPUs via `docker compose down`. |
@@ -44,20 +44,22 @@ If `resolved.yml` does not exist, return to `SKILL.md` Step 3 and run the compos
 | WebSocket query returns `error_message` | `docker logs vss-agent --tail 200` | LLM or VLM backend is not healthy or not reachable from the agent container. | Check model service `/v1/models`, verify `LLM_BASE_URL` / `VLM_BASE_URL` in `resolved.yml`, then restart/redeploy the affected service. |
 | Empty report or empty video answer | `docker logs vss-agent --tail 200` | VLM unreachable, bad VST URL, missing video ingest, or backend still cold. | Verify VST upload/listing, VLM `/v1/models`, and agent env URLs. Retry after health checks pass. |
 | `video_understanding` returns HTTP `500` (often retried 3×) though VLM `/v1/models` passed | `docker logs vss-agent --tail 200` for `fetch_video_async` / `TimeoutError`; then probe VST **from inside the VLM container** (command in section below) | Bridge-networked VLM/LLM NIM can't reach the host-mode VST (`:30888`) to download the clip — the host firewall (ufw) blocks the Docker bridge subnet. NIM is healthy; the failure is the video fetch, not inference. | Allow the bridge subnets to reach the host — see "VLM `500` / `fetch_video_async TimeoutError`" below. **Do not disable ufw.** |
+| Search RT-VLM remote proxy: MP4 re-encode fails (`libavcodec` missing, `VideoWriter_fourcc`, or `MP4 encoding failed`) | `docker logs vss-rtvi-vlm --tail 300` and `docker exec vss-rtvi-vlm printenv REMOTE_VIDEO_INPUT` | In remote mode RT-VLM re-encodes sampled frames into an MP4 for the remote NIM; the image's codec stack (PyNvVideoCodec/PyAV/OpenCV) can't build it, so requests fall back to images and may exceed the endpoint media limit (`422`) or fail (`500`). | Treat as an RT-VLM image/runtime dependency issue, not a config error — a healthy `/v1/models` probe does not mean media inference works. Confirm the deployed `vss-rt-vlm` image version and codec-install completion. |
 | `unknown or invalid runtime name: nvidia` | Search `docker info 2>/dev/null` for `runtimes`. | NVIDIA Container Toolkit is not installed or Docker was not restarted. | Follow `prerequisites.md`, restart Docker, and rerun the pre-flight check. |
 | GPU not detected | `nvidia-smi` and `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` | Driver, kernel module, or Docker GPU runtime issue. | Load modules with `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then follow `prerequisites.md` if Docker still cannot see GPUs. |
 | `cosmos-reason2-8b` crashes or is restarted in shared GPU mode | `docker logs nvidia-cosmos-reason2-8b --tail 200` | Known CR2/NIM restart limitation in shared GPU mode. Restarting the CR2 container alone may not recover service. | Redeploy the full affected VSS stack, or use the default Cosmos3 path where it is supported. |
 
 ## Unexpanded `${...}` in `resolved.yml`
 
-**Skipping this is the #1 cause of "I deployed `search` but it brought
-up `base` + `lvs` + `search` services."** The `.env` line near 90 is
-literal `COMPOSE_PROFILES=${BP_PROFILE}_${MODE},...` — docker compose
-expands it at `config` time using the same env file. If any upstream
-var (`BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`,
-`VLM_MODE`) is missing from the env, the rendered profile list
-collapses to the empty string, and compose then includes **every**
-service from **every** profile.
+Under the profile-inversion model `COMPOSE_PROFILES` is an explicit list
+of service names (e.g. `phoenix,redis,vss-agent,...`), with only the
+`llm_*` / `vlm_*` NIM slices still templated. docker compose expands
+those at `config` time using the same env file. If an upstream var
+(`LLM_MODE`, `LLM_NAME_SLUG`, `VLM_MODE`, `VLM_NAME_SLUG`) is missing,
+the matching `llm_*` / `vlm_*` slice drops out and that NIM will not
+start. If `COMPOSE_PROFILES` itself is left unexpanded or empty, **no**
+service matches (every service is now gated by its own profile), so the
+stack comes up empty rather than over-provisioned.
 
 ```bash
 if grep -q '\${' "$REPO/deploy/docker/resolved.yml"; then
@@ -68,7 +70,7 @@ fi
 ```
 
 If this check fails, re-apply the Step 2 env overrides directly to
-the `.env` file at the path above, regenerate `resolved.yml` (Step 3),
+the active `generated.env` file, regenerate `resolved.yml` (Step 3),
 and re-run this check before continuing.
 
 ## NIM endpoint probes
@@ -94,7 +96,11 @@ if [ -n "${ENV_GEN:-}" ] && [ -f "$ENV_GEN" ]; then
 fi
 
 # VLM NIM responding (base/lvs profiles)
-if [ "${VLM_MODE:-}" = "remote" ]; then
+# Search exception: always probe local RT-VLM on :8018 (including remote mode,
+# where RT-VLM remains as the openai-compat proxy).
+if [ "${PROFILE:-}" = "search" ] || [ "${BP_PROFILE:-}" = "bp_developer_search" ]; then
+  curl -sf "http://localhost:${RTVI_VLM_PORT:-8018}/v1/models" | python3 -m json.tool
+elif [ "${VLM_MODE:-}" = "remote" ]; then
   echo "VLM_MODE=remote — skip localhost:30082; probing ${VLM_BASE_URL:-<remote-vlm-base-url>}/v1/models"
   REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
     "$REPO/skills/vss-deploy-profile/scripts/probe_remote_models.sh" "$VLM_BASE_URL" "${VLM_NAME:-}"
@@ -129,7 +135,7 @@ if you skipped it, you hit this.
 ```bash
 HOST_IP=$(ip route get 1.1.1.1 | awk '/src/{for(i=1;i<=NF;i++)if($i=="src")print $(i+1)}')  # same as dev-profile.sh
 curl -s -o /dev/null -w 'host→VST %{http_code}\n' --max-time 10 "http://$HOST_IP:30888/vst/api/v1/sensor/list"
-VLM=$(docker ps --format '{{.Names}}' | grep -iE 'cosmos|nemotron|qwen|vlm' | head -1)
+VLM=$(docker ps --format '{{.Names}}' | grep -iE 'vss-rtvi-vlm|cosmos|nemotron|qwen|vlm' | head -1)
 docker exec "$VLM" curl -s -o /dev/null -w 'vlm→VST %{http_code}\n' --max-time 10 "http://$HOST_IP:30888/vst/api/v1/sensor/list"
 ```
 

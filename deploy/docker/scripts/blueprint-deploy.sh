@@ -997,14 +997,19 @@ function state_up() {
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
   else
-    cd "${deployment_directory}" && docker compose \
-      "${_compose_file_args[@]}" \
-      --env-file "${_deploy_rel}/.env" \
-      --env-file "${_deploy_rel}/generated.env" \
-      up \
-      --detach \
-      --force-recreate \
-      --build
+    if ! (
+      cd "${deployment_directory}" && docker compose \
+        "${_compose_file_args[@]}" \
+        --env-file "${_deploy_rel}/.env" \
+        --env-file "${_deploy_rel}/generated.env" \
+        up \
+        --detach \
+        --force-recreate \
+        --build
+    ); then
+      echo "[ERROR] docker compose up failed for deployment '${deployment}'"
+      return 1
+    fi
   fi
 
   echo "[INFO] State up completed"

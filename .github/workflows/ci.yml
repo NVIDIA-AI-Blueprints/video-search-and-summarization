@@ -134,6 +134,33 @@ jobs:
             -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}" \
             $YAML_FILES
 
+  codec-installer-test:
+    name: Validate codec artifacts
+    needs: prepare-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Validate codec installers
+        run: |
+          EMBED_INSTALLER=services/rtvi/rt-embed/src/scripts/install_codecs_nonroot.sh
+          VLM_INSTALLER=services/rtvi/rt-vlm/src/scripts/install_codecs_nonroot.sh
+          bash -n "$EMBED_INSTALLER"
+          bash -n "$VLM_INSTALLER"
+          cmp "$EMBED_INSTALLER" "$VLM_INSTALLER"
+          CODEC_VALIDATE_ONLY=true bash "$EMBED_INSTALLER"
+          CODEC_VALIDATE_ONLY=true CODEC_DEB_ARCH=arm64 bash "$EMBED_INSTALLER"
+
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)
   # ---------------------------------------------------------------------------
@@ -176,10 +203,10 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: mypy
-        run: uv run mypy src/agent/
+        run: uv run mypy packages/vss_agents/src/vss_agents
 
   # ---------------------------------------------------------------------------
   # Job 3: Python tests (pytest + coverage)
@@ -223,13 +250,13 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: pytest
         timeout-minutes: 10
         run: |
           uv run pytest \
-            --cov=src/agent \
+            --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
@@ -289,42 +316,56 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen --no-dev --group cli-dev
-          uv run --no-sync mypy src/lib/_foundation src/cli src/lib/critic src/lib/search_core src/lib/vlm src/lib/vst
-          uv run --no-sync pytest tests/unit_test/lib tests/unit_test/cli -W error::RuntimeWarning -W error::ResourceWarning \
-            --cov=src/lib --cov=src/cli --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv sync --frozen --no-dev --group cli-dev --extra cli
+          uv run --no-sync mypy \
+            packages/vss_core/src/vss_core/_foundation \
+            packages/vss_core/src/vss_core/critic \
+            packages/vss_core/src/vss_core/search_core \
+            packages/vss_core/src/vss_core/vlm \
+            packages/vss_core/src/vss_core/vst \
+            packages/vss_cli/src/vss_cli
+          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
           rm -rf dist
-          uv build
+          uv build --package nvidia-vss-core
+          uv build --package nvidia-vss-cli
 
       - name: Smoke-test built wheel in a clean environment
         run: |
           rm -rf .wheel-smoke
           uv venv --python 3.13 .wheel-smoke
-          set -- dist/nvidia_vss-*.whl
+          set -- dist/nvidia_vss_core-*.whl
           test "$#" -eq 1 && test -f "$1"
-          uv pip install --python .wheel-smoke/bin/python --no-cache "$1"
+          core_whl="$1"
+          set -- dist/nvidia_vss_cli-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          cli_whl="$1"
+          uv pip install --python .wheel-smoke/bin/python --no-cache "$core_whl" "$cli_whl"
           uv pip check --python .wheel-smoke/bin/python
           .wheel-smoke/bin/python - <<'PY'
           import importlib.util
           from importlib import metadata
 
-          import lib
-          import cli
-          import lib.critic
-          import lib.search_core
-          import lib.vlm
-          import lib.vst
+          import vss_core
+          import vss_cli
+          import vss_core.critic
+          import vss_core.search_core
+          import vss_core.vlm
+          import vss_core.vst
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
-          assert "nvidia-vss" in installed
+          assert "nvidia-vss-core" in installed
+          assert "nvidia-vss-cli" in installed
           assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
-          # agent and lib.knowledge ship in the wheel, but the base
-          # install must never pull their NAT/torch dependency stack.
-          assert installed.isdisjoint({"nvidia-nat", "nvidia-nat-core", "torch", "langchain-core"})
+          # The base (core + cli) install must never pull the NAT/torch stack
+          # nor the agent distribution.
+          assert installed.isdisjoint({"nvidia-nat", "nvidia-nat-core", "torch", "langchain-core", "nvidia-vss-agents"})
           assert importlib.util.find_spec("nat") is None
           assert importlib.util.find_spec("torch") is None
-          assert lib is not None and lib.critic is not None and lib.search_core is not None and lib.vlm is not None and lib.vst is not None
+          assert importlib.util.find_spec("vss_agents") is None
+          assert vss_core.critic is not None and vss_core.search_core is not None
+          assert vss_core.vlm is not None and vss_core.vst is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
 
@@ -872,6 +913,8 @@ jobs:
     needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 140
+    outputs:
+      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
     permissions:
       actions: read
       contents: read
@@ -881,6 +924,7 @@ jobs:
           persist-credentials: false
 
       - name: Wait for successful GHCR release set
+        id: release-set
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -910,6 +954,7 @@ jobs:
     needs:
       - prepare-source
       - lint
+      - codec-installer-test
       - typecheck
       - security
       - frontend-lint
@@ -919,6 +964,9 @@ jobs:
       - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
+    if: >-
+      success() &&
+      needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step

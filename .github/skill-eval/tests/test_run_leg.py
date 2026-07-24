@@ -14,6 +14,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -184,26 +185,38 @@ class PoolCandidates(unittest.TestCase):
         # gpu flake: catalog refresh returns "-" but instance_type carries it
         {"name": "vss-eval-l40s-2", "status": "RUNNING",
          "gpu": "-", "instance_type": "massedcompute_L40Sx2"},
+        {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
+         "gpu": "RTX PRO 6000",
+         "instance_type": "registered-external-node", "_registered": True},
         {"name": "not-a-pool-box", "status": "RUNNING",
          "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
     ]
 
     def setUp(self):
-        self._orig = run_leg._list_brev_instances
-        run_leg._list_brev_instances = lambda: self.FLEET
+        self._orig = run_leg._list_pool_instances
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: self.FLEET
+        )
 
     def tearDown(self):
-        run_leg._list_brev_instances = self._orig
+        run_leg._list_pool_instances = self._orig
 
     def test_filters_running_pool_and_gpu_type(self):
         names = run_leg.pool_candidates(
             {"gpu_type": "RTX PRO 6000", "gpu_count": 1})
-        self.assertEqual(names, ["vss-eval-rtx-1g-2", "vss-eval-rtx-2g-2"])
+        self.assertEqual(
+            names,
+            [
+                "vss-eval-rtx-2g-VM1b",
+                "vss-eval-rtx-1g-2",
+                "vss-eval-rtx-2g-2",
+            ],
+        )
 
     def test_exact_count_hint_sorts_first(self):
         names = run_leg.pool_candidates(
             {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
-        self.assertEqual(names[0], "vss-eval-rtx-2g-2")
+        self.assertEqual(names[0], "vss-eval-rtx-2g-VM1b")
 
     def test_gpu_flake_accepted_via_instance_type(self):
         names = run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1})
@@ -211,9 +224,168 @@ class PoolCandidates(unittest.TestCase):
 
     def test_gpu_count_zero_accepts_any_running_pool_box(self):
         names = run_leg.pool_candidates({"gpu_count": 0})
-        self.assertEqual(len(names), 4)
+        self.assertEqual(len(names), 5)
         self.assertNotIn("not-a-pool-box", names)
         self.assertNotIn("vss-eval-rtx-1g-3", names)
+
+    def test_registered_gpu_hint_fails_closed_for_unknown_pool(self):
+        self.assertEqual(
+            run_leg._registered_gpu_hint("vss-eval-rtx-2g-VM1b"),
+            "RTX PRO 6000",
+        )
+        self.assertEqual(
+            run_leg._registered_gpu_hint(
+                "vss-eval-geforce-rtx4090-vm1"
+            ),
+            "GEFORCE RTX 4090",
+        )
+        self.assertEqual(run_leg._registered_gpu_hint("vss-eval-mystery"), "")
+
+    def test_pool_snapshot_merges_and_normalizes_registered_nodes(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_brev_instances = lambda: [
+                {"name": "vss-eval-rtx-2g", "status": "RUNNING"}
+            ]
+            run_leg._list_registered_nodes = lambda: [
+                {"name": "vss-eval-rtx-2g-VM1b", "status": "Connected"},
+                # A duplicate must not be added twice.
+                {"name": "vss-eval-rtx-2g", "status": "Connected"},
+            ]
+
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+            ):
+                instances = self._orig()
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(len(instances), 2)
+        registered = instances[1]
+        self.assertEqual(registered["status"], "RUNNING")
+        self.assertEqual(registered["gpu"], "RTX PRO 6000")
+        self.assertTrue(registered["_registered"])
+
+    def test_registered_pool_requires_explicit_allowlist(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_brev_instances = lambda: []
+            run_leg._list_registered_nodes = lambda: [
+                {"name": "vss-eval-rtx-2g-VM1b", "status": "Connected"},
+                {"name": "vss-eval-rtx-2g-skybridge", "status": "Connected"},
+            ]
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "BREV_REGISTERED_POOL":
+                        "vss-eval-rtx-2g-VM1b, vss-eval-rtx-2g-VM2b"
+                },
+            ):
+                instances = self._orig()
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(
+            [instance["name"] for instance in instances],
+            ["vss-eval-rtx-2g-VM1b"],
+        )
+
+    def test_4090_pool_is_limited_to_approved_skills(self):
+        env = {
+            "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
+            "BREV_RTX4090_POOL": (
+                "vss-eval-geforce-rtx4090-vm1,"
+                "vss-eval-geforce-rtx4090-vm2"
+            ),
+        }
+        with mock.patch.dict(run_leg.os.environ, env, clear=True):
+            approved = run_leg._registered_pool_allowlist(
+                "vss-ask-video", "base_profile_video_understanding"
+            )
+            unapproved = run_leg._registered_pool_allowlist(
+                "vss-deploy-profile", "search"
+            )
+
+        self.assertEqual(
+            approved,
+            {
+                "vss-eval-rtx-2g-vm1b",
+                "vss-eval-geforce-rtx4090-vm1",
+                "vss-eval-geforce-rtx4090-vm2",
+            },
+        )
+        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
+
+    def test_4090_test_capabilities_fail_closed(self):
+        self.assertTrue(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "alerts_cv"
+        ))
+        self.assertTrue(run_leg._rtx4090_supports(
+            "vss-manage-alerts", "subscriptions_lifecycle"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "search"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "warehouse"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-dense-captioning", "alerts_profile_api"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-detection-tracking-3d", "deploy"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+
+    def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
+        fleet = [{
+            "name": "vss-eval-geforce-rtx4090-vm1",
+            "status": "RUNNING",
+            "gpu": "GEFORCE RTX 4090",
+            "_registered": True,
+            "_rtx4090_capability_routed": True,
+        }]
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
+        requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
+
+        approved = run_leg.pool_candidates({
+            **requirements,
+            "skill": "vss-ask-video",
+        }, "base_profile_video_understanding")
+        unapproved = run_leg.pool_candidates({
+            **requirements,
+            "skill": "vss-deploy-dense-captioning",
+        }, "alerts_profile_api")
+
+        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
+        self.assertEqual(unapproved, [])
+
+    def test_underprovisioned_registered_node_is_filtered(self):
+        fleet = [
+            {"name": "vss-eval-geforce-rtx4090-vm1", "status": "RUNNING",
+             "gpu": "GEFORCE RTX 4090", "_registered": True,
+             "_rtx4090_capability_routed": True},
+            {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
+             "gpu": "RTX PRO 6000", "_registered": True},
+        ]
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
+
+        names = run_leg.pool_candidates({
+            "skill": "vss-ask-video",
+            "gpu_type": "RTX PRO 6000",
+            "gpu_count": 2,
+        }, "base_profile_video_understanding")
+
+        self.assertEqual(names, ["vss-eval-rtx-2g-VM1b"])
 
 
 class HoldPoolLock(unittest.TestCase):

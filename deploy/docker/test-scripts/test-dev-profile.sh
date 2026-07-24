@@ -723,16 +723,16 @@ else
 fi
 rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 
-# Search: critic enabled by default → generated.env ENABLE_CRITIC=true when unset or truthy; ENABLE_CRITIC=false + VLM_NAME_SLUG=none when explicitly false
-run_dry_run_up_and_check_generated_env "generated.env search default ENABLE_CRITIC=true" "search" \
+# Search: RT-VLM (vss-rtvi-vlm) is always deployed because it serves both the critic and
+# video_understanding. It is activated via the explicit "rtvi-vlm" compose profile (no vlm_
+# NIM profile) and the agent is wired to it with VLM_NAME_SLUG=none, VLM_MODEL_TYPE=rtvi,
+# VLM_BASE_URL=http://rtvi-vlm:8000. RT_VLM_DEVICE_ID follows the shared/VLM device (2).
+run_dry_run_up_and_check_generated_env "generated.env search default wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
-ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=true sets ENABLE_CRITIC" "search" \
-  -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
-ENABLE_CRITIC=TRUE run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=TRUE normalizes to true" "search" \
-  -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
+  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2" \
+  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
 _mock_brev_two_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_two_gpu_dir}")
 cat > "${_mock_brev_two_gpu_dir}/nvidia-smi" <<'EOF'
@@ -744,27 +744,14 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 2 GPU rejects default local critic" 1 up -p search -i 127.0.0.1 -d
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_negative_test "search Brev 2 GPU rejects explicitly enabled local critic" 1 up -p search -i 127.0.0.1 -d
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows explicit ENABLE_CRITIC=false" "search" \
-  -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "false" "VLM_NAME_SLUG" "none" "VLM_DEVICE_ID" "2"
-_search_overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/overrides.env"
-if [[ -f "${_search_overrides_env}" ]]; then
-  _search_overrides_env_backup="$(mktemp)"
-  cp "${_search_overrides_env}" "${_search_overrides_env_backup}"
-  CLEANUP_RESTORES+=("${_search_overrides_env_backup}|${_search_overrides_env}")
-  sed -i 's/^ENABLE_CRITIC=.*/ENABLE_CRITIC=false/' "${_search_overrides_env}"
-  PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows ENABLE_CRITIC=false from overrides.env" "search" \
-    -i 127.0.0.1 -d -- \
-    "ENABLE_CRITIC" "false" "VLM_NAME_SLUG" "none" "VLM_DEVICE_ID" "2"
-  mv "${_search_overrides_env_backup}" "${_search_overrides_env}"
-else
-  echo "SKIP: generated.env search Brev 2 GPU allows ENABLE_CRITIC=false from overrides.env (search overrides.env not found)"
-fi
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote critic VLM" "search" \
+# RT-VLM always deploys locally for search, so a 2-GPU Brev is rejected; only --use-remote-vlm avoids it.
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 2 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
-  "ENABLE_CRITIC" "true" "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_BASE_URL" "http://127.0.0.1:9998"
+  "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_BASE_URL" "http://127.0.0.1:9998" "VLM_PORT" "30082" \
+  "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat" \
+  "RTVI_VLM_MODEL_PATH" "none" "RT_VLM_DEVICE_ID" "0"
 _mock_brev_three_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_three_gpu_dir}")
 cat > "${_mock_brev_three_gpu_dir}/nvidia-smi" <<'EOF'
@@ -776,18 +763,10 @@ else
 fi
 EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
-PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU preserves ENABLE_CRITIC" "search" \
+PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
-ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=false sets ENABLE_CRITIC false" "search" \
-  -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "false"
-ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=false sets VLM_NAME_SLUG none" "search" \
-  -i 127.0.0.1 -d -- \
-  "VLM_NAME_SLUG" "none"
-ENABLE_CRITIC=FALSE run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=FALSE normalizes to false" "search" \
-  -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "false"
+  "VLM_DEVICE_ID" "2" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
+  "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "2"
 
 # --- Setup paths: data directory and selective downloads (assert dry-run output) ---
 _out_setup="$(mktemp)"
@@ -1056,7 +1035,7 @@ for _profile in base lvs search alerts; do
       _expected_stable_keys=(MODE LVS_TAG RTVI_VLM_IMAGE_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
     search)
-      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH ENABLE_CRITIC)
+      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
       _expected_override_keys+=(RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
       _expected_stable_keys=(MODE PERCEPTION_TAG NVSTREAMER_HTTP_PORT NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES)
       ;;
@@ -1285,14 +1264,6 @@ run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM
   "RTVI_VLM_MODEL_PATH" "'ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final'" \
   "RTVI_VLM_KAFKA_ENABLED" "false"
 
-run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives nano VLM_NAME by default" "search" \
- -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
-  "VLM_NAME_SLUG" "cosmos3-reasoner" "VLM_NAME" "nvidia/cosmos3-nano-reasoner"
-
-NIM_MODEL_SIZE=super run_dry_run_up_and_check_generated_env "generated.env cosmos3-reasoner derives super VLM_NAME from NIM_MODEL_SIZE" "search" \
- -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
-  "VLM_NAME_SLUG" "cosmos3-reasoner" "VLM_NAME" "nvidia/cosmos3-super-reasoner"
-
 run_dry_run_up_and_check_generated_env "generated.env MODE for alerts" "alerts" \
  -i 127.0.0.1 -m verification -d -- \
   "MODE" "2d_cv" \
@@ -1509,10 +1480,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT
   "RTVI_VLM_MODEL_PATH" "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" \
   "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
 
-# Search still uses standalone NIM VLM slugs for --vlm.
-run_dry_run_up_and_check_generated_env "generated.env search --vlm Qwen uses standalone NIM slug" "search" \
+# Search routes --vlm through RT-VLM (integrated checkpoint), same as base/lvs; see the base --vlm tests above.
+run_dry_run_up_and_check_generated_env "generated.env search --vlm Qwen maps to RT-VLM git path+basename" "search" \
  -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
-  "VLM_NAME_SLUG" "qwen3-vl-8b-instruct" "VLM_NAME" "Qwen/Qwen3-VL-8B-Instruct"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
+  "RTVI_VLM_MODEL_PATH" "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" \
+  "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
 
 # Docker Compose commands use these .env defaults directly, so agent config paths must be container paths.
 for _env in \

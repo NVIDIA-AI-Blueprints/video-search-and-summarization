@@ -11,14 +11,17 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **search** profile on {{platform}}, using the `/vss-deploy-profile` skill end-to-end and autonomously.",
+      "query": "Deploy the VSS **search** profile on this two-GPU {{platform}} host using the `/vss-deploy-profile` skill end-to-end and autonomously. Use the configured remote VLM endpoint because local search RT-VLM requires a third GPU; keep the local `vss-rtvi-vlm` service as the OpenAI-compatible proxy.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0"
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0",
+        "`curl -sf --max-time 15 http://localhost:8018/v1/models` returns exit 0 (search RT-VLM proxy responsive)",
+        "The deployed search configuration uses `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, `VLM_MODE=remote`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, and `RTVI_VLM_MODEL_PATH=none`"
       ]
     }
   ]

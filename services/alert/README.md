@@ -108,6 +108,21 @@ To run the verification pipeline directly (without Docker):
 python enhance_alert_with_vlm.py --config config.yaml
 ```
 
+## Observability
+
+Set `PROMETHEUS_METRICS_ENABLED=true` before starting the service to expose
+Prometheus metrics at `http://localhost:9081/metrics`. Kafka pipeline metrics
+use the existing `alert_bridge_*` event and latency series. Requests accepted
+through `POST /api/v1/verification/ondemand` use a separate
+`alert_bridge_ondemand_*` family for request outcomes, completed-event verdicts,
+VLM/background/request-to-publish latency, and verification failures.
+
+The scrape endpoint is not a Prometheus query server: configure Prometheus to
+scrape port 9081, then use the reporting tool documented in
+[`test/latency/README.md`](test/latency/README.md). On-demand metrics are
+aggregate-only; `alert_agent.metrics.per_sensor_labels` applies to Kafka
+pipeline metrics.
+
 ## Configuration
 
 `config.yaml` controls the runtime. Key sections:

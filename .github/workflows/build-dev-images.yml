@@ -130,16 +130,39 @@ jobs:
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
 
-      - name: Set up QEMU (arm64 emulation)
+      # Content-addressed reuse: if this exact source tree was already built and
+      # published under the content tag (tree-<tree_sha>), re-tag that multiarch
+      # manifest onto the per-commit tag instead of rebuilding identical content
+      # (which otherwise recompiles under slow arm64 QEMU emulation). Fail-open:
+      # a missing/mislabelled content tag or any error just builds normally.
+      - name: Check for reusable image (identical content)
+        id: reuse
         if: steps.preflight.outputs.skip != 'true'
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/ghcr_image_guard.py reuse \
+            --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+
+      - name: Re-tag existing content onto the immutable candidate tag
+        if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse == 'true'
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}"
+
+      - name: Set up QEMU (arm64 emulation)
+        if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392  # v3.6.0
 
       - name: Set up Buildx
-        if: steps.preflight.outputs.skip != 'true'
+        if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
 
       - name: Build and push (multiarch, immutable tag only)
-        if: steps.preflight.outputs.skip != 'true'
+        if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6.18.0
         with:
           context: ${{ matrix.context }}
@@ -148,8 +171,11 @@ jobs:
           push: true
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # Publish the content-addressed alias too so a later build of the same
+          # source tree can re-tag from it instead of rebuilding.
           tags: |
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}
           labels: |
             com.nvidia.vss.image_name=${{ matrix.name }}
             com.nvidia.vss.source_path=${{ matrix.source_path }}

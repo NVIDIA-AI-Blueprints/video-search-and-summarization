@@ -458,7 +458,6 @@ function usage() {
   echo "  • LLM_ENDPOINT_URL    — optional; required when --use-remote-llm is passed (both must be set)"
   echo "  • VLM_ENDPOINT_URL    — optional; required when --use-remote-vlm is passed (both must be set)"
   echo "  • VLM_CUSTOM_WEIGHTS  — optional; when --use-remote-vlm is not passed: absolute path to custom weights dir; when --use-remote-vlm is passed, ignored"
-  echo "  • ENABLE_CRITIC       — optional; search profile: enabled by default; when false (case-insensitive), disables the critic agent and skips local VLM deployment"
   echo ""
   echo "Options for 'up':"
   echo "  -p, --profile                    [REQUIRED] Profile."
@@ -1058,16 +1057,14 @@ function process_args() {
         fi
       fi
 
-      # Search critic requires a local VLM unless --use-remote-vlm is provided.
-      # On 2-GPU Brev launchables the configured local VLM device is unavailable,
-      # so fail fast instead of silently deploying without the critic service.
-      local _enable_critic_for_validation
-      _enable_critic_for_validation="${ENABLE_CRITIC:-$(get_env_value_from_files "ENABLE_CRITIC" "${_profile_env}" "${_profile_overrides_env}")}"
-      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ "${_enable_critic_for_validation,,}" != "false" ]]; then
+      # Search deploys a local RT-VLM (critic + video_understanding) that requires a
+      # dedicated GPU unless --use-remote-vlm is provided. On 2-GPU Brev launchables
+      # that GPU is unavailable, so fail fast instead of a broken deployment.
+      if [[ "${profile}" == "search" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
         local _brev_gpu_count
         _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
         if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
-          echo "[ERROR] Search critic requires a local VLM GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Set ENABLE_CRITIC=false to deploy search without critic, or pass --use-remote-vlm with VLM_ENDPOINT_URL."
+          echo "[ERROR] Search deploys a local RT-VLM that requires a dedicated GPU, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
           ((_all_good++))
         fi
       fi
@@ -1383,7 +1380,7 @@ function state_up() {
   elif [[ -n "${vlm}" ]]; then
     set_env_var "VLM_NAME_SLUG" "$(get_vlm_slug "${vlm}")"
     if [[ "${vlm}" == "nvidia/cosmos3-reasoner" ]]; then
-      local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value "${_source_env}" "NIM_MODEL_SIZE")}"
+      local _nim_model_size="${NIM_MODEL_SIZE:-$(get_env_value_from_files "NIM_MODEL_SIZE" "${_source_env}" "${_overrides_env}")}"
       _nim_model_size="${_nim_model_size:-nano}"
       set_env_var "VLM_NAME" "nvidia/cosmos3-${_nim_model_size}-reasoner"
     else
@@ -1410,12 +1407,12 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Base/alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Base/alerts/LVS/search + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason3 is only valid when the
   # local rtvi-vlm container is serving the integrated checkpoint).
   # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
     # LVS requests defer frame sampling to RT-VLM. Default remote endpoints to
@@ -1440,20 +1437,6 @@ function state_up() {
     set_env_var "VLM_ENV_FILE" "${vlm_env_file}"
   fi
 
-  # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
-  # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
-  # Brev 2-GPU local-VLM critic deployments are rejected during argument validation.
-  if [[ "${profile}" == "search" ]]; then
-    local _enable_critic
-    _enable_critic="${ENABLE_CRITIC:-$(get_env_value_from_files "ENABLE_CRITIC" "${_source_env}" "${_overrides_env}")}"
-    if [[ "${_enable_critic,,}" == "false" ]]; then
-      set_env_var "ENABLE_CRITIC" "false"
-      set_env_var "VLM_NAME_SLUG" "none"
-    else
-      set_env_var "ENABLE_CRITIC" "true"
-    fi
-  fi
-
   # Alerts profile: conditionally set perception prefix for edge (DGX-SPARK, IGX-THOR, AGX-THOR)
   if [[ "${profile}" == "alerts" ]] && contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
@@ -1463,8 +1446,8 @@ function state_up() {
     set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
   fi
 
-  # Base/alerts/LVS for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed RT-VLM configuration)
-  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]]); then
+  # Base/alerts/LVS/search for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed RT-VLM configuration)
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     # Local VLM only: rtvi-vlm serves the VLM locally on the Compose network.
     # Keep VLM_BASE_URL internal so sibling containers do not need host-published ports.
@@ -1734,14 +1717,19 @@ function state_up() {
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
   else
-    cd "${deployment_directory}" && docker compose \
-      --env-file containers.env \
-      --env-file "developer-profiles/dev-profile-${profile}/.env" \
-      --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
-      up \
-      --detach \
-      --force-recreate \
-      --build
+    if ! (
+      cd "${deployment_directory}" && docker compose \
+        --env-file containers.env \
+        --env-file "developer-profiles/dev-profile-${profile}/.env" \
+        --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
+        up \
+        --detach \
+        --force-recreate \
+        --build
+    ); then
+      echo "[ERROR] docker compose up failed for developer profile '${profile}'"
+      return 1
+    fi
   fi
 
   echo "[INFO] State up completed"

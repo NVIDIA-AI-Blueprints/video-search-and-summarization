@@ -18,7 +18,7 @@ Key service signals in the current develop branch:
 
 | Item | Value |
 |---|---|
-| Compose profile | `bp_developer_lvs_2d` |
+| Compose profile | `lvs-server` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
 | video summarization image | `${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.1}` (use `LVS_TAG=3.2.1-sbsa` on SBSA / DGX Spark / Grace) |
@@ -55,8 +55,8 @@ If you are already operating the resolved Docker Compose stack, include the
 profile that owns the video summarization service:
 
 ```bash
-docker compose --profile bp_developer_lvs_2d ps lvs-server
-docker compose --profile bp_developer_lvs_2d logs -f lvs-server
+docker compose --profile lvs-server ps lvs-server
+docker compose --profile lvs-server logs -f lvs-server
 ```
 
 ## Required Inputs
