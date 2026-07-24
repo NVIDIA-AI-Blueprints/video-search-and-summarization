@@ -717,14 +717,17 @@ run_build_commands() {
     fi
 
     # Optional per-arch image tag + push, supplied by CI for the MULTIARCH publish
-    # flow (e.g. BUILD_TAG=2.1.0-amd64-26.05.5 on the amd64 node, 2.1.0-arm64-...
-    # on the arm64 node) so the built images are pushed and later merged into a
-    # multiarch manifest. Unset for a plain local build-and-test (images stay
-    # local at their default tag and are not pushed). Registry/org still comes
-    # from IMAGE_REGISTRY/NVSTREAMER_IMAGE_REGISTRY; only the tag is referenced.
-    if [[ -n "${BUILD_TAG:-}" ]]; then
-        build_args+=("tag=${BUILD_TAG}")
-        info "Building images with tag: ${BUILD_TAG}"
+    # flow (e.g. VST_BUILD_TAG=2.1.0-amd64-26.05.5 on the amd64 node,
+    # 2.1.0-arm64-... on the arm64 node) so the built images are pushed and later
+    # merged into a multiarch manifest. Unset for a plain local build-and-test
+    # (images stay local at their default tag and are not pushed). Registry/org
+    # still comes from IMAGE_REGISTRY/NVSTREAMER_IMAGE_REGISTRY; only the tag is
+    # referenced. NOTE: this is VST_BUILD_TAG (not BUILD_TAG) -- Jenkins defines a
+    # built-in BUILD_TAG=jenkins-<job>-<num>, which would otherwise be picked up
+    # here and mis-tag the images.
+    if [[ -n "${VST_BUILD_TAG:-}" ]]; then
+        build_args+=("tag=${VST_BUILD_TAG}")
+        info "Building images with tag: ${VST_BUILD_TAG}"
     fi
     if [[ "${PUSH_IMAGES:-}" == "1" || "${PUSH_IMAGES:-}" == "true" ]]; then
         build_args+=("push=1")
