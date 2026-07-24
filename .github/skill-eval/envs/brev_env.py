@@ -1683,7 +1683,14 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         user: str | int | None = None,
     ) -> ExecResult:
         assert self._instance_name
-        command = self._replace_nemoclaw_launcher_command(command)
+        original_command = command
+        command = self._replace_nemoclaw_launcher_command(command, env)
+        if env and command != original_command:
+            env = {
+                key: value
+                for key, value in env.items()
+                if not key.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")
+            }
 
         is_trial_agent = (
             "claude --verbose --output-format=stream-json" in command
@@ -1792,7 +1799,11 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 raise
             logger.warning("Remote agent reap failed after interruption: %r", exc)
 
-    def _replace_nemoclaw_launcher_command(self, command: str) -> str:
+    def _replace_nemoclaw_launcher_command(
+        self,
+        command: str,
+        env: dict[str, str] | None = None,
+    ) -> str:
         """Replace the outer Claude launcher with a deterministic handoff.
 
         The NemoClaw task's actual skill exercise happens inside OpenClaw.
@@ -1802,7 +1813,15 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         Harbor lifecycle/result reporting while making the handoff reliable.
         """
         meta = self._task_metadata or {}
-        if "headless_runner.py" not in command or "claude" not in command:
+        harbor_instructions = (
+            value
+            for key, value in (env or {}).items()
+            if key.startswith("HARBOR_CLAUDE_CODE_INSTRUCTION_")
+        )
+        has_nemoclaw_launcher = "headless_runner.py" in command or any(
+            "headless_runner.py" in value for value in harbor_instructions
+        )
+        if not has_nemoclaw_launcher or "claude" not in command:
             return command
         # The generated headless_runner.py command is the authoritative signal
         # for the NemoClaw handoff. Do not require parsed task metadata here:
@@ -1829,15 +1848,17 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             if environment_dir
             else None
         )
-        prompt_setup = ""
-        prompt_arg = "/tests/nemoclaw_prompt.md"
-        if prompt_file is not None and prompt_file.exists():
-            prompt_b64 = base64.b64encode(prompt_file.read_bytes()).decode("ascii")
-            prompt_arg = "/tmp/skill-eval/nemoclaw/current_prompt.md"
-            prompt_setup = (
-                "mkdir -p /tmp/skill-eval/nemoclaw\n"
-                f"printf %s {shlex.quote(prompt_b64)} | base64 -d > {shlex.quote(prompt_arg)}\n"
+        if prompt_file is None or not prompt_file.is_file():
+            raise RuntimeError(
+                "NemoClaw task prompt is unavailable on the coordinator; "
+                "refusing to fall back to potentially stale worker /tests input."
             )
+        prompt_b64 = base64.b64encode(prompt_file.read_bytes()).decode("ascii")
+        prompt_arg = "/tmp/skill-eval/nemoclaw/current_prompt.md"
+        prompt_setup = (
+            "mkdir -p /tmp/skill-eval/nemoclaw\n"
+            f"printf %s {shlex.quote(prompt_b64)} | base64 -d > {shlex.quote(prompt_arg)}\n"
+        )
         return rf"""set -euo pipefail
 REPO="$HOME/video-search-and-summarization"
 cd "$REPO"

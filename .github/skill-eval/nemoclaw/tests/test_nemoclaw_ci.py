@@ -2021,11 +2021,21 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn("Use the `/vss-ask-video` skill as the primary workflow", prompt)
         self.assertIn("requires the `base` VSS profile", prompt)
         self.assertIn("Use the /vss-ask-video skill against", prompt)
+        self.assertIn("## GPU resource boundary", prompt)
+        self.assertIn("only valid device ID is 0", prompt)
+        self.assertIn("Never request GPU 1", prompt)
         self.assertIn("headless_runner.py", instruction)
         self.assertIn("--wait-profile base", instruction)
         self.assertIn('runner = "nemoclaw"', task_toml)
         self.assertIn('expected_skill = "vss-ask-video"', task_toml)
         self.assertIn("vss_orchestrator__docker_status", task_toml)
+
+    def test_nemoclaw_wrapper_rejects_conflicting_gpu_boundary(self):
+        with self.assertRaisesRegex(RuntimeError, "disagrees with task gpu_count=1"):
+            smoke_runner._with_gpu_resource_guidance(
+                "This trial reserves exactly 2 GPUs; valid device IDs are 0 through 1.\n",
+                gpu_count=1,
+            )
 
     def test_generic_task_wrapper_replaces_stale_launcher_without_wait_profile(self):
         with tempfile.TemporaryDirectory() as td:

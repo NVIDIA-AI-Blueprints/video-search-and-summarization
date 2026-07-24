@@ -263,6 +263,33 @@ async def test_prereqs_runtime_error(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_prereqs_gpu_indices_reject_unavailable_generate_override(tmp_path: Path):
+    async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
+        with patch(
+            "vss_agents.orchestrator.tools.run_prereqs_checks",
+            return_value={"gpus": [{"index": 0}]},
+        ):
+            prereqs = await _call(group, "prereqs", DockerPrereqsInput())
+
+        with patch("vss_agents.orchestrator.tools.create_dry_run_recipe") as mock_recipe:
+            result = await _call(
+                group,
+                "docker_generate",
+                GenerateInput(
+                    profile="base",
+                    env_overrides=["LLM_DEVICE_ID=0", "VLM_DEVICE_ID=1"],
+                ),
+            )
+
+    assert prereqs["status"] == ComposeStatus.SUCCESS.value
+    assert result["status"] == ComposeStatus.ERROR.value
+    assert "VLM_DEVICE_ID=1" in result["error"]
+    assert "detected GPU indices: 0" in result["error"]
+    assert "Retry docker_generate without GPU device overrides" in result["error"]
+    mock_recipe.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_docker_read_unknown_compose_id(tmp_path: Path):
     async with _orchestrator_group(tmp_path) as (group, _config, _tmp_path):
         result = await _call(group, "docker_read", ComposeArtifactsInput(docker_compose_id="missing-id"))
