@@ -22,11 +22,12 @@
 #   ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/{tools,sop_tools}.py
 # (${VSS_APPS_DIR} == the deploy/docker dir bind-mounted read-only into the container).
 #
-# ${VSS_AGENT_SITE_PACKAGES} defaults to /vss-agent/.venv/lib/python3.13/site-packages
-# — verify the python3.13 segment against the image (deploy-sop-report.md § 1).
+# ${VSS_AGENT_SITE_PACKAGES} defaults to /vss-agent/.venv/lib/python3.13/site-packages and
+# ${VSS_AGENT_PKG} to the image's video-analytics package (vss_agents on develop, agent on
+# some builds) — resolve both against the image (../sop.md § Patch specifics step 1).
 
 services:
   vss-va-mcp:
     volumes:
-    - ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/tools.py:${VSS_AGENT_SITE_PACKAGES}/agent/video_analytics/tools.py:ro
-    - ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/sop_tools.py:${VSS_AGENT_SITE_PACKAGES}/agent/video_analytics/sop_tools.py:ro
+    - ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/tools.py:ro
+    - ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/sop_tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/sop_tools.py:ro

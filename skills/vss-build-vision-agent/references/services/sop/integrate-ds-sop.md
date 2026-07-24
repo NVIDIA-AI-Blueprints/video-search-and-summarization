@@ -4,7 +4,7 @@
 
 DS-SOP is a DeepStream-based Standard-Operating-Procedure monitoring microservice. It ingests a video stream — **canonically a Basler/Pylon industrial camera** at the work-cell (also an RTSP source or a file) — runs a **DDM-Net temporal action-detection model** to segment the stream into action chunks, then runs a **Cosmos-Reason VLM (in-process vLLM)** over each chunk to label it against a configured SOP action set, and a **SOP step-checker** that flags missing / mis-ordered / cycle-complete steps. It publishes per-chunk SOP records (JSON) to Kafka for ELK/Kibana, **and re-emits an annotated RTSP output** (`rtsp://<host>:8554/ds-out/<stream-name>`, when `ENABLE_RTSP_OUTPUT=true`) **that VIOS records for the VST UI**.
 
-Use this service when the workflow requires **SOP compliance monitoring of a procedural task** (e.g. assembly / installation steps) on a live camera or stored video — structured, deterministic "did the operator perform step N, in order" events, as opposed to free-form dense captions (RT-VLM's job). DS-SOP occupies the same perception/inference slot as RT-VLM or RT-CV, but bundles a CV action model + a VLM in one DeepStream container **and (unlike RT-VLM) produces an annotated RTSP output VIOS records**. The image is `ds-sop:1.0.0`, built via the `vss-build-ds-sop` skill.
+Use this service when the workflow requires **SOP compliance monitoring of a procedural task** (e.g. assembly / installation steps) on a live camera or stored video — structured, deterministic "did the operator perform step N, in order" events, as opposed to free-form dense captions (RT-VLM's job). DS-SOP occupies the same perception/inference slot as RT-VLM or RT-CV, but bundles a CV action model + a VLM in one DeepStream container **and (unlike RT-VLM) produces an annotated RTSP output VIOS records**. The image is `ds-sop:1.0.0`, built per `build-ds-sop.md` (this bundle).
 
 ## Required Peer Services
 
@@ -69,8 +69,8 @@ Use this service when the workflow requires **SOP compliance monitoring of a pro
 
 ## Scope notes
 
-- **Source:** built from `microservices/sop-inference-bp/` in `NVIDIA/sop-monitoring-blueprints` (branch `main`), which ships the `:8554` annotated RTSP output the DS-SOP→VIOS flow uses. See the `vss-build-ds-sop` skill.
-- **Report generation — available as a separate capability.** SOP compliance reports are composable via the **`sop-report-generation`** capability (`SOP Report Tools`, `integrate-sop-report.md` / `deploy-sop-report.md`) — it adds the SOP `get_sop_*` tools to `vss-va-mcp`, and the `vss-generate-video-report` skill (Mode C) renders the report from them (no report agent, no web UI, no report LLM). This DS-SOP entry delivers SOP **detection → Kafka → ELK/Kibana + annotated stream → VIOS/VST**; compose `sop-detection` + `sop-report-generation` together for the full blueprint (detection **and** on-demand compliance reports).
+- **Source:** built from `microservices/sop-inference-bp/` in `NVIDIA/sop-monitoring-blueprints` (branch `main`), which ships the `:8554` annotated RTSP output the DS-SOP→VIOS flow uses. See `build-ds-sop.md`.
+- **Report generation — available as a separate capability.** SOP compliance reports are composable via the **`sop-report-generation`** capability (`SOP Report Tools`, see `../sop.md` § Patch specifics) — it adds the SOP `get_sop_*` tools to `vss-va-mcp`, and the `vss-generate-video-report` skill (Mode C) renders the report from them (no report agent, no web UI, no report LLM). This DS-SOP entry delivers SOP **detection → Kafka → ELK/Kibana + annotated stream → VIOS/VST**; compose `sop-detection` + `sop-report-generation` together for the full blueprint (detection **and** on-demand compliance reports).
 
 ## Example Compose Snippet
 

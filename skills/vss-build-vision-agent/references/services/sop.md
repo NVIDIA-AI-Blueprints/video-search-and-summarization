@@ -15,8 +15,11 @@
 | SOP compliance report tools (`get_sop_status/report/as_incidents/as_incident` over Elasticsearch) | `vss-va-mcp` (+ the SOP `video_analytics` patch) |
 
 SOP compliance **reports** are rendered by the `vss-generate-video-report` skill
-(Mode C) from `get_sop_report`. There is **no** report service, VSS agent, web UI,
-or report LLM in this integration.
+(Mode C) from `get_sop_report` — which returns an aggregated window (message count,
+current/completed cycle, compliance status, all violations, unique actions, and a
+`formatted_report` markdown). `get_sop_status` / `get_sop_as_incident(s)` are the
+recent-activity and incident-adapter variants. There is **no** report service, VSS
+agent, web UI, or report LLM in this integration.
 
 ## Required peers
 
@@ -82,6 +85,7 @@ VLLM_GPU_MEMORY_UTILIZATION=0.6            # 0.3 is fine on ≥80 GB GPUs
 #   get_sop_*). VSS_AGENT_SITE_PACKAGES → mount root; verify vs the ghcr.io image.
 VSS_VA_MCP_CONFIG_FILE=<staged: adapted from the downloaded SOP release VA-MCP config — see § Patch specifics>
 VSS_AGENT_SITE_PACKAGES=/vss-agent/.venv/lib/python3.13/site-packages
+VSS_AGENT_PKG=vss_agents            # resolved from the image — see § Patch specifics (vss_agents on develop)
 ```
 
 Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
@@ -98,6 +102,7 @@ Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.6` on ≤48 GB GPUs (the `0.3` default is H100-tuned). |
 | `VSS_VA_MCP_CONFIG_FILE` | SOP VA-MCP config (adapted from the downloaded SOP release config — see § Patch specifics; selects the `get_sop_*` tools). |
 | `VSS_AGENT_SITE_PACKAGES` | In-container site-packages root the SOP patch mounts over. |
+| `VSS_AGENT_PKG` | Video-analytics package name in the image (`vss_agents` on develop, `agent` on some builds) — resolve it (§ Patch specifics), never hardcode. |
 
 ## Patch specifics — download the SOP release patch, then adapt it
 
@@ -126,9 +131,20 @@ curl -fsSL $REPO/$BASE/configs/va_mcp_server_config.yml -o /tmp/sop-release-va-m
 **Adapt to the running image** — do NOT mount the 3.1 `tools.py` verbatim (it would regress
 the image's other `video_analytics` tools and targets the old package layout):
 
-1. **Resolve the package + site-packages path** on the image (see `sop/deploy-sop-report.md`
-   § Deploy Steps). The current base uses `agent/video_analytics/` (an earlier layout used
-   `vss_agents/`).
+1. **Resolve the package name + site-packages path** on the image — the package name has
+   varied across releases (`vss_agents` on develop, `agent` on some builds), so **detect it,
+   don't hardcode**:
+   ```bash
+   docker run --rm --entrypoint /vss-agent/.venv/bin/python3 \
+     ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest -c '
+   import importlib, os
+   for pkg in ("vss_agents", "agent"):
+       try:
+           m = importlib.import_module(pkg)
+           print(pkg, os.path.dirname(os.path.dirname(m.__file__))); break
+       except ImportError: pass'
+   ```
+   Set `VSS_AGENT_PKG` (e.g. `vss_agents`) and `VSS_AGENT_SITE_PACKAGES` from the output.
 2. **Locate the SOP additions** in the downloaded `tools.py` — a self-contained block of the
    four SOP tool implementations plus their four include-gated registrations. Diffing it
    against the image's own `<pkg>/video_analytics/tools.py` makes them obvious.
@@ -141,7 +157,13 @@ the image's other `video_analytics` tools and targets the old package layout):
    compose service names (`elasticsearch:9200`, `vst-ingress:30888`), and keep the
    `video_analytics` group with the four `get_sop_*` tools in its `include` list.
 5. **Mount** the adapted `{tools,sop_tools}.py` over
-   `${VSS_AGENT_SITE_PACKAGES}/<pkg>/video_analytics/` via `sop/sop-report/sop-report-override.yml`.
+   `${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/` via
+   `sop/sop-report/sop-report-override.yml`, then bring up just the patched service
+   (`docker compose … up -d vss-va-mcp`; leaves DS-SOP/ELK untouched).
+6. **Verify:** `docker exec vss-va-mcp /vss-agent/.venv/bin/python3 -c "import ${VSS_AGENT_PKG}.video_analytics.sop_tools"`
+   exits 0, and MCP `tools/list` on `:9901` lists the four `get_sop_*` (full runtime checks are
+   in the profile eval). Empty/error `get_sop_report` → `mdx-vlm-captions-*` empty or the SOP
+   Logstash pipeline not registered (`deploy-ds-sop.md`).
 
 The image is the Foundation's stock `vss-va-mcp`
 (`ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest`); verify `VSS_AGENT_SITE_PACKAGES`
@@ -158,7 +180,8 @@ caveats (seen on `develop-latest`) need handling:
 ## Sources
 
 - **Detailed contracts of record** (this folder): `sop/integrate-ds-sop.md`,
-  `sop/deploy-ds-sop.md`, `sop/integrate-sop-report.md`, `sop/deploy-sop-report.md`, `sop/build-ds-sop.md`.
+  `sop/deploy-ds-sop.md`, `sop/build-ds-sop.md`. (The SOP report layer is small — its full
+  contract is § Patch specifics above, so it has no separate integrate/deploy files.)
 - **Assets** (this folder): `sop/sop-report/sop-report-override.yml` (the mount override),
   `sop/sop-vlm-captions-json-logstash.conf`. The `get_sop_*` patch + VA-MCP config are
   **downloaded at build time** from the public SOP repo (see § Patch specifics) — **not shipped
