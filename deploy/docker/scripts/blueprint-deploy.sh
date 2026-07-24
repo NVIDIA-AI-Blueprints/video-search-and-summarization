@@ -979,6 +979,28 @@ function state_up() {
   echo "[INFO] Setting permissions on data_log directory..."
   chmod -R 777 "${data_directory}/data_log" 2>/dev/null || true
 
+  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
+  local _compose_file_args_text=" ${_compose_file_args[*]}"
+  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
+
+  # Resolve and display the managed container channel before deployment.
+  set -a
+  # shellcheck disable=SC1091
+  source "${deployment_directory}/containers.env"
+  set +a
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  echo "[INFO] Resolved compose images:"
+  (
+    cd "${deployment_directory}"
+    docker compose \
+      "${_compose_file_args[@]}" \
+      --env-file containers.env \
+      --env-file "${_deploy_rel}/.env" \
+      --env-file "${_deploy_rel}/generated.env" \
+      config --images | sort -u
+  )
+
   echo "[INFO] Logging into nvcr.io..."
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] docker login --username '\$oauthtoken' --password <ngc-cli-api-key> nvcr.io"
@@ -989,17 +1011,14 @@ function state_up() {
       nvcr.io 2>/dev/null || echo "[WARN] Docker login to nvcr.io may have failed (required for pulling images)"
   fi
 
-  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
-  local _compose_file_args_text=" ${_compose_file_args[*]}"
-  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
-
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file containers.env --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
   else
     if ! (
       cd "${deployment_directory}" && docker compose \
         "${_compose_file_args[@]}" \
+        --env-file containers.env \
         --env-file "${_deploy_rel}/.env" \
         --env-file "${_deploy_rel}/generated.env" \
         up \
