@@ -955,6 +955,8 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertIn("--message", script)
         self.assertNotIn("--local", script)
         self.assertIn("--json", script)
+        self.assertIn("--thinking off", script)
+        self.assertNotIn("--thinking medium", script)
         self.assertIn("OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1", script)
         self.assertIn("NO_PROXY=localhost,127.0.0.1,::1,10.200.0.1", script)
         no_proxy_exports = [
