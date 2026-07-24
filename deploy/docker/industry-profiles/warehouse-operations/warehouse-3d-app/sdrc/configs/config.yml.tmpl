@@ -1,7 +1,7 @@
 docker-workload-streamprocessing:
   wl_obj_name: vss-vios-streamprocessing
   port: 4005
-  enable: true
+  enable: ${VST_USE_SDRC_ENABLE}
   WDM_CONSUMER_GRP_ID: sdr-streamprocessing-vios-cg
   WDM_REDIS_CACHE_OBJECT: streamprocessing-data
   WDM_XDS_USE_POD_DNS: true

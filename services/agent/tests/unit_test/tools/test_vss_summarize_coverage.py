@@ -19,10 +19,10 @@ import uuid
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.data_models.vss import MediaInfoOffset
-from vss_agents.tools.vss_summarize import VSSSummarizeConfig
-from vss_agents.tools.vss_summarize import VSSSummarizeInput
-from vss_agents.tools.vss_summarize import VSSSummarizeOutput
+from agent.data_models.vss import MediaInfoOffset
+from agent.tools.vss_summarize import VSSSummarizeConfig
+from agent.tools.vss_summarize import VSSSummarizeInput
+from agent.tools.vss_summarize import VSSSummarizeOutput
 
 
 class TestVSSSummarizeConfig:

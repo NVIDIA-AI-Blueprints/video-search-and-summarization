@@ -162,6 +162,75 @@ because each warehouse has more frames with PalletTruck instances.
 | `--fps`                        | No       | `30.0`    | FPS written into TrackEval's per-sequence `seqinfo.ini` (cosmetic for single-sequence runs). |
 | `--quiet`                      | No       | (off)     | Suppress TrackEval's per-(scene, class) `INFO` records and per-class metric tables, keeping the final summary table readable. |
 
+### Evaluating on a frame slice (`--frame_start` + `--num_frames_to_eval`)
+
+The pair of flags `--frame_start` (default `0`) and
+`--num_frames_to_eval` (default `9000`) define an arbitrary half-open
+frame window `[frame_start, num_frames_to_eval)` per scene. The default
+matches the official validation server (`[0, 9000)`); set `--frame_start`
+to evaluate a non-prefix slice:
+
+```bash
+# First half of a 9000-frame scene
+python tools/evaluation/evaluate_aicity_mtmc.py \
+    --ground_truth_file data/aicity26/ground_truth/ground_truth.txt \
+    --input_file /path/to/2026_submission.txt \
+    --num_frames_to_eval 4500
+
+# Second half of a 9000-frame scene
+python tools/evaluation/evaluate_aicity_mtmc.py \
+    --ground_truth_file data/aicity26/ground_truth/ground_truth.txt \
+    --input_file /path/to/2026_submission.txt \
+    --frame_start 4500 --num_frames_to_eval 9000
+```
+
+`--frame_start` must be in `[0, num_frames_to_eval)`; the CLI raises a
+clean `ValueError` otherwise.
+
+### GT frame scoping (partial ground truth)
+
+Scoring is **scoped to the frames the ground truth annotates**. During the
+split step the GT pass records which `frame_id` values appear per scene;
+the prediction pass then **drops** rows on frames outside that set instead
+of scoring them as false positives. When the GT spans every frame in the
+active window this is a no-op; it matters when the GT file covers only a
+subset of frames (e.g. a per-scene first-half GT) while the submission
+still contains predictions for the full sequence.
+
+**Practical recipe:** provide a GT that covers the frames you want to
+score and run your **unchanged full submission** against it — no manual
+prediction filtering is required. For example, the standalone
+`aicity_mtmc_eval` release bundle ships
+`data/aicity26/ground_truth_half.txt` (per-scene first half: scenes
+23–25 → `[0, 4500)`, 26/27 → `[0, 900)`); evaluating a full submission
+against it yields the true first-half HOTA with second-half predictions
+ignored.
+
+```bash
+python tools/evaluation/evaluate_aicity_mtmc.py \
+    --ground_truth_file /path/to/ground_truth_half.txt \
+    --input_file         /path/to/full_submission.txt \
+    --output_dir         /tmp/aicity_mtmc_eval_first_half \
+    --quiet
+```
+
+**Do not confuse this with a partial submission.** A submission that
+only covers part of the frame range is still penalised: any GT frame in
+the active window with no matching prediction counts as a missed
+detection. Always submit predictions for the full frame range; do **not**
+shrink `--num_frames_to_eval` to match a short submission.
+
+`--frame_start` / `--num_frames_to_eval` clip to a **uniform**
+`[start, end)` window across all scenes (e.g. the official server's
+`[0, 9000)`). GT frame scoping is orthogonal — it further restricts
+scoring to whatever frames the GT file actually contains within that
+window.
+
+At the library level, `run_aicity_mtmc_evaluation` wires this
+automatically via `split_aicity_mtmc_per_scene_per_class`'s optional
+`record_frames_by_scene` (GT pass) and `allowed_frames_by_scene`
+(prediction pass) kwargs.
+
 ### Output
 
 Two pieces of output:
@@ -209,8 +278,8 @@ Import the same functions the CLI uses from
 | Symbol                                | Purpose |
 |---------------------------------------|---------|
 | `HOTA_FIELDS`                         | `["HOTA", "DetA", "AssA", "LocA"]` — the metric quartet reported by the leaderboard. |
-| `split_aicity_mtmc_per_scene_per_class(...)` | Stream-split an AICity MTMC text file into `<scene>/<class>/<basename>` MOT-format files; returns `{scene: {class: row_count}}`. Optional kwarg `class_id_to_name` selects the active class table (defaults to AICity'26). Useful on its own for per-class analyses / visualizers / custom evaluators. |
-| `run_aicity_mtmc_evaluation(...)` | End-to-end orchestrator: splits, runs HOTA per (scene, class), aggregates, returns a results dict. Optional kwarg `class_id_to_name` selects the active class table (defaults to AICity'26; pass `aicity25.spec.CLASS_ID_TO_NAME` for the 2025 edition). |
+| `split_aicity_mtmc_per_scene_per_class(...)` | Stream-split an AICity MTMC text file into `<scene>/<class>/<basename>` MOT-format files; returns `{scene: {class: row_count}}`. Optional kwargs: `class_id_to_name` (active class table; defaults to AICity'26), `record_frames_by_scene` (GT pass — accumulate annotated frames per scene), `allowed_frames_by_scene` (prediction pass — drop rows on frames absent from GT). Useful on its own for per-class analyses / visualizers / custom evaluators. |
+| `run_aicity_mtmc_evaluation(...)` | End-to-end orchestrator: splits (with automatic GT frame scoping), runs HOTA per (scene, class), aggregates, returns a results dict. Optional kwarg `class_id_to_name` selects the active class table (defaults to AICity'26; pass `aicity25.spec.CLASS_ID_TO_NAME` for the 2025 edition). |
 | `print_aicity_mtmc_summary(results)` | Log the per-(scene, class) + per-scene summary table to the module's logger. |
 | `save_aicity_mtmc_results(results, output_dir)` | Persist a results dict to `<output_dir>/aicity_mtmc_hota_summary.json` in the 0–100 scale used by the official leaderboard. Returns the JSON path. |
 
@@ -297,6 +366,12 @@ persistence, matching the convention used by the official leaderboard.
 - `num_frames_to_eval` truncates by **frame ID**, not by **row count**,
   so it is safe to leave at its `9000` default even when one scene has
   many fewer rows.
+- **GT frame scoping:** predictions on frames the GT does not annotate
+  are ignored, not scored as false positives. Use a partial GT file to
+  score a frame subset against a full submission (see
+  [GT frame scoping](#gt-frame-scoping-partial-ground-truth) above). A
+  *partial submission* against a full GT is still penalised for missed
+  detections — that is different.
 - The auto-derived scene name (`scene_<id>`) is purely for display; the
   HOTA numbers under `scene_<id>` are identical to those under the
   named-scene mapping for the same underlying data.

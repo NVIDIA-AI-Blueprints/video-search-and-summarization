@@ -20,11 +20,11 @@ from unittest.mock import MagicMock
 from nat.data_models.evaluator import EvalInputItem
 import pytest
 
-from vss_agents.evaluators.utils import ScoreOutputParser
-from vss_agents.evaluators.utils import compute_item_latency
-from vss_agents.evaluators.utils import invoke_llm_with_retry
-from vss_agents.evaluators.utils import should_evaluate
-from vss_agents.evaluators.utils import strip_agent_think_tags
+from agent.evaluators.utils import ScoreOutputParser
+from agent.evaluators.utils import compute_item_latency
+from agent.evaluators.utils import invoke_llm_with_retry
+from agent.evaluators.utils import should_evaluate
+from agent.evaluators.utils import strip_agent_think_tags
 
 
 class TestShouldEvaluate:

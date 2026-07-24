@@ -26,19 +26,19 @@ from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda
 import pytest
 
-from vss_agents.agents.data_models import AgentMessageChunk
-from vss_agents.agents.data_models import AgentMessageChunkType
-from vss_agents.agents.data_models import AgentRequestOptions
-from vss_agents.agents.search_agent import SearchAgentInput
-from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
-from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
-from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
-from vss_agents.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
-from vss_agents.agents.top_agent import TopAgent
-from vss_agents.agents.top_agent import TopAgentRequest
-from vss_agents.agents.top_agent import TopAgentState
-from vss_agents.agents.top_agent import _augment_context_clip_offsets
-from vss_agents.agents.top_agent import strip_frontend_tags
+from agent.agents.data_models import AgentMessageChunk
+from agent.agents.data_models import AgentMessageChunkType
+from agent.agents.data_models import AgentRequestOptions
+from agent.agents.search_agent import SearchAgentInput
+from agent.agents.top_agent import EMPTY_MESSAGES_ERROR
+from agent.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
+from agent.agents.top_agent import NO_INPUT_ERROR_MESSAGE
+from agent.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
+from agent.agents.top_agent import TopAgent
+from agent.agents.top_agent import TopAgentRequest
+from agent.agents.top_agent import TopAgentState
+from agent.agents.top_agent import _augment_context_clip_offsets
+from agent.agents.top_agent import strip_frontend_tags
 
 
 class TestTopAgentConstants:
@@ -229,7 +229,7 @@ class TestRequestOptionsContext:
                 yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content="done")
 
         monkeypatch.setattr(
-            "vss_agents.agents.top_agent.ContextState.get",
+            "agent.agents.top_agent.ContextState.get",
             lambda: SimpleNamespace(conversation_id=SimpleNamespace(get=lambda: "thread-1")),
         )
 
@@ -255,7 +255,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_agent_node_passes_request_options_context_without_forcing_tool_call(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         captured = {}
 
@@ -294,7 +294,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_agent_node_passes_request_options_context_to_plan_exec_prompt(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         captured = {}
 
@@ -328,7 +328,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_plan_node_includes_request_options_context(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         captured = {}
 
@@ -357,7 +357,7 @@ class TestRequestOptionsContext:
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_tool(self, monkeypatch):
         chunks = []
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: chunks.append)
 
         class SearchTool:
             def __init__(self):
@@ -402,7 +402,7 @@ class TestRequestOptionsContext:
 
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_with_search_agent_schema(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         class SearchTool:
             args_schema = SearchAgentInput
@@ -438,7 +438,7 @@ class TestRequestOptionsContext:
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_subagent_trace(self, monkeypatch):
         chunks = []
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+        monkeypatch.setattr("agent.agents.top_agent.get_stream_writer", lambda: chunks.append)
 
         search_tool = MagicMock()
         search_tool.args_schema = MagicMock()
@@ -514,8 +514,8 @@ class TestAugmentContextClipOffsets:
         async def fake_get_timeline(stream_id, *args, **kwargs):
             return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
 
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_name_to_stream_id_map", fake_get_name_to_stream_id_map)
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_timeline", fake_get_timeline)
+        monkeypatch.setattr("agent.agents.top_agent.get_name_to_stream_id_map", fake_get_name_to_stream_id_map)
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", fake_get_timeline)
 
     @pytest.mark.asyncio
     async def test_empty_message_returns_unchanged(self):
@@ -606,7 +606,7 @@ class TestAugmentContextClipOffsets:
         async def boom(*args, **kwargs):
             raise RuntimeError("VST down")
 
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_name_to_stream_id_map", boom)
+        monkeypatch.setattr("agent.agents.top_agent.get_name_to_stream_id_map", boom)
         clips = [
             {
                 "mediaType": "sensor-clip",
@@ -624,7 +624,7 @@ class TestAugmentContextClipOffsets:
         async def boom(*args, **kwargs):
             raise RuntimeError("timeline down")
 
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_timeline", boom)
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", boom)
         clips = [
             {
                 "mediaType": "sensor-clip",
@@ -680,7 +680,7 @@ class TestAugmentContextClipOffsets:
             timeline_calls.append(stream_id)
             return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
 
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_timeline", counting_get_timeline)
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", counting_get_timeline)
         clips = [
             {
                 "mediaType": "sensor-clip",
@@ -715,7 +715,7 @@ class TestAugmentContextClipOffsets:
             timeline_calls.append(stream_id)
             return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
 
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_timeline", counting_get_timeline)
+        monkeypatch.setattr("agent.agents.top_agent.get_timeline", counting_get_timeline)
         clips = [
             {
                 "mediaType": "sensor-clip",

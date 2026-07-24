@@ -12,12 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/reasoning_utils.py."""
+"""Tests for agent/utils/reasoning_utils.py."""
 
 from unittest.mock import MagicMock
 
-from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
-from vss_agents.utils.reasoning_utils import get_thinking_tag
+from agent.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
+from agent.utils.reasoning_utils import get_thinking_tag
 
 
 class TestGetThinkingTag:

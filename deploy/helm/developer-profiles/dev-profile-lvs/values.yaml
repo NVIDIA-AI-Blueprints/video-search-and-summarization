@@ -45,6 +45,10 @@ global:
   # NGC model ids — shared by vss-agent (LLM_NAME / VLM_NAME) and vss-summarization (LVS_LLM_MODEL_NAME, VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME). Override per subchart if needed.
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+  # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
+  # Mirrors docker dev-profile-lvs/.env: VST_USE_SDRC=true, VST_NGINX_MODE=vst-sdrc.
+  vios:
+    useSdrc: true
 
 # Set global.external* and optional global.kibanaPublicUrl in values-lvs.yaml. Images/replicas: charts/<name>/values.yaml.
 
@@ -78,9 +82,9 @@ infra:
       enabled: true
       env:
         ELASTICSEARCH_ILM_MIN_AGE: 4h
+        ELASTICSEARCH_ENABLE_EMBEDDINGS: "false"
         ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1536'
         ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: '768'
-        BP_PROFILE: bp_developer_lvs
   kibana:
     enabled: true
     init:

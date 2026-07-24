@@ -120,14 +120,35 @@ class ElasticClient:
                 client_kwargs["http_auth"] = (cfg.username, cfg.password)  # type: ignore[assignment]
 
         self.client: Elasticsearch = Elasticsearch(**client_kwargs)  # type: ignore[call-arg]
-        
+
+        # Kept for the lazily-created async client (same connection params).
+        self._client_kwargs: Dict[str, Any] = dict(client_kwargs)
+        self._async_client: Any = None
+
         # Cache for index existence checks to avoid repeated API calls
         self._index_cache: set = set()
-        
+
         # Test connection during initialization
         if not self.ping():
             raise ConnectionError(f"Failed to connect to Elasticsearch at {cfg.hosts}. "
                                 f"Please check if the service is running and accessible.")
+
+    def _get_async_client(self):
+        """Return the lazily-created AsyncElasticsearch sharing this client's
+        connection parameters. Created on first use (from the event loop)."""
+        if self._async_client is None:
+            from elasticsearch import AsyncElasticsearch
+
+            self._async_client = AsyncElasticsearch(**self._client_kwargs)
+        return self._async_client
+
+    async def aclose_async(self) -> None:
+        """Close the async client if it was created."""
+        if self._async_client is not None:
+            try:
+                await self._async_client.close()
+            finally:
+                self._async_client = None
 
     def ping(self) -> bool:
         """Return True if the cluster is reachable."""
@@ -217,6 +238,156 @@ class ElasticClient:
                 exc_info=True,
             )
             raise
+
+    async def write_json_async(
+        self,
+        index: str,
+        json_doc: Dict[str, Any],
+        doc_id: Optional[str] = None,
+        refresh: str = "false",
+        op_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Async mirror of ``write_json`` using AsyncElasticsearch."""
+        document = dict(json_doc)
+        try:
+            index_kwargs: Dict[str, Any] = {
+                "index": index,
+                "id": doc_id,
+                "document": document,
+                "refresh": refresh,
+            }
+            if op_type:
+                index_kwargs["op_type"] = op_type
+            result = await self._get_async_client().index(**index_kwargs)
+            result_text = result.get("result") if isinstance(result, dict) else str(result)
+            logger.info(
+                "Successfully wrote document to Elasticsearch (index=%s doc_id=%s)",
+                index,
+                doc_id,
+                extra={
+                    "index": index,
+                    "doc_id": doc_id,
+                    "result": result_text,
+                },
+            )
+            return result
+        except Exception as e:
+            logger.error(
+                "Failed to index document to Elasticsearch",
+                extra={
+                    "index": index,
+                    "doc_id": doc_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            raise
+
+    async def update_document_async(
+        self,
+        index: str,
+        doc_id: str,
+        partial_doc: Dict[str, Any],
+        refresh: str = "false",
+    ) -> Dict[str, Any]:
+        """Async mirror of ``update_document`` (unconditional update form)."""
+        try:
+            result = await self._get_async_client().update(
+                index=index,
+                id=doc_id,
+                doc=partial_doc,
+                refresh=refresh,
+            )
+            result_text = result.get("result") if isinstance(result, dict) else str(result)
+            logger.info(
+                "Successfully updated document in Elasticsearch (index=%s doc_id=%s)",
+                index,
+                doc_id,
+                extra={
+                    "index": index,
+                    "doc_id": doc_id,
+                    "result": result_text,
+                },
+            )
+            return result
+        except Exception as e:
+            logger.error(
+                "Failed to update document in Elasticsearch",
+                extra={
+                    "index": index,
+                    "doc_id": doc_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            raise
+
+    async def get_document_async(
+        self,
+        index: str,
+        doc_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Async mirror of ``get_document``."""
+        try:
+            result = await self._get_async_client().get(index=index, id=doc_id)
+            logger.info(
+                "Retrieved document from Elasticsearch (index=%s doc_id=%s)",
+                index,
+                doc_id,
+            )
+            return result["_source"]
+        except ApiError as e:  # type: ignore[misc]
+            if getattr(e, "meta", None) and getattr(e.meta, "status", None) == 404:
+                logger.debug(
+                    "Document not found (index=%s doc_id=%s)", index, doc_id
+                )
+                return None
+            logger.error(
+                "Failed to get document from Elasticsearch",
+                extra={
+                    "index": index,
+                    "doc_id": doc_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                exc_info=True,
+            )
+            raise
+
+    async def ensure_json_index_async(self, index: str, shards: int = 1, replicas: int = 0) -> None:
+        """Async mirror of ``ensure_json_index`` (shares the same index cache)."""
+        if index in self._index_cache:
+            return
+        try:
+            client = self._get_async_client()
+            exists = await client.indices.exists(index=index)
+            if not exists:
+                logger.info(f"Creating new Elasticsearch index: {index}")
+                await client.indices.create(
+                    index=index,
+                    mappings={"dynamic": True},
+                    settings={
+                        "number_of_shards": shards,
+                        "number_of_replicas": replicas,
+                    },
+                )
+            self._index_cache.add(index)
+        except ApiError as e:  # type: ignore[misc]
+            if getattr(e, "meta", None) and getattr(e.meta, "status", None) == 400:
+                self._index_cache.add(index)
+            else:
+                logger.error(
+                    "Failed to ensure index exists",
+                    extra={
+                        "index": index,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                    exc_info=True,
+                )
+                raise
 
     def update_document(
         self,
@@ -590,10 +761,83 @@ class ElasticClient:
             verdict_description_mapping: Optional mapping of category -> {verdict -> description}
         """
 
+        daily_index, doc_id, document = self._prepare_event_document(
+            message, index, category_mapping, verdict_description_mapping
+        )
+        self.ensure_json_index(daily_index)
+        try:
+            return self.write_json(
+                daily_index,
+                document,
+                doc_id=doc_id,
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to write document to Elasticsearch",
+                extra={
+                    "index": daily_index,
+                    "doc_id": doc_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "sensor_id": document.get("sensorId"),
+                    "timestamp": document.get("timestamp"),
+                    "category": document.get("category"),
+                },
+                exc_info=True,
+            )
+            raise
+
+    async def write_event_response_async(
+        self,
+        message: Dict[str, Any],
+        vlm_response: Dict[str, Any] | str,
+        prompt: str,
+        index: str,
+        category_mapping: Optional[Dict[str, str]] = None,
+        verdict_description_mapping: Optional[Dict[str, Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        """Async mirror of ``write_event_response`` — identical document
+        preparation, AsyncElasticsearch for the index-ensure and write."""
+        daily_index, doc_id, document = self._prepare_event_document(
+            message, index, category_mapping, verdict_description_mapping
+        )
+        await self.ensure_json_index_async(daily_index)
+        try:
+            return await self.write_json_async(
+                daily_index,
+                document,
+                doc_id=doc_id,
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to write document to Elasticsearch",
+                extra={
+                    "index": daily_index,
+                    "doc_id": doc_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "sensor_id": document.get("sensorId"),
+                    "timestamp": document.get("timestamp"),
+                    "category": document.get("category"),
+                },
+                exc_info=True,
+            )
+            raise
+
+    def _prepare_event_document(
+        self,
+        message: Dict[str, Any],
+        index: str,
+        category_mapping: Optional[Dict[str, str]] = None,
+        verdict_description_mapping: Optional[Dict[str, Dict[str, str]]] = None,
+    ) -> Tuple[str, Optional[str], Dict[str, Any]]:
+        """Build the ES document (normalize, fingerprint, mappings) and return
+        ``(daily_index, doc_id, document)``. Pure CPU — shared by the sync and
+        async write paths."""
         # Respect a pre-populated 'info' block from the caller and never build/override it here.
         # This ensures the AlertBridgeResponse structure set by the orchestrator is preserved.
         document = copy.deepcopy(message)
-     
+
 
         event_type = str(document.get("notification_type", "")).lower()
         # Treat only explicit 'alert' documents as alerts
@@ -653,7 +897,6 @@ class ElasticClient:
             timestamp_value = str(timestamp_value)
 
         daily_index = self.generate_daily_index_name(index, timestamp_value)
-        self.ensure_json_index(daily_index)
         # Trim heavy DEBUG logging unless explicitly enabled
         verbose_es = os.getenv('LOG_VERBOSE_ES', 'false').lower() in ('1', 'true', 'yes')
         if logger.isEnabledFor(logging.DEBUG):
@@ -679,25 +922,5 @@ class ElasticClient:
                     daily_index,
                     size_bytes,
                 )
-        
-        try:
-            return self.write_json(
-                daily_index,
-                document,
-                doc_id=doc_id,
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to write document to Elasticsearch",
-                extra={
-                    "index": daily_index,
-                    "doc_id": doc_id,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "sensor_id": document.get("sensorId"),
-                    "timestamp": document.get("timestamp"),
-                    "category": document.get("category"),
-                },
-                exc_info=True,
-            )
-            raise
+
+        return daily_index, doc_id, document
