@@ -46,8 +46,8 @@ VST (VIOS) stack — independent of perception, feeds RTSP into it:
 elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), OR kafka/redis with MINIMAL_PROFILE="" (extended; ELK + bounding-box overlays + analytics API; any mode).
 NOTE: minimal does NOT deploy ES — so the mdx-bev index isn't persisted and Phase 5 BEV-sync check has no data to read (applies to 3D and MV3DT).
 
-bp_wh-only stack (RTVI VLM + agent):
-  vss-rtvi-vlm                                  (RTVI VLM — always local, hardcoded in compose profile bp_wh_2d; VLM_MODE=none)
+`BP_PROFILE=bp_wh`-only stack (RTVI VLM + agent):
+  vss-rtvi-vlm                                  (RTVI VLM — always local; rtvi-vlm is included in COMPOSE_PROFILES_WH_2D; VLM_MODE=none)
   vss-alert-bridge ← depends on vss-rtvi-vlm
   LLM NIM (varies — see below)
   vss-agent ← depends on LLM, vios
@@ -55,14 +55,14 @@ bp_wh-only stack (RTVI VLM + agent):
   vss-va-mcp
   phoenix
 
-vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_HOST_PORT)
+vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/redis extended (front-door on HAPROXY_HOST_PORT)
 ```
 
-## Full Container List by Profile
+## Full Container List by Variant
 
-`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) select the active mode-specific compose-profile slice. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (`vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
+`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) determine which explicit `COMPOSE_PROFILES_WH_*` service list from `generated.env` is active. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (`vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
 
-### Warehouse CV core (2D and 3D profiles)
+### Warehouse CV core (2D and 3D variants)
 
 | Container | Role |
 |---|---|
@@ -76,7 +76,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_HOS
 | `vss-behavior-analytics` | ROI / tripwire / proximity analytics |
 | `vss-vios-postgres` / `-sensor` / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
 
-### MV3DT CV core (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`)
+### MV3DT CV core (`MODE=mv3dt` with `BP_PROFILE=bp_wh_kafka` or `bp_wh_redis`)
 
 | Container | Role |
 |---|---|
@@ -90,7 +90,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_HOS
 | `vss-behavior-analytics-mv3dt` | 3D spatial analytics |
 | `vss-vios-postgres` / `sensor-ms-mv3dt` (container `vss-vios-sensor`) / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
 
-### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
+### Warehouse Auto-Calibration (`BP_PROFILE=bp_wh_auto_calib`)
 
 | Container | Role |
 |---|---|
@@ -99,11 +99,11 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_HOS
 | `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
 | VST stack (subset) | Stream management for calibration |
 
-Only `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, and `bp_wh_auto_calib_mv3dt` start the auto-calibration containers. Regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` profiles do not.
+Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list and the `COMPOSE_PROFILES_WH_AUTO_CALIB_*` warehouse lists start the auto-calibration containers. Regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
 
 > **2D:** Auto-Calibration adds blank `group` and `region` fields to `calibration.json`; remove those fields before redeploying. They are not required for 2D calibration.
 
-> **3D / MV3DT:** When deploying calibration for 3D or MV3DT modes, generated calibration files must include a populated `sensors[].group` object on every camera sensor. For MV3DT, after generating `calibration.json`, also run the utility scripts under `tools/rtvi-cv-mv3dt-utils` to refresh `camInfo/<sensor_id>.yml`, `pub_sub_info_config.yml`, and the tracker `ObjectModelProjection.cameraModelFilepath` mappings. Then run camera clustering with `--n_clusters 1` for the standard single-BEV warehouse setup, and verify the group field is present under sensors in `calibration.json`. Use `auto_calib` to upload videos directly, or `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
+> **3D / MV3DT:** When deploying calibration for 3D or MV3DT modes, generated calibration files must include a populated `sensors[].group` object on every camera sensor. For MV3DT, after generating `calibration.json`, also run the utility scripts under `tools/rtvi-cv-mv3dt-utils` to refresh `camInfo/<sensor_id>.yml`, `pub_sub_info_config.yml`, and the tracker `ObjectModelProjection.cameraModelFilepath` mappings. Then run camera clustering with `--n_clusters 1` for the standard single-BEV warehouse setup, and verify the group field is present under sensors in `calibration.json`. Use the standalone AMC service list to upload videos directly, or set `BP_PROFILE=bp_wh_auto_calib` and select `COMPOSE_PROFILES_WH_AUTO_CALIB_3D` / `_MV3DT` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
 
 ```bash
 CALIBRATION_JSON=/path/to/calibration.json
@@ -120,7 +120,7 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
   --overwrite
 ```
 
-### Extended profile only (`MINIMAL_PROFILE=""`, any mode) — adds
+### Extended Kafka/Redis service lists (`MINIMAL_PROFILE=""`, any mode) — add
 
 | Container | Role |
 |---|---|
@@ -130,20 +130,20 @@ PYTHONPATH="${SDU_DIR}:${PYTHONPATH:-}" python3 \
 
 `elasticsearch`, `kibana`, `logstash`, `vss-video-analytics-api` are also deployed for `BP_PROFILE=bp_wh` (always — independent of `MINIMAL_PROFILE`). See [Phase 1](#phase-1-stack-snapshot) for the consolidated trigger table.
 
-### `bp_wh` only — adds
+### `BP_PROFILE=bp_wh` only — adds
 
 | Container | Role |
 |---|---|
-| `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**, hardcoded in compose profile `bp_wh_2d`. Warehouse uses RTVI VLM instead of the standalone VLM NIM path, so `VLM_MODE=none` and `VLM_NAME_SLUG=none`. `vss-agent` connects to RTVI VLM directly |
+| `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**; its self-named `rtvi-vlm` profile is included in `COMPOSE_PROFILES_WH_2D`. Warehouse uses RTVI VLM instead of the standalone VLM NIM path, so keep `VLM_MODE=none` and `VLM_NAME_SLUG=none`. `vss-agent` connects to RTVI VLM directly |
 | `vss-alert-bridge` | Drives realtime VLM alerts (POST/DELETE `/api/v1/realtime`) |
-| LLM NIM (container name = `LLM_NAME_SLUG`, e.g. `nvidia-nemotron-nano-9b-v2`) | LLM inference — only when `LLM_MODE=local` / `local_shared` |
+| LLM NIM (container name = `LLM_NAME_SLUG`, e.g. `nvidia-nemotron-nano-9b-v2`) | LLM inference — only when `LLM_MODE=local` |
 | `vss-agent` | Orchestrator |
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
 | `vss-haproxy-ingress` | Front-door on `HAPROXY_HOST_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies kibana + analytics API there) |
 | `phoenix` | Telemetry / observability |
 
-> **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). Warehouse uses **RTVI VLM only** — `vss-agent` connects to it directly. `VLM_MODE=none` in the warehouse `.env`. Do not search for a VLM NIM container — it does not exist in this stack.
+> **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). The `BP_PROFILE=bp_wh` variant uses **RTVI VLM only** — `vss-agent` connects to it directly. Keep `VLM_MODE=none` in the active `generated.env`. Kafka/Redis and auto-calibration warehouse variants deploy no VLM.
 
 ## Container Health Check Settings
 
@@ -218,14 +218,13 @@ docker exec redis redis-cli XREVRANGE mdx-raw + - COUNT 3
 
 ## GPU Device Assignment
 
-| Role | `.env` variable | Default device | Notes |
+| Role | Env variable | Default device | Notes |
 |---|---|---|---|
 | RT-CV perception (RT-DETR for 2D, Sparse4D for 3D, BEV Fusion for MV3DT) | `RT_CV_DEVICE_ID` | `0` | Always local |
 | RTVI VLM | `RT_VLM_DEVICE_ID` | `1` | Always local; `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local` |
-| LLM NIM colocated with RTVI VLM | `SHARED_LLM_VLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local_shared` |
 
-`LLM_MODE`: `local` | `local_shared` | `remote` | `none`. RTVI VLM has no mode — always deployed locally for `bp_wh`. `bp_wh_auto_calib` profiles uses no GPU for perception or LLM.
+`LLM_MODE`: `local` | `remote` | `none`. RTVI VLM has no mode — it is always deployed locally for `BP_PROFILE=bp_wh`. The `BP_PROFILE=bp_wh_auto_calib` variant uses no GPU for perception or LLM.
 
 Check per-GPU process load:
 
@@ -339,15 +338,15 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 
 **Expected `Up` containers (flag any missing or restarting):**
 
-| Profile | Required containers |
+| Variant | Required containers |
 |---|---|
-| 2D / 3D profiles | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, the `vss-vios-*` VST stack |
+| 2D / 3D Kafka/Redis variants | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, the `vss-vios-*` VST stack |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
-| MV3DT profiles | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, the `vss-vios-*` VST stack |
-| `bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, VST stack (subset) — no broker, no perception, no analytics |
-| `bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared` |
+| MV3DT Kafka/Redis variants | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, the `vss-vios-*` VST stack |
+| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, VST stack (subset) — no broker, no perception, no analytics |
+| `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` |
-| `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, **or** kafka/redis extended (any mode) |
+| `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |
 | `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode). **Minimal does NOT deploy ES** |
 
 Record which containers are **Down**, **Restarting**, or have a non-zero exit code — these are the primary suspects.
@@ -594,7 +593,7 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | Container exited, exit code non-zero | Container crash — see its logs | Fix config or missing file; redeploy |
 | `model not found` in `vss-rtvi-cv` logs | `VSS_DATA_DIR` path wrong or models not present | Correct `.env` path or re-acquire app data (see `warehouse.md` Phase 4) |
 | `CUDA out of memory` on `vss-rtvi-cv` | Too many streams for GPU | Reduce `NUM_STREAMS`; redeploy |
-| `CUDA out of memory` on LLM NIM or `vss-rtvi-vlm` | LLM and RTVI VLM colliding on the same GPU | Adjust `LLM_DEVICE_ID` / `RT_VLM_DEVICE_ID` / `SHARED_LLM_VLM_DEVICE_ID`; redeploy |
+| `CUDA out of memory` on LLM NIM or `vss-rtvi-vlm` | LLM and RTVI VLM colliding on the same GPU | Adjust `LLM_DEVICE_ID` / `RT_VLM_DEVICE_ID`; redeploy |
 | Broker (Kafka/Redis) down | All downstream services lose messaging | Fix broker; redeploy |
 | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt` errors / no RTSP | Streams not reaching perception | Fix stream config; redeploy |
 | BEV OUT OF SYNC (3D / MV3DT) | One or more camera feeds lagging | Restart `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`; check camera RTSP sources |
@@ -602,11 +601,11 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | `vss-rtvi-cv-bev-fusion` OOM or no output (MV3DT) | BEV Fusion cannot fuse per-camera detections | Check GPU memory; reduce cameras or streams; redeploy |
 | GPU 100 % sustained, low FPS | GPU oversaturated | Reduce `NUM_STREAMS`; redeploy |
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
-| `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify `.env` values; redeploy |
+| `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify the effective `.env` + `generated.env` values; redeploy |
 | `vss-haproxy-ingress` up but UI 502 / report links broken | `EXTERNAL_IP` / `HAPROXY_HOST_PORT` not browser-reachable | Set `EXTERNAL_IP` to a real reachable hostname and verify `VSS_PUBLIC_PORT` matches the host-published ingress port (see `warehouse.md` Phase 5); redeploy |
 | Brev: UI loads but API calls fail / mixed-content errors in browser console | `VSS_PUBLIC_*` overrides not applied — browser-facing URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com` | Apply [Brev secure link overrides](warehouse.md#brev-secure-link-overrides): set `VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss`, `VSS_PUBLIC_HOST=7777-<BREV_ENV_ID>.brevlab.com`, `VSS_PUBLIC_PORT=443`; redeploy |
 | Brev: HAProxy returns 404 on all paths | `Host:` header in the request doesn't match HAProxy `h_main` ACL | Verify `VSS_PUBLIC_HOST` matches the Brev secure-link domain (`7777-<BREV_ENV_ID>.brevlab.com`); redeploy |
-| Brev: WebSocket chat connection refused / falls back to HTTP | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not `443` | Fix the `.env` overrides and redeploy |
+| Brev: WebSocket chat connection refused / falls back to HTTP | `VSS_PUBLIC_WS_PROTOCOL` still set to `ws` instead of `wss`, or `VSS_PUBLIC_PORT` not `443` | Fix the active `generated.env` overrides and redeploy |
 | `error from registry: Incorrect Repository Format` during `docker compose up` | Docker 29.x multi-arch pull regression | Pin to Docker 28.3.3 and Docker Compose v2.39.1+ (warehouse.md §2.2). |
 
 Present the summary in this format:
@@ -631,7 +630,7 @@ Only proceed on explicit **"yes"**.
 
 If yes:
 
-1. Apply the fix (edit profile defaults in `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`, shared service defaults under `<repo>/deploy/docker/services/`, runtime/profile overrides in `generated.env`, or correct the missing resource).
+1. Apply deployment-specific fixes in the active warehouse `generated.env` (initialized from `overrides.env`), edit shared service defaults only when the defect is truly service-wide, or correct the missing resource. Keep the checked-in warehouse `.env` and `overrides.env` unchanged.
 2. Tear down:
 
 ```bash
@@ -669,4 +668,3 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 5. Re-run **Phase 2** (FPS check) and, for 3D / MV3DT, **Phase 5** (BEV sync) to confirm the issue is resolved.
 
 If the issue persists after redeploy, consult the [Documentation Reference](#documentation-reference) links above and `warehouse.md` → Troubleshooting.
-
