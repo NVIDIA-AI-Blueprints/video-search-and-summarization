@@ -22,11 +22,15 @@ result publishing (Kafka / Elasticsearch) run in a background task via
 DirectMediaHandler — identical to the Kafka-driven pipeline.
 """
 
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, status
 from fastapi.responses import JSONResponse
 from openai import BadRequestError
+
+from metrics import PROMETHEUS_ENABLED
+from metrics.recorder import inc_ondemand_request
 
 from ..schemas.verification_schemas import OnDemandVerificationRequest
 from ..service.ondemand_verification_service import (
@@ -122,22 +126,33 @@ async def verify_ondemand(
     background_tasks: BackgroundTasks,
     service: OnDemandVerificationService = Depends(get_ondemand_service),
 ) -> JSONResponse:
+    request_start_time = time.monotonic() if PROMETHEUS_ENABLED else None
     try:
         message, user_prompt, system_prompt = service.prepare(
             payload.model_dump()
         )
     except AlertTypeNotFoundError as e:
+        inc_ondemand_request("unknown_category")
         return _error_response(
             status.HTTP_400_BAD_REQUEST, "unknown_category", str(e)
         )
     except (ValueError, BadRequestError) as e:
+        inc_ondemand_request("invalid_request")
         return _error_response(
             status.HTTP_400_BAD_REQUEST, "invalid_request", str(e)
         )
+    except Exception:
+        inc_ondemand_request("unknown")
+        raise
 
     correlation_id = message["id"]
+    inc_ondemand_request("accepted")
     background_tasks.add_task(
-        service.process_and_publish, message, user_prompt, system_prompt
+        service.process_and_publish,
+        message,
+        user_prompt,
+        system_prompt,
+        request_start_time,
     )
 
     return JSONResponse(
