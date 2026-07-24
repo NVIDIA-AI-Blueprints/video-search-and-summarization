@@ -323,11 +323,13 @@ The canonical harbor command is in § Harbor invocation.
       "choosing" the same lock-free-looking one and serialising
       (check-then-act TOCTOU — the failure mode that motivated this).
 
-      Ordering inside the wrapper preserves pool partitioning: exact
-      name-hinted `gpu_count` matches (`*-1g*` → 1, `*-2g*` → 2) sort
-      before over-provisioned boxes; `envs/brev_env.py` still validates
-      the final pick (`gpu_count >=` required) and `start()` wipes the
-      box before the trial, so an over-provisioned fallback stays safe.
+      Ordering inside the wrapper uses connected registered nodes first so
+      dedicated capacity is consumed before managed cloud instances. Within
+      each tier, exact name-hinted `gpu_count` matches (`*-1g*` → 1,
+      `*-2g*` → 2) sort before over-provisioned boxes;
+      `envs/brev_env.py` still validates the final pick (`gpu_count >=`
+      required) and `start()` wipes the box before the trial, so an
+      over-provisioned fallback stays safe.
       `gpu_count = 0` specs (remote-all / GPU-independent) accept any
       RUNNING pool box.
 
@@ -488,15 +490,32 @@ The canonical harbor command is in § Harbor invocation.
 |---|---|---|
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` / `rtxpro6000bw` | `vss-eval-rtx*` (e.g. `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g-3`) | RTX PRO 6000 BW. Suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). |
+| `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
-Pool naming is operator-managed; the actual fleet is whatever
-`brev ls` reports matching the prefix. Don't hardcode a specific
-instance name — `run_leg.py`'s pool selection (§ 5a) picks the
-candidate. **Lifecycle is the operator's job**; the box lock and the
-trials both live inside `run_leg.py` — see Hard rules about
-`brev create / start / stop / delete / reset`.
+Pool naming is operator-managed; the actual fleet is the union of managed
+instances from `brev ls --json` and connected registered nodes from
+`brev ls nodes --json` that are explicitly named in the coordinator's
+comma/space-separated `BREV_REGISTERED_POOL` allowlist. Registered-node
+JSON omits GPU metadata, so `run_leg.py` accepts only documented hardware
+prefixes (`vss-eval-rtx*`, `vss-eval-geforce-rtx4090-vm*`,
+`vss-eval-l40s*`, `vss-eval-h100*`) and fails closed for unknown GPU
+families. Don't hardcode a specific instance name —
+`run_leg.py`'s pool selection (§ 5a) picks the candidate. **Lifecycle is
+the operator's job**; the box lock and the trials both live inside
+`run_leg.py` — see Hard rules about `brev create / start / stop / delete /
+reset`.
+
+`BREV_RTX4090_POOL` is a separate, capability-routed allowlist. Its nodes
+are selected only when the skill and spec stem match the resource-proven
+matrix in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS`. This includes
+the proven ask-video, report, base/LVS/Alerts profile, summarize, alerts,
+query analytics, 2D detection, embedding, calibration, VIOS, setup, and
+standalone dense-captioning tests. Search, Warehouse, dense-captioning
+Alerts, and every 3D detection/calibration test remain on full-capability
+workers. Missing skill/spec metadata fails closed. A registered single-GPU
+node is also filtered from any task requiring two GPUs before lock
+acquisition.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
@@ -537,10 +556,10 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
 - **gpu_count is `>=`, not exact.** `_check_instance_matches` accepts any
   box with **at least** the spec's `gpu_count` — a 1-GPU spec runs fine on
   a 2-GPU box (2nd GPU idles); only an *under*-provisioned box is rejected.
-  **Prefer** an exact match at selection time (`run_leg.py` orders
-  exact name-hinted counts first) so the pool stays partitioned, but an
-  over-provisioned box is a valid fallback when no exact match is
-  free/reachable. Because the `>=` check passes (rather
+  `run_leg.py` prefers registered capacity first, then exact name-hinted
+  counts within the registered/managed tier. An over-provisioned box is a
+  valid fallback when no exact match is free/reachable. Because the `>=`
+  check passes (rather
   than raising), `start()` runs `_reset_docker_runtime` on the fallback
   box, so it never inherits a prior trial's containers.
 

@@ -18,6 +18,46 @@ import prepare_downstream_release_set as module  # noqa: E402
 from prepare_downstream_release_set import downstream_variables  # noqa: E402
 
 
+class GhcrBuildEntriesTest(unittest.TestCase):
+    def test_requires_new_ghcr_build(self):
+        self.assertTrue(
+            module.has_ghcr_build_entries(
+                {
+                    "images": [
+                        {
+                            "strategy": "build",
+                            "image": "ghcr.io/nvidia/vss-agent",
+                        }
+                    ]
+                }
+            )
+        )
+        self.assertFalse(
+            module.has_ghcr_build_entries(
+                {
+                    "images": [
+                        {
+                            "strategy": "reuse-pinned",
+                            "image": "ghcr.io/nvidia/vss-agent",
+                        }
+                    ]
+                }
+            )
+        )
+        self.assertFalse(
+            module.has_ghcr_build_entries(
+                {
+                    "images": [
+                        {
+                            "strategy": "build",
+                            "image": "nvcr.io/nvidia/vss-agent",
+                        }
+                    ]
+                }
+            )
+        )
+
+
 class DownstreamVariablesTest(unittest.TestCase):
     def test_encodes_exact_release_set_for_acceptance(self):
         release_set = {
@@ -45,6 +85,7 @@ class DownstreamVariablesTest(unittest.TestCase):
             release_path = Path(tmp) / "release-set.json"
             release_output_path = Path(tmp) / "handoff/release-set.json"
             env_path = Path(tmp) / "github.env"
+            output_path = Path(tmp) / "github.output"
             release_path.write_text(json.dumps(release_set))
             argv = [
                 "prepare_downstream_release_set.py",
@@ -56,13 +97,22 @@ class DownstreamVariablesTest(unittest.TestCase):
                 str(release_output_path),
             ]
             with mock.patch("sys.argv", argv), mock.patch.dict(
-                os.environ, {"GITHUB_ENV": str(env_path)}, clear=True
+                os.environ,
+                {
+                    "GITHUB_ENV": str(env_path),
+                    "GITHUB_OUTPUT": str(output_path),
+                },
+                clear=True,
             ), mock.patch.object(
                 module, "validate_release_set", return_value=[]
             ), mock.patch.object(module, "download_release_set") as download:
                 self.assertEqual(module.main(), 0)
                 download.assert_not_called()
             self.assertIn("DOWNSTREAM_EXTRA_VARIABLES_JSON", env_path.read_text())
+            self.assertEqual(
+                output_path.read_text(),
+                "has_ghcr_build_entries=false\n",
+            )
             self.assertEqual(json.loads(release_output_path.read_text()), release_set)
 
 
