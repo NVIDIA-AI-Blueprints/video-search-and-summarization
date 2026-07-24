@@ -242,13 +242,6 @@ network_policies:
           - 172.18.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
-        port: 9989
-        access: full
-        allowed_ips:
-          - 172.17.0.0/16
-          - 172.18.0.0/16
-          - 172.20.0.0/16
-      - host: host.openshell.internal
         port: 18789
         access: full
         allowed_ips:
