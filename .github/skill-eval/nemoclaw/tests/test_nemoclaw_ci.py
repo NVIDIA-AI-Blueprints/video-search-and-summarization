@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import ast
 import base64
 import builtins
 import contextlib
@@ -405,7 +406,100 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
         self.assertIn("run_uv_sync", source)
         self.assertIn('"uv", "sync", "--no-dev", "--extra", "agent"', source)
+        self.assertIn("ensure_agent_venv", source)
+        self.assertIn('command.extend(["--clear", "--force"])', source)
+        self.assertIn("Refusing to replace symlinked orchestrator environment", source)
         compile(source, "deploy_vss_orchestrator.ipynb:c13aaf5e", "exec")
+
+        tree = ast.parse(source)
+        ensure_venv_nodes = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"uv_env_for_agent", "ensure_agent_venv"}
+        ]
+        self.assertEqual(
+            [node.name for node in ensure_venv_nodes],
+            ["uv_env_for_agent", "ensure_agent_venv"],
+        )
+        ensure_venv_module = ast.fix_missing_locations(
+            ast.Module(body=ensure_venv_nodes, type_ignores=[])
+        )
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            agent_dir = Path(tempdir) / "services" / "agent"
+            venv_dir = agent_dir / ".venv"
+            venv_dir.mkdir(parents=True)
+            commands: list[tuple[list[str], dict[str, object]]] = []
+
+            def fake_run(command, **kwargs):
+                commands.append((command, kwargs))
+                venv_python = venv_dir / "bin" / "python"
+                venv_python.parent.mkdir(parents=True, exist_ok=True)
+                venv_python.write_text("#!/bin/sh\n")
+                venv_python.chmod(0o755)
+                return subprocess.CompletedProcess(command, 0)
+
+            namespace = {
+                "AGENT_DIR": agent_dir,
+                "ORCHESTRATOR_MCP_VENV_DIR": venv_dir,
+                "ORCHESTRATOR_MCP_PYTHON_VERSION": "3.10",
+                "os": os,
+                "subprocess": mock.Mock(run=fake_run),
+            }
+            exec(
+                compile(
+                    ensure_venv_module,
+                    "deploy_vss_orchestrator.ipynb:c13aaf5e:ensure_agent_venv",
+                    "exec",
+                ),
+                namespace,
+            )
+            ensure_agent_venv = namespace["ensure_agent_venv"]
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "VIRTUAL_ENV": "/outside/kernel-venv",
+                    "UV_PROJECT_ENVIRONMENT": "/outside/project-venv",
+                },
+            ):
+                ensure_agent_venv()
+            self.assertEqual(len(commands), 1)
+            command, kwargs = commands[0]
+            self.assertEqual(
+                command,
+                [
+                    "uv",
+                    "venv",
+                    "--clear",
+                    "--force",
+                    "--python",
+                    "3.10",
+                    str(venv_dir),
+                ],
+            )
+            self.assertEqual(kwargs["cwd"], str(agent_dir))
+            self.assertTrue(kwargs["check"])
+            self.assertNotIn("VIRTUAL_ENV", kwargs["env"])
+            self.assertNotIn("UV_PROJECT_ENVIRONMENT", kwargs["env"])
+
+            ensure_agent_venv()
+            self.assertEqual(len(commands), 1)
+
+            target_dir = agent_dir / "target-venv"
+            target_python = target_dir / "bin" / "python"
+            target_python.parent.mkdir(parents=True)
+            target_python.write_text("#!/bin/sh\n")
+            target_python.chmod(0o755)
+            symlink_dir = agent_dir / "symlink-venv"
+            symlink_dir.symlink_to(target_dir, target_is_directory=True)
+            namespace["ORCHESTRATOR_MCP_VENV_DIR"] = symlink_dir
+            with self.assertRaisesRegex(
+                RuntimeError, "Refusing to replace symlinked orchestrator environment"
+            ):
+                ensure_agent_venv()
+            self.assertEqual(len(commands), 1)
 
     def test_ci_parameters_drive_nemoclaw_provider_derivation(self):
         notebook = json.loads(
