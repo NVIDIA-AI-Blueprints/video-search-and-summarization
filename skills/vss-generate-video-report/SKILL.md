@@ -68,7 +68,7 @@ Never route reports through VSS-agent `POST /generate`.
 
 **Mode A** needs the VSS **base** profile (VST + VLM NIM).
 **Mode B** needs the VSS **alerts** profile (VA-MCP + Elasticsearch).
-**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see its `references/services/sop/deploy-sop-report.md`).
+**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see its `references/services/sop.md` § Patch specifics).
 
 Probe:
 

@@ -148,18 +148,22 @@ the image's other `video_analytics` tools and targets the old package layout):
 2. **Locate the SOP additions** in the downloaded `tools.py` — a self-contained block of the
    four SOP tool implementations plus their four include-gated registrations. Diffing it
    against the image's own `<pkg>/video_analytics/tools.py` makes them obvious.
-3. **Produce two files** into the build staging dir, keeping the diff to the product file minimal:
+3. **Produce two files** into `${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/` (the
+   exact path `sop-report-override.yml` binds from), keeping the diff to the product file minimal:
    - `tools.py` = the image's own `video_analytics/tools.py` with **only** the four SOP tool
      registrations grafted in (imported from the sibling module below).
    - `sop_tools.py` = the SOP tool implementations lifted into a self-contained sibling module;
      its relative imports resolve against the image's `video_analytics` package.
-4. **Adapt the downloaded VA-MCP config**: repoint endpoints from the release's `localhost` to
-   compose service names (`elasticsearch:9200`, `vst-ingress:30888`), and keep the
-   `video_analytics` group with the four `get_sop_*` tools in its `include` list.
+4. **Adapt the downloaded VA-MCP config** and stage it at
+   `${VSS_APPS_DIR}/services/agent/sop-report/configs/va_mcp_server_config.yml` (where
+   `VSS_VA_MCP_CONFIG_FILE` points): repoint endpoints from the release's `localhost` to compose
+   service names (`elasticsearch:9200`, `vst-ingress:30888`), and keep the `video_analytics`
+   group with the four `get_sop_*` tools in its `include` list.
 5. **Mount** the adapted `{tools,sop_tools}.py` over
-   `${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/` via
-   `sop/sop-report/sop-report-override.yml`, then bring up just the patched service
-   (`docker compose … up -d vss-va-mcp`; leaves DS-SOP/ELK untouched).
+   `${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/` by applying
+   `sop/sop-report/sop-report-override.yml` as an extra `-f` (it is shipped in the repo — no
+   staging), then bring up just the patched service (`docker compose … up -d vss-va-mcp`;
+   leaves DS-SOP/ELK untouched).
 6. **Verify:** `docker exec vss-va-mcp /vss-agent/.venv/bin/python3 -c "import ${VSS_AGENT_PKG}.video_analytics.sop_tools"`
    exits 0, and MCP `tools/list` on `:9901` lists the four `get_sop_*` (full runtime checks are
    in the profile eval). Empty/error `get_sop_report` → `mdx-vlm-captions-*` empty or the SOP
@@ -167,8 +171,8 @@ the image's other `video_analytics` tools and targets the old package layout):
 
 The image is the Foundation's stock `vss-va-mcp`
 (`ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest`); verify `VSS_AGENT_SITE_PACKAGES`
-(python minor) against it. The adaptation is mostly a module move + graft, but two image-drift
-caveats (seen on `develop-latest`) need handling:
+(python minor) against it. The adaptation is mostly a module move + graft, but a few caveats
+need handling:
 
 - **Ensure the SOP captions index exists before querying.** The stock `es_client` on
   `develop-latest` does not register the SOP captions index, so a query can fail before
@@ -176,6 +180,9 @@ caveats (seen on `develop-latest`) need handling:
 - **Do not add `from __future__ import annotations`** to the adapted modules. NAT evaluates
   each tool's annotations at registration time; postponed annotations raise a `NameError` and
   the `get_sop_*` tools never register.
+- **`get_sop_report` caps at 1000 ES docs** (~2.75 h at 10 s chunks); beyond that, message
+  count and compliance status can be wrong (dropped-tail violations are not aggregated) with no
+  warning. For long windows, report over a narrower time range — or flag the cap to the user.
 
 ## Sources
 

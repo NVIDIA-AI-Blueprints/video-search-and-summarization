@@ -36,7 +36,7 @@ image without staging the 14.7 GB SOP models.
 | **BuildKit / buildx** | `Docker.build` uses `RUN --mount=type=bind` (modern Docker has it on by default; else `DOCKER_BUILDKIT=1`) |
 | **Internet** | build clones `github.com/MCG-NJU/DDM` @ `941e0fb595ab85dc86724a19ed0439ad6bc3632b` + `gst-plugin-pylon`, and auto-downloads the Basler Pylon SDK (~1.3 GB) |
 | ~120 GB free disk | image is ~50 GB + base layers |
-| GPU | only for the **real** run (smoke test needs no GPU compute) |
+| GPU + NVIDIA container runtime | required for **both** steps — the smoke test runs `docker run --gpus all` and its CUDA-linked imports load at startup (a GPU-less host fails at container start); only the **real** run does heavy GPU *compute* (models/inference) |
 
 ## Step 0 — Clone the source
 The image is **built from source** (no registry image to pull). Clone the repo once —
