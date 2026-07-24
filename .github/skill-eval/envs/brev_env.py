@@ -833,17 +833,152 @@ if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
     stage "OpenShell bridge is absent and gateway port $gateway_port is free; fresh onboarding will recreate it"
   else
     stage "OpenShell bridge is absent while gateway port $gateway_port is busy; releasing the scoped host gateway"
-    gateway_release_module="$HOME/.nemoclaw/source/dist/lib/tunnel/gateway-port-release.js"
-    if ! command -v node >/dev/null 2>&1 || [ ! -f "$gateway_release_module" ]; then
-      echo "Cannot safely release the stale OpenShell gateway: pinned NemoClaw gateway release module is unavailable" >&2
+    expected_nemoclaw_version="0.0.80"
+    resolve_nemoclaw_cli_root() {{
+      local cli_path
+      cli_path="$(type -P nemoclaw 2>/dev/null || true)"
+      [ -n "$cli_path" ] || return 1
+      python3 - "$cli_path" <<'__NEMOCLAW_CLI_ROOT__'
+import os
+import re
+import sys
+from pathlib import Path
+
+candidate = sys.argv[1]
+seen = set()
+pinned_node = None
+for _ in range(3):
+    if not os.path.isabs(candidate):
+        break
+    resolved = Path(os.path.realpath(candidate))
+    if resolved in seen:
+        break
+    seen.add(resolved)
+    if resolved.name == "nemoclaw.js" and resolved.parent.name == "bin":
+        print(resolved.parent.parent)
+        print(pinned_node or "-")
+        raise SystemExit(0)
+    try:
+        if resolved.stat().st_size > 16384:
+            break
+        with resolved.open("r", encoding="utf-8") as handle:
+            contents = handle.read()
+    except (OSError, UnicodeError):
+        break
+    installer_shim = re.fullmatch(
+        r'#!/usr/bin/env bash\n'
+        r'export PATH="(/[^"\n]*):\$PATH"\n'
+        r'exec "(/[^"\n]*/nemoclaw)" "\$@"\n?',
+        contents,
+    )
+    dev_shim = re.fullmatch(
+        r'#!/usr/bin/env bash\n'
+        r'\# NemoClaw dev-shim - managed by scripts/npm-link-or-shim\.sh\n'
+        r'export PATH="(/[^"\n]*):\$PATH"\n'
+        r'exec "(/[^"\n]*/bin/nemoclaw\.js)" "\$@"\n?',
+        contents,
+    )
+    shim = installer_shim or dev_shim
+    if shim is None or pinned_node is not None:
+        break
+    pinned_node = str(Path(shim.group(1)) / "node")
+    candidate = shim.group(2)
+raise SystemExit(1)
+__NEMOCLAW_CLI_ROOT__
+    }}
+    cli_resolution=()
+    mapfile -t cli_resolution < <(resolve_nemoclaw_cli_root 2>/dev/null || true)
+    candidate_root="${{cli_resolution[0]:-}}"
+    pinned_node="${{cli_resolution[1]:--}}"
+    if [ "${{#cli_resolution[@]}}" -ne 2 ]; then
+      echo "Cannot safely release the stale OpenShell gateway: active NemoClaw launcher is not recognized" >&2
       exit 1
     fi
-    GATEWAY_RELEASE_MODULE="$gateway_release_module" \
-    GATEWAY_RELEASE_PORT="$gateway_port" \
-      node <<'__NEMOCLAW_GATEWAY_RELEASE__'
+    candidate_root="$(realpath -- "$candidate_root" 2>/dev/null || true)"
+    candidate_package="$candidate_root/package.json"
+    candidate_cli="$candidate_root/bin/nemoclaw.js"
+    gateway_release_module="$candidate_root/dist/lib/tunnel/gateway-port-release.js"
+    if [ -z "$candidate_root" ] || [ ! -d "$candidate_root" ] || \
+       [ ! -f "$candidate_package" ] || [ ! -f "$candidate_cli" ] || \
+       [ ! -f "$gateway_release_module" ]; then
+      echo "Cannot safely release the stale OpenShell gateway: active NemoClaw package is incomplete" >&2
+      exit 1
+    fi
+    candidate_package="$(realpath -- "$candidate_package" 2>/dev/null || true)"
+    candidate_cli="$(realpath -- "$candidate_cli" 2>/dev/null || true)"
+    gateway_release_module="$(realpath -- "$gateway_release_module" 2>/dev/null || true)"
+    case "$candidate_package" in
+      "$candidate_root"/*) ;;
+      *)
+        echo "Cannot safely release the stale OpenShell gateway: NemoClaw package metadata escapes its package root" >&2
+        exit 1
+        ;;
+    esac
+    case "$candidate_cli" in
+      "$candidate_root"/*) ;;
+      *)
+        echo "Cannot safely release the stale OpenShell gateway: NemoClaw launcher escapes its package root" >&2
+        exit 1
+        ;;
+    esac
+    case "$gateway_release_module" in
+      "$candidate_root"/*) ;;
+      *)
+        echo "Cannot safely release the stale OpenShell gateway: NemoClaw gateway release module escapes its package root" >&2
+        exit 1
+        ;;
+    esac
+    if ! python3 - "$candidate_package" <<'__NEMOCLAW_PACKAGE__'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        package = json.load(handle)
+except (OSError, ValueError):
+    raise SystemExit(1)
+if package.get("name") != "nemoclaw":
+    raise SystemExit(1)
+bins = package.get("bin")
+if not isinstance(bins, dict) or bins.get("nemoclaw") != "./bin/nemoclaw.js":
+    raise SystemExit(1)
+__NEMOCLAW_PACKAGE__
+    then
+      echo "Cannot safely release the stale OpenShell gateway: active NemoClaw package metadata is invalid" >&2
+      exit 1
+    fi
+    if [ "$pinned_node" = "-" ]; then
+      node_bin="$(type -P node 2>/dev/null || true)"
+    else
+      node_bin="$pinned_node"
+    fi
+    node_bin="$(realpath -- "$node_bin" 2>/dev/null || true)"
+    if [ -z "$node_bin" ] || [ ! -x "$node_bin" ]; then
+      echo "Cannot safely release the stale OpenShell gateway: pinned NemoClaw Node runtime is unavailable" >&2
+      exit 1
+    fi
+    candidate_version_output="$(
+      /usr/bin/env -u NEMOCLAW_INVOKED_AS -u NODE_OPTIONS -u NODE_PATH \
+        PATH="/usr/sbin:/usr/bin:/sbin:/bin" \
+        "$node_bin" "$candidate_cli" --version 2>/dev/null || true
+    )"
+    if [ "$candidate_version_output" != "nemoclaw v$expected_nemoclaw_version" ]; then
+      echo "Cannot safely release the stale OpenShell gateway: expected nemoclaw v$expected_nemoclaw_version, found ${{candidate_version_output:-unknown}}" >&2
+      exit 1
+    fi
+    stage "using verified NemoClaw gateway release module: $gateway_release_module"
+    /usr/bin/env -u NODE_OPTIONS -u NODE_PATH \
+      PATH="/usr/sbin:/usr/bin:/sbin:/bin" \
+      GATEWAY_RELEASE_MODULE="$gateway_release_module" \
+      GATEWAY_RELEASE_PORT="$gateway_port" \
+      "$node_bin" <<'__NEMOCLAW_GATEWAY_RELEASE__'
 const modulePath = process.env.GATEWAY_RELEASE_MODULE;
 const port = Number(process.env.GATEWAY_RELEASE_PORT);
 const runtime = require(modulePath);
+if (typeof runtime.releaseManagedGatewayPort !== "function") {{
+  console.error("Pinned NemoClaw gateway release module has no scoped release function");
+  process.exit(1);
+}}
 const result = runtime.releaseManagedGatewayPort({{
   port,
   confirmTimeoutMs: 5000,

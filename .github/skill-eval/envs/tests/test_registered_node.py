@@ -14,6 +14,7 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
 import subprocess
@@ -635,9 +636,16 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("chown -R $gateway_state_dir", command)
         self.assertIn(
-            "$HOME/.nemoclaw/source/dist/lib/tunnel/gateway-port-release.js",
+            'gateway_release_module="$candidate_root/dist/lib/tunnel/'
+            'gateway-port-release.js"',
             command,
         )
+        self.assertIn('expected_nemoclaw_version="0.0.80"', command)
+        self.assertIn("resolve_nemoclaw_cli_root", command)
+        self.assertIn("type -P nemoclaw", command)
+        self.assertNotIn("npm root -g", command)
+        self.assertNotIn("$HOME/NemoClaw", command)
+        self.assertIn('package.get("name") != "nemoclaw"', command)
         self.assertIn("releaseManagedGatewayPort({", command)
         self.assertIn("confirmTimeoutMs: 5000", command)
         self.assertIn("gateway_port_is_free", command)
@@ -677,10 +685,11 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         )
         with tempfile.TemporaryDirectory() as td:
             home = Path(td) / "home"
+            home.mkdir()
+            npm_root = Path(td) / "npm-root"
             module = (
-                home
-                / ".nemoclaw"
-                / "source"
+                npm_root
+                / "nemoclaw"
                 / "dist"
                 / "lib"
                 / "tunnel"
@@ -688,6 +697,22 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             )
             module.parent.mkdir(parents=True)
             module.write_text("// fake pinned module\n", encoding="utf-8")
+            package_root = npm_root / "nemoclaw"
+            (package_root / "bin").mkdir()
+            (package_root / "bin" / "nemoclaw.js").write_text(
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.80\\n'\n",
+                encoding="utf-8",
+            )
+            (package_root / "bin" / "nemoclaw.js").chmod(0o755)
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "nemoclaw",
+                        "bin": {"nemoclaw": "./bin/nemoclaw.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
             fake_bin = Path(td) / "bin"
             fake_bin.mkdir()
             node_log = Path(td) / "node.log"
@@ -700,9 +725,14 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8",
             )
             fake_docker.chmod(0o755)
+            fake_nemoclaw = fake_bin / "nemoclaw"
+            fake_nemoclaw.symlink_to(package_root / "bin" / "nemoclaw.js")
             fake_node = fake_bin / "node"
             fake_node.write_text(
                 "#!/bin/sh\n"
+                "if [ \"$#\" -gt 0 ]; then "
+                "printf 'nemoclaw v0.0.80\\n'; exit 0; fi\n"
+                "if [ -z \"${GATEWAY_RELEASE_PORT:-}\" ]; then exit 0; fi\n"
                 "printf '%s|%s\\n' \"$GATEWAY_RELEASE_MODULE\" "
                 "\"$GATEWAY_RELEASE_PORT\" >> \"$FAKE_NODE_LOG\"\n"
                 "if [ \"${FAKE_NODE_NOOP:-0}\" != 1 ]; then "
@@ -747,6 +777,184 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 if listener.poll() is None:
                     listener.terminate()
                     listener.wait(timeout=5)
+
+            fake_nemoclaw.unlink()
+            installer_prefix = Path(td) / "installer-prefix"
+            installer_bin = installer_prefix / "bin"
+            installer_bin.mkdir(parents=True)
+            installer_target = installer_bin / "nemoclaw"
+            installer_target.symlink_to(package_root / "bin" / "nemoclaw.js")
+            fake_nemoclaw.write_text(
+                "#!/usr/bin/env bash\n"
+                f'export PATH="{fake_bin}:$PATH"\n'
+                f'exec "{installer_target}" "$@"\n',
+                encoding="utf-8",
+            )
+            fake_nemoclaw.chmod(0o755)
+            installer_port = unused_port()
+            installer_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(installer_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(installer_port)
+                installer_result = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(installer_port),
+                        "FAKE_GATEWAY_PID": str(installer_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    installer_result.returncode,
+                    0,
+                    installer_result.stderr,
+                )
+                installer_listener.wait(timeout=5)
+                self.assertEqual(
+                    node_log.read_text(encoding="utf-8").splitlines()[-1],
+                    f"{module}|{installer_port}",
+                )
+            finally:
+                if installer_listener.poll() is None:
+                    installer_listener.terminate()
+                    installer_listener.wait(timeout=5)
+
+            cli_package_root = Path(td) / "cli-source"
+            cli_module = (
+                cli_package_root
+                / "dist"
+                / "lib"
+                / "tunnel"
+                / "gateway-port-release.js"
+            )
+            cli_module.parent.mkdir(parents=True)
+            cli_module.write_text("// fake CLI-derived module\n", encoding="utf-8")
+            (cli_package_root / "bin").mkdir()
+            cli_target = cli_package_root / "bin" / "nemoclaw.js"
+            cli_target.write_text(
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.80\\n'\n",
+                encoding="utf-8",
+            )
+            cli_target.chmod(0o755)
+            (cli_package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "nemoclaw",
+                        "bin": {"nemoclaw": "./bin/nemoclaw.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_nemoclaw.unlink()
+            dev_shim_contents = (
+                "#!/usr/bin/env bash\n"
+                "# NemoClaw dev-shim - managed by scripts/npm-link-or-shim.sh\n"
+                f'export PATH="{fake_bin}:$PATH"\n'
+                f'exec "{cli_target}" "$@"\n'
+            )
+            fake_nemoclaw.write_text(dev_shim_contents, encoding="utf-8")
+            fake_nemoclaw.chmod(0o755)
+            cli_port = unused_port()
+            cli_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(cli_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(cli_port)
+                cli_result = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(cli_port),
+                        "FAKE_GATEWAY_PID": str(cli_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
+                cli_listener.wait(timeout=5)
+                self.assertEqual(
+                    node_log.read_text(encoding="utf-8").splitlines()[-1],
+                    f"{cli_module}|{cli_port}",
+                )
+            finally:
+                if cli_listener.poll() is None:
+                    cli_listener.terminate()
+                    cli_listener.wait(timeout=5)
+
+            hidden_cli_module = cli_module.with_suffix(".disabled")
+            cli_module.rename(hidden_cli_module)
+            incomplete_port = unused_port()
+            incomplete_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(incomplete_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(incomplete_port)
+                incomplete = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(incomplete_port),
+                        "FAKE_GATEWAY_PID": str(incomplete_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(incomplete.returncode, 0)
+                self.assertIn(
+                    "active NemoClaw package is incomplete",
+                    incomplete.stderr,
+                )
+                self.assertIsNone(incomplete_listener.poll())
+            finally:
+                incomplete_listener.terminate()
+                incomplete_listener.wait(timeout=5)
+                hidden_cli_module.rename(cli_module)
+
+            fake_nemoclaw.write_text(
+                dev_shim_contents + "echo unexpected-command\n",
+                encoding="utf-8",
+            )
+            unexpected_port = unused_port()
+            unexpected_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(unexpected_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(unexpected_port)
+                unexpected = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(unexpected_port),
+                        "FAKE_GATEWAY_PID": str(unexpected_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(unexpected.returncode, 0)
+                self.assertIn(
+                    "active NemoClaw launcher is not recognized",
+                    unexpected.stderr,
+                )
+                self.assertIsNone(unexpected_listener.poll())
+            finally:
+                unexpected_listener.terminate()
+                unexpected_listener.wait(timeout=5)
+                fake_nemoclaw.write_text(dev_shim_contents, encoding="utf-8")
 
             node_calls_before = node_log.read_text(encoding="utf-8")
             preserved_port = unused_port()
@@ -809,6 +1017,41 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             finally:
                 blocked_listener.terminate()
                 blocked_listener.wait(timeout=5)
+
+            fake_nemoclaw.write_text(
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.80\\n'\n",
+                encoding="utf-8",
+            )
+            cli_module.unlink()
+            module.unlink()
+            missing_port = unused_port()
+            missing_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(missing_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(missing_port)
+                missing = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(missing_port),
+                        "FAKE_GATEWAY_PID": str(missing_listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(missing.returncode, 0)
+                self.assertIn(
+                    "active NemoClaw launcher is not recognized",
+                    missing.stderr,
+                )
+                self.assertIsNone(missing_listener.poll())
+            finally:
+                missing_listener.terminate()
+                missing_listener.wait(timeout=5)
 
         repair_end = command.index("if command -v apt-get", repair_index)
         repair_start = command.index('recreate_value="', repair_index)
