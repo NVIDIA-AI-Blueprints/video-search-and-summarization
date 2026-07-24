@@ -65,7 +65,7 @@ This makes VIOS a light-weight GPU consumer: only `streamprocessing-ms` contends
 | `${VST_DATA_PATH}` → `/opt/vst_data` | Internal data + DB seed + logs | bind | < 5 GB | writable by UID 1001 |
 | `${VST_CONFIG_PATH}` → `/opt/vst_config` (ro) | VIOS configs (JSON, scripts) | bind (ro) | minimal | readable by container |
 | `${SDR_CONTROLLER_CONFIG_PATH}/configs` → `/configs/` (ro on `sdr-controller`) / `/tmpl` (on `render-config`) | SDRC workload definitions: `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` (rendered in place to `config.yml` / `*.json` by the `render-config` init container). Source: [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 71 + 157. | bind | minimal | readable by both containers; templates rendered as root |
-| `./log` → `/mnt/log` (on `init-dirs`) / `/logs` (on `sdr-controller`) | `sdr-controller` runtime logs. **Host path is relative to the SDRC compose-file directory** (`services/infra/sdrc/log/` upstream; whatever the patched build-output places the compose next to) — NOT under `SDR_CONTROLLER_CONFIG_PATH`. | bind | low | chmod 0777 by the `init-dirs` container at first boot — host user can `rm -rf` without sudo |
+| `./log` → `/mnt/log` (on `init-dirs`) / `/logs` (on `sdr-controller`) | `sdr-controller` runtime logs. **Host path is relative to the SDRC compose-file directory** (`services/infra/sdrc/log/` upstream; wherever a patched copy places the compose next to) — NOT under `SDR_CONTROLLER_CONFIG_PATH`. | bind | low | chmod 0777 by the `init-dirs` container at first boot — host user can `rm -rf` without sudo |
 | `./.wdm-env` → `/mnt/wdm-env` (`init-dirs`) / `/env` (`wdm-env-from-config`) / `/wdm-env` (`wait-for-redis`, `wait-for-docker-workloads`) | WDM env vars rendered from `config.yml` by `wdm-env-from-config`; consumed by the two wait-* init containers and downstream peer services (e.g. RT-CV). **`sdr-controller` does NOT mount this** — its env is set explicitly in the compose `environment:` block (see compose line 135). Host path is relative to the SDRC compose-file directory. | bind | minimal | chmod 0777 by `init-dirs` (same rationale) |
 | `/var/run/docker.sock` → `/var/run/docker.sock` | Host docker socket — `sdr-controller` discovers `vss-vios-streamprocessing` via `WDM_CLUSTER_TYPE: docker`; also mounted on `wait-for-docker-workloads`. | bind | n/a | host docker socket; not required when running under k8s |
 
@@ -191,7 +191,7 @@ docker compose --env-file <consumer.env> \
   config --no-interpolate
 ```
 
-When build-vision-agent generates IN-1, it uses the **patched** copies at `build-output/patched/services/vios/compose.yml` + `build-output/patched/services/infra/sdrc/docker-compose.yaml` and resolves against `build-output/.env`; never against the upstream tree directly (per `feedback_build_output_self_contained`).
+A standalone deployment uses **patched** copies of `services/vios/compose.yml` + `services/infra/sdrc/docker-compose.yaml` and resolves against its own `.env`; never against the upstream tree directly.
 
 ## Verify Deployment
 
@@ -229,21 +229,21 @@ ls -la ${VSS_DATA_DIR}/data_log/vst/clip_storage  # same dir from host side
 # rendered SDRC configs)
 docker compose -f deploy/docker/services/vios/compose.yml \
                -f deploy/docker/services/infra/sdrc/docker-compose.yaml \
-               --profile bp_developer_in_1 down
+               --profile <profile> down
 
 # Stop + wipe named volumes (centralizedb may live in one — kills sensor configs)
 docker compose -f deploy/docker/services/vios/compose.yml \
                -f deploy/docker/services/infra/sdrc/docker-compose.yaml \
-               --profile bp_developer_in_1 down -v
+               --profile <profile> down -v
 
 # SDRC runtime artifact cleanup — log/ and .wdm-env/ are written as root inside the
 # container; rm needs write+exec on the parent dirs (init-dirs chmod-0777ed them so
 # this works without sudo). Same shape as dev-profile.sh:1585-1617.
 # IMPORTANT: ./log and ./.wdm-env are relative to the SDRC compose-file directory
 # (typically `deploy/docker/services/infra/sdrc/` upstream, or
-# `build-output/patched/services/infra/sdrc/` for IN-1) — NOT under
+# a patched copy of `services/infra/sdrc/`) — NOT under
 # SDR_CONTROLLER_CONFIG_PATH. Substitute the actual SDRC compose dir below.
-SDRC_DIR=deploy/docker/services/infra/sdrc      # or build-output/patched/services/infra/sdrc
+SDRC_DIR=deploy/docker/services/infra/sdrc      # or your patched copy of services/infra/sdrc
 rm -rf "${SDRC_DIR}/log/"* "${SDRC_DIR}/.wdm-env/"*
 # And the render-config-rendered siblings under SDR_CONTROLLER_CONFIG_PATH (the *.tmpl
 # source files stay):
