@@ -23,8 +23,12 @@ from __future__ import annotations
 from enum import StrEnum
 import json
 import os
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 DEFAULT_PROXY_PORT: Final[str] = "7777"
 PROXY_MODE_VALUE: Final[str] = "proxy"
@@ -66,7 +70,7 @@ def read_brev_environment_context(path: str | None = None) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def brev_environment_id() -> str:
+def brev_environment_id(context: Mapping[str, Any] | None = None) -> str:
     """Best-effort Brev environment id.
 
     Precedence: ``BREV_ENV_ID`` env var -> context file ``environment_id``.
@@ -74,16 +78,23 @@ def brev_environment_id() -> str:
     env_id = os.environ.get(BrevEnvKey.BREV_ENV_ID.value, "").strip()
     if env_id:
         return env_id
-    return str(read_brev_environment_context().get("environment_id", "")).strip()
+    if context is None:
+        context = read_brev_environment_context()
+    return str(context.get("environment_id", "")).strip()
 
 
-def brev_secure_link_fqdn(destination_port: int | str) -> str | None:
+def brev_secure_link_fqdn(
+    destination_port: int | str,
+    context: Mapping[str, Any] | None = None,
+) -> str | None:
     """Return the secure-link FQDN mapped to *destination_port*, if published."""
     try:
         port = int(destination_port)
     except (TypeError, ValueError):
         return None
-    ports = read_brev_environment_context().get("ports")
+    if context is None:
+        context = read_brev_environment_context()
+    ports = context.get("ports")
     if not isinstance(ports, list):
         return None
     for entry in ports:
@@ -103,9 +114,10 @@ def brev_secure_link_fqdn(destination_port: int | str) -> str | None:
     return None
 
 
-def _link_domain_from_brev_context() -> str:
+def _link_domain_from_brev_context(context: Mapping[str, Any] | None = None) -> str:
     """Derive the secure-link base domain from a port FQDN in the context file."""
-    context = read_brev_environment_context()
+    if context is None:
+        context = read_brev_environment_context()
     env_id = str(context.get("environment_id", "")).strip().lower()
     ports = context.get("ports")
     if not env_id or not isinstance(ports, list):
@@ -120,7 +132,10 @@ def _link_domain_from_brev_context() -> str:
     return ""
 
 
-def detect_brev_link_domain(explicit_domain: str = "") -> str:
+def detect_brev_link_domain(
+    explicit_domain: str = "",
+    context: Mapping[str, Any] | None = None,
+) -> str:
     """Resolve the secure-link base domain.
 
     Precedence:
@@ -132,7 +147,7 @@ def detect_brev_link_domain(explicit_domain: str = "") -> str:
     domain = explicit_domain.strip() or os.environ.get(BrevEnvKey.BREV_LINK_DOMAIN.value, "").strip()
     if domain:
         return domain
-    return _link_domain_from_brev_context()
+    return _link_domain_from_brev_context(context)
 
 
 def apply_brev_proxy_env(
@@ -157,14 +172,15 @@ def apply_brev_proxy_env(
         or KIBANA_PROXY_PORT_PREFIX
     )
 
-    env_id = brev_env_id.strip() or brev_environment_id()
-    link_domain = detect_brev_link_domain(explicit_link_domain)
+    context = read_brev_environment_context()
+    env_id = brev_env_id.strip() or brev_environment_id(context)
+    link_domain = detect_brev_link_domain(explicit_link_domain, context)
 
-    proxy_fqdn = brev_secure_link_fqdn(proxy_port)
+    proxy_fqdn = brev_secure_link_fqdn(proxy_port, context)
     if not proxy_fqdn:
         return
 
-    kibana_fqdn = brev_secure_link_fqdn(kibana_prefix)
+    kibana_fqdn = brev_secure_link_fqdn(kibana_prefix, context)
 
     proxy_https = f"https://{proxy_fqdn}"
     update: dict[str, str] = {

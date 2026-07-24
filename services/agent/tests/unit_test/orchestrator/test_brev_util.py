@@ -41,6 +41,37 @@ def test_apply_brev_proxy_env_uses_exact_fqdns_from_context(tmp_path, monkeypatc
     assert merged["VSS_PUBLIC_PORT"] == "443"
 
 
+def test_apply_brev_proxy_env_reads_context_once(tmp_path, monkeypatch):
+    context_path = tmp_path / "environment-context.json"
+    _write_context(
+        context_path,
+        env_id="single-read",
+        ports=[
+            {"destination_port": 7777, "fqdn": "7777-single-read.apps.example.com"},
+            {"destination_port": 5601, "fqdn": "5601-single-read.apps.example.com"},
+        ],
+    )
+    monkeypatch.setenv("BREV_ENVIRONMENT_CONTEXT_PATH", str(context_path))
+    monkeypatch.delenv("BREV_ENV_ID", raising=False)
+    monkeypatch.delenv("BREV_LINK_DOMAIN", raising=False)
+    original_read = brev_util.read_brev_environment_context
+    read_count = 0
+
+    def counting_read(path: str | None = None) -> dict:
+        nonlocal read_count
+        read_count += 1
+        return original_read(path)
+
+    monkeypatch.setattr(brev_util, "read_brev_environment_context", counting_read)
+    merged: dict[str, str] = {}
+
+    apply_brev_proxy_env(merged)
+
+    assert read_count == 1
+    assert merged["BREV_ENV_ID"] == "single-read"
+    assert merged["BREV_LINK_DOMAIN"] == "apps.example.com"
+
+
 def test_apply_brev_proxy_env_noop_when_proxy_port_missing_from_context(tmp_path, monkeypatch):
     context_path = tmp_path / "environment-context.json"
     _write_context(
