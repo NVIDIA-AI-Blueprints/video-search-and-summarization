@@ -107,7 +107,7 @@ helm upgrade --install "${RELEASE}" . \
 Notes:
 
 - **`downloadNgcAppData=true`** creates Job **`vss-rtvi-cv-download-ngc-app-data`**, which downloads and extracts the bundle onto PVC mount path **`vss-warehouse-app-data/`** and writes marker **`vss-warehouse-app-data/.ngc-extracted`**. RT-CV does not consume models from this subtree.
-- **`downloadModelsFromNgc=true`** creates Job **`vss-rtvi-cv-download-models`**. It writes profile models at flattened paths under `/opt/storage` and creates one completion marker per artifact.
+- **`downloadModelsFromNgc=true`** enables ds-start phase-0 model download inside the perception container on first start. It writes profile models at flattened paths under `/opt/storage` and creates one completion marker per artifact.
 - Override **`vss-rtvi-cv.ngcAppDataResourceVersion`** / **`ngcAppDataOrg`** when NVIDIA publishes a newer bundle.
 - **`standaloneWarehouse.*`** (Sparse4D paths, `streamType`, DeepStream flags) can be overridden with `--set` or a small values file.
 
@@ -115,19 +115,17 @@ Notes:
 
 ## 5. Wait for NGC Job and StatefulSet
 
-Wait for both download Jobs to complete (they may take many minutes on first run). With **default** subchart naming the Jobs are:
+Wait for the app-data download Job to complete (it may take many minutes on first run). With **default** subchart naming the Job is:
 
-`vss-rtvi-cv-download-ngc-app-data` and `vss-rtvi-cv-download-models`
+`vss-rtvi-cv-download-ngc-app-data`
 
 ```bash
 kubectl wait --for=condition=complete "job/vss-rtvi-cv-download-ngc-app-data" \
   --namespace "${NAMESPACE}" \
   --timeout=3600s
-
-kubectl wait --for=condition=complete "job/vss-rtvi-cv-download-models" \
-  --namespace "${NAMESPACE}" \
-  --timeout=900s
 ```
+
+RT-CV model download runs inside the perception container on first start (ds-start phase 0). No separate model download Job is created.
 
 Confirm names if you use `fullnameOverride` / `useReleaseNamePrefix`:
 
@@ -211,7 +209,7 @@ kubectl delete job -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE}" 
 
 - **Pod `Init:0/1` waiting on NGC**: Job not complete or marker missing — check Job logs:  
   `kubectl logs job/vss-rtvi-cv-download-ngc-app-data -n "${NAMESPACE}"` (adjust name if prefixed).
-- **Pod waiting for RT-CV models**: check `kubectl logs job/vss-rtvi-cv-download-models -n "${NAMESPACE}"`; the StatefulSet requires both each artifact and its `.done` marker.
+- **Pod waiting for RT-CV models**: models are downloaded during ds-start phase 0 inside the perception container. Check perception container logs for download progress or errors; the startup requires both each artifact and its `.done` marker.
 - **Permission errors writing TensorRT engines**: 2D/3D use writable **`/opt/storage/trt-cache`**; MV3DT writes beside RT-DETR and under **`/opt/storage/BodyPose3DNet`**. Ensure the applicable engine-directory init container ran.
 - **Wrong profile rendered**: `helm get values "${RELEASE}" -n "${NAMESPACE}"` and confirm **`vss-rtvi-cv.profileMode`**.
 

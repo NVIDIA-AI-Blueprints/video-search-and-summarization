@@ -51,11 +51,12 @@ ensure_ngc_cli() {
   fi
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq && apt-get install -y -qq ca-certificates wget unzip jq gettext-base > /dev/null
-  cd /tmp
+  pushd /tmp > /dev/null
   local ngc_cli_zip
   ngc_cli_zip="$(ngc_cli_zip_for_arch)"
   wget -q "https://ngc.nvidia.com/downloads/${ngc_cli_zip}" -O ngccli.zip
   unzip -q ngccli.zip && chmod +x ngc-cli/ngc
+  popd > /dev/null
   export PATH="/tmp/ngc-cli:${PATH}"
   ngc --version
 }

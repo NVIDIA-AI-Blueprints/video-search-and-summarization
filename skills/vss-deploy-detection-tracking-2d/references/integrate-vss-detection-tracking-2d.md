@@ -9,7 +9,7 @@ Use this service when the workflow requires per-frame bounding box metadata, cla
 ## Required Peer Services
 
 - **VIOS** — required. RT-CV consumes RTSP or file-backed sources registered through the VIOS sensor path. In the current repo shape, `perception-2d-fusion` depends on `sensor-ms`, and `nvstreamer-2d-fusion` can publish the canonical warehouse sample videos as RTSP sources for the same path. Source: `developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml` and `integrate-vios-service.md`.
-- **Kafka foundational infra** — required. RT-CV publishes frame metadata into the shared broker path consumed by the broader search/analytics stack. Source: `compose.yml`, the DeepStream config mounted by `ds-search-start.sh`, and the shared infra compose.
+- **Kafka foundational infra** — required. RT-CV publishes frame metadata into the shared broker path consumed by the broader search/analytics stack. Source: `compose.yml`, the DeepStream config mounted by `ds-start.sh`, and the shared infra compose.
 - **ELK** — required when detection metadata must be indexed and queryable. Elasticsearch stores the emitted metadata for query, and Kibana is the standard inspection surface. The Logstash / Elasticsearch path is provided by the shared ELK reference, not by extra RT-CV-owned services. Source: `integrate-elk.md`.
 
 ### Structured component_services (consumed by `vss-build-vision-agent` Step 4)
@@ -22,9 +22,6 @@ component_services:
     file: developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml
     role: Optional sample-video RTSP publisher for the canonical warehouse video set.
     required: false
-  - key: perception-2d-init
-    file: developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml
-    role: One-shot init container that stages the RT-CV vision encoder assets before startup.
   - key: perception-2d-fusion
     file: developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml
     role: RT-CV perception service using RT-DETR detection with multi-object tracking enabled.
@@ -91,9 +88,9 @@ The important RT-CV API categories are:
 | `RT_CV_DEVICE_ID` | GPU device id reserved for RT-CV | `0` | Optional |
 | `VSS_APPS_DIR` | Root used to resolve the RT-CV compose and config mounts | — | **Yes** |
 | `VSS_DATA_DIR` | Root used for model, cache, and sample-video mounts | — | **Yes** |
-| `VISION_ENCODER_MODEL` | Vision encoder selected by `perception-2d-init` | `siglip_v2` | Optional |
-| `VISION_ENCODER_VERSION` | Vision encoder version staged by the init container | `v1.1` | Optional |
-| `NGC_CLI_API_KEY` | NGC credential used to stage the vision encoder defaults | — | **Yes** for default asset staging |
+| `VISION_ENCODER_MODEL` | Vision encoder downloaded by ds-start phase 0 | `siglip_v2` | Optional |
+| `VISION_ENCODER_VERSION` | Vision encoder version downloaded by ds-start phase 0 | `v1.1` | Optional |
+| `NGC_CLI_API_KEY` | NGC credential used by ds-start phase 0 for model downloads | — | **Yes** for model downloads |
 | `NVSTREAMER_IMAGE_TAG` | Image tag for the optional sample-data publisher | deployment-specific | Optional |
 | `NVSTREAMER_HTTP_PORT` | HTTP API port for `nvstreamer-2d-fusion` | deployment-specific | Optional |
 | `STREAM_TYPE` | Broker-path selector used by the 2D RT-CV Kafka/ELK path | deployment-specific | **Yes (effective)** |
@@ -120,7 +117,7 @@ For the standalone RT-CV operator flow, the deploy skill also uses `~/rtvicv-sto
 ## Known Integration Constraints
 
 - **This is the 2D ingestion and metadata path, not the analytics bundle.** This reference covers RT-CV detection and tracking with Kafka/ELK outputs. Behavior analytics, video-analytics API, and 3D fusion are optional higher layers that require their own integration references before `vss-build-vision-agent` can compose them.
-- **The warehouse sample flow requires data artifact access.** The warehouse sample video set and RT-DETR model come from `nvstaging/vss-warehouse/vss-warehouse-app-data:<version>`. Local overrides can smoke-test the service but do not reproduce the intended warehouse evaluation set.
+- **The warehouse sample flow requires data artifact access.** The warehouse sample video set comes from `nvidia/vss-warehouse/vss-warehouse-app-data:<version>`. RT-DETR and vision encoder models are downloaded automatically by ds-start phase 0. Local overrides can smoke-test the service but do not reproduce the intended warehouse evaluation set.
 - **Person filtering is a deployment choice layered on the RT-DETR pipeline.** The model family is `rtdetr-warehouse`; the generated deployment should surface person-only filtering through config or env when the requested workflow requires it.
 - **The upstream compose anchor is not yet a standalone RT-CV slice.** The current component services live under `developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`, so generation must patch a local copy rather than treating that path as an existing search deployment. A smaller RT-CV-owned compose slice would make capability composition cleaner.
 - **Kafka and Elasticsearch contracts are still shared-stack contracts.** RT-CV publishes metadata into the shared broker path, and indexing depends on the ELK/Logstash reference. If downstream consumers require a stable RT-CV-specific index or topic schema, that contract needs to be captured explicitly in the RT-CV and ELK integration references.
@@ -140,20 +137,18 @@ services:
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/ds-configs-ro:ro
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/ds-search-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh:ro
+      - $VSS_APPS_DIR/services/rtvi/rtvi-cv/ds-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh:ro
       - $VSS_DATA_DIR/models/:/opt/storage/
     command:
       - bash
       - -c
-      - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh
+      - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
     environment:
       DS_MODE_FLAG: "1"
       DS_MODEL_FAMILY: rtdetr-warehouse
       DS_TRACKER_REID: "true"
       DS_SHOW_SENSOR_ID: "false"
     depends_on:
-      perception-2d-init:
-        condition: service_completed_successfully
       sensor-ms:
         condition: service_started
       broker-health-check:

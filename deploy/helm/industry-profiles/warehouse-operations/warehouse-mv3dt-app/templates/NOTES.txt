@@ -16,7 +16,7 @@ Main workloads:
 
 NGC data delivery:
   App data Job: {{ $name }}-download-ngc-app-data (videos/playback/calibration)
-  Model Job: {{ $name }}-download-models (RT-DETR + BodyPose3DNet)
+  Model download: ds-start phase 0 (RT-DETR + BodyPose3DNet, from NGC on first start)
   Model paths: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx
                /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx
 

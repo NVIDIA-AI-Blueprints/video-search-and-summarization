@@ -47,7 +47,7 @@ build_extra_flags() {
 
 require_file() {
     local file_path="$1"
-    local hint="$2"
+    local hint="${2:-}"
     if [[ ! -f "$file_path" ]]; then
         echo "ERROR: Required file not found: ${file_path}" >&2
         [[ -n "$hint" ]] && echo "Hint: ${hint}" >&2
@@ -185,11 +185,11 @@ start_rtdetr_warehouse()
     extra_flags=$(build_extra_flags)
 
     cat "$config_file"
-    echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -t 0 -l 5 --message-rate "$DS_MESSAGE_RATE" $extra_flags"
+    echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -t 0 -l 5 --message-rate $DS_MESSAGE_RATE ${extra_flags:-}"
     exec_as_runtime_user ./metropolis_perception_app -c "$config_file" \
         -m "$DS_MODE_FLAG" -t 0 -l 5 \
         --message-rate "$DS_MESSAGE_RATE" \
-        $extra_flags
+        ${extra_flags:-}
 }
 
 # ---------------------------------------------------------------------------
@@ -316,8 +316,10 @@ start_rtdetr_gdino()
         echo "Warning: Tracker config $TRACKER_CONFIG not found, skipping minTrackerConfidence update..."
     fi
 
-    echo "##### Contents of $TRACKER_CONFIG: #####"
-    cat $TRACKER_CONFIG
+    if [[ -f "$TRACKER_CONFIG" ]]; then
+        echo "##### Contents of $TRACKER_CONFIG: #####"
+        cat "$TRACKER_CONFIG"
+    fi
 
     cat "$config_file"
     echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -t 0 -l 5 --message-rate "$DS_MESSAGE_RATE" --show-sensor-id"
