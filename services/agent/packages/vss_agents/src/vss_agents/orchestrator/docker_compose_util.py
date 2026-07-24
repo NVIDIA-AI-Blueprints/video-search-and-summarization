@@ -77,6 +77,11 @@ MODE_LOCAL_SHARED: Final[str] = "local_shared"
 MODE_2D_CV: Final[str] = "2d_cv"
 MODE_2D_VLM: Final[str] = "2d_vlm"
 SUPPORTED_RUNTIME_MODES: Final[frozenset[str]] = frozenset({MODE_LOCAL, MODE_LOCAL_SHARED, MODE_REMOTE})
+RTVI_VLM_PROFILES: Final[frozenset[str]] = frozenset({PROFILE_BASE, PROFILE_SEARCH, PROFILE_LVS, PROFILE_ALERTS})
+# IGX/AGX Thor keep their explicit 0.35 hardware override in the MCP config.
+RTVI_VLM_DEFAULT_HARDWARE_PROFILES: Final[frozenset[str]] = frozenset(
+    {"DGX-SPARK", "H100", "L40S", "OTHER", "RTXPRO4500BW", "RTXPRO6000BW"}
+)
 MODEL_SLUG_NONE: Final[str] = "none"
 THOR_VLM_PORT: Final[int] = 8018
 DEFAULT_ALERTS_VLM_PORT: Final[int] = 30082
@@ -493,6 +498,30 @@ def infer_runtime_mode(
     return MODE_LOCAL
 
 
+def default_rtvi_vllm_gpu_memory_utilization(
+    *,
+    hardware_profile: str,
+    vlm_mode: str,
+) -> str | None:
+    """Return dev-profile.sh's RT-VLM default after runtime mode inference."""
+
+    if (
+        vlm_mode == MODE_REMOTE
+        or vlm_mode not in {MODE_LOCAL, MODE_LOCAL_SHARED}
+        or hardware_profile not in RTVI_VLM_DEFAULT_HARDWARE_PROFILES
+    ):
+        return None
+    if vlm_mode == MODE_LOCAL_SHARED and hardware_profile in {
+        "DGX-SPARK",
+        "H100",
+        "RTXPRO6000BW",
+    }:
+        return "0.4"
+    if hardware_profile in {"L40S", "RTXPRO4500BW"}:
+        return "0.8"
+    return "0.7"
+
+
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
@@ -590,6 +619,15 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     )
     if inferred_vlm_mode is not None:
         merged["VLM_MODE"] = inferred_vlm_mode
+
+    rtvi_memory_key = "RTVI_VLLM_GPU_MEMORY_UTILIZATION"
+    if config.profile in RTVI_VLM_PROFILES and not merged.get(rtvi_memory_key, "").strip():
+        rtvi_memory_default = default_rtvi_vllm_gpu_memory_utilization(
+            hardware_profile=effective_hardware_profile,
+            vlm_mode=merged.get("VLM_MODE", ""),
+        )
+        if rtvi_memory_default is not None:
+            merged[rtvi_memory_key] = rtvi_memory_default
 
     if (
         "RT_VLM_DEVICE_ID" not in config.env_overrides
