@@ -53,6 +53,7 @@ python-dotenv = "^1.2.2"
 python-multipart = "^0.0.32"
 starlette = "^1.3.1"
 urllib3 = "^2.7.0"
+playwright = "^1.61.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^26.3.1"
@@ -102,7 +103,8 @@ markers = [
     "longrun: marks tests that run for an extended period (skipped by default unless -m longrun is passed)",
     "needs_iptables: marks tests that require iptables / privileged runner",
     "needs_h265: marks tests that require an H.265 source",
-    "needs_bbox_metadata: marks tests that require live Redis protobuf bbox metadata (or stored metadata for GAP-050/052)"
+    "needs_bbox_metadata: marks tests that require live Redis protobuf bbox metadata (or stored metadata for GAP-050/052)",
+    "ui: marks browser UI tests (skipped by default unless -m ui is passed)"
 ]
 
 [tool.black]
