@@ -132,7 +132,7 @@ else
     cat "$RTDETR_INFER_CONFIG"
 fi
 
-if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
+if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
     echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv.so for sink1 group... #####"
     sed -i '/^\[sink1\]/,/^\[/{/^msg-conv-msg2p-lib=/d;}' "$CONFIG_FILE"
     sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so' "$CONFIG_FILE"
@@ -143,7 +143,7 @@ else
     sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so' "$CONFIG_FILE"
 fi
 
-if [[ "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
+if [[ "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
     echo "##### Setting compute-hw=2 in tracker section of $CONFIG_FILE... #####"
     sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' "$CONFIG_FILE"
     sed -i '/^\[tracker\]/a compute-hw=2' "$CONFIG_FILE"
@@ -157,7 +157,7 @@ echo "##### Updating minTrackerConfidence in $TRACKER_CONFIG... #####"
 if [[ -f "$TRACKER_CONFIG" ]]; then
     sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*minTrackerConfidence:.*/  minTrackerConfidence: 0.2513/;}' "$TRACKER_CONFIG"
     echo "##### Updated minTrackerConfidence to 0.2513 in TargetManagement section... #####"
-    if [[ "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
+    if [[ "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
         echo "##### Updating VisualTracker section in $TRACKER_CONFIG... #####"
         sed -i '/^VisualTracker:/,/^[A-Z][a-zA-Z]*:/ {/^[[:space:]]*visualTrackerType:/d;}' "$TRACKER_CONFIG"
         sed -i '/^VisualTracker:/,/^[A-Z][a-zA-Z]*:/ {/^[[:space:]]*vpiBackend4DcfTracker:/d;}' "$TRACKER_CONFIG"

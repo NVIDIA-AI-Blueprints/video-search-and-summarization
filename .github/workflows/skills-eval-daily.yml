@@ -24,6 +24,14 @@ on:
   # `develop` in the ref dropdown, and GitHub runs develop's version of this
   # file (env passthrough + agent invocation all come from develop).
   workflow_dispatch:
+    inputs:
+      agent:
+        description: "Agent to evaluate in Harbor trials"
+        type: choice
+        default: claude-code
+        options:
+          - claude-code
+          - codex
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -133,6 +141,12 @@ jobs:
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
+          # Prefer the rotatable repository secret for Anthropic auth. The
+          # coordinator .env remains the source for NGC/Brev and is loaded
+          # below, then this value is restored so it cannot overwrite the
+          # GitHub Actions secret.
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -152,6 +166,30 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
+          # the public relay for RTSP-dependent skill checks.
+          export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
+            export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
+          # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
+          # processes (reparented to PID 1, never killed) on every
+          # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
+          # accumulated 23k agents on the coordinator host and OOM-killed
+          # every runner service (2026-07-08). With SSH_AUTH_SOCK pointing
+          # at a live agent brev reuses it and spawns none, so give the
+          # whole leg one agent and kill it when the step ends. Runs after
+          # the .env source so nothing can overwrite SSH_AUTH_SOCK /
+          # SSH_AGENT_PID behind the trap's back.
+          eval "$(ssh-agent -s)" > /dev/null
+          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+          # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
+          # Orphaned agents older than the longest leg wallclock on any
+          # host sharing this pool (skills-eval.yml timeout-minutes: 360;
+          # 25200s = 7h) cannot belong to any live leg.
+          ps -eo pid=,ppid=,etimes=,args= \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>25200 {print $1}' \
+            | xargs -r kill 2>/dev/null || true
           # Pin the box-side repo sync to the SHA the runner actually checked
           # out — NOT github.sha. On a scheduled run github.sha is the default
           # branch (main) tip, but the checkout above is develop; using it here
@@ -170,6 +208,7 @@ jobs:
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
           export DAILY_RUN="true"
+          export EVAL_AGENT="${{ inputs.agent || 'claude-code' }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —

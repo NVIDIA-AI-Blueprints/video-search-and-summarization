@@ -70,6 +70,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/configuration"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -83,6 +89,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/version"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -99,6 +111,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/help"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         Json::CharReaderBuilder builder;
         std::istringstream iss(gStorageManagementApiList);
 
@@ -131,6 +149,12 @@ void StorageManagement::storageManagementApis()
     m_func["/api/v1/storage/file/mediainfo"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -157,13 +181,19 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
     m_func["/api/v1/storage/file/protect"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -175,6 +205,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/info"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -186,6 +222,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/file/protected"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -199,6 +241,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/aging"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -210,6 +258,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/size/update"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -221,6 +275,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/capacity"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "post"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -232,6 +292,12 @@ void StorageManagement::storageManagementApis()
 
     m_func["/api/v1/storage/file/list"] = [this](const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
         StorageManagement* storageMngt = GET_STORAGE_MNGT();
         if (storageMngt == nullptr)
         {
@@ -270,8 +336,8 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, out, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, out, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
@@ -286,8 +352,8 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
@@ -347,8 +413,8 @@ void StorageManagement::storageManagementApis()
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
     };
 
@@ -389,8 +455,8 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            ret = VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            ret = VmsErrorCode::MethodNotAllowedError;
         }
     }
     /* Upload API*/
@@ -706,8 +772,8 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
             }
             else
             {
-                SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-                ret = VmsErrorCode::VMSNotSupportedError;
+                SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+                ret = VmsErrorCode::MethodNotAllowedError;
             }
         }
         else if((iequals(requestMethod, "delete")) && (requestApi.find(STORAGE_FILE_API_PREFIX) != string::npos))
@@ -761,14 +827,14 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
             }
             else
             {
-                SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-                ret = VmsErrorCode::VMSNotSupportedError;
+                SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+                ret = VmsErrorCode::MethodNotAllowedError;
             }
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            ret = VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            ret = VmsErrorCode::MethodNotAllowedError;
         }
     }
     else if (requestApi.find(STORAGE_API_PREFIX) != string::npos)
@@ -890,20 +956,20 @@ VmsErrorCode StorageManagement::handleStorageFileAPIrequest(const Json::Value& r
             }
             else
             {
-                SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-                ret = VmsErrorCode::VMSNotSupportedError;
+                SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+                ret = VmsErrorCode::MethodNotAllowedError;
             }
         }
         else
         {
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-            ret = VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+            ret = VmsErrorCode::MethodNotAllowedError;
         }
     }
     else
     {
-        SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, response, "Request Method is not supported");
-        ret = VmsErrorCode::VMSNotSupportedError;
+        SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
+        ret = VmsErrorCode::MethodNotAllowedError;
     }
     return ret;
 }
@@ -1075,9 +1141,10 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                         else
                         {
                             // Handle bboxObjectId
-                            if (opts.count("bboxObjectId") && !opts.at("bboxObjectId").empty())
+                            if ((opts.count("bboxObjectId") && !opts.at("bboxObjectId").empty()) ||
+                                (opts.count("overlayObjectId") && !opts.at("overlayObjectId").empty()))
                             {
-                                string bboxIds = opts.at("bboxObjectId");
+                                string bboxIds = opts.count("bboxObjectId") ? opts.at("bboxObjectId") : opts.at("overlayObjectId");
                                 auto tokens = splitString(bboxIds, ",");
                                 for (const auto& token : tokens)
                                 {
@@ -1089,9 +1156,10 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                             }
 
                             // Handle bboxClassType
-                            if (opts.count("bboxClassType") && !opts.at("bboxClassType").empty())
+                            if ((opts.count("bboxClassType") && !opts.at("bboxClassType").empty()) ||
+                                (opts.count("overlayClassType") && !opts.at("overlayClassType").empty()))
                             {
-                                string classTypes = opts.at("bboxClassType");
+                                string classTypes = (opts.count("bboxClassType") && !opts.at("bboxClassType").empty()) ? opts.at("bboxClassType") : opts.at("overlayClassType");
                                 auto tokens = splitString(classTypes, ",");
                                 for (const auto& token : tokens)
                                 {
@@ -1152,15 +1220,56 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
                 }
                 if (opts.count("overlayThickness"))
                 {
-                    olParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), DEFAULT_BBOX_WIDTH);
+                    olParams.m_bboxThickness = stringToInt(opts.at("overlayThickness"), getDefaultBboxWidth());
                 }
                 if (opts.count("overlayDebug"))
                 {
                     olParams.m_bboxDebug = opts.at("overlayDebug") == "true";
                 }
+                if (opts.count("overlayDebugFontSize") && !opts.at("overlayDebugFontSize").empty())
+                {
+                    olParams.m_bboxDebugFontSize = stringToInt(opts.at("overlayDebugFontSize"), 0);
+                }
                 if (opts.count("overlayPose"))
                 {
                     olParams.m_enablePose = opts.at("overlayPose") == "true";
+                }
+                if (opts.count("overlayProximityClass") && !opts.at("overlayProximityClass").empty())
+                {
+                    olParams.m_proximityClass = opts.at("overlayProximityClass");
+                }
+                if (opts.count("overlayEntrantClass") && !opts.at("overlayEntrantClass").empty())
+                {
+                    olParams.m_entrantClass = opts.at("overlayEntrantClass");
+                }
+                if (opts.count("overlayColorCode") && !opts.at("overlayColorCode").empty())
+                {
+                    string colorCode = opts.at("overlayColorCode");
+                    auto tokens = splitString(colorCode, ",");
+                    for (uint i = 0; i < tokens.size(); i++)
+                    {
+                        // key=r:g:b:a,key=r:g:b:a,....
+                        auto keyValue = splitString(tokens[i], "=");
+                        if (keyValue.size() < 2)
+                        {
+                            continue;
+                        }
+                        auto rgba = splitString(keyValue[1], ":");
+                        std::vector<int> rgba_values;
+                        for (const auto& value : rgba)
+                        {
+                            rgba_values.push_back(stringToInt(value, 0));
+                        }
+                        olParams.m_colorCode[keyValue[0]] = rgba_values;
+                    }
+                }
+                if (opts.count("overlayProximityAreaFactor") && !opts.at("overlayProximityAreaFactor").empty())
+                {
+                    olParams.m_proximityAreaFactor = stringToDouble(opts.at("overlayProximityAreaFactor"), DEFAULT_PROXIMITY_AREA_FACTOR);
+                }
+                if (opts.count("overlayProximityAnimation") && !opts.at("overlayProximityAnimation").empty())
+                {
+                    olParams.m_proximityAnimation = opts.at("overlayProximityAnimation");
                 }
             }
         }

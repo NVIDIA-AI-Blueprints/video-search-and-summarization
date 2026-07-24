@@ -33,7 +33,7 @@ import yaml
 from confluent_kafka import Consumer, KafkaError
 from google.protobuf.json_format import MessageToDict
 
-from mdx.anomaly.protobuf import Incident as nvSchemaIncident
+from mdx.protobuf import Incident as nvSchemaIncident
 
 def load_config(config_path: str | None = None) -> dict:
     """Load configuration from config.yaml."""

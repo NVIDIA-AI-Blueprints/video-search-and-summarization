@@ -22,8 +22,8 @@ from langchain_core.exceptions import OutputParserException
 from nat.data_models.evaluator import EvalInputItem
 import pytest
 
-from vss_agents.evaluators.customized_trajectory_evaluator.evaluate import CustomizedTrajectoryEvaluator
-from vss_agents.evaluators.utils import ScoreOutputParser
+from agent.evaluators.customized_trajectory_evaluator.evaluate import CustomizedTrajectoryEvaluator
+from agent.evaluators.utils import ScoreOutputParser
 
 
 class TestScoreOutputParser:
@@ -414,22 +414,22 @@ class TestParseToolResult:
     """Test parse_tool_result utility function."""
 
     def test_dict(self):
-        from vss_agents.evaluators.utils import parse_tool_result
+        from agent.evaluators.utils import parse_tool_result
 
         assert parse_tool_result({"key": "val"}) == {"key": "val"}
 
     def test_json_string(self):
-        from vss_agents.evaluators.utils import parse_tool_result
+        from agent.evaluators.utils import parse_tool_result
 
         assert parse_tool_result('{"key": "val"}') == {"key": "val"}
 
     def test_python_repr(self):
-        from vss_agents.evaluators.utils import parse_tool_result
+        from agent.evaluators.utils import parse_tool_result
 
         assert parse_tool_result("{'key': 'val'}") == {"key": "val"}
 
     def test_plain_string(self):
-        from vss_agents.evaluators.utils import parse_tool_result
+        from agent.evaluators.utils import parse_tool_result
 
         assert parse_tool_result("hello") == "hello"
 
@@ -606,7 +606,7 @@ class TestResolveRefs:
         assert resolved[0]["params"]["val"] == "first"
 
 
-_EVAL_MODULE = "vss_agents.evaluators.customized_trajectory_evaluator.evaluate"
+_EVAL_MODULE = "agent.evaluators.customized_trajectory_evaluator.evaluate"
 _ADAPTER_CLASS = "nat.plugins.eval.utils.intermediate_step_adapter.IntermediateStepAdapter"
 
 

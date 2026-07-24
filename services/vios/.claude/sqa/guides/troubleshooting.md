@@ -67,9 +67,22 @@ sudo systemctl start docker
 sudo usermod -aG docker $USER && newgrp docker
 ```
 
-### Deployment script prompts hang in --auto mode
+### Deployment script prompts hang in non-interactive mode
 
-The script falls back to prompts when it cannot auto-detect values (e.g., multiple network interfaces). Pass `--port <IP>` explicitly to override host IP detection.
+The new `oneclick_dc_deployment.py` is non-interactive by default for its own prompts. Two remaining places can still ask for input:
+
+1. **Multiple network interfaces detected** — pass `--host <IP>` explicitly to override host IP detection.
+2. **Sudo password prompt during sysctl tuning** — the script applies host network buffer tuning (`net.core.rmem_max`, etc.) on every `deploy`. If the host requires a password for `sudo` and the script is running with stdin not connected to a TTY (agent/CI/piped), it would have hung historically — now it **auto-skips with a warning** instead. To silence the warning, pass `--skip-sysctl` explicitly. To actually apply the tuning, either:
+   - Run interactively, OR
+   - Pre-prime sudo with `sudo -v` in the same shell before invoking the script (credential cache stays valid for ~5 min by default), OR
+   - Apply the four sysctl values manually via `/etc/sysctl.d/`. The script's idempotent check will then no-op on the next deploy without invoking sudo at all.
+
+   To decide upfront which of those branches you're in (without invoking sudo) run the static pre-flight probe — it returns `status=skip|passwordless|needs_password` in one line:
+   ```bash
+   python3 oneclick_dc_deployment.py preflight-sysctl
+   ```
+
+If the buffers are already at or above the targets (e.g., after a previous successful deploy), the script skips sudo entirely on re-deploys.
 
 ---
 
@@ -164,8 +177,15 @@ Then restart sensor-ms so it reloads: `docker restart sensor-ms`.
 
 **Option B — stage a backing file so the stream resolves:**
 ```bash
-cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/<existing_file>.mp4 \
-   /tmp/nvstreamer_auto_deploy/nvstreamer-1/<missing_file>.mp4
+# Copy any valid clip already served by this NVStreamer instance over the
+# missing filename. If the instance has no clips, upload one first (PUT
+# /vst/api/v1/storage/file/<name>) or ask the user for a directory of valid
+# video files. Sample clips are no longer shipped in the repo -- they are baked
+# into the BDD test image at /app/test_videos.
+# Preserve the missing file's original extension (.mp4/.mkv/.ts); the source
+# clip should use the same container so the stream plays.
+cp /tmp/nvstreamer_auto_deploy/nvstreamer-1/<existing_clip>.<ext> \
+   /tmp/nvstreamer_auto_deploy/nvstreamer-1/<missing_file>.<ext>
 ```
 NVStreamer picks up new files without a restart.
 
@@ -219,9 +239,9 @@ The required VIOS module was not built or deployed. For example, RTSP tests need
 Usually leftover state from a previous failed run.
 ```bash
 # Clean test state by restarting VIOS containers (without --fresh-start to preserve data)
-cd "$(git rev-parse --show-toplevel)/deployment"
-python3 oneclick_dc_deployment_for_dev.py stop && \
-python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
+cd "$(git rev-parse --show-toplevel)/services/vios/deployment/stream-processing"
+python3 oneclick_dc_deployment.py stop && \
+python3 oneclick_dc_deployment.py deploy --force
 ```
 
 ### Poetry command not found

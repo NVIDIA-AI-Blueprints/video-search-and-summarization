@@ -32,7 +32,7 @@ class NvCompositor;
 class VideoWebRTCSender;
 class NativeStreamProducer;
 class IMediaDataProducer;
-#ifdef JETSON_PLATFORM
+#ifdef AARCH64_PLATFORM
 class NvIPCProducer;
 #endif
 
@@ -63,7 +63,10 @@ public:
     virtual std::shared_ptr<NvCompositor> getCompositor() const = 0;
     virtual std::shared_ptr<VideoWebRTCSender> getVideoSender() const = 0;
     virtual std::shared_ptr<NativeStreamProducer> getNativeStreamProducer() const = 0;
-#ifdef JETSON_PLATFORM
+    // IPC producer path is aarch64-only (gstnvipcproducer is not built for x86) and is
+    // exercised at runtime only when isJetsonPlatform(). Present on all aarch64 targets
+    // so one build serves both Orin and Thor/SBSA.
+#ifdef AARCH64_PLATFORM
     virtual std::shared_ptr<NvIPCProducer> getIPCProducer() const = 0;
 #endif
 

@@ -144,14 +144,13 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
-    # (AGENTS.md `--agent-timeout-multiplier 6.0`). 360m covers a ~4-step
-    # cold-box spec plus deploy/dataset/comment overhead without the
-    # whole-sweep 12 h cap the single-job design needed. AGENTS.md's
+    # (AGENTS.md `--agent-timeout-multiplier 6.0`). 840m covers six full
+    # 130-minute Harbor invocation ceilings plus deploy/dataset/comment overhead. AGENTS.md's
     # box-lock wait (run_leg.py --lock-timeout-sec 21000 ≈ 5.8 h) is kept strictly under this
-    # 360 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
+    # 840 m ceiling so a lock-starved leg emits `BLOCKED: lock timeout`
     # before the job-killer fires (a 43200 s / 12 h wait would be
     # silently killed while waiting on a box with no verdict — the exit-4 trap).
-    timeout-minutes: 360
+    timeout-minutes: 840
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
@@ -173,6 +172,11 @@ jobs:
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
+          # Prefer the rotatable repository secret for Anthropic auth. The
+          # coordinator .env remains the source for NGC/Brev and is loaded
+          # below, then this value is restored so it cannot overwrite the
+          # GitHub Actions secret.
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -193,6 +197,29 @@ jobs:
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
+          # the public relay for RTSP-dependent skill checks.
+          export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
+            export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
+          # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
+          # processes (reparented to PID 1, never killed) on every
+          # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
+          # accumulated 23k agents on the coordinator host and OOM-killed
+          # every runner service (2026-07-08). With SSH_AUTH_SOCK pointing
+          # at a live agent brev reuses it and spawns none, so give the
+          # whole leg one agent and kill it when the step ends. Runs after
+          # the .env source so nothing can overwrite SSH_AUTH_SOCK /
+          # SSH_AGENT_PID behind the trap's back.
+          eval "$(ssh-agent -s)" > /dev/null
+          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+          # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
+          # Orphaned agents older than the job's timeout-minutes (360m;
+          # 25200s = 7h) cannot belong to any live leg on this host.
+          ps -eo pid=,ppid=,etimes=,args= \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>25200 {print $1}' \
+            | xargs -r kill 2>/dev/null || true
           export PR_NUMBER="${{ needs.plan.outputs.pr_number }}"
           export PR_BASE="${{ needs.plan.outputs.pr_base }}"
           export PR_HEAD_SHA="${{ github.sha }}"

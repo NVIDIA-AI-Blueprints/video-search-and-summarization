@@ -413,7 +413,7 @@ update_docker_compose() {
     cat > "$test_compose_file" << 'EOL'
 services:
   test:
-    image: ${BDD_TEST_IMAGE:-bdd_tests:v1.9.5_x86}
+    image: ${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}
     network_mode: host
     container_name: bdd_test
     group_add:
@@ -575,17 +575,18 @@ update_nvstreamer_compose_env() {
     temp_compose_file=$(mktemp) || error "Failed to create temporary file for nvstreamer compose.env"
 
     local nvstreamer_video_base="$VST_BASE_PATH/vst_volume/nvstreamer_data"
-    local nvstreamer_video_src="$TOP/tools/data"
-    if [[ ! -d "$nvstreamer_video_src" ]]; then
-        error "Video source directory not found: $nvstreamer_video_src"
-    fi
+    # NVStreamer now starts WITHOUT any pre-seeded videos. The sample clips are
+    # baked into the BDD test image (/app/test_videos) and the BDD session
+    # prerequisite uploads them to NVStreamer + triggers a VST sensor scan when
+    # NVStreamer has no streams (see test/bdd_tests/scripts/stream_prerequisite.py).
+    # Here we only create the per-instance video directories that NVStreamer
+    # bind-mounts as its streamer-videos volume so uploads have a landing spot.
     for i in 1 2 3 4 5; do
         local instance_dir="${nvstreamer_video_base}/nvstreamer-${i}"
         mkdir -p "${instance_dir}/vst_data"
-        if ! cp -n "$nvstreamer_video_src"/* "${instance_dir}/" 2>/dev/null; then
-            info "WARNING: Failed to copy video files to ${instance_dir}/ -- nvstreamer-${i} may lack test videos"
-        fi
     done
+    info "NVStreamer video directories prepared (no videos pre-seeded)."
+    info "To get streams outside the BDD suite: upload videos to NVStreamer and run a sensor scan from the VST UI."
 
     if ! sed -e "s|^NVSTREAMER_VIDEO_[1-5]=.*|#&|" \
             -e "\$a\\
@@ -698,7 +699,13 @@ run_docker_compose() {
     info "Starting nvstreamer containers..."
     cd "$NVSTREAMER_BASE_PATH" || error "Failed to change directory to NVSTREAMER_BASE_PATH"
     docker compose --env-file ./compose.env down
-    docker compose --env-file ./compose.env up -d || error "Failed to start nvstreamer containers"
+    # Start only the first NVSTREAMER_COUNT instance(s) -- the test run seeds and
+    # uses just these (default 1). Avoids spinning up unused streamer containers.
+    local ns_services=()
+    for ((i = 1; i <= NVSTREAMER_COUNT; i++)); do
+        ns_services+=("nvstreamer-$i")
+    done
+    docker compose --env-file ./compose.env up -d "${ns_services[@]}" || error "Failed to start nvstreamer containers"
 
     # Wait for nvstreamer containers to initialize
     info "Waiting for nvstreamer containers to initialize..."
@@ -718,7 +725,15 @@ run_docker_compose() {
     cd "$VST_BASE_PATH" || error "Failed to change directory to VST_BASE_PATH"
 
     docker compose -f docker-compose.yaml -f docker-compose.test.yaml --env-file ./compose.env down
-    
+
+    # Always re-pull the ingress image before starting. Its tag may have been
+    # re-pushed in place (same version, fixed content); a stale cached image
+    # would otherwise be reused and can leave vst-ingress unhealthy. The tag
+    # itself is whatever NGINX_IMAGE resolves to in compose.env.
+    info "Re-pulling ingress image (vst-ingress) to pick up any in-place tag update..."
+    docker compose -f docker-compose.yaml -f docker-compose.test.yaml --env-file ./compose.env pull vst-ingress \
+        || info "WARNING: failed to re-pull vst-ingress image -- proceeding with cached image"
+
     local exit_code=0
     docker compose -f docker-compose.yaml -f docker-compose.test.yaml --env-file ./compose.env up --remove-orphans --exit-code-from test --attach test || exit_code=$?
 
@@ -815,31 +830,26 @@ collect_logs() {
         done
     } > "$artifact_log_dir/healthcheck_details.txt" 2>&1
 
-    if grep -q "unhealthy" "$artifact_log_dir/healthcheck_details.txt" 2>/dev/null; then
-        info "Unhealthy containers detected -- see $artifact_log_dir/healthcheck_details.txt for details"
+    # Flag only containers that are STILL RUNNING but unhealthy. A container that
+    # is merely stopping or exited at teardown (the normal end of a green run) can
+    # briefly report "unhealthy", so grepping the report text gives false positives.
+    local unhealthy_running="" cstate chealth
+    for container in $containers; do
+        cstate=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null) || continue
+        chealth=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container" 2>/dev/null)
+        if [[ "$cstate" == "running" && "$chealth" == "unhealthy" ]]; then
+            unhealthy_running+=" $container"
+        fi
+    done
+    if [[ -n "$unhealthy_running" ]]; then
+        info "Unhealthy containers detected:${unhealthy_running} -- see $artifact_log_dir/healthcheck_details.txt for details"
     fi
 
     info "Container logs saved to $artifact_log_dir"
-
-    # Also archive to /tmp for backward compatibility with Jenkins post-build steps
-    local log_base_dir="/tmp/vst_test_logs"
-    local timestamp
-    timestamp=$(date +'%Y%m%d_%H%M%S')
-    local jenkins_log_dir="/tmp/last_run_logs"
-
-    [[ -d "$jenkins_log_dir" ]] && rm -rf "$jenkins_log_dir"
-    mkdir -p "$log_base_dir" "$jenkins_log_dir" || {
-        echo "Failed to create Jenkins log directory: $jenkins_log_dir"
-        return 1
-    }
-
-    local tar_file="${log_base_dir}/docker_logs_${timestamp}.tar.gz"
-    if tar -czf "$tar_file" -C "$(dirname "$artifact_log_dir")" "$(basename "$artifact_log_dir")"; then
-        echo "Logs archived to: $tar_file"
-        mv "$tar_file" "${jenkins_log_dir}/docker_logs.tar.gz"
-    else
-        echo "Failed to archive logs"
-    fi
+    # No /tmp archival. DevOps archives the workspace path
+    # (deployment/scaling/docker-compose/bdd_test_reports/, mirrored below) and
+    # does not consume /tmp/last_run_logs. The old fixed /tmp paths also broke
+    # with permission errors when the runner started as a different (sudo) user.
 }
 
 # Idempotent collection of docker logs + BDD reports.  Invoked both
@@ -862,17 +872,6 @@ finalize_artifacts() {
         collect_logs || echo "INFO: Failed to collect docker logs during finalize"
     else
         echo "INFO: VST_BASE_PATH not set yet; skipping docker log collection"
-    fi
-
-    # Mirror BDD reports to the legacy artifact path Jenkins archives from.
-    if [[ -n "${TOP:-}" && -n "${VST_BASE_PATH:-}" \
-          && -d "$VST_BASE_PATH/bdd_test_reports" ]]; then
-        local legacy_reports_dir="$TOP/deployment/scaling/docker-compose/bdd_test_reports"
-        if mkdir -p "$legacy_reports_dir" 2>/dev/null; then
-            cp -r "$VST_BASE_PATH/bdd_test_reports/." "$legacy_reports_dir/" 2>/dev/null \
-                || echo "INFO: Failed to mirror reports to legacy path during finalize"
-            echo "INFO: Mirrored BDD reports to legacy artifact path: $legacy_reports_dir"
-        fi
     fi
 
     return "$exit_code"
@@ -1038,7 +1037,7 @@ main() {
 
     # Calculate absolute paths
     VST_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/stream-processing/docker-compose" && pwd)"
-    NVSTREAMER_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/scaling/docker-compose/nvstreamer" && pwd)"
+    NVSTREAMER_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/stream-processing/docker-compose/nvstreamer" && pwd)"
     RTSP_STREAMS_JSON="$VST_BASE_PATH/configs/rtsp_streams.json"
     VST_CONFIG_JSON="$VST_BASE_PATH/configs/vst_config.json"
     
@@ -1060,8 +1059,14 @@ main() {
     info "Bind-mounting BDD test sources from: $BDD_TESTS_DIR"
 
     # Defaults formerly provided by config.env; callers can still override them.
-    NVSTREAMER_COUNT="${NVSTREAMER_COUNT:-5}"
+    # Only one NVStreamer instance is started/seeded for the test run (the BDD
+    # prerequisite uploads the baked clips to it). Override NVSTREAMER_COUNT to
+    # bring up and wire more instances (up to MAX_NVSTREAMER_INSTANCES).
+    NVSTREAMER_COUNT="${NVSTREAMER_COUNT:-1}"
     NVSTREAMER_PORT_BASE="${NVSTREAMER_PORT_BASE:-31000}"
+    # The nvstreamer docker-compose provisions exactly this many services
+    # (nvstreamer-1 .. nvstreamer-5); requesting more would fail at startup.
+    MAX_NVSTREAMER_INSTANCES=5
 
     # Validate required variables
     : "${NVSTREAMER_COUNT:?NVSTREAMER_COUNT is not set in config}"
@@ -1070,6 +1075,9 @@ main() {
     # Validate values
     validate_integer "$NVSTREAMER_COUNT" "NVSTREAMER_COUNT"
     validate_integer "$NVSTREAMER_PORT_BASE" "NVSTREAMER_PORT_BASE"
+    if (( NVSTREAMER_COUNT < 1 || NVSTREAMER_COUNT > MAX_NVSTREAMER_INSTANCES )); then
+        error "NVSTREAMER_COUNT must be between 1 and ${MAX_NVSTREAMER_INSTANCES}: $NVSTREAMER_COUNT"
+    fi
     validate_path "$RTSP_STREAMS_JSON" "RTSP_STREAMS_JSON"
     validate_path "$VST_CONFIG_JSON" "VST_CONFIG_JSON"
 

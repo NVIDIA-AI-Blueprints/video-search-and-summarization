@@ -402,12 +402,15 @@ bool TranscodeWriterConsumer::buildPipeline()
     bool needConverter = (NvHwDetection::getInstance()->m_useNvV4l2Dec ^ NvHwDetection::getInstance()->m_useNvV4l2Enc) ||
                          (!NvHwDetection::getInstance()->m_useNvV4l2Dec && !NvHwDetection::getInstance()->m_useNvV4l2Enc && mCfg.enable_overlay) ||
                          (mCfg.enable_overlay && iequals(mCfg.video_codec, "h265"));  // Always use converter for H.265 with overlay (P010_10LE → NV12)
-#ifdef JETSON_PLATFORM
-    if (needConverter) converter = gst_element_factory_make ("nvvidconv" , nullptr);
-#else
-    if (needConverter) converter = gst_element_factory_make ("nvvideoconvert" , nullptr);
-    if (needConverter && !converter) converter = gst_element_factory_make("nvvidconv", nullptr);
-#endif
+    if (isJetsonPlatform())
+    {
+        if (needConverter) converter = gst_element_factory_make ("nvvidconv" , nullptr);
+    }
+    else
+    {
+        if (needConverter) converter = gst_element_factory_make ("nvvideoconvert" , nullptr);
+        if (needConverter && !converter) converter = gst_element_factory_make("nvvidconv", nullptr);
+    }
     if (needConverter && !converter) converter = gst_element_factory_make("videoconvert", nullptr);
 
     if (needConverter && mCfg.enable_overlay && iequals(mCfg.video_codec, "h265"))

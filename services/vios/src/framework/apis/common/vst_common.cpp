@@ -1208,7 +1208,8 @@ namespace vst_common
         LOG(info) << logPayload.toStyledString() << endl;
     }
 
-    void notifySensorStatusEvent(SensorStatusEvent event, shared_ptr<SensorInfo> sensor)
+    void notifySensorStatusEvent(SensorStatusEvent event, shared_ptr<SensorInfo> sensor,
+                                 string httpFileUrl)
     {
         if(sensor != nullptr)
         {
@@ -1220,7 +1221,9 @@ namespace vst_common
                 status.event = event;
                 status.sensorId = sensor->id;
                 status.sensorName = streams[0]->name;
-                string sensor_url = toDomainName(streams[0]->live_proxy_url, streams[0]->id); // Get first/main stream proxy url
+                string sensor_url = httpFileUrl.empty()
+                    ? toDomainName(streams[0]->live_proxy_url, streams[0]->id)
+                    : httpFileUrl;
                 if (event == SensorStatusStreaming && sensor_url.empty())
                 {
                     return; // Skip notification if camera url is not present.
@@ -1954,8 +1957,8 @@ namespace vst_common
         if (!(iequals(request_method, "get")))
         {
             LOG(error) << "Request Method is not supported" << endl;
-            SET_VMS_ERROR2(VmsErrorCode::VMSNotSupportedError, out, "Request Method is not supported");
-            return VmsErrorCode::VMSNotSupportedError;
+            SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, out, "Request Method is not supported");
+            return VmsErrorCode::MethodNotAllowedError;
         }
 
         int streamCount = 0;

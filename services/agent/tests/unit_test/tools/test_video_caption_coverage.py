@@ -20,10 +20,10 @@ from unittest.mock import MagicMock
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.video_caption import VideoCaptionConfig
-from vss_agents.tools.video_caption import VideoCaptionInput
-from vss_agents.tools.video_caption import call_vlm_partition
-from vss_agents.tools.video_caption import error_messages
+from agent.tools.video_caption import VideoCaptionConfig
+from agent.tools.video_caption import VideoCaptionInput
+from agent.tools.video_caption import call_vlm_partition
+from agent.tools.video_caption import error_messages
 
 
 class TestVideoCaptionConfig:

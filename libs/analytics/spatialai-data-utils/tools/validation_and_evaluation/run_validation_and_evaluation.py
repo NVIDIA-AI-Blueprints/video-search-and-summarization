@@ -213,6 +213,7 @@ def load_env_variables(env_file_path=DEFAULT_ENV_FILE_PATH):
             "GCS_HMAC_ACCESS_KEY_ID",
             "GCS_HMAC_SECRET_ACCESS_KEY",
             "GCS_BUCKET",
+            "GCS_ENDPOINT_URL",
         ]
     else:
         raise EnvironmentError(

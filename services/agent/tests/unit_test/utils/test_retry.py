@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_agents/utils/retry.py."""
+"""Tests for agent/utils/retry.py."""
 
 import pytest
 
-from vss_agents.utils.retry import create_retry_strategy
+from agent.utils.retry import create_retry_strategy
 
 
 class TestCreateRetryStrategy:

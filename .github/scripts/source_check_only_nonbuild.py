@@ -58,7 +58,7 @@ SOURCE_PATHS = {
 #   pyproject.toml, uv.lock, src/, 3rdparty/, docker/*.py and the license
 #   files — so the service-root docs, tests/, stubs/ and CI-metadata files
 #   below never enter the build context. Note the patterns are anchored to the
-#   service root: src/vss_agents/**/README.md IS copied and must NOT be ignored.
+#   service root: src/agent/**/README.md IS copied and must NOT be ignored.
 #
 # vss-agent-ui: services/ui/.dockerignore excludes **/*.md and the
 #   *.test.{js,ts,tsx} / *.spec.{js,ts,tsx} files from the build context, so
@@ -86,6 +86,31 @@ NONBUILD_PATTERNS = {
         "**/*.spec.js",
         "**/*.spec.ts",
         "**/*.spec.tsx",
+    ],
+    # vss-alert-ms: services/alert/Dockerfile does `COPY . /app`, so every
+    # tracked file NOT excluded by services/alert/.dockerignore enters the
+    # build. This list is a strict subset of those .dockerignore exclusions, so
+    # it never marks a file that could ship as non-build. Anchored to the
+    # service root. KEEP IDENTICAL to ci-vss-oss nonbuild_patterns.py "vss-alert-ms".
+    "vss-alert-ms": [
+        "**/*.md",
+        "docs/**",
+        "notebooks/**",
+        "test/**",
+        "tests/**",
+        ".github/**",
+        ".gitattributes",
+        ".gitignore",
+        ".gitmodules",
+        ".dockerignore",
+        ".editorconfig",
+        ".nspect-vuln-allowlist.toml",
+        "scripts/**",
+        "releases/**",
+        "docker-compose*.yml",
+        "deploy_*.yml",
+        "*.log",
+        "*.env",
     ],
 }
 
@@ -149,7 +174,7 @@ def resolve_service_refs(repo: Path, read_text, image_name: str) -> tuple[set[st
         text = read_text(str(cf.relative_to(repo)))
         if not text:
             continue
-        for raw in chk.image_refs_in_text(text, config.image_name):
+        for raw in chk.image_refs_in_text(text, config.compose_names()):
             _, needed = chk.resolve_compose_vars(raw, {})
             if not needed:
                 expanded, _ = chk.resolve_compose_vars(raw, dict(os.environ))

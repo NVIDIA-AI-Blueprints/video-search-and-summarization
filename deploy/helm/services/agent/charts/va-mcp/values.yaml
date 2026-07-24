@@ -16,9 +16,11 @@
 enabled: false
 global: {}
 
+# HELM_RELEASE_CHANNEL_POLICY: Helm stays on an immutable NGC staging pin;
+# Docker developer profiles may independently follow GHCR develop-latest.
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-agent
-  tag: "3.2.1"
+  repository: nvcr.io/nvstaging/vss-core/vss-agent
+  tag: "3.3.0-65576357eb80"
   pullPolicy: IfNotPresent
 # Image must have mcp[cli] (typer) installed for `mcp serve` (same as Docker Compose).
 replicas: 1

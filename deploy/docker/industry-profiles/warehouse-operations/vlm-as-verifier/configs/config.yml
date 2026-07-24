@@ -26,7 +26,7 @@ ALERT_REVIEW_MEDIA_BASE_DIR: ""
 # VST Configuration
 vst_config:
   # Base URL for general VST APIs already used elsewhere in the codebase
-  base_url: "http://localhost:30888"
+  base_url: "http://vst-ingress:30888"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
   add_overlay: false
   segment_duration_seconds: 15
@@ -37,13 +37,13 @@ vst_config:
   url_retention_minutes: 20160
   # Storage service configuration (separate base URL and endpoint similar to vss_agent)
   storage:
-    base_url: "http://localhost:30888"
+    base_url: "http://vst-ingress:30888"
     # Endpoint to fetch media file path by VST id
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
 
 # Kafka Configuration - Message Processing
 kafka:
-  bootstrap_servers: "localhost:9092"
+  bootstrap_servers: "kafka:29092"
   group_id: 'kafka-incidents-dumper'
   enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"     # Output topic for enhanced results
   incidents_topic: "alert-bridge-incidents"             # Output topic for incidents
@@ -78,47 +78,17 @@ rtvi_vlm:
   stream_readiness_poll_interval: 0.2
   stream_readiness_max_wait: 2.0
 
-# Event Bridge Configuration - Choose between kafka and redisStream
+# Event Bridge Configuration - Kafka source/sink (Redis removed)
 event_bridge:
-  sourceType: "kafka"                     # redisStream or "kafka"
-  sinkType: "kafka"                       # redisStream or "kafka"
+  sourceType: "kafka"
+  sinkType: "kafka"
 
   kafka_source:
     group_id: 'alert-bridge-vlm-group-ab'
     topics:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
-    protect_confirmed_verdicts:
-      enabled: true
 
-  # Redis Streams Configuration
-  redis_source:
-    host: "localhost"
-    port: 6379
-    db: 0
-    dedup_ttl_seconds: 2
-    # Categories listed here will retain the incident end timestamp when building the dedup key.
-    # Any category not listed will omit the end timestamp for deduplication purposes.
-    end_time_in_dedup_key_categories: []
-    streams:
-      anomaly_stream: "alert-bridge-input-stream"
-      heartbeat_stream: "alert-bridge-heartbeats-stream"
-    consumer_group: "vlm_agents_group"
-    consumer_config:
-      block_time: 10                          
-      count: 1                                 
-      batch_size: 1
-    protect_confirmed_verdicts:
-      enabled: true
-  
-  redis_sink:
-    host: "localhost"
-    port: 6379
-    db: 0
-    streams:
-      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
-      incidents_stream: "alert-bridge-incidents-stream"
-  
 prompt:
   prefer_payload_prompt: false
   override_prompts_on_start: true
@@ -134,10 +104,24 @@ alert_agent:
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
   always_on: true
 
+  # Dedup / filter tuning (in-process dedup + ES-backed verdict protection).
+  event_filters:
+    dedup_ttl_seconds: 2
+    # Protect confirmed VLM verdicts from being re-verified (Elasticsearch-backed).
+    protect_confirmed_verdicts:
+      enabled: true
+      # Verdict-ES retry cooldown + hourly throttled expired-marker reaper.
+      es_retry_backoff_seconds: 30
+      retention_interval_seconds: 3600
+      retention_requests_per_second: 50
+    # Categories listed here retain the incident end timestamp when building the
+    # dedup key. Any category not listed omits the end timestamp.
+    end_time_in_dedup_key_categories: []
+
 elastic:
   enabled: true
   hosts:
-    - http://localhost:9200
+    - http://elasticsearch:9200
 
 vlm_enhanced_sink:
   incident:

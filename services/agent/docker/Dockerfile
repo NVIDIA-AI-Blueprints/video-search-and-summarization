@@ -42,11 +42,14 @@ COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
 COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
 COPY --chown=root:root --chmod=0444 agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
+COPY --chown=root:root --chmod=0555 agent/src/agent /vss-agent/src/agent
+# Keep the former runner-class import path available while deployments move
+# from the currently pinned pre-rename image to the repackaged image.
 COPY --chown=root:root --chmod=0555 agent/src/vss_agents /vss-agent/src/vss_agents
-# `lib/` is a sibling top-level package shipped in the same wheel
-# (see pyproject.toml `packages = ["src/vss_agents", "src/lib"]`); without
-# this copy, lib.knowledge would be missing from the built image.
+# `lib/` and `cli/` are sibling top-level packages shipped in the same wheel;
+# without these copies the hatchling build inside the image would fail.
 COPY --chown=root:root --chmod=0555 agent/src/lib /vss-agent/src/lib
+COPY --chown=root:root --chmod=0555 agent/src/cli /vss-agent/src/cli
 COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
 COPY --chown=root:root --chmod=0444 agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
 COPY --chown=root:root --chmod=0555 agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
@@ -59,7 +62,7 @@ RUN python3 /vss-agent/verify_ffmpeg_tarball.py
 RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=private \
     uv venv --seed .venv && \
     . .venv/bin/activate && \
-    uv sync --frozen --no-dev --no-editable --link-mode copy
+    uv sync --frozen --no-dev --no-editable --extra agent --link-mode copy
 
 RUN uv pip uninstall setuptools
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/setuptools
@@ -85,7 +88,7 @@ RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/n
 # default image ships WITHOUT OpenCV. Following the VST team's approach, we remove ALL
 # FFmpeg/codec libraries while building the container and provide an opt-in installer to
 # (re)install them at runtime. Video-decoding tools degrade gracefully (see
-# vss_agents.utils.optional_cv2); operators opt in at container startup with
+# agent.utils.optional_cv2); operators opt in at container startup with
 # INSTALL_PROPRIETARY_CODECS=true, which installs opencv-python-headless from PyPI on
 # their own machine (see docker/install_proprietary_codecs.py).
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/cv2 \
@@ -109,9 +112,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends wget ca-certificates && \
     mkdir -p /patches && \
     if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb; \
+        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb; \
+        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb; \
     fi && \
     cd /patches && \
     dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \

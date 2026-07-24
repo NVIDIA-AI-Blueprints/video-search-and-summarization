@@ -15,7 +15,8 @@
 # limitations under the License.
 
 # Test: Async Verdict Parity
-# Description: Compare sync vs async runs for the same incident shape and assert verdict/status parity.
+# Description: Compare sync vs thread_bridge vs event_loop runs for the same
+#              incident shape and assert verdict/status parity across modes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,12 +33,15 @@ BASE_CONFIG="${P1_ROOT}/shared/config_base.yaml"
 TEST_NAME="async_verdict_parity"
 SYNC_SENSOR_ID="ASYNC_PARITY_SYNC_SENSOR"
 ASYNC_SENSOR_ID="ASYNC_PARITY_ASYNC_SENSOR"
+EVENT_LOOP_SENSOR_ID="ASYNC_PARITY_EVENT_LOOP_SENSOR"
 
 echo "=== P1: Async Verdict Parity ==="
 mkdir -p "$PID_DIR"
 
 ASYNC_CONFIG="$PID_DIR/${TEST_NAME}_async_config.yaml"
 build_async_external_io_config "$BASE_CONFIG" "$ASYNC_CONFIG"
+EVENT_LOOP_CONFIG="$PID_DIR/${TEST_NAME}_event_loop_config.yaml"
+build_event_loop_config "$BASE_CONFIG" "$EVENT_LOOP_CONFIG"
 
 FIXED_TS=$(python3 - <<'PY'
 from datetime import datetime, timezone
@@ -110,17 +114,37 @@ ASYNC_DOC=$(poll_es_doc_by_sensor "$ES_HOST" "$ASYNC_SENSOR_ID" 60 5) || {
 }
 ASYNC_SIG=$(extract_signature "$ASYNC_DOC")
 
-COMPARE_RESULT=$(SYNC_SIG="$SYNC_SIG" ASYNC_SIG="$ASYNC_SIG" python3 - <<'PY'
+# --- Event-loop run ---
+stop_alert_bridge_local "$PID_DIR"
+start_alert_bridge_local "$REPO_ROOT" "$PID_DIR" "$EVENT_LOOP_CONFIG"
+
+EVENT_LOOP_PAYLOAD="$PID_DIR/${TEST_NAME}_event_loop_payload.json"
+build_payload "$EVENT_LOOP_SENSOR_ID" "$EVENT_LOOP_PAYLOAD"
+produce_incident "$REPO_ROOT" "$BOOTSTRAP" "$TOPIC" "$EVENT_LOOP_PAYLOAD" "p1_${TEST_NAME}_event_loop" --no-patch
+print_status "info" "Event-loop incident produced for sensorId=$EVENT_LOOP_SENSOR_ID"
+
+sleep 10
+EVENT_LOOP_DOC=$(poll_es_doc_by_sensor "$ES_HOST" "$EVENT_LOOP_SENSOR_ID" 60 5) || {
+    print_status "fail" "FAIL: No event_loop parity document found"
+    exit 1
+}
+EVENT_LOOP_SIG=$(extract_signature "$EVENT_LOOP_DOC")
+
+COMPARE_RESULT=$(SYNC_SIG="$SYNC_SIG" ASYNC_SIG="$ASYNC_SIG" EVENT_LOOP_SIG="$EVENT_LOOP_SIG" python3 - <<'PY'
 import json
 import os
 
 sync_sig = json.loads(os.environ["SYNC_SIG"])
-async_sig = json.loads(os.environ["ASYNC_SIG"])
+mode_sigs = {
+    "thread_bridge": json.loads(os.environ["ASYNC_SIG"]),
+    "event_loop": json.loads(os.environ["EVENT_LOOP_SIG"]),
+}
 
 mismatches = []
-for key in ("verdict", "verificationResponseCode", "verificationResponseStatus"):
-    if sync_sig.get(key) != async_sig.get(key):
-        mismatches.append(f"{key}: sync={sync_sig.get(key)!r} async={async_sig.get(key)!r}")
+for mode, sig in mode_sigs.items():
+    for key in ("verdict", "verificationResponseCode", "verificationResponseStatus"):
+        if sync_sig.get(key) != sig.get(key):
+            mismatches.append(f"{key}: sync={sync_sig.get(key)!r} {mode}={sig.get(key)!r}")
 
 if mismatches:
     print("FAIL:" + "; ".join(mismatches))
@@ -133,8 +157,9 @@ if [ "$COMPARE_RESULT" != "OK" ]; then
     print_status "fail" "FAIL: $COMPARE_RESULT"
     print_status "info" "sync_signature=$SYNC_SIG"
     print_status "info" "async_signature=$ASYNC_SIG"
+    print_status "info" "event_loop_signature=$EVENT_LOOP_SIG"
     exit 1
 fi
 
-print_status "ok" "PASS: Sync and async verdict/status signatures match"
+print_status "ok" "PASS: Sync, thread_bridge and event_loop verdict/status signatures match"
 exit 0

@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-#ifndef JETSON_PLATFORM
 #include "cudaLoader.h"
 #include <dlfcn.h>
 #include "logger.h"
@@ -48,13 +47,34 @@ CudaLoader::CudaLoader()
         , m_handleCuda(nullptr)
         , m_handleCudart(nullptr)
 {
-#if defined(AARCH64_PLATFORM) && !defined(JETSON_PLATFORM)
+    // Version-agnostic cudart lookup: try the bare soname first (resolved via
+    // ldconfig / LD_LIBRARY_PATH), then the /usr/local/cuda symlink, then a
+    // pinned minor version. This lets any CUDA 13.x runtime base work (13.0,
+    // 13.2, future 13.x) without hardcoding a minor-version path.
+#ifdef AARCH64_PLATFORM
+    // Discrete-GPU aarch64 (Thor/SBSA). Not constructed on Jetson/Orin at runtime.
     m_handleCuda = dlopen("/usr/lib/aarch64-linux-gnu/libcuda.so", RTLD_LAZY);
-    m_handleCudart = dlopen("/usr/local/cuda-13.0/targets/sbsa-linux/lib/libcudart.so.13", RTLD_LAZY);
+    static const char* const cudartCandidates[] = {
+        "libcudart.so.13",
+        "/usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13",
+        "/usr/local/cuda-13.2/targets/sbsa-linux/lib/libcudart.so.13",
+    };
 #else
     m_handleCuda = dlopen("libcuda.so", RTLD_LAZY);
-    m_handleCudart = dlopen("/usr/local/cuda-13.0/targets/x86_64-linux/lib/libcudart.so.13", RTLD_LAZY);
+    static const char* const cudartCandidates[] = {
+        "libcudart.so.13",
+        "/usr/local/cuda/targets/x86_64-linux/lib/libcudart.so.13",
+        "/usr/local/cuda-13.2/targets/x86_64-linux/lib/libcudart.so.13",
+    };
 #endif
+    for (const char* cand : cudartCandidates)
+    {
+        m_handleCudart = dlopen(cand, RTLD_LAZY);
+        if (m_handleCudart)
+        {
+            break;
+        }
+    }
     if (!m_handleCuda || !m_handleCudart)
     {
         if (g_isGpuPresent)
@@ -95,4 +115,3 @@ CudaLoader::~CudaLoader()
         dlclose(m_handleCudart);
     }
 }
-#endif

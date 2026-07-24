@@ -29,11 +29,11 @@ Run pytest-bdd test suites against a running VIOS instance.
 
    ```bash
    # Stop existing stack
-   cd <PROJECT_ROOT>/deployment
-   python3 oneclick_dc_deployment_for_dev.py stop
+   cd <PROJECT_ROOT>/services/vios/deployment/stream-processing
+   python3 oneclick_dc_deployment.py stop
 
    # Redeploy fresh
-   python3 oneclick_dc_deployment_for_dev.py deploy --auto --force
+   python3 oneclick_dc_deployment.py deploy --force
    ```
 
    After redeployment, wait for VIOS to be healthy:
@@ -138,6 +138,24 @@ If many tests fail immediately with connection errors → BASE_URL is wrong or V
 ## Step 4 — Collect results
 
 Reports are always written to `test/bdd_tests/reports/`. Proceed to `skills/testing/check-results.md`.
+
+---
+
+## Sample Video Files
+
+The BDD sample clips (10s H.264/H.265, MP4/MKV) are **baked into the BDD test
+image** at `/app/test_videos` -- they are no longer committed under
+`tools/data/`. Tests do not reference them directly: a session prerequisite
+(`scripts/stream_prerequisite.py`) uploads them to NVStreamer and triggers a VST
+sensor scan when NVStreamer has no streams.
+
+If you need to seed a video source manually (e.g. a non-default deployment where
+NVStreamer has no streams and the prerequisite did not run):
+
+- **Ask the user to point to a directory that contains valid video files**
+  (MP4/MKV/TS with H.264 or H.265). Do not assume `tools/data/` exists.
+- Upload them to NVStreamer (`PUT /vst/api/v1/storage/file/<name>`), then run a
+  sensor scan from the VST UI (or `POST /vst/api/v1/sensor/scan`).
 
 ---
 

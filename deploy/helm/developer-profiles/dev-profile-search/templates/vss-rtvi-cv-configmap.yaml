@@ -26,6 +26,14 @@ metadata:
 data:
   ds-start.sh: |
     #!/bin/bash
+    # OpenShift/RHCOS: the GPU Operator injects the real driver libraries (e.g.
+    # libnvidia-ml.so.1) into /usr/lib64 (RHEL layout), while this Ubuntu-based
+    # DeepStream image looks under /usr/lib/x86_64-linux-gnu where it only finds
+    # a 0-byte stub -> "libnvidia-ml.so.1: file too short" and the GStreamer
+    # pipeline fails to create src_nvmultiurisrcbin. Prepend /usr/lib64 so the
+    # loader resolves the real libs first; the image's path is preserved, so
+    # vanilla Kubernetes behavior is unchanged.
+    export LD_LIBRARY_PATH=/usr/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
     if [[ $MODEL_TYPE == "cnn" ]]; then
           echo "##### $MODEL_TYPE models will be used. #####"
           echo "##### Copying onnx-files to DS docker volume for preserving PVCs... #####"

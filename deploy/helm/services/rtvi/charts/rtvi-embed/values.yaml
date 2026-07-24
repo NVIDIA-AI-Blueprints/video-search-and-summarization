@@ -83,6 +83,8 @@ installProprietaryCodes: false
 rtspReconnectionInterval: "5"
 rtspReconnectionMaxAttempts: "10"
 rtspReconnectionWindow: "60"
+# Max HTTP/data-URI asset download size in GB (ASSET_DOWNLOAD_MAX_FILE_SIZE_GB). Increase for large corpus videos.
+assetDownloadMaxFileSizeGb: 8
 startupProbe:
   initialDelaySeconds: 240
   periodSeconds: 30

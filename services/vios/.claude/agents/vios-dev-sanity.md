@@ -45,6 +45,11 @@ This is an **automated test run**. Operate autonomously end-to-end. Do not pause
 
 **Never block mid-run.** If something is ambiguous or missing, pick the most reasonable option, log the decision, and continue. Reserve user interaction for the very start (permission check) and for hard blockers where no automated path exists.
 
+**No false positives, no false negatives — results must be trustworthy.** A test must PASS only when the product behaves correctly, and FAIL only on a genuine product defect. Never let test-created state or environment pollution produce a verdict:
+- **Tests must be self-cleaning and idempotent.** Any sensor/stream/recording a test creates MUST be removed by that same test before it finishes (including on failure paths), using a unique run-scoped name so it can never collide or be orphaned. Running the suite twice in a row must give the same results as running it once.
+- **System-health assertions (Dashboard, Video Wall) must judge the product, not leftover test artifacts.** Before asserting "0 offline / 0 bad-state / 0 gaps", the environment must be in a clean baseline (see Step 3c). Offline/removed sensors that are orphaned test artifacts are NOT a product defect — clean them up first; never report FAIL for them.
+- **When a step fails, classify the cause before recording FAIL.** Distinguish a genuine product defect from an environment/test-state artifact (accumulated sensors, RTSP port conflicts, dedup "already exists", stale offline entries). Only genuine defects are FAIL. If the failure is caused by test-state pollution, that is a test/harness bug — fix the state (clean up) and re-evaluate; do not record a product FAIL.
+
 ---
 
 ## Argument Parsing
@@ -69,6 +74,8 @@ grep -E 'NVIOS.*HTTP_PORT|NVSTREAMER.*PORT' \
   $(find . -name "compose.env" | head -1) 2>/dev/null | head -5
 ```
 Fall back to `http://BASE_HOST:31000` if not found.
+
+NvStreamer source streams for "add RTSP" / H265 tests come from this **local** NvStreamer (the xlsx steps use `http://localhost:31000/api/v1/sensor/streams`). There is no separate remote NvStreamer to configure — resolve `localhost`/`ip` to the local NvStreamer host:port like any other URL.
 
 ### `--filter <pattern>`
 Optional substring filter. Match against sheet name or category name (case-insensitive). E.g. `--filter WebRTC` runs only WebRTC category tests; `--filter Sheet2` runs only that sheet.
@@ -315,6 +322,75 @@ echo "[$(date +%H:%M:%S)] Plan loaded: N tests — previous results cleared" >> 
 
 ---
 
+## Step 2.5: Environment Preflight
+
+Environment-specific values — IPs, hostnames, ports, and image tags — are not committed to the repository; the xlsx uses placeholders (`ip`, `localhost`, `:30888`, `:31000`). Resolve each required value from the live environment at run start rather than assuming a default from history or memory. Ask the user only for values that cannot be determined automatically, and do so during this preflight (see "Acceptable user-blocking moments").
+
+Resolve each required input, in order, preferring automatic discovery:
+
+| Input | How to auto-detect (try in order) | If still unknown |
+|---|---|---|
+| **VIOS base URL** | `--url` flag → running container probe (Step 3a) → `compose.env` host/port | Ask the user for the VIOS URL |
+| **NvStreamer URL** | `--nvstreamer-url` flag → `docker ps` for a local nvstreamer container's published port → probe `http://localhost:31000/api/v1/sensor/streams` → `compose.env` (`NVSTREAMER*PORT`) | **Ask the user for a remote NvStreamer IP** and use `http://<that-ip>:31000` (see below) |
+| **Image tags / build version** (only if a test needs it) | `docker ps --format '{{.Image}}'` for the running stack → `compose.env` (`*_VERSION`, `*_IMAGE`) | Ask the user |
+| **Any other env value a step needs** (host, port, credential, path) | live containers → `compose.env` / deployment files → sensor API | Ask the user |
+
+```bash
+# Discover the running stack and its published ports/images without assuming anything.
+docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}' | grep -iE 'vst|nvstreamer|sensor|streamprocess|sdr|envoy' || true
+# Inspect compose.env for ports/tags if present (values are environment-specific, not committed defaults).
+for f in $(find . -name "compose.env" 2>/dev/null); do echo "== $f =="; grep -iE 'PORT|VERSION|IMAGE|HOST' "$f" 2>/dev/null; done
+```
+
+Record the resolved values and print them so the run is reproducible:
+```
+Environment resolved:
+  VIOS:        <BASE_URL>
+  NvStreamer:  <NVSTREAMER_URL>
+  Image tags:  <tag(s) or "n/a">
+```
+
+**NvStreamer fallback (ask at start, never mid-run):** First try to detect a **local** NvStreamer (running container with a published port, or a successful probe of `http://localhost:31000/api/v1/sensor/streams`). If no local NvStreamer can be detected, **ask the user for a remote NvStreamer IP right here in the preflight** — before executing any test — and use `http://<remote-ip>:31000` as the NvStreamer URL for the whole run. Resolve this once, up front; do not discover it lazily in the middle of a test.
+
+> Example prompt: "No local NvStreamer was detected. Please provide a NvStreamer IP/host to use for the sanity run, and I'll use http://<ip>:31000."
+
+**NvStreamer stream check (at start):** Once the NvStreamer URL is resolved, query its stream list and check both the total stream count and the codecs present. Several tests need at least two streams (e.g. Video Wall requires multiple sensors), and the H265 codec test needs at least one H265 stream. If fewer than two streams are present, or none of them is H265, **ask the user to add the missing streams before continuing** (keep a mix of H264 and H265) — this is a start-of-run ask, not a mid-run one.
+
+```bash
+# Count total streams AND H265 streams. The codec field name varies across NvStreamer
+# builds, so check the common keys and fall back to a substring scan of each stream's JSON.
+NVSTREAMER_COUNTS=$(curl -s "$NVSTREAMER_URL/api/v1/sensor/streams" 2>/dev/null | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("0 0"); sys.exit(0)
+streams = d if isinstance(d, list) else d.get("streams", d.get("sensors", []))
+def is_h265(s):
+    if isinstance(s, dict):
+        for k in ("codec", "videoCodec", "encoding", "encodeType", "type", "format"):
+            v = str(s.get(k, "")).lower()
+            if "265" in v or "hevc" in v:
+                return True
+    return "h265" in json.dumps(s).lower() or "hevc" in json.dumps(s).lower()
+print(len(streams), sum(1 for s in streams if is_h265(s)))
+' 2>/dev/null)
+NVSTREAMER_STREAM_COUNT=${NVSTREAMER_COUNTS%% *}
+NVSTREAMER_H265_COUNT=${NVSTREAMER_COUNTS##* }
+: "${NVSTREAMER_STREAM_COUNT:=0}" "${NVSTREAMER_H265_COUNT:=0}"
+echo "NvStreamer streams: ${NVSTREAMER_STREAM_COUNT} (H265: ${NVSTREAMER_H265_COUNT})"
+```
+
+If `NVSTREAMER_STREAM_COUNT` is less than 2 **or** `NVSTREAMER_H265_COUNT` is 0, prompt the user, then re-check after they confirm:
+
+> Example prompt: "NvStreamer currently has <N> stream(s), <H> of them H265. The sanity suite needs at least two streams (Video Wall and multi-sensor tests require multiple streams) **and at least one H265 stream** (the H265 codec regression test needs an H265 source). Please add the missing streams to NvStreamer — e.g. upload files at http://<nvstreamer-host>:31000/#/media-upload — then reply when ready and I'll re-check."
+
+Do not proceed past the preflight until at least two streams are available and at least one of them is H265. If the user cannot provide an H265 stream, mark the H265 codec test BLOCKED (not FAIL) and note the environment gap.
+
+If a required value cannot be resolved and no running deployment exists to probe, either start one via `vios-deployment` (Step 3a) or — if that is not possible — **ask the user for the missing value(s) in a single consolidated question at the start, then continue**. Do not invent a value and do not silently skip.
+
+---
+
 ## Step 3: Resolve BASE_URL and Verify Service Health
 
 ### 3a. Resolve BASE_URL
@@ -386,6 +462,72 @@ echo "[$(date +%H:%M:%S)] Service healthy at $BASE_URL — starting test executi
 
 ---
 
+## Step 3c: Establish a Clean Baseline (CRITICAL for trustworthy results)
+
+The suite produces false negatives if sensors created by prior runs are left behind: orphaned/offline duplicates accumulate (e.g. `sample_10sec_h264_2..5`, `*_1_2`, `*_1_3`, auto-named `sensor_*`, stray `SENSOR`, `*_test*`, `sanity_*`, `*_run*`), which then make the Dashboard and Video Wall tests fail on garbage and saturate Add-Sensor with dedup `400 "Sensor exists already"`. Before executing any test, reset the environment to a clean baseline.
+
+```bash
+# 1. Snapshot the CURRENT sensor set as the baseline (the legitimate, pre-existing streams).
+curl -s "$BASE_URL/api/v1/sensor/list" > /tmp/vios-baseline-sensors.json
+```
+
+```bash
+# 2. Remove stale TEST-CREATED sensors so health checks reflect the product, not test debris.
+#    A sensor is a removable test artifact if BOTH:
+#      (a) it is NOT one of the known baseline stream names auto-discovered from NvStreamer, AND
+#      (b) its state is offline/removed, OR its name matches a test-created pattern
+#          (sensor_<n>, SENSOR, *_test*, sanity_*, *_run*, or a numbered duplicate like name_2/name_1_2).
+#    NEVER delete an online baseline stream. When unsure, keep it.
+python3 - "$BASE_URL" <<'PYEOF'
+import sys, json, re, urllib.request
+base = sys.argv[1]
+arr = json.load(urllib.request.urlopen(base + "/api/v1/sensor/list"))
+arr = arr if isinstance(arr, list) else arr.get("sensors", [])
+# Test-created patterns. Tail-anchored so legit names like camera_test_east or
+# pipeline_run are NOT matched (unanchored _test / zero-digit _run would over-match).
+TEST_PAT = re.compile(r'(^SENSOR$)|(^sensor_\d+$)|(_test\b)|(^sanity_)|(_run\d+$)|(_\d+_\d+$)|(_[2-9]$)', re.I)
+def ids(seq):  # non-empty sensorId/name keys from a sensor list
+    return {v for s in seq if isinstance(s, dict) for v in (s.get("sensorId"), s.get("name")) if v}
+# (a) Protected baseline = the LEGITIMATE (non-test-named) streams present in the step-1 snapshot.
+#     These are auto-discovered NvStreamer streams; never delete them, even if transiently offline now.
+#     Debris-named sensors that happen to be in the snapshot are NOT protected -> they stay removable,
+#     otherwise prior-run debris captured at snapshot time would never get cleaned.
+try:
+    with open("/tmp/vios-baseline-sensors.json") as f:
+        base_arr = json.load(f)
+    base_arr = base_arr if isinstance(base_arr, list) else base_arr.get("sensors", [])
+    baseline = ids(s for s in base_arr if isinstance(s, dict) and not TEST_PAT.search(s.get("name") or ""))
+except FileNotFoundError:
+    # No snapshot -> cannot prove what is a product stream. Fail safe: protect everything (delete nothing).
+    print("WARN: baseline snapshot missing; skipping cleanup", file=sys.stderr)
+    baseline = ids(arr)
+# (b) Removable only if NOT a baseline stream AND (offline/removed OR name matches a test pattern).
+to_delete = [s for s in arr
+             if s.get("sensorId") not in baseline and (s.get("name") or "") not in baseline
+             and ((s.get("state") in ("offline", "removed")) or TEST_PAT.search(s.get("name") or ""))]
+for s in to_delete:
+    sid = s.get("sensorId") or s.get("name")
+    print("DELETE", sid, s.get("state"), s.get("name"))
+json.dump([s.get("sensorId") or s.get("name") for s in to_delete], open("/tmp/vios-cleanup-ids.json", "w"))
+PYEOF
+```
+
+```bash
+# 3. Delete each identified orphan via the sensor remove API (RTSP-aware). Verify count returns to baseline.
+python3 -c "import json
+for sid in json.load(open('/tmp/vios-cleanup-ids.json')):
+    print(sid)" | while IFS= read -r sid; do
+  curl -s -X DELETE "$BASE_URL/api/v1/sensor/$sid" -o /dev/null -w "removed $sid -> %{http_code}\n"
+done
+echo "[$(date +%H:%M:%S)] Baseline cleanup: removed $(python3 -c "import json;print(len(json.load(open('/tmp/vios-cleanup-ids.json'))))") test-created sensors" >> /tmp/vios-sanity-progress.log
+```
+
+After cleanup, re-query `/api/v1/sensor/list` and confirm only baseline streams remain (all `online`, no `offline`/`removed`). Record the cleaned baseline count — Dashboard/Video Wall assertions are judged against THIS set. If the delete endpoint differs on this build, discover it from the UI Sensor Management "Remove Sensors" network call and use that; do not skip cleanup.
+
+> Note: this cleanup is the run-start safety net. It does NOT replace per-test teardown (Step 4) — every test must still remove what it creates.
+
+---
+
 ## Step 4: Execute Tests
 
 Work through the test list in order. For each test:
@@ -432,6 +574,19 @@ Print a one-line result to the user:
 
 **If the result is FAIL**: immediately run the container log analysis (see section below) before moving to the next test. Do not wait until the full run finishes.
 
+### 4e. Per-Test Teardown (mandatory — keeps results trustworthy)
+
+If the test created any sensor, stream, recording, or uploaded file, remove it now — **on every exit path, including when the test failed**. This runs before moving to the next test.
+
+- Track every resource you create during 4c (capture the sensorId/name returned by the add/upload API).
+- Delete each one via the sensor/storage remove API and confirm the sensor count returns to the pre-test baseline.
+- Use **unique, run-scoped names** when creating (e.g. `sanity_<feature>_<HHMMSS>`), never a bare NvStreamer stream name — that both avoids dedup `400 "Sensor exists already"` and guarantees the artifact is identifiable for cleanup.
+- A test that adds then removes (e.g. "Adding sensor", "Scan sensors", "File upload") must leave the system exactly as it found it. If teardown fails, log it loudly in the remark — a leaked sensor is a test bug, not a product result.
+
+```bash
+echo "[$(date +%H:%M:%S)] TEARDOWN [N/TOTAL] removed <k> test-created resource(s); count back to baseline" >> /tmp/vios-sanity-progress.log
+```
+
 ---
 
 ## Step Interpretation Rules
@@ -443,7 +598,7 @@ The `steps` column contains numbered natural-language instructions written for a
 When a step says `Goto http://ip:PORT/PATH` or `Open http://ip:PORT/PATH`:
 - Replace `ip` with `BASE_HOST`
 - Replace `ip:30888` with `BASE_URL` host:port
-- Replace `ip:31000` with NvStreamer host:port (derived or from `--nvstreamer-url`)
+- Replace `ip:31000` and `localhost:31000` with the resolved NvStreamer host:port (derived or from `--nvstreamer-url`)
 - Navigate: `browser_navigate → resolved URL`
 - Wait for page to load: `browser_wait_for text="VST"` (for VIOS pages) or appropriate landmark
 
@@ -453,7 +608,7 @@ When a step says `Goto http://ip:PORT/PATH` or `Open http://ip:PORT/PATH`:
 
 Steps say "Select any sensor from dropdown" or "Select a random sensor from dropdown".
 
-Use the MUI Autocomplete pattern (see UI Patterns section below). Always select the **first available option** unless the test specifically requires a sensor with recordings or a specific type.
+Use the MUI Autocomplete pattern (see UI Patterns section below). Always select the **first available ONLINE option** unless the test specifically requires a sensor with recordings or a specific type. Never select a sensor whose state is `offline`/`removed` — a stream playback or video-wall test that picks an offline sensor will fail for reasons unrelated to the product. If no online sensor is available, mark the test BLOCKED (not FAIL) and note it. With the Step 3c baseline cleanup in place, all remaining sensors should be online.
 
 ### FPS Console Log Check (primary WebRTC pass criterion)
 
@@ -525,8 +680,15 @@ PASS if: HTTP 200 and response contains expected data (non-empty array, expected
 Steps say "Upload file to NvStreamer" or reference the media-upload page:
 
 ```
-1. Find a test file:
-   bash: find . -name "*.mkv" -o -name "*.mp4" | grep -E "(test|bdd_tests|tools)/data" | head -3
+1. Find a test file on the host. Sample clips are no longer committed under
+   tools/data -- they are baked into the BDD test image (/app/test_videos),
+   which is not on the host filesystem. Search, in order:
+   a. bash: find . -type f \( -name "*.mkv" -o -name "*.mp4" \) 2>/dev/null | grep -E "bdd_tests/(data|test_videos)" | head -3
+   b. bash: find . -type f \( -name "*.mkv" -o -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | head -5
+   c. bash: find /tmp/nvstreamer_auto_deploy -type f \( -name "*.mkv" -o -name "*.mp4" -o -name "*.ts" \) 2>/dev/null | head -3
+   Use the first match. If no valid video file is found on disk, mark this test BLOCKED with reason
+   "no test video on disk (clips are baked into the BDD image, not on host)"
+   and continue to the next test. Do NOT prompt the user -- see Interaction Policy.
 2. browser_navigate → NVSTREAMER_URL/#/media-upload (or /#/dashboard)
 3. browser_snapshot → find file upload area
 4. browser_evaluate → find the file input element
@@ -1006,11 +1168,17 @@ Once execution starts (after the Step 0 permission gate), do not pause for user 
 | VIOS not reachable after auto-detect | Deploy via vios-deployment, then re-probe |
 | NvStreamer URL not provided | Derive from compose.env; fall back to `http://BASE_HOST:31000` |
 | NvStreamer URL unreachable | Mark NvStreamer-dependent tests BLOCKED; continue with remaining tests |
+| No test video file on disk (upload test) | Mark the file-upload test BLOCKED with "no test video on disk"; continue |
 | Sensor list empty for a test | Mark that test BLOCKED with reason; continue |
 | Test step ambiguous | Interpret the most literal reading; note interpretation in remarks |
 | Browser element not found | Retry once with fresh snapshot; if still missing, mark FAIL and continue |
 | Container logs unavailable | Note "docker logs unavailable" in remarks; still mark FAIL based on UI evidence |
 
-### Only one acceptable user-blocking moment
+### Acceptable user-blocking moments (start only)
 
-Step 0 — the permission mode check. If interactive mode is detected, the agent waits for one acknowledgment ("proceed") and then runs completely non-interactively to completion.
+Blocking the user is allowed **only at the start of the run**, never mid-execution:
+
+1. **Step 0 — permission mode check.** If interactive mode is detected, wait for one acknowledgment ("proceed").
+2. **Step 2.5 — environment preflight.** If a required environment value cannot be auto-detected (most commonly: no local NvStreamer found → ask for a remote NvStreamer IP), ask the user in a single consolidated question before any test runs.
+
+Resolve everything in these start-of-run gates, then run fully non-interactively to completion. Once test execution begins, never pause for input — apply the automated fallbacks above.

@@ -15,13 +15,14 @@
 
 services:
   alert-bridge:
-    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
+    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-alert-ms}:${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-develop-latest}}
     container_name: vss-alert-bridge
-    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    network_mode: host
+    profiles: ["alert-bridge"]
     restart: unless-stopped
+    ports:
+      - ${ALERT_BRIDGE_HOST_PORT:-9080}:${ALERT_BRIDGE_PORT:-9080}
     environment:
-      VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
+      VLM_BASE_URL: ${VLM_BASE_URL:-http://rtvi-vlm:8000}
       VLM_NAME: ${VLM_NAME}
       # URL rewriting configuration
       EXTERNAL_IP: ${EXTERNAL_IP}
@@ -30,7 +31,9 @@ services:
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       # Realtime REST API (restapi-realtime-alerts feature)
       RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
-      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://${HOST_IP}:8018}
+      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://rtvi-vlm:8000}
+      VST_INTERNAL_URL: ${VST_INTERNAL_URL:-http://vst-ingress:${VST_PORT:-30888}}
+      ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
     volumes:
@@ -43,8 +46,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      redis:
-        condition: service_started
       elasticsearch:
         condition: service_healthy
       kafka-topic-init-container:

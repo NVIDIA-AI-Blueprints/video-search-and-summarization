@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM nvcr.io/nvidia/cuda:13.0.0-runtime-ubuntu24.04
+FROM nvcr.io/nvidia/cuda:13.2.0-runtime-ubuntu24.04
 
 RUN apt-get update && apt-get upgrade -y
 
@@ -44,10 +44,20 @@ RUN DEBIAN_FRONTEND=noninteractive  apt-get install -y --no-install-recommends \
 	libprotobuf-dev \
 	libopencv-dev \
 	libgrpc++-dev libgrpc-dev \
+	kmod \
 	&& apt-get clean
 
 # To get video driver libraries at runtime (libnvidia-encode.so/libnvcuvid.so)
 ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video
+
+# Unified aarch64 image ships CUDA 13.2 userspace, but Jetson BSPs (e.g. Thor R38
+# driver 580 -> CUDA 13.0, Orin Nano) report a lower driver CUDA version. The
+# nvidia-container-runtime otherwise rejects the image on those hosts via the
+# NVIDIA_REQUIRE_CUDA "cuda>=13.2" stamp inherited from the CUDA base image.
+# CUDA minor-version compatibility lets 13.2-built binaries run on a 13.0 driver,
+# so disable the over-strict requirement check to keep one image portable across
+# Orin / Orin Nano / Thor / Spark / discrete.
+ENV NVIDIA_DISABLE_REQUIRE=1
 
 # OSRB requirement, GPL licensed packages removal
 RUN rm -f /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstaudioparsers.so* \

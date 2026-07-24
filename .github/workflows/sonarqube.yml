@@ -85,14 +85,9 @@ jobs:
         run: |
           exclusions="**/node_modules/**,**/.venv/**,**/__pycache__/**,**/.mypy_cache/**,**/.ruff_cache/**,**/dist/**,**/build/**,**/.next/**,**/coverage/**,**/__tests__/**,**/*.test.ts,**/*.test.tsx,**/*.test.js,**/*.test.jsx,**/*.spec.ts,**/*.spec.tsx,**/3rdparty/**"
 
-          # The agent's docker/ tree is container build/runtime glue (entrypoint,
-          # proprietary-codec installer, vulnerability cleanup) with no unit-test
-          # or coverage harness in CI. Exclude it from analysis so deployment
-          # plumbing does not drag new-code coverage or raise hotspots
-          # (urllib/zipfile in the codec installer). Application logic under
-          # services/agent/src is still fully analyzed and covered.
+          # Keep the agent's production and test scopes disjoint.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/tests/**"
           fi
 
           {
@@ -106,10 +101,7 @@ jobs:
           } > sonar-project.properties
 
           if [ -n "$SONAR_TESTS" ]; then
-            {
-              echo "sonar.tests=${SONAR_TESTS}"
-              echo "sonar.test.inclusions=${SONAR_TESTS}/**/*.py"
-            } >> sonar-project.properties
+            echo "sonar.tests=${SONAR_TESTS}" >> sonar-project.properties
           fi
 
           if [ -n "$SONAR_PYTHON_VERSION" ]; then
@@ -117,7 +109,41 @@ jobs:
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml" >> sonar-project.properties
+            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml,services/agent/coverage-lib.xml" >> sonar-project.properties
+            # Keep in sync with [tool.coverage.run] omit in
+            # services/agent/pyproject.toml. Files omitted there produce no
+            # data in coverage.xml, so without a matching exclusion Sonar
+            # counts every changed line in them as uncovered and fails the
+            # new-code coverage gate. They are still analyzed for bugs,
+            # code smells, and duplication.
+            agent_coverage_exclusions=(
+              "**/lib/knowledge/**"
+              "**/agents/report_agent_old.py"
+              "**/api/custom_fastapi_worker.py"
+              "**/sitecustomize.py"
+              "**/agents/top_agent.py"
+              "**/agents/report_agent.py"
+              "**/agents/multi_report_agent.py"
+              "**/video_analytics/es_client.py"
+              "**/tools/vst_files.py"
+              "**/tools/vst_download.py"
+              "**/tools/video_understanding.py"
+              "**/tools/lvs_video_understanding.py"
+              "**/tools/geolocation.py"
+              "**/tools/s3_picture_url.py"
+              "**/tools/incidents.py"
+              "**/tools/template_report_gen.py"
+              "**/tools/video_report_gen.py"
+              "**/tools/report_gen.py"
+              "**/tools/multi_incident_formatter.py"
+              "**/tools/fov_counts_with_chart.py"
+              "**/evaluators/report_evaluator/evaluate.py"
+              "**/evaluators/customized_trajectory_evaluator/evaluate.py"
+              "**/tools/evaluation_compressor.py"
+              "**/tools/code_executor/docker_backend/docker_executor.py"
+              "**/tools/code_executor/docker_backend/image_builder.py"
+            )
+            echo "sonar.coverage.exclusions=$(IFS=,; echo "${agent_coverage_exclusions[*]}")" >> sonar-project.properties
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-skills" ]; then
@@ -158,10 +184,20 @@ jobs:
           # The Sonar self-hosted runner cannot install system packages.
           # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
           # instead of requiring cairo headers and pkg-config on the runner.
-          uv sync --group dev --frozen --no-install-package pycairo --no-install-package rlpycairo
+          uv sync --group dev --extra agent --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run --no-sync pytest \
-            --cov=src/vss_agents \
+            --cov=src/agent \
             --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            -m "not slow and not integration"
+
+      - name: Generate lib coverage (NAT-free surface)
+        if: matrix.name == 'agent'
+        working-directory: services/agent
+        run: |
+          uv run --no-sync pytest tests/unit_test/lib \
+            --cov=src/lib \
+            --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
 
@@ -170,3 +206,12 @@ jobs:
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # This diagnostic never changes the scanner outcome. It only distinguishes
+      # NVIDIA SonarQube/network outages from repository-specific findings so a
+      # transient "No route to host" failure is not misrouted to code owners.
+      - name: Classify SonarQube connectivity failure
+        if: failure()
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: python3 .github/scripts/diagnose_sonarqube_failure.py

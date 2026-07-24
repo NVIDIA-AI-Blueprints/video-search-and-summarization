@@ -47,14 +47,12 @@
 
 ```
 /vios-deployment build                               # build stream-processor + nvstreamer containers from source
-/vios-deployment build --target scaled               # build scaled microservices + nvstreamer containers from source
 /vios-deployment deploy                              # deploy stream-processor (default; "VST"/"VIOS" = stream-processor)
 /vios-deployment deploy --target nvstreamer          # deploy NVStreamer only
 /vios-deployment deploy --target all                 # deploy NVStreamer + stream-processor
-/vios-deployment deploy --target scaled              # deploy scaled microservices
-/vios-deployment deploy --target all --with-minio    # full stack with MinIO
+/vios-deployment deploy --with-monitoring            # deploy stream-processor + Grafana/Prometheus
 /vios-deployment stop                                # stop all services
-/vios-deployment stop --target vios                  # stop VIOS only
+/vios-deployment stop --target vst                   # stop VIOS only (alias: vios)
 /vios-deployment stop --target nvstreamer            # stop NVStreamer only
 /vios-deployment status                              # show running containers and their status
 ```
@@ -91,6 +89,9 @@ The shared skills and guides live in `.claude/sqa/`.
 | `/build-help` | Get the exact `build.sh` command for any build scenario |
 | `/bdd-test` | Write feature files and pytest-bdd steps for a new feature |
 | `/ui-test` | Run playwright-based UI tests against a running VIOS instance |
+| `/vst-ui-dev` | Full development loop for the VST web client (`ui/vios-ui`, package `vst-ui-ts`): plan, implement, lint/format, dev server, commit, PR |
+| `/ui-dev-server` | Configure the backend endpoint in `ui/vios-ui/src/config.tsx`, install deps, and start the Vite dev server |
+| `/update-vst-ui` | Build the VST UI (`ui/vios-ui`) and deploy the static assets into the vios tree (`deployment/scaling/ingress/vst-ui` and `webroot`), then commit |
 | `/setup-maas-mcp` | Install NVIDIA MaaS MCP servers (GitLab, Jira, Confluence, etc.) |
 | `/review-mr [<MR-URL-or-IID>]` | Fetch all MR review comments, verify each against the codebase, fix valid issues, and post a reply to every comment |
 

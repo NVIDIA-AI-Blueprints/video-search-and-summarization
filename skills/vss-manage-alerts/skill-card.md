@@ -9,10 +9,16 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and operations engineers managing video surveillance alert pipelines use this skill to configure real-time monitoring, create alert subscriptions, set up Slack notifications, query incidents, and onboard cameras within an NVIDIA VSS deployment. <br>
+Developers and engineers operating NVIDIA VSS alert pipelines for real-time video monitoring, managing alert subscriptions, configuring Slack notifications, and querying detected incidents. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
+
+## Requirements / Dependencies: <br>
+**Requires API Key or External Credential:** [Yes] <br>
+**Credential Type(s):** [API key] <br>
+
+Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
@@ -22,7 +28,7 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
 - [Alert Notify Reference](references/alert-notify.md) <br>
 - [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
@@ -39,7 +45,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 7 internal evaluation tasks (6 positive skill-activation, 1 negative). NVSkills-Eval profile: external. Pass threshold: 50%. Overall verdict: PASS. <br>
+7 evaluation tasks (6 positive skill-activation, 1 negative) via NVSkills-Eval external profile in astra-sandbox environment. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -63,11 +69,11 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Dimension | Num | `claude-code` | `codex` |
 |---|---:|---:|---:|
-| Security | 7 | 100% (+0%) | 93% (-7%) |
-| Correctness | 7 | 89% (+55%) | 78% (+33%) |
-| Discoverability | 7 | 99% (+55%) | 89% (+26%) |
-| Effectiveness | 7 | 62% (+44%) | 51% (+27%) |
-| Efficiency | 7 | 89% (+51%) | 80% (+22%) |
+| Security | 7 | 100% (+0%) | 71% (-29%) |
+| Correctness | 7 | 83% (+52%) | 89% (+55%) |
+| Discoverability | 7 | 98% (+55%) | 87% (+34%) |
+| Effectiveness | 7 | 60% (+40%) | 69% (+46%) |
+| Efficiency | 7 | 90% (+47%) | 81% (+23%) |
 
 ## Skill Version(s): <br>
 3.2.0 (source: frontmatter) <br>

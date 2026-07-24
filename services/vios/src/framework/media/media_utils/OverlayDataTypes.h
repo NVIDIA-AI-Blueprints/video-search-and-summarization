@@ -25,11 +25,11 @@
 #include <queue>
 #include <jsoncpp/json/json.h>
 
-#ifdef JETSON_PLATFORM
-inline constexpr int DEFAULT_BBOX_WIDTH = 2;
-#else
-inline constexpr int DEFAULT_BBOX_WIDTH = 1;
-#endif
+// Default bbox line thickness differs by platform (Orin uses a thicker default).
+// Resolved at runtime via isJetsonPlatform() (declared in utils.h) instead of a
+// compile-time macro so a single aarch64 build serves both Orin and Thor/SBSA.
+bool isJetsonPlatform();
+inline int getDefaultBboxWidth() { return isJetsonPlatform() ? 2 : 1; }
 inline constexpr int DEFAULT_BBOX_OPACITY = 255;
 inline constexpr double DEFAULT_PROXIMITY_AREA_FACTOR = 1.5;
 
@@ -58,6 +58,7 @@ struct OverlayBBoxParams
     uint8_t                 m_bboxOpacity;
     std::string             m_bboxColor;
     bool                    m_bboxDebug;
+    int                     m_bboxDebugFontSize;
     bool                    m_enableBbox;
     bool                    m_enableTripwire;
     bool                    m_enableROI;
@@ -79,10 +80,11 @@ struct OverlayBBoxParams
     bool                    m_enableHalos;
     std::vector<string>     m_overlayClassTypeList;
 
-    OverlayBBoxParams() : m_bboxThickness(DEFAULT_BBOX_WIDTH)
+    OverlayBBoxParams() : m_bboxThickness(getDefaultBboxWidth())
                         , m_bboxOpacity(DEFAULT_BBOX_OPACITY)
                         , m_bboxColor("")
                         , m_bboxDebug(false)
+                        , m_bboxDebugFontSize(0)
                         , m_enableBbox(false)
                         , m_enableTripwire(false)
                         , m_enableROI(false)
@@ -107,6 +109,7 @@ struct OverlayBBoxParams
     {
         this->m_bboxColor = params.m_bboxColor;
         this->m_bboxDebug = params.m_bboxDebug;
+        this->m_bboxDebugFontSize = params.m_bboxDebugFontSize;
         this->m_bboxOpacity = params.m_bboxOpacity;
         this->m_bboxThickness = params.m_bboxThickness;
         this->m_enableTripwire = params.m_enableTripwire;

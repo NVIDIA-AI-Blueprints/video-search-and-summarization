@@ -128,8 +128,8 @@ void NvGstVideoSource::OnSinkWantsChanged(const rtc::VideoSinkWants& wants)
             nativeStreamProducer->handleDRC(m_commonVideoSource.getPeerId(), wants.max_pixel_count, wants.max_framerate_fps);
         }
         
-#ifdef JETSON_PLATFORM
-        // Handle DRC for IPC producer
+#ifdef AARCH64_PLATFORM
+        // Handle DRC for IPC producer (non-null only on Jetson/Orin)
         auto ipcProducer = getIPCProducer();
         if (ipcProducer) {
             ipcProducer->handleDRC(m_commonVideoSource.getPeerId(), wants.max_pixel_count, wants.max_framerate_fps);

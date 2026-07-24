@@ -27,11 +27,16 @@
 
 services:
   perception:
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.1}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.3.0-26.07.1}
     entrypoint: []
-    network_mode: "host"
     runtime: nvidia
     container_name: vss-rtvi-cv
+    ports:
+      - ${RTVI_CV_HOST_PORT:-9000}:${RTVI_CV_PORT:-9000}
+    networks:
+      default:
+        aliases:
+          - vss-rtvi-cv
     deploy:
       restart_policy:
         condition: on-failure
@@ -59,6 +64,7 @@ services:
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      HARDWARE_PROFILE: ${HARDWARE_PROFILE}
     command:
       - bash
       - -c

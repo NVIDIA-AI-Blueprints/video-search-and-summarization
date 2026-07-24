@@ -17,13 +17,11 @@
 
 services:
   vss-va-mcp:
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: ${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}
     container_name: vss-va-mcp
-    network_mode: host
-    profiles:
-    - bp_wh_2d
-    - bp_developer_alerts_2d_cv
-    - bp_developer_alerts_2d_vlm
+    profiles: ["vss-va-mcp"]
+    ports:
+    - ${VSS_VA_MCP_HOST_PORT:-9901}:${VSS_VA_MCP_PORT:-9901}
     volumes:
     - ${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro
     environment:
@@ -61,16 +59,11 @@ services:
 
   vss-agent:
     # Version pinned via VSS_AGENT_VERSION (see the profile .env files).
-    image: nvcr.io/nvidia/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: ${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}
     container_name: vss-agent
-    network_mode: host
-    profiles:
-    - bp_wh_2d
-    - bp_developer_base_2d
-    - bp_developer_search_2d
-    - bp_developer_lvs_2d
-    - bp_developer_alerts_2d_cv
-    - bp_developer_alerts_2d_vlm
+    profiles: ["vss-agent"]
+    ports:
+    - ${VSS_AGENT_HOST_PORT:-8000}:${VSS_AGENT_PORT:-8000}
     environment:
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
@@ -79,6 +72,8 @@ services:
 
       # NAT Configuration
       HOST_IP: ${HOST_IP}
+      EXTERNAL_IP: ${EXTERNAL_IP:-${HOST_IP}}
+      INTERNAL_IP: ${INTERNAL_IP:-${VST_INTERNAL_IP:-vst-ingress:${VST_PORT:-30888}}}
       VSS_AGENT_VERSION: ${VSS_AGENT_VERSION}
       VSS_AGENT_CONFIG_FILE: ${VSS_AGENT_CONFIG_FILE}
       VSS_AGENT_HOST: ${VSS_AGENT_HOST}
@@ -87,26 +82,28 @@ services:
       RTVI_EMBED_MODEL: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       RTVI_EMBED_PORT: ${RTVI_EMBED_PORT}
       RTVI_CV_PORT: ${RTVI_CV_PORT}
+      RTVI_CV_ENDPOINT: ${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:${RTVI_CV_PORT:-9000}}
       VSS_ES_PORT: ${VSS_ES_PORT}
 
       # Phoenix Telemetry
       PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT}
 
       # VST (Video Storage Tool)
+      VST_BASE_URL: ${VST_BASE_URL:-${VST_EXTERNAL_URL}}
       VST_INTERNAL_URL: ${VST_INTERNAL_URL}
       VST_EXTERNAL_URL: ${VST_EXTERNAL_URL}
       VST_MCP_URL: ${VST_MCP_URL}
 
       # MCP Server
-      VIDEO_ANALYSIS_MCP_URL: http://${VSS_AGENT_HOST}:${VSS_VA_MCP_PORT}
+      VIDEO_ANALYSIS_MCP_URL: ${VIDEO_ANALYSIS_MCP_URL:-http://vss-va-mcp:${VSS_VA_MCP_PORT:-9901}}
 
       # LLM Endpoints
       LLM_NAME: ${LLM_NAME}
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}
+      LLM_BASE_URL: ${LLM_BASE_URL}
       VLM_NAME: ${VLM_NAME}
-      VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
+      VLM_BASE_URL: ${VLM_BASE_URL}
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
-      ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}}
+      ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://alert-bridge:${ALERT_BRIDGE_PORT:-9080}}
 
       # Audio Configuration
       ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
@@ -139,11 +136,9 @@ services:
       COSMOS_EMBED_ENDPOINT: ${COSMOS_EMBED_ENDPOINT}
       ELASTIC_SEARCH_ENDPOINT: ${ELASTIC_SEARCH_ENDPOINT}
       ELASTIC_SEARCH_INDEX: ${ELASTIC_SEARCH_INDEX}
-      # Critic agent toggles (for search profile)
-      ENABLE_CRITIC: ${ENABLE_CRITIC:-true}
       # Evaluation, used with nat eval workflow
       EVAL_LLM_JUDGE_NAME: ${EVAL_LLM_JUDGE_NAME}
-      EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}
+      EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL:-http://vss-llm-nim:8000}
       EVAL_DIR: ${EVAL_DIR}
       DATASET_DIR: ${DATASET_DIR}
       DATASET_FILE_NAME: ${DATASET_FILE_NAME}

@@ -22,19 +22,21 @@ import json
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.agents.data_models import AgentRequestOptions
-from vss_agents.agents.search_agent import SearchAgentConfig
-from vss_agents.agents.search_agent import SearchAgentInput
-from vss_agents.agents.search_agent import _apply_final_result_limit
-from vss_agents.agents.search_agent import _candidate_top_k
-from vss_agents.agents.search_agent import _effective_search_runtime_options
-from vss_agents.agents.search_agent import _explicit_max_results
-from vss_agents.agents.search_agent import _helper_markdown_bullet_list
-from vss_agents.agents.search_agent import _to_chat_response
-from vss_agents.agents.search_agent import _to_chat_response_chunk
-from vss_agents.agents.search_agent import _to_incidents_output
-from vss_agents.tools.search import SearchOutput
-from vss_agents.tools.search import SearchResult
+from agent.agents.data_models import AgentRequestOptions
+from agent.agents.search_agent import SearchAgentConfig
+from agent.agents.search_agent import SearchAgentInput
+from agent.agents.search_agent import _add_offsets
+from agent.agents.search_agent import _apply_final_result_limit
+from agent.agents.search_agent import _candidate_top_k
+from agent.agents.search_agent import _effective_search_runtime_options
+from agent.agents.search_agent import _explicit_max_results
+from agent.agents.search_agent import _helper_markdown_bullet_list
+from agent.agents.search_agent import _results_summary_table
+from agent.agents.search_agent import _to_chat_response
+from agent.agents.search_agent import _to_chat_response_chunk
+from agent.agents.search_agent import _to_incidents_output
+from agent.tools.search import SearchOutput
+from agent.tools.search import SearchResult
 
 
 class TestSearchAgentConfig:
@@ -266,21 +268,21 @@ class TestDecomposedQueryObjectIds:
 
     def test_object_ids_field_exists(self):
         """Test that DecomposedQuery accepts object_ids."""
-        from vss_agents.tools.search import DecomposedQuery
+        from agent.tools.search import DecomposedQuery
 
         dq = DecomposedQuery(object_ids=[5, 6])
         assert dq.object_ids == [5, 6]
 
     def test_object_ids_default_none(self):
         """Test that object_ids defaults to None."""
-        from vss_agents.tools.search import DecomposedQuery
+        from agent.tools.search import DecomposedQuery
 
         dq = DecomposedQuery()
         assert dq.object_ids is None
 
     def test_single_object_id(self):
         """Test single object ID in list."""
-        from vss_agents.tools.search import DecomposedQuery
+        from agent.tools.search import DecomposedQuery
 
         dq = DecomposedQuery(object_ids=[42])
         assert dq.object_ids == [42]
@@ -294,7 +296,7 @@ class TestFetchObjectEmbedding:
         """Test that missing object_id raises ValueError."""
         from unittest.mock import AsyncMock
 
-        from vss_agents.tools.attribute_search import _fetch_object_embedding
+        from agent.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": []}}
@@ -307,7 +309,7 @@ class TestFetchObjectEmbedding:
         """Test that object with no embedding vector raises ValueError."""
         from unittest.mock import AsyncMock
 
-        from vss_agents.tools.attribute_search import _fetch_object_embedding
+        from agent.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {}}}]}}
@@ -320,7 +322,7 @@ class TestFetchObjectEmbedding:
         """Test embedding extraction from dict shape: {"vector": [...]}."""
         from unittest.mock import AsyncMock
 
-        from vss_agents.tools.attribute_search import _fetch_object_embedding
+        from agent.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0, 2.0, 3.0]}}}]}}
@@ -333,7 +335,7 @@ class TestFetchObjectEmbedding:
         """Test embedding extraction from list shape: [{"vector": [...]}]."""
         from unittest.mock import AsyncMock
 
-        from vss_agents.tools.attribute_search import _fetch_object_embedding
+        from agent.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": [{"vector": [4.0, 5.0]}]}}]}}
@@ -346,7 +348,7 @@ class TestFetchObjectEmbedding:
         """Test behavior_index as list gets joined."""
         from unittest.mock import AsyncMock
 
-        from vss_agents.tools.attribute_search import _fetch_object_embedding
+        from agent.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0]}}}]}}
@@ -366,7 +368,7 @@ class TestDecomposeQueryObjectIds:
         from unittest.mock import AsyncMock
         from unittest.mock import MagicMock
 
-        from vss_agents.tools.search import decompose_query
+        from agent.tools.search import decompose_query
 
         mock_llm = AsyncMock()
         mock_response = MagicMock()
@@ -382,7 +384,7 @@ class TestDecomposeQueryObjectIds:
         from unittest.mock import AsyncMock
         from unittest.mock import MagicMock
 
-        from vss_agents.tools.search import decompose_query
+        from agent.tools.search import decompose_query
 
         mock_llm = AsyncMock()
         mock_response = MagicMock()
@@ -398,7 +400,7 @@ class TestDecomposeQueryObjectIds:
         from unittest.mock import AsyncMock
         from unittest.mock import MagicMock
 
-        from vss_agents.tools.search import decompose_query
+        from agent.tools.search import decompose_query
 
         mock_llm = AsyncMock()
         mock_response = MagicMock()
@@ -414,7 +416,7 @@ class TestDecomposeQueryObjectIds:
         from unittest.mock import AsyncMock
         from unittest.mock import MagicMock
 
-        from vss_agents.tools.search import decompose_query
+        from agent.tools.search import decompose_query
 
         mock_llm = AsyncMock()
         mock_response = MagicMock()
@@ -430,7 +432,7 @@ class TestDecomposeQueryObjectIds:
         from unittest.mock import AsyncMock
         from unittest.mock import MagicMock
 
-        from vss_agents.tools.search import decompose_query
+        from agent.tools.search import decompose_query
 
         mock_llm = AsyncMock()
         mock_response = MagicMock()
@@ -541,3 +543,117 @@ class TestHelperMarkdownBulletList:
         assert "0.95" in result
         assert "0.85" in result
         assert "Similarity Score" in result
+
+
+def _make_result(sensor_id: str, start_time: str, end_time: str) -> SearchResult:
+    return SearchResult(
+        video_name=f"{sensor_id}.mp4",
+        description="test",
+        start_time=start_time,
+        end_time=end_time,
+        sensor_id=sensor_id,
+        screenshot_url="http://example.com/s.jpg",
+        similarity=0.9,
+    )
+
+
+class TestAddOffsets:
+    """Test _add_offsets: computes stream-relative offsets for both files and RTSP/wall-clock."""
+
+    @pytest.mark.asyncio
+    async def test_offsets_computed_against_stream_start(self, monkeypatch):
+        async def fake_get_timeline(stream_id, *args, **kwargs):
+            return "2026-07-09T08:56:44.024Z", "2026-07-09T09:00:34.972Z"
+
+        monkeypatch.setattr("agent.agents.search_agent.get_timeline", fake_get_timeline)
+        # Wall-clock RTSP-style clip: correct offset is clip - stream_start, not a 2025-epoch value.
+        results = [_make_result("cam1", "2026-07-09T08:57:01.024Z", "2026-07-09T08:57:05.024Z")]
+
+        await _add_offsets(results)
+
+        assert results[0].start_offset == pytest.approx(17.0)
+        assert results[0].end_offset == pytest.approx(21.0)
+
+    @pytest.mark.asyncio
+    async def test_video_file_offsets(self, monkeypatch):
+        # 2025-anchored uploaded file: offset equals seconds-since-start.
+        async def fake_get_timeline(stream_id, *args, **kwargs):
+            return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
+
+        monkeypatch.setattr("agent.agents.search_agent.get_timeline", fake_get_timeline)
+        results = [_make_result("file1", "2025-01-01T00:02:00.000Z", "2025-01-01T00:02:30.000Z")]
+
+        await _add_offsets(results)
+
+        assert results[0].start_offset == pytest.approx(120.0)
+        assert results[0].end_offset == pytest.approx(150.0)
+
+    @pytest.mark.asyncio
+    async def test_repeated_sensor_dedups_timeline_calls(self, monkeypatch):
+        calls: list[str] = []
+
+        async def counting(stream_id, *args, **kwargs):
+            calls.append(stream_id)
+            return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
+
+        monkeypatch.setattr("agent.agents.search_agent.get_timeline", counting)
+        results = [
+            _make_result("cam1", "2025-01-01T00:00:30.000Z", "2025-01-01T00:01:00.000Z"),
+            _make_result("cam1", "2025-01-01T00:02:00.000Z", "2025-01-01T00:03:00.000Z"),
+        ]
+
+        await _add_offsets(results)
+
+        assert calls == ["cam1"]  # single timeline lookup despite two clips
+        assert results[1].start_offset == pytest.approx(120.0)
+        assert results[1].end_offset == pytest.approx(180.0)
+
+    @pytest.mark.asyncio
+    async def test_negative_offset_clamped_to_zero(self, monkeypatch):
+        async def fake_get_timeline(stream_id, *args, **kwargs):
+            return "2025-01-01T00:00:10.000Z", "2025-01-01T01:00:00.000Z"
+
+        monkeypatch.setattr("agent.agents.search_agent.get_timeline", fake_get_timeline)
+        # Clip start is before the timeline start (clock skew) -> clamp to 0.
+        results = [_make_result("cam1", "2025-01-01T00:00:05.000Z", "2025-01-01T00:00:20.000Z")]
+
+        await _add_offsets(results)
+
+        assert results[0].start_offset == 0.0
+        assert results[0].end_offset == pytest.approx(10.0)
+
+    @pytest.mark.asyncio
+    async def test_timeline_failure_leaves_offsets_none(self, monkeypatch):
+        async def boom(*args, **kwargs):
+            raise RuntimeError("VST down")
+
+        monkeypatch.setattr("agent.agents.search_agent.get_timeline", boom)
+        results = [_make_result("cam1", "2025-01-01T00:00:30.000Z", "2025-01-01T00:01:00.000Z")]
+
+        await _add_offsets(results)
+
+        assert results[0].start_offset is None
+        assert results[0].end_offset is None
+
+
+class TestResultsSummaryTableOffsets:
+    """Test that the summary table shows the computed offset when present."""
+
+    def test_table_uses_offset_when_present(self):
+        r = _make_result("cam1", "2026-07-09T08:57:01.024Z", "2026-07-09T08:57:05.024Z")
+        r.start_offset = 17.0
+        r.end_offset = 21.0
+
+        table = _results_summary_table([r])
+
+        assert "17.0s" in table
+        assert "21.0s" in table
+
+    def test_table_falls_back_to_pts_when_offset_missing(self):
+        # No offset set -> falls back to _to_pts (2025-epoch), never crashes.
+        r = _make_result("file1", "2025-01-01T00:02:00.000Z", "2025-01-01T00:02:30.000Z")
+
+        table = _results_summary_table([r])
+
+        assert "120.0s" in table
+        assert "150.0s" in table

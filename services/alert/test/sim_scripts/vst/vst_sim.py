@@ -191,7 +191,17 @@ def storage_file_url():
 
 @app.route('/vst/api/v1/storage/file/<stream_id>/url', methods=['GET'])
 def get_storage_file_url(stream_id: str):
-    """Return a dummy storage URL for the given stream id."""
+    """Return a dummy storage URL for the given stream id.
+
+    Set VST_SIM_DELAY_SECONDS to hold each response (load tests needing
+    overlapping VST calls)."""
+    try:
+        delay = float(os.getenv("VST_SIM_DELAY_SECONDS", "0"))
+    except (TypeError, ValueError):
+        delay = 0.0
+    if delay > 0:
+        import time as _time
+        _time.sleep(delay)
     args = request.args
     base = request.host_url.rstrip('/')
     dummy_url = f"{base}/vst/sim/media/{stream_id}.mp4"

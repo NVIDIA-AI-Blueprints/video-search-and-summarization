@@ -16,8 +16,8 @@
 
 import pytest
 
-from vss_agents.utils.optional_cv2 import PROPRIETARY_CODECS_NOT_INSTALLED
-from vss_agents.utils.optional_cv2 import ensure_codecs
+from agent.utils.optional_cv2 import PROPRIETARY_CODECS_NOT_INSTALLED
+from agent.utils.optional_cv2 import ensure_codecs
 
 
 class TestEnsureCodecs:

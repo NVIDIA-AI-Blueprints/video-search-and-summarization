@@ -16,6 +16,7 @@
 # limitations under the License.
 
 ARCH="x86_64"
+ARCH_EXPLICIT=0   # set to 1 when the user passes arch=... (drives clean targeting)
 PACKAGE=0
 CONTAINER=0
 TAG=""
@@ -34,7 +35,21 @@ MCP=0
 NO_CACHE=0
 BASE_IMAGE=0
 BASE_TAG=""
+TOOLCHAIN=0       # ./build.sh toolchain → build the compile-toolchain image
+BUILD_ALL=0       # ./build.sh all → toolchain → base → module containers → nvstreamer
+MULTIARCH=0       # ./build.sh multiarch tag=X → build+push amd64+arm64, then a multiarch manifest
+NO_AUTO_DEPS=0    # ./build.sh ... no-auto-deps → fail instead of auto-building missing toolchain/base
 MODULES=()  # Array to hold the modules
+
+# Toolchain image names. Must match the Makefile defaults (AARCH64_CC_IMAGE,
+# X86_BUILD_IMAGE) so the make wrapper picks up the same image we build here.
+# Override via env var to use a pre-pulled image from a registry:
+#   export X86_BUILD_IMAGE=my-registry.example.com/vios-build:custom
+X86_BUILD_IMAGE="${X86_BUILD_IMAGE:-vios-build:x86-devel-ubuntu24.04-cuda13.2.0}"
+# One aarch64 cross-compile toolchain for all aarch64 targets — Orin (Jetson
+# iGPU), Thor/SBSA, and DGX-Spark. Platform is detected at runtime; no separate
+# Jetson/L4T toolchain is needed.
+AARCH64_CC_IMAGE="${AARCH64_CC_IMAGE:-vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0}"
 # Registry and org for built images. Defaults to a bare local namespace so
 # local builds work out of the box (e.g. vios/vst:latest, nvstreamer:latest);
 # no registry is hardcoded in the public tree. Override to push elsewhere:
@@ -58,14 +73,46 @@ declare -A VALID_MODULES=(
 show_help() {
     echo "Usage: ./build.sh [options]"
     echo
-    echo "Options:"
+    echo "QUICK START (from a fresh clone):"
+    echo "  ./build.sh container module=sensor,streamprocessing"
+    echo "       ^ auto-builds the compile toolchain + base image on first run"
+    echo "  ./build.sh all                  # build everything for a full deploy"
+    echo
+    echo "Common Options:"
     echo "  arch=<arch>        Specify the architecture (amd64/x86_64 or arm64/aarch64). Default is x86_64/amd64."
+    echo "                     arch=orin (alias arch=jetson) is accepted as an alias for aarch64: one unified"
+    echo "                     aarch64 build runs on Orin (Jetson iGPU), Thor/SBSA, and DGX-Spark (runtime detection)."
     echo "  module=<modules>   Comma-separated list of modules to build (e.g., sensor,rtspserver,streamprocessing)."
     echo "  package            Build and package the modules."
-    echo "  container          Build, package, and create Docker containers (uses base image strategy for faster builds)."
+    echo "  container          Build, package, and create Docker containers. Auto-builds the toolchain"
+    echo "                     and base image on first run; subsequent runs reuse them."
+    echo "  toolchain          Build the compile-toolchain container ONLY (auto-invoked by other paths"
+    echo "                     when missing; you rarely need to call this directly)."
+    echo "  base-container     Build only the runtime base image (auto-invoked by 'container' when missing)."
+    echo "  all                One-shot: toolchain -> base -> module containers (sensor + streamprocessing"
+    echo "                     by default, or whatever module=... lists) -> nvstreamer container."
+    echo "  multiarch          Build+push amd64 and arm64 images (per-arch tags) then assemble one"
+    echo "                     multi-arch manifest via 'docker buildx imagetools'. Needs tag=<manifest-tag>"
+    echo "                     (e.g. tag=2.1.0-26.05.4; per-arch tags are derived as -amd64-/-arm64-) and a"
+    echo "                     target (module=<list> and/or nvstreamer). Set IMAGE_REGISTRY to a pushable"
+    echo "                     registry first. amd64 push overlaps the arm64 build."
+    echo "  multiarch all      Multi-arch equivalent of 'all': builds sensor + streamprocessing + nvstreamer"
+    echo "                     for both arches (needs tag=<manifest-tag>). Ingress is separate (already"
+    echo "                     multi-arch): ./build.sh container ingress push=1 tag=<tag>."
+    echo "  no-auto-deps       Disable the auto-build of toolchain / base. Use when you want strict failure"
+    echo "                     if those images are missing (CI; pulled-from-registry workflows)."
     echo "  tag=<name>         Docker image tag for application containers (used with container option)."
     echo "  base-tag=<name>    Docker tag for base image (default: latest)."
     echo "  push=<0|1>         Push Docker images to the registry (used with container option)."
+    echo
+    echo "Image-tag overrides (CLI flags; take precedence over env vars below):"
+    echo "  toolchain-image=<ref>  Override the compile toolchain image (arch-aware:"
+    echo "                          sets X86_BUILD_IMAGE for x86_64, AARCH64_CC_IMAGE for arm64)."
+    echo "                          Same value as 'arch=arm64' takes -> AARCH64_CC_IMAGE."
+    echo "  image-registry=<ref>   Override registry/org prefix for module + base images"
+    echo "                          (replaces IMAGE_REGISTRY env var; default 'vios')."
+    echo "  nvstreamer-image=<ref> Override the full NVStreamer image repository"
+    echo "                          (replaces NVSTREAMER_IMAGE env var; default 'nvstreamer')."
     echo "  vst-app            Build k8s based vst-app for all modules and scaling-app"
     echo "  streamprocessing-app Build k8s based streamprocessing-app (sensor, streamprocessing, postgres, ingress)"
     echo "  ingress            Build ingress container needed for scaling-app"
@@ -78,8 +125,11 @@ show_help() {
     echo "  nvstreamer         Build nvstreamer"
     echo "  vst-monolith       Build vst-monolith"
     echo "  no-cache           Build Docker images without using cache"
-    echo "  base-container     Build only the base image with system packages (for optimization)"
     echo "  help               Show this help message."
+    echo
+    echo "Toolchain images (set via env, falling back to Makefile defaults):"
+    echo "  X86_BUILD_IMAGE          (default: vios-build:x86-devel-ubuntu24.04-cuda13.2.0)"
+    echo "  AARCH64_CC_IMAGE         (default: vios-build:aarch64-devel-ubuntu24.04-cuda13.2.0)  # all aarch64 incl. Orin"
     echo
     echo "Examples:"
     echo "  ./build.sh (Same as => ./build.sh arch=x86_64 OR ./build.sh arch=amd64)"
@@ -95,6 +145,16 @@ show_help() {
     echo "  ./build.sh container nvstreamer-ingress push=1"
     echo "  ./build.sh container mcp push=1"
     echo "  ./build.sh container module=streamprocessing push=1"
+    echo ""
+    echo "  # Orin/Jetson build the same unified aarch64 image (alias for arch=aarch64):"
+    echo "  ./build.sh arch=orin container module=sensor,streamprocessing"
+    echo ""
+    echo "  # Multi-arch (amd64 + arm64) build, push, and manifest in one command:"
+    echo "  export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
+    echo "  ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing"
+    echo "  ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4"
+    echo "  ./build.sh arch=multiarch all tag=2.1.0-26.05.4   # sensor + streamprocessing + nvstreamer, both arches"
+    echo "  ./build.sh container ingress push=1 tag=2.1.0-26.05.4   # ingress (already multi-arch), built separately"
     echo ""
     echo "  ./build.sh vst-app"
     echo "  ./build.sh vst-app module=sensor,rtspserver,recorder"
@@ -207,8 +267,17 @@ while [[ "$#" -gt 0 ]]; do
     case $1 in
         arch=*)
             ARCH="${1#*=}"
+            ARCH_EXPLICIT=1
             if [[ "$ARCH" = "arm64" ]]; then ARCH="aarch64"; fi
             if [[ "$ARCH" = "amd64" ]]; then ARCH="x86_64"; fi
+            # Orin/Jetson build the unified aarch64 target (runtime platform
+            # detection, no JETSON_PLATFORM define, no L4T rootfs). Accept them
+            # as aliases for aarch64.
+            if [[ "$ARCH" = "jetson" ]] || [[ "$ARCH" = "orin" ]]; then ARCH="aarch64"; fi
+            # arch=multiarch is an alias for the `multiarch` subcommand (builds
+            # both amd64 + arm64). ARCH itself is irrelevant then (each per-arch
+            # sub-build sets its own), so reset it to the default.
+            if [[ "$ARCH" = "multiarch" ]]; then MULTIARCH=1; ARCH="x86_64"; fi
             ;;
         module=*)
             IFS=',' read -r -a MODULES <<< "${1#*=}"
@@ -233,14 +302,49 @@ while [[ "$#" -gt 0 ]]; do
         vst-monolith) VSTMONOLITH=1;;
         no-cache) NO_CACHE=1;;
         base-container) BASE_IMAGE=1;;
+        toolchain) TOOLCHAIN=1;;
+        all) BUILD_ALL=1;;
+        multiarch) MULTIARCH=1;;
+        no-auto-deps) NO_AUTO_DEPS=1;;
+        # CLI-flag alternatives to the X86_BUILD_IMAGE / AARCH64_CC_IMAGE /
+        # IMAGE_REGISTRY / NVSTREAMER_IMAGE env vars. Applied AFTER the
+        # whole arg list is parsed so `arch=arm64 toolchain-image=…` works
+        # regardless of arg order. CLI > env > default.
+        toolchain-image=*) TOOLCHAIN_IMAGE_OVERRIDE="${1#*=}";;
+        image-registry=*) IMAGE_REGISTRY_OVERRIDE="${1#*=}";;
+        nvstreamer-image=*) NVSTREAMER_IMAGE_OVERRIDE="${1#*=}";;
         help) show_help; exit 0;;
         *) echo "Unknown parameter passed: $1"; show_help; exit 1;;
     esac
     shift
 done
 
+# Apply CLI flag overrides on top of env var defaults. The overrides take
+# precedence (CLI > env > built-in default). Toolchain override is arch-
+# aware so a single `toolchain-image=…` flag works for both x86 and arm.
+if [[ -n "${TOOLCHAIN_IMAGE_OVERRIDE:-}" ]]; then
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+        AARCH64_CC_IMAGE="$TOOLCHAIN_IMAGE_OVERRIDE"
+    else
+        X86_BUILD_IMAGE="$TOOLCHAIN_IMAGE_OVERRIDE"
+    fi
+fi
+if [[ -n "${IMAGE_REGISTRY_OVERRIDE:-}" ]]; then
+    IMAGE_REGISTRY="$IMAGE_REGISTRY_OVERRIDE"
+fi
+if [[ -n "${NVSTREAMER_IMAGE_OVERRIDE:-}" ]]; then
+    NVSTREAMER_IMAGE="$NVSTREAMER_IMAGE_OVERRIDE"
+fi
+
+# Export the resolved toolchain images so the Makefile's `?=` picks them up
+# (build.sh sets them as shell vars but make runs in a child process). Without
+# this, an env / toolchain-image= override never reaches the containerised
+# `make cc=1` step.
+export AARCH64_CC_IMAGE X86_BUILD_IMAGE
+
 # Print all variables
 echo "ARCH=$ARCH"
+echo "AARCH64_CC_IMAGE=$AARCH64_CC_IMAGE"
 echo "PACKAGE=$PACKAGE"
 echo "CONTAINER=$CONTAINER"
 echo "TAG=$TAG"
@@ -277,17 +381,17 @@ declare -A DEFAULT_TAGS=(
     [mcp]="latest"
     [nvstreamer]="latest"
     [vst]="latest"
-    [vst-base]="2.1.0-runtime-26.04.1"
+    [vst-base]="2.1.0-runtime-26.05.4"
 )
 
 # Function to build base image for faster container builds
 build_base_image() {
     local push=$1
 
-    echo "=============================================="
-    echo "Building VST Base Image (Optimization Strategy)"
-    echo "=============================================="
-    echo "This builds a base image containing all system packages"
+    echo "==================================================================================="
+    echo "Building VST Runtime Base Image (one-time build, reused by later container builds)"
+    echo "==================================================================================="
+    echo "This bakes all system packages into a base image so subsequent container builds reuse it and run faster (optimization)."
     echo ""
 
     # Determine the base image name and tag
@@ -361,6 +465,226 @@ build_base_image() {
     cd - || exit 1
 }
 
+# ============================================================================
+# Toolchain / base auto-detect helpers
+# ============================================================================
+# These let `./build.sh container module=…` "just work" from a fresh clone.
+# Previously the user had to manually run a verbose `docker build` for the
+# toolchain (README section A) and `./build.sh base-container` (section B)
+# before any module build would succeed. Now both are detected on demand
+# and built automatically. Set `no-auto-deps` to revert to strict failure.
+
+# Resolve the toolchain image tag for the active ARCH. The Makefile reads
+# the same env vars, so build_toolchain_image and the make wrapper agree.
+get_toolchain_image_name() {
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+        echo "$AARCH64_CC_IMAGE"
+    else
+        echo "$X86_BUILD_IMAGE"
+    fi
+}
+
+# Cheap probe: returns 0 iff the named image is present in the local Docker
+# image store. Used by the ensure_* functions to avoid redundant builds.
+image_exists() {
+    local image_ref="$1"
+    docker image inspect "$image_ref" >/dev/null 2>&1
+}
+
+# Build the compile-toolchain container for the active ARCH. Standalone
+# subcommand entry point (`./build.sh toolchain`) and auto-build fallback.
+#
+# Push semantics mirror build_base_image: the explicit subcommand path
+# passes $PUSH (so `./build.sh toolchain push=1` pushes), and the
+# auto-build path (ensure_toolchain_image) passes 0 (auto-built deps are
+# never pushed implicitly — the user has to ask for that explicitly).
+build_toolchain_image() {
+    local push="${1:-0}"
+    local image_name
+    image_name=$(get_toolchain_image_name)
+
+    echo "======================================================="
+    echo "Building VIOS Compile Toolchain Image (one-time build)"
+    echo "======================================================="
+    echo "Image: $image_name"
+    echo "Arch:  $ARCH"
+    echo ""
+
+    local context dockerfile_arg=""
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]] || [[ "$ARCH" == "sbsa" ]]; then
+        context="cicd_files/aarch64/devel"
+        # arm64 devel/Dockerfile uses the default filename, no -f needed.
+    else
+        context="cicd_files/x86_64/devel"
+        # x86_64 ships the file as Dockerfile.devel (legacy name).
+        dockerfile_arg="-f $context/Dockerfile.devel"
+    fi
+
+    if [[ ! -d "$context" ]]; then
+        echo "[ERROR] Toolchain build context missing: $context"
+        echo "        This usually means the repo wasn't cloned with submodules,"
+        echo "        OR the script is being run from outside the services/vios/ dir."
+        exit 1
+    fi
+
+    local cache_flag=""
+    [[ $NO_CACHE -eq 1 ]] && cache_flag="--no-cache"
+
+    local t0
+    t0=$(date +%s)
+
+    # shellcheck disable=SC2086  # we want word-splitting on $dockerfile_arg / $cache_flag
+    docker build $cache_flag --network=host -t "$image_name" $dockerfile_arg "$context"
+
+    if [[ $? -ne 0 ]]; then
+        echo "[ERROR] Toolchain image build failed: $image_name"
+        exit 1
+    fi
+
+    echo ""
+    echo "Toolchain image built: $image_name"
+    print_per_image_build_timing_line "$t0" "$push"
+    echo ""
+
+    # Optional push. Only fires when build_toolchain_image was called with
+    # push=1 (i.e. explicit `./build.sh toolchain push=1`). The auto-build
+    # path (ensure_toolchain_image) always passes 0, so a `./build.sh
+    # container push=1` against a fresh clone won't accidentally push the
+    # auto-built toolchain to a registry.
+    if [[ $push -eq 1 ]]; then
+        # Warn (but don't block) on default local-only tags: pushing
+        # `vios-build:x86-devel-ubuntu24.04-cuda13.2.0` would target Docker Hub, which
+        # is rarely intended. The right pattern is to set X86_BUILD_IMAGE
+        # / AARCH64_CC_IMAGE to a fully-qualified registry path first.
+        if [[ "$image_name" != *"/"*"/"* ]]; then
+            echo "[WARN] Pushing without an explicit registry prefix: '$image_name'"
+            echo "       Docker will target Docker Hub. To push elsewhere, export"
+            echo "       X86_BUILD_IMAGE / AARCH64_CC_IMAGE with a registry prefix:"
+            echo "         X86_BUILD_IMAGE=my-registry.example.com/vios-build:x86-devel-ubuntu24.04-cuda13.2.0 \\"
+            echo "         ./build.sh toolchain push=1"
+        fi
+        echo "Pushing toolchain image: $image_name"
+        docker push "$image_name"
+        if [[ $? -ne 0 ]]; then
+            echo "[ERROR] Toolchain image push failed: $image_name"
+            exit 1
+        fi
+        echo "Toolchain image pushed: $image_name"
+    fi
+}
+
+# Idempotent: ensure the toolchain image is present locally. Build it if not.
+# Called before any path that invokes `make` (compile / package / clean /
+# tests / container — all eventually run `docker run -v $(TOP):/root $IMG`
+# inside the Makefile, so $IMG must exist).
+ensure_toolchain_image() {
+    local image_name
+    image_name=$(get_toolchain_image_name)
+
+    if image_exists "$image_name"; then
+        echo "[auto-deps] Toolchain image already present: $image_name"
+        return 0
+    fi
+
+    if [[ $NO_AUTO_DEPS -eq 1 ]]; then
+        echo "[ERROR] Toolchain image not found: $image_name"
+        echo "        Build it explicitly with:   ./build.sh toolchain"
+        echo "        Or omit 'no-auto-deps' to let this script build it for you."
+        exit 1
+    fi
+
+    echo "[auto-deps] Toolchain image missing — building it now ($image_name)."
+    echo "            Pass 'no-auto-deps' to fail instead of auto-building."
+    echo "            (auto-built deps are never pushed; use './build.sh toolchain push=1' explicitly)"
+    build_toolchain_image 0   # 0 = never push from the auto-build path
+}
+
+# Idempotent: ensure the base image (vst-base) is present locally. Build it
+# if not. Called before any CONTAINER build (Dockerfile.app FROM=$BASE_IMAGE).
+ensure_base_image() {
+    local base_tag base_image_name
+    if [[ -n "$BASE_TAG" ]]; then
+        base_tag="$BASE_TAG"
+    else
+        base_tag="${DEFAULT_TAGS["vst-base"]:-latest}"
+    fi
+    base_image_name="$IMAGE_REGISTRY/vst-base:$base_tag"
+
+    if image_exists "$base_image_name"; then
+        echo "[auto-deps] VST Runtime base-image already present: $base_image_name"
+        return 0
+    fi
+
+    if [[ $NO_AUTO_DEPS -eq 1 ]]; then
+        echo "[ERROR] VST Runtime base-image not found: $base_image_name"
+        echo "        Build it explicitly with:   ./build.sh base-container"
+        echo "        Or omit 'no-auto-deps' to let this script build it for you."
+        exit 1
+    fi
+
+    echo "[auto-deps] Base image missing — building it now ($base_image_name)."
+    echo "            Pass 'no-auto-deps' to fail instead of auto-building."
+    build_base_image 0  # 0 = don't push during auto-build
+}
+
+# Build vios-ui with npm from the compile toolchain image, so the host does
+# not need Node.js or npm and those tools stay out of public runtime images.
+# Run as the invoking user to keep generated files writable outside Docker.
+build_vios_ui() {
+    local build_root="$1"
+    local ui_dir="$build_root/ui/vios-ui"
+
+    echo ""
+    echo "=================== Building UI ==================="
+
+    # Incremental build: reuse an existing dist/ when it is already up to date
+    # with the UI sources, instead of re-running the (slow) `tsc && vite build`
+    # on every nvstreamer/ingress container build. Freshness = no source file
+    # (excluding node_modules/ and dist/) is newer than the build marker
+    # dist/index.html. Pass `no-cache` to force a full rebuild.
+    local ui_marker="$ui_dir/dist/index.html"
+    if [[ $NO_CACHE -ne 1 && -f "$ui_marker" ]]; then
+        local newer_src
+        newer_src=$(find "$ui_dir" -type f \
+            -not -path "*/node_modules/*" \
+            -not -path "*/dist/*" \
+            -newer "$ui_marker" -print -quit 2>/dev/null)
+        if [[ -z "$newer_src" ]]; then
+            echo "vios-ui dist is up to date in $ui_dir; reusing existing build (pass no-cache to force a rebuild)."
+            echo "================== Building UI done (reused) ==============="
+            echo ""
+            return 0
+        fi
+        echo "vios-ui sources changed (e.g. $newer_src); rebuilding ..."
+    fi
+
+    local toolchain_image_name
+    toolchain_image_name=$(get_toolchain_image_name)
+
+    echo "Building vios-ui in $ui_dir using $toolchain_image_name ..."
+    if ! docker run --rm --network=host \
+        --entrypoint /bin/bash \
+        --user "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -e NPM_CONFIG_CACHE=/tmp/.npm \
+        -e NPM_CONFIG_PREFIX=/tmp/.npm-global \
+        -v "$build_root:/workspace" \
+        -w /workspace/ui/vios-ui \
+        "$toolchain_image_name" \
+        -c 'export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"; npm run install:link && npm run build'; then
+        echo "[ERROR] vios-ui build failed in toolchain image: $toolchain_image_name"
+        return 1
+    fi
+
+    if [[ ! -d "$ui_dir/dist" ]]; then
+        echo "[ERROR] vios-ui dist directory not found after build"
+        return 1
+    fi
+
+    echo "=================== Building UI done ==================="
+    echo ""
+}
+
 # Function to build the vios-ui and stage its dist output into the webroot dir
 # (used when building the nvstreamer container; webroot is packaged into the image).
 build_vios_ui_webroot() {
@@ -369,21 +693,12 @@ build_vios_ui_webroot() {
     local ui_dir="$build_root/ui/vios-ui"
     local webroot_dir="$build_root/webroot"
 
-    echo "Building vios-ui in $ui_dir ..."
-    cd "$ui_dir" || { echo "[ERROR] Cannot find vios-ui directory: $ui_dir"; exit 1; }
-    npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-    npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-    if [[ ! -d "dist" ]]; then
-        echo "[ERROR] vios-ui dist directory not found after build"
-        exit 1
-    fi
+    build_vios_ui "$build_root" || exit 1
 
     echo "Staging vios-ui dist into $webroot_dir ..."
     # Remove only the VST UI static files; leave other webroot files intact.
     rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html"
-    cp -rf dist/. "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
-    cd "$build_root" || exit 1
+    cp -rf "$ui_dir/dist/." "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
 }
 
 # Function to build a module
@@ -410,6 +725,8 @@ build_module() {
         return 0
     fi
 
+    record_built_arch
+
     if [[ $DEBUG -eq 1 ]]; then
         echo "Building module: $module with cc_value=$cc_value and debug mode"
         MODULE=$module make cc=$cc_value debug $package
@@ -425,6 +742,115 @@ build_module() {
     fi
 }
 
+# Record that ARCH was just built, so a later arch-less `./build.sh clean`
+# knows which architecture(s) to clean. Stored as a per-arch stamp file (not a
+# shell env var, which would not survive between separate build/clean runs).
+record_built_arch() {
+    mkdir -p "prebuilts/$ARCH" 2>/dev/null
+    : > "prebuilts/$ARCH/.vios-built"
+}
+
+# Remove arch-independent generated artifacts: UCF/helm build outputs, the
+# staged vios-ui assets, and the compiled release tarball. Safe to call once
+# per clean regardless of architecture.
+clean_generated_artifacts() {
+    rm -rf deployment/scaling/ucf/vst-app/vst-app-*
+    rm -rf deployment/scaling/ucf/vst-streamprocessing-app/vst-streamprocessing-app-*
+    rm -rf deployment/scaling/ucf/ingress/ucf/output
+    rm -rf deployment/scaling/ucf/redis/redis-app*
+    rm -rf deployment/scaling/ucf/recorder/output
+    rm -rf deployment/scaling/ucf/rtsp-server/output
+    rm -rf deployment/scaling/ucf/sensor/output
+    rm -rf deployment/scaling/ucf/storage/output
+    rm -rf deployment/scaling/ucf/postgres/output
+    rm -rf deployment/scaling/ucf/minio/output
+    rm -rf deployment/scaling/ucf/livestream/output
+    rm -rf deployment/scaling/ucf/replaystream/output
+    rm -rf deployment/scaling/ucf/nvstreamer-app/nvstreamer/nvstreamer-app-*
+    rm -rf deployment/scaling/ucf/nvstreamer-app/ingress/ucf/output
+    rm -rf deployment/ucf/nv-streamer/output
+    rm -rf deployment/scaling/ucf/sdr/vst-rtspserver-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-recorder-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-livestream-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-replaystream-sdr/output/
+    rm -rf deployment/scaling/ucf/sdr/vst-streamprocessing/output/
+    rm -rf deployment/scaling/ucf/streamprocessing/output/
+
+    # Generated UI build output. Remove dist/ too so `clean` forces a full UI
+    # rebuild on the next container build; leaving it would let the incremental
+    # freshness check (marker: dist/index.html) reuse the old build.
+    # node_modules/ is intentionally kept so `npm install:link` stays fast.
+    rm -rf ui/vios-ui/dist
+
+    # Staged vios-ui assets (build_vios_ui_webroot). Never committed — only the
+    # .gitkeep placeholders are tracked — so these are safe to drop and are
+    # regenerated on the next container build. rm -rf is a no-op if absent.
+    rm -rf webroot/assets webroot/favicon webroot/index.html
+    rm -rf deployment/scaling/ingress/vst-ui/assets \
+           deployment/scaling/ingress/vst-ui/favicon \
+           deployment/scaling/ingress/vst-ui/index.html
+
+    # Compiled release output (out/$ARCH/vst_release.tbz2, ...). The container
+    # package step may write this as root, so a user-run rm can hit "Permission
+    # denied". Degrade gracefully with a hint instead of aborting the clean.
+    if [[ -e out ]]; then
+        rm -rf out 2>/dev/null || \
+            echo "[clean] WARN: could not remove root-owned out/ — run: sudo rm -rf out"
+    fi
+}
+
+# Clean the compiled artifacts for a single architecture. x86_64 cleans
+# natively; aarch64 uses the cross-compile toolchain container (make cc=1).
+# If the aarch64 toolchain image is absent, fall back to removing the
+# generated (git-untracked) libs on the host so clean still works without
+# Docker — vendored (tracked) prebuilt libs are left untouched.
+clean_arch() {
+    local a="$1" cc=0
+    [[ "$a" == "aarch64" ]] && cc=1
+    echo ""
+    echo "=================== Cleaning ($a) ==================="
+    if [[ $cc -eq 1 ]] && ! image_exists "$AARCH64_CC_IMAGE"; then
+        echo "[clean] aarch64 toolchain image '$AARCH64_CC_IMAGE' not present;"
+        echo "        removing generated (untracked) aarch64 libs on host instead."
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git ls-files --others --exclude-standard "prebuilts/$a" \
+                | xargs -r rm -f
+        else
+            echo "[clean] WARN: not a git work tree; cannot distinguish generated"
+            echo "        from vendored libs. Build the toolchain then re-run:"
+            echo "          ./build.sh toolchain arch=aarch64 && ./build.sh arch=arm64 clean"
+        fi
+    else
+        make cc=$cc clean
+    fi
+    rm -f "prebuilts/$a/.vios-built"
+}
+
+# Top-level clean entrypoint. With arch=... given, cleans exactly that arch;
+# otherwise cleans every architecture recorded by record_built_arch (both, if
+# both were built), falling back to the default arch when nothing is recorded.
+do_clean() {
+    local arches=()
+    if [[ $ARCH_EXPLICIT -eq 1 ]]; then
+        arches=("$ARCH")
+    else
+        local a
+        for a in x86_64 aarch64; do
+            [[ -f "prebuilts/$a/.vios-built" ]] && arches+=("$a")
+        done
+        [[ ${#arches[@]} -eq 0 ]] && arches=("$ARCH")
+    fi
+    echo "Clean target arch(es): ${arches[*]}"
+
+    local a
+    for a in "${arches[@]}"; do
+        clean_arch "$a"
+    done
+
+    clean_generated_artifacts
+    echo "Cleaning done ..!"
+}
+
 # Function to build and package all modules
 build_all() {
     local cc_value=$1
@@ -433,32 +859,12 @@ build_all() {
 
     if [[ $CLEAN -eq 1 ]]; then
         make cc=$cc_value clean
-
-        rm -rf deployment/scaling/ucf/vst-app/vst-app-*
-        rm -rf deployment/scaling/ucf/vst-streamprocessing-app/vst-streamprocessing-app-*
-        rm -rf deployment/scaling/ucf/ingress/ucf/output
-        rm -rf deployment/scaling/ucf/redis/redis-app*
-        rm -rf deployment/scaling/ucf/recorder/output
-        rm -rf deployment/scaling/ucf/rtsp-server/output
-        rm -rf deployment/scaling/ucf/sensor/output
-        rm -rf deployment/scaling/ucf/storage/output
-        rm -rf deployment/scaling/ucf/postgres/output
-        rm -rf deployment/scaling/ucf/minio/output
-        rm -rf deployment/scaling/ucf/livestream/output
-        rm -rf deployment/scaling/ucf/replaystream/output
-        rm -rf deployment/scaling/ucf/nvstreamer-app/nvstreamer/nvstreamer-app-*
-        rm -rf deployment/scaling/ucf/nvstreamer-app/ingress/ucf/output
-        rm -rf deployment/ucf/nv-streamer/output
-        rm -rf deployment/scaling/ucf/sdr/vst-rtspserver-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-recorder-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-livestream-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-replaystream-sdr/output/
-        rm -rf deployment/scaling/ucf/sdr/vst-streamprocessing/output/
-        rm -rf deployment/scaling/ucf/streamprocessing/output/
+        clean_generated_artifacts
         echo "Cleaning done ..!"
         exit 0
     fi
 
+    record_built_arch
     echo "Building all with cc_value=$cc_value, package=$package, container=$container"
 
     if [[ $package -eq 1 ]]; then
@@ -798,6 +1204,288 @@ build_streamprocessing_app() {
     fi
 }
 
+# ============================================================================
+# Top-level subcommands that don't need module dispatch
+# ============================================================================
+
+# `./build.sh toolchain` — build the compile-toolchain image and exit.
+# This wraps the verbose `docker build -t vios-build:… -f cicd_files/…/devel`
+# command directly, so x86_64 and aarch64 share one entry point (no per-arch
+# helper script).
+#
+# `push=1` is honored — together with X86_BUILD_IMAGE / AARCH64_CC_IMAGE
+# overrides, it lets users publish the toolchain to their own registry.
+if [[ $TOOLCHAIN -eq 1 ]]; then
+    build_toolchain_image "$PUSH"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Multi-arch build + push + manifest
+# ---------------------------------------------------------------------------
+# Builds amd64 and arm64 container images with per-arch tags, pushes them, then
+# assembles a single multi-arch manifest tag via `docker buildx imagetools`.
+# The amd64 push runs in the background while the arm64 image is being built, so
+# network transfer overlaps CPU work instead of running back-to-back.
+#
+#   tag=2.1.0-26.05.4  ->  per-arch tags 2.1.0-amd64-26.05.4 / 2.1.0-arm64-26.05.4
+#                          manifest tag  2.1.0-26.05.4
+#
+#   ./build.sh multiarch tag=2.1.0-26.05.4 module=sensor,streamprocessing
+#   ./build.sh multiarch tag=2.1.0-26.05.4 nvstreamer base-tag=2.1.0-runtime-26.05.4
+#
+# Requires IMAGE_REGISTRY to point at a real registry you can push to (e.g.
+# export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev), and `docker login`.
+build_multiarch() {
+    # The multi-arch manifest tag is the standard tag= (as everywhere else).
+    if [[ -z "$TAG" ]]; then
+        echo "[ERROR] multiarch requires tag=<manifest-tag>, e.g. tag=2.1.0-26.05.4"
+        exit 1
+    fi
+
+    # `multiarch all` (or `arch=multiarch all`) → the multi-arch equivalent of
+    # `./build.sh all`: build the sensor + streamprocessing modules and the
+    # NVStreamer container for both architectures (release/optimized container
+    # builds, the default). Ingress is intentionally NOT included — like plain
+    # `all` — because vst-ingress is nginx + static UI and already builds as a
+    # single multi-arch manifest on its own:
+    #   ./build.sh container ingress push=1 tag=<tag>
+    if [[ $BUILD_ALL -eq 1 ]]; then
+        if [[ ${#MODULES[@]} -eq 0 ]]; then
+            MODULES=("sensor" "streamprocessing")
+            echo "[multiarch all] defaulting modules to: ${MODULES[*]}"
+        fi
+        NVSTREAMER=1
+    fi
+
+    if [[ ${#MODULES[@]} -eq 0 ]] && [[ $NVSTREAMER -eq 0 ]]; then
+        echo "[ERROR] multiarch needs a target: module=<list>, nvstreamer, and/or 'all'"
+        exit 1
+    fi
+
+    # Preflight: assembling the manifest needs the Docker Buildx plugin
+    # (docker buildx imagetools). Fail early with install guidance.
+    if ! docker buildx version >/dev/null 2>&1; then
+        echo "[ERROR] 'docker buildx' is required for multiarch (docker buildx imagetools create) but is not available."
+        echo "        Install the Buildx plugin, then re-run:"
+        echo "          Ubuntu/Debian : sudo apt-get update && sudo apt-get install -y docker-buildx-plugin"
+        echo "          Manual        : https://github.com/docker/buildx#installing"
+        echo "          (Docker Desktop / recent Docker Engine already bundle it — updating Docker also fixes this.)"
+        echo "        Verify with:    docker buildx version"
+        exit 1
+    fi
+
+    # multiarch always pushes to a registry; the bare local default namespace
+    # (e.g. IMAGE_REGISTRY=vios) has no registry host and cannot be pushed.
+    local reg_host="${IMAGE_REGISTRY%%/*}"
+    if [[ "$reg_host" != *.* ]] && [[ "$reg_host" != *:* ]] && [[ "$reg_host" != "localhost" ]]; then
+        echo "[WARN] IMAGE_REGISTRY='$IMAGE_REGISTRY' has no registry host — the push/manifest will"
+        echo "       target Docker Hub or fail. Set a pushable registry and log in first, e.g.:"
+        echo "         export IMAGE_REGISTRY=nvcr.io/rxczgrvsg8nx/vst-dev"
+        echo "         docker login nvcr.io"
+    fi
+
+    # 2.1.0-26.05.4 -> prefix=2.1.0 suffix=26.05.4 -> 2.1.0-<arch>-26.05.4.
+    local amd_tag arm_tag
+    if [[ "$TAG" == *-* ]]; then
+        amd_tag="${TAG%%-*}-amd64-${TAG#*-}"
+        arm_tag="${TAG%%-*}-arm64-${TAG#*-}"
+    else
+        amd_tag="${TAG}-amd64"
+        arm_tag="${TAG}-arm64"
+    fi
+
+    # Fully-qualified target repos to assemble manifests for.
+    local -a repos=()
+    local m
+    for m in "${MODULES[@]}"; do repos+=("$IMAGE_REGISTRY/vst-${m}"); done
+    [[ $NVSTREAMER -eq 1 ]] && repos+=("$NVSTREAMER_IMAGE")
+
+    # Flags forwarded to each per-arch sub-build.
+    local extra=""
+    [[ -n "$BASE_TAG" ]] && extra="$extra base-tag=$BASE_TAG"
+    [[ $NO_CACHE -eq 1 ]] && extra="$extra no-cache"
+    local mod_csv
+    mod_csv=$(IFS=, ; echo "${MODULES[*]}")
+
+    echo "=============================================="
+    echo "multiarch: $TAG"
+    echo "  amd64 tag : $amd_tag"
+    echo "  arm64 tag : $arm_tag"
+    echo "  manifest  : $TAG"
+    echo "  targets   : ${repos[*]}"
+    echo "=============================================="
+
+    # Build one architecture locally (no push). $1: arch flag ("" or "arch=arm64"), $2: tag.
+    # modules and nvstreamer are built in separate invocations (build.sh builds
+    # nvstreamer only when no module= is given).
+    _ma_build() {
+        local archflag="$1" tag="$2"
+        # Compile objects live in the source tree, so switching architecture
+        # (amd64 <-> arm64) without cleaning would relink stale wrong-arch objects
+        # ("Relocations in generic ELF (EM: 183)" / "file in wrong format"). Clean
+        # per-arch before building.
+        "$0" $archflag clean >/dev/null 2>&1 || true
+        if [[ ${#MODULES[@]} -gt 0 ]]; then
+            # shellcheck disable=SC2086
+            "$0" $archflag container tag="$tag" module="$mod_csv" $extra || return 1
+        fi
+        if [[ $NVSTREAMER -eq 1 ]]; then
+            # NVStreamer is a distinct app; if modules were just built in this
+            # arch pass, clean first so NVStreamer recompiles the shared framework
+            # objects with its own CPPFLAGS instead of relinking the module-flavored
+            # ones (that contamination broke the arm64 NVStreamer /sensor/list).
+            if [[ ${#MODULES[@]} -gt 0 ]]; then
+                "$0" $archflag clean >/dev/null 2>&1 || true
+            fi
+            # shellcheck disable=SC2086
+            "$0" $archflag nvstreamer container tag="$tag" $extra || return 1
+        fi
+    }
+    _ma_push() {
+        local tag="$1" r
+        for r in "${repos[@]}"; do docker push "$r:$tag" || return 1; done
+    }
+
+    echo "[multiarch] building amd64 ..."
+    _ma_build "" "$amd_tag" || { echo "[ERROR] amd64 build failed"; exit 1; }
+
+    echo "[multiarch] pushing amd64 (background) while building arm64 ..."
+    _ma_push "$amd_tag" & local amd_push=$!
+
+    _ma_build "arch=arm64" "$arm_tag" || {
+        echo "[ERROR] arm64 build failed"; kill "$amd_push" 2>/dev/null; wait "$amd_push" 2>/dev/null; exit 1; }
+
+    wait "$amd_push" || { echo "[ERROR] amd64 push failed"; exit 1; }
+    echo "[multiarch] pushing arm64 ..."
+    _ma_push "$arm_tag" || { echo "[ERROR] arm64 push failed"; exit 1; }
+
+    echo "[multiarch] assembling manifests ..."
+    local r
+    for r in "${repos[@]}"; do
+        docker buildx imagetools create \
+            --tag "$r:$TAG" \
+            "$r:$arm_tag" \
+            "$r:$amd_tag" || { echo "[ERROR] imagetools create failed: $r"; exit 1; }
+    done
+
+    # Summary
+    echo ""
+    echo "================ multiarch complete ================"
+    echo "  registry : $IMAGE_REGISTRY"
+    echo "  pushed   : per-arch images (amd64 + arm64)"
+    for r in "${repos[@]}"; do
+        echo "     - $r:$amd_tag"
+        echo "     - $r:$arm_tag"
+    done
+    echo "  manifest : multi-arch tag (amd64 + arm64)"
+    for r in "${repos[@]}"; do
+        echo "     - $r:$TAG"
+    done
+    echo "===================================================="
+}
+
+if [[ $MULTIARCH -eq 1 ]]; then
+    build_multiarch
+    exit 0
+fi
+
+# `./build.sh all` — from a fresh clone, build everything in one command:
+# toolchain → base → module containers (sensor + streamprocessing by default,
+# or whatever module=… listed) → nvstreamer container.
+# Auto-deps are mandatory here (the whole point of `all`), so we ignore
+# NO_AUTO_DEPS for this path.
+if [[ $BUILD_ALL -eq 1 ]]; then
+    echo "=============================================="
+    echo "./build.sh all — full pipeline"
+    echo "=============================================="
+
+    # Default the module list if user didn't pass one. Sensor + streamprocessing
+    # is the smallest set that produces a functional deploy.
+    if [[ ${#MODULES[@]} -eq 0 ]]; then
+        MODULES=("sensor" "streamprocessing")
+        echo "[all] No module=… given, defaulting to: ${MODULES[*]}"
+    fi
+
+    ensure_toolchain_image
+    ensure_base_image
+
+    # Compile + containerize the requested modules.
+    CONTAINER=1
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
+        build_all 1 1 1
+    else
+        build_all 0 1 1
+    fi
+
+    # Build the NVStreamer container too — `--target all` deploy needs it.
+    echo ""
+    echo "[all] Building NVStreamer container..."
+    build_vios_ui_webroot
+    NVSTREAMER=1
+    if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
+        build_all 1 0 0
+    else
+        build_all 0 0 0
+    fi
+
+    echo ""
+    echo "=============================================="
+    echo "./build.sh all — complete"
+    echo "=============================================="
+    echo ""
+    echo "Images built (locally tagged, not pushed):"
+    echo "  toolchain : $(get_toolchain_image_name)"
+    _base_tag="${BASE_TAG:-${DEFAULT_TAGS["vst-base"]:-latest}}"
+    echo "  base      : $IMAGE_REGISTRY/vst-base:$_base_tag"
+    for _m in "${MODULES[@]}"; do
+        _mt="${DEFAULT_TAGS[$_m]:-latest}"
+        echo "  module    : $IMAGE_REGISTRY/vst-${_m}:${TAG:-$_mt}"
+    done
+    echo "  nvstreamer: $NVSTREAMER_IMAGE:${DEFAULT_TAGS[nvstreamer]:-latest}"
+    echo ""
+    echo "To publish to your registry, set the registry env vars BEFORE running"
+    echo "the build (the tag is baked into the image at build time — see the"
+    echo "README's 'Pushing built images to a registry' section). Then push:"
+    echo ""
+    # Join MODULES with commas for the module= example. The array is
+    # space-separated by default which would be the wrong arg shape.
+    _mod_csv=$(IFS=, ; echo "${MODULES[*]}")
+    echo "  ./build.sh toolchain push=1"
+    echo "  ./build.sh base-container push=1"
+    echo "  ./build.sh container module=$_mod_csv push=1"
+    echo ""
+    exit 0
+fi
+
+# ============================================================================
+# Auto-detect missing prerequisites for everything else
+# ============================================================================
+# Every other path (TESTS, PACKAGE, CONTAINER, default compile, base-container
+# clean) eventually runs `make` which expects the toolchain image to exist —
+# the make wrapper does `docker run -v $(TOP):/root $TOOLCHAIN_IMG ...`.
+# Auto-detect handles fresh clones; idempotent on warm hosts (cheap docker
+# image inspect). Skipped for `help` and `clean`-only paths where compilation
+# isn't actually needed.
+# Clean is a delete-only operation — handle it up front so it works regardless
+# of module flags, cleans whatever arch(es) were actually built (auto-detected
+# from the record_built_arch stamps), and never needs the toolchain just to rm.
+if [[ $CLEAN -eq 1 ]]; then
+    do_clean
+    exit 0
+fi
+
+if [[ $CLEAN -eq 0 ]]; then
+    ensure_toolchain_image
+fi
+# Base image is only needed when actually building module containers.
+# build_base_image / clean / package / default-compile do not need it.
+if [[ $CONTAINER -eq 1 ]] && [[ $BASE_IMAGE -eq 0 ]] \
+   && [[ $INGRESS -eq 0 ]] && [[ $NVSTREAMER_INGRESS -eq 0 ]] \
+   && [[ $MCP -eq 0 ]]; then
+    ensure_base_image
+fi
+
 if [[ ${#MODULES[@]} -eq 0 ]]; then
     # No modules specified
     if [[ $TESTS -eq 1 ]]; then
@@ -874,20 +1562,11 @@ if [[ ${#MODULES[@]} -eq 0 ]]; then
             UI_DIR="$INGRESS_BUILD_ROOT/ui/vios-ui"
             VST_UI_DIR="$INGRESS_BUILD_ROOT/deployment/scaling/ingress/vst-ui"
 
-            echo "Building vios-ui in $UI_DIR ..."
-            cd "$UI_DIR" || { echo "[ERROR] Cannot find vios-ui directory: $UI_DIR"; exit 1; }
-            npm run install:link || { echo "[ERROR] npm run install:link failed"; exit 1; }
-            npm run build || { echo "[ERROR] npm run build failed"; exit 1; }
-
-            if [[ ! -d "dist" ]]; then
-                echo "[ERROR] vios-ui dist directory not found after build"
-                exit 1
-            fi
+            build_vios_ui "$INGRESS_BUILD_ROOT" || exit 1
 
             echo "Staging vios-ui dist into $VST_UI_DIR ..."
             find "$VST_UI_DIR" -mindepth 1 -not -name '.gitkeep' -delete
-            cp -rf dist/. "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
-            cd "$INGRESS_BUILD_ROOT" || exit 1
+            cp -rf "$UI_DIR/dist/." "$VST_UI_DIR/" || { echo "[ERROR] Failed to copy vios-ui dist to $VST_UI_DIR"; exit 1; }
 
             cd deployment/scaling/ingress/ || exit 1
             echo "Building Docker image: $imagename"
