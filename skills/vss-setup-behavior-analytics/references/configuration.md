@@ -23,8 +23,8 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
 
 ## Common app keys (examples)
 - `in3dMode`: "false" (supports env var when value starts with `$`)
-- `coordinateSystem`: "image" | "euclidean" | "geo"
 - `imageLocationMode`: "center" | "bottom_center" (for image coordinate system, determines which point from bbox is used to calculate location; default: "bottom_center")
+- `roiEventDetectionMode`: "coordinate" | "bbox" (ROI ENTRY/EXIT test; "coordinate" [default] = object point inside ROI polygon, "bbox" = object bbox overlaps ROI polygon; "bbox" is image-calibration only, else falls back to coordinate)
 - `behaviorMaxPoints`: "200"
 - `sourceType` / `sinkType`: typically "kafka" (also supports `redisStream`, `mqtt`)
 - `spaceAnalyticsIntervalSec`: "5.0"
@@ -54,7 +54,7 @@ Configurations are JSON files consumed by `AppConfig` (`video-search-and-summari
   "sensors": [{"id": "default", "configs": []}],
   "app": [
     {"name": "behaviorMaxPoints", "value": "200"},
-    {"name": "coordinateSystem", "value": "image"}
+    {"name": "in3dMode", "value": "false"}
   ]
 }
 ```
