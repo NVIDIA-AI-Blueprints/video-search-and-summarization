@@ -396,6 +396,55 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         )
         self.assertEqual(defaults["MCP_URL"], "http://127.0.0.1:9988/mcp")
 
+    def test_vss_notebook_leaves_gpu_placement_to_profile_defaults(self):
+        notebook = json.loads(
+            (REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_vss_orchestrator.ipynb").read_text()
+        )
+        settings_cells = [cell for cell in notebook["cells"] if cell.get("id") == "20b35654"]
+        self.assertEqual(len(settings_cells), 1)
+        source = "".join(settings_cells[0].get("source", ""))
+
+        self.assertIn('LLM_DEVICE_ID = ""', source)
+        self.assertIn('VLM_DEVICE_ID = ""', source)
+        self.assertNotIn('LLM_DEVICE_ID = "0"', source)
+        self.assertNotIn('VLM_DEVICE_ID = "1"', source)
+
+    def test_parameter_cell_preserves_blank_notebook_gpu_defaults(self):
+        defaults = {
+            "HARDWARE_PROFILE": "RTXPRO6000BW",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "",
+            "COMPATIBLE_API_KEY": "",
+            "LLM_DEVICE_ID": "",
+            "VLM_DEVICE_ID": "",
+        }
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            exec(notebook_adapter.PARAMETER_SOURCE, defaults)
+
+        self.assertEqual(defaults["LLM_DEVICE_ID"], "")
+        self.assertEqual(defaults["VLM_DEVICE_ID"], "")
+
+    def test_parameter_cell_honors_explicit_ci_gpu_placement(self):
+        defaults = {
+            "HARDWARE_PROFILE": "RTXPRO6000BW",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "",
+            "COMPATIBLE_API_KEY": "",
+            "LLM_DEVICE_ID": "",
+            "VLM_DEVICE_ID": "",
+        }
+
+        with mock.patch.dict(
+            os.environ,
+            {"LLM_DEVICE_ID": "2", "VLM_DEVICE_ID": "3"},
+            clear=True,
+        ):
+            exec(notebook_adapter.PARAMETER_SOURCE, defaults)
+
+        self.assertEqual(defaults["LLM_DEVICE_ID"], "2")
+        self.assertEqual(defaults["VLM_DEVICE_ID"], "3")
+
     def test_agent_setup_cell_compiles_from_split_vss_notebook(self):
         notebook = json.loads(
             (REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_vss_orchestrator.ipynb").read_text()
