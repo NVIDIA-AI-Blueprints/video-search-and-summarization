@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import textwrap
+import time
 import types
 import unittest
 from pathlib import Path
@@ -212,8 +215,240 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
+    async def test_docker_reset_preserves_only_openshell_bridge(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(
+                stdout="docker runtime reset OK\n",
+                stderr=None,
+                return_code=0,
+            )
+
+        original_exec = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._reset_docker_runtime(preserve_openshell_gateway=True)
+            await env._reset_docker_runtime()
+        finally:
+            brev_env._run_brev_exec = original_exec
+
+        self.assertEqual(len(calls), 2)
+        command = calls[0][1]
+        non_nemoclaw_command = calls[1][1]
+        self.assertNotIn("docker network prune", command)
+        self.assertIn("preserve_openshell_gateway=1", command)
+        self.assertIn("preserve_openshell_gateway=0", non_nemoclaw_command)
+        self.assertIn("openshell_network=openshell-docker", command)
+        self.assertIn("docker network rm", command)
+        self.assertIn("refusing to preserve OpenShell network with driver", command)
+        self.assertIn("openshell.ai/managed-by", command)
+        self.assertIn("without an IPv4 IPAM gateway", command)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            networks = root / "networks"
+            networks.mkdir()
+            preserved = networks / "keep-id"
+            stale = networks / "stale-id"
+            preserved.write_text(
+                "openshell-docker bridge openshell 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            stale.write_text(
+                "stale-vss bridge unrelated 172.30.0.1\n",
+                encoding="utf-8",
+            )
+            removals = root / "removals.log"
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/bin/sh
+                    set -eu
+                    case "$1" in
+                      info|ps|volume)
+                        exit 0
+                        ;;
+                      images)
+                        printf 'image-id\n'
+                        exit 0
+                        ;;
+                      network)
+                        case "$2" in
+                          ls)
+                            if [ "${FAKE_DOCKER_FAIL:-}" = "network-ls" ]; then
+                              exit 3
+                            fi
+                            for network_file in "$FAKE_DOCKER_NETWORKS"/*; do
+                              [ -f "$network_file" ] || continue
+                              basename "$network_file"
+                            done
+                            exit 0
+                            ;;
+                          inspect)
+                            if [ "${FAKE_DOCKER_FAIL:-}" = "network-inspect" ]; then
+                              exit 4
+                            fi
+                            template="$4"
+                            network_id="$5"
+                            read -r network_name network_driver network_owner network_gateway < \
+                              "$FAKE_DOCKER_NETWORKS/$network_id"
+                            if [ "$template" = "{{.Name}}" ]; then
+                              printf '%s\n' "$network_name"
+                            elif [ "$template" = "{{.Driver}}" ]; then
+                              printf '%s\n' "$network_driver"
+                            elif [ "$template" = '{{index .Labels "openshell.ai/managed-by"}}' ]; then
+                              printf '%s\n' "$network_owner"
+                            elif [ "$template" = "{{range .IPAM.Config}}{{.Gateway}} {{end}}" ]; then
+                              printf '%s\n' "$network_gateway"
+                            else
+                              exit 2
+                            fi
+                            exit 0
+                            ;;
+                          rm)
+                            if [ "${FAKE_DOCKER_FAIL:-}" = "network-rm" ]; then
+                              exit 5
+                            fi
+                            network_id="$3"
+                            printf '%s\n' "$network_id" >> "$FAKE_DOCKER_REMOVALS"
+                            rm "$FAKE_DOCKER_NETWORKS/$network_id"
+                            exit 0
+                            ;;
+                        esac
+                        ;;
+                    esac
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            reset_env = {
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "FAKE_DOCKER_NETWORKS": str(networks),
+                "FAKE_DOCKER_REMOVALS": str(removals),
+            }
+
+            reset = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(reset.returncode, 0, reset.stderr)
+            self.assertIn("images and valid OpenShell bridge preserved", reset.stdout)
+            self.assertTrue(preserved.is_file())
+            self.assertFalse(stale.exists())
+            self.assertEqual(removals.read_text(encoding="utf-8").strip(), "stale-id")
+
+            preserved.write_text(
+                "openshell-docker overlay openshell 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(
+                "refusing to preserve OpenShell network with driver overlay",
+                rejected.stderr,
+            )
+
+            preserved.write_text(
+                "openshell-docker bridge unrelated 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            rejected_owner = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected_owner.returncode, 0)
+            self.assertIn("without managed ownership label", rejected_owner.stderr)
+
+            preserved.write_text(
+                "openshell-docker bridge openshell 2001:db8::1\n",
+                encoding="utf-8",
+            )
+            rejected_ipam = subprocess.run(
+                ["bash", "-c", command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected_ipam.returncode, 0)
+            self.assertIn("without an IPv4 IPAM gateway", rejected_ipam.stderr)
+
+            failed_list = subprocess.run(
+                ["bash", "-c", command],
+                env={**reset_env, "FAKE_DOCKER_FAIL": "network-ls"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(failed_list.returncode, 0)
+            self.assertIn("failed to enumerate docker networks", failed_list.stderr)
+
+            preserved.write_text(
+                "openshell-docker bridge openshell 172.29.0.1\n",
+                encoding="utf-8",
+            )
+            failed_inspect = subprocess.run(
+                ["bash", "-c", command],
+                env={**reset_env, "FAKE_DOCKER_FAIL": "network-inspect"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(failed_inspect.returncode, 0)
+            self.assertIn("failed to inspect docker network", failed_inspect.stderr)
+
+            stale.write_text(
+                "stale-vss bridge unrelated 172.30.0.1\n",
+                encoding="utf-8",
+            )
+            failed_remove = subprocess.run(
+                ["bash", "-c", command],
+                env={**reset_env, "FAKE_DOCKER_FAIL": "network-rm"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(failed_remove.returncode, 0)
+            self.assertIn("failed to remove docker network", failed_remove.stderr)
+            self.assertTrue(stale.exists())
+            stale.unlink()
+
+            ordinary_reset = subprocess.run(
+                ["bash", "-c", non_nemoclaw_command],
+                env=reset_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(ordinary_reset.returncode, 0, ordinary_reset.stderr)
+            self.assertFalse(preserved.exists())
+            self.assertIn("images preserved", ordinary_reset.stdout)
+
     async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
         calls = []
+        reset_kwargs = []
 
         async def fake_find_brev_instance(name):
             return {"name": name, "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
@@ -253,9 +488,12 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 async def noop(self, *args, **kwargs):
                     return None
 
+                async def reset_noop(self, *args, **kwargs):
+                    reset_kwargs.append(kwargs)
+
                 env = brev_env.BrevEnvironment()
                 env.environment_dir = env_dir
-                env._reset_docker_runtime = types.MethodType(noop, env)
+                env._reset_docker_runtime = types.MethodType(reset_noop, env)
                 env._sync_repo_to_pr_head = types.MethodType(noop, env)
                 env._ensure_nemoclaw_ready = types.MethodType(noop, env)
                 await env.start(force_build=False)
@@ -266,6 +504,10 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             brev_env._run_brev_exec = original_exec
             brev_env.DEFAULT_INSTANCE = original_default
 
+        self.assertEqual(
+            reset_kwargs,
+            [{"preserve_openshell_gateway": True}],
+        )
         reset_commands = [command for _, command, _ in calls if "sudo rm -rf" in command]
         self.assertEqual(len(reset_commands), 1)
         reset = reset_commands[0]
@@ -392,9 +634,193 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             command,
         )
         self.assertNotIn("chown -R $gateway_state_dir", command)
+        self.assertIn(
+            "$HOME/.nemoclaw/source/dist/lib/tunnel/gateway-port-release.js",
+            command,
+        )
+        self.assertIn("releaseManagedGatewayPort({", command)
+        self.assertIn("confirmTimeoutMs: 5000", command)
+        self.assertIn("gateway_port_is_free", command)
+        self.assertNotIn("docker network create", command)
+        self.assertNotIn("pkill", command)
+
+        reconcile_start = command.index(
+            'gateway_port="${NEMOCLAW_GATEWAY_PORT:-8080}"'
+        )
+        reconcile_end = command.index('recreate_value="', reconcile_start)
+        reconcile_script = (
+            "set -eo pipefail\n"
+            "stage() { printf '%s\\n' \"$*\"; }\n"
+            + command[reconcile_start:reconcile_end]
+        )
+
+        def unused_port() -> int:
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                return int(sock.getsockname()[1])
+
+        def wait_until_listening(port: int) -> None:
+            for _ in range(100):
+                with socket.socket() as sock:
+                    if sock.connect_ex(("127.0.0.1", port)) == 0:
+                        return
+                time.sleep(0.02)
+            self.fail(f"test listener did not bind port {port}")
+
+        listener_source = (
+            "import socket,sys,time;"
+            "s=socket.socket();"
+            "s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);"
+            "s.bind(('127.0.0.1',int(sys.argv[1])));"
+            "s.listen();"
+            "time.sleep(30)"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            module = (
+                home
+                / ".nemoclaw"
+                / "source"
+                / "dist"
+                / "lib"
+                / "tunnel"
+                / "gateway-port-release.js"
+            )
+            module.parent.mkdir(parents=True)
+            module.write_text("// fake pinned module\n", encoding="utf-8")
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            node_log = Path(td) / "node.log"
+
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                "#!/bin/sh\n"
+                "if [ \"${FAKE_NETWORK_PRESENT:-0}\" = 1 ]; then "
+                "printf 'openshell-docker\\n'; fi\n",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            fake_node = fake_bin / "node"
+            fake_node.write_text(
+                "#!/bin/sh\n"
+                "printf '%s|%s\\n' \"$GATEWAY_RELEASE_MODULE\" "
+                "\"$GATEWAY_RELEASE_PORT\" >> \"$FAKE_NODE_LOG\"\n"
+                "if [ \"${FAKE_NODE_NOOP:-0}\" != 1 ]; then "
+                "kill \"$FAKE_GATEWAY_PID\"; fi\n",
+                encoding="utf-8",
+            )
+            fake_node.chmod(0o755)
+            base_env = {
+                **os.environ,
+                "HOME": str(home),
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "FAKE_NODE_LOG": str(node_log),
+            }
+
+            port = unused_port()
+            listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(port)
+                reconciled = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(port),
+                        "FAKE_GATEWAY_PID": str(listener.pid),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(reconciled.returncode, 0, reconciled.stderr)
+                listener.wait(timeout=5)
+                self.assertIn(
+                    f"{module}|{port}",
+                    node_log.read_text(encoding="utf-8"),
+                )
+                self.assertIn("released stale host gateway", reconciled.stdout)
+            finally:
+                if listener.poll() is None:
+                    listener.terminate()
+                    listener.wait(timeout=5)
+
+            node_calls_before = node_log.read_text(encoding="utf-8")
+            preserved_port = unused_port()
+            preserved_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(preserved_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(preserved_port)
+                preserved_result = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(preserved_port),
+                        "FAKE_GATEWAY_PID": str(preserved_listener.pid),
+                        "FAKE_NETWORK_PRESENT": "1",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    preserved_result.returncode,
+                    0,
+                    preserved_result.stderr,
+                )
+                self.assertIsNone(preserved_listener.poll())
+                self.assertEqual(
+                    node_log.read_text(encoding="utf-8"),
+                    node_calls_before,
+                )
+            finally:
+                preserved_listener.terminate()
+                preserved_listener.wait(timeout=5)
+
+            blocked_port = unused_port()
+            blocked_listener = subprocess.Popen(
+                [sys.executable, "-c", listener_source, str(blocked_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                wait_until_listening(blocked_port)
+                blocked = subprocess.run(
+                    ["bash", "-c", reconcile_script],
+                    env={
+                        **base_env,
+                        "NEMOCLAW_GATEWAY_PORT": str(blocked_port),
+                        "FAKE_GATEWAY_PID": str(blocked_listener.pid),
+                        "FAKE_NODE_NOOP": "1",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(blocked.returncode, 0)
+                self.assertIn("still busy after scoped release", blocked.stderr)
+                self.assertIsNone(blocked_listener.poll())
+            finally:
+                blocked_listener.terminate()
+                blocked_listener.wait(timeout=5)
 
         repair_end = command.index("if command -v apt-get", repair_index)
-        repair_script = "set -e\nstage() { :; }\n" + command[repair_index:repair_end]
+        repair_start = command.index('recreate_value="', repair_index)
+        repair_script = (
+            "set -e\n"
+            "stage() { :; }\n"
+            'default_gateway_state_dir="$HOME/.local/state/nemoclaw/'
+            'openshell-docker-gateway"\n'
+            'gateway_state_dir="${NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR:-'
+            '$default_gateway_state_dir}"\n'
+            + command[repair_start:repair_end]
+        )
         with tempfile.TemporaryDirectory() as td:
             home = Path(td) / "home"
             state_dir = (
