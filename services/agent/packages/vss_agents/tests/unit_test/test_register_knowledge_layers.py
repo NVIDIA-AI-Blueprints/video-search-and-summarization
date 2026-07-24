@@ -51,7 +51,17 @@ class TestKnowledgeRetrievalConfig:
         assert cfg.backend == "frag_api"
         assert cfg.top_k == 5
         assert cfg.backend_config == {}
+        assert cfg.llm_name is None
         assert cfg.generate_summary is False
+
+    def test_arango_graph_accepts_top_level_llm_ref(self):
+        cfg = KnowledgeRetrievalConfig(
+            backend="arango_graph",
+            llm_name="nim_llm",
+            backend_config={"arango_database": "example_graphs"},
+        )
+        assert cfg.llm_name == "nim_llm"
+        assert "llm_name" not in cfg.backend_config
 
     def test_unknown_top_level_field_rejected(self):
         # `extra="forbid"` — backend-specific knobs (incl. collection_name)
@@ -85,20 +95,16 @@ class TestSetupBackend:
         }
 
     @pytest.mark.asyncio
-    async def test_non_arango_backend_uses_common_factory(self):
+    async def test_non_graph_backend_uses_common_factory(self):
         backend_config = {"rag_url": "http://rag:8081/v1"}
+        cfg = KnowledgeRetrievalConfig(backend="frag_api", backend_config=backend_config)
         expected_retriever = MagicMock(name="retriever")
 
         with patch(
             "vss_agents.register_knowledge_layers.get_retriever",
             new=AsyncMock(return_value=expected_retriever),
         ) as get_retriever_mock:
-            retriever = await _setup_retriever(
-                KnowledgeRetrievalConfig(backend="frag_api"),
-                "frag_api",
-                backend_config,
-                AsyncMock(),
-            )
+            retriever = await _setup_retriever(cfg, "frag_api", backend_config, AsyncMock())
 
         assert retriever is expected_retriever
         get_retriever_mock.assert_awaited_once_with("frag_api", backend_config)
@@ -111,6 +117,11 @@ class TestSetupBackend:
         resolved_llm = MagicMock(name="resolved_llm")
         builder.get_llm.return_value = resolved_llm
         backend_config = {"arango_database": "example_graphs"}
+        cfg = KnowledgeRetrievalConfig(
+            backend="arango_graph",
+            llm_name="nim_llm",
+            backend_config=backend_config,
+        )
 
         class FakeArangoGraphConfig:
             def __init__(self, **kwargs):
@@ -124,27 +135,19 @@ class TestSetupBackend:
         monkeypatch.setattr(arango_graph, "ArangoGraphConfig", FakeArangoGraphConfig)
         monkeypatch.setattr(arango_graph, "ArangoGraphAdapter", FakeArangoGraphAdapter)
 
-        retriever = await _setup_retriever(
-            KnowledgeRetrievalConfig(backend="arango_graph", llm_name="nim_llm"),
-            "arango_graph",
-            backend_config,
-            builder,
-        )
+        retriever = await _setup_retriever(cfg, "arango_graph", backend_config, builder)
 
         assert isinstance(retriever, FakeArangoGraphAdapter)
-        assert retriever.config.kwargs == {"arango_database": "example_graphs"}
+        assert retriever.config.kwargs == backend_config
         assert retriever.llm is resolved_llm
+        assert backend_config == {"arango_database": "example_graphs"}
         builder.get_llm.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_arango_graph_requires_llm_name(self):
+        cfg = KnowledgeRetrievalConfig(backend="arango_graph", backend_config={})
         with pytest.raises(ValueError, match="llm_name"):
-            await _setup_retriever(
-                KnowledgeRetrievalConfig(backend="arango_graph"),
-                "arango_graph",
-                {},
-                AsyncMock(),
-            )
+            await _setup_retriever(cfg, "arango_graph", {}, AsyncMock())
 
 
 class TestFormatResults:

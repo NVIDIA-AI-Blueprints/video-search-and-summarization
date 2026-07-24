@@ -179,14 +179,10 @@ functions:
   #   top_k: 5
   #   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   #   backend_config:
-  #     # Optional. Defaults to arango_graph; custom providers can use provider_config.
-  #     provider: arango_graph
-  #     # Provider-specific connection settings. These can also come from
-  #     # ARANGO_* env vars.
-  #     provider_config:
-  #       arango_url: ${ARANGO_URL:-http://arango-db:8529}
-  #       arango_database: ${ARANGO_DB:-example_graphs}
-  #       arango_graph_name: ${ARANGO_GRAPH_NAME:-example_graph}
+  #     # Connection settings can also come from ARANGO_* env vars.
+  #     arango_url: ${ARANGO_URL:-http://arango-db:8529}
+  #     arango_database: ${ARANGO_DB:-example_graphs}
+  #     arango_graph_name: ${ARANGO_GRAPH_NAME:-example_graph}
   #     schema_description: |
   #       node_a vertices connect to node_b vertices through related_to edges.
   #       Replace these names with your existing graph schema.
