@@ -142,9 +142,14 @@ Pre-flight check before deploy:
 DATA_DIR="${VSS_DATA_DIR:?VSS_DATA_DIR not set in generated.env}"
 DATASET="${SAMPLE_VIDEO_DATASET:-warehouse-4cams-20mx20m-synthetic}"
 
-for sub in videos models data_log; do
+for sub in videos data_log; do
   test -d "${DATA_DIR}/${sub}" || { echo "ERROR: ${DATA_DIR}/${sub} missing"; exit 1; }
 done
+
+# RT-CV models are downloaded per-file during Compose startup. The deploy helper
+# prepares this directory and its write permissions; create it for pre-flight
+# visibility without requiring models to be pre-staged from app-data.
+mkdir -p "${DATA_DIR}/models"
 
 # For sample / videos modes — videos directory must exist
 test -d "${DATA_DIR}/videos/${DATASET}" \
@@ -190,7 +195,7 @@ setfacl -R -d -m "$ACL" "${DATA_DIR}/data_log"
 > daemon still logs a permission error after deploy, find its UID
 > (`docker inspect <container> --format '{{.Config.User}}'`) and add `-m u:<uid>:rwx` to both calls.
 
-If app-data isn't extracted yet: download via `ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<version>"` and `tar -xvf` (see [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) for tag discovery and full steps).
+If app-data isn't extracted yet: download the videos/playback/calibration bundle via `ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<version>"` and `tar -xvf` (see [`references/deploy-rtvi-cv-3d-stack.md`](references/deploy-rtvi-cv-3d-stack.md) for tag discovery and full steps). RT-DETR and BodyPose3DNet are downloaded separately by ds-start phase 0 inside the perception container.
 
 ### 5. Pre-flight (system)
 
@@ -214,7 +219,7 @@ When any deploy, calibration, or verification step fails, stop and classify the 
 | AMC project creation, upload, calibration, or MV3DT export fails | AutoMagicCalib service/API issue outside this MV3DT deploy path | Use [`../vss-generate-video-calibration/SKILL.md`](../vss-generate-video-calibration/SKILL.md) to deploy/debug AMC, then return to [`references/calibration-workflow.md`](references/calibration-workflow.md) after export succeeds |
 | `vss-behavior-analytics-mv3dt` restarts with calibration schema validation errors | AMC export has empty `group`, `region`, or `place` fields | Apply the placeholder patch in [`references/calibration-workflow.md`](references/calibration-workflow.md) Step 4a, or populate those fields in AMC before export |
 | Extended deployment has no overlays and `vss-import-calibration-output-mv3dt` logs `imageMetadata.json not found` | AMC MV3DT export did not produce `images/Top.png` and `images/imageMetadata.json` | Synthesize both files with [`references/calibration-workflow.md`](references/calibration-workflow.md) Step 4b, then restart the one-shot importer |
-| Image pulls, model load, or first-start engine build fail | Missing / expired `NGC_CLI_API_KEY`, incorrect `VSS_DATA_DIR`, missing BodyPose3DNet files, or GPU OOM | Re-check NGC auth, confirm `${VSS_DATA_DIR}/models/mv3dt/BodyPose3DNet/`, tail `vss-rtvi-cv-mv3dt` logs, and free or change `RT_CV_DEVICE_ID` if the GPU is exhausted |
+| Image pulls, model download/load, or first-start engine build fail | Missing / expired `NGC_CLI_API_KEY`, unwritable `${VSS_DATA_DIR}/models`, ds-start phase-0 download failure, or GPU OOM | Re-check NGC auth, confirm `${VSS_DATA_DIR}/models/BodyPose3DNet/bodypose3dnet_accuracy.onnx` and `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx`, inspect `vss-rtvi-cv-mv3dt` logs for phase-0 download errors, and free or change `RT_CV_DEVICE_ID` if the GPU is exhausted |
 
 Before destructive recovery (`docker compose down -v`, clearing `data_log`, deleting VST sensor state, or changing host ACLs), explain the impact and get user confirmation. Capture the failing command, relevant values from `.env` plus `generated.env`, `docker compose ps`, and the last container logs before making state-reset changes.
 

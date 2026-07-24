@@ -158,7 +158,7 @@ Knobs (in `dev-profile-search/.env`):
 | `DS_MODE_FLAG` | `1` | DeepStream mode. |
 | `DS_MESSAGE_RATE` | `1` | Inference messages per second per stream. |
 | `DS_TRACKER_REID` | `false` | Enable re-identification (extra VRAM). |
-| `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by `perception-2d-init`. |
+| `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by ds-start phase 0. |
 | `RT_CV_DEVICE_ID` | `0` | Which GPU RT-CV pins to. |
 | `PERCEPTION_TAG` | `3.3.0-26.07.2` | Image tag (use `-sbsa-` variant on DGX Spark). |
 
@@ -242,46 +242,22 @@ deploy/docker/developer-profiles/dev-profile-search/.env
 deploy/docker/developer-profiles/dev-profile-search/generated.env
 ```
 
-## Stage perception models (RT-DETR warehouse)
+## Perception model download (automatic)
 
-**MUST run before `docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`.** The compose's `perception-2d-init` container only fetches the SigLIP vision encoder. The RT-DETR detector model that RT-CV needs is staged separately by `dev-profile.sh` — and since this skill doesn't run that script, the agent must stage it directly.
+The RT-DETR detector model, SigLIP vision encoder, and any other required assets are downloaded automatically by `ds-start.sh` phase 0 at perception container startup when `DS_MODEL_DOWNLOAD=auto` is set (the default in the compose file). No manual model staging or separate init container is needed.
 
-Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.2.fp16.onnx` is missing. (User-confirmed on 2026-05-10.)
-
-```bash
-# Source: deploy/docker/scripts/dev-profile.sh (search profile, model staging block)
-# Requires NGC_CLI_API_KEY exported and ngc CLI on PATH (see references/ngc.md).
-
-DATA="$VSS_DATA_DIR"                                     # e.g. <repo>/data
-mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/models"
-
-NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
-    download-version \
-    nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
-    --org nvidia
-
-mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx \
-    "$DATA/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
-
-chmod -R 777 "$DATA/models"
-```
-
-**Verify** before deploying:
+Ensure `NGC_CLI_API_KEY` is exported and `${VSS_DATA_DIR}/models` exists and is writable before first deploy:
 
 ```bash
-ls -l "$VSS_DATA_DIR/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
-# expected: ~30–50 MB onnx file, mode 777
+mkdir -p "$VSS_DATA_DIR/models"
+chmod -R 777 "$VSS_DATA_DIR/models"
 ```
 
-After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on
-first start). Note that engine caches live alongside the ONNX files under
-`$VSS_DATA_DIR/models/` here, not under `$VSS_APPS_DIR/engines/` like the
-alerts profile — see [`alerts.md` § Stage perception models](alerts.md#stage-perception-models-rtdetr-its--gdino) for the alerts-profile path.
+After download, RT-CV builds a TensorRT engine from the ONNX (3–5 min on first start). Engine caches live alongside the ONNX files under `$VSS_DATA_DIR/models/`.
 
 ## First-run note
 
-RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; RT-CV's `perception-2d-init` downloads `siglip_v2` from NGC, then builds a TensorRT engine from the ONNX staged in [Stage perception models](#stage-perception-models-rt-detr-warehouse) above. Expect 15–25 min extra on the first deploy.
+RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; ds-start phase 0 downloads `siglip_v2` from NGC and stages the RT-DETR ONNX, then builds a TensorRT engine. Expect 15–25 min extra on the first deploy.
 
 ### HuggingFace token for RT-Embed
 

@@ -45,7 +45,7 @@ and `--labels` / `--anchor` are not, the script defaults `LABELS` and
 `ANCHOR` to siblings of the ONNX (`labels.txt` and the first `*.npy` in
 the ONNX's parent dir). This is structurally safe — every warehouse NGC
 resource ships these three files in the same directory
-(`vss-warehouse-app-data/models/sparse4d/ov/`) — and it prevents
+(`models/sparse4d/`) — and it prevents
 `RESOLVE_AMBIGUOUS: labels count=2` when prior smartcity-rtdetr resources
 (which also contain a `labels.txt`) are still cached under
 `/opt/storage/resources/`. The canonical Step 4 call from SKILL.md
