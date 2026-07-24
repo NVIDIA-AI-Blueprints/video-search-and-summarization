@@ -211,6 +211,56 @@ class ComposeStatus(StrEnum):
 
 _SUPPORTED_COMPOSE_ACTIONS: Final[frozenset[str]] = frozenset(action.value for action in ComposeAction)
 _ALL_KNOWN_STATUSES: Final[frozenset[str]] = frozenset(status.value for status in ComposeStatus)
+_GPU_DEVICE_OVERRIDE_KEYS: Final[tuple[str, ...]] = (
+    "LLM_DEVICE_ID",
+    "RT_CV_DEVICE_ID",
+    "RT_EMBED_DEVICE_ID",
+    "RT_VLM_DEVICE_ID",
+    "SHARED_LLM_VLM_DEVICE_ID",
+    "VLM_DEVICE_ID",
+)
+
+
+def _gpu_indices_from_prereqs(report: dict[str, object]) -> frozenset[str] | None:
+    """Extract detected numeric GPU indices from a prereqs report."""
+
+    raw_gpus = report.get("gpus")
+    if not isinstance(raw_gpus, list):
+        return None
+    indices: set[str] = set()
+    for gpu in raw_gpus:
+        if not isinstance(gpu, dict):
+            continue
+        index = gpu.get("index")
+        if isinstance(index, int) and index >= 0:
+            indices.add(str(index))
+        elif isinstance(index, str) and index.strip().isdecimal():
+            indices.add(str(int(index.strip())))
+    return frozenset(indices)
+
+
+def _validate_gpu_device_overrides(
+    env_overrides: dict[str, str],
+    available_gpu_indices: frozenset[str] | None,
+) -> None:
+    """Reject numeric device overrides that the preceding prereqs did not see."""
+
+    if available_gpu_indices is None:
+        return
+    invalid: list[str] = []
+    for key in _GPU_DEVICE_OVERRIDE_KEYS:
+        value = env_overrides.get(key, "").strip()
+        if value.isdecimal() and str(int(value)) not in available_gpu_indices:
+            invalid.append(f"{key}={value}")
+    if not invalid:
+        return
+    available = ", ".join(sorted(available_gpu_indices, key=int)) or "(none)"
+    raise ValidationError(
+        "GPU device override(s) unavailable on this host: "
+        f"{', '.join(invalid)}. prereqs detected GPU indices: {available}. "
+        "Retry docker_generate without GPU device overrides to use the profile defaults, "
+        "or choose only a detected index."
+    )
 
 
 def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
@@ -242,7 +292,8 @@ class GenerateInput(BaseModel):
         default=[],
         description=(
             "Environment variable overrides as KEY=VALUE strings (NOT a JSON object). "
-            "Keys must be uppercase with only letters, digits, and underscores."
+            "Keys must be uppercase with only letters, digits, and underscores. "
+            "Numeric GPU device overrides must use an index reported by the prereqs tool."
         ),
         examples=[["HARDWARE_PROFILE=H100", "LLM_MODE=local", "HOST_IP=192.168.1.10"]],
     )
@@ -647,6 +698,7 @@ async def vss_orchestrator(
         for profile, packages in _config.model_artifacts.items()
     }
     configured_model_resolution = _config.model_resolution
+    prereqs_gpu_indices: frozenset[str] | None = None
 
     # Bootstrap required data directories as soon as config is loaded, so MCP
     # server startup fails fast if any directory cannot be created.
@@ -1098,11 +1150,14 @@ async def vss_orchestrator(
 
         async def _prereqs(input: DockerPrereqsInput) -> dict:
             """Run Docker/GPU prerequisite checks."""
+            nonlocal prereqs_gpu_indices
             _ = input
+            prereqs_gpu_indices = None
             try:
                 report = await asyncio.to_thread(run_prereqs_checks)
             except RuntimeError as exc:
                 return {"status": ComposeStatus.ERROR.value, "error": str(exc)}
+            prereqs_gpu_indices = _gpu_indices_from_prereqs(report)
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "message": "Prerequisite checks passed.",
@@ -1146,6 +1201,7 @@ async def vss_orchestrator(
                         env_overrides.setdefault("LLM_DEVICE_ID", runtime_settings.llm_device_id)
                     if runtime_settings.vlm_device_id:
                         env_overrides.setdefault("VLM_DEVICE_ID", runtime_settings.vlm_device_id)
+                _validate_gpu_device_overrides(env_overrides, prereqs_gpu_indices)
                 resolve_and_apply_profile_mode(
                     input.profile, input.profile_mode, _config.profile_mode_to_env_modes, env_overrides
                 )

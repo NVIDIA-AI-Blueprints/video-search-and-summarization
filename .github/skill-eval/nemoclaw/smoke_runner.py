@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -807,6 +808,45 @@ def _generic_nemoclaw_prompt(
     )
 
 
+def _gpu_resource_marker(gpu_count: int) -> str:
+    if gpu_count <= 0:
+        return "This trial reserves no GPUs."
+    if gpu_count == 1:
+        return "This trial reserves exactly 1 GPU; the only valid device ID is 0."
+    return (
+        f"This trial reserves exactly {gpu_count} GPUs; valid device IDs are "
+        f"0 through {gpu_count - 1}."
+    )
+
+
+def _with_gpu_resource_guidance(prompt: str, gpu_count: int) -> str:
+    """Ensure every NemoClaw prompt states the task's hard GPU boundary."""
+
+    marker = _gpu_resource_marker(gpu_count)
+    if marker in prompt:
+        return prompt
+    if "This trial reserves " in prompt:
+        raise RuntimeError(
+            f"NemoClaw prompt GPU boundary disagrees with task gpu_count={gpu_count}"
+        )
+    if gpu_count <= 0:
+        guidance = (
+            f"{marker} Use remote model endpoints and never "
+            "request a local GPU device."
+        )
+    elif gpu_count == 1:
+        guidance = (
+            f"{marker} "
+            "Leave GPU device-ID overrides unset so profile defaults use shared "
+            "placement on GPU 0. Never request GPU 1 or another out-of-range device."
+        )
+    else:
+        guidance = (
+            f"{marker} Never request an out-of-range device."
+        )
+    return prompt.rstrip() + "\n\n## GPU resource boundary\n\n" + guidance + "\n"
+
+
 def _wrap_task_for_nemoclaw(
     *,
     task_dir: Path,
@@ -833,6 +873,24 @@ def _wrap_task_for_nemoclaw(
             _generic_nemoclaw_prompt(skill, original_instruction, deployment_profile),
             encoding="utf-8",
         )
+    prompt_text = _with_gpu_resource_guidance(
+        prompt_path.read_text(encoding="utf-8"),
+        gpu_count,
+    )
+    marker = _gpu_resource_marker(gpu_count)
+    if marker not in prompt_text:
+        raise RuntimeError(
+            f"{skill}/{spec_path.name}/{task_platform}: generated prompt is missing "
+            f"the gpu_count={gpu_count} resource boundary"
+        )
+    prompt_path.write_text(prompt_text, encoding="utf-8")
+    prompt_digest = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+    print(
+        "[nemoclaw-ci] prompt attestation: "
+        f"task={task_dir.name} gpu_count={gpu_count} "
+        f"bytes={len(prompt_text.encode('utf-8'))} sha256={prompt_digest}",
+        flush=True,
+    )
     # Normalize adapter-generated launchers. Some adapters already emit a
     # headless_runner.py instruction when SKILLS_EVAL_RUNNER=nemoclaw, but an
     # older launcher may omit --wait-profile. If we preserve it, Harbor can

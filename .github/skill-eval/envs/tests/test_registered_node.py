@@ -1171,17 +1171,37 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         brev_env._run_brev_exec = fake_run_brev_exec
         previous_fast = os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
         try:
-            env = brev_env.BrevEnvironment()
-            env._instance_name = "vss-eval-test"
-            env._task_metadata = {
-                "runner": "nemoclaw",
-                "deployment_profile": "base",
-                "expected_skill": "vss-ask-video",
-            }
-            await env.exec(
-                "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
-                timeout_sec=123,
-            )
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-ask-video for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "deployment_profile": "base",
+                    "expected_skill": "vss-ask-video",
+                }
+                await env.exec(
+                    "printf %s \"$HARBOR_CLAUDE_CODE_INSTRUCTION_123\" "
+                    "| claude --verbose --print",
+                    env={
+                        "HARBOR_CLAUDE_CODE_INSTRUCTION_123": (
+                            "Run python3 .github/skill-eval/nemoclaw/"
+                            "headless_runner.py --prompt-file "
+                            "/tests/nemoclaw_prompt.md with the generated prompt."
+                        )
+                    },
+                    timeout_sec=123,
+                )
         finally:
             brev_env._run_brev_exec = original
             if previous_fast is not None:
@@ -1194,8 +1214,16 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--launch-mode cli", command)
         self.assertIn("--wait-profile base", command)
         self.assertIn("--expected-skill vss-ask-video", command)
-        self.assertIn("--prompt-file /tests/nemoclaw_prompt.md", command)
-        self.assertNotIn("claude --print", command)
+        self.assertIn(
+            "--prompt-file /tmp/skill-eval/nemoclaw/current_prompt.md",
+            command,
+        )
+        self.assertIn(
+            "base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md",
+            command,
+        )
+        self.assertNotIn("| claude --verbose --print", command)
+        self.assertNotIn("--prompt-file /tests/nemoclaw_prompt.md", command)
 
     async def test_nemoclaw_launcher_can_opt_into_fast_readiness_mode(self):
         calls = []
@@ -1209,17 +1237,30 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         brev_env._run_brev_exec = fake_run_brev_exec
         os.environ["NEMOCLAW_FAST_READINESS_MODE"] = "1"
         try:
-            env = brev_env.BrevEnvironment()
-            env._instance_name = "vss-eval-test"
-            env._task_metadata = {
-                "runner": "nemoclaw",
-                "deployment_profile": "base",
-                "expected_skill": "vss-ask-video",
-            }
-            await env.exec(
-                "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
-                timeout_sec=123,
-            )
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-ask-video for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {
+                    "runner": "nemoclaw",
+                    "deployment_profile": "base",
+                    "expected_skill": "vss-ask-video",
+                }
+                await env.exec(
+                    "claude --print 'run python3 "
+                    ".github/skill-eval/nemoclaw/headless_runner.py'",
+                    timeout_sec=123,
+                )
         finally:
             brev_env._run_brev_exec = original
             if previous_fast is None:
@@ -1281,13 +1322,31 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         original = brev_env._run_brev_exec
         brev_env._run_brev_exec = fake_run_brev_exec
         try:
-            env = brev_env.BrevEnvironment()
-            env._instance_name = "vss-eval-test"
-            env._task_metadata = {}
-            await env.exec(
-                "claude --print 'run python3 .github/skill-eval/nemoclaw/headless_runner.py'",
-                timeout_sec=123,
-            )
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                tests_dir = task_dir / "tests"
+                env_dir = task_dir / "environment"
+                tests_dir.mkdir(parents=True)
+                env_dir.mkdir()
+                (tests_dir / "nemoclaw_prompt.md").write_text(
+                    "Use /vss-deploy-profile for this exact trial.\n",
+                    encoding="utf-8",
+                )
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {}
+                await env.exec(
+                    "claude --verbose --print",
+                    env={
+                        "HARBOR_CLAUDE_CODE_INSTRUCTION_456": (
+                            "Run python3 .github/skill-eval/nemoclaw/"
+                            "headless_runner.py with the generated prompt."
+                        )
+                    },
+                    timeout_sec=123,
+                )
         finally:
             brev_env._run_brev_exec = original
 
@@ -1295,7 +1354,45 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         command = calls[0][1]
         self.assertIn("NemoClaw direct Harbor launcher", command)
         self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
-        self.assertNotIn("claude --print", command)
+        self.assertNotIn("claude --verbose --print", command)
+
+    async def test_nemoclaw_launcher_fails_closed_without_current_prompt(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="ok", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                task_dir = Path(tmp) / "rtxpro6000bw"
+                env_dir = task_dir / "environment"
+                env_dir.mkdir(parents=True)
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                env.environment_dir = env_dir
+                env._task_metadata = {"runner": "nemoclaw"}
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "refusing to fall back",
+                ):
+                    await env.exec(
+                        "claude --verbose --print",
+                        env={
+                            "HARBOR_CLAUDE_CODE_INSTRUCTION_789": (
+                                "Run python3 .github/skill-eval/nemoclaw/"
+                                "headless_runner.py with the generated prompt."
+                            )
+                        },
+                        timeout_sec=123,
+                    )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(calls, [])
 
     async def test_nemoclaw_intercept_only_matches_launcher(self):
         calls = []
