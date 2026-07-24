@@ -17,6 +17,8 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   annotations:
+    haproxy.org/path-rewrite: |
+      /va-mcp/(.*) /\1
   name: <RELEASE_NAME>    # e.g. vss-alerts
   namespace: <NAMESPACE>    # e.g. vss-alerts
 spec:

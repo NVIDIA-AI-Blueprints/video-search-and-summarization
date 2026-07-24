@@ -463,7 +463,7 @@ rtvi:
     kafkaBootstrapServers: ""
     redisHost: ""
 
-# Helm-managed Ingress (ingressClassName from vssIngress.ingressClassName). Install a cluster ingress controller separately (e.g. HAProxy Kubernetes Ingress). Annotations use haproxy.org/path-rewrite for video-analytics-api and alert-bridge strip prefixes.
+# Helm-managed Ingress (ingressClassName from vssIngress.ingressClassName). Install a cluster ingress controller separately (e.g. HAProxy Kubernetes Ingress). Annotations use haproxy.org/path-rewrite for video-analytics-api, alert-bridge, and va-mcp strip prefixes.
 vssIngress:
   enabled: true
   ingressClassName: haproxy
@@ -473,6 +473,8 @@ vssIngress:
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
   alertBridgePort: 9080
+  # Public VA-MCP path: ${VSS_PUBLIC_URL}/va-mcp/mcp → vss-va-mcp:/mcp
+  vaMcpPort: 9901
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)

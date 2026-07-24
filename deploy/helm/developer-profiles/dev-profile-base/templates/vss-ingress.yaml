@@ -1,5 +1,12 @@
 {{- if .Values.vssIngress.enabled }}
 {{- $vi := .Values.vssIngress }}
+{{- $vlmIngress := (index $vi "vlm") | default dict }}
+{{- $vlmEnabled := default false (index $vlmIngress "enabled") }}
+{{- $vlmServicePort := default 8000 (index $vlmIngress "servicePort") }}
+{{- /* Base serves VLM via rtvi.vss-rtvi-vlm (vlmNameSlug=none). Do not use vlmNameSlug as a Service name. */}}
+{{- $rtvi := index (.Values.rtvi | default dict) "vss-rtvi-vlm" | default dict }}
+{{- $agent := index (.Values.agent | default dict) "vss-agent" | default dict }}
+{{- $vlmChartName := coalesce ((index $vlmIngress "serviceName") | default "" | trim) ((index $agent "rtviVlmServiceName") | default "" | trim) "vss-rtvi-vlm" }}
 {{- $host := default .Values.global.externalHost $vi.host }}
 {{- $phoenixHost := $vi.phoenixHost | default "" | trim }}
 {{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
@@ -61,6 +68,43 @@ spec:
                 name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
                 port:
                   number: {{ $vi.vssAgentPort }}
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /redoc
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /generate
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+{{- if $vlmEnabled }}
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-rtvi-vlm" "chartName" $vlmChartName "subchartValues" $rtvi) }}
+                port:
+                  number: {{ $vlmServicePort }}
+{{- end }}
           - path: /vst
             pathType: Prefix
             backend:

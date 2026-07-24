@@ -66,6 +66,7 @@ vssIngress:
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
   alertBridgePort: 9080
+  vaMcpPort: 9901
   kibanaPort: 5601
   phoenixPort: 6006
   streamerPort: 31000

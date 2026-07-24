@@ -29,12 +29,16 @@
 {{- $analytics := index .Values "analytics" | default dict }}
 {{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
 {{- $alertBridgeVals := index .Values "vss-alert-bridge" | default dict }}
+{{- $agent := index .Values "agent" | default dict }}
+{{- $agentEnabled := default true (index $agent "enabled") }}
+{{- $vaMcpVals := index $agent "vss-va-mcp" | default dict }}
 {{- $kibanaEnabled := default false (index $kibanaVals "enabled") }}
 {{- $phoenixEnabled := default false (index $phoenixVals "enabled") }}
 {{- $streamerEnabled := default false (index $nvstreamerVals "enabled") }}
 {{- $analyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
 {{- $alertBridgeEnabled := default false (index $alertBridgeVals "enabled") }}
-{{- $hasRewrite := or $analyticsEnabled $alertBridgeEnabled $phoenixEnabled }}
+{{- $vaMcpEnabled := and $agentEnabled (default false (index $vaMcpVals "enabled")) }}
+{{- $hasRewrite := or $analyticsEnabled $alertBridgeEnabled $phoenixEnabled $vaMcpEnabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -50,6 +54,9 @@ metadata:
 {{- end }}
 {{- if $alertBridgeEnabled }}
       /alert-bridge/(.*) /\1
+{{- end }}
+{{- if $vaMcpEnabled }}
+      /va-mcp/(.*) /\1
 {{- end }}
 {{- if $phoenixEnabled }}
       /phoenix/(.*) /\1
@@ -97,6 +104,34 @@ spec:
                 name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
                 port:
                   number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /redoc
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /generate
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
           - path: /vst
             pathType: Prefix
             backend:
@@ -121,6 +156,17 @@ spec:
                 name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge") }}
                 port:
                   number: {{ index $vssIngress "alertBridgePort" | default 9080 }}
+{{- end }}
+{{- if $vaMcpEnabled }}
+          # Public MCP endpoint for operate skills (vss-query-analytics).
+          # /va-mcp/mcp is rewritten to /mcp on the vss-va-mcp Service.
+          - path: /va-mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-va-mcp") }}
+                port:
+                  number: {{ index $vssIngress "vaMcpPort" | default 9901 }}
 {{- end }}
 {{- if $phoenixEnabled }}
           - path: /phoenix

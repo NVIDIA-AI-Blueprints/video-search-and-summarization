@@ -79,7 +79,13 @@ vssIngress:
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
+  lvsBackendPort: 38111
+  rtviVlmPort: 8000
   kibanaHost: ""
   phoenixHost: ""
   kibanaPort: 5601
   phoenixPort: 6006
+  # HAProxy ingress request timeouts. Default controller value is 50s, which is
+  # too short for /v1/summarize (long-running LVS pipeline) and causes 504s.
+  timeoutClient: "600s"
+  timeoutServer: "600s"

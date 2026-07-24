@@ -53,6 +53,7 @@ Profile Mode: {{ $modeDisplay }}
 {{- if ne $streamerHost "" }}
   NVStreamer HTTP:      http://{{ $streamerHost }}
 {{- end }}
+  VA-MCP (analytics):   http://{{ $mainHost }}/va-mcp/mcp
 {{- if not $isRealtime }}
   Alerts API:           http://{{ $mainHost }}/alert-bridge
   Video Analytics API:  http://{{ $mainHost }}/video-analytics-api
@@ -69,6 +70,7 @@ Profile Mode: {{ $modeDisplay }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 30888:30888 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-va-mcp") }} 9901:9901 -n {{ .Release.Namespace }}
 {{- if not $isRealtime }}
   kubectl port-forward svc/{{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge") }} 9080:9080 -n {{ .Release.Namespace }}
 {{- else }}
