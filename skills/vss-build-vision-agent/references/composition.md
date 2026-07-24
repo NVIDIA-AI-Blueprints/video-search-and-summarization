@@ -79,8 +79,22 @@ the requested build. It is never a Compose profile.
 
 1. `FOUNDATION=<base|alerts|lvs|search>`.
 2. The full effective `COMPOSE_PROFILES` after additions and removals.
-3. Every customized environment value. Do not repeat unchanged Foundation
-   defaults.
+3. Every customized environment value and every Foundation value transitively
+   derived from it. Do not repeat unrelated Foundation defaults.
+
+Compose expands each env file as it is read; values expanded in a Foundation
+file are not recomputed when a later file changes one of their inputs.
+Therefore, materialize the complete dependent-value closure in `override.env`.
+For example:
+
+- changing `VSS_APPS_DIR` also requires the effective `VST_CONFIG_PATH`,
+  `SDR_CONTROLLER_CONFIG_PATH`, and any selected profile-specific config paths;
+- changing `HOST_IP` also requires the effective `EXTERNAL_IP`,
+  `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints.
+
+Find the exact closure by following variable references in the selected
+Foundation's `.env` and `overrides.env`; do not assume a later primitive
+override will update an earlier derived value.
 
 `compose.yml` is the build entrypoint. With no service-definition changes:
 
@@ -147,6 +161,9 @@ docker compose "${env_args[@]}" \
 
 uv run "$REPO/skills/vss-build-vision-agent/scripts/normalize_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml"
+
+uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 ```
 
 The env layers are ordered from broad defaults to build-specific customization;
@@ -177,6 +194,10 @@ Then verify:
 - No unrequested service definition is present in a patch.
 - `resolved.yml` contains no unresolved `${...}` interpolation and every
   selected service's environment is filled in.
+- `resolved.yml` contains no stock sentinels such as
+  `/path/to/deploy/docker` or `<HOST_IP>`.
+- Every checked-in bind source exists and a file target is not backed by a
+  directory.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 

@@ -34,6 +34,7 @@ kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-
 | Knob | Purpose |
 |---|---|
 | `RT_CV_DEVICE_ID`, `RTVI_CV_HOST_PORT`, `MODEL_TYPE`, `MODEL_NAME_2D` | Configure the perception pipeline. |
+| `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the vision encoder NGC artifact owned by `perception-2d-init`; the checked-in RT-CV config uses the fixed RT-DETR warehouse artifact. |
 | `RT_EMBED_DEVICE_ID`, `RTVI_EMBED_PORT`, `MODEL_PATH`, `HF_TOKEN` | Place and configure RT-Embed. |
 | `ENABLE_CRITIC`, `VLM_NAME`, `VLM_BASE_URL`, `VLM_MODEL_TYPE`, `RTVI_VLM_*` | Enable and configure optional result critique through RT-VLM. |
 | `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, `ELASTIC_SEARCH_INDEX` | Wire the agent to embedding and retrieval services. |
@@ -46,7 +47,7 @@ kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-
 curl -sf "http://${HOST_IP}:8000/health"
 curl -sf "http://${HOST_IP}:8017/v1/ready"
 curl -sf "http://${HOST_IP}:8018/v1/health/ready"
-curl -sf "http://${HOST_IP}:${RTVI_CV_HOST_PORT:-9000}/v1/health"
+curl -sf "http://${HOST_IP}:${RTVI_CV_HOST_PORT:-9000}/ready"
 curl -sf "http://${HOST_IP}:9200/_cluster/health"
 curl -sf "http://${HOST_IP}:3000/"
 ```
@@ -59,6 +60,7 @@ When `ENABLE_CRITIC=true`, also probe RT-VLM's `/v1/models` endpoint.
 - `deploy/docker/developer-profiles/dev-profile-search/overrides.env`
 - `deploy/docker/developer-profiles/dev-profile-search/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`
+- `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/download-vision-encoder.sh`
 - `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`
 - `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`

@@ -33,6 +33,10 @@
 | `NVSTREAMER_HTTP_PORT`, `NVSTREAMER_HTTP_HOST_PORT`, `NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES` | Configure a profile's NvStreamer source. |
 | `NUM_SENSORS`, `STREAM_TYPE` | Configure source count and broker type where supported. |
 
+When a build changes `VSS_APPS_DIR` or a public host primitive, put every
+selected dependent path and URL in the build `override.env`; Compose does not
+re-expand values already read from the Foundation env files.
+
 ## Sources
 
 - `deploy/docker/services/vios/compose.yml`
