@@ -1,0 +1,42 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "combined-alerts-search",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2,
+        "modes": [
+          "harbor",
+          "shared"
+        ]
+      }
+    }
+  },
+  "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC access, and the VSS repository at `{{repo_root}}`. This generation eval composes one combined headless Alerts + Archive Search write path as a delta on the current `search` developer profile: shared VIOS, RT-CV, RT-Embed, Kafka, Redis, Logstash, and Elasticsearch drive both the search write path and the alerts incident-and-verification path, with one RT-VLM for verification and one unified SearchAndAlertsApp behavior-analytics container running the full merged config. The agent tier (agent/UI/ingress, Phoenix, LLM NIM) and the Video-Analytics MCP are excluded. RT-CV detector artifacts are host-staged per the RT-CV owner contract before deployment and the vision encoder is fetched by `perception-2d-init`. The build label is a directory name, never a Compose profile.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-agent` to build under `_builds/combined-alerts-search/`: \"Provide one combined headless Alerts + Archive Search deployment. Converge on one warehouse RT-DETR + SigLIP RT-CV detector, one RT-Embed, one unified SearchAndAlertsApp behavior-analytics container with incident, behavior, and embed-filter workers enabled, one Alert Microservice, and one RT-VLM for verification. Share VIOS, Kafka, Redis, Logstash, and Elasticsearch. Index the search write path and run the alerts candidate-to-verified path.\" Offer direct VIOS upload, NvStreamer synthetic RTSP, and a production RTSP URL, all converging at VIOS with direct REST provisioning; exclude the agent, UI, Phoenix, LLM NIM, and the Video-Analytics MCP; target `{{platform}}`, validate, and do not deploy.",
+      "checks": [
+        "`{{repo_root}}/_builds/combined-alerts-search/override.env` exists and declares `FOUNDATION=search` and the full effective `COMPOSE_PROFILES`.",
+        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api-fusion,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-embed,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,alert-bridge`, adding only `rtvi-vlm` and `alert-bridge` to the headless Search write path.",
+        "Exactly one instance of each shared role is selected, converging the two capabilities on the Search Foundation's keys: one detector (`perception-2d-fusion`, `perception-alerts` absent), one behavior-analytics service (`vss-search-analytics-2d-fusion`, `vss-behavior-analytics-alerts` absent), one analytics API (`vss-video-analytics-api-fusion`, `vss-video-analytics-api-alerts` absent because it is the identical `vss-video-analytics-api` container), one Kibana initializer (`kibana-init-container-search`, `kibana-init-container-alerts` absent because it is the identical `vss-kibana-init` container), one NvStreamer (`nvstreamer-2d-fusion`, `nvstreamer-alerts` absent), and exactly one `rtvi-vlm` for verification.",
+        "The effective set excludes `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, `vss-va-mcp`, and every `llm_*` and `vlm_*` NIM key; no separate search-critic VLM is added because the single `rtvi-vlm` serves alert verification.",
+        "`COMPOSE_PROFILES` contains no build label, aggregate, `bp_developer_*`, or other invented profile key, and no `models-download-search`, `models-download.json`, or `vss-rtvi-cv-init` reference is introduced.",
+        "`_builds/combined-alerts-search/patches/` contains exactly one patch, for `vss-search-analytics-2d-fusion`, that mounts a merged behavior-analytics config and runs `apps/search_and_alerts/main_search_and_alerts_app.py`; the patch reuses the canonical service key and copies no unchanged service, volume, network, or profile file.",
+        "The merged behavior-analytics config is materialized by merging the upstream Search Kafka and Alerts single-mode configs per `skills/vss-setup-behavior-analytics/references/deploy-behavior-analytics-service.md` (optionally adapting the reference `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`); it does not claim a combined config is mounted by any developer profile upstream.",
+        "The merged config has one Kafka consumer group, unions the topic mappings for all enabled paths (including `frames`), sets `numWorkersForIncidentGeneration=2`, `numWorkersForBehaviorCreation=2`, and `numWorkersForEmbedFiltering=1`, and pins both `fovCountViolationIncidentObjectType` and `stateManagementFilter` to the warehouse RT-DETR label casing `Person`.",
+        "`ENABLE_CRITIC=false` is effective (search remains retrieval-only; the RT-VLM is present for alert verification, not search critique), and the alert bridge is wired to the single RT-VLM via `VLM_BASE_URL`/`VLM_NAME` with its `2d_cv` verifier config mounts present.",
+        "`RTVI_EMBED_KAFKA_ENABLED=true`, `RTVI_EMBED_KAFKA_TOPIC=mdx-embed`, and `ELASTICSEARCH_ENABLE_EMBEDDINGS=true` are effective with the applicable embedding dimensions, and the delta does not repeat unchanged Foundation defaults.",
+        "Search topic wiring is complete and non-duplicated: `perception-2d-fusion -> mdx-raw`, `rtvi-embed -> mdx-embed -> vss-search-analytics-2d-fusion -> mdx-embed-filtered`, and behavior output on `mdx-behavior`, with RT-Embed never publishing directly to `mdx-embed-filtered`.",
+        "Alert topic wiring is complete and non-duplicated: candidate `mdx-incidents`/`mdx-alerts` from behavior analytics and verified `mdx-vlm-incidents`/`mdx-vlm-alerts` from the alert bridge are documented without a second Kafka or Elasticsearch stack.",
+        "The Kibana convergence keeps the alerts data views by merging them into the single `kibana-init-container-search` import rather than adding a second initializer; the documented Elasticsearch index patterns include `mdx-raw-*`, `mdx-behavior-*`, `mdx-embed-filtered-*`, and `mdx-vlm-incidents-*`.",
+        "`_builds/combined-alerts-search/compose.yml` includes `../../deploy/docker/compose.yml` followed by `./patches/vss-search-analytics-2d-fusion.yml`, and the build directory contains exactly the three required primary artifacts (`override.env`, `compose.yml`, `resolved.yml`) plus the single `patches/` entry, with no copied Foundation `.env`, copied root Compose project, patched tree, manifest, allow-list, or generated skill bundle.",
+        "Four-layer resolution uses `containers.env`, Search `.env`, Search `overrides.env`, and `_builds/combined-alerts-search/override.env` with the build `compose.yml`; normalized `resolved.yml` validates directly, selected owners and peers resolve, excluded services do not resolve, no selected profile token is unknown, no service retains a `profiles:` gate, no real `${...}` interpolation remains unresolved, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and every checked-in bind source (including the merged config) exists with the expected file/directory type.",
+        "The generated architecture documents direct upload, NvStreamer synthetic RTSP, and production RTSP ingestion converging at VIOS, followed by direct REST provisioning of the shared RT-CV and RT-Embed consumers, with uploaded-video calls including `creation_time:\"2025-01-01T00:00:00.000Z\"`.",
+        "No file under `{{repo_root}}/deploy/docker/` is modified."
+      ]
+    }
+  ]
+}
