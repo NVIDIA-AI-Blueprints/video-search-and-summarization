@@ -25,10 +25,14 @@ fi
 # Read the JSON file
 json_file=$1
 
-# Install jq if not installed
-if ! command -v jq &> /dev/null; then
+# Use jq from PATH if present; otherwise download a static jq to /tmp/jq.
+# JQ holds whichever one to use, so the rest of the script never assumes
+# /tmp/jq exists (which silently produced empty metadata when jq was on PATH).
+if command -v jq >/dev/null 2>&1; then
+    JQ=jq
+else
     echo "jq not found. Downloading jq..."
-    
+
     # Download jq
     if wget https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${arch} -O /tmp/jq ; then
         echo "Downloaded using wget"
@@ -38,14 +42,15 @@ if ! command -v jq &> /dev/null; then
         echo "Unable to download jq! The container is missing wget/curl"
         exit 1
     fi
-    chmod +x /tmp/jq 
+    chmod +x /tmp/jq
+    JQ=/tmp/jq
 fi
 
 
 mkdir -p /lib/distroless
 echo "Copying binaries..."
 
-binaries=$(/tmp/jq -r '.binaries[]' "$json_file")
+binaries=$(${JQ} -r '.binaries[]' "$json_file")
 for binary in $binaries; do
     echo "Processing binary ${binary}"
     if echo "${binary}" | grep -q "*"; then
@@ -55,17 +60,17 @@ for binary in $binaries; do
     fi
     package_name=$(echo "$package_info" | awk -F ':' '{print $1}')
     echo "Package name is ${package_name}"
-    
+
     # Get package version
     dpkg_output=$(dpkg -l "$package_name")
     version=$(echo "$dpkg_output" | grep "^ii" | awk '{print $3}')
     echo "Package version is ${version}"
-    
+
     # Save package info to /var/lib/dpkg/status.d/<package>_<version>
     mkdir -p /var/lib/dpkg/status.d/
     apt show "$package_name" > "/var/lib/dpkg/status.d/${package_name}_${version}" 2> /dev/null
     echo "Wrote package info to /var/lib/dpkg/status.d/${package_name}_${version}"
-    
+
     # extract the abs library path with ldd for that binary
     libraries=$(ldd $binary | grep -Po "> .*\(" |  cut -d '>' -f 2 | cut -d '(' -f 1)
     echo $libraries
@@ -74,23 +79,23 @@ for binary in $binaries; do
         cp ${lib}  /lib/distroless
         if echo "$lib" | grep -q "*"; then
             package_info=$(dpkg -S $(find $(dirname "$lib") -name $(basename "$lib") | head -n 1))
-            if [[ -z $package_info ]]; then
+            if [ -z "$package_info" ]; then
                 package_info=$(dpkg -S $(basename $(find $(dirname "$lib") -name $(basename "$lib") | head -n 1)) | head -n 1)
             fi
         else
             package_info=$(dpkg -S "$lib")
-            if [[ -z $package_info ]]; then
+            if [ -z "$package_info" ]; then
                 package_info=$(dpkg -S $(basename "$lib") | head -n 1)
             fi
         fi
         package_name=$(echo "${package_info}" | awk -F ':' '{print $1}')
         echo "Package name is $package_name"
-        
+
         # Get package version
         dpkg_output=$(dpkg -l "${package_name}")
         version=$(echo "$dpkg_output" | grep "^ii" | awk '{print $3}')
         echo "Package version is ${version}"
-        
+
         # Save package info to /var/lib/dpkg/status.d/<package>_<version>
         mkdir -p /var/lib/dpkg/status.d/
         apt show "$package_name" > "/var/lib/dpkg/status.d/${package_name}_${version}" 2> /dev/null
@@ -100,7 +105,7 @@ done
 
 echo "Installing Debian packages"
 
-packages=$(/tmp/jq -r '.packages[]' "$json_file")
+packages=$(${JQ} -r '.packages[]' "$json_file")
 for package in $packages; do
     echo "Installing ${package}"
     apt-get update -qq
