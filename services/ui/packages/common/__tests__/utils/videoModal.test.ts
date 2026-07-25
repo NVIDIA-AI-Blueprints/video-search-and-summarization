@@ -29,6 +29,16 @@ describe('replaceVideoUrlBase', () => {
     expect(result).toBe('http://vst.test/vst/storage/xyz/segment.mp4?token=abc');
   });
 
+  it('rewrites vst-ingress host using /vst/ match', () => {
+    const result = replaceVideoUrlBase(
+      'http://vst-ingress:30888/vst/storage/temp_files/warehouse_20250101_000000_32ed1.mp4',
+      'https://7777-4say9l8xw.apps.run.brev.nvidia.com:443/vst/api'
+    );
+    expect(result).toBe(
+      'https://7777-4say9l8xw.apps.run.brev.nvidia.com/vst/storage/temp_files/warehouse_20250101_000000_32ed1.mp4'
+    );
+  });
+
   it('handles relative videoUrl', () => {
     const result = replaceVideoUrlBase(
       '/vst/storage/xyz/segment.mp4?token=abc',

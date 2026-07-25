@@ -80,7 +80,7 @@ export const checkVideoUrl = (
 /**
  * Replace the base URL (up to /vst) in videoUrl with the base from vstApiUrl.
  * Helps when UI can access only public IPs or different network.
- * Uses string-based logic so videoUrl can be relative. 
+ * Looks up "/vst/" (trailing slash) so hostnames like "vst-ingress" are not matched.
  */
 export const replaceVideoUrlBase = (
   videoUrl: string,
@@ -90,18 +90,9 @@ export const replaceVideoUrlBase = (
     return videoUrl;
   }
 
-  const vstSegment = '/vst';
-  // For vstApiUrl, search in pathname to avoid matching host (e.g. vst.test)
-  let vstSegmentIndexInApiUrl = -1;
-  try {
-    const vstUrl = new URL(vstApiUrl);
-    const idx = vstUrl.pathname.indexOf(vstSegment);
-    if (idx !== -1) {
-      vstSegmentIndexInApiUrl = vstUrl.origin.length + idx;
-    }
-  } catch {
-    vstSegmentIndexInApiUrl = vstApiUrl.indexOf(vstSegment);
-  }
+  const vstSegment = '/vst/';
+  // Trailing slash avoids false matches on hosts like "vst-ingress" / "vst.test".
+  const vstSegmentIndexInApiUrl = vstApiUrl.indexOf(vstSegment);
   const vstSegmentIndexInVideoUrl = videoUrl.indexOf(vstSegment);
 
   if (vstSegmentIndexInApiUrl === -1 || vstSegmentIndexInVideoUrl === -1) {
@@ -112,8 +103,18 @@ export const replaceVideoUrlBase = (
     return videoUrl;
   }
 
-  const vstBase = vstApiUrl.substring(0, vstSegmentIndexInApiUrl + vstSegment.length);
-  const videoPathAfterVst = videoUrl.substring(vstSegmentIndexInVideoUrl + vstSegment.length);
+  let vstBase = vstApiUrl.substring(0, vstSegmentIndexInApiUrl + vstSegment.length);
+  // Normalize default ports out of absolute bases (e.g. https://host:443/vst/ -> https://host/vst/).
+  try {
+    const parsedApiUrl = new URL(vstApiUrl);
+    vstBase = `${parsedApiUrl.origin}${vstSegment}`;
+  } catch {
+    // Keep string-derived base for relative vstApiUrl (e.g. "/vst/api").
+  }
+
+  const videoPathAfterVst = videoUrl.substring(
+    vstSegmentIndexInVideoUrl + vstSegment.length
+  );
   let finalVideoUrl = vstBase + videoPathAfterVst;
 
   if (finalVideoUrl !== videoUrl) {
