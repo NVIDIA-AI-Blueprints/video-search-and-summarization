@@ -104,10 +104,16 @@ export const replaceVideoUrlBase = (
   }
 
   let vstBase = vstApiUrl.substring(0, vstSegmentIndexInApiUrl + vstSegment.length);
-  // Normalize default ports out of absolute bases (e.g. https://host:443/vst/ -> https://host/vst/).
+  // Normalize default ports via URL.origin, but keep any path prefix before /vst/
+  // (e.g. https://proxy/some-prefix/vst/api -> https://proxy/some-prefix/vst/).
   try {
     const parsedApiUrl = new URL(vstApiUrl);
-    vstBase = `${parsedApiUrl.origin}${vstSegment}`;
+    const pathnameVstIndex = parsedApiUrl.pathname.indexOf(vstSegment);
+    if (pathnameVstIndex !== -1) {
+      vstBase =
+        `${parsedApiUrl.origin}` +
+        parsedApiUrl.pathname.substring(0, pathnameVstIndex + vstSegment.length);
+    }
   } catch {
     // Keep string-derived base for relative vstApiUrl (e.g. "/vst/api").
   }
