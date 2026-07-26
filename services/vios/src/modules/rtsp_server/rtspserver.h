@@ -212,12 +212,16 @@ class RtspServer
             // Access codec information through SDP description
             vector<string> detectedVideoCodecs;
             Json::Value detectedAudioInfo;
+            Json::Value videoParameterSets(Json::arrayValue);
             detectedAudioInfo["present"] = false;
             char* sdpDesc = generateSDPDescription(AF_INET);
             if (sdpDesc)
             {
                 // Parse SDP to extract video codec information
                 detectedVideoCodecs = parseVideoCodecsFromSDP(sdpDesc);
+                /* SPS/PPS carry the resolution and framerate of the stream;
+                 * registerStreamAsync decodes them off this thread. */
+                videoParameterSets = parseVideoParameterSetsFromSDP(sdpDesc);
                 for (const auto& codec : detectedVideoCodecs)
                 {
                     LOG(warning) << "Detected video codec from SDP: " << codec << endl;
@@ -280,6 +284,7 @@ class RtspServer
                     params["tags"]             = streamInfo.tags;
                     params["sdpDetectedCodec"] = sdpDetectedCodec;
                     params["audio"]            = detectedAudioInfo;
+                    params["parameterSets"]    = videoParameterSets;
 
                     m_rtspServer->registerStreamAsync(
                         streamInfo.id, streamInfo.sensorName, live_proxy_url, params);
@@ -465,6 +470,76 @@ class RtspServer
                 }
             }
             return audio;
+        }
+
+        /* Helper function to pull the video parameter sets out of the SDP.
+         *
+         * They are returned base64-encoded exactly as they appear in the
+         * a=fmtp line of the video m-section, in bitstream order: H.264 packs
+         * them into a comma-separated "sprop-parameter-sets=<SPS>,<PPS>",
+         * H.265 splits them across "sprop-vps=", "sprop-sps=", "sprop-pps=".
+         *
+         * Decoding them and querying the resulting caps is deliberately left
+         * to the caller: this runs on the live555 event-loop thread, which
+         * must not block. */
+        Json::Value parseVideoParameterSetsFromSDP(const char* sdp)
+        {
+            Json::Value parameterSets(Json::arrayValue);
+            if (!sdp) return parameterSets;
+
+            /* Value of "<key>" within an a=fmtp parameter list, terminated by
+             * the next parameter separator or end of line. */
+            auto attributeValue = [](const string& line, const string& key) -> string {
+                size_t keyPos = line.find(key);
+                if (keyPos == string::npos) return "";
+                string value = line.substr(keyPos + key.length());
+                size_t endPos = value.find_first_of(" ;\r\n");
+                if (endPos != string::npos)
+                {
+                    value.erase(endPos);
+                }
+                return value;
+            };
+
+            string sdpStr(sdp);
+            istringstream stream(sdpStr);
+            string line;
+            bool inVideoSection = false;
+
+            while (getline(stream, line))
+            {
+                if (line.find("m=") == 0)
+                {
+                    inVideoSection = (line.find("m=video") == 0);
+                    continue;
+                }
+                if (!inVideoSection || line.find("a=fmtp:") != 0) continue;
+
+                /* H.265 first: its keys are distinct substrings, so checking
+                 * them ahead of the H.264 form avoids any ambiguity. */
+                for (const char* const key : {"sprop-vps=", "sprop-sps=", "sprop-pps="})
+                {
+                    string value = attributeValue(line, key);
+                    if (!value.empty())
+                    {
+                        parameterSets.append(value);
+                    }
+                }
+                if (parameterSets.empty() == false) break;
+
+                string spropSets = attributeValue(line, "sprop-parameter-sets=");
+                if (spropSets.empty()) continue;
+                for (const string& value : splitString(spropSets, ","))
+                {
+                    if (!value.empty())
+                    {
+                        parameterSets.append(value);
+                    }
+                }
+                break;
+            }
+
+            return parameterSets;
         }
     };
 } // nv_vms

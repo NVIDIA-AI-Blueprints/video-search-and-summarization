@@ -81,9 +81,14 @@ namespace vst_common
     void addSensorToRemoteDevice(shared_ptr<SensorInfo>& sensor, std::shared_ptr<DeviceManager> deviceManager);
     void removeSensorFromRemoteDevice(const string& sensor_id);
     void notifySensorStatusEvent(SensorStatusEvent statusEvent, shared_ptr<SensorInfo> sensor,
-                                 string httpFileUrl = EMPTY_STRING);
+                                 string httpFileUrl = EMPTY_STRING, int64_t fileStartTimeMs = 0);
     void notifyStreamStatusEvent(SensorStatusEvent statusEvent, shared_ptr<StreamInfo> stream);
-    void notifyEvent(const SensorStatus& status, const string& sensor_url, const SensorVideoEncoderSettingsValues* encoder_values = nullptr);
+    /* fileStartTimeMs: epoch-ms wall-clock time of the first frame of a
+     * file-backed sensor's media; 0 for live sources (field is then omitted). */
+    void notifyEvent(const SensorStatus& status, const string& sensor_url,
+                     const SensorVideoEncoderSettingsValues* encoder_values = nullptr,
+                     int64_t fileStartTimeMs = 0);
+    void addStreamMetadata(Json::Value& metadata, const SensorVideoEncoderSettingsValues& encoder_values);
     int addSensorManually(shared_ptr<SensorInfo>& sensor, string& response, std::shared_ptr<DeviceManager> deviceManager);
     VmsErrorCode getCameraPicture(shared_ptr<DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response, bool isURLRequested = false, const string& configHash = "");
     std::vector <VideoFileInfo> getStreamerFileName(std::string url);

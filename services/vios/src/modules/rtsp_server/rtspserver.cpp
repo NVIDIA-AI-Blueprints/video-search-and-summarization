@@ -20,7 +20,11 @@
 #include "utils.h"
 #include "config.h"
 #include "logger.h"
+#include "vst_common.h"
+#include "gst_utils.h"
+#include "mm_utils.h"
 #include <chrono>
+#include <cmath>
 #include <sys/prctl.h>
 #include "RtspSyncPlayback.h"
 #include "Live555Config.hh"
@@ -720,6 +724,68 @@ void RtspServer::updateStreamMetadata(const string& id, const string& vodUrl,
     }
 }
 
+/* Recover resolution and framerate from the SDP parameter sets.
+ *
+ * A manually added RTSP camera reaches us with neither: the camera_proxy event
+ * that created the stream carries whatever sensor management had on record,
+ * which is nothing until something decodes the stream. The SPS advertised in
+ * the SDP already describes both, so parse it here rather than let the
+ * camera_streaming notification go out without them (stream monitoring fills
+ * the same fields in, but only once the first IDR frame arrives).
+ *
+ * Fields that cannot be determined are left untouched. */
+static void fillVideoDetailsFromParameterSets(const Json::Value& parameterSets, const string& codec,
+                                              const string& url, SensorVideoEncoderSettingsValues& encoder_values)
+{
+    /* Only the H.26x parameter sets describe the stream in a form we can
+     * parse; anything else (MJPEG, VP9, ...) has nothing to offer here. */
+    if (parameterSets.isArray() == false || parameterSets.empty() ||
+        (!iequals(codec, "h264") && !iequals(codec, "h265")))
+    {
+        return;
+    }
+
+    const vector<uint8_t> startCode = getDefaultH26xMarker();
+    std::vector<std::vector<uint8_t>> nalUnits;
+    for (const Json::Value& entry : parameterSets)
+    {
+        const string decoded = base64_decode(entry.asString());
+        if (decoded.empty())
+        {
+            continue;
+        }
+        std::vector<uint8_t> nalUnit = toBytes(decoded);
+        nalUnit.insert(nalUnit.begin(), startCode.begin(), startCode.end());
+        nalUnits.push_back(std::move(nalUnit));
+    }
+
+    if (nalUnits.empty())
+    {
+        LOG(warning) << "No usable video parameter sets in SDP for: " << secureUrlForLogging(url) << endl;
+        return;
+    }
+
+    string parserCodec = codec;
+    Json::Value details = getRTSPStreamDetails(url, parserCodec, nalUnits);
+
+    const string width  = details.get("width", EMPTY_STRING).asString();
+    const string height = details.get("height", EMPTY_STRING).asString();
+    if (encoder_values.resolution.empty() && !width.empty() && !height.empty())
+    {
+        encoder_values.resolution.width  = width;
+        encoder_values.resolution.height = height;
+    }
+
+    /* Reported as a fractional value (e.g. "30.000000"); normalize to whole
+     * frames per second, which is what every other producer of this field
+     * stores. */
+    const double frameRate = stringToDouble(details.get("frame_rate", EMPTY_STRING).asString(), 0.0);
+    if (encoder_values.frameRate.empty() && frameRate > 0.0)
+    {
+        encoder_values.frameRate = to_string(static_cast<int>(std::lround(frameRate)));
+    }
+}
+
 void RtspServer::registerStreamAsync(const string& id, const string& name,
                                      const string& proxyUrl,
                                      const Json::Value& params)
@@ -735,6 +801,7 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
         const string framerate        = paramsCopy.get("framerate", "").asString();
         const string tags             = paramsCopy.get("tags", "").asString();
         const string sdpDetectedCodec = paramsCopy.get("sdpDetectedCodec", "").asString();
+        const Json::Value parameterSets = paramsCopy.get("parameterSets", Json::Value(Json::arrayValue));
 
         const Json::Value audioJson   = paramsCopy.get("audio", Json::Value(Json::nullValue));
         const bool   hasAudio         = audioJson.isObject() && audioJson.get("present", false).asBool();
@@ -882,7 +949,19 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
                 if (!sdpDetectedCodec.empty())
                 {
                     encoder_values.encoding = sdpDetectedCodec;
-                    metadata["codec"] = encoder_values.encoding;
+                }
+
+                if (encoder_values.resolution.empty() || encoder_values.frameRate.empty())
+                {
+                    fillVideoDetailsFromParameterSets(parameterSets, encoder_values.encoding,
+                                                      proxyUrl, encoder_values);
+                }
+
+                /* Publish codec / resolution / framerate so the consumer of
+                 * camera_streaming does not have to query them back. */
+                vst_common::addStreamMetadata(metadata, encoder_values);
+                if (metadata.empty() == false)
+                {
                     event["metadata"] = metadata;
                 }
 
