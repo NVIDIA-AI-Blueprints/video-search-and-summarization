@@ -69,9 +69,9 @@ requested). A service is retained only because a requested capability reaches it
 never because the Foundation happened to ship it.
 
 When a combined request reaches the same capability owner through more than one
-capability (one detector serving both an alerts and a search pipeline, one
-analytics owner serving both), converge on a single instance of that owner: one
-service key, one selected variant, one mounted config. Do not activate two
+capability (one detector feeding two downstream pipelines, one analytics owner
+serving two rule sets), converge on a single instance of that owner: one service
+key, one selected variant, one mounted config. Do not activate two
 variants of a shared singleton owner for one physical role. When the delta then
 selects a variant of an owner whose output another service consumes, align every
 dependent consumer config to the selected variant rather than to the variant its
