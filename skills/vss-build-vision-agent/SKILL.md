@@ -30,6 +30,7 @@ metadata:
 | Deploy, start, run, verify, or stop a named `base`, `alerts`, `lvs`, or `search` profile | Stock mode for that profile. |
 | Deploy capabilities that exactly match one current developer profile | Stock mode for the exact match. |
 | Build, create, extend, customize, combine, add, or remove capabilities | Delta mode using the closest current developer profile as the Foundation. |
+| A named profile qualified as headless, write-path/ingestion-only, or retrieval-only | Delta mode off that profile, not a stock deploy. |
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
 | Two Foundations have an equally small capability delta | Ask the user to choose between those Foundations. |
 | Warehouse or another industry profile | Stop: this skill currently covers developer examples only. |

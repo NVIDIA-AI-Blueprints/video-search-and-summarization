@@ -58,6 +58,16 @@ Start with the Foundation's effective `COMPOSE_PROFILES`.
 - Put user-configurable values in the env delta. Do not copy default values that
   are unchanged.
 
+The Foundation is a starting graph to trim, not a floor to inherit. A delta is
+symmetric: after adding requested owners and their peers, prune every Foundation
+service that no requested capability needs. Compute the reachable set by forward
+closure — start from the requested capabilities, resolve each to its owner, then
+follow that owner's `Required peers` transitively. Remove every Foundation
+service outside that closure, including a peer whose only consumer was removed
+(for example an LLM required solely by an orchestration owner that is not
+requested). A service is retained only because a requested capability reaches it,
+never because the Foundation happened to ship it.
+
 Service activation alone is never a Compose-definition change.
 
 ## Artifact contract
@@ -73,7 +83,13 @@ _builds/<name>/
 ```
 
 `<name>` is a filesystem label supplied by the user or a neutral description of
-the requested build. It is never a Compose profile.
+the requested build. It is never a Compose profile. If the user supplies no
+`<name>`, derive a neutral one rather than writing elsewhere.
+
+The only writable location is `_builds/<name>/`. Never create or edit files under
+`deploy/docker/**` or a `dev-profile-*` Foundation directory, and never write
+`resolved.yml` outside `_builds/<name>/`. The env artifact is always named
+`override.env`.
 
 `override.env` contains:
 
