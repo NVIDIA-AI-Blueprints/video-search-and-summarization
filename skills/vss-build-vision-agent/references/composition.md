@@ -217,6 +217,8 @@ Then verify:
 - The resolved service list is non-empty.
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
+- Every retained service is transitively required by at least one requested
+  capability — no orphaned Foundation carryover survives the delta.
 - No unrequested service definition is present in a patch.
 - Any patch contains only changed or new service entries.
 - `resolved.yml` contains no real unresolved `${...}` Compose interpolation and

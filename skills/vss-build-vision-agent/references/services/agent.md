@@ -10,6 +10,16 @@
 | Public ingress | `vss-haproxy-ingress` |
 | Tracing UI | `phoenix` |
 
+## Access role
+
+This owner backs the interactive surface — conversational orchestration and REST
+API, video-analytics MCP, Web UI, public ingress, and tracing. It is not part of
+the ingest, detection, embedding, indexing, or service-native (Kibana/REST)
+browse path, and no write-path service depends on it. A headless, ingestion-only,
+or service-native-browse request reaches none of these keys, so the whole owner —
+and the LLM peer that only `vss-agent` required — falls outside the reachable set
+and is pruned.
+
 ## Required peers
 
 - `vss-agent` requires one reachable LLM and the VIOS endpoints used by its
