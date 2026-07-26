@@ -68,6 +68,17 @@ service outside that closure, including a peer whose only consumer was removed
 requested). A service is retained only because a requested capability reaches it,
 never because the Foundation happened to ship it.
 
+When a combined request reaches the same capability owner through more than one
+capability (one detector serving both an alerts and a search pipeline, one
+analytics owner serving both), converge on a single instance of that owner: one
+service key, one selected variant, one mounted config. Do not activate two
+variants of a shared singleton owner for one physical role. When the delta then
+selects a variant of an owner whose output another service consumes, align every
+dependent consumer config to the selected variant rather than to the variant its
+Foundation happened to ship. Owner contracts declare these dependencies (which
+owner is a singleton, what output taxonomy it fixes, which consumer keys track
+it); read them before merging configs.
+
 Service activation alone is never a Compose-definition change.
 
 ## Artifact contract
@@ -182,6 +193,17 @@ uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 ```
 
+`docker compose config` writes the resolved model to stdout and its warnings and
+errors to stderr. Redirect only stdout to `resolved.yml`; never merge the streams
+(`2>&1`, `&>`, or a combined `tee`) into it, or they will pollute the YAML.
+Leave stderr on the terminal so it stays visible in the command output — do not
+silence it with `2>/dev/null`. Then act on what it reports: a non-zero exit code
+means resolution failed (a required variable, missing file, or invalid
+definition) and must be fixed before continuing; on success, the
+`variable is not set. Defaulting to a blank string.` lines are informational —
+unset optional knobs are expected, but scan them for any value that belonged in
+`override.env`'s dependent-value closure and set it if so.
+
 The env layers are ordered from broad defaults to build-specific customization;
 later values override earlier values. Regenerate `resolved.yml` whenever
 `override.env`, `compose.yml`, a patch, or a Foundation source changes.
@@ -219,6 +241,10 @@ Then verify:
 - Removed services do not resolve.
 - Every retained service is transitively required by at least one requested
   capability — no orphaned Foundation carryover survives the delta.
+- A shared singleton owner resolves to exactly one variant, and every consumer
+  config that keys on that owner's output (class-label taxonomy and casing,
+  topic names) matches the resolved variant — no consumer filters on a taxonomy
+  the resolved owner does not emit.
 - No unrequested service definition is present in a patch.
 - Any patch contains only changed or new service entries.
 - `resolved.yml` contains no real unresolved `${...}` Compose interpolation and

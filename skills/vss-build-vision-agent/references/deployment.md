@@ -39,6 +39,11 @@ uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 ```
 
+Only stdout goes to `resolved.yml`; never merge the streams (`2>&1`/`&>`/combined
+`tee`) into it. Leave Compose's stderr visible in the command output rather than
+silencing it: check the exit code and fix any error before deploying, and treat
+`variable is not set` warnings as informational. See `composition.md` for detail.
+
 ## Review and deploy
 
 Validate and review the exact standalone file that will be deployed:

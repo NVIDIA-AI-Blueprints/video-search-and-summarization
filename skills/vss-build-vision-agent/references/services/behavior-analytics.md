@@ -15,6 +15,11 @@
   `broker-health-check`.
 - Alerts mode consumes RT-CV events; Search mode consumes the Search perception
   pipeline. Do not activate both variants for a single capability.
+- The object-class filter keys in the mounted config
+  (`fovCountViolationIncidentObjectType`, `stateManagementFilter`) must match the
+  class-label taxonomy the resolved RT-CV detector emits — label set and casing.
+  In a combined build these follow the single converged detector, not the value
+  a source profile's config happened to ship.
 - To serve both at once, run the owner's combined `SearchAndAlertsApp` mode
   rather than two instances: it enables the incident, behavior, and embed-filter
   processors together (selected by the `numWorkersFor*` knobs) and mounts the

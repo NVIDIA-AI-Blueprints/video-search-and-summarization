@@ -18,6 +18,9 @@
   mounts.
 - Alerts CV mode normally feeds Behavior Analytics; search mode feeds Search
   analytics. Do not add both consumers unless explicitly requested.
+- This is a singleton owner: one detector instance per build. When multiple
+  pipelines or consumers need detection in one build, they share that single
+  detector — resolve to one service key and one model family, not two.
 
 ## Configuration knobs
 
@@ -25,11 +28,17 @@
 |---|---|
 | `PERCEPTION_IMAGE`, `PERCEPTION_TAG` | Select the RT-CV image. |
 | `RT_CV_DEVICE_ID`, `RTVI_CV_PORT`, `RTVI_CV_HOST_PORT` | Select GPU and ports. |
-| `MODEL_TYPE`, `MODEL_NAME_2D`, `DS_MODEL_FAMILY` | Select the detector/model family supported by mounted configs. |
+| `MODEL_TYPE`, `MODEL_NAME_2D`, `DS_MODEL_FAMILY` | Select the detector/model family supported by mounted configs. This also fixes the **class-label taxonomy** — the exact class names and their casing emitted on `mdx-raw`. Different model families emit different label sets and casing, so Foundations that ship different families are not interchangeable here. |
 | `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the Search vision encoder NGC package. |
 | `NUM_SENSORS`, `STREAM_TYPE`, `DS_MESSAGE_RATE` | Configure input count and event transport. |
 | `DS_TRACKER_REID`, `DS_SHOW_SENSOR_ID` | Toggle supported tracking metadata. |
 | `HARDWARE_PROFILE`, `PERCEPTION_DOCKERFILE_PREFIX` | Select hardware-specific behavior exposed by the Foundation. |
+
+Downstream consumers that filter on class labels (Behavior Analytics, for
+instance) key on this detector's emitted taxonomy. In a combined build that
+converges on a single detector, align those consumer configs to the resolved
+model family's label set and casing, not to whatever a source profile's config
+happened to ship.
 
 ## Sources
 
