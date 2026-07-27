@@ -55,7 +55,7 @@ capability checks. Run the mandatory check/create gate in
 [`data-directory.md`](data-directory.md), then deploy that exact file:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" up -d
+docker compose -f "$BUILD_DIR/resolved.yml" up -d --pull always
 ```
 
 `COMPOSE_PROFILES` has already filtered the source graph during resolution.
