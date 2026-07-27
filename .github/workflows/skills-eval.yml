@@ -412,7 +412,7 @@ jobs:
       # slots while waiting on the same warm-worker fleet.
       max-parallel: 1
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
@@ -429,7 +429,7 @@ jobs:
 
       - name: Run NemoClaw skills eval agent
         id: nemoclaw-agent
-        timeout-minutes: 90
+        timeout-minutes: 150
         env:
           GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
@@ -442,18 +442,25 @@ jobs:
           # Give warm GPU workers enough time to become available while keeping
           # the serialized sweep bounded.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=1200
+          # Share one 130-minute cap across discovery, every worker selection,
+          # every Harbor attempt, and all failovers. The 150-minute job retains
+          # 20 minutes for termination, reporting, and artifact upload.
+          export NEMOCLAW_RUN_TIMEOUT_SEC=7800
           # Keep the shared lock timestamp fresh for older runners that still
           # use a 900-second age cutoff. Ownership is rechecked on every beat.
           export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180
           export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660
-          # Bound the setup + OpenClaw handoff. Successful representative rows
-          # are normally well under this; a breach should be reported as a
-          # failed scenario instead of a GitHub job timeout.
-          export NEMOCLAW_HARBOR_TIMEOUT_SEC=2400
+          # The 110-minute Harbor cap covers the 27-minute setup wrapper,
+          # 40-minute shared OpenClaw/profile-readiness budget, 30-minute
+          # verifier ceiling, and 13 minutes of lifecycle overhead. Together
+          # with the 20-minute lock wait, it fits the shared run cap above.
+          export NEMOCLAW_HARBOR_TIMEOUT_SEC=6600
           export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500
           export NEMOCLAW_SETUP_TIMEOUT_SEC=1620
           export NEMOCLAW_SETUP_CELL_TIMEOUT=900
-          export NEMOCLAW_AGENT_TIMEOUT_SEC=1500
+          # One end-to-end budget shared by gateway recovery, OpenClaw, and
+          # post-agent profile readiness (not one budget per phase).
+          export NEMOCLAW_AGENT_TIMEOUT_SEC=2400
           export NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER=3.0
           # Default to the lighter base smoke. If only the 2-GPU RTX warm pool
           # is online, the smoke runner can place this 1-GPU profile there.
@@ -495,35 +502,37 @@ jobs:
         if: always()
         env:
           RUN_RESULTS: /tmp/skill-eval/results/${{ matrix.slug }}/${{ github.run_id }}
+          RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}
           RUN_TARBALL: /tmp/skills-eval-results-nemoclaw-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
         run: |
           # Self-hosted runners reuse /tmp across jobs. Always remove a prior
           # archive first so a blocker run cannot upload stale results.
           rm -f "$RUN_TARBALL"
-          # Agent writes harbor output to $RUN_RESULTS (runtime-only;
-          # not tracked under the repo). Blocker paths
-          # (missing_platforms_declaration, missing_probe, etc.) finish
-          # without producing a results dir — that's a success, not a failure.
-          if [ ! -d "$RUN_RESULTS" ]; then
-            echo "no results dir for this run — agent blocked before running trials"
+          # Archive every current-run path that exists. A hard Harbor timeout
+          # can leave the outer log in scratch without producing result.json;
+          # that diagnostic must still reach the artifact.
+          TAR_PATHS=()
+          if [ -d "$RUN_RESULTS" ]; then
+            TAR_PATHS+=("results/${{ matrix.slug }}/${{ github.run_id }}")
+          fi
+          if [ -d "$RUN_SCRATCH" ]; then
+            TAR_PATHS+=("nemoclaw/${{ matrix.slug }}/${{ github.run_id }}")
+          fi
+          if [ "${#TAR_PATHS[@]}" -eq 0 ]; then
+            echo "no current-run results or scratch paths to archive"
             exit 0
           fi
-          RESULTS=$(find "$RUN_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
-          if [ -n "$RESULTS" ]; then
-            TAR_PATHS=("results/${{ matrix.slug }}/${{ github.run_id }}")
-            if [ -d "/tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}" ]; then
-              TAR_PATHS+=("nemoclaw/${{ matrix.slug }}/${{ github.run_id }}")
-            fi
-            tar czf "$RUN_TARBALL" \
-              -C /tmp/skill-eval \
-              --exclude='agent' \
-              --exclude='hooks_token' \
-              --exclude='*.sig' \
-              "${TAR_PATHS[@]}"
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
-          else
-            echo "current run results dir is empty — nothing to archive"
+          RESULT_COUNT=0
+          if [ -d "$RUN_RESULTS" ]; then
+            RESULT_COUNT=$(find "$RUN_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 | wc -l || true)
           fi
+          tar czf "$RUN_TARBALL" \
+            -C /tmp/skill-eval \
+            --exclude='agent' \
+            --exclude='hooks_token' \
+            --exclude='*.sig' \
+            "${TAR_PATHS[@]}"
+          echo "archived ${RESULT_COUNT} result.json files plus current-run scratch diagnostics (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
 
       - name: Upload results artifact
         if: always()

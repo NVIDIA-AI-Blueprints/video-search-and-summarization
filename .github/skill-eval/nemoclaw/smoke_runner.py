@@ -1111,7 +1111,10 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
             flush=True,
         )
         return False
-    reachable = result.returncode == 0 and "harbor-ready" in result.stdout
+    reachable = (
+        result.returncode == 0
+        and "harbor-ready" in (result.stdout or "").splitlines()
+    )
     if reachable:
         return True
 
@@ -1140,7 +1143,10 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
             flush=True,
         )
         return False
-    retry_reachable = retry.returncode == 0 and "harbor-ready" in retry.stdout
+    retry_reachable = (
+        retry.returncode == 0
+        and "harbor-ready" in (retry.stdout or "").splitlines()
+    )
     if not retry_reachable:
         _log_reachability_failure(instance, target, retry)
     return retry_reachable
@@ -1778,6 +1784,20 @@ def _select_and_lock_instance(
         time.sleep(10)
 
 
+def _remaining_run_timeout(
+    deadline: float,
+    cap_s: int,
+    phase: str,
+) -> int:
+    """Clamp one attempt to the shared smoke-run deadline."""
+    remaining_s = int(deadline - time.monotonic())
+    if remaining_s <= 0:
+        raise InfrastructureBlocked(
+            f"NemoClaw smoke run budget exhausted before {phase}"
+        )
+    return min(cap_s, remaining_s)
+
+
 def _stream_command(
     cmd: list[str],
     *,
@@ -1839,6 +1859,13 @@ def _stream_command(
                         log.write(rest)
                     return proc.returncode or 0
                 if time.time() - started > timeout_s:
+                    message = (
+                        "[nemoclaw-ci] Harbor exceeded the "
+                        f"{timeout_s}s timeout; terminating process group\n"
+                    )
+                    print(message, end="", flush=True)
+                    log.write(message)
+                    log.flush()
                     _kill_process_group(proc, signal.SIGTERM)
                     try:
                         proc.wait(timeout=120)
@@ -2680,6 +2707,16 @@ def main(argv: list[str] | None = None) -> int:
         _print_matrix(rows, blockers)
         return 0
 
+    run_timeout_s = max(
+        1,
+        int(
+            os.environ.get(
+                "NEMOCLAW_RUN_TIMEOUT_SEC",
+                str(args.lock_timeout + args.harbor_timeout),
+            )
+        ),
+    )
+    run_deadline = time.monotonic() + run_timeout_s
     os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
     os.environ["PYTHONPATH"] = f"{SKILL_EVAL_ROOT}:{os.environ.get('PYTHONPATH', '')}"
     SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
@@ -2743,11 +2780,16 @@ def main(argv: list[str] | None = None) -> int:
                 time.monotonic() + worker_failover_window_s
             )
             while True:
+                selection_timeout_s = _remaining_run_timeout(
+                    run_deadline,
+                    args.lock_timeout,
+                    "worker selection",
+                )
                 instance, worker_lock = _select_and_lock_instance(
                     first.platform,
                     gpu_count,
                     args.instance,
-                    args.lock_timeout,
+                    selection_timeout_s,
                     excluded=excluded_instances,
                 )
                 print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
@@ -2769,10 +2811,12 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         scenario_started = time.time()
                         log_path = (
-                            Path("/tmp/skill-eval")
+                            SCRATCH_ROOT
+                            / run_id
+                            / "harbor"
                             / (
-                                f"nemoclaw-harbor-{run_id}-{_scenario_id(scenario)}"
-                                f"-{_safe_slug(instance)}.log"
+                                f"{_scenario_id(scenario)}-"
+                                f"{_safe_slug(instance)}.log"
                             )
                         )
                         harbor_env = os.environ.copy()
@@ -2784,9 +2828,14 @@ def main(argv: list[str] | None = None) -> int:
                             if worker_lock.heartbeat
                             else None
                         )
+                        harbor_timeout_s = _remaining_run_timeout(
+                            run_deadline,
+                            args.harbor_timeout,
+                            "Harbor execution",
+                        )
                         harbor_rc = _stream_command(
                             cmd,
-                            timeout_s=args.harbor_timeout,
+                            timeout_s=harbor_timeout_s,
                             env=harbor_env,
                             log_path=log_path,
                             abort_event=heartbeat_lost_event,
@@ -2812,12 +2861,14 @@ def main(argv: list[str] | None = None) -> int:
                             if reward is None
                             else None
                         )
+                        failover_now = time.monotonic()
                         can_fail_over = (
                             setup_failure is not None
                             and group_scenario_index == 0
                             and not args.instance
                             and worker_failovers < max_worker_failovers
-                            and time.monotonic() < worker_failover_deadline
+                            and failover_now < worker_failover_deadline
+                            and failover_now < run_deadline
                         )
                         if can_fail_over:
                             worker_failovers += 1
@@ -2839,7 +2890,7 @@ def main(argv: list[str] | None = None) -> int:
                             stop_reason = (
                                 "retry limit reached"
                                 if worker_failovers >= max_worker_failovers
-                                else "failover window exhausted"
+                                else "failover window or run budget exhausted"
                             )
                             print(
                                 "[nemoclaw-ci] pre-agent worker setup failed on "
