@@ -210,20 +210,19 @@ class RtspServer
             }
 
             // Access codec information through SDP description
-            vector<string> detectedVideoCodecs;
+            Json::Value detectedVideoCodecs(Json::arrayValue);
             Json::Value detectedAudioInfo;
             Json::Value videoParameterSets(Json::arrayValue);
             detectedAudioInfo["present"] = false;
             char* sdpDesc = generateSDPDescription(AF_INET);
             if (sdpDesc)
             {
-                // Parse SDP to extract video codec information
-                detectedVideoCodecs = parseVideoCodecsFromSDP(sdpDesc);
-                // Decode parameter sets off the live555 event-loop thread.
-                videoParameterSets = parseVideoParameterSetsFromSDP(sdpDesc);
+                Json::Value videoInfo = parseVideoInfoFromSDP(sdpDesc);
+                detectedVideoCodecs = videoInfo["codecs"];
+                videoParameterSets  = videoInfo["parameterSets"];
                 for (const auto& codec : detectedVideoCodecs)
                 {
-                    LOG(warning) << "Detected video codec from SDP: " << codec << endl;
+                    LOG(warning) << "Detected video codec from SDP: " << codec.asString() << endl;
                 }
                 /* Also pull audio info from the same SDP buffer. This is the
                  * earliest hook we have for audio detection -- it runs at
@@ -270,7 +269,7 @@ class RtspServer
                     string sdpDetectedCodec;
                     if (!detectedVideoCodecs.empty())
                     {
-                        sdpDetectedCodec = detectedVideoCodecs[0];
+                        sdpDetectedCodec = detectedVideoCodecs[0].asString();
                     }
                     string asyncCodec = sdpDetectedCodec.empty() ? streamInfo.codec : sdpDetectedCodec;
                     string asyncVodUrl = streamInfo.vodUrl.empty() ? vod_url : streamInfo.vodUrl;
@@ -318,11 +317,29 @@ class RtspServer
         RtspServer *m_rtspServer;
         std::string m_savedUrl;  // Store URL for use in sdpReset when url() may be null
 
-        // Helper function to parse video codecs from SDP description (ignores audio)
-        vector<string> parseVideoCodecsFromSDP(const char* sdp)
+        /* Reads the video m-section in one pass (audio: parseAudioInfoFromSDP).
+         * Returns "codecs" from a=rtpmap and "parameterSets" from a=fmtp, base64
+         * and in bitstream order. Decoding them is left to the caller: this runs
+         * on the live555 event-loop thread, which must not block. */
+        Json::Value parseVideoInfoFromSDP(const char* sdp)
         {
-            vector<string> videoCodecs;
-            if (!sdp) return videoCodecs;
+            Json::Value videoInfo;
+            videoInfo["codecs"] = Json::Value(Json::arrayValue);
+            videoInfo["parameterSets"] = Json::Value(Json::arrayValue);
+            if (!sdp) return videoInfo;
+
+            // Value of <key> in an a=fmtp parameter list
+            auto attributeValue = [](const string& line, const string& key) -> string {
+                size_t keyPos = line.find(key);
+                if (keyPos == string::npos) return "";
+                string value = line.substr(keyPos + key.length());
+                size_t endPos = value.find_first_of(" ;\r\n");
+                if (endPos != string::npos)
+                {
+                    value.erase(endPos);
+                }
+                return value;
+            };
 
             string sdpStr(sdp);
             istringstream stream(sdpStr);
@@ -334,18 +351,7 @@ class RtspServer
                 // Track media sections: m=<media> <port> <proto> <payload_types>
                 if (line.find("m=") == 0)
                 {
-                    if (line.find("m=video") == 0)
-                    {
-                        inVideoSection = true;
-                    }
-                    else if (line.find("m=audio") == 0)
-                    {
-                        inVideoSection = false;
-                    }
-                    else
-                    {
-                        inVideoSection = false; // Reset for other media types
-                    }
+                    inVideoSection = (line.find("m=video") == 0);
                 }
                 // Only process rtpmap lines when in video section
                 else if (inVideoSection && line.find("a=rtpmap:") == 0)
@@ -357,27 +363,36 @@ class RtspServer
                         size_t slashPos = codecInfo.find('/');
                         if (slashPos != string::npos)
                         {
-                            string codecName = codecInfo.substr(0, slashPos);
-                            videoCodecs.push_back(codecName);
+                            videoInfo["codecs"].append(codecInfo.substr(0, slashPos));
                         }
                     }
                 }
                 // Only process format parameters when in video section
-                else if (inVideoSection && line.find("a=fmtp:") == 0)
+                else if (inVideoSection && line.find("a=fmtp:") == 0 &&
+                         videoInfo["parameterSets"].empty())
                 {
-                    // Extract profile information for H.264/H.265
-                    if (line.find("profile-level-id") != string::npos)
+                    // H.265 form first, H.264 packs all sets into one attribute
+                    for (const char* const key : {"sprop-vps=", "sprop-sps=", "sprop-pps="})
                     {
-                        size_t profilePos = line.find("profile-level-id=");
-                        if (profilePos != string::npos)
+                        string value = attributeValue(line, key);
+                        if (!value.empty())
                         {
-                            string profile = line.substr(profilePos + 17, 6); // Extract 6-char profile
+                            videoInfo["parameterSets"].append(value);
+                        }
+                    }
+                    if (videoInfo["parameterSets"].empty() == false) continue;
+
+                    for (const string& value : splitString(attributeValue(line, "sprop-parameter-sets="), ","))
+                    {
+                        if (!value.empty())
+                        {
+                            videoInfo["parameterSets"].append(value);
                         }
                     }
                 }
             }
 
-            return videoCodecs;
+            return videoInfo;
         }
 
         /* Helper function to parse audio info from SDP description.
@@ -469,63 +484,6 @@ class RtspServer
                 }
             }
             return audio;
-        }
-
-        // Extract base64-encoded H.264/H.265 parameter sets in bitstream order.
-        Json::Value parseVideoParameterSetsFromSDP(const char* sdp)
-        {
-            Json::Value parameterSets(Json::arrayValue);
-            if (!sdp) return parameterSets;
-
-            auto attributeValue = [](const string& line, const string& key) -> string {
-                size_t keyPos = line.find(key);
-                if (keyPos == string::npos) return "";
-                string value = line.substr(keyPos + key.length());
-                size_t endPos = value.find_first_of(" ;\r\n");
-                if (endPos != string::npos)
-                {
-                    value.erase(endPos);
-                }
-                return value;
-            };
-
-            string sdpStr(sdp);
-            istringstream stream(sdpStr);
-            string line;
-            bool inVideoSection = false;
-
-            while (getline(stream, line))
-            {
-                if (line.find("m=") == 0)
-                {
-                    inVideoSection = (line.find("m=video") == 0);
-                    continue;
-                }
-                if (!inVideoSection || line.find("a=fmtp:") != 0) continue;
-
-                for (const char* const key : {"sprop-vps=", "sprop-sps=", "sprop-pps="})
-                {
-                    string value = attributeValue(line, key);
-                    if (!value.empty())
-                    {
-                        parameterSets.append(value);
-                    }
-                }
-                if (parameterSets.empty() == false) break;
-
-                string spropSets = attributeValue(line, "sprop-parameter-sets=");
-                if (spropSets.empty()) continue;
-                for (const string& value : splitString(spropSets, ","))
-                {
-                    if (!value.empty())
-                    {
-                        parameterSets.append(value);
-                    }
-                }
-                break;
-            }
-
-            return parameterSets;
         }
     };
 } // nv_vms
