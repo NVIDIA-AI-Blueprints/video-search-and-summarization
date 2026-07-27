@@ -597,12 +597,14 @@ sys.exit(0 if (after_dedup == 1 and dropped == 19 and docs == 1) else 1)"; then
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo "=== Event-loop capability suite (no-GPU sim harness) ==="
-if [ "$SKIP_SETUP" -eq 0 ]; then
-    ensure_stack
-fi
-
+# Must precede ensure_stack: the simulators are launched with whatever python3
+# is on PATH, and the system interpreter typically lacks Flask.
 if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
     export PATH="$REPO_ROOT/venv/bin:$PATH"
+fi
+
+if [ "$SKIP_SETUP" -eq 0 ]; then
+    ensure_stack
 fi
 
 for ts in ts_001 ts_002 ts_003 ts_004 ts_005 ts_006 ts_011 ts_014 ts_020; do

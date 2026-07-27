@@ -245,21 +245,34 @@ this.
 partition and commits once per poll batch, removing one commit call per
 message from the GIL-bound consume thread. Committing the highest offset is
 equivalent to committing each in turn — offsets are monotonic within a
-partition and every intermediate message is already in the returned batch —
-but it moves the crash boundary: messages polled and not yet committed **are
-redelivered** on restart, shifting the pipeline toward **at-least-once**.
+partition and every intermediate message is already in the returned batch.
 
-Enable it only where duplicates are tolerated:
+**It does not make the pipeline at-least-once.** The batch is flushed inside
+`get_consumed_messages`, before `read_data()` returns and therefore before any
+message is handed to the worker pool. A message that reached dispatch is
+already committed under either setting, and dies with its process. What
+batching opens is a redelivery window of exactly **one poll batch**, entered
+only when the crash lands inside the poll loop itself — bounded by the time to
+drain up to `max_poll_records` messages. Both settings lose in-flight
+dispatched work on a crash; neither replaces an idempotent sink or an
+end-to-end retry if that loss matters.
 
-- In-process dedup collapses identical cohorts, so a replay inside
-  `alert_agent.event_filters.dedup_ttl_seconds` (default 300 s) is absorbed.
-  Keep that TTL above the expected replay window.
+Within that window duplicates are possible, so enable it only where they are
+tolerated:
+
+- In-process dedup collapses identical cohorts inside
+  `alert_agent.event_filters.dedup_ttl_seconds` (default 300 s), but only when
+  the replay lands on the process that already saw the original. It will not,
+  if that process is the one that died — its cache went with it.
 - Confirmed-verdict protection (`protect_confirmed_verdicts`) is
-  Elasticsearch-backed and also suppresses re-verification across a restart.
+  Elasticsearch-backed, so it is the only suppression that survives a process
+  death or a rebalance.
 - Anything downstream of the sink that is not idempotent will see duplicates.
 
 The default keeps today's at-most-once behavior, so the two semantics can be
-adopted per deployment rather than flag-day.
+adopted per deployment rather than flag-day. TS-014 asserts the at-most-once
+baseline; TS-033 measures the loss and replay counts across a hard kill in
+both modes.
 
 ### VLM concurrency ceiling benchmark (run before raising `max_vlm_concurrent`)
 

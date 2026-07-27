@@ -51,11 +51,12 @@ kafka:
   session_timeout_ms: 10000        # 10 seconds
   heartbeat_interval_ms: 3000      # 3 seconds
   # Commit offsets once per poll batch (highest offset per partition) instead
-  # of once per message. Saves per-message work on the GIL-bound consume
-  # thread, but moves the crash boundary: messages polled before a crash are
-  # redelivered on restart (at-least-once) instead of being dropped
-  # (at-most-once). Only enable where duplicates are tolerated — keep
-  # alert_agent.event_filters.dedup_ttl_seconds above the replay window.
+  # of once per message, removing one commit call per message from the
+  # GIL-bound consume thread. This does NOT make the pipeline at-least-once:
+  # the batch is flushed before any message is dispatched, so in-flight work
+  # is lost on a crash either way. It opens a redelivery window of one poll
+  # batch, entered only when a crash lands inside the poll loop. Enable only
+  # where duplicates within that window are tolerated.
   batch_commit: false
 
 #VLM Configuration

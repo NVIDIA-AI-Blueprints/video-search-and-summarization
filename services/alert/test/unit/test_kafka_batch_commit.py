@@ -126,5 +126,43 @@ class TestCommitModes:
         assert KafkaMessageBroker({'kafka': {}}).batch_commit is False
 
 
+class RaisingConsumer(FakeConsumer):
+    def __init__(self, messages, raise_after):
+        super().__init__(messages)
+        self._raise_after = raise_after
+        self._polls = 0
+
+    def poll(self, timeout=None):
+        self._polls += 1
+        if self._polls > self._raise_after:
+            raise KafkaException("broker gone")
+        return super().poll(timeout)
+
+
+class TestCommitBoundary:
+    """The redelivery window batching opens is the poll loop, nothing wider."""
+
+    def test_no_partition_is_returned_without_having_been_committed(self):
+        consumer = FakeConsumer(_batch())
+        messages = _broker(True).get_consumed_messages(consumer)
+
+        returned = set()
+        for key in messages:
+            topic, partition = key.rsplit("-", 1)
+            returned.add((topic, int(partition)))
+        assert returned == {(topic, partition) for topic, partition, _ in consumer.commits}
+
+    def test_batch_commits_what_was_read_when_the_poll_loop_raises(self):
+        consumer = RaisingConsumer(_batch(), raise_after=3)
+        messages = _broker(True).get_consumed_messages(consumer)
+
+        assert sorted(consumer.commits) == [
+            ("mdx-incidents", 0, 11),
+            ("mdx-incidents", 1, 5),
+        ]
+        assert len(messages["mdx-incidents-0"]) == 2
+        assert len(messages["mdx-incidents-1"]) == 1
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

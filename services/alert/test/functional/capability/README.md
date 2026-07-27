@@ -40,6 +40,7 @@ instance uses more than the ~1 core a single GIL-bound process can reach.
 | TS-030 | rate ramp (10/20/40/80 msg/s), NIM stub 0.2s, `max_vlm_concurrent=60`, 1 process vs N | single process pinned below ~1.5 cores; N processes use >2× that CPU and hold `vlm_duration` within 30% of its low-rate baseline, below the single-process value |
 | TS-031 | N processes, `SIGKILL` one child | supervisor logs the exit, replaces the child, and the full injected set lands in Elasticsearch afterwards |
 | TS-032 | N processes, 60 msg/s overload, `batch_commit` off then on | no shortfall against the produced count in either mode (batched commit may add duplicates, never losses) |
+| TS-033 | N processes, `SIGKILL` one child mid-flight, `batch_commit` off then on | `batch_commit: false` never replays; everything clearing dedup is persisted; the restarted child serves its partitions again. Per-mode loss counts are reported as measured evidence, not gated |
 
 Sizing the run matters more than in the suite above:
 
@@ -53,6 +54,20 @@ Sizing the run matters more than in the suite above:
   first and single- and multi-process results are identical.
 - **CPU comes from `/proc` deltas** (`process_tree_cpu.py`), not `ps %cpu`,
   which reports a lifetime average. 100% = one fully busy core. Linux only.
+  The first `CPU_SKIP_SECONDS` (default 8) of samples are discarded — without
+  that, interpreter and child startup produces a peak at the *lowest* offered
+  rate that has nothing to do with steady state. Gates use `cpu_avg`;
+  `cpu_max` is a diagnostic.
+- **TS-030 does not gate on a CPU multiple.** N processes at the top rate are
+  no longer contended and can do the same work for less total CPU than a
+  saturated single process, so requiring `N× the CPU` would fail exactly when
+  the fix works. The gate is: single process saturates ~1 core *and* its
+  observed latency inflates, while N processes exceed one core, stay flat, and
+  come in below the single-process latency.
+- **Pipeline children are identified from the supervisor's log**, not
+  `pgrep -f`: `fork` leaves `argv` unchanged, so the parent and the FastAPI
+  child match the same pattern, and picking a victim by position could kill
+  FastAPI instead of a pipeline child.
 - **The NIM stub is killed by pattern and its port verified.** A stub left
   from an earlier run keeps port 18081, the replacement dies with
   `EADDRINUSE`, and every request is silently served at the *old* delay.
@@ -76,3 +91,13 @@ Notes:
   retries, warmup) and is reported as a diagnostic only.
 - Start the injector only after Alert Bridge is up: the consumer joins with
   `auto_offset_reset=latest` and skips earlier messages.
+- The venv is put on `PATH` **before** the simulators are started; they are
+  launched with whatever `python3` is on `PATH`, and the system interpreter
+  usually lacks Flask. A simulator that dies on import used to surface much
+  later as a misleading "Elasticsearch connection refused" at Alert Bridge
+  startup, so both runners now wait on ports 9200/30888/8080 and tail the
+  simulator log on timeout instead of sleeping.
+- The simulators are background jobs of the invoking shell and die with it —
+  including when a `screen`/`tmux` session ends. Re-running with
+  `--skip-setup` against a finished session finds every port closed; either
+  keep the session alive or drop `--skip-setup`.

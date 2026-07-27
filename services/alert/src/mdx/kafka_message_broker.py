@@ -82,9 +82,13 @@ class KafkaMessageBroker:
         the batch instead of being issued per message. Offsets are monotonic
         within a partition and every intermediate message is already in the
         returned batch, so committing the highest offset per partition is
-        equivalent to committing each in turn. It does move the crash boundary:
-        messages polled but not yet committed are redelivered after a crash
-        (see README "Crash and replay semantics").
+        equivalent to committing each in turn.
+
+        The flush below happens before this returns, so callers never receive
+        uncommitted messages: batching does not make the pipeline
+        at-least-once, it opens a redelivery window of one poll batch, entered
+        only when a crash lands inside the loop (see README "Crash and replay
+        semantics").
 
         :param consumer: The Confluent Kafka consumer.
         :param batch_size: The number of messages to consume in a single batch. Defaults to kafka.max_poll_records.

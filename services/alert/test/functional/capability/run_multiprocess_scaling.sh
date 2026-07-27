@@ -19,6 +19,7 @@
 #   TS-030  rate ramp, 1 process vs N: CPU past one core, VLM latency flat
 #   TS-031  killed child is restarted and its partitions resume
 #   TS-032  no message loss under overload, with and without kafka.batch_commit
+#   TS-033  crash/replay semantics per commit mode, measured across a hard kill
 #
 # Two harness properties are load-bearing and are asserted, not assumed:
 #   * the topic must have >= PROCESSES partitions, otherwise effective
@@ -55,6 +56,7 @@ STUB_DELAY="${STUB_DELAY:-0.2}"
 VLM_CAP="${VLM_CAP:-60}"
 RAMP_RATES="${RAMP_RATES:-10 20 40 80}"
 RAMP_SECONDS="${RAMP_SECONDS:-60}"
+CPU_SKIP_SECONDS="${CPU_SKIP_SECONDS:-8}"
 
 ONLY_TEST=""
 SKIP_SETUP=0
@@ -127,6 +129,20 @@ ensure_partitions() {
     print_status "ok" "$topic partitions: $have"
 }
 
+# Wait on the port rather than sleeping: a simulator that dies on import (for
+# example Flask missing because the venv was not on PATH) otherwise surfaces
+# much later as a misleading "connection refused" from Alert Bridge startup.
+wait_for_sim() {
+    local name="$1" url="$2" log="$3" waited=0
+    while [ $waited -lt 30 ]; do
+        curl -sf "$url" >/dev/null 2>&1 && { print_status "ok" "$name ready"; return 0; }
+        sleep 1; waited=$((waited+1))
+    done
+    print_status "fail" "$name did not become ready at $url"
+    tail -20 "$log" 2>/dev/null || true
+    return 1
+}
+
 ensure_stack() {
     ensure_kafka
     ensure_partitions "$TOPIC" "$PARTITIONS" || exit 1
@@ -144,7 +160,10 @@ ensure_stack() {
         python3 "$REPO_ROOT/test/sim_scripts/vss/vss_sim.py" > "$PID_DIR/vss_sim.log" 2>&1 &
         echo $! > "$PID_DIR/vss_sim.pid"
     fi
-    sleep 2
+
+    wait_for_sim "Elastic sim" http://127.0.0.1:9200/health "$PID_DIR/elastic_sim.log" || exit 1
+    wait_for_sim "VST sim" http://127.0.0.1:30888/status "$PID_DIR/vst_sim.log" || exit 1
+    wait_for_sim "VSS sim" http://127.0.0.1:8080/models "$PID_DIR/vss_sim.log" || exit 1
 }
 
 # Kill by pattern, not by PID file: a stub orphaned by an earlier run keeps
@@ -233,8 +252,15 @@ start_ab() {
     return 1
 }
 
-pipeline_pids() {
-    pgrep -f "$AB_PATTERN" 2>/dev/null | tr '\n' ' '
+# pgrep cannot separate the pipeline children from the parent and the FastAPI
+# child: fork leaves argv unchanged, so all of them match AB_PATTERN. Read the
+# pids the supervisor logs instead, and keep only the ones still alive.
+pipeline_child_pids() {
+    local pid
+    grep -o "Pipeline process [0-9]* starting (pid=[0-9]*)" "$PID_DIR/alert_bridge.log" 2>/dev/null \
+        | grep -o "pid=[0-9]*" | cut -d= -f2 | while read -r pid; do
+        kill -0 "$pid" 2>/dev/null && echo "$pid"
+    done | tr '\n' ' '
 }
 
 prepare_run() {
@@ -275,7 +301,7 @@ vlm_mean_over() {
     local s0 c0 s1 c1 cpu
     s0=$(prom_value alert_bridge_vlm_duration_seconds_sum)
     c0=$(prom_value alert_bridge_vlm_duration_seconds_count)
-    python3 "$CPU_SAMPLER" "$AB_PATTERN" 2 "$duration" > "$RESULTS_DIR/cpu_$prefix.txt" 2>/dev/null &
+    python3 "$CPU_SAMPLER" "$AB_PATTERN" 2 "$duration" "$CPU_SKIP_SECONDS" > "$RESULTS_DIR/cpu_$prefix.txt" 2>/dev/null &
     local sampler=$!
     python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
         --num-sensors 16 --rate "$rate" --duration "$duration" \
@@ -310,9 +336,9 @@ ts_030() {
             read -r mean cavg cmax <<< "$(vlm_mean_over "$rate" "$RAMP_SECONDS" "P${variant}R${rate}")"
             print_status "info" "processes=$variant rate=$rate/s vlm_mean=${mean}s cpu_avg=${cavg}% cpu_max=${cmax}%"
             if [ "$variant" = "1" ]; then
-                single_means+=("$mean"); single_cpu+=("$cmax")
+                single_means+=("$mean"); single_cpu+=("$cavg")
             else
-                multi_means+=("$mean"); multi_cpu+=("$cmax")
+                multi_means+=("$mean"); multi_cpu+=("$cavg")
             fi
         done
     done
@@ -325,20 +351,25 @@ ts_030() {
         return
     fi
 
-    detail="single: mean ${single_means[0]}→${single_means[$last]}s cpu_max ${single_cpu[$last]}% | \
-${PROCESSES}p: mean ${multi_means[0]}→${multi_means[$last]}s cpu_max ${multi_cpu[$last]}%"
+    detail="single: mean ${single_means[0]}→${single_means[$last]}s cpu_avg ${single_cpu[$last]}% | \
+${PROCESSES}p: mean ${multi_means[0]}→${multi_means[$last]}s cpu_avg ${multi_cpu[$last]}%"
 
-    # At the top rate the single process must be pinned near one core with its
-    # observed VLM latency inflated by loop-resume delay; N processes must use
-    # materially more CPU and keep latency close to the backend's service time.
+    # The claim under test is that the single process hits a one-core ceiling
+    # and pays for it in observed latency, while N processes go past that
+    # ceiling and stay flat. It is NOT that N processes burn N times the CPU:
+    # at the top rate they are no longer contended, so they can do the same
+    # work for less total CPU. Gating on a CPU multiple would invert the
+    # outcome being measured. cpu_avg, not cpu_max — the peak catches a
+    # startup spike unrelated to steady state.
     if python3 -c "
 import sys
 s_base, s_top = float('${single_means[0]}'), float('${single_means[$last]}')
 m_base, m_top = float('${multi_means[0]}'), float('${multi_means[$last]}')
 s_cpu, m_cpu = float('${single_cpu[$last]}'), float('${multi_cpu[$last]}')
-ok = (s_cpu < 150.0
-      and m_cpu > s_cpu * 2.0
-      and m_top <= m_base * 1.3
+ok = (s_cpu >= 85.0            # single process saturates ~1 core
+      and s_top >= s_base * 1.5  # ...and its observed VLM latency inflates
+      and m_cpu > 100.0          # N processes exceed the one-core ceiling
+      and m_top <= m_base * 1.3  # ...while staying near true service time
       and m_top < s_top)
 sys.exit(0 if ok else 1)"; then
         record_result TS-030 PASS "$detail"
@@ -353,20 +384,19 @@ ts_031() {
     prepare_run "$PROCESSES" false 1 || { record_result TS-031 FAIL "AB startup"; return; }
 
     local before after victim
-    before=$(pipeline_pids)
+    before=$(pipeline_child_pids)
     local before_count; before_count=$(echo "$before" | wc -w)
-    if [ "$before_count" -ne $((PROCESSES + 1)) ]; then
-        record_result TS-031 FAIL "expected $((PROCESSES + 1)) processes (parent + $PROCESSES children), found $before_count"
+    if [ "$before_count" -ne "$PROCESSES" ]; then
+        record_result TS-031 FAIL "expected $PROCESSES pipeline children, found $before_count ($before)"
         return
     fi
 
-    # Kill the last child, never the parent (first pid is the supervisor).
     victim=$(echo "$before" | tr ' ' '\n' | grep -v '^$' | tail -1)
     kill -9 "$victim" 2>/dev/null || true
 
     local waited=0 restarted=0
     while [ $waited -lt 60 ]; do
-        after=$(pipeline_pids)
+        after=$(pipeline_child_pids)
         if [ "$(echo "$after" | wc -w)" -eq "$before_count" ] && ! echo "$after" | grep -qw "$victim"; then
             restarted=1; break
         fi
@@ -455,6 +485,117 @@ sys.exit(0 if produced > 0 and after_dedup >= produced and docs >= produced else
     fi
 }
 
+drain_to_idle() {
+    local budget="${1:-180}" waited=0
+    while [ $waited -lt "$budget" ]; do
+        local lag infl
+        lag=$(kafka_consumer_lag "$CONSUMER_GROUP")
+        infl=$(prom_value alert_bridge_dispatch_in_flight)
+        if [ "${lag:-1}" -eq 0 ] 2>/dev/null && python3 -c "import sys; sys.exit(0 if float('$infl')==0 else 1)"; then
+            sleep 5; return 0
+        fi
+        sleep 5; waited=$((waited+5))
+    done
+    return 1
+}
+
+wait_for_child_restart() {
+    local victim="$1" waited=0 live
+    while [ $waited -lt 60 ]; do
+        live=$(pipeline_child_pids)
+        if [ "$(echo "$live" | wc -w)" -eq "$PROCESSES" ] && ! echo "$live" | grep -qw "$victim"; then
+            return 0
+        fi
+        sleep 2; waited=$((waited+2))
+    done
+    return 1
+}
+
+# ─── TS-033: crash/replay semantics per commit mode ─────────────────────────
+#
+# What this pins down: batched commit does NOT make the pipeline at-least-once.
+# The batch is flushed in get_consumed_messages' finally, before read_data()
+# returns and before anything is dispatched, so a message that reached the
+# worker pool is already committed under either setting and dies with its
+# process. The redelivery window batching opens is one poll batch, entered only
+# if the crash lands inside the poll loop itself.
+#
+# Deterministic and therefore asserted: batch_commit=false never replays;
+# everything that clears dedup is persisted; the restarted child resumes its
+# partitions. The per-mode loss counts are measured evidence for the window
+# above, not pass criteria — the crash lands where it lands.
+ts_033() {
+    echo ""; echo "=== TS-033: crash/replay semantics — kill mid-flight, both commit modes ==="
+    local detail="" failed=0
+
+    for batch in false true; do
+        prepare_run "$PROCESSES" "$batch" 2 || { failed=1; detail="$detail batch_commit=$batch: startup;"; break; }
+
+        local d0; d0=$(prom_value alert_bridge_events_after_dedup_total)
+        python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+            --num-sensors "$PARTITIONS" --rate 20 --duration 20 --unique \
+            --sensor-prefix "TS033K$batch" > "$RESULTS_DIR/injector_TS033K_$batch.log" 2>&1 &
+        local inj=$!
+
+        sleep 10
+        local victim; victim=$(pipeline_child_pids | tr ' ' '\n' | grep -v '^$' | tail -1)
+        if [ -z "$victim" ]; then
+            failed=1; detail="$detail batch_commit=$batch: no pipeline child to kill;"
+            kill $inj 2>/dev/null || true
+            continue
+        fi
+        kill -9 "$victim" 2>/dev/null || true
+        wait $inj || true
+
+        local produced; produced=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS033K_$batch.log" | grep -o "[0-9]*")
+        if ! wait_for_child_restart "$victim"; then
+            failed=1; detail="$detail batch_commit=$batch: child $victim not replaced;"
+            continue
+        fi
+        drain_to_idle 240 || true
+
+        local d1 survivors docs
+        d1=$(prom_value alert_bridge_events_after_dedup_total)
+        survivors=$(python3 -c "print(int(round(float('$d1') - float('$d0'))))")
+        docs=$(count_es_docs "$ES_HOST")
+
+        # Partitions must be served again after the restart.
+        python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+            --num-sensors "$PARTITIONS" --rate 4 --duration 20 --unique \
+            --sensor-prefix "TS033R$batch" > "$RESULTS_DIR/injector_TS033R_$batch.log" 2>&1
+        local produced2; produced2=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS033R_$batch.log" | grep -o "[0-9]*")
+        drain_to_idle 180 || true
+        local d2 recovered
+        d2=$(prom_value alert_bridge_events_after_dedup_total)
+        recovered=$(python3 -c "print(int(round(float('$d2') - float('$d1'))))")
+
+        local lost=$(( produced - survivors ))
+        detail="$detail batch_commit=$batch produced=$produced survivors=$survivors lost=$lost docs=$docs recovery=$recovered/$produced2;"
+        print_status "info" "batch_commit=$batch killed=$victim lost_in_flight=$lost recovery=$recovered/$produced2"
+
+        if ! python3 -c "
+import sys
+batch = '$batch' == 'true'
+produced, survivors, docs = $produced, $survivors, $docs
+recovered, produced2 = $recovered, $produced2
+ok = (produced > 0
+      and docs == survivors            # everything past dedup was persisted
+      and produced2 > 0
+      and recovered == produced2)      # restarted child serves its partitions
+if not batch:
+    ok = ok and survivors <= produced  # at-most-once: nothing is ever replayed
+sys.exit(0 if ok else 1)"; then
+            failed=1
+        fi
+    done
+
+    if [ "$failed" -eq 0 ]; then
+        record_result TS-033 PASS "$detail"
+    else
+        record_result TS-033 FAIL "$detail"
+    fi
+}
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo "=== Multi-process scaling suite (no-GPU sim harness) ==="
@@ -465,15 +606,17 @@ if [ ! -r /proc/self/stat ]; then
     exit 2
 fi
 
-if [ "$SKIP_SETUP" -eq 0 ]; then
-    ensure_stack
-fi
-
+# Must precede ensure_stack: the simulators are launched with whatever python3
+# is on PATH, and the system interpreter typically lacks Flask.
 if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
     export PATH="$REPO_ROOT/venv/bin:$PATH"
 fi
 
-for ts in ts_030 ts_031 ts_032; do
+if [ "$SKIP_SETUP" -eq 0 ]; then
+    ensure_stack
+fi
+
+for ts in ts_030 ts_031 ts_032 ts_033; do
     ts_id="TS-${ts#ts_}"
     if [ -n "$ONLY_TEST" ] && [ "$ONLY_TEST" != "$ts_id" ]; then
         continue

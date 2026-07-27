@@ -20,7 +20,11 @@
 care about, so utime+stime deltas are read straight from /proc instead. 100%
 means one fully busy core.
 
-Usage: process_tree_cpu.py PATTERN INTERVAL DURATION
+Interpreter startup and child construction burn CPU that has nothing to do with
+steady-state throughput, so SKIP discards the first seconds of samples —
+without it the peak reported at the *lowest* offered rate is a boot spike.
+
+Usage: process_tree_cpu.py PATTERN INTERVAL DURATION [SKIP]
 Prints: "<avg_pct> <max_pct> <samples>"
 """
 
@@ -68,10 +72,12 @@ def main():
     pattern = sys.argv[1]
     interval = float(sys.argv[2])
     duration = float(sys.argv[3])
+    skip = float(sys.argv[4]) if len(sys.argv) > 4 else 0.0
 
     previous = snapshot(pattern)
     previous_at = time.monotonic()
     samples = []
+    started_at = previous_at
     end = previous_at + duration
 
     while time.monotonic() < end:
@@ -83,7 +89,7 @@ def main():
         # counting its lifetime ticks as one interval's work would spike the
         # sample, so only carried-over pids contribute.
         delta = sum(ticks - previous[pid] for pid, ticks in current.items() if pid in previous)
-        if elapsed > 0:
+        if elapsed > 0 and now - started_at >= skip:
             samples.append(100.0 * delta / CLOCK_TICKS / elapsed)
         previous, previous_at = current, now
 
