@@ -1343,9 +1343,11 @@ def _select_and_lock_instance(
     gpu_count: int,
     explicit: str | None,
     timeout_s: int,
+    excluded: set[str] | None = None,
 ) -> tuple[str, WorkerLock]:
     deadline = time.time() + timeout_s
     observations: list[str] = []
+    excluded = excluded or set()
 
     def remember(message: str) -> None:
         if not message:
@@ -1408,13 +1410,27 @@ def _select_and_lock_instance(
                 )
                 time.sleep(10)
                 continue
-            candidates = _instance_candidates(instances, platform=platform, gpu_count=gpu_count)
+            all_candidates = _instance_candidates(
+                instances,
+                platform=platform,
+                gpu_count=gpu_count,
+            )
+            candidates = [
+                candidate
+                for candidate in all_candidates
+                if candidate not in excluded
+            ]
             instances_by_name = {
                 str(inst.get("name") or ""): inst
                 for inst in instances
                 if inst.get("name")
             }
             inventory = _summarize_instances(instances)
+            if all_candidates and not candidates:
+                raise InfrastructureBlocked(
+                    "all pool candidates were excluded after pre-agent "
+                    f"setup failures for {platform}: {', '.join(sorted(excluded))}"
+                )
         print(
             "[nemoclaw-ci] candidate workers:",
             ", ".join(candidates) if candidates else "<none>",
@@ -1571,6 +1587,75 @@ def _latest_trial(results_root: Path, run_id: str, *, since: float = 0.0) -> tup
         return None, {}
     result_path = results[-1]
     return result_path.parent, _read_json(result_path)
+
+
+_RETRYABLE_WORKER_SETUP_MESSAGES = (
+    "stray-agent reap failed on ",
+    "claude task scratch cleanup failed on ",
+    "repo sync failed on ",
+    "NemoClaw setup failed on ",
+    "docker runtime reset failed on ",
+    "host data purge failed on ",
+    "log-dir reset/setup failed on ",
+)
+
+
+def _retryable_worker_setup_failure(
+    results_root: Path,
+    run_id: str,
+    *,
+    since: float,
+    instance: str,
+) -> str | None:
+    """Return a reason only for Brev failures proven to precede agent setup."""
+    _trial_dir, result = _latest_trial(results_root, run_id, since=since)
+    if not result:
+        return None
+
+    config = result.get("config")
+    if not isinstance(config, dict):
+        return None
+    environment = config.get("environment")
+    if not isinstance(environment, dict):
+        return None
+    if environment.get("import_path") != "envs.brev_env:BrevEnvironment":
+        return None
+
+    environment_setup = result.get("environment_setup")
+    if (
+        not isinstance(environment_setup, dict)
+        or not environment_setup.get("started_at")
+    ):
+        return None
+    post_environment_fields = (
+        "agent_setup",
+        "agent_execution",
+        "verifier",
+        "agent_result",
+        "verifier_result",
+    )
+    if any(
+        field not in result or result[field] is not None
+        for field in post_environment_fields
+    ):
+        return None
+
+    exception_info = result.get("exception_info")
+    if not isinstance(exception_info, dict):
+        return None
+    if exception_info.get("exception_type") != "RuntimeError":
+        return None
+    message = str(exception_info.get("exception_message") or "")
+    traceback = str(exception_info.get("exception_traceback") or "")
+    if "envs/brev_env.py" not in traceback or "in start" not in traceback:
+        return None
+    first_line = message.splitlines()[0] if message else ""
+    if not any(
+        first_line.startswith(f"{marker}{instance}:")
+        for marker in _RETRYABLE_WORKER_SETUP_MESSAGES
+    ):
+        return None
+    return first_line
 
 
 def _parse_iso(value: str | None) -> dt.datetime | None:
@@ -2302,6 +2387,14 @@ def main(argv: list[str] | None = None) -> int:
         failures: list[str] = []
         executed = 0
         scenario_index = 0
+        max_worker_failovers = max(
+            0,
+            int(os.environ.get("NEMOCLAW_MAX_WORKER_FAILOVERS", "2")),
+        )
+        worker_failover_window_s = max(
+            0,
+            int(os.environ.get("NEMOCLAW_WORKER_FAILOVER_WINDOW_SEC", "1200")),
+        )
         for group_index, group in enumerate(groups, start=1):
             first = group[0]
             gpu_count = (
@@ -2318,80 +2411,144 @@ def main(argv: list[str] | None = None) -> int:
                 f"{first.platform} gpu_count={gpu_count} steps=[{group_steps}]",
                 flush=True,
             )
-            instance, worker_lock = _select_and_lock_instance(
-                first.platform,
-                gpu_count,
-                args.instance,
-                args.lock_timeout,
+            excluded_instances: set[str] = set()
+            worker_failovers = 0
+            worker_failover_deadline = (
+                time.monotonic() + worker_failover_window_s
             )
-            print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
-            # Use the human-readable Brev name for Harbor itself. Instance IDs
-            # are useful for lock/reachability checks on some runners, but they
-            # have proven unreliable as long-lived `brev exec` targets during
-            # Harbor environment setup.
-            brev_instance = instance
-            try:
-                os.environ["BREV_INSTANCE"] = brev_instance
-                for scenario in group:
-                    scenario_index += 1
-                    print(
-                        "[nemoclaw-ci] scenario "
-                        f"{scenario_index}/{len(scenarios)}: {scenario.skill}/"
-                        f"{scenario.spec_name}/{scenario.platform}/{scenario.task_name}",
-                        flush=True,
-                    )
-                    scenario_started = time.time()
-                    log_path = (
-                        Path("/tmp/skill-eval")
-                        / f"nemoclaw-harbor-{run_id}-{_scenario_id(scenario)}.log"
-                    )
-                    harbor_rc = 1
-                    reward: float | None = None
-                    harbor_env = os.environ.copy()
-                    harbor_env["BREV_INSTANCE"] = brev_instance
-                    cmd = _harbor_command(scenario, results_root, run_id)
-                    print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
-                    harbor_rc = _stream_command(
-                        cmd,
-                        timeout_s=args.harbor_timeout,
-                        env=harbor_env,
-                        log_path=log_path,
-                    )
-
-                    reward, _reward_path = _latest_reward(
-                        results_root,
-                        run_id,
-                        since=scenario_started,
-                    )
-                    _append_harbor_report(
-                        scenario=scenario,
-                        instance=instance,
-                        results_root=results_root,
-                        run_id=run_id,
-                        reward=reward,
-                        harbor_rc=harbor_rc,
-                        log_path=log_path,
-                        since=scenario_started,
-                    )
-                    executed += 1
-                    if harbor_rc != 0 or reward is None or reward < 1.0:
-                        failure = (
-                            f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}/{scenario.task_name} "
-                            f"(harbor_rc={harbor_rc}, reward={reward if reward is not None else 'missing'})"
+            while True:
+                instance, worker_lock = _select_and_lock_instance(
+                    first.platform,
+                    gpu_count,
+                    args.instance,
+                    args.lock_timeout,
+                    excluded=excluded_instances,
+                )
+                print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
+                # Use the human-readable Brev name for Harbor itself. Instance
+                # IDs are useful for lock/reachability checks on some runners,
+                # but they have proven unreliable as long-lived `brev exec`
+                # targets during Harbor environment setup.
+                brev_instance = instance
+                retry_group = False
+                try:
+                    os.environ["BREV_INSTANCE"] = brev_instance
+                    for group_scenario_index, scenario in enumerate(group):
+                        print(
+                            "[nemoclaw-ci] scenario "
+                            f"{scenario_index + 1}/{len(scenarios)}: "
+                            f"{scenario.skill}/{scenario.spec_name}/"
+                            f"{scenario.platform}/{scenario.task_name}",
+                            flush=True,
                         )
-                        failures.append(failure)
-                        if _env_flag("NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE", default=True):
-                            remaining = len(group) - group.index(scenario) - 1
-                            if remaining:
-                                print(
-                                    "[nemoclaw-ci] failing fast after scenario failure; "
-                                    f"skipping {remaining} remaining step(s) in "
-                                    f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}",
-                                    flush=True,
-                                )
+                        scenario_started = time.time()
+                        log_path = (
+                            Path("/tmp/skill-eval")
+                            / (
+                                f"nemoclaw-harbor-{run_id}-{_scenario_id(scenario)}"
+                                f"-{_safe_slug(instance)}.log"
+                            )
+                        )
+                        harbor_env = os.environ.copy()
+                        harbor_env["BREV_INSTANCE"] = brev_instance
+                        cmd = _harbor_command(scenario, results_root, run_id)
+                        print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
+                        harbor_rc = _stream_command(
+                            cmd,
+                            timeout_s=args.harbor_timeout,
+                            env=harbor_env,
+                            log_path=log_path,
+                        )
+
+                        reward, _reward_path = _latest_reward(
+                            results_root,
+                            run_id,
+                            since=scenario_started,
+                        )
+                        setup_failure = (
+                            _retryable_worker_setup_failure(
+                                results_root,
+                                run_id,
+                                since=scenario_started,
+                                instance=instance,
+                            )
+                            if reward is None
+                            else None
+                        )
+                        can_fail_over = (
+                            setup_failure is not None
+                            and group_scenario_index == 0
+                            and not args.instance
+                            and worker_failovers < max_worker_failovers
+                            and time.monotonic() < worker_failover_deadline
+                        )
+                        if can_fail_over:
+                            worker_failovers += 1
+                            excluded_instances.add(instance)
+                            retry_group = True
+                            print(
+                                "[nemoclaw-ci] pre-agent worker setup failed on "
+                                f"{instance}: {_shorten(setup_failure)}; "
+                                "failing over "
+                                f"({worker_failovers}/{max_worker_failovers})",
+                                flush=True,
+                            )
                             break
-            finally:
-                _release_lock(instance, worker_lock)
+                        if (
+                            setup_failure is not None
+                            and group_scenario_index == 0
+                            and not args.instance
+                        ):
+                            stop_reason = (
+                                "retry limit reached"
+                                if worker_failovers >= max_worker_failovers
+                                else "failover window exhausted"
+                            )
+                            print(
+                                "[nemoclaw-ci] pre-agent worker setup failed on "
+                                f"{instance}: {_shorten(setup_failure)}; "
+                                f"not failing over ({stop_reason})",
+                                flush=True,
+                            )
+
+                        _append_harbor_report(
+                            scenario=scenario,
+                            instance=instance,
+                            results_root=results_root,
+                            run_id=run_id,
+                            reward=reward,
+                            harbor_rc=harbor_rc,
+                            log_path=log_path,
+                            since=scenario_started,
+                        )
+                        executed += 1
+                        scenario_index += 1
+                        if harbor_rc != 0 or reward is None or reward < 1.0:
+                            failure = (
+                                f"{scenario.skill}/{scenario.spec_name}/{scenario.platform}/"
+                                f"{scenario.task_name} (harbor_rc={harbor_rc}, "
+                                f"reward={reward if reward is not None else 'missing'})"
+                            )
+                            failures.append(failure)
+                            if _env_flag(
+                                "NEMOCLAW_FAIL_FAST_ON_STEP_FAILURE",
+                                default=True,
+                            ):
+                                remaining = len(group) - group_scenario_index - 1
+                                if remaining:
+                                    print(
+                                        "[nemoclaw-ci] failing fast after scenario "
+                                        f"failure; skipping {remaining} remaining "
+                                        f"step(s) in {scenario.skill}/"
+                                        f"{scenario.spec_name}/{scenario.platform}",
+                                        flush=True,
+                                    )
+                                break
+                finally:
+                    _release_lock(instance, worker_lock)
+                if retry_group:
+                    continue
+                break
 
         if failures:
             print(
