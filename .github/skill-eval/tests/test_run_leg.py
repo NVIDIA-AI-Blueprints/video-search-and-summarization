@@ -13,8 +13,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -1155,13 +1157,22 @@ class HoldPoolLock(unittest.TestCase):
             # Hold the preferred box's lock as if another leg owns it.
             held = (lock_dir / "box-a.lock").open("a+")
             fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            remote_lease = mock.Mock(lost_event=threading.Event())
             try:
-                with run_leg.hold_pool_lock(
-                    lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
-                ) as chosen:
-                    self.assertEqual(chosen, "box-b")
+                with (
+                    mock.patch.object(
+                        run_leg,
+                        "_try_acquire_remote_worker_lease",
+                        return_value=remote_lease,
+                    ),
+                    run_leg.hold_pool_lock(
+                        lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
+                    ) as worker,
+                ):
+                    self.assertEqual(worker.instance, "box-b")
             finally:
                 held.close()
+            remote_lease.release.assert_called_once()
 
     def test_times_out_when_all_held(self):
         import fcntl
@@ -1172,11 +1183,15 @@ class HoldPoolLock(unittest.TestCase):
             fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             try:
                 start = time.monotonic()
-                with self.assertRaises(run_leg.LockTimeoutError):
-                    with run_leg.hold_pool_lock(
-                        lambda: ["box-a"], lock_dir, timeout_sec=0
-                    ):
-                        pass
+                with (
+                    self.assertRaises(run_leg.LockTimeoutError),
+                    run_leg.hold_pool_lock(
+                        lambda: ["box-a"],
+                        lock_dir,
+                        timeout_sec=0,
+                    ),
+                ):
+                    pass
                 self.assertLess(time.monotonic() - start, 5)
             finally:
                 held.close()
@@ -1186,13 +1201,143 @@ class HoldPoolLock(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             lock_dir = Path(tmp)
-            with run_leg.hold_pool_lock(lambda: ["box-a"], lock_dir, 5) as chosen:
-                self.assertEqual(chosen, "box-a")
+            remote_lease = mock.Mock(lost_event=threading.Event())
+            with (
+                mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    return_value=remote_lease,
+                ),
+                run_leg.hold_pool_lock(
+                    lambda: ["box-a"],
+                    lock_dir,
+                    5,
+                ) as worker,
+            ):
+                self.assertEqual(worker.instance, "box-a")
             probe = (lock_dir / "box-a.lock").open("a+")
             try:
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             finally:
                 probe.close()
+            remote_lease.release.assert_called_once()
+
+    def test_remote_busy_candidate_releases_local_lock_and_uses_next(self):
+        import fcntl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            remote_lease = mock.Mock(lost_event=threading.Event())
+            attempts: list[str] = []
+
+            def acquire(instance: str):
+                attempts.append(instance)
+                return None if instance == "box-a" else remote_lease
+
+            with (
+                mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    side_effect=acquire,
+                ),
+                run_leg.hold_pool_lock(
+                    lambda: ["box-a", "box-b"],
+                    lock_dir,
+                    5,
+                ) as worker,
+            ):
+                self.assertEqual(worker.instance, "box-b")
+                probe = (lock_dir / "box-a.lock").open("a+")
+                try:
+                    fcntl.flock(
+                        probe.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+                finally:
+                    probe.close()
+
+        self.assertEqual(attempts, ["box-a", "box-b"])
+        remote_lease.release.assert_called_once()
+
+
+class RemoteWorkerLeaseIntegration(unittest.TestCase):
+    def tearDown(self):
+        run_leg._WORKER_TRANSPORTS.clear()
+
+    def test_remote_executor_routes_managed_and_registered_workers(self):
+        result = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.object(
+            run_leg.subprocess,
+            "run",
+            return_value=result,
+        ) as run:
+            run_leg._WORKER_TRANSPORTS["managed-box"] = "brev"
+            managed = run_leg._remote_lock_executor("managed-box")
+            managed("echo managed", 17)
+
+            run_leg._WORKER_TRANSPORTS["registered-box"] = "ssh"
+            registered = run_leg._remote_lock_executor("Registered-Box")
+            registered("echo registered", 19)
+
+        managed_cmd = run.call_args_list[0].args[0]
+        registered_cmd = run.call_args_list[1].args[0]
+        self.assertEqual(managed_cmd[:3], ["brev", "exec", "managed-box"])
+        self.assertEqual(registered_cmd[0], "ssh")
+        self.assertIn("registered-box", registered_cmd)
+        self.assertEqual(run.call_args_list[0].kwargs["timeout"], 17)
+        self.assertEqual(run.call_args_list[1].kwargs["timeout"], 19)
+
+    def test_run_command_lease_loss_wins_over_child_completion(self):
+        lost_event = threading.Event()
+        lost_event.set()
+
+        rc = run_leg.run_command(
+            [sys.executable, "-c", "pass"],
+            os.environ.copy(),
+            timeout_sec=10,
+            abort_event=lost_event,
+        )
+
+        self.assertEqual(rc, 125)
+
+    def test_multistep_chain_stops_immediately_after_lease_loss(self):
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path("/tmp/profile"),
+                include_task_name=f"step-{index}",
+                chain_key="chain",
+                step_index=index,
+                step_count=2,
+            )
+            for index in (1, 2)
+        ]
+        with (
+            mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "ANTHROPIC_MODEL": "model",
+                    "ANTHROPIC_BASE_URL": "https://example.test/v1",
+                },
+                clear=True,
+            ),
+            mock.patch.object(
+                run_leg,
+                "run_command",
+                side_effect=[125, 0],
+            ) as run_command,
+        ):
+            rc = run_leg.run_invocations(
+                invocations,
+                "worker",
+                Path("/tmp/results"),
+                Path("/tmp/scratch"),
+                "spec",
+                "RTXPRO6000BW",
+                60,
+            )
+
+        self.assertEqual(rc, 125)
+        run_command.assert_called_once()
 
 
 if __name__ == "__main__":
