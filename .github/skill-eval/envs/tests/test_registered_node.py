@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -648,6 +650,18 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn('package.get("name") != "nemoclaw"', command)
         self.assertIn("releaseManagedGatewayPort({", command)
         self.assertIn("confirmTimeoutMs: 5000", command)
+        self.assertIn(
+            ".github/skill-eval/nemoclaw/release_gateway_port.py",
+            command,
+        )
+        self.assertIn(
+            "using fail-closed standalone gateway release",
+            command,
+        )
+        self.assertIn(
+            '/usr/bin/python3 "$gateway_release_fallback" --port "$gateway_port"',
+            command,
+        )
         self.assertIn("gateway_port_is_free", command)
         self.assertNotIn("docker network create", command)
         self.assertNotIn("pkill", command)
@@ -659,6 +673,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         reconcile_script = (
             "set -eo pipefail\n"
             "stage() { printf '%s\\n' \"$*\"; }\n"
+            f"REPO={shlex.quote(str(Path(__file__).resolve().parents[4]))}\n"
             + command[reconcile_start:reconcile_end]
         )
 
@@ -893,8 +908,16 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             hidden_cli_module = cli_module.with_suffix(".disabled")
             cli_module.rename(hidden_cli_module)
             incomplete_port = unused_port()
+            gateway_executable = Path(td) / "gateway-runtime" / "openshell-gateway"
+            gateway_executable.parent.mkdir()
+            shutil.copy2(sys.executable, gateway_executable)
             incomplete_listener = subprocess.Popen(
-                [sys.executable, "-c", listener_source, str(incomplete_port)],
+                [
+                    str(gateway_executable),
+                    "-c",
+                    listener_source,
+                    str(incomplete_port),
+                ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -911,15 +934,21 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                     text=True,
                     check=False,
                 )
-                self.assertNotEqual(incomplete.returncode, 0)
+                self.assertEqual(incomplete.returncode, 0, incomplete.stderr)
                 self.assertIn(
-                    "active NemoClaw package is incomplete",
+                    "Active NemoClaw gateway release unavailable: "
+                    "package is incomplete",
                     incomplete.stderr,
                 )
-                self.assertIsNone(incomplete_listener.poll())
-            finally:
-                incomplete_listener.terminate()
+                self.assertIn(
+                    "using fail-closed standalone gateway release",
+                    incomplete.stdout,
+                )
                 incomplete_listener.wait(timeout=5)
+            finally:
+                if incomplete_listener.poll() is None:
+                    incomplete_listener.terminate()
+                    incomplete_listener.wait(timeout=5)
                 hidden_cli_module.rename(cli_module)
 
             fake_nemoclaw.write_text(
@@ -947,7 +976,8 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertNotEqual(unexpected.returncode, 0)
                 self.assertIn(
-                    "active NemoClaw launcher is not recognized",
+                    "Active NemoClaw gateway release unavailable: "
+                    "launcher is not recognized",
                     unexpected.stderr,
                 )
                 self.assertIsNone(unexpected_listener.poll())
@@ -1045,7 +1075,8 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertNotEqual(missing.returncode, 0)
                 self.assertIn(
-                    "active NemoClaw launcher is not recognized",
+                    "Active NemoClaw gateway release unavailable: "
+                    "launcher is not recognized",
                     missing.stderr,
                 )
                 self.assertIsNone(missing_listener.poll())
