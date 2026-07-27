@@ -859,7 +859,7 @@ if ! jq -e '
   .downloads == [{
     "model": "nvidia/tao/sparse4d_rn50:deployable_v2.2",
     "org": "nvidia",
-    "sourcePath": "sparse4d_warehouse_v2.2.onnx",
+    "sourcePath": "sparse4d_warehouse_v2.2_r50.onnx",
     "destPath": "sparse4d/sparse4d_warehouse_v2.2.onnx"
   }]
 ' "${_warehouse_3d_manifest}" >/dev/null; then
