@@ -20,13 +20,16 @@
   class-label taxonomy the resolved RT-CV detector emits — label set and casing.
   In a combined build these follow the single converged detector, not the value
   a source profile's config happened to ship.
-- To serve both at once, run the owner's combined `SearchAndAlertsApp` mode
-  rather than two instances: it enables the incident, behavior, and embed-filter
-  processors together (selected by the `numWorkersFor*` knobs) and mounts the
-  shipped joint config
-  `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`,
-  which no developer profile mounts by default — so the build supplies it via a
-  service-definition patch.
+- To serve more than one capability at once, run a single combined instance
+  rather than two, mounting the shipped joint config
+  `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
+  via a service-definition patch (no developer profile mounts it by default; the
+  setup skill owns the recipe). Its `numWorkersFor*` knobs gate each processor
+  independently, so enable one only for a requested capability: incident
+  generation for detection-rule alerts, behavior creation for search analytics,
+  embed filtering for search embeddings — leave the rest at zero. In particular,
+  alerts that do not derive from this owner (see the Alerts owner) leave incident
+  generation off.
 
 ## Configuration knobs
 

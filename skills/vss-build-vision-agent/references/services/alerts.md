@@ -12,8 +12,12 @@
 
 - `alert-bridge` requires Kafka, Elasticsearch, topic initialization, and the
   matching checked-in alert config mounts.
-- CV verification requires RT-CV and Behavior Analytics.
-- Real-time alerts require RT-VLM.
+- CV-verification alerts derive from detections: RT-CV feeds Behavior Analytics,
+  which generates incidents that a VLM then verifies. This path requires RT-CV
+  and Behavior Analytics with its incident processor enabled.
+- Real-time alerts derive from continuous VLM inspection of the media: the signal
+  flows `rtvi-vlm` → `alert-bridge` and requires RT-VLM. This path does not use
+  Behavior Analytics or incident generation.
 - `vss-va-mcp` requires the matching Agent config and reachable VST/ELK
   endpoints.
 
