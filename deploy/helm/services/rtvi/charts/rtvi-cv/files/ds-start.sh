@@ -234,7 +234,7 @@ start_rtdetr_gdino()
     sed -i "/^\[streammux\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
     sed -i "/^\[primary-gie\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
 
-    if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
+    if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" || "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
         echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv.so for sink1 group... #####"
         sed -i '/^\[sink1\]/,/^\[/{/^msg-conv-msg2p-lib=/d;}' "$config_file"
         sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so' "$config_file"
@@ -247,7 +247,7 @@ start_rtdetr_gdino()
 
     TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
 
-    if [[ "${HARDWARE_PROFILE:-}" == "DGX-THOR" ]]; then
+    if [[ "${HARDWARE_PROFILE:-}" == "IGX-THOR" ]]; then
         echo "##### Setting compute-hw=2 in tracker section of $config_file... #####"
         sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' "$config_file"
         sed -i '/^\[tracker\]/a compute-hw=2' "$config_file"
@@ -280,15 +280,12 @@ start_rtdetr_gdino()
         cat "$TRACKER_CONFIG"
     fi
 
-    local extra_flags
-    extra_flags=$(build_extra_flags)
-
     cat "$config_file"
-    echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -t 0 -l 5 --message-rate $DS_MESSAGE_RATE ${extra_flags:-}"
+    echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -t 0 -l 5 --message-rate "$DS_MESSAGE_RATE" --show-sensor-id"
     exec_as_runtime_user ./metropolis_perception_app -c "$config_file" \
         -m "$DS_MODE_FLAG" -t 0 -l 5 \
         --message-rate "$DS_MESSAGE_RATE" \
-        ${extra_flags:-}
+        --show-sensor-id
 }
 
 start_sparse4d_warehouse()
