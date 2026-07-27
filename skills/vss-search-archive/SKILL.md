@@ -11,27 +11,28 @@ metadata:
 
 ## Purpose
 
-Run NAT-free archive search from the host machine with `vss`, and retain the
-agent-backed source ingestion and deletion lifecycle. The base `vss`
-distribution (no extras) exports `lib.*` for Python callers and provides the
-`vss` console executable. Search uses the checked-out host CLI and performs
-no internal LLM query decomposition.
+Operate archive search from the caller's host without entering VSS containers
+or pods. Docker Compose uses the checked-out `vss search run` CLI. Kubernetes
+uses the public VSS Agent Ingress for search, ingestion, deletion, and VIOS
+access; it never starts a `kubectl port-forward`. Both paths retain the
+agent-backed source ingestion and deletion lifecycle.
 
 ## Prerequisites
 
-- A running VSS search deployment and a checkout containing `services/agent`.
-- Host `uv`, plus Docker access for Docker deployments or `kubectl` access to
-  Deployments, ConfigMaps, Services, Endpoints, Ingresses, and port-forwards for Kubernetes.
+- A running VSS search deployment.
+- For Kubernetes, its public Ingress origin in `VSS_PUBLIC_URL`.
+- For Docker Compose, a checkout containing `services/agent`, host `uv`, and
+  Docker access.
 - The `vss-manage-video-io-storage` skill for source listing and inspection.
-- `curl` and `jq`, plus Docker or Kubernetes access appropriate to the deployment,
-  for agent-backed source ingestion or deletion. Ordinary search needs no API key.
+- `curl` and `jq`. Ordinary search needs no API key.
 
 Do not execute `vss` inside a distroless VSS container or a pod. Do not
 wrap it with `docker exec`, `kubectl exec`, or `sh -lc`.
 
-`vss` does not need to be installed globally and `which vss` is not an
-availability check. Resolve the checkout once, allowing the operator to
-override Harbor's default, and validate it before the first search:
+For a Docker deployment, `vss` does not need to be installed globally and
+`which vss` is not an availability check. Resolve the checkout once, allowing
+the operator to override Harbor's default, and validate it before the first
+Docker search:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
@@ -46,21 +47,52 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
 
 `$HOME/video-search-and-summarization` is only the Harbor/default workspace;
 set `VSS_REPO_ROOT` for a checkout elsewhere. If validation or the command
-fails, report the error and stop. Do not substitute an agent runtime route or
-manually call search backends.
+fails, report the error and stop. Do not manually call Docker search backends.
+
+For Kubernetes, do not require a repository checkout, `uv`, Docker, or
+`kubectl`. The public Agent endpoint is the supported search interface.
 
 ## Deployment prerequisite
 
-This skill requires the VSS **search** profile. Resolve `AGENT_URL`, `ES_URL`,
-and `RTVI_VLM_URL` from the selected deployment rather than assuming host ports:
-use the generated Docker profile ports, or a durable Kubernetes
-Ingress/operator-managed port-forward for the agent mutation endpoint,
-Elasticsearch, and RT-VLM. Authentication, if configured, must use the
-operator's approved mechanism and must not be copied into prompts or logs.
+This skill requires the VSS **search** profile. Resolve its public or Compose
+endpoints exactly once. See
+[Deployment resolution](references/deployment_resolution.md) for the shared
+`VSS_PUBLIC_URL` ↔ `VST_EXTERNAL_URL` mapping and derived variables
+(`VSS_VIOS_URL`, `VST_API_BASE`):
 
-The deployment is not ready for archive search until its fully expanded
-`VST_EXTERNAL_URL` is reachable from the host that will consume search results.
-For a Brev deployment, follow `vss-deploy-profile`'s secure-link setup (including
+```bash
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  DEPLOYMENT_KIND="kubernetes"
+  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
+  AGENT_URL="${VSS_PUBLIC_URL}"
+  VST_URL="${VSS_PUBLIC_URL}"
+  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
+else
+  DEPLOYMENT_KIND="docker"
+  : "${VSS_REPO_ROOT:=${HOME}/video-search-and-summarization}"
+  PROFILE="${PROFILE:-search}"
+  DOCKER_ENDPOINTS=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
+    python -c 'import json,sys; from vss_cli.deployment import discover_docker_host_endpoints; print(json.dumps(discover_docker_host_endpoints(sys.argv[1])))' \
+    "${PROFILE}") || exit 1
+  AGENT_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.agent_url') || exit 1
+  VST_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.vst_url') || exit 1
+  VSS_VIOS_URL="${VST_URL%/}/vst"
+  ES_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.es_url') || exit 1
+  RTVI_VLM_URL=$(printf '%s' "${DOCKER_ENDPOINTS}" | jq -er '.rtvi_vlm_url') || exit 1
+fi
+```
+
+For Kubernetes, `VSS_PUBLIC_URL` must be an operator-provided public Ingress
+origin. Never run `kubectl port-forward`, use an in-cluster Service name,
+guess a NodePort, or derive a Helm release name. Elasticsearch and RTVI remain
+private implementation details and are not host-side Kubernetes prerequisites.
+Authentication, if configured, must use the operator's approved mechanism and
+must not be copied into prompts or logs.
+
+The deployment is not ready for archive search until its public VIOS route is
+reachable from the host that will consume search results. For Kubernetes this
+is `${VSS_VIOS_URL}`. For Docker, use the fully expanded
+`VST_EXTERNAL_URL`. For a Brev deployment, follow `vss-deploy-profile`'s secure-link setup (including
 making `BREV_ENV_ID` from `/etc/environment` and any platform-provided
 `BREV_LINK_DOMAIN` available to the deployment command) and require an HTTPS
 public origin, not localhost or an internal IP. Domain selection belongs to the
@@ -74,13 +106,19 @@ Before an agent-backed source mutation:
 
 1. Probe the stack:
    ```bash
-   curl -sfS --max-time 5 "${AGENT_URL}/health" >/dev/null \
-     && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null \
-     && curl -sfS --max-time 5 "${RTVI_VLM_URL}/v1/models" >/dev/null
+   if [ "${DEPLOYMENT_KIND}" = "kubernetes" ]; then
+     curl -sfS --max-time 5 "${AGENT_URL}/openapi.json" >/dev/null \
+       && curl -sfS --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null
+   else
+     curl -sfS --max-time 5 "${AGENT_URL}/health" >/dev/null \
+       && curl -sfS --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null \
+       && curl -sfS --max-time 5 "${ES_URL}/" >/dev/null \
+       && curl -sfS --max-time 5 "${RTVI_VLM_URL}/v1/models" >/dev/null
+   fi
    ```
-   Elasticsearch is unique to the search profile. RT-VLM is also required: it
-   serves the critic and `video_understanding`, including when the underlying
-   VLM model is remote and RT-VLM remains as a local media proxy.
+   Direct Elasticsearch and RT-VLM probes are Docker-only. On Kubernetes the
+   public Agent owns those private dependencies; do not expose or forward them
+   merely to satisfy a host-side readiness check.
 
 2. **If the probe fails**, ask the user:
    > *"The selected VSS `search` profile endpoints are not reachable. Shall I deploy or reconnect it using the `/vss-deploy-profile` skill with `-p search`?"*
@@ -187,7 +225,8 @@ registration is asynchronous, so `/complete` alone does not prove those two
 indexes are ready.
 
 For a deployed Docker profile, resolve the endpoints and all three indexes in
-one operation from the same sources used by `vss`. Do not reuse
+one operation from the same sources used by `vss`. This recipe is Docker-only;
+never call Kubernetes discovery from this skill. Do not reuse
 `ELASTIC_SEARCH_INDEX` for behavior or raw-data checks: that variable names only
 the video embedding index.
 
@@ -237,6 +276,14 @@ each count to become greater than zero within the bounded deadline:
 Print the three resolved index names and final counts. A count from a different
 index or field does not satisfy readiness.
 
+For Kubernetes, do not query Elasticsearch directly. After `/complete`
+succeeds, poll `${VSS_VIOS_URL}/api/v1/sensor/list` until the canonical source
+is present, then run the requested search through `${AGENT_URL}/generate` with
+bounded retries while ingestion finishes. A valid Agent response proves the
+public workflow is operational, but do not claim direct index-level validation
+because Elasticsearch remains private. Never create a port-forward to restore
+the Docker-only index checks.
+
 > Compatibility note: `PUT /api/v1/videos-for-search/{filename}` remains wired
 > only for pre-existing external legacy callers. Do not select or invoke it for
 > a workflow performed under this skill; always use and validate the three-step
@@ -285,13 +332,15 @@ curl -sfS -X DELETE "${AGENT_URL}/api/v1/rtsp-streams/delete/<name>" | jq .
 
 Require the agent DELETE response's `status` to be `success`; `partial` means
 cleanup is incomplete and must not be reported as success. Then poll with a
-bounded timeout until all postconditions hold: the source is absent from the
-VST sensor list, the selected embedding index contains zero documents for the
-resolved video UUID under `sensor.id.keyword`, and the behavior and raw indexes
-contain zero documents for the exact identifiers recorded during readiness
-validation. Reuse the `RUNTIME_JSON` resolver and the exact three index/field
-tuples above; do not derive behavior/raw indexes from `ELASTIC_SEARCH_INDEX`.
-Report every final count. A successful DELETE response alone is not sufficient.
+bounded timeout until the source is absent from the VST sensor list. For
+Docker, additionally require the selected embedding index to contain zero
+documents for the resolved video UUID under `sensor.id.keyword`, and the
+behavior and raw indexes to contain zero documents for the exact identifiers
+recorded during readiness validation. Reuse the Docker-only `RUNTIME_JSON`
+resolver and the exact three index/field tuples above; do not derive
+behavior/raw indexes from `ELASTIC_SEARCH_INDEX`. For Kubernetes, report the
+Agent status and VIOS absence without claiming direct Elasticsearch cleanup
+verification. Never port-forward Elasticsearch for this check.
 
 ---
 
@@ -312,25 +361,19 @@ Report every final count. A successful DELETE response alone is not sufficient.
    - If the source is absent, do not test or invoke the search CLI; clarification
      is the final action for that request.
 
-3. Decompose the request into explicit fields using
-   [Query decomposition](references/query_decomposition.md). The CLI does not
-   decompose natural language. Preserve the requested object/action and use
-   `--query`, an explicit `--search-mode`, `--attribute`, `--video-source`, time
-   bounds, and the relevant query controls. For complex fusion requests, prefer
-   `--decomposed-json`; explicit flags override fields from that object. For
-   worked examples of choosing a discovery strategy (wide-net, narrow-to-camera,
-   high-precision) and the flags each one uses, see
-   [Discovery modes](references/discovery_modes.md).
-4. Run the host command for the selected deployment. It validates named
-   sources again against that deployment's VST listing before querying ES. Use
-   `--output json --raw` when parsing the result: `--raw` selects compact JSON,
-   and the unified `SearchOutput` remains an object with a `data` array.
-   See [CLI usage](references/cli_usage.md) for the full `vss search run` flag
-   reference and [Deployment resolution](references/deployment_resolution.md)
-   for how the `--deployment` selectors discover backends.
-   Put the complete, concrete invocation (including `--output json --raw`) in a
-   `SEARCH_COMMAND` array, then capture and validate its exact stdout. Do not
-   continue after a nonzero CLI status or malformed output:
+3. Preserve the requested object/action, source, time bounds, result limit, and
+   attributes. For Docker, decompose these into explicit CLI fields using
+   [Query decomposition](references/query_decomposition.md). For Kubernetes,
+   include the same constraints explicitly in `SEARCH_PROMPT`; the VSS Agent
+   performs its own query decomposition.
+4. Run the interface selected by `DEPLOYMENT_KIND`.
+
+   **Docker Compose:** use the host CLI. It validates named sources again
+   against that deployment's VST listing before querying ES. Use
+   `--output json --raw` when parsing the result. See
+   [CLI usage](references/cli_usage.md) for the full flag reference. Put the
+   complete invocation in a `SEARCH_COMMAND` array, then capture and validate
+   its exact stdout:
 
    ```bash
    : "${QUERY:?set the decomposed visual query}"
@@ -360,8 +403,38 @@ Report every final count. A successful DELETE response alone is not sufficient.
    ```
 
    `SEARCH_COMMAND` must invoke the project-local `vss search run`, not a
-   shell string or another interface. Media validation must consume each hit's
-   returned `screenshot_url` from `SEARCH_JSON`.
+   shell string. Media validation must consume each hit's returned
+   `screenshot_url` from `SEARCH_JSON`.
+
+   **Kubernetes / Helm:** use only the public Agent Ingress. Do not invoke the
+   host CLI's Kubernetes deployment selector, cluster discovery, `kubectl`, or
+   any backend endpoint. Build `SEARCH_PROMPT` from the user's request and
+   the source resolved in step 2, explicitly retaining search mode, attributes,
+   time bounds, and top-k when requested:
+
+   ```bash
+   : "${SEARCH_PROMPT:?set the complete search request with resolved source and controls}"
+   SEARCH_REQUEST=$(jq -cn --arg input_message "${SEARCH_PROMPT}" \
+     '{input_message:$input_message}')
+   if ! SEARCH_JSON=$(curl -sfS --connect-timeout 10 --max-time 3600 \
+     -X POST "${AGENT_URL}/generate" \
+     -H "Content-Type: application/json" \
+     -d "${SEARCH_REQUEST}"); then
+     echo "Kubernetes search through ${AGENT_URL}/generate failed" >&2
+     exit 1
+   fi
+   printf '%s' "${SEARCH_JSON}" |
+     jq -e 'if type == "string" then length > 0 else type == "object" or type == "array" end' \
+     >/dev/null || {
+       echo "Kubernetes search returned an empty or malformed response" >&2
+       exit 1
+     }
+   SEARCH_TEXT=$(printf '%s' "${SEARCH_JSON}" |
+     jq -r 'if type == "string" then . else (.output // .value // .response // .) end')
+   ```
+
+   Treat the Agent response as authoritative. Do not replace a failed public
+   request with private service access or a port-forward.
    If the command cannot start or returns a configuration error, report the
    error and stop; never replace it with another search interface.
 5. Validate each returned media URL with a bounded GET of the exact URL. The
@@ -386,19 +459,11 @@ Report every final count. A successful DELETE response alone is not sufficient.
      "${PROFILE}")
    ```
 
-   Kubernetes (`NAMESPACE`, `RELEASE`, and `KUBE_CONTEXT` must match the search
-   command):
+   Kubernetes:
 
    ```bash
-   : "${NAMESPACE:?set the selected Kubernetes namespace}"
-   : "${RELEASE:?set the selected Kubernetes release}"
-   EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
-     python -c 'import sys; from cli.deployment import discover_kubernetes; d=discover_kubernetes(namespace=sys.argv[1], release=sys.argv[2], context=sys.argv[3] or None); print(d.env["VST_EXTERNAL_URL"]); d.close()' \
-     "${NAMESPACE}" "${RELEASE}" "${KUBE_CONTEXT:-}")
+   EXPECTED_VST_EXTERNAL_URL="${VSS_VIOS_URL}"
    ```
-
-   With no deployment selector, set `EXPECTED_VST_EXTERNAL_URL` to the same
-   explicit non-secret `--vst-external-url` value passed to `vss`.
 
    Then validate the exact returned URLs. A media-bearing external VST origin
    must be public HTTPS: reject HTTP, localhost, single-label/internal hostnames,
@@ -562,54 +627,43 @@ loopback-only; do not expose them to a LAN simply to run a search.
 
 ### Kubernetes / Helm
 
-Kubernetes has no `generated.env`. The command obtains non-secret state from:
-
-1. the live vss-agent Deployment, to find its config mount and literal or
-   ConfigMap-backed environment values;
-2. the mounted ConfigMap's `config.yml`;
-3. referenced ConfigMaps for the runtime-key allowlist only.
-
-It never reads `secretKeyRef` values, Secrets, checked-in `values.yaml`, or the
-agent runtime endpoint. It rewrites private backend Service URLs to managed
-localhost `kubectl port-forward` connections and closes every managed forward
-on success, failure, or interruption. `VST_EXTERNAL_URL` is the exception: it
-is returned in screenshots and media links that must outlive the CLI process,
-so it must already be host-reachable or use an operator-managed localhost
-forward whose lifetime extends through result consumption. The CLI rejects an
-in-cluster Service URL in that external field instead of returning dead links.
+Kubernetes operations use one operator-provided public Ingress origin. No
+cluster discovery or Kubernetes credentials are required:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment kubernetes --namespace <namespace> --release <release> \
-  --kube-context <optional-context> \
-  --query "person in a white jacket climbing a ladder" \
-  --search-mode fusion --attribute "white jacket" \
-  --video-source <resolved-source> --top-k 10 \
-  --output json --raw
+: "${VSS_PUBLIC_URL:?Provide the public VSS search Ingress origin}"
+AGENT_URL="${VSS_PUBLIC_URL%/}"
+VSS_VIOS_URL="${AGENT_URL}/vst"
+curl -sfS --max-time 5 "${AGENT_URL}/openapi.json" >/dev/null
+curl -sfS --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null
+
+SEARCH_PROMPT='Find up to 10 instances of a person wearing a white jacket in warehouse-camera-3. Use attribute search with the attribute "white jacket".'
+curl -sfS --max-time 3600 -X POST "${AGENT_URL}/generate" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -cn --arg input_message "${SEARCH_PROMPT}" '{input_message:$input_message}')"
 ```
 
-If a required runtime value is Secret-backed or absent from the Deployment and
-its non-secret ConfigMaps, stop. Do not print or pass a secret. Use an explicit
-non-secret endpoint override when valid, or route authenticated visual/media work
-through the operator-managed workflow.
+Do not inspect Deployments, ConfigMaps, Services, Secrets, or Helm values. Do
+not invoke the Kubernetes deployment selector in the host CLI: it uses private
+backend access and is outside this no-port-forward skill contract.
 
 ## Search behavior and safeguards
 
-- `ELASTIC_SEARCH_INDEX` wins whenever the deployment provides it. The only
+- For Docker CLI search, `ELASTIC_SEARCH_INDEX` wins whenever the deployment provides it. The only
   fallback is `mdx-embed-filtered-2025-01-01`, never `video_embeddings`.
   Missing indexes fail with nearby MDX index diagnostics; ingest video before
   retrying.
-- The configured Cosmos/RTVI Embed model is verified through `/v1/models`.
+- For Docker CLI search, the configured Cosmos/RTVI Embed model is verified through `/v1/models`.
   The CLI never guesses a replacement model ID. Choose one explicitly from the
   reported deployed IDs if the configured model is unavailable.
-- Attribute/fusion search performs a short RTVI-CV text-embedding capability
+- Docker attribute/fusion search performs a short RTVI-CV text-embedding capability
   preflight. It fails by default rather than hanging or silently changing the
   search. `--allow-embed-only-fallback` is the only opt-in way to remove
   attributes and continue as embed-only search.
 - Result object IDs that are missing or `unknown` are not merged together.
-- `vss search run` performs retrieval only. Visual verification is the
+- Search retrieval is distinct from visual verification. Visual verification is the
   explicit screenshot-inspection step described above; it is not a CLI flag.
-- `vss search embed` and `vss search attribute` expose the lower-level
+- For Docker, `vss search embed` and `vss search attribute` expose the lower-level
   primitives for callers that explicitly need one primitive or for focused
   troubleshooting. Normal archive-search requests should use `search run` with
   an explicit mode so they retain unified source validation, routing, and the
@@ -624,12 +678,11 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   --query "red forklift near a loading bay" --search-mode embed \
   --source-type video_file --output json --raw
 
-# Attribute-only search; source must have been resolved first
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
-  --deployment kubernetes --namespace vss --release search \
-  --query "person wearing a white jacket" \
-  --search-mode attribute --attribute "white jacket" \
-  --video-source warehouse-camera-3 --output json --raw
+# Kubernetes attribute search; source must have been resolved first
+SEARCH_PROMPT='Find a person wearing a white jacket in warehouse-camera-3. Use attribute search with the attribute "white jacket".'
+curl -sfS --max-time 3600 -X POST "${VSS_PUBLIC_URL%/}/generate" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -cn --arg input_message "${SEARCH_PROMPT}" '{input_message:$input_message}')"
 
 # Deliberate fallback when a deployment has no RTVI-CV text endpoint
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
@@ -649,21 +702,20 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run \
   `generated.env` are required. Start the selected profile with
   `deploy/docker/scripts/dev-profile.sh` when `generated.env` is absent; do not
   treat `.env` alone as initialized runtime state.
-- **Kubernetes ConfigMap/port-forward error**: verify read and port-forward
-  RBAC in the selected namespace. Do not use a pod shell as a workaround.
-- **Kubernetes `VST_EXTERNAL_URL` is Service-backed**: configure a durable
-  external ingress URL or an operator-managed localhost forward. The CLI does
-  not create a short-lived managed forward for result URLs.
+- **Kubernetes public endpoint unavailable**: verify `VSS_PUBLIC_URL`, DNS,
+  TLS, Ingress status, and the `/openapi.json` and `/vst/api/v1/sensor/version`
+  routes. Do not fall back to `kubectl`, Service DNS, a NodePort, or a pod
+  shell.
 - **Source unavailable or ambiguous**: stop and clarify; do not substitute.
 - **Zero results**: report the empty outcome, retain the selected source, and
   offer an explicit query or similarity-threshold refinement. Run a broader
   search only after the user accepts it.
-- **Missing index**: verify ingestion completion and the
+- **Missing index (Docker CLI)**: verify ingestion completion and the
   `ELASTIC_SEARCH_INDEX` value resolved from `.env` plus the `generated.env`
   overlay.
-- **Model preflight failure**: pass an explicit deployed model ID after
+- **Model preflight failure (Docker CLI)**: pass an explicit deployed model ID after
   reviewing the reported list.
-- **RTVI-CV preflight failure**: repair the service or use the explicit
+- **RTVI-CV preflight failure (Docker CLI)**: repair the service or use the explicit
   `--allow-embed-only-fallback` option only when an embed-only result is
   acceptable.
 - **Visual verification needs an authenticated media route**: stop and use the
