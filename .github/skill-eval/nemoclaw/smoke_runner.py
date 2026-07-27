@@ -1173,7 +1173,6 @@ def _try_acquire_remote_worker_lock(instance: str) -> str | None:
             str(int(time.time())),
         )
     )
-    stale_seconds = int(os.environ.get("NEMOCLAW_REMOTE_LOCK_STALE_SEC", "14400"))
     command = f"""set -eu
 lock_root=/tmp/skill-eval/locks
 lock_dir="$lock_root/nemoclaw-worker.lockdir"
@@ -1187,16 +1186,7 @@ if mkdir "$lock_dir" 2>/dev/null; then
 fi
 created=$(cat "$lock_dir/created" 2>/dev/null || stat -c %Y "$lock_dir" 2>/dev/null || printf '%s\n' "$now")
 age=$((now - created))
-if [ "$age" -gt {stale_seconds} ]; then
-  echo "removing stale NemoClaw worker lock age=${{age}}s owner=$(cat "$lock_dir/owner" 2>/dev/null || true)"
-  rm -rf "$lock_dir"
-  if mkdir "$lock_dir" 2>/dev/null; then
-    printf '%s\n' "$owner" > "$lock_dir/owner"
-    printf '%s\n' "$now" > "$lock_dir/created"
-    exit 0
-  fi
-fi
-echo "NemoClaw worker is locked by $(cat "$lock_dir/owner" 2>/dev/null || echo unknown)"
+echo "NemoClaw worker is locked by $(cat "$lock_dir/owner" 2>/dev/null || echo unknown) age=${{age}}s"
 exit 1
 """
     def attempt() -> tuple[int, str]:

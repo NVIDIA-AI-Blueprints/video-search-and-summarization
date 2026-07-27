@@ -2473,6 +2473,44 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertIn("rm -rf", calls[1][3])
 
+    def test_aged_remote_lock_from_active_run_is_never_evicted(self):
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *, timeout=60, env=None):
+            calls.append(cmd)
+            return smoke_runner.CommandResult(
+                1,
+                (
+                    "NemoClaw worker is locked by "
+                    "30266918843__nemoclaw-eval__old age=1800s"
+                ),
+                "",
+            )
+
+        with (
+            mock.patch.object(smoke_runner, "_run", side_effect=fake_run),
+            mock.patch.object(
+                smoke_runner,
+                "_github_run_status",
+                return_value="in_progress",
+            ),
+            mock.patch.dict(
+                os.environ,
+                {
+                    "GITHUB_RUN_ID": "30272325661",
+                    "GITHUB_JOB": "nemoclaw-eval",
+                },
+            ),
+        ):
+            owner = smoke_runner._try_acquire_remote_worker_lock(
+                "vss-eval-rtx-2g-2"
+            )
+
+        self.assertIsNone(owner)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("age=$((now - created))", calls[0][3])
+        self.assertNotIn("rm -rf", calls[0][3])
+
     def test_brev_inventory_timeout_is_infrastructure_blocked(self):
         previous = {"_run": smoke_runner._run}
         smoke_runner._run = lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -3398,7 +3436,7 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
         self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=1500", source)
-        self.assertIn("export NEMOCLAW_REMOTE_LOCK_STALE_SEC=900", source)
+        self.assertNotIn("NEMOCLAW_REMOTE_LOCK_STALE_SEC", source)
 
 
 if __name__ == "__main__":
