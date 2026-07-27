@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.5 AS python-base
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.8 AS python-base
 
 # Ubuntu builder: apt installs and Python package install via uv.
 # (The prior pkg-installer stage was merged in here; uv must be present on PATH for
