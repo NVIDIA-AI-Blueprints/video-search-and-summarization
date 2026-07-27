@@ -44,6 +44,17 @@ app.kubernetes.io/name: {{ include "vss-behavior-analytics.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{- define "vss-behavior-analytics.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-behavior-analytics" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+
 {{- define "vss-behavior-analytics.effectiveResourcesStorage" -}}
 {{- $claim := printf "%s-resources" (include "vss-behavior-analytics.fullname" .) }}
 {{- $default := .Values.resourcesPvc.size | default "1Gi" }}
