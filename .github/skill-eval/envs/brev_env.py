@@ -1350,7 +1350,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                         )
                         await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
                         continue
-                    raise RuntimeError(f"Upload dir failed: {last_err}")
+                    raise RuntimeError(
+                        f"Upload dir failed on {self._instance_name}: {last_err}"
+                    )
 
                 result = await _run_brev_copy(
                     str(tar_path), f"{self._instance_name}:{remote_tar}",
@@ -1367,7 +1369,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                         )
                         await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
                         continue
-                    raise RuntimeError(f"Upload dir failed: {last_err}")
+                    raise RuntimeError(
+                        f"Upload dir failed on {self._instance_name}: {last_err}"
+                    )
 
                 target_raw = str(target_dir).rstrip("/") or "."
                 target = shlex.quote(target_raw)
@@ -1408,10 +1412,13 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                     )
                     await asyncio.sleep(BREV_UPLOAD_BACKOFF_SEC * (attempt + 1))
                     continue
-                raise RuntimeError(f"Upload dir failed: {last_err}")
+                raise RuntimeError(
+                    f"Upload dir failed on {self._instance_name}: {last_err}"
+                )
 
             raise RuntimeError(
-                f"Upload dir failed after {BREV_UPLOAD_RETRIES} attempts: {last_err}"
+                f"Upload dir failed on {self._instance_name}: after "
+                f"{BREV_UPLOAD_RETRIES} attempts: {last_err}"
             )
         finally:
             tar_path.unlink(missing_ok=True)
