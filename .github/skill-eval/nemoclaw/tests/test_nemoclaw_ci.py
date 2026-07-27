@@ -1023,23 +1023,26 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         def fake_run(cmd, *, timeout=30):
             call_index = len(calls)
             calls.append(tuple(cmd))
-            if call_index in {2, 4}:
+            if call_index == 1:
                 return subprocess.CompletedProcess(
                     cmd,
                     0,
-                    stdout='{"result":{"payloads":[{"text":"done"}]}}',
+                    stdout=(
+                        f"{headless_runner.OPENCLAW_STATE_PREFIX}stopped\n"
+                        f"{headless_runner.OPENCLAW_RC_PREFIX}0\n"
+                        f"{headless_runner.OPENCLAW_LOG_BEGIN}\n"
+                        '{"result":{"payloads":[{"text":"done"}]}}'
+                    ),
                     stderr="",
                 )
-            if call_index == 1:
-                return subprocess.CompletedProcess(cmd, 0, stdout="stopped\n", stderr="")
-            if call_index == 3:
-                return subprocess.CompletedProcess(cmd, 0, stdout="0\n", stderr="")
             return subprocess.CompletedProcess(cmd, 0, stdout="started", stderr="")
 
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             headless_runner._run = fake_run
-            headless_runner._gateway_reachable = lambda sandbox: True
+            headless_runner._gateway_reachable = (
+                lambda sandbox, deadline=None: True
+            )
             try:
                 response = headless_runner.run_openclaw_cli(
                     "demo",
@@ -1081,6 +1084,149 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         ]
         self.assertEqual(len(no_proxy_exports), 2)
         self.assertTrue(all("host.openshell.internal" not in part for part in no_proxy_exports))
+
+    def test_cli_timeout_budget_includes_gateway_startup(self):
+        calls: list[str] = []
+        previous = {
+            "_start_openclaw_cli_async": headless_runner._start_openclaw_cli_async,
+            "_openclaw_cli_snapshot": headless_runner._openclaw_cli_snapshot,
+            "monotonic": headless_runner.time.monotonic,
+        }
+        now = iter([100.0, 161.0])
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._start_openclaw_cli_async = (
+                lambda sandbox, prompt, timeout, logs, deadline=None: {
+                    "status": 200,
+                    "body": {"ok": True},
+                    "stdout_tail": "",
+                    "stderr_tail": "",
+                }
+            )
+            headless_runner._openclaw_cli_snapshot = (
+                lambda sandbox, logs, deadline=None: calls.append("snapshot")
+            )
+            headless_runner.time.monotonic = lambda: next(now)
+            try:
+                response = headless_runner.run_openclaw_cli(
+                    "demo",
+                    "Deploy base",
+                    60,
+                    log_dir,
+                )
+            finally:
+                headless_runner._start_openclaw_cli_async = previous[
+                    "_start_openclaw_cli_async"
+                ]
+                headless_runner._openclaw_cli_snapshot = previous[
+                    "_openclaw_cli_snapshot"
+                ]
+                headless_runner.time.monotonic = previous["monotonic"]
+
+        self.assertEqual(response["status"], 500)
+        self.assertEqual(response["body"]["returncode"], 124)
+        self.assertEqual(response["error_type"], "Timeout")
+        self.assertEqual(calls, [])
+
+    def test_gateway_recovery_cannot_launch_after_agent_deadline(self):
+        now = [100.0]
+        sandbox_scripts: list[str] = []
+        previous = {
+            "_run": headless_runner._run,
+            "_sandbox_exec": headless_runner._sandbox_exec,
+            "monotonic": headless_runner.time.monotonic,
+        }
+
+        def fake_run(cmd, *, timeout=30):
+            now[0] = 161.0
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            sandbox_scripts.append(script)
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                1,
+                stdout="",
+                stderr="gateway down",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            headless_runner._run = fake_run
+            headless_runner._sandbox_exec = fake_sandbox_exec
+            headless_runner.time.monotonic = lambda: now[0]
+            try:
+                with self.assertRaises(TimeoutError):
+                    headless_runner._start_openclaw_cli_async(
+                        "demo",
+                        "Deploy base",
+                        60,
+                        log_dir,
+                        deadline=160.0,
+                    )
+            finally:
+                headless_runner._run = previous["_run"]
+                headless_runner._sandbox_exec = previous["_sandbox_exec"]
+                headless_runner.time.monotonic = previous["monotonic"]
+
+            recover_log = (
+                log_dir / "openclaw_gateway_recover.log"
+            ).read_text(encoding="utf-8")
+
+        self.assertEqual(len(sandbox_scripts), 1)
+        self.assertIn("127.0.0.1:18789/health", sandbox_scripts[0])
+        self.assertIn("deadline exceeded", recover_log)
+
+    def test_openclaw_launch_uses_only_remaining_agent_budget(self):
+        calls: list[tuple[str, int]] = []
+        previous = {
+            "ensure_openclaw_gateway": headless_runner.ensure_openclaw_gateway,
+            "_openclaw_cli_command": headless_runner._openclaw_cli_command,
+            "_sandbox_exec": headless_runner._sandbox_exec,
+            "monotonic": headless_runner.time.monotonic,
+        }
+
+        def fake_command(prompt, timeout):
+            calls.append(("openclaw", timeout))
+            return "echo complete"
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            calls.append(("launcher", timeout))
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout="started",
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            headless_runner.ensure_openclaw_gateway = (
+                lambda sandbox, logs, deadline=None: None
+            )
+            headless_runner._openclaw_cli_command = fake_command
+            headless_runner._sandbox_exec = fake_sandbox_exec
+            headless_runner.time.monotonic = lambda: 100.0
+            try:
+                response = headless_runner._start_openclaw_cli_async(
+                    "demo",
+                    "Deploy base",
+                    60,
+                    Path(td),
+                    deadline=130.0,
+                )
+            finally:
+                headless_runner.ensure_openclaw_gateway = previous[
+                    "ensure_openclaw_gateway"
+                ]
+                headless_runner._openclaw_cli_command = previous[
+                    "_openclaw_cli_command"
+                ]
+                headless_runner._sandbox_exec = previous["_sandbox_exec"]
+                headless_runner.time.monotonic = previous["monotonic"]
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(calls, [("openclaw", 30), ("launcher", 30)])
 
     def test_openclaw_completion_accepts_v0080_json_envelopes(self):
         fixtures = (
@@ -1167,7 +1313,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             headless_runner._run = fake_run
-            headless_runner._gateway_reachable = lambda sandbox: True
+            headless_runner._gateway_reachable = (
+                lambda sandbox, deadline=None: True
+            )
             os.environ["NEMOCLAW_FAST_READINESS_MODE"] = "1"
             try:
                 response = headless_runner.run_openclaw_cli(
@@ -1201,9 +1349,10 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             "_run": headless_runner._run,
             "sleep": headless_runner.time.sleep,
             "time": headless_runner.time.time,
+            "monotonic": headless_runner.time.monotonic,
         }
         calls: list[list[str]] = []
-        now = iter([0, 1, 2, 3, 4, 61])
+        now = [0.0]
 
         def fake_run(cmd, *, timeout=30):
             calls.append(cmd)
@@ -1220,20 +1369,83 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             headless_runner._run = fake_run
-            headless_runner.time.sleep = lambda seconds: None
-            headless_runner.time.time = lambda: next(now)
+            headless_runner.time.sleep = lambda seconds: now.__setitem__(
+                0,
+                now[0] + seconds,
+            )
+            headless_runner.time.time = lambda: now[0]
+            headless_runner.time.monotonic = lambda: now[0]
             try:
                 report = headless_runner.wait_for_profile("lvs", 60, Path(td))
             finally:
                 headless_runner._run = previous["_run"]
                 headless_runner.time.sleep = previous["sleep"]
                 headless_runner.time.time = previous["time"]
+                headless_runner.time.monotonic = previous["monotonic"]
 
         self.assertTrue(report["waited"])
         self.assertFalse(report["ok"])
         self.assertEqual(report["profile"], "lvs")
         self.assertIn("38111/v1/ready", report["message"])
         self.assertTrue(any("38111/v1/ready" in " ".join(call) for call in calls))
+
+    def test_profile_wait_clamps_probe_and_sleep_to_shared_deadline(self):
+        now = [100.0]
+        timeouts: list[int] = []
+        sleeps: list[float] = []
+        previous = {
+            "_run": headless_runner._run,
+            "_profile_ready": headless_runner._profile_ready,
+            "sleep": headless_runner.time.sleep,
+            "time": headless_runner.time.time,
+            "monotonic": headless_runner.time.monotonic,
+        }
+
+        def fake_run(cmd, *, timeout=30):
+            timeouts.append(timeout)
+            return subprocess.CompletedProcess(
+                cmd,
+                7,
+                stdout="",
+                stderr="not ready",
+            )
+
+        headless_runner._run = fake_run
+        headless_runner.time.monotonic = lambda: 154.0
+        try:
+            ready, _ = headless_runner._vss_base_ready(deadline=160.0)
+        finally:
+            headless_runner._run = previous["_run"]
+            headless_runner.time.monotonic = previous["monotonic"]
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+
+        with tempfile.TemporaryDirectory() as td:
+            headless_runner._profile_ready = (
+                lambda profile, deadline=None: (False, "not ready")
+            )
+            headless_runner.time.sleep = fake_sleep
+            headless_runner.time.time = lambda: now[0]
+            headless_runner.time.monotonic = lambda: now[0]
+            try:
+                report = headless_runner.wait_for_profile(
+                    "base",
+                    60,
+                    Path(td),
+                    deadline=110.0,
+                )
+            finally:
+                headless_runner._profile_ready = previous["_profile_ready"]
+                headless_runner.time.sleep = previous["sleep"]
+                headless_runner.time.time = previous["time"]
+                headless_runner.time.monotonic = previous["monotonic"]
+
+        self.assertFalse(ready)
+        self.assertEqual(timeouts, [6])
+        self.assertFalse(report["ok"])
+        self.assertEqual(sleeps, [10.0])
 
     def test_cli_launch_stops_openclaw_even_when_readiness_fails(self):
         calls: list[str] = []
@@ -1251,18 +1463,24 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             log_dir = root / "logs"
 
             headless_runner.run_openclaw_cli = (
-                lambda sandbox, message, timeout, logs, wait_profile="": {
+                lambda sandbox, message, timeout, logs, wait_profile="", deadline=None: {
                 "status": 202,
                 "body": {"ok": True},
                 }
             )
-            headless_runner.wait_for_profile = lambda profile, timeout, logs: {
-                "waited": True,
-                "ok": False,
-                "profile": profile,
-            }
-            headless_runner.collect_openclaw_cli_log = lambda sandbox, logs: calls.append("collect")
-            headless_runner.stop_openclaw_cli = lambda sandbox: calls.append("stop")
+            headless_runner.wait_for_profile = (
+                lambda profile, timeout, logs, deadline=None: {
+                    "waited": True,
+                    "ok": False,
+                    "profile": profile,
+                }
+            )
+            headless_runner.collect_openclaw_cli_log = (
+                lambda sandbox, logs, deadline=None: calls.append("collect")
+            )
+            headless_runner.stop_openclaw_cli = (
+                lambda sandbox, deadline=None: calls.append("stop")
+            )
             try:
                 rc = headless_runner.main([
                     "--prompt-file",
@@ -1282,6 +1500,143 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
 
         self.assertEqual(rc, 1)
         self.assertEqual(calls, ["stop", "collect"])
+
+    def test_cli_launch_shares_timeout_with_profile_readiness(self):
+        calls: list[tuple[str, float | int]] = []
+        previous = {
+            "run_openclaw_cli": headless_runner.run_openclaw_cli,
+            "wait_for_profile": headless_runner.wait_for_profile,
+            "collect_openclaw_cli_log": headless_runner.collect_openclaw_cli_log,
+            "stop_openclaw_cli": headless_runner.stop_openclaw_cli,
+            "monotonic": headless_runner.time.monotonic,
+        }
+        now = iter([100.0])
+
+        def fake_run_openclaw(
+            sandbox,
+            message,
+            timeout,
+            logs,
+            wait_profile="",
+            deadline=None,
+        ):
+            calls.append(("openclaw_timeout", timeout))
+            calls.append(("deadline", deadline))
+            return {"status": 200, "body": {"ok": True}}
+
+        def fake_wait(profile, timeout, logs, deadline=None):
+            calls.append(("readiness_timeout", timeout))
+            calls.append(("readiness_deadline", deadline))
+            return {"waited": True, "ok": True, "profile": profile}
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text("Deploy base", encoding="utf-8")
+            log_dir = root / "logs"
+
+            headless_runner.run_openclaw_cli = fake_run_openclaw
+            headless_runner.wait_for_profile = fake_wait
+            headless_runner.collect_openclaw_cli_log = (
+                lambda sandbox, logs, deadline=None: None
+            )
+            headless_runner.stop_openclaw_cli = (
+                lambda sandbox, deadline=None: None
+            )
+            headless_runner.time.monotonic = lambda: next(now)
+            try:
+                rc = headless_runner.main([
+                    "--prompt-file",
+                    str(prompt),
+                    "--log-dir",
+                    str(log_dir),
+                    "--launch-mode",
+                    "cli",
+                    "--wait-profile",
+                    "base",
+                    "--timeout",
+                    "60",
+                ])
+            finally:
+                headless_runner.run_openclaw_cli = previous["run_openclaw_cli"]
+                headless_runner.wait_for_profile = previous["wait_for_profile"]
+                headless_runner.collect_openclaw_cli_log = previous[
+                    "collect_openclaw_cli_log"
+                ]
+                headless_runner.stop_openclaw_cli = previous["stop_openclaw_cli"]
+                headless_runner.time.monotonic = previous["monotonic"]
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            calls,
+            [
+                ("openclaw_timeout", 60),
+                ("deadline", 154.0),
+                ("readiness_timeout", 60),
+                ("readiness_deadline", 154.0),
+            ],
+        )
+
+    def test_cli_cleanup_makes_no_remote_call_after_overall_deadline(self):
+        now = [100.0]
+        remote_calls: list[str] = []
+        previous = {
+            "run_openclaw_cli": headless_runner.run_openclaw_cli,
+            "_sandbox_exec": headless_runner._sandbox_exec,
+            "monotonic": headless_runner.time.monotonic,
+        }
+
+        def fake_run_openclaw(
+            sandbox,
+            message,
+            timeout,
+            logs,
+            wait_profile="",
+            deadline=None,
+        ):
+            now[0] = 161.0
+            return {"status": 500, "body": {"ok": False}}
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            remote_calls.append(script)
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout="",
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text("Deploy base", encoding="utf-8")
+            log_dir = root / "logs"
+            headless_runner.run_openclaw_cli = fake_run_openclaw
+            headless_runner._sandbox_exec = fake_sandbox_exec
+            headless_runner.time.monotonic = lambda: now[0]
+            try:
+                rc = headless_runner.main([
+                    "--prompt-file",
+                    str(prompt),
+                    "--log-dir",
+                    str(log_dir),
+                    "--launch-mode",
+                    "cli",
+                    "--timeout",
+                    "60",
+                ])
+            finally:
+                headless_runner.run_openclaw_cli = previous["run_openclaw_cli"]
+                headless_runner._sandbox_exec = previous["_sandbox_exec"]
+                headless_runner.time.monotonic = previous["monotonic"]
+
+            cleanup_log = (log_dir / "openclaw-cleanup.log").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(remote_calls, [])
+        self.assertIn("deadline exceeded", cleanup_log)
 
     def test_sandbox_exec_wraps_multiline_scripts_for_openshell(self):
         calls: list[tuple[str, ...]] = []
@@ -1324,7 +1679,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             headless_runner._run = fake_run
-            headless_runner._gateway_reachable = lambda sandbox: next(gateway_checks)
+            headless_runner._gateway_reachable = (
+                lambda sandbox, deadline=None: next(gateway_checks)
+            )
             try:
                 headless_runner.ensure_openclaw_gateway("demo", log_dir)
             finally:
@@ -1368,7 +1725,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
             headless_runner._run = fake_run
-            headless_runner._gateway_reachable = lambda sandbox: next(gateway_checks)
+            headless_runner._gateway_reachable = (
+                lambda sandbox, deadline=None: next(gateway_checks)
+            )
             try:
                 headless_runner.ensure_openclaw_gateway("demo", log_dir)
             finally:
@@ -2026,10 +2385,14 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             deployment_profile="base",
         )
         selections: list[set[str]] = []
+        selection_timeouts: list[int] = []
+        harbor_timeouts: list[int] = []
         events: list[str] = []
+        now = [0.0]
 
         def select_worker(*args, excluded=None, **kwargs):
             selections.append(set(excluded or set()))
+            selection_timeouts.append(args[3])
             instance = (
                 "vss-eval-rtx-1g-2"
                 if len(selections) == 1
@@ -2041,6 +2404,12 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         def release_worker(instance, worker_lock):
             events.append(f"release:{instance}")
 
+        def stream_command(cmd, *, timeout_s, **kwargs):
+            harbor_timeouts.append(timeout_s)
+            if len(harbor_timeouts) == 1:
+                now[0] = 70.0
+            return 0
+
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             report = mock.Mock()
@@ -2051,7 +2420,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                     {
                         "GITHUB_RUN_ID": "30266918843",
                         "NEMOCLAW_MAX_WORKER_FAILOVERS": "2",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "100",
                     },
+                ),
+                mock.patch.object(
+                    smoke_runner.time,
+                    "monotonic",
+                    side_effect=lambda: now[0],
                 ),
                 mock.patch.object(
                     smoke_runner,
@@ -2076,7 +2451,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 mock.patch.object(
                     smoke_runner,
                     "_stream_command",
-                    side_effect=[0, 0],
+                    side_effect=stream_command,
                 ),
                 mock.patch.object(
                     smoke_runner,
@@ -2099,6 +2474,10 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                     [
                         "--skills",
                         "vss-deploy-profile",
+                        "--lock-timeout",
+                        "80",
+                        "--harbor-timeout",
+                        "90",
                         "--dataset-root",
                         str(root / "dataset"),
                         "--results-root",
@@ -2113,6 +2492,8 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             selections,
             [set(), {"vss-eval-rtx-1g-2"}],
         )
+        self.assertEqual(selection_timeouts, [80, 30])
+        self.assertEqual(harbor_timeouts, [90, 30])
         self.assertEqual(
             events,
             [
@@ -2131,6 +2512,10 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIn(
             "vss-eval-rtx-1g-3",
             report.call_args.kwargs["log_path"].name,
+        )
+        self.assertEqual(
+            report.call_args.kwargs["log_path"].parent,
+            root / "scratch" / "30266918843" / "harbor",
         )
 
     def test_runner_does_not_fail_over_explicit_worker(self):
@@ -2793,6 +3178,28 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(rc, 125)
         self.assertIn("aborting Harbor after remote worker lock loss", log)
 
+    def test_stream_command_records_timeout_before_terminating(self):
+        with tempfile.TemporaryDirectory() as td:
+            log_path = Path(td) / "harbor.log"
+            rc = smoke_runner._stream_command(
+                [
+                    sys.executable,
+                    "-c",
+                    "import time; time.sleep(60)",
+                ],
+                timeout_s=0,
+                env=os.environ.copy(),
+                log_path=log_path,
+            )
+
+            log = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(rc, 124)
+        self.assertIn(
+            "Harbor exceeded the 0s timeout; terminating process group",
+            log,
+        )
+
     def test_completed_matrix_job_lock_is_inactive_within_current_run(self):
         owner = (
             "v2__30275546898__1__"
@@ -2995,6 +3402,46 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertFalse(reachable)
         self.assertIn("reachability failed rc=255", output.getvalue())
         self.assertIn("Could not resolve hostname", output.getvalue())
+
+    def test_reachability_rejects_rc_zero_echoed_command_and_dns_failure(self):
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["brev", "refresh"]:
+                return smoke_runner.CommandResult(0, "refreshed\n", "")
+            return smoke_runner.CommandResult(
+                0,
+                "echo harbor-ready\n",
+                "ssh: Could not resolve hostname vss-eval-rtx-2g-4\n",
+            )
+
+        with mock.patch.object(smoke_runner, "_run", side_effect=fake_run):
+            reachable = smoke_runner._reachable("vss-eval-rtx-2g-4")
+
+        self.assertFalse(reachable)
+        self.assertEqual(
+            calls,
+            [
+                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+                ["brev", "refresh"],
+                ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
+            ],
+        )
+
+    def test_reachability_requires_harbor_ready_as_a_standalone_line(self):
+        with mock.patch.object(
+            smoke_runner,
+            "_run",
+            return_value=smoke_runner.CommandResult(
+                0,
+                "remote output contains harbor-ready but not alone\n",
+                "",
+            ),
+        ):
+            reachable = smoke_runner._reachable("vss-eval-rtx-2g-4")
+
+        self.assertFalse(reachable)
 
     def test_reachability_refreshes_ssh_config_after_hostname_failure(self):
         previous = {"_run": smoke_runner._run}
@@ -3869,8 +4316,9 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("max-parallel: 1", source)
         self.assertIn("nemoclaw_instance:", source)
         self.assertIn("runs-on: [self-hosted, nemoclaw-ci-runner]", source)
-        self.assertIn("timeout-minutes: 90", source)
+        self.assertIn("timeout-minutes: 150", source)
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=1200", source)
+        self.assertIn("export NEMOCLAW_RUN_TIMEOUT_SEC=7800", source)
         self.assertIn(
             "export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180",
             source,
@@ -3893,13 +4341,23 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         )
         self.assertIn("NEMOCLAW_INPUT_INSTANCE:", source)
         self.assertIn('export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"', source)
-        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=2400", source)
+        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=6600", source)
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
-        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=1500", source)
+        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=2400", source)
         self.assertIn(
             'export NEMOCLAW_LOCK_OWNER_CONTEXT="NemoClaw / ${{ matrix.name }}"',
+            source,
+        )
+        self.assertIn(
+            "RUN_SCRATCH: /tmp/skill-eval/nemoclaw/${{ matrix.slug }}/${{ github.run_id }}",
+            source,
+        )
+        self.assertIn('TAR_PATHS+=("nemoclaw/${{ matrix.slug }}/${{ github.run_id }}")', source)
+        self.assertNotIn(
+            'if [ ! -d "$RUN_RESULTS" ]; then\n'
+            '            echo "no results dir for this run',
             source,
         )
         self.assertNotIn("NEMOCLAW_REMOTE_LOCK_STALE_SEC", source)

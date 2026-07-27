@@ -28,6 +28,7 @@ from typing import NamedTuple, Protocol
 
 REMOTE_LOCK_DIR = "/tmp/skill-eval/locks/nemoclaw-worker.lockdir"
 REMOTE_LOCK_GUARD = "/tmp/skill-eval/locks/worker-lock.guard"
+_MARKER_PREFIX = "SKILL_EVAL_REMOTE_LOCK_"
 
 
 class CommandResultLike(Protocol):
@@ -130,6 +131,16 @@ def _command_tail(result: CommandResultLike, limit: int = 500) -> str:
     return _command_output(result)[-limit:].strip()
 
 
+def _owner_marker(action: str, owner: str) -> str:
+    """Return an exact, owner-bound remote protocol marker."""
+    return f"{_MARKER_PREFIX}{action}:{owner}"
+
+
+def _has_exact_stdout_line(result: CommandResultLike, expected: str) -> bool:
+    """Accept a protocol marker only when the remote stdout emitted it alone."""
+    return expected in (result.stdout or "").splitlines()
+
+
 def _acquire_command(owner: str) -> str:
     return f"""set -eu
 lock_root=/tmp/skill-eval/locks
@@ -150,19 +161,28 @@ if mkdir "$lock_dir" 2>/dev/null; then
   printf '%s\\n' "$owner" > "$lock_dir/owner"
   printf '%s\\n' "$now" > "$lock_dir/created"
   trap - EXIT HUP INT TERM
+  printf 'SKILL_EVAL_REMOTE_LOCK_ACQUIRED:%s\\n' "$owner"
   exit 0
 fi
 created=$(cat "$lock_dir/created" 2>/dev/null || stat -c %Y "$lock_dir" 2>/dev/null || printf '%s\\n' "$now")
 age=$((now - created))
-echo "NemoClaw worker is locked by $(cat "$lock_dir/owner" 2>/dev/null || echo unknown) age=${{age}}s"
+locked_owner=$(cat "$lock_dir/owner" 2>/dev/null || echo unknown)
+printf 'SKILL_EVAL_REMOTE_LOCK_BUSY:%s\\n' "$locked_owner"
+echo "NemoClaw worker is locked by $locked_owner age=${{age}}s"
 exit 1
 """
 
 
 def remote_lock_owner_from_output(output: str) -> str | None:
-    """Parse the compatibility message produced by the remote lock command."""
-    match = re.search(r"NemoClaw worker is locked by ([^\s]+)", output)
-    return match.group(1) if match else None
+    """Parse an exact standalone busy marker produced by the remote command."""
+    prefix = f"{_MARKER_PREFIX}BUSY:"
+    for line in output.splitlines():
+        if not line.startswith(prefix):
+            continue
+        owner = line.removeprefix(prefix)
+        if owner and not re.search(r"\s", owner):
+            return owner
+    return None
 
 
 def _run_acquire_attempt(
@@ -185,7 +205,12 @@ def _run_acquire_attempt(
         return result, tail
 
     result, tail = invoke()
-    if result is not None and result.returncode == 0:
+    acquired_marker = _owner_marker("ACQUIRED", owner)
+    if (
+        result is not None
+        and result.returncode == 0
+        and _has_exact_stdout_line(result, acquired_marker)
+    ):
         return True, None, tail
     locked_owner = remote_lock_owner_from_output(tail)
     if locked_owner == owner:
@@ -202,7 +227,11 @@ def _run_acquire_attempt(
     # acquires a still-free lock or reports the exact UUID owner just written.
     result, retry_tail = invoke()
     tail = retry_tail or tail
-    if result is not None and result.returncode == 0:
+    if (
+        result is not None
+        and result.returncode == 0
+        and _has_exact_stdout_line(result, acquired_marker)
+    ):
         return True, None, tail
     locked_owner = remote_lock_owner_from_output(tail)
     if locked_owner == owner:
@@ -301,6 +330,7 @@ flock -x 9
 actual=$(cat "$lock_dir/owner" 2>/dev/null || true)
 if [ -d "$lock_dir" ] && [ "$actual" = "$expected" ]; then
   rm -rf "$lock_dir"
+  printf 'SKILL_EVAL_REMOTE_LOCK_CLEARED:%s\\n' "$expected"
   echo "removed NemoClaw worker lock owned by $expected"
   exit 0
 fi
@@ -316,7 +346,8 @@ exit 1
         )
         return False
     tail = _command_tail(result)
-    if result.returncode != 0:
+    cleared_marker = _owner_marker("CLEARED", owner)
+    if result.returncode != 0 or not _has_exact_stdout_line(result, cleared_marker):
         if tail:
             print(
                 f"[skill-eval-lock] remote lock cleanup skipped on {label}: {tail}",
@@ -340,6 +371,7 @@ lock_dir="$lock_root/nemoclaw-worker.lockdir"
 guard="$lock_root/worker-lock.guard"
 expected={shlex.quote(owner)}
 not_owner() {{
+  printf 'SKILL_EVAL_REMOTE_LOCK_NOT_OWNER:%s\\n' "$expected"
   echo "NemoClaw worker lock is not owned by $expected"
   exit 3
 }}
@@ -358,16 +390,22 @@ actual=$(cat "$lock_dir/owner" 2>/dev/null || true)
 [ "$before" = "$after" ] && [ "$actual" = "$expected" ] || not_owner
 mv -f "$tmp" "$lock_dir/created"
 trap - EXIT HUP INT TERM
+printf 'SKILL_EVAL_REMOTE_LOCK_REFRESHED:%s\\n' "$expected"
 echo "refreshed NemoClaw worker lock owned by $expected"
 """
     try:
         result = run_remote(command, _heartbeat_command_timeout())
     except Exception:  # noqa: BLE001 - heartbeat converts failures to unknown.
         return "unknown"
-    output = _command_output(result)
-    if result.returncode == 0 and "refreshed NemoClaw worker lock" in output:
+    if result.returncode == 0 and _has_exact_stdout_line(
+        result,
+        _owner_marker("REFRESHED", owner),
+    ):
         return "refreshed"
-    if result.returncode == 3 or "lock is not owned by" in output:
+    if result.returncode == 3 and _has_exact_stdout_line(
+        result,
+        _owner_marker("NOT_OWNER", owner),
+    ):
         return "not_owner"
     return "unknown"
 

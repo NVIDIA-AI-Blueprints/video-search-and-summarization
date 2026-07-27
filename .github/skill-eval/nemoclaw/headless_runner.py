@@ -13,7 +13,6 @@ import argparse
 import base64
 import json
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -24,6 +23,9 @@ from pathlib import Path
 from typing import Any
 
 OPENCLAW_RUN_DIR = "/tmp/vss-skill-eval-openclaw"
+OPENCLAW_STATE_PREFIX = "NEMOCLAW_OPENCLAW_STATE:"
+OPENCLAW_RC_PREFIX = "NEMOCLAW_OPENCLAW_RC:"
+OPENCLAW_LOG_BEGIN = "NEMOCLAW_OPENCLAW_LOG_BEGIN"
 
 
 def _load_env_file(path: Path) -> None:
@@ -53,6 +55,27 @@ def _read_hooks_token() -> str:
 
 def _run(cmd: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def _deadline_timeout(deadline: float | None, cap_s: int, phase: str) -> int:
+    """Return a bounded subprocess timeout without extending an outer deadline."""
+    if deadline is None:
+        return cap_s
+    remaining_s = int(deadline - time.monotonic())
+    if remaining_s <= 0:
+        raise TimeoutError(f"NemoClaw agent deadline exceeded during {phase}")
+    return min(cap_s, remaining_s)
+
+
+def _sleep_before_deadline(deadline: float | None, seconds: int) -> None:
+    """Sleep for at most the time left in an outer deadline."""
+    if deadline is None:
+        time.sleep(seconds)
+        return
+    remaining_s = deadline - time.monotonic()
+    if remaining_s <= 0:
+        raise TimeoutError("NemoClaw agent deadline exceeded while waiting")
+    time.sleep(min(seconds, remaining_s))
 
 
 def _sandbox_exec(sandbox_name: str, script: str, *, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -144,72 +167,93 @@ def post_hook(url: str, token: str, payload: dict[str, Any], timeout: int) -> di
         return {"status": 0, "body": "", "error": str(exc)}
 
 
-def _gateway_reachable(sandbox_name: str) -> bool:
+def _gateway_reachable(sandbox_name: str, deadline: float | None = None) -> bool:
     try:
         result = _sandbox_exec(
             sandbox_name,
             "curl -fsS http://127.0.0.1:18789/health >/dev/null",
-            timeout=20,
+            timeout=_deadline_timeout(deadline, 20, "OpenClaw gateway probe"),
         )
     except subprocess.TimeoutExpired:
         return False
     return result.returncode == 0
 
 
-def ensure_openclaw_gateway(sandbox_name: str, log_dir: Path) -> None:
-    if _gateway_reachable(sandbox_name):
-        return
-
+def ensure_openclaw_gateway(
+    sandbox_name: str,
+    log_dir: Path,
+    deadline: float | None = None,
+) -> None:
     attempts: list[str] = []
     try:
-        restart = _run(
-            ["nemoclaw", "sandbox", "gateway", "restart", sandbox_name],
-            timeout=120,
-        )
-    except subprocess.TimeoutExpired as exc:
-        restart = None
-        attempts.append(f"managed restart timed out: {exc}")
-    else:
-        attempts.append(
-            "managed restart\n"
-            f"returncode={restart.returncode}\n"
-            f"stdout:\n{restart.stdout or ''}\n"
-            f"stderr:\n{restart.stderr or ''}"
-        )
+        if _gateway_reachable(sandbox_name, deadline):
+            return
 
-    if restart is not None and restart.returncode == 0:
-        for _ in range(10):
-            if _gateway_reachable(sandbox_name):
+        try:
+            restart = _run(
+                ["nemoclaw", "sandbox", "gateway", "restart", sandbox_name],
+                timeout=_deadline_timeout(
+                    deadline,
+                    120,
+                    "managed OpenClaw gateway restart",
+                ),
+            )
+        except subprocess.TimeoutExpired as exc:
+            restart = None
+            attempts.append(f"managed restart timed out: {exc}")
+        else:
+            attempts.append(
+                "managed restart\n"
+                f"returncode={restart.returncode}\n"
+                f"stdout:\n{restart.stdout or ''}\n"
+                f"stderr:\n{restart.stderr or ''}"
+            )
+
+        if restart is not None and restart.returncode == 0:
+            for _ in range(10):
+                if _gateway_reachable(sandbox_name, deadline):
+                    (log_dir / "openclaw_gateway_recover.log").write_text(
+                        "\n\n".join(attempts) + "\n",
+                        encoding="utf-8",
+                    )
+                    return
+                _sleep_before_deadline(deadline, 3)
+
+        try:
+            recover = _run(
+                ["nemoclaw", "sandbox", "recover", sandbox_name],
+                timeout=_deadline_timeout(
+                    deadline,
+                    300,
+                    "NemoClaw sandbox recovery",
+                ),
+            )
+        except subprocess.TimeoutExpired as exc:
+            attempts.append(f"sandbox recover timed out: {exc}")
+        else:
+            attempts.append(
+                "sandbox recover\n"
+                f"returncode={recover.returncode}\n"
+                f"stdout:\n{recover.stdout or ''}\n"
+                f"stderr:\n{recover.stderr or ''}"
+            )
+
+        for _ in range(20):
+            if _gateway_reachable(sandbox_name, deadline):
                 (log_dir / "openclaw_gateway_recover.log").write_text(
                     "\n\n".join(attempts) + "\n",
                     encoding="utf-8",
                 )
                 return
-            time.sleep(3)
-
-    try:
-        recover = _run(
-            ["nemoclaw", "sandbox", "recover", sandbox_name],
-            timeout=300,
+            _sleep_before_deadline(deadline, 3)
+    except TimeoutError as exc:
+        attempts.append(str(exc))
+        (log_dir / "openclaw_gateway_recover.log").write_text(
+            "\n\n".join(attempts) + "\n",
+            encoding="utf-8",
         )
-    except subprocess.TimeoutExpired as exc:
-        attempts.append(f"sandbox recover timed out: {exc}")
-    else:
-        attempts.append(
-            "sandbox recover\n"
-            f"returncode={recover.returncode}\n"
-            f"stdout:\n{recover.stdout or ''}\n"
-            f"stderr:\n{recover.stderr or ''}"
-        )
+        raise
 
-    for _ in range(20):
-        if _gateway_reachable(sandbox_name):
-            (log_dir / "openclaw_gateway_recover.log").write_text(
-                "\n\n".join(attempts) + "\n",
-                encoding="utf-8",
-            )
-            return
-        time.sleep(3)
     (log_dir / "openclaw_gateway_recover.log").write_text(
         "\n\n".join(attempts) + "\n",
         encoding="utf-8",
@@ -235,11 +279,15 @@ def _openclaw_cli_command(prompt: str, timeout_s: int) -> str:
     )
 
 
-def collect_openclaw_cli_log(sandbox_name: str, log_dir: Path) -> None:
+def collect_openclaw_cli_log(
+    sandbox_name: str,
+    log_dir: Path,
+    deadline: float | None = None,
+) -> None:
     result = _sandbox_exec(
         sandbox_name,
         f"cat {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>/dev/null || true",
-        timeout=30,
+        timeout=_deadline_timeout(deadline, 30, "OpenClaw log collection"),
     )
     (log_dir / "openclaw-agent.log").write_text(result.stdout or "", encoding="utf-8")
 
@@ -313,38 +361,69 @@ def _openclaw_log_completed(log_dir: Path) -> bool:
     return bool(_openclaw_visible_text(text))
 
 
-def _openclaw_cli_state(sandbox_name: str) -> str:
+def _openclaw_cli_snapshot(
+    sandbox_name: str,
+    log_dir: Path,
+    deadline: float | None = None,
+) -> tuple[str, int | None]:
+    """Read process state and, when stopped, its status and log in one probe."""
     result = _sandbox_exec(
         sandbox_name,
         f"if [ ! -f {OPENCLAW_RUN_DIR}/openclaw-agent.pid ]; then "
-        "echo missing; "
+        f"printf '{OPENCLAW_STATE_PREFIX}missing\\n'; "
         "else "
         f"pid=$(cat {OPENCLAW_RUN_DIR}/openclaw-agent.pid); "
-        "if kill -0 \"$pid\" 2>/dev/null; then echo running; else echo stopped; fi; "
+        "if kill -0 \"$pid\" 2>/dev/null; then "
+        f"printf '{OPENCLAW_STATE_PREFIX}running\\n'; "
+        "else "
+        f"printf '{OPENCLAW_STATE_PREFIX}stopped\\n'; "
+        f"rc=$(cat {OPENCLAW_RUN_DIR}/openclaw-agent.rc 2>/dev/null || true); "
+        f"printf '{OPENCLAW_RC_PREFIX}%s\\n' \"$rc\"; "
+        f"printf '{OPENCLAW_LOG_BEGIN}\\n'; "
+        f"cat {OPENCLAW_RUN_DIR}/openclaw-agent.log 2>/dev/null || true; "
+        "fi; "
         "fi",
-        timeout=30,
+        timeout=_deadline_timeout(deadline, 30, "OpenClaw process snapshot"),
     )
-    lines = (result.stdout or "").strip().splitlines()
-    state = lines[-1].strip() if lines else "unknown"
-    return state if state in {"missing", "running", "stopped"} else "unknown"
+    lines = (result.stdout or "").splitlines(keepends=True)
+    state = "unknown"
+    state_index = -1
+    for index, line in enumerate(lines):
+        marker = line.rstrip("\r\n")
+        if not marker.startswith(OPENCLAW_STATE_PREFIX):
+            continue
+        candidate = marker.removeprefix(OPENCLAW_STATE_PREFIX)
+        if candidate in {"missing", "running", "stopped"}:
+            state = candidate
+            state_index = index
+            break
+
+    returncode: int | None = None
+    log_index = -1
+    if state == "stopped":
+        for index in range(state_index + 1, len(lines)):
+            marker = lines[index].rstrip("\r\n")
+            if marker.startswith(OPENCLAW_RC_PREFIX):
+                raw_returncode = marker.removeprefix(OPENCLAW_RC_PREFIX)
+                try:
+                    returncode = int(raw_returncode)
+                except ValueError:
+                    returncode = None
+            if marker == OPENCLAW_LOG_BEGIN:
+                log_index = index
+                break
+        if log_index >= 0:
+            (log_dir / "openclaw-agent.log").write_text(
+                "".join(lines[log_index + 1 :]),
+                encoding="utf-8",
+            )
+    return state, returncode
 
 
-def _openclaw_cli_returncode(sandbox_name: str) -> int | None:
-    result = _sandbox_exec(
-        sandbox_name,
-        f"cat {OPENCLAW_RUN_DIR}/openclaw-agent.rc 2>/dev/null || true",
-        timeout=30,
-    )
-    lines = (result.stdout or "").strip().splitlines()
-    if not lines:
-        return None
-    try:
-        return int(lines[-1].strip())
-    except ValueError:
-        return None
-
-
-def stop_openclaw_cli(sandbox_name: str) -> None:
+def stop_openclaw_cli(
+    sandbox_name: str,
+    deadline: float | None = None,
+) -> None:
     _sandbox_exec(
         sandbox_name,
         f"if [ -f {OPENCLAW_RUN_DIR}/openclaw-agent.pid ]; then "
@@ -353,13 +432,24 @@ def stop_openclaw_cli(sandbox_name: str) -> None:
         "sleep 5; "
         "kill -9 \"$pid\" 2>/dev/null || true; "
         "fi",
-        timeout=30,
+        timeout=_deadline_timeout(deadline, 30, "OpenClaw process cleanup"),
     )
 
 
-def _start_openclaw_cli_async(sandbox_name: str, prompt: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
-    ensure_openclaw_gateway(sandbox_name, log_dir)
-    inner = _openclaw_cli_command(prompt, timeout_s)
+def _start_openclaw_cli_async(
+    sandbox_name: str,
+    prompt: str,
+    timeout_s: int,
+    log_dir: Path,
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    ensure_openclaw_gateway(sandbox_name, log_dir, deadline)
+    openclaw_timeout_s = _deadline_timeout(
+        deadline,
+        timeout_s,
+        "OpenClaw agent launch",
+    )
+    inner = _openclaw_cli_command(prompt, openclaw_timeout_s)
     launcher = (
         "set -u; "
         f"mkdir -p {OPENCLAW_RUN_DIR}; "
@@ -375,7 +465,11 @@ def _start_openclaw_cli_async(sandbox_name: str, prompt: str, timeout_s: int, lo
         f"echo $pid > {OPENCLAW_RUN_DIR}/openclaw-agent.pid; "
         "echo started"
     )
-    result = _sandbox_exec(sandbox_name, launcher, timeout=60)
+    result = _sandbox_exec(
+        sandbox_name,
+        launcher,
+        timeout=_deadline_timeout(deadline, 60, "OpenClaw async launcher"),
+    )
     (log_dir / "openclaw-launch.log").write_text(
         f"returncode={result.returncode}\nstdout:\n{result.stdout or ''}\nstderr:\n{result.stderr or ''}\n"
         "mode=async\n",
@@ -401,21 +495,38 @@ def run_openclaw_cli(
     timeout_s: int,
     log_dir: Path,
     wait_profile: str = "",
+    deadline: float | None = None,
 ) -> dict[str, Any]:
+    # The caller may share one end-to-end budget across gateway recovery,
+    # OpenClaw, and profile readiness.  Start the local deadline before
+    # gateway recovery so a slow recovery cannot silently extend the agent
+    # phase beyond that budget.
+    deadline = deadline if deadline is not None else time.monotonic() + timeout_s
     fast_readiness = (
         os.environ.get("NEMOCLAW_FAST_READINESS_MODE", "").strip().lower()
         in {"1", "true", "yes"}
     )
     if wait_profile and fast_readiness:
-        return _start_openclaw_cli_async(sandbox_name, prompt, timeout_s, log_dir)
+        return _start_openclaw_cli_async(
+            sandbox_name,
+            prompt,
+            timeout_s,
+            log_dir,
+            deadline,
+        )
 
-    start = _start_openclaw_cli_async(sandbox_name, prompt, timeout_s, log_dir)
+    start = _start_openclaw_cli_async(
+        sandbox_name,
+        prompt,
+        timeout_s,
+        log_dir,
+        deadline,
+    )
     if not _response_ok(start):
         start["body"]["mode"] = "cli"
         return start
 
     poll_sec = max(5, int(os.environ.get("NEMOCLAW_OPENCLAW_POLL_SEC", "15")))
-    deadline = time.time() + timeout_s
     returncode = 124
     stdout = start.get("stdout_tail", "")
     stderr = start.get("stderr_tail", "")
@@ -424,15 +535,22 @@ def run_openclaw_cli(
     completed = False
     state = "unknown"
 
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         try:
-            state = _openclaw_cli_state(sandbox_name)
+            state, cli_returncode = _openclaw_cli_snapshot(
+                sandbox_name,
+                log_dir,
+                deadline,
+            )
+        except TimeoutError:
+            break
         except subprocess.TimeoutExpired:
-            time.sleep(poll_sec)
+            try:
+                _sleep_before_deadline(deadline, poll_sec)
+            except TimeoutError:
+                break
             continue
         if state == "stopped":
-            collect_openclaw_cli_log(sandbox_name, log_dir)
-            cli_returncode = _openclaw_cli_returncode(sandbox_name)
             if cli_returncode == 0 and _openclaw_log_completed(log_dir):
                 returncode = 0
                 error = ""
@@ -456,9 +574,10 @@ def run_openclaw_cli(
             error = "OpenClaw process state files are missing"
             error_type = "OpenClawMissingState"
             break
-        time.sleep(poll_sec)
-
-    collect_openclaw_cli_log(sandbox_name, log_dir)
+        try:
+            _sleep_before_deadline(deadline, poll_sec)
+        except TimeoutError:
+            break
 
     with (log_dir / "openclaw-launch.log").open("a", encoding="utf-8") as handle:
         handle.write(
@@ -484,17 +603,23 @@ def _response_ok(response: dict[str, Any]) -> bool:
     return 200 <= int(response.get("status", 0)) < 300 and isinstance(body, dict) and bool(body.get("ok"))
 
 
-def _vss_base_ready() -> tuple[bool, str]:
+def _vss_base_ready(deadline: float | None = None) -> tuple[bool, str]:
     probes = [
         ["curl", "-sf", "--max-time", "15", "http://localhost:8000/docs"],
         ["curl", "-sf", "--max-time", "15", "http://localhost:3000/"],
     ]
     for probe in probes:
-        result = _run(probe, timeout=20)
+        result = _run(
+            probe,
+            timeout=_deadline_timeout(deadline, 20, "VSS base readiness probe"),
+        )
         if result.returncode != 0:
             return False, f"{' '.join(probe)} failed: {(result.stderr or result.stdout)[-300:]}"
 
-    result = _run(["docker", "ps", "--format", "{{.Names}}"], timeout=20)
+    result = _run(
+        ["docker", "ps", "--format", "{{.Names}}"],
+        timeout=_deadline_timeout(deadline, 20, "VSS base container probe"),
+    )
     if result.returncode != 0:
         return False, f"docker ps failed: {(result.stderr or result.stdout)[-300:]}"
     names = set(result.stdout.splitlines())
@@ -504,20 +629,26 @@ def _vss_base_ready() -> tuple[bool, str]:
     return True, "VSS base readiness probes passed"
 
 
-def _vss_lvs_ready() -> tuple[bool, str]:
-    base_ok, base_message = _vss_base_ready()
+def _vss_lvs_ready(deadline: float | None = None) -> tuple[bool, str]:
+    base_ok, base_message = _vss_base_ready(deadline)
     if not base_ok:
         return base_ok, base_message
     probes = [
         ["curl", "-sf", "--max-time", "15", "http://localhost:38111/v1/ready"],
     ]
     for probe in probes:
-        result = _run(probe, timeout=20)
+        result = _run(
+            probe,
+            timeout=_deadline_timeout(deadline, 20, "VSS LVS readiness probe"),
+        )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or f"exit {result.returncode}")[-300:]
             return False, f"{' '.join(probe)} failed: {detail}"
 
-    result = _run(["docker", "ps", "--format", "{{.Names}}"], timeout=20)
+    result = _run(
+        ["docker", "ps", "--format", "{{.Names}}"],
+        timeout=_deadline_timeout(deadline, 20, "VSS LVS container probe"),
+    )
     if result.returncode != 0:
         return False, f"docker ps failed: {(result.stderr or result.stdout)[-300:]}"
     names = set(result.stdout.splitlines())
@@ -526,25 +657,43 @@ def _vss_lvs_ready() -> tuple[bool, str]:
     return True, "VSS lvs readiness probes passed"
 
 
-def _profile_ready(profile: str) -> tuple[bool, str]:
+def _profile_ready(
+    profile: str,
+    deadline: float | None = None,
+) -> tuple[bool, str]:
     if profile == "lvs":
-        return _vss_lvs_ready()
-    return _vss_base_ready()
+        return _vss_lvs_ready(deadline)
+    return _vss_base_ready(deadline)
 
 
-def wait_for_profile(profile: str, timeout_s: int, log_dir: Path) -> dict[str, Any]:
+def wait_for_profile(
+    profile: str,
+    timeout_s: int,
+    log_dir: Path,
+    deadline: float | None = None,
+) -> dict[str, Any]:
     if not profile:
         return {"waited": False, "reason": "no profile requested"}
 
-    deadline = time.time() + timeout_s
+    deadline = deadline if deadline is not None else time.monotonic() + timeout_s
     attempts: list[dict[str, Any]] = []
-    while time.time() < deadline:
-        ok, message = _profile_ready(profile)
+    while time.monotonic() < deadline:
+        try:
+            ok, message = _profile_ready(profile, deadline)
+        except TimeoutError as exc:
+            ok, message = False, str(exc)
+        except subprocess.TimeoutExpired as exc:
+            ok, message = False, f"VSS readiness probe timed out: {exc}"
         attempts.append({"t": round(time.time(), 3), "ok": ok, "message": message})
         (log_dir / "nemoclaw_wait.json").write_text(json.dumps(attempts, indent=2), encoding="utf-8")
         if ok:
             return {"waited": True, "ok": True, "profile": profile, "message": message}
-        time.sleep(30)
+        if isinstance(message, str) and "deadline exceeded" in message:
+            break
+        try:
+            _sleep_before_deadline(deadline, 30)
+        except TimeoutError:
+            break
     return {
         "waited": True,
         "ok": False,
@@ -574,6 +723,13 @@ def main(argv: list[str] | None = None) -> int:
     hooks_path = "/" + os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip("/")
     hook_url = f"http://127.0.0.1:{args.dashboard_port}{hooks_path}/agent"
     started = time.time()
+    deadline = time.monotonic() + args.timeout
+    cleanup_reserve_s = min(60, max(1, args.timeout // 10))
+    agent_deadline = (
+        deadline - cleanup_reserve_s
+        if args.launch_mode == "cli" and args.timeout > cleanup_reserve_s
+        else deadline
+    )
     prompt = ""
     response: dict[str, Any] = {"status": 0, "body": "", "error": ""}
     wait_report = {"waited": False}
@@ -594,17 +750,31 @@ def main(argv: list[str] | None = None) -> int:
                 args.timeout,
                 log_dir,
                 wait_profile=args.wait_profile,
+                deadline=agent_deadline,
             )
             try:
                 if _response_ok(response):
-                    wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
+                    wait_report = wait_for_profile(
+                        args.wait_profile,
+                        args.timeout,
+                        log_dir,
+                        deadline=agent_deadline,
+                    )
             finally:
-                if args.wait_profile:
-                    stop_openclaw_cli(sandbox_name)
-                    collect_openclaw_cli_log(sandbox_name, log_dir)
-                else:
-                    collect_openclaw_cli_log(sandbox_name, log_dir)
-                    stop_openclaw_cli(sandbox_name)
+                cleanup_errors: list[str] = []
+                try:
+                    stop_openclaw_cli(sandbox_name, deadline)
+                except (TimeoutError, subprocess.TimeoutExpired) as exc:
+                    cleanup_errors.append(f"stop: {exc}")
+                try:
+                    collect_openclaw_cli_log(sandbox_name, log_dir, deadline)
+                except (TimeoutError, subprocess.TimeoutExpired) as exc:
+                    cleanup_errors.append(f"collect: {exc}")
+                if cleanup_errors:
+                    (log_dir / "openclaw-cleanup.log").write_text(
+                        "\n".join(cleanup_errors) + "\n",
+                        encoding="utf-8",
+                    )
         else:
             hooks_token = _read_hooks_token()
             if not hooks_token:
@@ -614,7 +784,12 @@ def main(argv: list[str] | None = None) -> int:
                 ensure_forward(str(args.dashboard_port), sandbox_name)
                 response = post_hook(hook_url, hooks_token, payload, timeout=60)
                 if _response_ok(response):
-                    wait_report = wait_for_profile(args.wait_profile, args.timeout, log_dir)
+                    wait_report = wait_for_profile(
+                        args.wait_profile,
+                        args.timeout,
+                        log_dir,
+                        deadline=deadline,
+                    )
     except Exception as exc:  # Keep Harbor artifacts structured on setup failures.
         response = {
             "status": 0,

@@ -38,6 +38,15 @@ def _owner_from_acquire_command(command: str) -> str:
     return shlex.split(line.removeprefix("owner="))[0]
 
 
+def _owner_from_clear_command(command: str) -> str:
+    line = next(line for line in command.splitlines() if line.startswith("expected="))
+    return shlex.split(line.removeprefix("expected="))[0]
+
+
+def _marker(action: str, owner: str) -> str:
+    return remote_lock._owner_marker(action, owner)
+
+
 class OwnerIdentityTests(unittest.TestCase):
     def test_v2_owner_prefers_shared_matrix_context(self):
         env = {
@@ -89,6 +98,7 @@ class AcquireReleaseTests(unittest.TestCase):
             calls.append(timeout)
             return Result(
                 1,
+                f"{_marker('BUSY', other)}\n"
                 f"NemoClaw worker is locked by {other} age=10s\n",
             )
 
@@ -116,10 +126,12 @@ class AcquireReleaseTests(unittest.TestCase):
                     raise subprocess.TimeoutExpired("remote", timeout)
                 return Result(
                     1,
+                    f"{_marker('BUSY', owner)}\n"
                     f"NemoClaw worker is locked by {owner} age=0s\n",
                 )
             release_calls += 1
-            return Result(0, "removed exact owner\n")
+            owner = _owner_from_clear_command(command)
+            return Result(0, f"{_marker('CLEARED', owner)}\n")
 
         lease = remote_lock.try_acquire_remote_worker_lock(
             execute,
@@ -148,14 +160,14 @@ class AcquireReleaseTests(unittest.TestCase):
                 if acquisitions == 1:
                     return Result(
                         1,
+                        f"{_marker('BUSY', old_owner)}\n"
                         f"NemoClaw worker is locked by {old_owner} age=20s\n",
                     )
-                return Result(0)
-            expected_line = next(
-                line for line in command.splitlines() if line.startswith("expected=")
-            )
-            clears.append(shlex.split(expected_line.removeprefix("expected="))[0])
-            return Result(0, "removed exact owner\n")
+                owner = _owner_from_acquire_command(command)
+                return Result(0, f"{_marker('ACQUIRED', owner)}\n")
+            owner = _owner_from_clear_command(command)
+            clears.append(owner)
+            return Result(0, f"{_marker('CLEARED', owner)}\n")
 
         def inactive(owner: str) -> bool:
             checked.append(owner)
@@ -198,6 +210,48 @@ class AcquireReleaseTests(unittest.TestCase):
         self.assertIn("flock -x 9", seen[0][0])
         self.assertIn('actual=$(cat "$lock_dir/owner"', seen[0][0])
         self.assertIn('[ "$actual" = "$expected" ]', seen[0][0])
+
+    def test_rc_zero_with_echoed_command_and_dns_failure_never_acquires(self):
+        commands: list[str] = []
+
+        def execute(command: str, _timeout: int) -> Result:
+            commands.append(command)
+            return Result(
+                0,
+                f"{command}\nw71vmgk8z\nssh: Could not resolve hostname w71vmgk8z\n",
+            )
+
+        lease = remote_lock.try_acquire_remote_worker_lock(
+            execute,
+            "worker-c",
+            owner_context="matrix-row",
+        )
+
+        self.assertIsNone(lease)
+        self.assertEqual(len(commands), 3)
+        self.assertEqual(
+            remote_lock.remote_lock_owner_from_output(commands[0]),
+            None,
+        )
+
+    def test_rc_zero_dns_failure_without_exact_marker_never_clears(self):
+        seen: list[str] = []
+
+        def execute(command: str, _timeout: int) -> Result:
+            seen.append(command)
+            return Result(
+                0,
+                f"{command}\nssh: Could not resolve hostname worker-c\n",
+            )
+
+        self.assertFalse(
+            remote_lock.clear_remote_worker_lock(
+                execute,
+                "worker-c",
+                "expected-owner",
+            )
+        )
+        self.assertEqual(len(seen), 1)
 
     def test_double_response_loss_attempts_exact_owner_cleanup(self):
         commands: list[str] = []
@@ -259,7 +313,11 @@ class AcquireReleaseTests(unittest.TestCase):
 
         def execute(command: str, _timeout: int) -> Result:
             commands.append(command)
-            return Result(0, "removed exact owner\n")
+            if "if mkdir" in command:
+                owner = _owner_from_acquire_command(command)
+                return Result(0, f"{_marker('ACQUIRED', owner)}\n")
+            owner = _owner_from_clear_command(command)
+            return Result(0, f"{_marker('CLEARED', owner)}\n")
 
         with (
             mock.patch.object(
@@ -284,11 +342,13 @@ class AcquireReleaseTests(unittest.TestCase):
 
         def execute(command: str, _timeout: int) -> Result:
             if "if mkdir" in command:
-                return Result(0)
+                owner = _owner_from_acquire_command(command)
+                return Result(0, f"{_marker('ACQUIRED', owner)}\n")
             heartbeat_alive_at_delete.append(
                 holder["lease"].heartbeat.thread.is_alive()
             )
-            return Result(0, "removed exact owner\n")
+            owner = _owner_from_clear_command(command)
+            return Result(0, f"{_marker('CLEARED', owner)}\n")
 
         lease = remote_lock.try_acquire_remote_worker_lock(
             execute,
@@ -310,11 +370,13 @@ class AcquireReleaseTests(unittest.TestCase):
         def execute(command: str, _timeout: int) -> Result:
             nonlocal deletes
             if "if mkdir" in command:
-                return Result(0)
+                owner = _owner_from_acquire_command(command)
+                return Result(0, f"{_marker('ACQUIRED', owner)}\n")
             deletes += 1
             if deletes == 1:
                 raise OSError("temporary transport failure")
-            return Result(0, "removed exact owner\n")
+            owner = _owner_from_clear_command(command)
+            return Result(0, f"{_marker('CLEARED', owner)}\n")
 
         lease = remote_lock.try_acquire_remote_worker_lock(
             execute,
@@ -337,7 +399,7 @@ class RefreshHeartbeatTests(unittest.TestCase):
             self.assertEqual(timeout, 30)
             return Result(
                 0,
-                "refreshed NemoClaw worker lock owned by exact-owner\n",
+                f"{_marker('REFRESHED', 'exact-owner')}\n",
             )
 
         status = remote_lock.refresh_remote_worker_lock(
@@ -360,7 +422,7 @@ class RefreshHeartbeatTests(unittest.TestCase):
         not_owner = remote_lock.refresh_remote_worker_lock(
             lambda _command, _timeout: Result(
                 3,
-                "NemoClaw worker lock is not owned by expected\n",
+                f"{_marker('NOT_OWNER', 'expected')}\n",
             ),
             "worker-g",
             "expected",
@@ -373,6 +435,24 @@ class RefreshHeartbeatTests(unittest.TestCase):
 
         self.assertEqual(not_owner, "not_owner")
         self.assertEqual(unknown, "unknown")
+
+    def test_rc_zero_echoed_refresh_command_and_dns_failure_is_unknown(self):
+        def execute(command: str, _timeout: int) -> Result:
+            return Result(
+                0,
+                f"{command}\n"
+                "refreshed NemoClaw worker lock owned by exact-owner\n"
+                "ssh: Could not resolve hostname worker-f\n",
+            )
+
+        self.assertEqual(
+            remote_lock.refresh_remote_worker_lock(
+                execute,
+                "worker-f",
+                "exact-owner",
+            ),
+            "unknown",
+        )
 
     def test_owner_loss_sets_lost_event(self):
         with (
@@ -540,7 +620,7 @@ class GitHubOwnerStatusTests(unittest.TestCase):
             "jobs": [
                 {"name": "NemoClaw / Ask Video", "status": "completed"},
                 {"name": "Other", "status": "in_progress"},
-            ]
+            ],
         }
         with (
             mock.patch.dict(
