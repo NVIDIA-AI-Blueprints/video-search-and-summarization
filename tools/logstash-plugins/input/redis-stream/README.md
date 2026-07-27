@@ -210,3 +210,4 @@ This plugin's source is declared **Apache-2.0** (see the SPDX headers in `src/`
 and `pluginInfo.licenses` in [`build.gradle`](build.gradle)). Third-party
 dependency licenses are listed in
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+
