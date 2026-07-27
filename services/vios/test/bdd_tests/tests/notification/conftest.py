@@ -37,6 +37,8 @@ class WebhookTestContext:
     streaming_path_key: str = "camera_streaming"
     streaming_timeout_sec: Optional[float] = None
     expected_camera_ids: List[str] = field(default_factory=list)
+    expected_camera_names: List[str] = field(default_factory=list)
+    expected_camera_type: str = "file"
 
 
 @pytest.fixture(scope="function")

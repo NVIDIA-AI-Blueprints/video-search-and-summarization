@@ -116,6 +116,8 @@ def _validate_event(
     expected_path = notification_test_params["webhook_paths"][path_name]
     body = request.json_body if isinstance(request.json_body, dict) else {}
     event = body.get("event") if isinstance(body.get("event"), dict) else {}
+    camera_ids = _acceptable_camera_ids(context)
+    camera_type = context.expected_camera_type
 
     failures = []
     checks = [
@@ -127,8 +129,8 @@ def _validate_event(
             f"Content-Type={request.header('Content-Type')!r}",
         ),
         (
-            request.header("streamId") == context.sensor_id,
-            f"streamId={request.header('streamId')!r}",
+            request.header("streamId") in camera_ids,
+            f"streamId={request.header('streamId')!r}, expected one of {camera_ids!r}",
         ),
         (body.get("alert_type") == "camera_status_change", f"body={body!r}"),
         (
@@ -139,25 +141,34 @@ def _validate_event(
         (bool(body.get("created_at")), f"created_at={body.get('created_at')!r}"),
         (event.get("change") == change, f"event.change={event.get('change')!r}"),
         (
-            event.get("camera_id") == context.sensor_id,
-            f"event.camera_id={event.get('camera_id')!r}",
+            event.get("camera_id") in camera_ids,
+            f"event.camera_id={event.get('camera_id')!r}, expected one of {camera_ids!r}",
         ),
         (
-            event.get("camera_name") == Path(context.filename).stem,
-            f"event.camera_name={event.get('camera_name')!r}",
+            event.get("camera_name") in context.expected_camera_names,
+            f"event.camera_name={event.get('camera_name')!r}, "
+            f"expected one of {context.expected_camera_names!r}",
         ),
         (
-            event.get("camera_type") == "file",
-            f"event.camera_type={event.get('camera_type')!r}",
+            event.get("camera_type") == camera_type,
+            f"event.camera_type={event.get('camera_type')!r}, expected {camera_type!r}",
         ),
     ]
+    # camera_url is empty on camera_add for every sensor type, and carries the
+    # live URL on the later actions with a scheme dictated by camera_type.
     if change == "camera_add":
         checks.append(
             (event.get("camera_url") == "", f"event.camera_url={event.get('camera_url')!r}")
         )
     if change == "camera_streaming":
+        camera_url = event.get("camera_url")
+        schemes = CAMERA_URL_SCHEMES[camera_type]
         checks.append(
-            (bool(event.get("camera_url")), f"event.camera_url={event.get('camera_url')!r}")
+            (
+                isinstance(camera_url, str) and camera_url.startswith(schemes),
+                f"event.camera_url={camera_url!r} does not use {list(schemes)} "
+                f"required for camera_type={camera_type!r}",
+            )
         )
 
     for passed, detail in checks:
@@ -168,7 +179,7 @@ def _validate_event(
         not failures,
         test_name=f"{change} webhook validation",
         expected=(
-            f"{expected_method} {expected_path} with the complete file-sensor "
+            f"{expected_method} {expected_path} with the complete {camera_type}-sensor "
             f"{change} payload"
         ),
         actual=request.summary(),
@@ -243,6 +254,8 @@ def upload_file_sensor(
         verify=api_config.get("verify_ssl", False),
     )
     context.sensor_created = response.status_code in (200, 201)
+    context.expected_camera_type = "file"
+    context.expected_camera_names = [Path(context.filename).stem]
 
     assert response.status_code in (200, 201), (
         f"File-sensor upload failed: HTTP {response.status_code}: {response.text[:500]}"
@@ -323,21 +336,95 @@ def camera_streaming_webhook_is_valid(
     )
 
 
-def _resolve_camera_ids(
+@then("the rtsp camera_add webhook is received and valid")
+def rtsp_camera_add_webhook_is_valid(
+    context: WebhookTestContext,
+    webhook_receiver: WebhookReceiver,
+    notification_test_params: Dict[str, Any],
+) -> None:
+    path_key = "camera_add_rtsp_only"
+    request = _wait_for_event(
+        context,
+        webhook_receiver,
+        notification_test_params,
+        "camera_add",
+        path_key=path_key,
+    )
+    _validate_event(
+        request,
+        context,
+        notification_test_params,
+        "camera_add",
+        "POST",
+        path_key=path_key,
+    )
+
+
+@then("the rtsp camera_streaming webhook is received and valid")
+def rtsp_camera_streaming_webhook_is_valid(
+    context: WebhookTestContext,
+    webhook_receiver: WebhookReceiver,
+    notification_test_params: Dict[str, Any],
+) -> None:
+    path_key = "camera_streaming_rtsp"
+    request = _wait_for_event(
+        context,
+        webhook_receiver,
+        notification_test_params,
+        "camera_streaming",
+        path_key=path_key,
+        timeout=notification_test_params["rtsp_streaming_timeout_sec"],
+    )
+    _validate_event(
+        request,
+        context,
+        notification_test_params,
+        "camera_streaming",
+        "PUT",
+        path_key=path_key,
+    )
+
+
+@then("the rtsp camera_remove webhook is received and valid")
+def rtsp_camera_remove_webhook_is_valid(
+    context: WebhookTestContext,
+    webhook_receiver: WebhookReceiver,
+    notification_test_params: Dict[str, Any],
+) -> None:
+    path_key = "camera_remove_rtsp"
+    request = _wait_for_event(
+        context,
+        webhook_receiver,
+        notification_test_params,
+        "camera_remove",
+        path_key=path_key,
+    )
+    _validate_event(
+        request,
+        context,
+        notification_test_params,
+        "camera_remove",
+        "DELETE",
+        path_key=path_key,
+    )
+
+
+def _resolve_sensor_identity(
     context: WebhookTestContext,
     api_config: Dict[str, Any],
     notification_test_params: Dict[str, Any],
-) -> List[str]:
-    """Return the sensor id plus every stream id VIOS created for the sensor.
+) -> Tuple[List[str], List[str]]:
+    """Return the camera ids and camera names the sensor may publish under.
 
-    An RTSP sensor publishes camera_streaming under its stream id, which the
-    add response does not return, so poll /sensor/<id>/streams until it is
-    populated. Falls back to the sensor id alone so the webhook wait still runs
-    and reports the real failure.
+    An RTSP sensor publishes its events under a stream id and stream name that
+    the add response does not return, so poll /sensor/<id>/streams until it is
+    populated. Falls back to the sensor identity alone so the webhook wait still
+    runs and reports the real failure.
     """
     url = f"{api_config['base_url']}/vst/api/v1/sensor/{context.sensor_id}/streams"
     deadline = time.monotonic() + notification_test_params["rtsp_stream_resolve_timeout_sec"]
     camera_ids = [context.sensor_id]
+    camera_names = [context.rtsp_sensor_name]
 
     while time.monotonic() < deadline:
         try:
@@ -354,18 +441,23 @@ def _resolve_camera_ids(
         streams = response.json() if response.status_code == 200 else None
         if isinstance(streams, list) and streams:
             for stream in streams:
-                stream_id = stream.get("streamId") if isinstance(stream, dict) else None
+                if not isinstance(stream, dict):
+                    continue
+                stream_id = stream.get("streamId")
                 if isinstance(stream_id, str) and stream_id and stream_id not in camera_ids:
                     camera_ids.append(stream_id)
-            return camera_ids
+                stream_name = stream.get("name")
+                if isinstance(stream_name, str) and stream_name and stream_name not in camera_names:
+                    camera_names.append(stream_name)
+            return camera_ids, camera_names
         time.sleep(1)
 
     logger.warning(
-        "No streams reported for sensor %s within %ss; matching on the sensor id alone",
+        "No streams reported for sensor %s within %ss; matching on the sensor identity alone",
         context.sensor_id,
         notification_test_params["rtsp_stream_resolve_timeout_sec"],
     )
-    return camera_ids
+    return camera_ids, camera_names
 
 
 def _captured_streaming_payload(
@@ -423,14 +515,16 @@ def add_rtsp_sensor(
     )
     context.sensor_id = sensor_id
     context.sensor_created = True
-    context.expected_camera_ids = _resolve_camera_ids(
+    context.expected_camera_type = "rtsp"
+    context.expected_camera_ids, context.expected_camera_names = _resolve_sensor_identity(
         context, api_config, notification_test_params
     )
     logger.info(
-        "Added RTSP sensor %s (name=%s); camera ids %s",
+        "Added RTSP sensor %s (name=%s); camera ids %s, camera names %s",
         sensor_id,
         context.rtsp_sensor_name,
         context.expected_camera_ids,
+        context.expected_camera_names,
     )
 
 
@@ -610,7 +704,8 @@ def camera_streaming_metadata_is_valid(
 
 
 @when("I delete the uploaded webhook test sensor")
-def delete_file_sensor(
+@when("I delete the added RTSP webhook test sensor")
+def delete_webhook_test_sensor(
     context: WebhookTestContext,
     api_config: Dict[str, Any],
     notification_test_params: Dict[str, Any],
