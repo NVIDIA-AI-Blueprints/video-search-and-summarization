@@ -30,7 +30,10 @@ permissions:
 jobs:
   trigger-release-notes:
     name: Trigger Release Notes Pipeline
-    runs-on: [self-hosted, downstream-pipeline]
+    # The downstream-pipeline pool is restricted by its runner hook to
+    # copy-pr-bot's pull-request/* refs, so tag-triggered jobs are rejected
+    # during runner setup before any workflow step can execute.
+    runs-on: [self-hosted, vss-brev-runner]
     timeout-minutes: 15
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
