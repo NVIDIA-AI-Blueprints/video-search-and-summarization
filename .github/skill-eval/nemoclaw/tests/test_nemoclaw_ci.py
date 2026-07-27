@@ -253,6 +253,15 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertNotIn("s37-ui-code", ids)
         self.assertNotIn("verify-code", ids)
         self.assertLess(ids.index("ci-parameters-1"), ids.index("e67f6da4"))
+        onboard_cell = next(cell for cell in built["cells"] if cell.get("id") == "s31-code")
+        self.assertIn(
+            "nemoclaw onboard --fresh --non-interactive --agent {AGENT_RUNTIME}",
+            onboard_cell["source"],
+        )
+        self.assertNotIn(
+            "nemoclaw onboard --non-interactive --agent {AGENT_RUNTIME}",
+            onboard_cell["source"],
+        )
 
     def test_build_notebook_injects_parameters_before_derived_cell(self):
         source = {
@@ -379,6 +388,31 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertNotIn("OPENCLAW_HOOKS_TOKEN", keys_block)
         self.assertIn("NEMOCLAW_HOOKS_TOKEN_FILE", source)
         self.assertIn("chmod(0o600)", source)
+
+    def test_gateway_binding_round_trips_to_headless_env_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            env_path = Path(td) / "nemoclaw.env"
+            token_path = Path(td) / "hooks_token"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "NEMOCLAW_GATEWAY_PORT": "19080",
+                    "OPENSHELL_DOCKER_NETWORK_NAME": "openshell-docker",
+                    "NEMOCLAW_CI_ENV_OUT": str(env_path),
+                    "NEMOCLAW_HOOKS_TOKEN_FILE": str(token_path),
+                },
+                clear=True,
+            ):
+                namespace: dict[str, object] = {}
+                exec(notebook_adapter.PARAMETER_SOURCE, namespace)
+                exec(notebook_adapter.PERSIST_SOURCE, namespace)
+
+            persisted = env_path.read_text(encoding="utf-8")
+            self.assertIn("export NEMOCLAW_GATEWAY_PORT=19080\n", persisted)
+            self.assertIn(
+                "export OPENSHELL_DOCKER_NETWORK_NAME=openshell-docker\n",
+                persisted,
+            )
 
     def test_parameter_cell_derives_nemoclaw_provider_from_remote_llm_env(self):
         defaults = {
@@ -4567,6 +4601,12 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
         self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=2400", source)
+        self.assertIn("export NEMOCLAW_GATEWAY_PORT=19080", source)
+        self.assertIn("unset NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR", source)
+        self.assertIn(
+            "export OPENSHELL_DOCKER_NETWORK_NAME=openshell-docker",
+            source,
+        )
         self.assertIn(
             'export NEMOCLAW_LOCK_OWNER_CONTEXT="NemoClaw / ${{ matrix.name }}"',
             source,

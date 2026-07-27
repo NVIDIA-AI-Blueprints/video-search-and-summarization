@@ -423,6 +423,7 @@ class BrevEnvironment(BaseEnvironment):
             "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE",
             "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR",
             "NEMOCLAW_GATEWAY_PORT",
+            "OPENSHELL_DOCKER_NETWORK_NAME",
             "OPENAI_API_KEY", "NVIDIA_BASE_URL", "OPENSHELL_PROVIDER_NAME",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
@@ -795,8 +796,6 @@ stage() {{
   printf '[nemoclaw-setup] %s %s\n' "$(date -Is)" "$*"
 }}
 stage "begin setup on $(hostname)"
-default_gateway_state_dir="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
-gateway_state_dir="${{NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR:-$default_gateway_state_dir}}"
 gateway_port="${{NEMOCLAW_GATEWAY_PORT:-8080}}"
 case "$gateway_port" in
   ""|*[!0-9]*)
@@ -808,6 +807,12 @@ if [ "$gateway_port" -lt 1024 ] || [ "$gateway_port" -gt 65535 ]; then
   echo "NEMOCLAW_GATEWAY_PORT is outside 1024-65535: $gateway_port" >&2
   exit 1
 fi
+export NEMOCLAW_GATEWAY_PORT="$gateway_port"
+default_gateway_state_dir="$HOME/.local/state/nemoclaw/openshell-docker-gateway"
+if [ "$gateway_port" != "8080" ]; then
+  default_gateway_state_dir="${{default_gateway_state_dir}}-${{gateway_port}}"
+fi
+gateway_state_dir="${{NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR:-$default_gateway_state_dir}}"
 gateway_port_is_free() {{
   python3 - "$gateway_port" <<'__NEMOCLAW_PORT_PROBE__'
 import socket

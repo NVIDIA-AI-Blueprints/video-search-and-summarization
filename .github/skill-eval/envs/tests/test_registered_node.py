@@ -669,6 +669,79 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         reconcile_start = command.index(
             'gateway_port="${NEMOCLAW_GATEWAY_PORT:-8080}"'
         )
+        state_init_end = command.index("gateway_port_is_free()", reconcile_start)
+        state_init_script = (
+            "set -e\n"
+            + command[reconcile_start:state_init_end]
+            + 'printf "%s|%s|%s\\n" "$NEMOCLAW_GATEWAY_PORT" '
+            '"$default_gateway_state_dir" "$gateway_state_dir"\n'
+        )
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            home.mkdir()
+            base_env = {
+                **os.environ,
+                "HOME": str(home),
+            }
+            default_state = subprocess.run(
+                ["bash", "-c", state_init_script],
+                env={
+                    key: value
+                    for key, value in base_env.items()
+                    if key
+                    not in {
+                        "NEMOCLAW_GATEWAY_PORT",
+                        "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR",
+                    }
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(default_state.returncode, 0, default_state.stderr)
+            self.assertEqual(
+                default_state.stdout.strip(),
+                f"8080|{home}/.local/state/nemoclaw/openshell-docker-gateway|"
+                f"{home}/.local/state/nemoclaw/openshell-docker-gateway",
+            )
+
+            custom_state = subprocess.run(
+                ["bash", "-c", state_init_script],
+                env={
+                    **base_env,
+                    "NEMOCLAW_GATEWAY_PORT": "19080",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(custom_state.returncode, 0, custom_state.stderr)
+            self.assertEqual(
+                custom_state.stdout.strip(),
+                f"19080|{home}/.local/state/nemoclaw/"
+                "openshell-docker-gateway-19080|"
+                f"{home}/.local/state/nemoclaw/openshell-docker-gateway-19080",
+            )
+
+            override_dir = Path(td) / "explicit-state"
+            overridden_state = subprocess.run(
+                ["bash", "-c", state_init_script],
+                env={
+                    **base_env,
+                    "NEMOCLAW_GATEWAY_PORT": "19080",
+                    "NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR": str(override_dir),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(overridden_state.returncode, 0, overridden_state.stderr)
+            self.assertEqual(
+                overridden_state.stdout.strip(),
+                f"19080|{home}/.local/state/nemoclaw/"
+                f"openshell-docker-gateway-19080|{override_dir}",
+            )
+
         reconcile_end = command.index('recreate_value="', reconcile_start)
         reconcile_script = (
             "set -eo pipefail\n"
