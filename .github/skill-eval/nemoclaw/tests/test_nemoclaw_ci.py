@@ -680,15 +680,21 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             'MCP_URL = f"http://127.0.0.1:{MCP_PORT}/mcp"',
             sources["20b35654"],
         )
+        self.assertIn("ssrf_denied|policy_denied", sources["df8210f5"])
 
-    def test_policy_allows_supported_docker_bridge_ranges_for_host_routes(self):
+    def test_policy_allows_supported_private_host_gateway_ranges(self):
         policy = (
             REPO_ROOT / "assets" / "vss_nemoclaw_policy.yaml"
         ).read_text(encoding="utf-8")
         host_route_count = policy.count("host: host.openshell.internal")
 
         self.assertGreater(host_route_count, 0)
-        self.assertEqual(policy.count("- 172.19.0.0/16"), host_route_count)
+        for private_range in (
+            "- 10.0.0.0/8",
+            "- 172.16.0.0/12",
+            "- 192.168.0.0/16",
+        ):
+            self.assertEqual(policy.count(private_range), host_route_count)
 
     def test_brev_util_imports_without_stdlib_strenum(self):
         path = (
@@ -880,6 +886,101 @@ class NemoClawEnvFileTest(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertFalse(report["gateway_ok"])
         self.assertIn("timed out after 30s", report["gateway_stderr_tail"])
+
+    def test_readiness_discovers_required_mcp_tools_inside_sandbox(self):
+        output = json.dumps(
+            {
+                "tools": [
+                    {"name": "vss_orchestrator__profiles"},
+                    {"name": "vss_orchestrator__docker_status"},
+                ]
+            }
+        )
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    ["nemoclaw"],
+                    0,
+                    stdout=output,
+                    stderr="",
+                ),
+            ) as run,
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                [
+                    "vss_orchestrator__profiles",
+                    "vss_orchestrator__docker_status",
+                ],
+            )
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["missing_tools"], [])
+        run.assert_called_once_with(
+            [
+                "nemoclaw",
+                "sandbox",
+                "exec",
+                "demo",
+                "--",
+                "mcporter",
+                "list",
+                "vss_orchestrator",
+                "--json",
+            ],
+            timeout=90,
+        )
+
+    def test_readiness_rejects_sandbox_mcp_policy_denial(self):
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    ["nemoclaw"],
+                    1,
+                    stdout="",
+                    stderr="HTTP 403: ssrf_denied",
+                ),
+            ),
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                ["vss_orchestrator__profiles"],
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["returncode"], 1)
+        self.assertIn("ssrf_denied", report["stderr_tail"])
+
+    def test_readiness_rejects_missing_sandbox_mcp_tools(self):
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    ["nemoclaw"],
+                    0,
+                    stdout='{"tools":[]}',
+                    stderr="",
+                ),
+            ),
+        ):
+            report = readiness._check_sandbox_mcp(
+                "demo",
+                ["vss_orchestrator__profiles"],
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            report["missing_tools"],
+            ["vss_orchestrator__profiles"],
+        )
 
 
 class NemoClawHeadlessRunnerTest(unittest.TestCase):
