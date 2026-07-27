@@ -12,11 +12,14 @@ import io
 import json
 import os
 import re
+import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import textwrap
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -64,6 +67,123 @@ skills_eval_agent = load_module(
     "skills_eval_agent",
     REPO_ROOT / ".github" / "skill-eval" / "skills_eval_agent.py",
 )
+
+
+class GatewayReleaseTest(unittest.TestCase):
+    HELPER = (
+        REPO_ROOT
+        / ".github"
+        / "skill-eval"
+        / "nemoclaw"
+        / "release_gateway_port.py"
+    )
+    LISTENER_SOURCE = (
+        "import socket,sys,time;"
+        "s=socket.socket();"
+        "s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);"
+        "s.bind(('127.0.0.1',int(sys.argv[1])));"
+        "s.listen();"
+        "time.sleep(30)"
+    )
+
+    @staticmethod
+    def _unused_port() -> int:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+
+    def _wait_until_listening(self, port: int) -> None:
+        for _ in range(100):
+            with socket.socket() as sock:
+                if sock.connect_ex(("127.0.0.1", port)) == 0:
+                    return
+            time.sleep(0.02)
+        self.fail(f"test listener did not bind port {port}")
+
+    def _run_helper(self, port: int) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["/usr/bin/python3", str(self.HELPER), "--port", str(port)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_incomplete_package_fallback_releases_exact_gateway_argv(self):
+        with tempfile.TemporaryDirectory() as td:
+            gateway_executable = Path(td) / "openshell-gateway"
+            shutil.copy2(sys.executable, gateway_executable)
+            port = self._unused_port()
+            listener = subprocess.Popen(
+                [
+                    str(gateway_executable),
+                    "-c",
+                    self.LISTENER_SOURCE,
+                    str(port),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                self._wait_until_listening(port)
+                stopped = self._run_helper(port)
+
+                self.assertEqual(stopped.returncode, 0, stopped.stderr)
+                self.assertIn(
+                    f"stopped host process {listener.pid}",
+                    stopped.stdout,
+                )
+                listener.wait(timeout=5)
+            finally:
+                if listener.poll() is None:
+                    listener.terminate()
+                    listener.wait(timeout=5)
+
+    def test_spoofed_gateway_argv_fails_closed_and_remains_alive(self):
+        port = self._unused_port()
+        listener = subprocess.Popen(
+            ["openshell-gateway", "-c", self.LISTENER_SOURCE, str(port)],
+            executable=sys.executable,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            self._wait_until_listening(port)
+            rejected = self._run_helper(port)
+
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(
+                "refusing to signal non-gateway listener",
+                rejected.stderr,
+            )
+            self.assertIsNone(listener.poll())
+            with socket.socket() as sock:
+                self.assertEqual(sock.connect_ex(("127.0.0.1", port)), 0)
+        finally:
+            listener.terminate()
+            listener.wait(timeout=5)
+
+    def test_nonmatching_listener_fails_closed_and_remains_alive(self):
+        port = self._unused_port()
+        listener = subprocess.Popen(
+            [sys.executable, "-c", self.LISTENER_SOURCE, str(port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            self._wait_until_listening(port)
+            rejected = self._run_helper(port)
+
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(
+                "refusing to signal non-gateway listener",
+                rejected.stderr,
+            )
+            self.assertIsNone(listener.poll())
+            with socket.socket() as sock:
+                self.assertEqual(sock.connect_ex(("127.0.0.1", port)), 0)
+        finally:
+            listener.terminate()
+            listener.wait(timeout=5)
 
 
 class NotebookSetupAdapterTest(unittest.TestCase):

@@ -886,49 +886,50 @@ for _ in range(3):
 raise SystemExit(1)
 __NEMOCLAW_CLI_ROOT__
     }}
-    cli_resolution=()
-    mapfile -t cli_resolution < <(resolve_nemoclaw_cli_root 2>/dev/null || true)
-    candidate_root="${{cli_resolution[0]:-}}"
-    pinned_node="${{cli_resolution[1]:--}}"
-    if [ "${{#cli_resolution[@]}}" -ne 2 ]; then
-      echo "Cannot safely release the stale OpenShell gateway: active NemoClaw launcher is not recognized" >&2
-      exit 1
-    fi
-    candidate_root="$(realpath -- "$candidate_root" 2>/dev/null || true)"
-    candidate_package="$candidate_root/package.json"
-    candidate_cli="$candidate_root/bin/nemoclaw.js"
-    gateway_release_module="$candidate_root/dist/lib/tunnel/gateway-port-release.js"
-    if [ -z "$candidate_root" ] || [ ! -d "$candidate_root" ] || \
-       [ ! -f "$candidate_package" ] || [ ! -f "$candidate_cli" ] || \
-       [ ! -f "$gateway_release_module" ]; then
-      echo "Cannot safely release the stale OpenShell gateway: active NemoClaw package is incomplete" >&2
-      exit 1
-    fi
-    candidate_package="$(realpath -- "$candidate_package" 2>/dev/null || true)"
-    candidate_cli="$(realpath -- "$candidate_cli" 2>/dev/null || true)"
-    gateway_release_module="$(realpath -- "$gateway_release_module" 2>/dev/null || true)"
-    case "$candidate_package" in
-      "$candidate_root"/*) ;;
-      *)
-        echo "Cannot safely release the stale OpenShell gateway: NemoClaw package metadata escapes its package root" >&2
+    if ! (
+      cli_resolution=()
+      mapfile -t cli_resolution < <(resolve_nemoclaw_cli_root 2>/dev/null || true)
+      candidate_root="${{cli_resolution[0]:-}}"
+      pinned_node="${{cli_resolution[1]:--}}"
+      if [ "${{#cli_resolution[@]}}" -ne 2 ]; then
+        echo "Active NemoClaw gateway release unavailable: launcher is not recognized" >&2
         exit 1
-        ;;
-    esac
-    case "$candidate_cli" in
-      "$candidate_root"/*) ;;
-      *)
-        echo "Cannot safely release the stale OpenShell gateway: NemoClaw launcher escapes its package root" >&2
+      fi
+      candidate_root="$(realpath -- "$candidate_root" 2>/dev/null || true)"
+      candidate_package="$candidate_root/package.json"
+      candidate_cli="$candidate_root/bin/nemoclaw.js"
+      gateway_release_module="$candidate_root/dist/lib/tunnel/gateway-port-release.js"
+      if [ -z "$candidate_root" ] || [ ! -d "$candidate_root" ] || \
+         [ ! -f "$candidate_package" ] || [ ! -f "$candidate_cli" ] || \
+         [ ! -f "$gateway_release_module" ]; then
+        echo "Active NemoClaw gateway release unavailable: package is incomplete" >&2
         exit 1
-        ;;
-    esac
-    case "$gateway_release_module" in
-      "$candidate_root"/*) ;;
-      *)
-        echo "Cannot safely release the stale OpenShell gateway: NemoClaw gateway release module escapes its package root" >&2
-        exit 1
-        ;;
-    esac
-    if ! python3 - "$candidate_package" <<'__NEMOCLAW_PACKAGE__'
+      fi
+      candidate_package="$(realpath -- "$candidate_package" 2>/dev/null || true)"
+      candidate_cli="$(realpath -- "$candidate_cli" 2>/dev/null || true)"
+      gateway_release_module="$(realpath -- "$gateway_release_module" 2>/dev/null || true)"
+      case "$candidate_package" in
+        "$candidate_root"/*) ;;
+        *)
+          echo "Active NemoClaw gateway release unavailable: package metadata escapes its package root" >&2
+          exit 1
+          ;;
+      esac
+      case "$candidate_cli" in
+        "$candidate_root"/*) ;;
+        *)
+          echo "Active NemoClaw gateway release unavailable: launcher escapes its package root" >&2
+          exit 1
+          ;;
+      esac
+      case "$gateway_release_module" in
+        "$candidate_root"/*) ;;
+        *)
+          echo "Active NemoClaw gateway release unavailable: release module escapes its package root" >&2
+          exit 1
+          ;;
+      esac
+      if ! python3 - "$candidate_package" <<'__NEMOCLAW_PACKAGE__'
 import json
 import sys
 
@@ -943,35 +944,35 @@ bins = package.get("bin")
 if not isinstance(bins, dict) or bins.get("nemoclaw") != "./bin/nemoclaw.js":
     raise SystemExit(1)
 __NEMOCLAW_PACKAGE__
-    then
-      echo "Cannot safely release the stale OpenShell gateway: active NemoClaw package metadata is invalid" >&2
-      exit 1
-    fi
-    if [ "$pinned_node" = "-" ]; then
-      node_bin="$(type -P node 2>/dev/null || true)"
-    else
-      node_bin="$pinned_node"
-    fi
-    node_bin="$(realpath -- "$node_bin" 2>/dev/null || true)"
-    if [ -z "$node_bin" ] || [ ! -x "$node_bin" ]; then
-      echo "Cannot safely release the stale OpenShell gateway: pinned NemoClaw Node runtime is unavailable" >&2
-      exit 1
-    fi
-    candidate_version_output="$(
-      /usr/bin/env -u NEMOCLAW_INVOKED_AS -u NODE_OPTIONS -u NODE_PATH \
+      then
+        echo "Active NemoClaw gateway release unavailable: package metadata is invalid" >&2
+        exit 1
+      fi
+      if [ "$pinned_node" = "-" ]; then
+        node_bin="$(type -P node 2>/dev/null || true)"
+      else
+        node_bin="$pinned_node"
+      fi
+      node_bin="$(realpath -- "$node_bin" 2>/dev/null || true)"
+      if [ -z "$node_bin" ] || [ ! -x "$node_bin" ]; then
+        echo "Active NemoClaw gateway release unavailable: pinned Node runtime is unavailable" >&2
+        exit 1
+      fi
+      candidate_version_output="$(
+        /usr/bin/env -u NEMOCLAW_INVOKED_AS -u NODE_OPTIONS -u NODE_PATH \
+          PATH="/usr/sbin:/usr/bin:/sbin:/bin" \
+          "$node_bin" "$candidate_cli" --version 2>/dev/null || true
+      )"
+      if [ "$candidate_version_output" != "nemoclaw v$expected_nemoclaw_version" ]; then
+        echo "Active NemoClaw gateway release unavailable: expected nemoclaw v$expected_nemoclaw_version, found ${{candidate_version_output:-unknown}}" >&2
+        exit 1
+      fi
+      stage "using verified NemoClaw gateway release module: $gateway_release_module"
+      /usr/bin/env -u NODE_OPTIONS -u NODE_PATH \
         PATH="/usr/sbin:/usr/bin:/sbin:/bin" \
-        "$node_bin" "$candidate_cli" --version 2>/dev/null || true
-    )"
-    if [ "$candidate_version_output" != "nemoclaw v$expected_nemoclaw_version" ]; then
-      echo "Cannot safely release the stale OpenShell gateway: expected nemoclaw v$expected_nemoclaw_version, found ${{candidate_version_output:-unknown}}" >&2
-      exit 1
-    fi
-    stage "using verified NemoClaw gateway release module: $gateway_release_module"
-    /usr/bin/env -u NODE_OPTIONS -u NODE_PATH \
-      PATH="/usr/sbin:/usr/bin:/sbin:/bin" \
-      GATEWAY_RELEASE_MODULE="$gateway_release_module" \
-      GATEWAY_RELEASE_PORT="$gateway_port" \
-      "$node_bin" <<'__NEMOCLAW_GATEWAY_RELEASE__'
+        GATEWAY_RELEASE_MODULE="$gateway_release_module" \
+        GATEWAY_RELEASE_PORT="$gateway_port" \
+        "$node_bin" <<'__NEMOCLAW_GATEWAY_RELEASE__'
 const modulePath = process.env.GATEWAY_RELEASE_MODULE;
 const port = Number(process.env.GATEWAY_RELEASE_PORT);
 const runtime = require(modulePath);
@@ -992,6 +993,27 @@ if (!result || result.released !== true) {{
   process.exit(1);
 }}
 __NEMOCLAW_GATEWAY_RELEASE__
+    ); then
+      gateway_release_fallback="$(realpath -- \
+        "$REPO/.github/skill-eval/nemoclaw/release_gateway_port.py" 2>/dev/null || true)"
+      case "$gateway_release_fallback" in
+        "$REPO"/*) ;;
+        *)
+          echo "Cannot safely release the stale OpenShell gateway: fallback helper escapes the synced repository" >&2
+          exit 1
+          ;;
+      esac
+      if [ ! -f "$gateway_release_fallback" ]; then
+        echo "Cannot safely release the stale OpenShell gateway: fallback helper is unavailable" >&2
+        exit 1
+      fi
+      stage "using fail-closed standalone gateway release for incomplete prior package"
+      if [ ! -x /usr/bin/python3 ]; then
+        echo "Cannot safely release the stale OpenShell gateway: system Python is unavailable" >&2
+        exit 1
+      fi
+      /usr/bin/python3 "$gateway_release_fallback" --port "$gateway_port"
+    fi
     gateway_port_is_free || {{
       echo "OpenShell gateway port $gateway_port is still busy after scoped release" >&2
       exit 1
