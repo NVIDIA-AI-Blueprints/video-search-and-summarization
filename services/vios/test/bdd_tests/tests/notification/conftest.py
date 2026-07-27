@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 import pytest
 import requests
 
-from .webhook_test_utils import WebhookReceiver
+from .webhook_test_utils import CapturedWebhookRequest, WebhookReceiver
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,17 @@ class WebhookTestContext:
 
     sensor_id: str
     filename: str
+    rtsp_sensor_name: str
     receiver_cursor: int = 0
     sensor_created: bool = False
     sensor_deleted: bool = False
+    streaming_event: Optional[CapturedWebhookRequest] = None
+    # Which receiver the camera_streaming assertions read, and which camera_id
+    # values are acceptable. RTSP sensors emit the event under a stream id that
+    # the add response does not return, so the ids are resolved after the add.
+    streaming_path_key: str = "camera_streaming"
+    streaming_timeout_sec: Optional[float] = None
+    expected_camera_ids: List[str] = field(default_factory=list)
 
 
 @pytest.fixture(scope="function")
@@ -38,6 +46,7 @@ def context() -> WebhookTestContext:
     return WebhookTestContext(
         sensor_id=f"{TEST_PREFIX}sensor-{tag}",
         filename=f"{TEST_PREFIX}{tag}.mp4",
+        rtsp_sensor_name=f"{TEST_PREFIX}rtsp-{tag}",
     )
 
 
@@ -45,6 +54,12 @@ def context() -> WebhookTestContext:
 def notification_test_params(config: Dict[str, Any]) -> Dict[str, Any]:
     """Return webhook notification parameters from the shared BDD config."""
     return config["tests"]["notification_tests"]["test_parameters"]
+
+
+@pytest.fixture(scope="session")
+def rtsp_sensor_url(notification_test_params: Dict[str, Any]) -> str:
+    """Return the configured RTSP URL; empty means the RTSP scenario is skipped."""
+    return str(notification_test_params.get("rtsp_sensor", "")).strip()
 
 
 @pytest.fixture(scope="session", autouse=True)
