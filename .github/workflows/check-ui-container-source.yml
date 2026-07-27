@@ -68,4 +68,9 @@ jobs:
         if: steps.filter.outputs.skip != 'true' && !startsWith(github.ref_name, 'pull-request/')
         env:
           NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
+          # Deployable tags now resolve to ghcr.io, which the NGC key cannot
+          # authenticate. Public packages read fine anonymously; these let the
+          # check keep working if a package is ever made private.
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: python3 .github/scripts/check_container_tag_source.py --image-name vss-agent-ui

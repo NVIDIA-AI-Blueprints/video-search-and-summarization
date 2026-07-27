@@ -515,7 +515,14 @@ def _fetch_bearer_token(
     token_url = f"{realm}?service={urllib.parse.quote(params.get('service', ''))}&scope={urllib.parse.quote(scope)}"
 
     req = urllib.request.Request(token_url)
-    if ngc_key:
+    # The NGC key is only a credential for nvcr.io. Sending it to any other
+    # registry is worse than sending nothing: ghcr.io answers a Basic header it
+    # cannot resolve with 403, whereas an unauthenticated request to the same
+    # endpoint yields a perfectly good anonymous pull token for a public
+    # package. Gating on the registry also keeps the registry-specific branch
+    # below reachable — NGC_CLI_API_KEY is set on every run of this check, so an
+    # unguarded `if ngc_key` made those credentials dead code.
+    if ngc_key and registry.endswith("nvcr.io"):
         basic = base64.b64encode(f"$oauthtoken:{ngc_key}".encode()).decode()
         req.add_header("Authorization", f"Basic {basic}")
     elif registry_username and registry_password:
