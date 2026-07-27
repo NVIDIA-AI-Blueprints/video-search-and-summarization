@@ -83,8 +83,7 @@ namespace vst_common
     void notifySensorStatusEvent(SensorStatusEvent statusEvent, shared_ptr<SensorInfo> sensor,
                                  string httpFileUrl = EMPTY_STRING, int64_t fileStartTimeMs = 0);
     void notifyStreamStatusEvent(SensorStatusEvent statusEvent, shared_ptr<StreamInfo> stream);
-    /* fileStartTimeMs: epoch-ms wall-clock time of the first frame of a
-     * file-backed sensor's media; 0 for live sources (field is then omitted). */
+    // fileStartTimeMs is the first frame's epoch time; 0 omits the field.
     void notifyEvent(const SensorStatus& status, const string& sensor_url,
                      const SensorVideoEncoderSettingsValues* encoder_values = nullptr,
                      int64_t fileStartTimeMs = 0);

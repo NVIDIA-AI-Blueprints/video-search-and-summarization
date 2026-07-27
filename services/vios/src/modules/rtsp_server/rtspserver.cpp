@@ -724,21 +724,10 @@ void RtspServer::updateStreamMetadata(const string& id, const string& vodUrl,
     }
 }
 
-/* Recover resolution and framerate from the SDP parameter sets.
- *
- * A manually added RTSP camera reaches us with neither: the camera_proxy event
- * that created the stream carries whatever sensor management had on record,
- * which is nothing until something decodes the stream. The SPS advertised in
- * the SDP already describes both, so parse it here rather than let the
- * camera_streaming notification go out without them (stream monitoring fills
- * the same fields in, but only once the first IDR frame arrives).
- *
- * Fields that cannot be determined are left untouched. */
+// Fill missing H.26x video details from SDP parameter sets.
 static void fillVideoDetailsFromParameterSets(const Json::Value& parameterSets, const string& codec,
                                               const string& url, SensorVideoEncoderSettingsValues& encoder_values)
 {
-    /* Only the H.26x parameter sets describe the stream in a form we can
-     * parse; anything else (MJPEG, VP9, ...) has nothing to offer here. */
     if (parameterSets.isArray() == false || parameterSets.empty() ||
         (!iequals(codec, "h264") && !iequals(codec, "h265")))
     {
@@ -776,9 +765,6 @@ static void fillVideoDetailsFromParameterSets(const Json::Value& parameterSets, 
         encoder_values.resolution.height = height;
     }
 
-    /* Reported as a fractional value (e.g. "30.000000"); normalize to whole
-     * frames per second, which is what every other producer of this field
-     * stores. */
     const double frameRate = stringToDouble(details.get("frame_rate", EMPTY_STRING).asString(), 0.0);
     if (encoder_values.frameRate.empty() && frameRate > 0.0)
     {
@@ -957,8 +943,6 @@ void RtspServer::registerStreamAsync(const string& id, const string& name,
                                                       proxyUrl, encoder_values);
                 }
 
-                /* Publish codec / resolution / framerate so the consumer of
-                 * camera_streaming does not have to query them back. */
                 vst_common::addStreamMetadata(metadata, encoder_values);
                 if (metadata.empty() == false)
                 {

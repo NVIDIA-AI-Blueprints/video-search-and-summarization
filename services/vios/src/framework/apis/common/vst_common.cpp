@@ -1332,8 +1332,7 @@ namespace vst_common
         {
             metadata["resolution"] = encoder_values.resolution.getString();
         }
-        /* Published as a number (e.g. 30) rather than the internal string,
-         * which may carry decimals ("29.970000") depending on the source. */
+        // Webhooks publish whole-number frame rates.
         const int framerate = static_cast<int>(std::lround(stringToDouble(encoder_values.frameRate, 0.0)));
         if (framerate > 0)
         {
@@ -1356,21 +1355,15 @@ namespace vst_common
         {
             metadata["sensor_type"] = status.type;
         }
-        /* Media characteristics of the stream. Emitted only when actually known:
-         * an empty resolution / framerate carries no information for the
-         * webhook consumer and just adds noise to the payload. */
         if (encoder_values != nullptr)
         {
             addStreamMetadata(metadata, *encoder_values);
         }
-        /* File-backed sensors: wall-clock time of the first frame of the
-         * uploaded media, so consumers can map media offsets to real time. */
         if (fileStartTimeMs > 0)
         {
             metadata["file_start_time"] = convertEpocToISO8601_2(fileStartTimeMs * 1000);
         }
-        /* Keep the historical gating: a metadata block is attached only when
-         * media details were supplied. sensor_type alone never produced one. */
+        // Preserve the rule that sensor_type alone does not add metadata.
         if ((encoder_values != nullptr || fileStartTimeMs > 0) && metadata.empty() == false)
         {
             event["metadata"] = metadata;
@@ -1417,9 +1410,6 @@ namespace vst_common
                     return; // Skip notification if camera url is not present.
                 }
                 LOG(info) << "notifySensorStatusEvent sensor:" << streams[0]->name << ", event:" << secureUrlForLogging(sensor_url) << endl;
-                /* File-backed sensors know their codec / resolution / framerate
-                 * from the media probe done at upload time, so publish them
-                 * alongside the event instead of leaving consumers to query. */
                 notifyEvent(status, sensor_url, &streams[0]->getvideoEncoderValues(), fileStartTimeMs);
             }
         }

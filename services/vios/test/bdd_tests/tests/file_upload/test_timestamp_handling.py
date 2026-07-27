@@ -139,11 +139,7 @@ def verify_sensor_in_list(context, api_config):
 
 @then('the timeline should show the default start time')
 def verify_default_start_time_in_timeline(context, api_config):
-    """Verify timeline shows the default start time for uploads that state none.
-
-    An upload with no timestamp parameter has no stated recording time, so the
-    server anchors it at 2025-01-01T00:00:00.000Z (the documented default).
-    """
+    """Verify untimestamped uploads use the default timeline start time."""
     storage_size_url = f"{api_config['base_url']}/vst/api/v1/storage/size?timelines=true"
     response = requests.get(storage_size_url, timeout=10, verify=api_config.get('verify_ssl', False))
 

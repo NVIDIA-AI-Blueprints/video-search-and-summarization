@@ -219,8 +219,7 @@ class RtspServer
             {
                 // Parse SDP to extract video codec information
                 detectedVideoCodecs = parseVideoCodecsFromSDP(sdpDesc);
-                /* SPS/PPS carry the resolution and framerate of the stream;
-                 * registerStreamAsync decodes them off this thread. */
+                // Decode parameter sets off the live555 event-loop thread.
                 videoParameterSets = parseVideoParameterSetsFromSDP(sdpDesc);
                 for (const auto& codec : detectedVideoCodecs)
                 {
@@ -472,23 +471,12 @@ class RtspServer
             return audio;
         }
 
-        /* Helper function to pull the video parameter sets out of the SDP.
-         *
-         * They are returned base64-encoded exactly as they appear in the
-         * a=fmtp line of the video m-section, in bitstream order: H.264 packs
-         * them into a comma-separated "sprop-parameter-sets=<SPS>,<PPS>",
-         * H.265 splits them across "sprop-vps=", "sprop-sps=", "sprop-pps=".
-         *
-         * Decoding them and querying the resulting caps is deliberately left
-         * to the caller: this runs on the live555 event-loop thread, which
-         * must not block. */
+        // Extract base64-encoded H.264/H.265 parameter sets in bitstream order.
         Json::Value parseVideoParameterSetsFromSDP(const char* sdp)
         {
             Json::Value parameterSets(Json::arrayValue);
             if (!sdp) return parameterSets;
 
-            /* Value of "<key>" within an a=fmtp parameter list, terminated by
-             * the next parameter separator or end of line. */
             auto attributeValue = [](const string& line, const string& key) -> string {
                 size_t keyPos = line.find(key);
                 if (keyPos == string::npos) return "";
@@ -515,8 +503,6 @@ class RtspServer
                 }
                 if (!inVideoSection || line.find("a=fmtp:") != 0) continue;
 
-                /* H.265 first: its keys are distinct substrings, so checking
-                 * them ahead of the H.264 form avoids any ambiguity. */
                 for (const char* const key : {"sprop-vps=", "sprop-sps=", "sprop-pps="})
                 {
                     string value = attributeValue(line, key);

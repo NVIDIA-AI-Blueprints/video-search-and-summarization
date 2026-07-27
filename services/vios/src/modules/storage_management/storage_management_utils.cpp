@@ -1112,10 +1112,6 @@ VmsErrorCode addFile(std::shared_ptr<DeviceManager> deviceMngr,
                          << sensor->id << endl;
         }
 
-        /* Start time of the media, derived by handleFileUpload; reported as
-         * metadata.file_start_time so consumers can anchor media offsets to
-         * wall-clock time. Absent for callers that add a file outside the
-         * upload API, in which case the field is left out of the event. */
         const int64_t fileStartTimeMs = data.get("fileStartTimeMs", 0).asInt64();
 
         LOG(info) << "Sending camera_streaming event for file-based sensor: " << sensor->id << endl;
@@ -2019,15 +2015,7 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
             in["framerate"] = enc_params.m_outframeRate;
         }
 
-        /* Wall-clock time of the first frame of the media: the start time the
-         * uploader stated (PUT ?timestamp=, or a "timestamp" string in the POST
-         * metadata part), else the 2025-01-01T00:00:00.000Z default documented
-         * for uploads that carry no recording time.
-         *
-         * Derived here because addFile() raises the camera_streaming
-         * notification for the new sensor; the video_record row written below
-         * reuses the same value, so the event and the recording timeline agree
-         * on the instant the media begins. */
+        // Use the documented default when the upload provides no start time.
         const uint64_t uploadStartTimeMs =
             (is_user_provided_timestamp && timestampValue.isUInt64() && timestampValue.asUInt64() > 0)
                 ? timestampValue.asUInt64() : static_cast<uint64_t>(DEFAULT_START_TIME_EPOCH);
