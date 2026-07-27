@@ -478,7 +478,11 @@ Json::Value SensorInfo::getStreamsJson(bool isStreamerDevice)
         {
             stream->name = stream->id;
         }
-        response.append(stream->toJson(isStreamerDevice));
+        Json::Value stream_json = stream->toJson(isStreamerDevice);
+        // Surface the backing sensor's tags on every stream object so the
+        // Live Streams UI can populate and filter by tag (NVBug 6167266).
+        stream_json["tags"] = tags;
+        response.append(stream_json);
     }
     return response;
 }

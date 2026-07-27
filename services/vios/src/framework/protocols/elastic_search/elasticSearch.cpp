@@ -216,3 +216,75 @@ void elasticSearch::getBboxPosition(BBoxMetaData& outData)
     outData.m_dataSize = hits.size();
     outData.m_searching = false;
 }
+
+std::pair<bool, std::vector<Json::Value>> elasticSearch::fetchRangeHits(
+                                                       const std::string& sensorId,
+                                                       const std::string& startIso,
+                                                       const std::string& endIso,
+                                                       int size)
+{
+    std::vector<Json::Value> results;
+    nv_vms::DeviceConfig config = GET_CONFIG();
+    std::string elasticsearch_url = config.video_metadata_server;
+    if (elasticsearch_url.empty())
+    {
+        LOG(warning) << "fetchRangeHits: Elasticsearch URL is empty" << endl;
+        return {false, results};
+    }
+
+    SearchParams inData(startIso, endIso, sensorId);
+    inData.m_search_after = 0;
+    std::string url = elasticsearch_url + "/_search?size=" + std::to_string(size);
+    std::string string_query = getQueryString(inData);
+
+    LOG(info) << "fetchRangeHits: querying camera: " << sensorId
+                << " Start: " << startIso << " End: " << endIso
+                << " size: " << size << endl;
+    Json::Value json_get = queryESMetadata(url, string_query);
+    // A reachable ES answers with a "hits" object even when there are zero
+    // matches; a failed/unreachable request yields an empty/invalid document.
+    const bool reachable = json_get.isObject() && json_get.isMember("hits");
+    Json::Value& hits = json_get["hits"]["hits"];
+    const bool is3dSensor = !config.overlay_3d_sensor_name.empty();
+    results.reserve(hits.size());
+    for (uint32_t i = 0; i < hits.size(); i++)
+    {
+        Json::Value& source = hits[i]["_source"];
+        Json::Value current_hit;
+        current_hit["objects"] = source["objects"];
+        current_hit["id"] = source["id"];
+
+        if (is3dSensor && source.isMember("info") && source["info"].isObject() &&
+            source["info"].isMember(sensorId) &&
+            source["info"][sensorId].isString())
+        {
+            std::time_t epochMs = isoToEpoch(source["info"][sensorId].asString());
+            if (epochMs != 0)
+            {
+                current_hit["epocTime"] = static_cast<Json::UInt64>(epochMs);
+            }
+            else
+            {
+                current_hit["epocTime"] = hits[i]["sort"][0].asUInt64();
+            }
+        }
+        else
+        {
+            current_hit["epocTime"] = hits[i]["sort"][0].asUInt64();
+        }
+        results.push_back(current_hit);
+    }
+
+    LOG(info) << "fetchRangeHits: camera: " << sensorId
+                << " received: " << hits.size() << " reachable: " << reachable << endl;
+    if (static_cast<int>(hits.size()) >= size)
+    {
+        // Slice hit the (unpaginated) size cap; records beyond it are not
+        // fetched. Should not happen with per-frame metadata docs, but log it
+        // so a per-object schema or unusually high fps is visible.
+        LOG(warning) << "fetchRangeHits: slice for camera " << sensorId
+                     << " [" << startIso << " .. " << endIso << "] hit the size cap "
+                     << size << "; some metadata may be truncated" << endl;
+    }
+    return {reachable, results};
+}
