@@ -394,7 +394,7 @@ private:
 };
 
 template <typename T>
-class LiveVideoSource : public rtc::VideoSourceInterface<webrtc::VideoFrame>, public VideoSource<T>
+class LiveVideoSource : public webrtc::VideoSourceInterface<webrtc::VideoFrame>, public VideoSource<T>
 {
 public:
     LiveVideoSource(const std::string &uri, const std::map<std::string, std::string, std::less<>> &opts) :
@@ -627,8 +627,8 @@ public:
         return m_sensorId;
     }
 
-    // overide rtc::VideoSourceInterface<webrtc::VideoFrame>
-    void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const rtc::VideoSinkWants &wants)
+    // overide webrtc::VideoSourceInterface<webrtc::VideoFrame>
+    void AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const webrtc::VideoSinkWants &wants)
     {
         LOG(info) << "AddOrUpdateSink" << endl;
         m_broadcaster.AddOrUpdateSink(sink, wants);
@@ -698,7 +698,7 @@ public:
         m_broadcaster.AddOrUpdateSink(sink, wants);
     }
 
-    void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
+    void RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
     {
         LOG(info) << "RemoveSink" << endl;
         if (m_passThrough)
@@ -715,7 +715,7 @@ public:
         }
     }
 
-    void OnSinkWantsChanged(const rtc::VideoSinkWants& wants)
+    void OnSinkWantsChanged(const webrtc::VideoSinkWants& wants)
     {
         if (!m_passThrough)
         {
@@ -739,7 +739,7 @@ public:
         }
         return buffer;
     }
-    rtc::VideoBroadcaster          m_broadcaster;
+    webrtc::VideoBroadcaster          m_broadcaster;
     shared_ptr<GstNvVideoDecoder>  m_gstdecoder = nullptr;
     std::string                    m_peerid;
     std::string                    m_peerIdStreamId {""};

@@ -34,13 +34,13 @@
 
 class RTSPAudioSource : public LiveAudioSource<RTSPConnection> {
 	public:
-		static rtc::scoped_refptr<RTSPAudioSource> Create(rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts) {
-			rtc::scoped_refptr<RTSPAudioSource> source(new rtc::RefCountedObject<RTSPAudioSource>(audioDecoderFactory, uri, opts));
+		static webrtc::scoped_refptr<RTSPAudioSource> Create(webrtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts) {
+			webrtc::scoped_refptr<RTSPAudioSource> source(new webrtc::RefCountedObject<RTSPAudioSource>(audioDecoderFactory, uri, opts));
 			return source;
 		}
 		
 	protected:
-		RTSPAudioSource(rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts); 
+		RTSPAudioSource(webrtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts); 
 		virtual ~RTSPAudioSource();
 
 };

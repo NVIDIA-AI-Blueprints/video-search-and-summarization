@@ -24,7 +24,7 @@
 services:
 
   vss-behavior-analytics-base:
-    image: ${VSS_BEHAVIOR_ANALYTICS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-behavior-analytics}:${VSS_BEHAVIOR_ANALYTICS_TAG:-3.2.1-26.07.2}
+    image: ${VSS_BEHAVIOR_ANALYTICS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-behavior-analytics}:${VSS_BEHAVIOR_ANALYTICS_TAG:-3.3.0-26.07.4}
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json

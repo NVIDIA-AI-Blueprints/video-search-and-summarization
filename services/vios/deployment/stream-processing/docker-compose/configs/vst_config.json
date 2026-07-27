@@ -161,6 +161,7 @@
 		"mega_simulation_delay_max_ms": 5000,
 		"mega_simulation_base_time": "2024-09-27T10:00:00.123456Z",
 		"default_file_expiry_minutes": 10080,
+		"disable_url_caching": false,
 		"download_files_timeout_secs": 300,
 		"picture_api_timeout_secs": 20,
 		"max_network_db_connections": 10,

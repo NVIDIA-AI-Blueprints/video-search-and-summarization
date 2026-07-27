@@ -36,6 +36,15 @@ Feature: VST Sensor Management Service API Unit Tests
     Then the sensor response status is 200
     And the sensor response contains configuration fields
 
+  # Bug 6177255: GET /v1/sensor/configuration returned null (not []) for the
+  # required, non-nullable array fields ntpServers and deviceDiscoveryInterfaces
+  # when no values were configured, violating the GetConfiguration swagger contract.
+  Scenario: Configuration required array fields are arrays not null
+    Given the VST sensor management API is accessible
+    When I request the sensor management service configuration
+    Then the sensor response status is 200
+    And the configuration required array fields are JSON arrays
+
   Scenario: Get QOS stats for all sensors
     Given the VST sensor management API is accessible
     When I request the QOS stats
@@ -74,3 +83,12 @@ Feature: VST Sensor Management Service API Unit Tests
     And at least one sensor exists
     When I request timelines for the first sensor
     Then the sensor response status is 200
+
+  # Regression for NVBug 6164112: /sensor/{id}/network must not 500 for RTSP sensors
+  Scenario: Network info for an RTSP sensor returns a structured response, not a 500
+    Given the VST sensor management API is accessible
+    And I have added an RTSP sensor and captured its identity
+    When I request network info for that sensor
+    Then the network response status is not 500
+    And the network response error_code is not VMSInternalError
+    And I clean up the network-info test sensor

@@ -26,7 +26,7 @@ CXX ?= g++
 DEPFLAGS = -MT $@ -MMD -MP -MF $(@:.o=.d)
 
 # Include paths (minimal set needed for tests)
-CPPFLAGS += -std=c++17 -fPIC -pthread \
+CPPFLAGS += -std=c++20 -fPIC -pthread \
             -I$(TOP)/include \
             -I$(TOP)/src/framework \
             -I$(TOP)/src/framework/utilities \

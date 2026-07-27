@@ -49,7 +49,7 @@ These run against simulators with known inputs — not a live deployment.
 | `test_json_response_format` | Set `response_format: "json"`; NIM returns flat JSON (`prediction_answer`/`reasoning`); verify ES doc has `verdict=confirmed` and correct `vlm_response` | JSON response parsing with default field names |
 | `test_json_cookbook_format` | Set `response_format: "json"` with `json_parser` (dot-notation `verdict_field`, boolean `verdict_mapping`); NIM returns cookbook-style nested JSON; verify ES doc | JSON response parsing with CR2 cookbook nested fields |
 | `test_direct_media_download` | Send incident with `info.media_urls`; verify AB downloads media and processes via Mode 3 | Direct media URL download bypasses VST |
-| `test_http_ondemand_verification` | POST to `/api/v1/verification/ondemand`: (1) valid request → 200; (2) unknown alert_type → 400; (3) NIM down → 503 | On-demand verification API contract, error handling, and VLM fault tolerance |
+| `test_http_ondemand_verification` | POST to `/api/v1/verification/ondemand`: (1) valid request → 202, then result in ES; (2) unknown category → 400; (3) NIM down → 202, then error result | Asynchronous on-demand API contract, background publishing, and VLM fault tolerance |
 | `test_kafka_sink_vlm` | Send incident with `info.video_path`; verify VLM result published to Kafka sink | Base64 encode + VLM + Kafka sink pipeline |
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
 | `test_realtime_alerts` (Test 8c) | Index 3 consecutive positives (same camera + alert type); `GET /api/v1/realtime/incidents?consolidate=true` (with a time window) returns one event and `total=1` (event count), `consolidate=false` returns 3 raw, and `consolidate=true` without a window is rejected `400` | Read-time consolidation groups duplicates into one event over a required window while raw chunk records remain available |
@@ -400,7 +400,7 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 ### test_http_ondemand_verification
 
-**Purpose:** Verify the on-demand verification endpoint (`POST /api/v1/verification/ondemand`) — happy path, error handling for unknown alert types, and graceful degradation when VLM is unavailable.
+**Purpose:** Verify the asynchronous on-demand verification endpoint (`POST /api/v1/verification/ondemand`) — acceptance and background publishing, unknown-category validation, and graceful degradation when VLM is unavailable.
 
 **Config:** Uses dedicated test config `test_http_ondemand_verification/config.yaml` (does not use `shared/config_base.yaml`).
 
@@ -408,11 +408,11 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 | # | Scenario | Trigger | Expected |
 |---|----------|---------|----------|
-| 1 | Happy path | `alert_type: "collision"` + valid `media_path` | HTTP `200`, `status=success`, non-empty `verification` |
-| 2 | Unknown alert_type | `alert_type: "nonexistent_type_xyz"` | HTTP `400`, `error=unknown_alert_type` |
-| 3 | VLM unavailable | NIM simulator stopped, valid request | HTTP `503`, `error=vlm_unavailable` |
+| 1 | Happy path | `category: "collision"` + valid `info.media_urls` | HTTP `202`, `status=accepted`, correlation ID, then verification result in ES |
+| 2 | Unknown category | `category: "nonexistent_type_xyz"` | HTTP `400`, `error=unknown_category`; no background task |
+| 3 | VLM unavailable | NIM simulator stopped, valid request | HTTP `202`, correlation ID, then an error result may be published to ES |
 
-**Pass:** All three sub-tests return expected HTTP codes and error structures.
+**Pass:** All three sub-tests return the expected acceptance/error contracts; the happy-path result appears in ES and the VLM-down request remains asynchronous.
 **Fail:** Any sub-test returns unexpected HTTP code or response body.
 **Skip (sub-test 3 only):** NIM sim PID file not found (not managed by this harness). NIM is automatically restarted after sub-test 3.
 
@@ -597,6 +597,7 @@ cat /tmp/alert_agent_p1_functional/alert_bridge.log
 | VST (sim) | 30888 | `GET /status` |
 | VSS (sim) | 8080 | `GET /models` |
 | Alert Bridge (HTTP) | 9080 | `GET /health` |
+| Alert Bridge (Prometheus) | 9081 | `GET /metrics` when `PROMETHEUS_METRICS_ENABLED=true` |
 
 Kafka runs as a Docker container. All other services run as Python processes managed by `run_p1.sh`. No Redis is required.
 

@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/elasticsearch/elasticsearch
-  tag: "9.3.3"
+  tag: "9.4.3"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -53,7 +53,7 @@ init:
   nodeSelector: {}
   image:
     repository: alpine
-    tag: "3.23.4"
+    tag: "3.24.1"
     pullPolicy: IfNotPresent
   backoffLimit: 10
   ttlSecondsAfterFinished: null

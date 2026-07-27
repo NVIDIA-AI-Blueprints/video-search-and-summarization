@@ -62,7 +62,7 @@ implications differ:
   within ``bootstrap_timeout``) -- log a warning and continue with the
   disk baseline. Every replica hits the same failure consistently, so
   the deployment stays internally consistent.
-* **Validator rejection** (web-api returned a payload our validator
+* **Validator rejection** (video-analytics-api returned a payload our validator
   refuses) -- log error and continue with the disk baseline. Same
   payload reaches every replica, so the rejection is consistent.
 * **Disk write failure on this replica** (``OSError`` from
@@ -199,7 +199,7 @@ def deserialize_config_message(
     and ``upsert``; ``ack`` / ``request-config`` skip it):
 
     * ``upsert-all`` -- ``reference-id`` must start with
-      ``"video-analytics-api-"`` (web-api originated) or
+      ``"video-analytics-api-"`` (video-analytics-api originated) or
       ``"behavior-analytics-"`` (this app's own bootstrap reply).
     * ``upsert`` -- accept ``"video-analytics-api-"`` prefix verbatim;
       OR if ``source_type`` is provided and ``reference-id`` matches the
@@ -215,7 +215,7 @@ def deserialize_config_message(
     :param str | None source_type: Active source type from
         ``AppConfig.get_app_config("sourceType")``. Required only for
         direct-publisher ``upsert`` messages; pass ``None`` (default) when
-        you only need to accept web-api / bootstrap traffic.
+        you only need to accept video-analytics-api / bootstrap traffic.
     :return dict | None: Decoded envelope dict ready for
         :func:`validate_envelope`, or ``None`` if the message is not for
         this listener (wrong key, missing headers, bad JSON, unknown
@@ -552,7 +552,7 @@ class ConfigListener:
            (e.g. diagnostic metadata) do not generate warning noise.
         3. ``upsert`` / ``upsert-all`` -- run :func:`validate_envelope`.
            A shape violation on ``upsert`` becomes a structured ``failure``
-           ack back to web-api (silent drop would leave the producer
+           ack back to video-analytics-api (silent drop would leave the producer
            hanging). A shape violation on ``upsert-all`` is logged and
            dropped silently (the bootstrap path is ack-less by design).
 

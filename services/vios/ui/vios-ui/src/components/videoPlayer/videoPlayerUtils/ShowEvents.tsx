@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import { useRef, useCallback, useEffect } from 'react';
 import { format } from 'date-fns';
 import { useSnackbar } from 'notistack';
@@ -81,8 +82,8 @@ const createChunksFromTimelines = (
     const fourHoursAgo = new Date(now.getTime() - 4 * 60 * 60 * 1000);
     const cutoffTimeMs = fourHoursAgo.getTime();
 
-    console.log(`Current time: ${now.toISOString()}`);
-    console.log(`4-hour cutoff (from now): ${fourHoursAgo.toISOString()}`);
+    LOG.info(`Current time: ${now.toISOString()}`);
+    LOG.info(`4-hour cutoff (from now): ${fourHoursAgo.toISOString()}`);
 
     timelines.forEach((timeline, segmentIndex) => {
         const timelineStartMs = new Date(timeline.startTime).getTime();
@@ -90,9 +91,7 @@ const createChunksFromTimelines = (
 
         // Skip entire timeline if it ends before the 4-hour cutoff
         if (timelineEndMs < cutoffTimeMs) {
-            console.log(
-                `Skipping timeline segment ${segmentIndex + 1} (${timeline.startTime} to ${timeline.endTime}) - older than 4 hours`
-            );
+            LOG.info(`Skipping timeline segment ${segmentIndex + 1} (${timeline.startTime} to ${timeline.endTime}) - older than 4 hours`);
             return;
         }
 
@@ -100,7 +99,7 @@ const createChunksFromTimelines = (
         let adjustedStartTime = timeline.startTime;
         if (timelineStartMs < cutoffTimeMs) {
             adjustedStartTime = fourHoursAgo.toISOString();
-            console.log(`Trimming timeline segment ${segmentIndex + 1} start time from ${timeline.startTime} to ${adjustedStartTime}`);
+            LOG.info(`Trimming timeline segment ${segmentIndex + 1} start time from ${timeline.startTime} to ${adjustedStartTime}`);
         }
 
         const segmentChunks = createTimeChunks(adjustedStartTime, timeline.endTime, chunkMinutes);
@@ -136,13 +135,13 @@ const processEventsToMarkers = (
             const eventData = event as Record<string, unknown>;
             const eventTimestamp = eventData.timestamp;
             if (!eventTimestamp || typeof eventTimestamp !== 'string') {
-                console.warn(`Tripwire event ${idx} missing or invalid timestamp:`, event);
+                LOG.warn(`Tripwire event ${idx} missing or invalid timestamp:`, event);
                 return null;
             }
 
             const epoch = new Date(eventTimestamp).getTime();
             if (isNaN(epoch)) {
-                console.warn(`Invalid tripwire timestamp for event ${idx}:`, eventTimestamp);
+                LOG.warn(`Invalid tripwire timestamp for event ${idx}:`, eventTimestamp);
                 return null;
             }
 
@@ -169,13 +168,13 @@ const processEventsToMarkers = (
             const eventData = event as Record<string, unknown>;
             const eventTimestamp = eventData.timestamp;
             if (!eventTimestamp || typeof eventTimestamp !== 'string') {
-                console.warn(`ROI event ${idx} missing or invalid timestamp:`, event);
+                LOG.warn(`ROI event ${idx} missing or invalid timestamp:`, event);
                 return null;
             }
 
             const epoch = new Date(eventTimestamp).getTime();
             if (isNaN(epoch)) {
-                console.warn(`Invalid ROI timestamp for event ${idx}:`, eventTimestamp);
+                LOG.warn(`Invalid ROI timestamp for event ${idx}:`, eventTimestamp);
                 return null;
             }
 
@@ -222,10 +221,10 @@ const fetchEventsForChunk = async (
 
     // Log any failures
     if (tripwireResult.status === 'rejected') {
-        console.error(`Tripwire API failed for chunk ${chunkStart}-${chunkEnd}:`, tripwireResult.reason);
+        LOG.error(`Tripwire API failed for chunk ${chunkStart}-${chunkEnd}:`, tripwireResult.reason);
     }
     if (roiResult.status === 'rejected') {
-        console.error(`ROI API failed for chunk ${chunkStart}-${chunkEnd}:`, roiResult.reason);
+        LOG.error(`ROI API failed for chunk ${chunkStart}-${chunkEnd}:`, roiResult.reason);
     }
 
     const chunkStartMs = new Date(chunkStart).getTime();
@@ -243,14 +242,14 @@ export const useShowEvents = (props: ShowEventsProps) => {
     // Main function to fetch events with sequential chunked approach for multiple timeline segments
     const fetchTripwireEvents = useCallback(async () => {
         if (!sensorName) {
-            console.log('No sensor selected for events');
+            LOG.info('No sensor selected for events');
             enqueueSnackbar('No sensor selected for events', { variant: 'warning' });
             return;
         }
 
         // Check if we have timeline segments available
         if (!timelines || timelines.length === 0) {
-            console.log('No timeline segments available for events');
+            LOG.info('No timeline segments available for events');
             enqueueSnackbar('No timeline segments available for events', { variant: 'warning' });
             return;
         }
@@ -278,7 +277,7 @@ export const useShowEvents = (props: ShowEventsProps) => {
         }
 
         if (activeTimelines.length === 0) {
-            console.log('No timeline segments in the specified range');
+            LOG.info('No timeline segments in the specified range');
             enqueueSnackbar('No timeline segments in the specified range', { variant: 'warning' });
             return;
         }
@@ -301,16 +300,16 @@ export const useShowEvents = (props: ShowEventsProps) => {
             // Create chunks from all timeline segments
             const timeChunks = createChunksFromTimelines(activeTimelines, 2);
 
-            console.log(`Processing ${activeTimelines.length} timeline segments:`);
+            LOG.info(`Processing ${activeTimelines.length} timeline segments:`);
             activeTimelines.forEach((timeline, idx) => {
                 const duration = (new Date(timeline.endTime).getTime() - new Date(timeline.startTime).getTime()) / (1000 * 60);
-                console.log(`  Segment ${idx + 1}: ${timeline.startTime} to ${timeline.endTime} (${duration.toFixed(1)} minutes)`);
+                LOG.info(`  Segment ${idx + 1}: ${timeline.startTime} to ${timeline.endTime} (${duration.toFixed(1)} minutes)`);
             });
-            console.log(`Total chunks to process: ${timeChunks.length} (${2} minutes each max, last 4 hours only)`);
+            LOG.info(`Total chunks to process: ${timeChunks.length} (${2} minutes each max, last 4 hours only)`);
 
             // Check if there are no chunks in the last 4 hours
             if (timeChunks.length === 0) {
-                console.log('No events available in the last 4 hours');
+                LOG.info('No events available in the last 4 hours');
                 enqueueSnackbar('No events available in the last 4 hours', {
                     variant: 'warning',
                     autoHideDuration: 4000,
@@ -329,14 +328,14 @@ export const useShowEvents = (props: ShowEventsProps) => {
                 try {
                     // Check if operation was cancelled
                     if (abortController.signal.aborted) {
-                        console.log('Events fetch was cancelled');
+                        LOG.info('Events fetch was cancelled');
                         return;
                     }
 
                     const chunk = timeChunks[chunkIndex];
                     const chunkDuration = (new Date(chunk.end).getTime() - new Date(chunk.start).getTime()) / (1000 * 60);
 
-                    console.log(
+                    LOG.info(
                         `Processing chunk ${timeChunks.length - chunkIndex}/${timeChunks.length} (Segment ${chunk.segmentIndex + 1}): ${chunk.start} to ${chunk.end} (${chunkDuration.toFixed(1)}min)`
                     );
 
@@ -350,12 +349,12 @@ export const useShowEvents = (props: ShowEventsProps) => {
                         accumulatedEvents.sort((a, b) => a.value - b.value);
                         onEventsUpdate([...accumulatedEvents]);
 
-                        console.log(`Chunk ${timeChunks.length - chunkIndex} plotted: ${chunkMarkers.length} events added to timeline`);
+                        LOG.info(`Chunk ${timeChunks.length - chunkIndex} plotted: ${chunkMarkers.length} events added to timeline`);
 
                         // Force a brief pause to ensure the UI updates immediately
                         await new Promise(resolve => setTimeout(resolve, 10));
                     } else {
-                        console.log(`Chunk ${timeChunks.length - chunkIndex} completed: No events found in this time segment`);
+                        LOG.info(`Chunk ${timeChunks.length - chunkIndex} completed: No events found in this time segment`);
                     }
 
                     totalEventsLoaded += chunkMarkers.length;
@@ -380,11 +379,11 @@ export const useShowEvents = (props: ShowEventsProps) => {
 
                     // Don't show error if operation was cancelled
                     if (error instanceof Error && error.message === 'Operation cancelled') {
-                        console.log('Events fetch was cancelled');
+                        LOG.info('Events fetch was cancelled');
                         return;
                     }
 
-                    console.error(`Failed to fetch events for chunk ${timeChunks.length - chunkIndex}:`, error);
+                    LOG.error(`Failed to fetch events for chunk ${timeChunks.length - chunkIndex}:`, error);
                 }
             }
 
@@ -409,10 +408,10 @@ export const useShowEvents = (props: ShowEventsProps) => {
         } catch (error) {
             // Don't show error if operation was cancelled
             if (error instanceof Error && error.message === 'Operation cancelled') {
-                console.log('Events fetch was cancelled');
+                LOG.info('Events fetch was cancelled');
                 return;
             }
-            console.error('Events fetch error:', error);
+            LOG.error('Events fetch error:', error);
             enqueueSnackbar('Failed to load events', { variant: 'error' });
         } finally {
             onFetchingStateChange(false);
@@ -426,7 +425,7 @@ export const useShowEvents = (props: ShowEventsProps) => {
     // Function to cancel ongoing event fetch
     const cancelEventsFetch = useCallback(() => {
         if (eventFetchAbortControllerRef.current) {
-            console.log('Cancelling events fetch...');
+            LOG.info('Cancelling events fetch...');
             eventFetchAbortControllerRef.current.abort();
             eventFetchAbortControllerRef.current = null;
             onFetchingStateChange(false);
@@ -485,7 +484,7 @@ export const useEventImages = (sensorId?: string) => {
                 const imageUrl = window.URL.createObjectURL(new Blob([response.data], { type: 'image/jpeg' }));
                 eventImagesRef.current[imageKey] = imageUrl;
             } catch (error) {
-                console.error(`Failed to fetch event image for ${eventTimestamp}:`, error);
+                LOG.error(`Failed to fetch event image for ${eventTimestamp}:`, error);
             } finally {
                 loadingImagesRef.current[imageKey] = false;
                 onLoadingChange(imageKey, false);

@@ -23,7 +23,7 @@ import os
 
 from setuptools import setup
 
-_BASE_VERSION = "3.2.0"
+_BASE_VERSION = "3.3.0"
 
 suffix = os.getenv("VERSION_SUFFIX", "")
 version = _BASE_VERSION + suffix

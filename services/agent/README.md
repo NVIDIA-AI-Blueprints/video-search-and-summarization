@@ -36,7 +36,7 @@ VSS Agent provides composable tools and agents for video understanding:
 
 | Path | Description |
 |------|-------------|
-| `src/agent/` | Core package: tools, agents, APIs, embeddings, evaluators |
+| `src/vss_agents/` | Core package: tools, agents, APIs, embeddings, evaluators |
 | `tests/unit_test/` | Unit tests (mirrors source tree) |
 | `stubs/` | Mypy type stubs for third-party libraries |
 | `docker/` | Dockerfile and build scripts |
@@ -267,7 +267,7 @@ uv run pytest tests/unit_test/ -v
 With coverage:
 
 ```bash
-uv run pytest tests/unit_test/ --cov=src/agent --cov-report=term-missing -v
+uv run pytest tests/unit_test/ --cov=src/vss_agents --cov-report=term-missing -v
 ```
 
 ## Contributing
@@ -283,7 +283,7 @@ uv run pytest tests/unit_test/ --cov=src/agent --cov-report=term-missing -v
 uv run pytest tests/unit_test/ -v
 uv run ruff check src/
 uv run ruff format --check src/
-uv run mypy src/agent/
+uv run mypy src/vss_agents/
 ```
 
 5. Submit a pull request.

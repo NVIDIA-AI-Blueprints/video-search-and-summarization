@@ -31,7 +31,7 @@
       "query": "Verify the deployment is healthy and data is flowing.",
       "checks": [
         "The agent uses `docker inspect --format '{{.State.Health.Status}}' vss-rtvi-cv-bev-fusion` (or equivalent) to check fusion health \u2014 NOT `docker exec ... test -f /tmp/fusion_ready` which fails on the shipped image.",
-        "The agent uses `kafka-get-offsets` (or `redis-cli XLEN` when `STREAM_TYPE=redis`) to check broker offsets \u2014 NOT `kafka-run-class kafka.tools.GetOffsetShell` which raises `ClassNotFoundException` on `confluentinc/cp-kafka:8.2.0`.",
+        "The agent uses `kafka-get-offsets` (or `redis-cli XLEN` when `STREAM_TYPE=redis`) to check broker offsets \u2014 NOT `kafka-run-class kafka.tools.GetOffsetShell` which raises `ClassNotFoundException` on `confluentinc/cp-kafka:8.3.0`.",
         "Broker offsets are actually growing \u2014 `mdx-raw` and `mdx-bev` topics both show offset > 0 by the time the agent finishes. Judge: run `docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-bev` and confirm a numeric offset is reported.",
         "The agent surfaces the VST video wall URL at `http://<HOST_IP>:30888/vst` (or via HAProxy if the extended list deploys it) and explains that overlays render only when the extended service list / Elasticsearch is up.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."

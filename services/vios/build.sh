@@ -581,19 +581,30 @@ ensure_toolchain_image() {
     local image_name
     image_name=$(get_toolchain_image_name)
 
-    if image_exists "$image_name"; then
-        echo "[auto-deps] Toolchain image already present: $image_name"
+    # Always ask the registry for the latest published toolchain image. 'docker
+    # pull' is digest-aware (no-op if the local copy matches the registry digest;
+    # pulls only changed layers otherwise), so an in-place tag overwrite is picked
+    # up while an unchanged tag costs just a manifest check. Fall back to a cached
+    # local copy only when the registry is unreachable, and build as a last resort.
+    echo "[auto-deps] Ensuring latest toolchain image: $image_name"
+    if docker pull "$image_name"; then
+        echo "[auto-deps] Toolchain image up to date (pulled if changed): $image_name"
         return 0
     fi
+    if image_exists "$image_name"; then
+        echo "[auto-deps] Pull failed (registry unreachable?); using cached local toolchain image: $image_name"
+        return 0
+    fi
+    echo "[auto-deps] Toolchain image not available from registry and not cached locally."
 
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
-        echo "[ERROR] Toolchain image not found: $image_name"
+        echo "[ERROR] Toolchain image not found locally or in registry: $image_name"
         echo "        Build it explicitly with:   ./build.sh toolchain"
         echo "        Or omit 'no-auto-deps' to let this script build it for you."
         exit 1
     fi
 
-    echo "[auto-deps] Toolchain image missing — building it now ($image_name)."
+    echo "[auto-deps] Toolchain image unavailable — building it now ($image_name)."
     echo "            Pass 'no-auto-deps' to fail instead of auto-building."
     echo "            (auto-built deps are never pushed; use './build.sh toolchain push=1' explicitly)"
     build_toolchain_image 0   # 0 = never push from the auto-build path
@@ -610,19 +621,31 @@ ensure_base_image() {
     fi
     base_image_name="$IMAGE_REGISTRY/vst-base:$base_tag"
 
-    if image_exists "$base_image_name"; then
-        echo "[auto-deps] VST Runtime base-image already present: $base_image_name"
+    # Always ask the registry for the latest published base image. 'docker pull' is
+    # digest-aware: if the local copy already matches the registry digest it is a
+    # no-op ("Image is up to date", no download); if the tag was overwritten in
+    # place it pulls only the changed layers. So an updated base is picked up while
+    # an unchanged tag costs just a manifest check. Fall back to a cached local copy
+    # only when the registry is unreachable, and build only as a last resort.
+    echo "[auto-deps] Ensuring latest VST Runtime base-image: $base_image_name"
+    if docker pull "$base_image_name"; then
+        echo "[auto-deps] Base-image up to date (pulled if changed): $base_image_name"
         return 0
     fi
+    if image_exists "$base_image_name"; then
+        echo "[auto-deps] Pull failed (registry unreachable?); using cached local base-image: $base_image_name"
+        return 0
+    fi
+    echo "[auto-deps] Base-image not available from registry and not cached locally."
 
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
-        echo "[ERROR] VST Runtime base-image not found: $base_image_name"
-        echo "        Build it explicitly with:   ./build.sh base-container"
+        echo "[ERROR] VST Runtime base-image not found locally or in registry: $base_image_name"
+        echo "        Build+publish it once with:  ./build.sh base-container push=1"
         echo "        Or omit 'no-auto-deps' to let this script build it for you."
         exit 1
     fi
 
-    echo "[auto-deps] Base image missing — building it now ($base_image_name)."
+    echo "[auto-deps] Base image unavailable — building it now ($base_image_name)."
     echo "            Pass 'no-auto-deps' to fail instead of auto-building."
     build_base_image 0  # 0 = don't push during auto-build
 }
@@ -1718,6 +1741,23 @@ else
     elif [[ $CONTAINER -eq 1 ]]; then
         echo "Building and containerizing specified modules"
         declare -a cont_array
+        # Background-push bookkeeping: overlap each image's upload (network I/O)
+        # with the next module's compile + docker build (CPU). All pushes are
+        # waited on after the loop, and any failure fails the script.
+        declare -a PUSH_PIDS=()
+        declare -a PUSH_IMAGES=()
+        declare -a PUSH_LOGS=()
+        # If a later module's build fails (exit 1) while an earlier module's push is
+        # still running in the background, that push would keep going and leave a
+        # partial image set in the registry. Trap EXIT to kill any outstanding
+        # pushes and remove their temp logs. On the happy path the pushes are already
+        # waited on below (and logs removed), so the trap is a no-op there.
+        _cleanup_bg_pushes() {
+            local _pid _lf
+            for _pid in "${PUSH_PIDS[@]}"; do kill "$_pid" 2>/dev/null || true; done
+            for _lf in "${PUSH_LOGS[@]}"; do rm -f "$_lf" 2>/dev/null || true; done
+        }
+        trap _cleanup_bg_pushes EXIT
         OVERALL_START_TIME=$(date +%s)
         MODULE_COUNT=0
         for module in "${MODULES[@]}"; do
@@ -1796,15 +1836,15 @@ else
             print_per_image_build_timing_line "$MODULE_BUILD_START_TIME"
 
             if [[ $PUSH -eq 1 ]]; then
-                echo "Pushing Docker image: $imagename"
-                docker push "$imagename"
-
-                # Check if Docker push was successful
-                if [[ $? -ne 0 ]]; then
-                    echo -e "[ERROR] Docker push failed for image: $imagename"
-                    exit 1
-                fi
-                echo -e "Docker push succeeded for image: $imagename"
+                # Push in the background so the next module's compile + docker build
+                # overlaps this image's upload. Output is captured per-image and
+                # printed when the push is waited on after the loop.
+                push_log=$(mktemp)
+                echo "Pushing Docker image (background): $imagename"
+                docker push "$imagename" > "$push_log" 2>&1 &
+                PUSH_PIDS+=("$!")
+                PUSH_IMAGES+=("$imagename")
+                PUSH_LOGS+=("$push_log")
             fi
 
             MODULE_COUNT=$((MODULE_COUNT + 1))
@@ -1812,6 +1852,27 @@ else
             # Change back to the previous directory
             cd - || exit 1
         done
+
+        # Wait for all background pushes; print their output and fail on any error.
+        if [[ ${#PUSH_PIDS[@]} -gt 0 ]]; then
+            push_failed=0
+            for pi in "${!PUSH_PIDS[@]}"; do
+                if wait "${PUSH_PIDS[$pi]}"; then
+                    echo -e "Docker push succeeded for image: ${PUSH_IMAGES[$pi]}"
+                else
+                    echo -e "[ERROR] Docker push failed for image: ${PUSH_IMAGES[$pi]}"
+                    push_failed=1
+                fi
+                cat "${PUSH_LOGS[$pi]}" 2>/dev/null || true
+                rm -f "${PUSH_LOGS[$pi]}"
+            done
+            if [[ $push_failed -ne 0 ]]; then
+                echo -e "[ERROR] One or more Docker pushes failed."
+                exit 1
+            fi
+        fi
+        # All pushes completed and waited on -- drop the safety trap.
+        trap - EXIT
 
         print_container_build_summary_footer "$OVERALL_START_TIME" "$MODULE_COUNT"
     fi

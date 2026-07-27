@@ -465,7 +465,7 @@ static void gst_buffer_object_free_cb(gpointer data, GstMiniObject *obj)
 void GstNvVideoEncoder::freeVideoFrameData(int fd)
 {
     std::lock_guard<std::mutex> lock(m_videoFrameDataMapLock);
-    std::map<int, rtc::scoped_refptr<NvVideoFrameBuffer>>::iterator it_map = m_videoFrameDataMap.find(fd);
+    std::map<int, webrtc::scoped_refptr<NvVideoFrameBuffer>>::iterator it_map = m_videoFrameDataMap.find(fd);
     if (it_map != m_videoFrameDataMap.end())
     {
         m_videoFrameDataMap.erase(it_map);
@@ -485,8 +485,8 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     GstCaps* capsSrc = nullptr;
     std::string caps_string;
     int width, height, max_framerate;
-    rtc::scoped_refptr<NvVideoFrameBuffer> frame_buffer = nullptr;
-    rtc::scoped_refptr<webrtc::I420BufferInterface> i420_buffer = nullptr;
+    webrtc::scoped_refptr<NvVideoFrameBuffer> frame_buffer = nullptr;
+    webrtc::scoped_refptr<webrtc::I420BufferInterface> i420_buffer = nullptr;
 
     if (buffer == nullptr || size == 0)
     {
@@ -514,7 +514,7 @@ int GstNvVideoEncoder::onFrame(FrameParams& frame_params, const string& codec, i
     max_framerate = GET_CONFIG().webrtc_in_max_framerate;
     if (size == sizeof(NvBufSurface))
     {
-        frame_buffer = rtc::scoped_refptr<NvVideoFrameBuffer>(*((rtc::scoped_refptr<NvVideoFrameBuffer>*)buffer));
+        frame_buffer = webrtc::scoped_refptr<NvVideoFrameBuffer>(*((webrtc::scoped_refptr<NvVideoFrameBuffer>*)buffer));
         buf_surf = (NvBufSurface *)frame_buffer->m_decodedData;
         width = buf_surf->surfaceList[0].width;
         height = buf_surf->surfaceList[0].height;

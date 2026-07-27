@@ -22,7 +22,7 @@ The conventional endpoint is `http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}`.
 
 Identifier source depends on how the sensor was created:
 
-- **Auto-discovered files** (already present in the streamer videos directory at startup, or picked up via `/sensor/scan`): `sensorId == streamId == name == filename-without-extension`. Example: `warehouse_sample.mp4` → sensor `warehouse_sample`.
+- **Auto-discovered files** (already present in the streamer videos directory at startup, or picked up via `/sensor/scan`): `name == filename-without-extension`, and `streamId` follows `name`. **`sensorId`, however, may carry a `_N` uniqueifier suffix** appended by the discovery loop (e.g. `warehouse_safety_0001.mp4` → `name: "warehouse_safety_0001"` but `sensorId: "warehouse_safety_0001_0"`). **Always resolve `sensorId` from `GET /sensor/list` by matching `.name`, then query `/sensor/<sensorId>/streams` by that sensorId** — `/sensor/<stem>/streams` returns `CameraNotFoundError` when the suffix is present. (Earlier revisions claimed `sensorId == streamId == name == stem`; the `_N` suffix on `sensorId` was confirmed live 2026-06-02, IN-1 expanded eval.) Example: `warehouse_sample.mp4` → name `warehouse_sample`, sensorId `warehouse_sample_0`.
 - **PUT-uploaded files** (Section 3): the server **always assigns a fresh UUID** as `sensorId == streamId`. The `name` field still reflects the filename, but calling `/sensor/<name>/streams` for a PUT-uploaded file returns `CameraNotFoundError` — use the UUID from the PUT response.
 - **POST-uploaded files** (Section 3): the server uses the **filename-derived id** as both `sensorId` and `streamId`. The response's `sensorId` field is sometimes returned as an empty string — read `id` / `streamId` instead.
 

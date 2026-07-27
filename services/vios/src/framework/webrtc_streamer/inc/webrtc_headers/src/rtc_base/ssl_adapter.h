@@ -11,17 +11,21 @@
 #ifndef RTC_BASE_SSL_ADAPTER_H_
 #define RTC_BASE_SSL_ADAPTER_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
 #include "rtc_base/async_socket.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/socket.h"
+#include "rtc_base/socket_address.h"
 #include "rtc_base/ssl_certificate.h"
 #include "rtc_base/ssl_identity.h"
 #include "rtc_base/ssl_stream_adapter.h"
 #include "rtc_base/system/rtc_export.h"
 
-namespace rtc {
+namespace webrtc {
 
 class SSLAdapter;
 
@@ -75,8 +79,8 @@ class SSLAdapter : public AsyncSocketAdapter {
   virtual void SetAlpnProtocols(const std::vector<std::string>& protos) = 0;
   virtual void SetEllipticCurves(const std::vector<std::string>& curves) = 0;
 
-  // Do DTLS or TLS (default is TLS, if unspecified)
-  virtual void SetMode(SSLMode mode) = 0;
+  [[deprecated("Only TLS is supported by the adapter")]] virtual void SetMode(
+      SSLMode mode) = 0;
   // Specify a custom certificate verifier for SSL.
   virtual void SetCertVerifier(SSLCertificateVerifier* ssl_cert_verifier) = 0;
 
@@ -102,7 +106,7 @@ class SSLAdapter : public AsyncSocketAdapter {
   // Create the default SSL adapter for this platform. On failure, returns null
   // and deletes `socket`. Otherwise, the returned SSLAdapter takes ownership
   // of `socket`.
-  static SSLAdapter* Create(Socket* socket);
+  static SSLAdapter* Create(Socket* socket, bool dtls = false);
 
  private:
   // Not supported.
@@ -119,6 +123,7 @@ RTC_EXPORT bool InitializeSSL();
 // Call to cleanup additional threads, and also the main thread.
 RTC_EXPORT bool CleanupSSL();
 
-}  // namespace rtc
+}  //  namespace webrtc
+
 
 #endif  // RTC_BASE_SSL_ADAPTER_H_

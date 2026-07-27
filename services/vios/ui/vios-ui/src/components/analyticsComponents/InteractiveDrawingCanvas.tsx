@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../utils/misc/Logger';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, Typography, Box, Button, ButtonGroup, Alert, Chip, Stack } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
@@ -115,7 +116,7 @@ const InteractiveDrawingCanvas: React.FC<InteractiveDrawingCanvasProps> = ({
             };
             img.src = imageUrl;
         } catch (error) {
-            console.error('Error fetching live picture:', error);
+            LOG.error('Error fetching live picture:', error);
             setImageError(error instanceof Error ? error.message : 'Unknown error');
             setIsLoadingImage(false);
         }

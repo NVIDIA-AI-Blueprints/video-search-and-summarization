@@ -7,8 +7,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
 
 ================================================================================
 
-1. alpine:3.23.4
-   Image: alpine:3.23.4
+1. alpine:3.24.1
+   Image: alpine:3.24.1
    License: BSD-2-Clause (Docker image packaging); image may contain
             components under other licenses (e.g. musl, BusyBox).
    Registry: https://hub.docker.com/_/alpine
@@ -59,8 +59,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    BusyBox: https://www.busybox.net/license.html
 
 
-5. confluentinc/cp-kafka:8.2.0
-   Image: confluentinc/cp-kafka:8.2.0
+5. confluentinc/cp-kafka:8.3.0
+   Image: confluentinc/cp-kafka:8.3.0
    License: Apache License 2.0; some components under Confluent Community
             License. See Confluent Platform license documentation.
    Registry: https://hub.docker.com/r/confluentinc/cp-kafka
@@ -98,8 +98,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.debian.org/legal/licenses/
 
 
-8. docker.elastic.co/elasticsearch/elasticsearch:9.3.3
-   Image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
+8. docker.elastic.co/elasticsearch/elasticsearch:9.4.3
+   Image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
    License: Elastic License 2.0 (ELv2)
    Registry: https://docker.elastic.co
    Source: https://github.com/elastic/elasticsearch
@@ -109,8 +109,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.elastic.co/licensing/elastic-license
 
 
-9. docker.elastic.co/kibana/kibana:9.3.3
-   Image: docker.elastic.co/kibana/kibana:9.3.3
+9. docker.elastic.co/kibana/kibana:9.4.3
+   Image: docker.elastic.co/kibana/kibana:9.4.3
    License: Elastic License 2.0 (ELv2)
    Registry: https://docker.elastic.co
    Source: https://github.com/elastic/kibana
@@ -120,8 +120,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.elastic.co/licensing/elastic-license
 
 
-10. docker.elastic.co/logstash/logstash:9.3.3
-    Image: docker.elastic.co/logstash/logstash:9.3.3
+10. docker.elastic.co/logstash/logstash:9.4.3
+    Image: docker.elastic.co/logstash/logstash:9.4.3
     License: Elastic License 2.0 (ELv2)
     Registry: https://docker.elastic.co
     Source: https://github.com/elastic/logstash

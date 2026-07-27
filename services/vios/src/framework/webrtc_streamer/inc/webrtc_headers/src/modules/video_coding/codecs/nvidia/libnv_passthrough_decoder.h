@@ -12,12 +12,12 @@
 
 #include <stdint.h>
 
-#include <api/task_queue/task_queue_factory.h>
+#include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
 #include <api/video/encoded_image.h>
 #include <api/video_codecs/video_codec.h>
 #include <api/video_codecs/video_decoder.h>
 #include <modules/video_coding/include/video_codec_interface.h>
-#include <rtc_base/task_queue.h>
 #include "api/video_codecs/webrtcstats.h"
 
 class RTC_EXPORT NvPassthroughVideoDecoder : public webrtc::VideoDecoder
@@ -25,7 +25,7 @@ class RTC_EXPORT NvPassthroughVideoDecoder : public webrtc::VideoDecoder
  public:
   NvPassthroughVideoDecoder();
   explicit NvPassthroughVideoDecoder(webrtc::TaskQueueFactory* taskQueueFactory);
-  virtual ~NvPassthroughVideoDecoder() { receiver_latency_stats.clearQueue(); }
+  virtual ~NvPassthroughVideoDecoder() {}
 
   int32_t InitDecode(const webrtc::VideoCodec* config,
                      int32_t numberOfCores);// override;
@@ -47,14 +47,12 @@ class RTC_EXPORT NvPassthroughVideoDecoder : public webrtc::VideoDecoder
 
   virtual bool Configure(const Settings& settings) { return true; }
 
-  WebrtcCodecStats receiver_latency_stats;
-  int64_t lastStatsPrintTime = 0;
-
  private:
   webrtc::DecodedImageCallback* m_callback;
   int m_width;
   int m_height;
-  std::unique_ptr<rtc::TaskQueue> m_taskQueue;
+  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> m_taskQueue;
   webrtc::TaskQueueFactory* m_taskQueueFactory;
   webrtc::TimeDelta m_decodeDelayMs;
+  webrtc::VideoCodecType configured_codec_type_ = webrtc::kVideoCodecGeneric;
 };

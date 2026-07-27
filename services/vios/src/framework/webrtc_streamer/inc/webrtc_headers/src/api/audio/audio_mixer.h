@@ -11,17 +11,17 @@
 #ifndef API_AUDIO_AUDIO_MIXER_H_
 #define API_AUDIO_AUDIO_MIXER_H_
 
-#include <memory>
+#include <cstddef>
 
 #include "api/audio/audio_frame.h"
-#include "rtc_base/ref_count.h"
+#include "api/ref_count.h"
 
 namespace webrtc {
 
 // WORK IN PROGRESS
 // This class is under development and is not yet intended for for use outside
 // of WebRtc/Libjingle.
-class AudioMixer : public rtc::RefCountInterface {
+class AudioMixer : public RefCountInterface {
  public:
   // A callback class that all mixer participants must inherit from/implement.
   class Source {

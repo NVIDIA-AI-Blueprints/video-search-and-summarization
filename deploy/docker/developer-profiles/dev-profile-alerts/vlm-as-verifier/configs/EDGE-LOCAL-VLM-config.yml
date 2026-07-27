@@ -137,13 +137,24 @@ alert_agent:
     # additional Prometheus series per histogram — only enable for deployments
     # with a bounded sensor fleet and a known series budget (~10k per target).
     per_sensor_labels: false
+  # Pipeline mode: sync | thread_bridge | event_loop (invalid value fails startup).
+  # For A/B perf arms flip only this key; thread_bridge reproduces the legacy
+  # async path, sync is the reference arm. See services/alert/README.md
+  # "Pipeline modes & concurrency sizing".
+  pipeline_mode: event_loop
+  async_dispatch_max_in_flight: 16              # Global in-flight bound, 2-4x max_vlm_concurrent
   async_io:
-    enabled: true                               # Guardrail: keep sync behavior by default
-    vst_enabled: true                           # Guardrail: async-submit VST lookup path
-    elastic_enabled: true                       # Guardrail: async-submit Elastic sink publishing path
-    dedup_enabled: true                         # Guardrail: async-submit in-process dedup/state operations
+    enabled: true                               # Ignored when pipeline_mode is set; kept for config-only rollback
+    vst_enabled: true                           # Guardrail: async-submit VST lookup path (thread_bridge only)
+    elastic_enabled: true                       # Guardrail: async-submit Elastic sink publishing path (thread_bridge only)
+    dedup_enabled: true                         # Guardrail: async-submit in-process dedup/state operations (thread_bridge only)
     external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
     sink_warn_in_flight: 20                      # Warning threshold for in-flight async sink operations
+    # event_loop per-service caps. max_vlm_concurrent MUST be set explicitly
+    # (default falls back to async_dispatch_workers) and MUST stay at or below
+    # the benchmarked VLM backend ceiling.
+    max_vlm_concurrent: 4
+    max_vst_concurrent: 8
 
   # URL Transformation - transforms internal IPs to external for VLM/UI access
   url_transform:
@@ -172,6 +183,22 @@ rtvi_vlm:
   rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
   pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
   health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
+  # Rollback switch for the realtime-rules persistence + replay feature.
+  # When false, POST/DELETE on /api/v1/realtime do not write to
+  # Elasticsearch and POST /api/v1/realtime/replay returns 501.
+  # Independent of `persistence.enabled`: the global flag turns the whole
+  # persistence layer (alert configs, prompts, realtime) off, while this
+  # one only disables the realtime-rules path.
+  enable_realtime_persistence: true
+
+  # Realtime alert consolidation — group repeated VLM positives from the same
+  # camera and alert type into a single event. Controlled per request via the
+  # `consolidate` query param on GET /api/v1/realtime/incidents (omitted/false =
+  # raw chunk-level documents; true = consolidated). The keys below only tune the grouping.
+  consolidation:
+    max_inter_alert_gap_seconds: 60    # a positive arriving after this gap starts a new event
+    max_event_duration_seconds: 300    # cap on a single consolidated event (null = unbounded)
+    representative: "latest"           # chunk that supplies the representative fields: latest | longest_reasoning
 
 # WebSocket Configuration - Real-time alert broadcasting
 websocket:
