@@ -47,6 +47,7 @@ struct TranscodeWriterConfig
     std::string user_start_time_iso;
     std::string user_end_time_iso;
     OverlayBBoxParams* overlay_params = nullptr; // optional
+    double frame_rate = 0.0;           // stream fps (from file list) for overlay tolerance; 0 = unknown
     bool is_software_encoder = false;  // true when not using NV v4l2 enc
 
     int64_t seek_start_ms = 0;         // for decoder/output filtering

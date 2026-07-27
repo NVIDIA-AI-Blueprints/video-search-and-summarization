@@ -1537,6 +1537,11 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
             return ret;
         }
 
+        // Split point: everything up to here is file generation (makeVideoFile);
+        // handleMediaFileDownload below is the HTTP send to the client, which is
+        // bounded by client/network speed, not server compute.
+        auto generation_end_tp = std::chrono::steady_clock::now();
+
         // Handle URL generation request
         if (isURLRequested)
         {
@@ -1591,11 +1596,15 @@ VmsErrorCode StorageManagement::HandleFileDownload(const string& queryString, co
             }
 
             ret = storageMngt->handleMediaFileDownload(fileName, conn);
-            /* Log download block time */
+            /* Log download block time, split into server-side generation vs the
+             * client-bound HTTP send (send is bounded by client/network speed). */
             {
                 auto download_block_end_tp = std::chrono::steady_clock::now();
-                auto download_block_ms = std::chrono::duration_cast<std::chrono::milliseconds>(download_block_end_tp - download_block_start_tp).count();
-                LOG(warning) << "#### Download perf for streamId: " << streamId << " took: " << download_block_ms << " ms ####" << endl;
+                auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(download_block_end_tp - download_block_start_tp).count();
+                auto generation_ms = std::chrono::duration_cast<std::chrono::milliseconds>(generation_end_tp - download_block_start_tp).count();
+                auto send_ms = std::chrono::duration_cast<std::chrono::milliseconds>(download_block_end_tp - generation_end_tp).count();
+                LOG(warning) << "#### Download perf for streamId: " << streamId << " took: " << total_ms
+                             << " ms (generation: " << generation_ms << " ms, send: " << send_ms << " ms) ####" << endl;
             }
 
             bool isFileDeleted = deleteFile (fileName);

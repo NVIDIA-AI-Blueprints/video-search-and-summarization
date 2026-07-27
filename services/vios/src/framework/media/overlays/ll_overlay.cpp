@@ -140,6 +140,31 @@ NvLLOverlay::NvLLOverlay (const std::string& consumer_name, const std::string& u
     m_overlay->setColorCode(m_overlayParams.m_colorCode);
     m_overlay->setEnableGodsEyeView(m_overlayParams.m_enableGodsEyeView);
 
+    if (m_imageCapture)
+    {
+        // Image capture emits a single frame, which can be drawn before the
+        // async setOriginalFrameSize() propagates the decoder resolution through
+        // the Transform -> Overlay chain. Seed the source resolution up-front so
+        // bbox coordinates (which are in the source resolution) scale 1:1.
+        // Otherwise m_sourceWidth stays 0 and interpolateCoordinate() defaults it
+        // to 1080p, shrinking boxes to ~1/3 and clustering them at the top-left.
+        int srcW = m_width;
+        int srcH = m_height;
+        const auto itW = m_opts.find("source_width");
+        const auto itH = m_opts.find("source_height");
+        if (itW != m_opts.end())
+        {
+            srcW = stringToInt(itW->second, m_width);
+        }
+        if (itH != m_opts.end())
+        {
+            srcH = stringToInt(itH->second, m_height);
+        }
+        m_overlay->updateSourceResolution(srcW, srcH);
+        LOG(info) << "Image capture: seeded overlay source resolution = "
+                  << srcW << "x" << srcH << endl;
+    }
+
     LOG(info) << "Creating m_overlay " << m_overlay << endl;
 
     m_surfacePool = std::make_shared<NvSurfacePool>();
@@ -442,6 +467,17 @@ void NvLLOverlay::setOriginalFrameSize(int w, int h)
     else
     {
         m_overlay->updateSourceResolution(w, h);
+    }
+    if (m_imageCapture)
+    {
+        // Image capture is a single frame, and the resolution propagated here
+        // during pipeline setup can be the decoder's pre-detection default
+        // (e.g. 1920x1080) - the real decoded resolution is detected later and
+        // is not re-propagated before the one frame is drawn. That scales the
+        // ES bbox coordinates (already in source resolution) by
+        // draw/1920 ~= 1/3, shrinking boxes to the top-left. Re-apply the known
+        // source resolution so bbox coordinates map 1:1.
+        m_overlay->updateSourceResolution(m_width, m_height);
     }
     if (isJetsonPlatform())
     {
