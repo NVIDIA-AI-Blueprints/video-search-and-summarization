@@ -1715,7 +1715,7 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --pull always --force-recreate --build"
   else
     if ! (
       cd "${deployment_directory}" && docker compose \
@@ -1724,6 +1724,7 @@ function state_up() {
         --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
         up \
         --detach \
+        --pull always \
         --force-recreate \
         --build
     ); then
