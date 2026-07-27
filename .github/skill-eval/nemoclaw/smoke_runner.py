@@ -31,6 +31,11 @@ from pathlib import Path
 from typing import Any, Iterable, NamedTuple
 from urllib.parse import quote
 
+SKILL_EVAL_MODULE_ROOT = str(Path(__file__).resolve().parents[1])
+if SKILL_EVAL_MODULE_ROOT not in sys.path:
+    sys.path.insert(0, SKILL_EVAL_MODULE_ROOT)
+import remote_worker_lock  # noqa: E402
+
 try:
     import tomllib
 except ModuleNotFoundError:  # Python < 3.11 on some self-hosted runners.
@@ -111,6 +116,7 @@ class WorkerLock(NamedTuple):
     remote_owner: str | None
     remote_target: str | None = None
     heartbeat: RemoteLockHeartbeat | None = None
+    remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
 
 
 def _task_dir_sort_key(task_dir: Path) -> tuple[str, int, str]:
@@ -1152,6 +1158,7 @@ def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLo
         return None
 
     remote_owner: str | None = None
+    remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
     try:
         remote_lock_disabled = (
             os.environ.get("NEMOCLAW_DISABLE_REMOTE_WORKER_LOCK", "").strip().lower()
@@ -1159,20 +1166,33 @@ def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLo
         )
         if not remote_lock_disabled:
             remote_target = exec_target or instance
-            remote_owner = _try_acquire_remote_worker_lock(remote_target)
-            if not remote_owner:
+            remote_lease = remote_worker_lock.try_acquire_remote_worker_lock(
+                lambda command, timeout: _run(
+                    ["brev", "exec", remote_target, command],
+                    timeout=timeout,
+                ),
+                instance,
+            )
+            if remote_lease is None:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 handle.close()
                 return None
-            heartbeat = _start_remote_worker_lock_heartbeat(
-                remote_target,
-                remote_owner,
-            )
+            remote_owner = remote_lease.owner
+            heartbeat = remote_lease.heartbeat
         else:
             heartbeat = None
-        return WorkerLock(fd, handle, remote_owner, exec_target, heartbeat)
+        return WorkerLock(
+            fd,
+            handle,
+            remote_owner,
+            exec_target,
+            heartbeat,
+            remote_lease,
+        )
     except Exception:
-        if remote_owner:
+        if remote_lease is not None:
+            remote_lease.release()
+        elif remote_owner:
             try:
                 _clear_remote_worker_lock(
                     exec_target or instance,
@@ -1575,11 +1595,15 @@ def _stop_remote_worker_lock_heartbeat(
 
 
 def _release_lock(instance: str, lock: WorkerLock) -> None:
-    _stop_remote_worker_lock_heartbeat(lock.heartbeat)
-    if lock.remote_owner:
-        remote_target = lock.remote_target or instance
-        owner = shlex.quote(lock.remote_owner)
-        command = f"""set -eu
+    try:
+        if lock.remote_lease is not None:
+            lock.remote_lease.release()
+        else:
+            _stop_remote_worker_lock_heartbeat(lock.heartbeat)
+        if lock.remote_owner and lock.remote_lease is None:
+            remote_target = lock.remote_target or instance
+            owner = shlex.quote(lock.remote_owner)
+            command = f"""set -eu
 lock_dir=/tmp/skill-eval/locks/nemoclaw-worker.lockdir
 owner={owner}
 if [ -d "$lock_dir" ] && [ "$(cat "$lock_dir/owner" 2>/dev/null || true)" = "$owner" ]; then
@@ -1588,15 +1612,25 @@ else
   echo "NemoClaw worker lock not owned by this run; leaving it in place"
 fi
 """
-        try:
-            result = _run(["brev", "exec", remote_target, command], timeout=60)
-            if result.returncode != 0:
-                tail = ((result.stdout or "") + (result.stderr or ""))[-500:].strip()
-                print(f"[nemoclaw-ci] WARN: failed to release remote lock on {instance}: {tail}", flush=True)
-        except subprocess.TimeoutExpired:
-            print(f"[nemoclaw-ci] WARN: remote lock release timed out on {instance}", flush=True)
-    fcntl.flock(lock.local_fd, fcntl.LOCK_UN)
-    lock.local_handle.close()
+            try:
+                result = _run(["brev", "exec", remote_target, command], timeout=60)
+                if result.returncode != 0:
+                    tail = (
+                        (result.stdout or "") + (result.stderr or "")
+                    )[-500:].strip()
+                    print(
+                        "[nemoclaw-ci] WARN: failed to release remote lock "
+                        f"on {instance}: {tail}",
+                        flush=True,
+                    )
+            except subprocess.TimeoutExpired:
+                print(
+                    f"[nemoclaw-ci] WARN: remote lock release timed out on {instance}",
+                    flush=True,
+                )
+    finally:
+        fcntl.flock(lock.local_fd, fcntl.LOCK_UN)
+        lock.local_handle.close()
 
 
 def _select_and_lock_instance(

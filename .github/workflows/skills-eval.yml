@@ -67,9 +67,10 @@ permissions:
 
 # One eval generation per PR (or manual sweep) at a time. A fresh push
 # cancels every in-flight matrix leg of the prior push for this ref;
-# run_leg.py holds /tmp/brev/<INSTANCE_NAME>.lock while Harbor runs, and
-# the kernel releases it automatically when the wrapper process dies
-# (POSIX flock(2) — no userspace trap).
+# run_leg.py holds both /tmp/brev/<INSTANCE_NAME>.lock on its runner and
+# an exact-owner lease on the worker while Harbor runs. The local flock is
+# kernel-released when the wrapper dies; a later job reconciles the remote
+# lease only after GitHub proves its exact owner job is terminal.
 # Stale containers/volumes a cancelled leg left on a box are reconciled by
 # the next trial's own deploy step (the harness no longer pre-deploys or
 # tracks an active-deploy marker). Same path handles SIGKILL (the
@@ -297,6 +298,13 @@ jobs:
           # so concurrent legs — and concurrent PR runs on the same host —
           # never collide (AGENTS.md § "Per-leg scratch isolation").
           export EVAL_SLUG="${{ matrix.slug }}"
+          # The local flock coordinates jobs on this runner. The matching
+          # worker-side lease coordinates other runner hosts and NemoClaw.
+          # Use the exact matrix display name so an abandoned same-run lease
+          # can be reconciled only after this exact job becomes terminal.
+          export SKILL_EVAL_LOCK_OWNER_CONTEXT="${{ matrix.name }}"
+          export SKILL_EVAL_REMOTE_LOCK_HEARTBEAT_SEC=180
+          export SKILL_EVAL_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660
           # `.github` isn't a valid Python package prefix; expose the
           # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
@@ -455,7 +463,7 @@ jobs:
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
-          export NEMOCLAW_LOCK_OWNER_CONTEXT="${{ matrix.name }}"
+          export NEMOCLAW_LOCK_OWNER_CONTEXT="NemoClaw / ${{ matrix.name }}"
           export MANUAL_FULL_SWEEP=1
           export MANUAL_SKILLS_FILTER="${{ matrix.skill }}"
           export NEMOCLAW_EVAL_SPEC="${{ matrix.spec_stem }}"

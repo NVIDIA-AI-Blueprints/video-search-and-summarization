@@ -2677,27 +2677,17 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(status, "unknown")
 
-    def test_heartbeat_start_failure_clears_exact_remote_lock(self):
+    def test_shared_remote_lease_failure_releases_local_lock(self):
         handle = mock.Mock()
         with (
             mock.patch.object(smoke_runner.os, "open", return_value=123),
             mock.patch.object(smoke_runner.os, "fdopen", return_value=handle),
             mock.patch.object(smoke_runner.fcntl, "flock"),
             mock.patch.object(
-                smoke_runner,
-                "_try_acquire_remote_worker_lock",
-                return_value="expected-owner",
-            ),
-            mock.patch.object(
-                smoke_runner,
-                "_start_remote_worker_lock_heartbeat",
+                smoke_runner.remote_worker_lock,
+                "try_acquire_remote_worker_lock",
                 side_effect=RuntimeError("thread start failed"),
             ),
-            mock.patch.object(
-                smoke_runner,
-                "_clear_remote_worker_lock",
-                return_value=True,
-            ) as clear,
             self.assertRaisesRegex(RuntimeError, "thread start failed"),
         ):
             smoke_runner._try_acquire_lock(
@@ -2705,7 +2695,41 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 "worker-id",
             )
 
-        clear.assert_called_once_with("worker-id", "expected-owner")
+        handle.close.assert_called_once()
+
+    def test_smoke_lock_uses_and_releases_shared_remote_lease(self):
+        handle = mock.Mock()
+        heartbeat = smoke_runner.remote_worker_lock.RemoteLockHeartbeat(
+            threading.Event(),
+            threading.Event(),
+            mock.Mock(),
+        )
+        remote_lease = mock.Mock(
+            owner="expected-owner",
+            heartbeat=heartbeat,
+        )
+        with (
+            mock.patch.object(smoke_runner.os, "open", return_value=123),
+            mock.patch.object(smoke_runner.os, "fdopen", return_value=handle),
+            mock.patch.object(smoke_runner.fcntl, "flock"),
+            mock.patch.object(
+                smoke_runner.remote_worker_lock,
+                "try_acquire_remote_worker_lock",
+                return_value=remote_lease,
+            ) as acquire,
+        ):
+            lock = smoke_runner._try_acquire_lock(
+                "worker-name",
+                "worker-id",
+            )
+            assert lock is not None
+            smoke_runner._release_lock("worker-name", lock)
+
+        self.assertIs(lock.remote_lease, remote_lease)
+        self.assertIs(lock.heartbeat, heartbeat)
+        acquire.assert_called_once()
+        self.assertEqual(acquire.call_args.args[1], "worker-name")
+        remote_lease.release.assert_called_once()
         handle.close.assert_called_once()
 
     def test_release_stops_heartbeat_before_exact_owner_delete(self):
@@ -3855,6 +3879,18 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             "export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660",
             source,
         )
+        self.assertIn(
+            'export SKILL_EVAL_LOCK_OWNER_CONTEXT="${{ matrix.name }}"',
+            source,
+        )
+        self.assertIn(
+            "export SKILL_EVAL_REMOTE_LOCK_HEARTBEAT_SEC=180",
+            source,
+        )
+        self.assertIn(
+            "export SKILL_EVAL_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660",
+            source,
+        )
         self.assertIn("NEMOCLAW_INPUT_INSTANCE:", source)
         self.assertIn('export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"', source)
         self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=2400", source)
@@ -3863,7 +3899,7 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
         self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=1500", source)
         self.assertIn(
-            'export NEMOCLAW_LOCK_OWNER_CONTEXT="${{ matrix.name }}"',
+            'export NEMOCLAW_LOCK_OWNER_CONTEXT="NemoClaw / ${{ matrix.name }}"',
             source,
         )
         self.assertNotIn("NEMOCLAW_REMOTE_LOCK_STALE_SEC", source)
