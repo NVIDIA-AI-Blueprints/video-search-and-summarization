@@ -25,6 +25,7 @@ import shlex
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Iterable, NamedTuple
 from urllib.parse import quote
@@ -1167,10 +1168,16 @@ def _try_acquire_remote_worker_lock(instance: str) -> str | None:
     owner = "__".join(
         _safe_slug(part)
         for part in (
+            "v2",
             os.environ.get("GITHUB_RUN_ID", "local"),
-            os.environ.get("GITHUB_JOB", "nemoclaw"),
+            os.environ.get("GITHUB_RUN_ATTEMPT", "0"),
+            os.environ.get(
+                "NEMOCLAW_LOCK_OWNER_CONTEXT",
+                os.environ.get("GITHUB_JOB", "nemoclaw"),
+            ),
             str(os.getpid()),
             str(int(time.time())),
+            uuid.uuid4().hex,
         )
     )
     command = f"""set -eu
@@ -1180,8 +1187,15 @@ owner={shlex.quote(owner)}
 now=$(date +%s)
 mkdir -p "$lock_root"
 if mkdir "$lock_dir" 2>/dev/null; then
+  cleanup_incomplete_lock() {{
+    if [ ! -s "$lock_dir/owner" ]; then
+      rm -rf "$lock_dir"
+    fi
+  }}
+  trap cleanup_incomplete_lock EXIT HUP INT TERM
   printf '%s\n' "$owner" > "$lock_dir/owner"
   printf '%s\n' "$now" > "$lock_dir/created"
+  trap - EXIT HUP INT TERM
   exit 0
 fi
 created=$(cat "$lock_dir/created" 2>/dev/null || stat -c %Y "$lock_dir" 2>/dev/null || printf '%s\n' "$now")
@@ -1202,6 +1216,12 @@ exit 1
     if rc == 0:
         return owner
     locked_owner = _remote_lock_owner_from_output(tail)
+    if locked_owner == owner:
+        print(
+            f"[nemoclaw-ci] reconciled remote lock acquisition on {instance}",
+            flush=True,
+        )
+        return owner
     if locked_owner and _remote_lock_owner_is_inactive(locked_owner):
         print(
             f"[nemoclaw-ci] removing remote lock from inactive run: {locked_owner}",
@@ -1226,6 +1246,18 @@ def _remote_lock_owner_is_inactive(owner: str) -> bool:
     run_id = _github_run_id_from_lock_owner(owner)
     if not run_id:
         return False
+    job_identity = _github_job_identity_from_lock_owner(owner)
+    if job_identity:
+        run_id, run_attempt, job_context = job_identity
+        status = _github_job_status(run_id, run_attempt, job_context)
+        if status is not None:
+            return status not in {
+                "queued",
+                "in_progress",
+                "waiting",
+                "requested",
+                "pending",
+            }
     current_run_id = os.environ.get("GITHUB_RUN_ID", "")
     if run_id == current_run_id:
         return False
@@ -1236,8 +1268,75 @@ def _remote_lock_owner_is_inactive(owner: str) -> bool:
 
 
 def _github_run_id_from_lock_owner(owner: str) -> str | None:
-    match = re.match(r"^(\d+)__", owner)
+    match = re.match(r"^(?:v2__)?(\d+)__", owner)
     return match.group(1) if match else None
+
+
+def _github_job_identity_from_lock_owner(
+    owner: str,
+) -> tuple[str, str, str] | None:
+    parts = owner.split("__")
+    if (
+        len(parts) != 7
+        or parts[0] != "v2"
+        or not parts[1].isdigit()
+        or not parts[2].isdigit()
+        or not parts[3]
+    ):
+        return None
+    return parts[1], parts[2], parts[3]
+
+
+def _github_job_status(
+    run_id: str,
+    run_attempt: str,
+    job_context: str,
+) -> str | None:
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not repo or not token:
+        return None
+    try:
+        result = _run(
+            [
+                "gh",
+                "api",
+                (
+                    f"repos/{repo}/actions/runs/{run_id}/attempts/"
+                    f"{run_attempt}/jobs?per_page=100"
+                ),
+            ],
+            timeout=30,
+            env={**os.environ, "GH_TOKEN": token},
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode != 0:
+        tail = ((result.stdout or "") + (result.stderr or ""))[-300:].strip()
+        if tail:
+            print(
+                f"[nemoclaw-ci] could not query GitHub jobs for run {run_id} "
+                f"attempt {run_attempt}: {tail}",
+                flush=True,
+            )
+        return None
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    if not isinstance(jobs, list):
+        return None
+    matches = [
+        job
+        for job in jobs
+        if isinstance(job, dict)
+        and _safe_slug(str(job.get("name") or "")).endswith(job_context)
+    ]
+    if len(matches) != 1:
+        return None
+    status = str(matches[0].get("status") or "").strip()
+    return status or None
 
 
 def _github_run_status(run_id: str) -> str | None:
@@ -1587,7 +1686,26 @@ _RETRYABLE_WORKER_SETUP_MESSAGES = (
     "docker runtime reset failed on ",
     "host data purge failed on ",
     "log-dir reset/setup failed on ",
+    "Upload dir failed on ",
 )
+
+
+def _worker_bound_setup_message(first_line: str, instance: str) -> bool:
+    if any(
+        first_line.startswith(f"{marker}{instance}:")
+        for marker in _RETRYABLE_WORKER_SETUP_MESSAGES
+    ):
+        return True
+    return first_line.startswith(
+        (
+            f"Brev instance '{instance}' not found ",
+            f"Brev instance '{instance}' does not meet task requirements:",
+            f"Brev instance '{instance}' root disk is ",
+            f"Brev instance '{instance}' has NVIDIA driver ",
+            f"Cannot reach Brev instance '{instance}':",
+            f"Unexpected response from instance '{instance}':",
+        )
+    )
 
 
 def _retryable_worker_setup_failure(
@@ -1640,10 +1758,7 @@ def _retryable_worker_setup_failure(
     if "envs/brev_env.py" not in traceback or "in start" not in traceback:
         return None
     first_line = message.splitlines()[0] if message else ""
-    if not any(
-        first_line.startswith(f"{marker}{instance}:")
-        for marker in _RETRYABLE_WORKER_SETUP_MESSAGES
-    ):
+    if not _worker_bound_setup_message(first_line, instance):
         return None
     return first_line
 

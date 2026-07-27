@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import textwrap
 import tempfile
@@ -1837,6 +1838,138 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         )
         self.assertIsNone(mismatched_worker_reason)
 
+    def test_worker_bound_transport_and_resource_failures_are_retryable(self):
+        messages = (
+            "Upload dir failed on vss-eval-rtx-1g-3: No space left on device",
+            (
+                "Cannot reach Brev instance 'vss-eval-rtx-1g-3': "
+                "connection reset"
+            ),
+            (
+                "Brev instance 'vss-eval-rtx-1g-3' root disk is 100 GB; "
+                "task requires at least 400 GB"
+            ),
+            (
+                "Brev instance 'vss-eval-rtx-1g-3' not found "
+                "(is it deleted? wrong org?)"
+            ),
+            (
+                "Brev instance 'vss-eval-rtx-1g-3' does not meet task "
+                "requirements:"
+            ),
+            (
+                "Brev instance 'vss-eval-rtx-1g-3' has NVIDIA driver 570; "
+                "task requires 580+"
+            ),
+            (
+                "Unexpected response from instance 'vss-eval-rtx-1g-3': "
+                "'not-ready'"
+            ),
+        )
+
+        for message in messages:
+            result = {
+                "config": {
+                    "environment": {
+                        "import_path": "envs.brev_env:BrevEnvironment",
+                    }
+                },
+                "environment_setup": {
+                    "started_at": "2026-07-27T12:49:45Z",
+                    "finished_at": "2026-07-27T12:52:09Z",
+                },
+                "agent_setup": None,
+                "agent_execution": None,
+                "verifier": None,
+                "agent_result": None,
+                "verifier_result": None,
+                "exception_info": {
+                    "exception_type": "RuntimeError",
+                    "exception_message": message,
+                    "exception_traceback": (
+                        'File "/workspace/.github/skill-eval/envs/brev_env.py", '
+                        "line 210, in start"
+                    ),
+                },
+            }
+            with (
+                self.subTest(message=message),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_trial",
+                    return_value=(Path("/tmp/trial"), result),
+                ),
+            ):
+                reason = smoke_runner._retryable_worker_setup_failure(
+                    Path("/tmp/results"),
+                    "30266918843",
+                    since=1.0,
+                    instance="vss-eval-rtx-1g-3",
+                )
+                mismatched_worker_reason = (
+                    smoke_runner._retryable_worker_setup_failure(
+                        Path("/tmp/results"),
+                        "30266918843",
+                        since=1.0,
+                        instance="vss-eval-rtx-1g-2",
+                    )
+                )
+
+            self.assertEqual(reason, message)
+            self.assertIsNone(mismatched_worker_reason)
+
+    def test_unbound_or_post_agent_transport_failures_are_not_retryable(self):
+        messages = (
+            "Upload dir failed: No space left on device",
+            "Upload failed: connection reset",
+            "Download dir failed: connection reset",
+            (
+                "No BREV_INSTANCE set and no `brev_instance` in task.toml "
+                "[metadata]"
+            ),
+        )
+        for message in messages:
+            result = {
+                "config": {
+                    "environment": {
+                        "import_path": "envs.brev_env:BrevEnvironment",
+                    }
+                },
+                "environment_setup": {
+                    "started_at": "2026-07-27T12:49:45Z",
+                    "finished_at": "2026-07-27T12:52:09Z",
+                },
+                "agent_setup": None,
+                "agent_execution": None,
+                "verifier": None,
+                "agent_result": None,
+                "verifier_result": None,
+                "exception_info": {
+                    "exception_type": "RuntimeError",
+                    "exception_message": message,
+                    "exception_traceback": (
+                        'File "/workspace/.github/skill-eval/envs/brev_env.py", '
+                        "line 210, in start"
+                    ),
+                },
+            }
+            with (
+                self.subTest(message=message),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_trial",
+                    return_value=(Path("/tmp/trial"), result),
+                ),
+            ):
+                reason = smoke_runner._retryable_worker_setup_failure(
+                    Path("/tmp/results"),
+                    "30266918843",
+                    since=1.0,
+                    instance="vss-eval-rtx-1g-3",
+                )
+
+            self.assertIsNone(reason)
+
     def test_worker_failure_after_agent_setup_is_not_retryable(self):
         result = {
             "config": {
@@ -2428,6 +2561,130 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             else:
                 os.environ["GITHUB_RUN_ID"] = previous["GITHUB_RUN_ID"]
 
+    def test_remote_lock_reconciles_exact_owner_after_response_loss(self):
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *, timeout=60, env=None):
+            calls.append(cmd)
+            command_body = cmd[3]
+            match = re.search(r"^owner=([^\n]+)$", command_body, re.MULTILINE)
+            self.assertIsNotNone(match)
+            owner = match.group(1)
+            return smoke_runner.CommandResult(
+                1,
+                f"NemoClaw worker is locked by {owner} age=0s",
+                "",
+            )
+
+        nonce = mock.Mock(hex="a" * 32)
+        with (
+            mock.patch.object(smoke_runner, "_run", side_effect=fake_run),
+            mock.patch.object(smoke_runner.os, "getpid", return_value=1234),
+            mock.patch.object(smoke_runner.time, "time", return_value=1730000000),
+            mock.patch.object(smoke_runner.uuid, "uuid4", return_value=nonce),
+            mock.patch.dict(
+                os.environ,
+                {
+                    "GITHUB_RUN_ID": "30275546898",
+                    "GITHUB_RUN_ATTEMPT": "2",
+                    "NEMOCLAW_LOCK_OWNER_CONTEXT": (
+                        "vss-ask-video/base_profile_video_understanding/"
+                        "RTXPRO6000BW"
+                    ),
+                },
+            ),
+        ):
+            owner = smoke_runner._try_acquire_remote_worker_lock(
+                "vss-eval-rtx-2g-2"
+            )
+
+        self.assertEqual(
+            owner,
+            "v2__30275546898__2__"
+            "vss-ask-video-base-profile-video-understanding-rtxpro6000bw__"
+            "1234__1730000000__"
+            f"{'a' * 32}",
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertIn("cleanup_incomplete_lock", calls[0][3])
+
+    def test_completed_matrix_job_lock_is_inactive_within_current_run(self):
+        owner = (
+            "v2__30275546898__1__"
+            "vss-ask-video-base-profile-video-understanding-rtxpro6000bw__"
+            "1234__1730000000__nonce"
+        )
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"GITHUB_RUN_ID": "30275546898"},
+            ),
+            mock.patch.object(
+                smoke_runner,
+                "_github_job_status",
+                return_value="completed",
+            ) as job_status,
+            mock.patch.object(smoke_runner, "_github_run_status") as run_status,
+        ):
+            inactive = smoke_runner._remote_lock_owner_is_inactive(owner)
+
+        self.assertTrue(inactive)
+        job_status.assert_called_once_with(
+            "30275546898",
+            "1",
+            "vss-ask-video-base-profile-video-understanding-rtxpro6000bw",
+        )
+        run_status.assert_not_called()
+
+    def test_github_job_status_matches_matrix_context(self):
+        payload = {
+            "jobs": [
+                {
+                    "name": (
+                        "NemoClaw / vss-ask-video/"
+                        "base_profile_video_understanding/RTXPRO6000BW"
+                    ),
+                    "status": "completed",
+                },
+                {
+                    "name": "NemoClaw / vss-deploy-profile/base/RTXPRO6000BW",
+                    "status": "in_progress",
+                },
+            ]
+        }
+        with (
+            mock.patch.dict(
+                os.environ,
+                {
+                    "GITHUB_REPOSITORY": (
+                        "NVIDIA-AI-Blueprints/video-search-and-summarization"
+                    ),
+                    "GH_TOKEN": "test-token",
+                },
+            ),
+            mock.patch.object(
+                smoke_runner,
+                "_run",
+                return_value=smoke_runner.CommandResult(
+                    0,
+                    json.dumps(payload),
+                    "",
+                ),
+            ) as run,
+        ):
+            status = smoke_runner._github_job_status(
+                "30275546898",
+                "1",
+                "vss-ask-video-base-profile-video-understanding-rtxpro6000bw",
+            )
+
+        self.assertEqual(status, "completed")
+        self.assertIn(
+            "repos/NVIDIA-AI-Blueprints/video-search-and-summarization/"
+            "actions/runs/30275546898/attempts/1/jobs?per_page=100",
+            run.call_args.args[0],
+        )
+
     def test_remote_lock_from_completed_run_is_cleared_and_retried(self):
         previous = {
             "_run": smoke_runner._run,
@@ -2509,7 +2766,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIsNone(owner)
         self.assertEqual(len(calls), 1)
         self.assertIn("age=$((now - created))", calls[0][3])
-        self.assertNotIn("rm -rf", calls[0][3])
+        self.assertNotIn("expected=", calls[0][3])
 
     def test_brev_inventory_timeout_is_infrastructure_blocked(self):
         previous = {"_run": smoke_runner._run}
@@ -3436,6 +3693,10 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
         self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=1500", source)
+        self.assertIn(
+            'export NEMOCLAW_LOCK_OWNER_CONTEXT="${{ matrix.name }}"',
+            source,
+        )
         self.assertNotIn("NEMOCLAW_REMOTE_LOCK_STALE_SEC", source)
 
 

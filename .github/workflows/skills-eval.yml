@@ -451,6 +451,7 @@ jobs:
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
+          export NEMOCLAW_LOCK_OWNER_CONTEXT="${{ matrix.name }}"
           export MANUAL_FULL_SWEEP=1
           export MANUAL_SKILLS_FILTER="${{ matrix.skill }}"
           export NEMOCLAW_EVAL_SPEC="${{ matrix.spec_stem }}"

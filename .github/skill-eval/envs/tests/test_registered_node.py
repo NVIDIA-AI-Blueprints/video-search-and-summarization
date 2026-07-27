@@ -1533,7 +1533,10 @@ class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
 
                 env = brev_env.BrevEnvironment()
                 env._instance_name = "vss-eval-test"
-                with self.assertRaisesRegex(RuntimeError, "copy failed"):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "Upload dir failed on vss-eval-test: copy failed",
+                ):
                     await env.upload_dir(src_dir, "/skills")
         finally:
             brev_env._run_brev_exec = original_exec
@@ -1544,6 +1547,39 @@ class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(Path(copied_src).exists())
         self.assertEqual(len(exec_calls), 1)
         self.assertIn("mkdir -p /tmp/skill-eval/uploads/", exec_calls[0][1])
+
+    async def test_upload_dir_binds_remote_mkdir_failure_to_instance(self):
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            return brev_env.ExecResult(
+                stdout="",
+                stderr="No space left on device",
+                return_code=1,
+            )
+
+        original_exec = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src_dir = Path(td) / "skills"
+                src_dir.mkdir()
+                (src_dir / "SKILL.md").write_text("test skill\n")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    (
+                        "Upload dir failed on vss-eval-test: "
+                        "No space left on device"
+                    ),
+                ):
+                    await env.upload_dir(src_dir, "/skills")
+        finally:
+            brev_env._run_brev_exec = original_exec
 
     async def test_upload_dir_retries_transient_brev_copy_failure(self):
         exec_calls = []
