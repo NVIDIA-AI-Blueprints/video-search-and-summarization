@@ -41,27 +41,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
-RTX4090_ALL_TESTS = frozenset({
-    "vss-manage-alerts",
-    "vss-deploy-detection-tracking-2d",
-    "vss-manage-video-io-storage",
-})
-RTX4090_TESTS = {
-    "vss-ask-video": frozenset({"base_profile_video_understanding"}),
-    "vss-generate-video-report": frozenset({"base_profile_report"}),
-    "vss-deploy-profile": frozenset({
-        "base", "lvs", "alerts_vlm", "alerts_cv",
-    }),
-    "vss-summarize-video": frozenset({
-        "lvs_profile_summarize", "lvs_api_ops",
-    }),
-    "vss-query-analytics": frozenset({"query_analytics"}),
-    "vss-deploy-video-embedding": frozenset({"standalone_deploy"}),
-    "vss-generate-video-calibration": frozenset({"auto-calibration"}),
-    "vss-setup-behavior-analytics": frozenset({"standalone_deploy"}),
-    "vss-setup-video-analytics-api": frozenset({"standalone_deploy"}),
-    "vss-deploy-dense-captioning": frozenset({"standalone_api"}),
-}
+# RTX 4090 capability-routing is opt-in at the spec level via gpu_type.
+# These tables are intentionally empty: a test runs on RTX 4090 only when
+# its spec metadata declares gpu_type that matches GEFORCE RTX 4090.
+RTX4090_ALL_TESTS: frozenset[str] = frozenset()
+RTX4090_TESTS: dict[str, frozenset[str]] = {}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -356,7 +340,9 @@ def _registered_gpu_hint(name: str) -> str:
     normalized = name.lower()
     if normalized.startswith(RTX4090_PREFIX):
         return "GEFORCE RTX 4090"
-    if normalized.startswith("vss-eval-rtx"):
+    # Use a more specific prefix to avoid matching RTX 4090 nodes whose names
+    # begin with "vss-eval-rtx" (e.g. "vss-eval-rtx4090-*") as RTX PRO 6000.
+    if normalized.startswith("vss-eval-rtx-"):
         return "RTX PRO 6000"
     if normalized.startswith("vss-eval-l40s"):
         return "L40S"

@@ -64,8 +64,6 @@ using namespace std;
 using namespace nv_vms;
 
 
-constexpr const char* STORAGE_MANAGEMENT_VERSION = "0.0.1";
-
 #define CONVERT_KBPS_TO_GBPERDAY(v) ((v/1024.0) * 60.0 * 60.0 * 24)/(8 * 1024.0);
 constexpr int DEFAULT_BITRATE = 5120;
 
@@ -1306,7 +1304,10 @@ VmsErrorCode StorageManagement::getStorageConfiguration(const Json::Value & req_
 
 VmsErrorCode StorageManagement::getVersion(string& version)
 {
-    version = STORAGE_MANAGEMENT_VERSION;
+    // Report the build/release version injected by the Makefile (-DVST_VERSION),
+    // matching the Sensor MS and other microservices, instead of a hardcoded
+    // placeholder. See bug 6303142.
+    version = VST_VERSION;
     return VmsErrorCode::NoError;
 }
 
@@ -2155,6 +2156,17 @@ VmsErrorCode StorageManagement::deleteFilesByTime(const Json::Value& req_info, J
         return VmsErrorCode::InvalidParameterError;
     }
 
+    /* Reject a reversed range: startTime must be earlier than or equal to endTime.
+       Wildcards ('*' -> startTime=-1 / endTime=int64 max) never trip this check. */
+    if(startTime > endTime)
+    {
+        LOG(error) << "deleteFilesByTime invalid time range: startTime " << start_time
+                   << " is later than endTime " << end_time << endl;
+        SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response,
+                       "startTime must be earlier than or equal to endTime")
+        return VmsErrorCode::InvalidParameterError;
+    }
+
     if(deleteFilesByTime(stream_id, startTime, endTime, spaceSaved) != 0)
     {
         SET_VMS_ERROR(VmsErrorCode::VMSInternalError, response)
@@ -2289,6 +2301,18 @@ VmsErrorCode StorageManagement::addOrRemoveFileInProtectList(const Json::Value& 
         LOG(error) << "Request Method is not supported" << endl;
         SET_VMS_ERROR2(VmsErrorCode::MethodNotAllowedError, response, "Request Method is not supported");
         return VmsErrorCode::MethodNotAllowedError;
+    }
+
+    // Defense in depth: Json::Value::get()/find() throw Json::LogicError (uncaught
+    // -> SIGABRT, crashing the service) when invoked on a non-object such as an
+    // array body. The schema validator should already have rejected such bodies,
+    // but guard the handler too so a malformed body can never abort the process
+    // (bug 6217188).
+    if (!in.isObject())
+    {
+        LOG(error) << "Request body must be a JSON object with a 'filePath' field" << endl;
+        SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, response, "Request body must be a JSON object with a 'filePath' field");
+        return VmsErrorCode::InvalidParameterError;
     }
 
     vector<string> fileList;

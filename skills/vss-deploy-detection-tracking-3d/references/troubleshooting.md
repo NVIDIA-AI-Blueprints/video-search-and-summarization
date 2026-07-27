@@ -249,7 +249,7 @@ docker logs --tail 50 mosquitto 2>&1 | tail
 - `BUFFER_DURATION_S` too short for the actual end-to-end latency.
 
 **Diagnose:**
-Watch `mdx-bev` rate vs `mdx-raw` rate over a minute. The shipped Kafka image is `confluentinc/cp-kafka:8.2.0` which uses `kafka-get-offsets` (not the older `kafka-run-class kafka.tools.GetOffsetShell` — that class is gone):
+Watch `mdx-bev` rate vs `mdx-raw` rate over a minute. The shipped Kafka image is `confluentinc/cp-kafka:8.3.0` which uses `kafka-get-offsets` (not the older `kafka-run-class kafka.tools.GetOffsetShell` — that class is gone):
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-raw
 docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-bev

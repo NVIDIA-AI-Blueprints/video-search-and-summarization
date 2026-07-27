@@ -220,8 +220,9 @@ The `run()` function handles:
 
 The `mdx.analytics.core.app.app_runner.run()` function supports these arguments:
 
-- `--config`: Path to the application configuration JSON file
-- `--calibration`: Path to the calibration configuration JSON file
+- `--config`: Path to the application configuration JSON file (required)
+- `--calibration`: Path to the calibration configuration JSON file (optional; enables dynamic calibration when omitted)
+- `--log`: Path to the logging config JSON file (optional; default `configs/logging_config.json`)
 
 ### Run from the command line
 

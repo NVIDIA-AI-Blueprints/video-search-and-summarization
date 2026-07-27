@@ -14,7 +14,7 @@ useReleaseNamePrefix: null
 
 image:
   repository: alpine
-  tag: "3.23.4"
+  tag: "3.24.1"
   pullPolicy: IfNotPresent
 
 apiUrl: http://vss-video-analytics-api:8081

@@ -92,6 +92,7 @@ services:
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=true
       - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
+      - DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION=1
     volumes:
       - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data

@@ -1,6 +1,6 @@
 ---
 name: vss-setup-behavior-analytics
-description: Use to deploy the vss-behavior-analytics service standalone (entrypoint, config-source, optional calibration). Not for the full warehouse deploy.
+description: Use this skill to deploy the vss-behavior-analytics service standalone (entrypoint, config-source, optional calibration). Not for the full warehouse deploy.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
@@ -120,5 +120,6 @@ Both flows live entirely on the broker — the producer can be `video-analytics-
 ## Routing rules
 
 - If the user wants "the full stack" (UI / agent / perception): hand off to [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md) with profile `warehouse` (or `alerts`). Don't run this skill in parallel.
+- If the user needs to fold behavior-analytics into a composed/multi-service deployment — which Kafka topics it consumes and emits, and how it wires to producers/consumers around it: see the integration contract in [`references/integrate-behavior-analytics-service.md`](references/integrate-behavior-analytics-service.md).
 - If the user wants to publish a runtime config / calibration update to an already-running container: walk the [Dynamic updates](#dynamic-updates-runtime-no-restart) section. Both flows need a reachable broker.
 - If the user describes a behavior-analytics behavior change they want to validate (new incident type, new ROI rule, new sensor): point them at [`references/configuration.md`](references/configuration.md), [`references/dynamic-config.md`](references/dynamic-config.md), or [`references/dynamic-calibration.md`](references/dynamic-calibration.md) before editing the JSON.

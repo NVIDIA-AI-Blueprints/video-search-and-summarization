@@ -37,6 +37,10 @@ IN_SIMULATION_MODE = "false"
 COMPACT_FRAME = "false"
 USE_OBJECT_LOCATION = "false"
 IMAGE_LOCATION_MODE = "bottom_center"
+# ROI-event detection modes (see AppConfig.roi_event_detection_mode).
+ROI_EVENT_DETECTION_MODE_COORDINATE = "coordinate"
+ROI_EVENT_DETECTION_MODE_BBOX = "bbox"
+ROI_EVENT_DETECTION_MODE = ROI_EVENT_DETECTION_MODE_COORDINATE
 
 # Default values for anomaly action config
 ANOMALY_ACTION_THRESHOLD = "0.5"
@@ -1212,6 +1216,37 @@ class AppConfig(BaseModel):
             >>> print(config.image_location_mode)  # "center"
         """
         return self.get_app_config("imageLocationMode", IMAGE_LOCATION_MODE)
+
+    @computed_field
+    @cached_property
+    def roi_event_detection_mode(self) -> str:
+        """
+        Get the ROI-event detection mode.
+
+        Controls how :class:`~mdx.analytics.core.transform.event.roi_event.ROIEvent` decides whether an
+        object is inside an ROI when detecting ENTRY/EXIT events:
+
+        - ``"coordinate"`` [default]: check whether the object's representative coordinate (bbox
+          bottom-center or center, per :attr:`image_location_mode`) is inside the ROI polygon.
+        - ``"bbox"``: check whether the object's bounding box overlaps the ROI polygon. Supported only for
+          image calibration, where ``object.bbox`` and the ROI polygon share image-pixel coordinates;
+          cartesian and geo calibration fall back to ``"coordinate"``.
+
+        Any unrecognized value is normalized to ``"coordinate"``.
+
+        :return str: The ROI-event detection mode (``"coordinate"`` or ``"bbox"``).
+
+        Examples::
+            >>> config = AppConfig()
+            >>> config.set_app_config("roiEventDetectionMode", "bbox")
+            >>> print(config.roi_event_detection_mode)  # "bbox"
+        """
+        mode = self.get_app_config("roiEventDetectionMode", ROI_EVENT_DETECTION_MODE)
+        # Normalize unrecognized values to the default so the getter never returns an out-of-vocabulary
+        # string (matches the silent-default convention of image_location_mode).
+        if mode not in (ROI_EVENT_DETECTION_MODE_COORDINATE, ROI_EVENT_DETECTION_MODE_BBOX):
+            return ROI_EVENT_DETECTION_MODE_COORDINATE
+        return mode
 
     @computed_field
     @cached_property

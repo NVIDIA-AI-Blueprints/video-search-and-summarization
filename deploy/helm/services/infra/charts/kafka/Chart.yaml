@@ -18,4 +18,4 @@ name: kafka
 description: Confluent Kafka broker (KRaft mode) for message streaming
 type: application
 version: 3.2.0
-appVersion: "8.2.0"
+appVersion: "8.3.0"

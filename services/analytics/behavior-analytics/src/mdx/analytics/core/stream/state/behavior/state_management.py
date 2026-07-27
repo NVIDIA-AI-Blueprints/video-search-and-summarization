@@ -159,6 +159,7 @@ class StateMgmt(StateMgmtBase):
             timestamp=tr.start,
             end=tr.end,
             locations=tr.geo_location,
+            locationsBboxes=state.bboxes,
             smoothLocations=tr.smooth_geo_location,
             distance=tr.distance,
             speed=tr.speed,
