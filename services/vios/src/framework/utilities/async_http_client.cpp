@@ -408,6 +408,13 @@ size_t AsyncHttpClient::writeCallback(char* data, size_t size, size_t nmemb, voi
 {
     auto* ctx = static_cast<RequestContext*>(userp);
     const size_t total = size * nmemb;
-    ctx->m_responseBody.append(data, total);
+    try
+    {
+        ctx->m_responseBody.append(data, total);
+    }
+    catch (...)
+    {
+        return 0;  // signals CURLE_WRITE_ERROR to libcurl without propagating through C frames
+    }
     return total;
 }
