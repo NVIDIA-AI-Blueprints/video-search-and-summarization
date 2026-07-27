@@ -87,6 +87,13 @@ NEMOCLAW_INSTALL_REF = os.environ.get(
     _notebook_default("NEMOCLAW_INSTALL_REF", ""),
 ).strip()
 NEMOCLAW_SANDBOX_NAME = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
+NEMOCLAW_GATEWAY_PORT = os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080").strip() or "8080"
+os.environ["NEMOCLAW_GATEWAY_PORT"] = NEMOCLAW_GATEWAY_PORT
+OPENSHELL_DOCKER_NETWORK_NAME = (
+    os.environ.get("OPENSHELL_DOCKER_NETWORK_NAME", "openshell-docker").strip()
+    or "openshell-docker"
+)
+os.environ["OPENSHELL_DOCKER_NETWORK_NAME"] = OPENSHELL_DOCKER_NETWORK_NAME
 NEMOCLAW_RECREATE_SANDBOX = os.environ.get("NEMOCLAW_RECREATE_SANDBOX", "1").strip() or "1"
 os.environ["NEMOCLAW_RECREATE_SANDBOX"] = NEMOCLAW_RECREATE_SANDBOX
 OPENCLAW_HOOKS_ENABLED = os.environ.get(
@@ -174,7 +181,9 @@ _token_file = Path(os.environ.get("NEMOCLAW_HOOKS_TOKEN_FILE", str(Path.home() /
 _token_file.parent.mkdir(parents=True, exist_ok=True)
 _keys = [
     "NEMOCLAW_SANDBOX_NAME",
+    "NEMOCLAW_GATEWAY_PORT",
     "NEMOCLAW_RECREATE_SANDBOX",
+    "OPENSHELL_DOCKER_NETWORK_NAME",
     "OPENCLAW_HOOKS_PATH",
     "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
     "MCP_URL",
@@ -255,6 +264,17 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
     source = cell["source"]
     if cell_id == "4c91fd59":
         return _patch_docker_login_cell(cell)
+    if cell_id == "s31-code":
+        onboard = "!cd ~ && nemoclaw onboard --non-interactive --agent {AGENT_RUNTIME}"
+        if onboard not in source:
+            raise ValueError("NemoClaw setup cell is missing the expected onboard command")
+        patched = deepcopy(cell)
+        patched["source"] = source.replace(
+            onboard,
+            "!cd ~ && nemoclaw onboard --fresh --non-interactive "
+            "--agent {AGENT_RUNTIME}",
+        )
+        return patched
     if cell_id != "run-code":
         return cell
     optional_forward = "ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)"

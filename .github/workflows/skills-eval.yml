@@ -479,6 +479,15 @@ jobs:
           if [ -n "${NEMOCLAW_INPUT_INSTANCE:-}" ]; then
             export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"
           fi
+          # Keep the eval gateway off NemoClaw's shared 8080 default. Some warm
+          # workers legitimately use 8080 for unrelated host services, while
+          # NemoClaw v0.0.80 isolates non-default gateways by port.
+          export NEMOCLAW_GATEWAY_PORT=19080
+          # Match the reset/readiness contract and do not let coordinator
+          # defaults collapse the dedicated port back onto another state DB or
+          # Docker network.
+          unset NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR
+          export OPENSHELL_DOCKER_NETWORK_NAME=openshell-docker
           export NEMOCLAW_RECREATE_SANDBOX=1
           export SKILLS_EVAL_RUNNER="nemoclaw"
           export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
