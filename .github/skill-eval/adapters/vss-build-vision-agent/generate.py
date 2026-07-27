@@ -279,7 +279,7 @@ def generate_task(
             "[verifier.env]",
             'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
             'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-            'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+            'SKILLS_EVAL_MODEL = "${SKILLS_EVAL_MODEL}"',
             # JUDGE_MAX_TURNS bumped from default 25 because the IN-1 spec carries
             # 20 checks — many requiring live service probes (ES, Kafka, VIOS,
             # RT-VLM) and trajectory-derived IDs; standard 25 turns is tight.
