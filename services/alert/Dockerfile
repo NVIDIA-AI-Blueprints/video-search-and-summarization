@@ -17,7 +17,7 @@
 ARG TARGETARCH
 ARG TARGETPLATFORM
 ARG PYTHON_VERSION=3.13
-ARG TAG=v4.0.8
+ARG TAG=v3.1.7
 ARG IMG=nvcr.io/nvidia/distroless/python:${PYTHON_VERSION}
 
 # Stage 1: Build Stage - Use a slim Python image to install dependencies
