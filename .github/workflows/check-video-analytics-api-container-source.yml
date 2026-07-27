@@ -3,7 +3,7 @@
 
 name: Check Video Analytics API Container Source
 
-on:
+"on":
   push:
     branches:
       - main

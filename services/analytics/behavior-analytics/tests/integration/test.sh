@@ -55,33 +55,31 @@ source "$SCRIPT_DIR/generate_env.sh"
 source "$SCRIPT_DIR/cleanup.sh"
 
 cd "$PROJ_ROOT_DIR"
-echo "Building Docker image..."
-# Set timeout for docker build (60 minutes)
-BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
-
-# In network-restricted CI environments github.com is unreachable, so the
-# opencv-source-build stage (which clones from GitHub) cannot run.  When the
-# standard CI=true variable is present, switch to the PyPI-based provider
-# which downloads the pre-built wheel from PyPI instead.
-OPENCV_BUILD_ARG=""
-if [[ -n "${CI:-}" ]]; then
-    OPENCV_BUILD_ARG="--build-arg OPENCV_PROVIDER=opencv-pypi-build"
-    echo "CI environment detected: using PyPI opencv wheel (OPENCV_PROVIDER=opencv-pypi-build)"
-fi
-
-if timeout $BUILD_TIMEOUT docker build $OPENCV_BUILD_ARG -t py-behavior-analytics -f docker/Dockerfile . > /dev/null 2>&1; then
-    echo "✓ Docker build completed successfully"
-else
-    EXIT_CODE=$?
-    if [[ $EXIT_CODE -eq 124 ]]; then
-        echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
+# Build the checked-out service only when its build inputs changed. Otherwise,
+# exercise the currently deployed image while still running the full integration
+# suite. Local invocation remains build-by-default.
+BUILD_SERVICE_IMAGE="${BUILD_SERVICE_IMAGE:-true}"
+if [[ "$BUILD_SERVICE_IMAGE" = "true" ]]; then
+    BEHAVIOR_ANALYTICS_IMAGE="${BEHAVIOR_ANALYTICS_IMAGE:-vss-behavior-analytics:latest}"
+    BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
+    echo "Building changed behavior-analytics source as $BEHAVIOR_ANALYTICS_IMAGE (timeout ${BUILD_TIMEOUT}s)..."
+    if timeout "$BUILD_TIMEOUT" docker build -t "$BEHAVIOR_ANALYTICS_IMAGE" -f docker/Dockerfile .; then
+        echo "✓ Docker build completed successfully"
     else
-        echo "✗ Docker build failed"
+        EXIT_CODE=$?
+        if [[ $EXIT_CODE -eq 124 ]]; then
+            echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
+        else
+            echo "✗ Docker build failed"
+        fi
+        exit 1
     fi
-    # Show the error by running the command again without suppressing output (with shorter timeout)
-    timeout $BUILD_TIMEOUT docker build $OPENCV_BUILD_ARG -t py-behavior-analytics -f docker/Dockerfile .
-    exit 1
+else
+    BEHAVIOR_ANALYTICS_IMAGE="${CURRENT_BEHAVIOR_ANALYTICS_IMAGE:?CURRENT_BEHAVIOR_ANALYTICS_IMAGE is required when BUILD_SERVICE_IMAGE=false}"
+    echo "No behavior-analytics build-input change; pulling current image $BEHAVIOR_ANALYTICS_IMAGE"
+    docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 fi
+export BEHAVIOR_ANALYTICS_IMAGE
 
 cd "$MDX_SAMPLE_APPS_DIR"
 echo "Starting Docker Compose services..."
