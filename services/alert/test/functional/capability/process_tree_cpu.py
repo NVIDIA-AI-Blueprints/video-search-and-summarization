@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Sample aggregate CPU utilisation of every process matching a command line.
+
+``ps %cpu`` reports a lifetime average, which hides the ramp the scaling tests
+care about, so utime+stime deltas are read straight from /proc instead. 100%
+means one fully busy core.
+
+Usage: process_tree_cpu.py PATTERN INTERVAL DURATION
+Prints: "<avg_pct> <max_pct> <samples>"
+"""
+
+import os
+import sys
+import time
+
+CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
+
+
+def matching_pids(pattern):
+    pids = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(os.path.join("/proc", entry, "cmdline"), "rb") as handle:
+                cmdline = handle.read().decode("utf-8", "replace").replace("\0", " ")
+        except OSError:
+            continue
+        if pattern in cmdline:
+            pids.append(int(entry))
+    return pids
+
+
+def cpu_ticks(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as handle:
+            fields = handle.read().rsplit(") ", 1)[1].split()
+        return int(fields[11]) + int(fields[12])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def snapshot(pattern):
+    result = {}
+    for pid in matching_pids(pattern):
+        ticks = cpu_ticks(pid)
+        if ticks is not None:
+            result[pid] = ticks
+    return result
+
+
+def main():
+    pattern = sys.argv[1]
+    interval = float(sys.argv[2])
+    duration = float(sys.argv[3])
+
+    previous = snapshot(pattern)
+    previous_at = time.monotonic()
+    samples = []
+    end = previous_at + duration
+
+    while time.monotonic() < end:
+        time.sleep(interval)
+        current = snapshot(pattern)
+        now = time.monotonic()
+        elapsed = now - previous_at
+        # A pid absent from the previous snapshot is a freshly restarted child;
+        # counting its lifetime ticks as one interval's work would spike the
+        # sample, so only carried-over pids contribute.
+        delta = sum(ticks - previous[pid] for pid, ticks in current.items() if pid in previous)
+        if elapsed > 0:
+            samples.append(100.0 * delta / CLOCK_TICKS / elapsed)
+        previous, previous_at = current, now
+
+    if not samples:
+        print("0.0 0.0 0")
+        return
+    print(f"{sum(samples) / len(samples):.1f} {max(samples):.1f} {len(samples)}")
+
+
+if __name__ == "__main__":
+    main()

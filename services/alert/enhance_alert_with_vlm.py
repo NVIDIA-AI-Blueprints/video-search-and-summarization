@@ -99,6 +99,8 @@ from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
+from utils.process_scaling import resolve_process_count
+from utils.process_supervisor import ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
 from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
 from utils.logging_config import setup_logging, get_logger, enforce_log_level
@@ -131,6 +133,10 @@ if PROMETHEUS_ENABLED:
 # Configure centralized logging from config.yaml
 setup_logging()
 logger = get_logger(__name__)
+
+# Set once the multi-process branch is active, so the shutdown signal handler
+# can tear the children down before the parent exits.
+_pipeline_supervisor: Optional[ProcessSupervisor] = None
 
 
 def _dropped_messages(before, after):
@@ -2410,6 +2416,73 @@ def _mark_prometheus_process_dead(process: Optional[Process]) -> None:
         logger.debug("Failed to mark Prometheus child process dead", exc_info=True)
 
 
+def _exit_when_parent_dies(parent_pid: int) -> None:
+    """Ask the kernel to signal this child when the supervisor disappears.
+
+    An orphaned child keeps its consumer-group membership, which stalls the
+    partitions it owns and blocks the next run's offset reset. Linux-only;
+    elsewhere teardown relies solely on the supervisor.
+    """
+    try:
+        import ctypes
+
+        PR_SET_PDEATHSIG = 1
+        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+    except Exception:
+        logger.debug("PR_SET_PDEATHSIG unavailable on this platform", exc_info=True)
+        return
+
+    # The parent may already have exited between fork and prctl.
+    if os.getppid() != parent_pid:
+        os._exit(0)
+
+
+def _run_pipeline_process(config_path: str, index: int, parent_pid: int) -> None:
+    """Child entry point: one independent consume + dispatch stack."""
+    _exit_when_parent_dies(parent_pid)
+
+    def shutdown_handler(signum, frame):
+        raise SystemExit(0)
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT):
+        signal.signal(sig, shutdown_handler)
+
+    logger.info("Pipeline process %d starting (pid=%d)", index, os.getpid())
+    try:
+        AnomalyEnhancer(config_path).process_anomalies()
+    except SystemExit:
+        pass
+    except Exception:
+        logger.error("Pipeline process %d failed", index, exc_info=True)
+        raise
+    logger.info("Pipeline process %d stopped", index)
+
+
+def _start_pipeline_process(config_path: str, index: int) -> Process:
+    process = Process(
+        target=_run_pipeline_process,
+        args=(config_path, index, os.getpid()),
+        name=f"ab-pipeline-{index}",
+    )
+    process.start()
+    return process
+
+
+def run_multi_process_pipeline(config_path: str, process_count: int) -> None:
+    """Fork ``process_count`` pipeline children and supervise them until shutdown."""
+    global _pipeline_supervisor
+
+    _pipeline_supervisor = ProcessSupervisor(
+        count=process_count,
+        spawn=lambda index: _start_pipeline_process(config_path, index),
+        on_exit=_mark_prometheus_process_dead,
+    )
+    try:
+        _pipeline_supervisor.run()
+    finally:
+        _pipeline_supervisor = None
+
+
 def setup_signal_handlers(fastapi_process):
     """Setup signal handlers for graceful shutdown in Docker containers."""
 
@@ -2417,6 +2490,14 @@ def setup_signal_handlers(fastapi_process):
         """Handle shutdown signals gracefully."""
         signal_name = signal.Signals(signum).name
         logger.info(f"Received {signal_name} signal, initiating graceful shutdown...")
+
+        supervisor = _pipeline_supervisor
+        if supervisor is not None:
+            logger.info("Stopping pipeline processes...")
+            try:
+                supervisor.stop()
+            except Exception as e:
+                logger.error(f"Error stopping pipeline processes: {e}")
 
         try:
             # Terminate FastAPI process
@@ -2484,7 +2565,23 @@ if __name__ == "__main__":
         # the outer ``except`` without ever binding the Prometheus
         # port: a failed boot should NOT expose a "healthy" metrics
         # endpoint.
-        enhancer = AnomalyEnhancer(args.config)
+        #
+        # With alert_agent.processes > 1 the parent owns no pipeline at
+        # all: each child builds its own enhancer, and therefore its own
+        # consumers, event loop and clients. The parent must never
+        # construct one — a parent that joined the consumer group and
+        # then stopped polling would stall the partitions assigned to it.
+        pipeline_config = AnomalyEnhancer.load_config(args.config)
+        process_count = resolve_process_count(pipeline_config)
+        multi_process = process_count > 1
+
+        if multi_process and not EventBridgeFactory.validate_configuration(pipeline_config):
+            # Validate up front so a bad config fails the parent instead of
+            # crash-looping every child.
+            raise ValueError("Invalid event bridge configuration")
+
+        if not multi_process:
+            enhancer = AnomalyEnhancer(args.config)
         enforce_log_level(args.config)
 
         # Start Prometheus metrics server in main process (where metrics are recorded).
@@ -2518,15 +2615,31 @@ if __name__ == "__main__":
             if not os.path.isfile(video_path):
                 logger.warning("Warmup video not found at %s, skipping VLM warmup", video_path)
             else:
+                # Warm up once in the parent, before forking, so N children do
+                # not each pay for (and each measure) a cold backend.
+                warmup_config = (
+                    enhancer.vlm_client.config if enhancer else pipeline_config.get('vlm', {})
+                )
                 try:
-                    warmup_vlm(enhancer.vlm_client.config, video_path=video_path)
+                    warmup_vlm(warmup_config, video_path=video_path)
                 except Exception:
                     logger.warning("VLM warmup failed -- continuing without warmup", exc_info=True)
         else:
             logger.info("VLM warmup disabled via VLM_WARMUP_ENABLED=false")
 
+        # Canonical readiness line: health checks and the functional-test
+        # harness gate on it, so both branches must emit it exactly once.
         logger.info("Starting anomaly processing loop...")
-        enhancer.process_anomalies()
+
+        if multi_process:
+            logger.info(
+                "Pipeline running across %d processes; effective parallelism is "
+                "min(processes, kafka partition count)",
+                process_count,
+            )
+            run_multi_process_pipeline(os.environ["CONFIG_PATH"], process_count)
+        else:
+            enhancer.process_anomalies()
 
     except KeyboardInterrupt:
         # This handles Ctrl+C when not in Docker (development)

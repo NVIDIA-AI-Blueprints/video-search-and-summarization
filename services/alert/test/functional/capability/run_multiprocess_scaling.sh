@@ -1,0 +1,491 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Multi-core scaling suite for alert_agent.processes, on the no-GPU simulators.
+#
+#   TS-030  rate ramp, 1 process vs N: CPU past one core, VLM latency flat
+#   TS-031  killed child is restarted and its partitions resume
+#   TS-032  no message loss under overload, with and without kafka.batch_commit
+#
+# Two harness properties are load-bearing and are asserted, not assumed:
+#   * the topic must have >= PROCESSES partitions, otherwise effective
+#     parallelism is min(processes, partitions) = 1 and the ramp shows nothing;
+#   * the NIM stub must actually serve at the configured delay — a leftover stub
+#     holding port 18081 silently serves the previous delay and invalidates
+#     every latency number in the run.
+#
+# Usage: ./run_multiprocess_scaling.sh [--test TS-030] [--skip-setup] [--processes 4]
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FUNCTIONAL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+P1_ROOT="$FUNCTIONAL_ROOT/p1"
+REPO_ROOT="$(cd "$FUNCTIONAL_ROOT/../.." && pwd)"
+source "$P1_ROOT/shared/helpers.sh"
+
+export PID_DIR="${PID_DIR:-/tmp/alert_agent_p1_functional}"
+ES_HOST="${ES_HOST:-http://127.0.0.1:9200}"
+BOOTSTRAP="${BOOTSTRAP:-127.0.0.1:9092}"
+TOPIC="${TOPIC:-mdx-incidents}"
+BASE_CONFIG="$P1_ROOT/shared/config_base.yaml"
+CONSUMER_GROUP="alert-bridge-vlm-group-p1"
+KAFKA_CONTAINER="alert-agent-kafka-test"
+METRICS_URL="http://127.0.0.1:9081/metrics"
+RESULTS_DIR="$PID_DIR/scaling_results"
+INJECTOR="$SCRIPT_DIR/incident_stream_publisher.py"
+CPU_SAMPLER="$SCRIPT_DIR/process_tree_cpu.py"
+AB_PATTERN="enhance_alert_with_vlm.py"
+
+PROCESSES="${PROCESSES:-4}"
+PARTITIONS="${PARTITIONS:-8}"
+STUB_DELAY="${STUB_DELAY:-0.2}"
+VLM_CAP="${VLM_CAP:-60}"
+RAMP_RATES="${RAMP_RATES:-10 20 40 80}"
+RAMP_SECONDS="${RAMP_SECONDS:-60}"
+
+ONLY_TEST=""
+SKIP_SETUP=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --test) ONLY_TEST="$2"; shift 2 ;;
+        --skip-setup) SKIP_SETUP=1; shift ;;
+        --processes) PROCESSES="$2"; shift 2 ;;
+        --partitions) PARTITIONS="$2"; shift 2 ;;
+        *) echo "Unknown option: $1"; exit 2 ;;
+    esac
+done
+
+mkdir -p "$PID_DIR" "$RESULTS_DIR"
+
+PASS_COUNT=0
+FAIL_COUNT=0
+declare -a RESULTS=()
+
+record_result() {
+    local name="$1" status="$2" detail="$3"
+    RESULTS+=("$status  $name  $detail")
+    if [ "$status" = "PASS" ]; then PASS_COUNT=$((PASS_COUNT+1)); else FAIL_COUNT=$((FAIL_COUNT+1)); fi
+    print_status "$([ "$status" = "PASS" ] && echo ok || echo fail)" "$name: $status — $detail"
+}
+
+# ─── Stack management ────────────────────────────────────────────────────────
+
+ensure_kafka() {
+    if nc -z 127.0.0.1 9092 2>/dev/null; then return 0; fi
+    print_status "wait" "Starting Kafka container..."
+    docker rm -f "$KAFKA_CONTAINER" 2>/dev/null || true
+    docker run -d --name "$KAFKA_CONTAINER" -p 9092:9092 \
+        -e KAFKA_BROKER_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller -e KAFKA_NODE_ID=1 \
+        -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+        -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+        -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
+        -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+        -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+        -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+        -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+        -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
+        confluentinc/cp-kafka:7.5.0 >/dev/null
+    local waited=0
+    while [ $waited -lt 60 ] && ! nc -z 127.0.0.1 9092 2>/dev/null; do sleep 1; waited=$((waited+1)); done
+    sleep 5
+}
+
+topic_partitions() {
+    docker exec "$KAFKA_CONTAINER" kafka-topics --describe \
+        --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null \
+        | awk -F'PartitionCount: ' 'NF>1 {split($2, a, /[ \t]/); print a[1]; exit}'
+}
+
+ensure_partitions() {
+    local topic="$1" wanted="$2"
+    local have; have=$(topic_partitions "$topic")
+    if [ -z "$have" ]; then
+        docker exec "$KAFKA_CONTAINER" kafka-topics --create --bootstrap-server localhost:9092 \
+            --topic "$topic" --partitions "$wanted" --replication-factor 1 >/dev/null 2>&1
+    elif [ "$have" -lt "$wanted" ]; then
+        docker exec "$KAFKA_CONTAINER" kafka-topics --alter --bootstrap-server localhost:9092 \
+            --topic "$topic" --partitions "$wanted" >/dev/null 2>&1
+    fi
+    have=$(topic_partitions "$topic")
+    if [ "${have:-0}" -lt "$wanted" ]; then
+        print_status "fail" "$topic has ${have:-0} partitions, need >= $wanted"
+        return 1
+    fi
+    print_status "ok" "$topic partitions: $have"
+}
+
+ensure_stack() {
+    ensure_kafka
+    ensure_partitions "$TOPIC" "$PARTITIONS" || exit 1
+    ensure_partitions mdx-alerts 1 || exit 1
+
+    if ! curl -sf http://127.0.0.1:9200/health >/dev/null 2>&1; then
+        python3 "$REPO_ROOT/test/sim_scripts/elastic/elastic_sim.py" > "$PID_DIR/elastic_sim.log" 2>&1 &
+        echo $! > "$PID_DIR/elastic_sim.pid"
+    fi
+    if ! curl -sf http://127.0.0.1:30888/status >/dev/null 2>&1; then
+        python3 "$REPO_ROOT/test/sim_scripts/vst/vst_sim.py" > "$PID_DIR/vst_sim.log" 2>&1 &
+        echo $! > "$PID_DIR/vst_sim.pid"
+    fi
+    if ! curl -sf http://127.0.0.1:8080/models >/dev/null 2>&1; then
+        python3 "$REPO_ROOT/test/sim_scripts/vss/vss_sim.py" > "$PID_DIR/vss_sim.log" 2>&1 &
+        echo $! > "$PID_DIR/vss_sim.pid"
+    fi
+    sleep 2
+}
+
+# Kill by pattern, not by PID file: a stub orphaned by an earlier run keeps
+# port 18081 and the replacement dies with EADDRINUSE while every request is
+# still served at the *old* delay.
+start_nim_stub() {
+    local delay="$1"
+    pkill -f "nim_stub_server.py" 2>/dev/null || true
+    rm -f "$PID_DIR/nim_sim.pid"
+    local waited=0
+    while [ $waited -lt 15 ] && nc -z 127.0.0.1 18081 2>/dev/null; do sleep 1; waited=$((waited+1)); done
+    if nc -z 127.0.0.1 18081 2>/dev/null; then
+        print_status "fail" "port 18081 still held; refusing to run with a stale NIM stub"
+        return 1
+    fi
+
+    NIM_STUB_DELAY_SECONDS="$delay" \
+        python3 "$REPO_ROOT/test/sim_scripts/nim/nim_stub_server.py" > "$PID_DIR/nim_sim.log" 2>&1 &
+    echo $! > "$PID_DIR/nim_sim.pid"
+    waited=0
+    while [ $waited -lt 15 ] && ! nc -z 127.0.0.1 18081 2>/dev/null; do sleep 1; waited=$((waited+1)); done
+    nc -z 127.0.0.1 18081 2>/dev/null || { print_status "fail" "NIM stub did not bind 18081"; return 1; }
+}
+
+# ─── Alert Bridge lifecycle ──────────────────────────────────────────────────
+
+build_config() {
+    # build_config OUT PROCESSES VLM_CAP BATCH_COMMIT
+    python3 - "$BASE_CONFIG" "$1" "$2" "$3" "$4" <<'PY'
+import sys, yaml
+src, dst, processes, vlm_cap, batch_commit = sys.argv[1:6]
+with open(src) as f:
+    cfg = yaml.safe_load(f)
+aa = cfg.setdefault('alert_agent', {})
+aa['processes'] = int(processes)
+aa['pipeline_mode'] = 'event_loop'
+aa['num_workers'] = 2
+aa['chunk_size'] = 1
+aa['async_dispatch_workers'] = 2
+aa['async_dispatch_max_in_flight'] = 200
+aa['include_latency_info'] = True
+aio = aa.setdefault('async_io', {})
+aio['max_vlm_concurrent'] = int(vlm_cap)
+aio['max_vst_concurrent'] = int(vlm_cap)
+k = cfg.setdefault('kafka', {})
+k['poll_timeout'] = 50
+k['max_poll_records'] = 50
+k['batch_commit'] = batch_commit == 'true'
+cfg.setdefault('vlm', {})['request_timeout'] = 120
+with open(dst, 'w') as f:
+    yaml.safe_dump(cfg, f, sort_keys=False)
+PY
+}
+
+stop_ab() {
+    stop_alert_bridge_local "$PID_DIR"
+    # Children run with daemon=False and outlive a hard-killed parent, keeping
+    # consumer-group membership and blocking the next offset reset.
+    pkill -9 -f "$AB_PATTERN" 2>/dev/null || true
+    local waited=0
+    while [ $waited -lt 15 ] && { nc -z 127.0.0.1 9080 2>/dev/null || nc -z 127.0.0.1 9081 2>/dev/null; }; do
+        sleep 1; waited=$((waited+1))
+    done
+}
+
+start_ab() {
+    local config="$1"
+    local config_dir; config_dir="$(cd "$(dirname "$config")" && pwd)"
+    ALERT_AGENT_CONFIG_DIR="$config_dir" PROMETHEUS_METRICS_ENABLED=true \
+        python3 "$REPO_ROOT/enhance_alert_with_vlm.py" --config "$config" > "$PID_DIR/alert_bridge.log" 2>&1 &
+    echo $! > "$PID_DIR/alert_bridge.pid"
+    local waited=0
+    while [ $waited -lt 120 ]; do
+        if grep -q "Starting anomaly processing loop" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
+            sleep 8   # consumer group join + partition assignment settle
+            return 0
+        fi
+        if ! kill -0 "$(cat "$PID_DIR/alert_bridge.pid")" 2>/dev/null; then
+            print_status "fail" "Alert Bridge exited during startup"
+            tail -10 "$PID_DIR/alert_bridge.log" || true
+            return 1
+        fi
+        sleep 1; waited=$((waited+1))
+    done
+    print_status "fail" "Alert Bridge did not reach processing loop"
+    return 1
+}
+
+pipeline_pids() {
+    pgrep -f "$AB_PATTERN" 2>/dev/null | tr '\n' ' '
+}
+
+prepare_run() {
+    # prepare_run PROCESSES BATCH_COMMIT NIM_DELAY
+    local cfg="$PID_DIR/scaling_config.yaml"
+    stop_ab
+    docker exec "$KAFKA_CONTAINER" kafka-consumer-groups --bootstrap-server localhost:9092 \
+        --group "$CONSUMER_GROUP" --reset-offsets --to-latest --all-topics --execute >/dev/null 2>&1 || true
+    start_nim_stub "$3" || return 1
+    reset_es
+    build_config "$cfg" "$1" "$VLM_CAP" "$2"
+    start_ab "$cfg" || return 1
+    local waited=0
+    while [ $waited -lt 20 ]; do
+        local infl; infl=$(nim_stub_stat in_flight)
+        [ "${infl:-1}" = "0" ] && break
+        sleep 1; waited=$((waited+1))
+    done
+    nim_stub_reset
+    print_status "info" "AB up — processes=$1 batch_commit=$2 stub_delay=$3"
+}
+
+reset_es() {
+    local today; today=$(date -u +%Y-%m-%d)
+    curl -sf -X DELETE "$ES_HOST/mdx-vlm-incidents-$today" >/dev/null 2>&1 || true
+    curl -sf -X DELETE "$ES_HOST/ab-confirmed-verdicts" >/dev/null 2>&1 || true
+}
+
+# ─── Signal helpers ──────────────────────────────────────────────────────────
+
+prom_value() {
+    curl -s "$METRICS_URL" 2>/dev/null | awk -v m="$1" '$1==m {v=$2} END{if(v=="")v=0; print v}'
+}
+
+vlm_mean_over() {
+    # vlm_mean_over RATE DURATION PREFIX → "mean cpu_avg cpu_max"
+    local rate="$1" duration="$2" prefix="$3"
+    local s0 c0 s1 c1 cpu
+    s0=$(prom_value alert_bridge_vlm_duration_seconds_sum)
+    c0=$(prom_value alert_bridge_vlm_duration_seconds_count)
+    python3 "$CPU_SAMPLER" "$AB_PATTERN" 2 "$duration" > "$RESULTS_DIR/cpu_$prefix.txt" 2>/dev/null &
+    local sampler=$!
+    python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+        --num-sensors 16 --rate "$rate" --duration "$duration" \
+        --unique --sensor-prefix "$prefix" > "$RESULTS_DIR/injector_$prefix.log" 2>&1
+    wait $sampler || true
+    sleep 10   # let in-flight calls finish observing
+    s1=$(prom_value alert_bridge_vlm_duration_seconds_sum)
+    c1=$(prom_value alert_bridge_vlm_duration_seconds_count)
+    cpu=$(cut -d' ' -f1,2 "$RESULTS_DIR/cpu_$prefix.txt" 2>/dev/null || echo "0 0")
+    echo "$(python3 -c "s=$s1-$s0;c=$c1-$c0;print(f'{s/c:.3f}' if c>0 else '0')") $cpu"
+}
+
+assert_stub_delay() {
+    # The observed mean must track the configured stub delay; if it does not,
+    # a stale stub is serving and no latency number in this run is meaningful.
+    local observed="$1" configured="$2"
+    python3 -c "
+import sys
+observed, configured = float('$observed'), float('$configured')
+sys.exit(0 if configured * 0.8 <= observed <= configured * 3.0 else 1)"
+}
+
+# ─── TS-030: rate ramp, 1 process vs N ──────────────────────────────────────
+ts_030() {
+    echo ""; echo "=== TS-030: rate ramp — 1 process vs $PROCESSES processes ==="
+    local single_means=() multi_means=() single_cpu=() multi_cpu=()
+    local rate detail
+
+    for variant in 1 "$PROCESSES"; do
+        prepare_run "$variant" false "$STUB_DELAY" || { record_result TS-030 FAIL "AB startup (processes=$variant)"; return; }
+        for rate in $RAMP_RATES; do
+            read -r mean cavg cmax <<< "$(vlm_mean_over "$rate" "$RAMP_SECONDS" "P${variant}R${rate}")"
+            print_status "info" "processes=$variant rate=$rate/s vlm_mean=${mean}s cpu_avg=${cavg}% cpu_max=${cmax}%"
+            if [ "$variant" = "1" ]; then
+                single_means+=("$mean"); single_cpu+=("$cmax")
+            else
+                multi_means+=("$mean"); multi_cpu+=("$cmax")
+            fi
+        done
+    done
+
+    local last=$(( ${#single_means[@]} - 1 ))
+    if [ "$last" -lt 1 ]; then record_result TS-030 FAIL "need at least two rates in RAMP_RATES"; return; fi
+
+    if ! assert_stub_delay "${single_means[0]}" "$STUB_DELAY"; then
+        record_result TS-030 FAIL "baseline vlm_mean=${single_means[0]}s does not match stub delay ${STUB_DELAY}s (stale stub?)"
+        return
+    fi
+
+    detail="single: mean ${single_means[0]}→${single_means[$last]}s cpu_max ${single_cpu[$last]}% | \
+${PROCESSES}p: mean ${multi_means[0]}→${multi_means[$last]}s cpu_max ${multi_cpu[$last]}%"
+
+    # At the top rate the single process must be pinned near one core with its
+    # observed VLM latency inflated by loop-resume delay; N processes must use
+    # materially more CPU and keep latency close to the backend's service time.
+    if python3 -c "
+import sys
+s_base, s_top = float('${single_means[0]}'), float('${single_means[$last]}')
+m_base, m_top = float('${multi_means[0]}'), float('${multi_means[$last]}')
+s_cpu, m_cpu = float('${single_cpu[$last]}'), float('${multi_cpu[$last]}')
+ok = (s_cpu < 150.0
+      and m_cpu > s_cpu * 2.0
+      and m_top <= m_base * 1.3
+      and m_top < s_top)
+sys.exit(0 if ok else 1)"; then
+        record_result TS-030 PASS "$detail"
+    else
+        record_result TS-030 FAIL "$detail"
+    fi
+}
+
+# ─── TS-031: killed child is restarted and its partitions resume ────────────
+ts_031() {
+    echo ""; echo "=== TS-031: child crash → supervisor restarts → partitions resume ==="
+    prepare_run "$PROCESSES" false 1 || { record_result TS-031 FAIL "AB startup"; return; }
+
+    local before after victim
+    before=$(pipeline_pids)
+    local before_count; before_count=$(echo "$before" | wc -w)
+    if [ "$before_count" -ne $((PROCESSES + 1)) ]; then
+        record_result TS-031 FAIL "expected $((PROCESSES + 1)) processes (parent + $PROCESSES children), found $before_count"
+        return
+    fi
+
+    # Kill the last child, never the parent (first pid is the supervisor).
+    victim=$(echo "$before" | tr ' ' '\n' | grep -v '^$' | tail -1)
+    kill -9 "$victim" 2>/dev/null || true
+
+    local waited=0 restarted=0
+    while [ $waited -lt 60 ]; do
+        after=$(pipeline_pids)
+        if [ "$(echo "$after" | wc -w)" -eq "$before_count" ] && ! echo "$after" | grep -qw "$victim"; then
+            restarted=1; break
+        fi
+        sleep 2; waited=$((waited+2))
+    done
+
+    if [ "$restarted" -ne 1 ]; then
+        record_result TS-031 FAIL "child $victim not replaced within ${waited}s"
+        return
+    fi
+    if ! grep -q "Pipeline process .* exited" "$PID_DIR/alert_bridge.log"; then
+        record_result TS-031 FAIL "supervisor did not log the child exit"
+        return
+    fi
+
+    # Every partition must be served again: inject across all of them and
+    # require the full set to land in Elasticsearch.
+    sleep 10
+    python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+        --num-sensors "$PARTITIONS" --rate 4 --duration 30 --unique \
+        --sensor-prefix TS031 > "$RESULTS_DIR/injector_TS031.log" 2>&1
+    local produced; produced=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS031.log" | grep -o "[0-9]*")
+
+    waited=0
+    while [ $waited -lt 120 ]; do
+        local lag; lag=$(kafka_consumer_lag "$CONSUMER_GROUP")
+        [ "${lag:-1}" -eq 0 ] 2>/dev/null && break
+        sleep 5; waited=$((waited+5))
+    done
+    sleep 10
+
+    local docs; docs=$(count_es_docs "$ES_HOST")
+    local detail="killed=$victim restarted_after=${waited}s produced=$produced es_docs=$docs"
+    if [ "${docs:-0}" -eq "${produced:-0}" ] && [ "${produced:-0}" -gt 0 ]; then
+        record_result TS-031 PASS "$detail"
+    else
+        record_result TS-031 FAIL "$detail"
+    fi
+}
+
+# ─── TS-032: no message loss under overload, both commit modes ──────────────
+ts_032() {
+    echo ""; echo "=== TS-032: no loss under overload (batch_commit off then on) ==="
+    local detail="" failed=0
+    for batch in false true; do
+        prepare_run "$PROCESSES" "$batch" 1 || { failed=1; detail="$detail batch_commit=$batch: startup;"; break; }
+
+        python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
+            --num-sensors "$PARTITIONS" --rate 60 --duration 60 --unique \
+            --sensor-prefix "TS032B${batch}" > "$RESULTS_DIR/injector_TS032_$batch.log" 2>&1
+        local produced; produced=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS032_$batch.log" | grep -o "[0-9]*")
+
+        print_status "wait" "Draining backlog (produced=$produced)..."
+        local waited=0
+        while [ $waited -lt 420 ]; do
+            local lag infl
+            lag=$(kafka_consumer_lag "$CONSUMER_GROUP")
+            infl=$(prom_value alert_bridge_dispatch_in_flight)
+            if [ "${lag:-1}" -eq 0 ] 2>/dev/null && python3 -c "import sys; sys.exit(0 if float('$infl')==0 else 1)"; then
+                break
+            fi
+            sleep 10; waited=$((waited+10))
+        done
+        sleep 5
+
+        local after_dedup docs
+        after_dedup=$(prom_value alert_bridge_events_after_dedup_total)
+        docs=$(count_es_docs "$ES_HOST")
+        detail="$detail batch_commit=$batch produced=$produced after_dedup=$after_dedup es_docs=$docs;"
+
+        # --unique means survivor rate == injection rate, so a shortfall is
+        # loss. Batched commit may replay, so duplicates are allowed above the
+        # produced count while a shortfall is not.
+        if ! python3 -c "
+import sys
+produced, after_dedup, docs = $produced, float('$after_dedup'), int('$docs')
+sys.exit(0 if produced > 0 and after_dedup >= produced and docs >= produced else 1)"; then
+            failed=1
+        fi
+    done
+
+    if [ "$failed" -eq 0 ]; then
+        record_result TS-032 PASS "$detail"
+    else
+        record_result TS-032 FAIL "$detail"
+    fi
+}
+
+# ─── Main ────────────────────────────────────────────────────────────────────
+
+echo "=== Multi-process scaling suite (no-GPU sim harness) ==="
+echo "    processes=$PROCESSES partitions=$PARTITIONS stub_delay=${STUB_DELAY}s max_vlm_concurrent=$VLM_CAP"
+
+if [ ! -r /proc/self/stat ]; then
+    echo "This suite reads CPU accounting from /proc and requires Linux."
+    exit 2
+fi
+
+if [ "$SKIP_SETUP" -eq 0 ]; then
+    ensure_stack
+fi
+
+if [ -x "$REPO_ROOT/venv/bin/python3" ]; then
+    export PATH="$REPO_ROOT/venv/bin:$PATH"
+fi
+
+for ts in ts_030 ts_031 ts_032; do
+    ts_id="TS-${ts#ts_}"
+    if [ -n "$ONLY_TEST" ] && [ "$ONLY_TEST" != "$ts_id" ]; then
+        continue
+    fi
+    $ts
+done
+
+stop_ab
+start_nim_stub 0 || true
+
+echo ""
+echo "=== Scaling results ==="
+for r in "${RESULTS[@]}"; do echo "  $r"; done
+echo "  Passed: $PASS_COUNT  Failed: $FAIL_COUNT"
+[ "$FAIL_COUNT" -eq 0 ]

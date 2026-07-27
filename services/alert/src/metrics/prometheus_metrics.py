@@ -632,6 +632,16 @@ VERIFICATION_FAILURES = Counter(
 # ---------------------------------------------------------------------------
 
 # (1) In-process cache occupancy + eviction accounting.
+# ``livemostrecent`` is deliberate and stays that way under
+# ``alert_agent.processes > 1``. The two labels aggregate differently and no
+# single mode is right for both: ``dedup``/``enddelta`` are partitioned
+# (each process holds a disjoint set of sensor cohorts, so the instance total
+# is the sum), while ``alert_config`` is replicated identically in every
+# process including the FastAPI child, so summing it would report N times the
+# real config count. This gauge therefore reads as a per-process sample:
+# still a valid memory-growth signal, since every process's cache grows
+# alike, but not an instance-wide total. Use ``sum(...) by (store)`` in the
+# query for that, on the partitioned stores only.
 DEDUP_CACHE_OCCUPANCY = Gauge(
     'alert_bridge_dedup_cache_occupancy',
     'Resident entry count of an in-process state cache (live entries plus any '

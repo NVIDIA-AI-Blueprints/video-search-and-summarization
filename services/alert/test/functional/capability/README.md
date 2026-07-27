@@ -24,6 +24,48 @@ fresh cohort so the survivor rate equals the injection rate exactly.
 | TS-014 | event_loop, 15s VLM, hard-kill while the call is in flight, restart same group | offset committed at consume (lag 0 mid-flight); killed message NOT reprocessed after restart (at-most-once) |
 | TS-020 | 20 byte-identical messages burst across a 10-worker pool (`max_poll_records=1`) | exactly 1 survivor: after_dedup == 1, dropped == 19, ES docs == 1 |
 
+## Multi-core scaling suite
+
+`run_multiprocess_scaling.sh` covers `alert_agent.processes` — whether one
+instance uses more than the ~1 core a single GIL-bound process can reach.
+
+```bash
+./run_multiprocess_scaling.sh                    # full suite
+./run_multiprocess_scaling.sh --test TS-031      # single check
+./run_multiprocess_scaling.sh --processes 8 --partitions 16
+```
+
+| Check | Setup | Pass criteria |
+|---|---|---|
+| TS-030 | rate ramp (10/20/40/80 msg/s), NIM stub 0.2s, `max_vlm_concurrent=60`, 1 process vs N | single process pinned below ~1.5 cores; N processes use >2× that CPU and hold `vlm_duration` within 30% of its low-rate baseline, below the single-process value |
+| TS-031 | N processes, `SIGKILL` one child | supervisor logs the exit, replaces the child, and the full injected set lands in Elasticsearch afterwards |
+| TS-032 | N processes, 60 msg/s overload, `batch_commit` off then on | no shortfall against the produced count in either mode (batched commit may add duplicates, never losses) |
+
+Sizing the run matters more than in the suite above:
+
+- **Partitions ≥ processes.** Effective parallelism is
+  `min(processes, partition_count)`; the runner grows `mdx-incidents` to
+  `--partitions` (default 8) and aborts if the topic cannot reach it. At one
+  partition the ramp shows nothing at all.
+- **The offered rate has to reach the CPU ceiling.** Keep the stub delay low
+  and the cap high so `max_vlm_concurrent / VLM_latency` sits far above every
+  rate tested (default `60 / 0.2 = 300/s`); otherwise the semaphore binds
+  first and single- and multi-process results are identical.
+- **CPU comes from `/proc` deltas** (`process_tree_cpu.py`), not `ps %cpu`,
+  which reports a lifetime average. 100% = one fully busy core. Linux only.
+- **The NIM stub is killed by pattern and its port verified.** A stub left
+  from an earlier run keeps port 18081, the replacement dies with
+  `EADDRINUSE`, and every request is silently served at the *old* delay.
+  TS-030 additionally asserts the observed baseline latency tracks the
+  configured delay before trusting any number in the run.
+- `stop_ab` kills by process name: children run with `daemon=False` and
+  outlive a hard-killed parent, keeping consumer-group membership and blocking
+  the next offset reset.
+- **Treat the rates here as an upper bound.** The stubs return small payloads
+  over loopback with no real protobuf decode, Elasticsearch round-trip or VST
+  I/O, so the per-process CPU ceiling they show is higher than a real
+  deployment's. Re-measure against real dependencies before sizing anything.
+
 Notes:
 - Consumer-group offsets are reset to latest between checks (committed offsets
   survive Alert Bridge restarts; overload leftovers would contaminate the next

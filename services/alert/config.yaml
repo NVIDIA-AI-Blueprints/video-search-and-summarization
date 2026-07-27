@@ -50,6 +50,13 @@ kafka:
   max_poll_interval_ms: 60000      # 60 seconds
   session_timeout_ms: 10000        # 10 seconds
   heartbeat_interval_ms: 3000      # 3 seconds
+  # Commit offsets once per poll batch (highest offset per partition) instead
+  # of once per message. Saves per-message work on the GIL-bound consume
+  # thread, but moves the crash boundary: messages polled before a crash are
+  # redelivered on restart (at-least-once) instead of being dropped
+  # (at-most-once). Only enable where duplicates are tolerated — keep
+  # alert_agent.event_filters.dedup_ttl_seconds above the replay window.
+  batch_commit: false
 
 #VLM Configuration
 vlm:
@@ -177,6 +184,15 @@ alert_type_config_file: "alert_type_config.json"
 
 # Alert Agent Configuration - Processing Settings
 alert_agent:
+  # Number of independent pipeline processes (integer, or "auto" for one per
+  # available CPU). The GIL is per-process, so this — not num_workers — is
+  # what lets one instance use more than ~1 core: each process runs its own
+  # consume loop, its own event loop and its own clients. Effective
+  # parallelism is min(processes, kafka partition count); processes beyond
+  # the partition count join the consumer group and idle. Dedup stays correct
+  # without coordination because mdx-incidents is partitioned by sensorId, so
+  # a whole cohort lands on one process.
+  processes: 1
   num_workers: 10                                # Number of worker threads
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes

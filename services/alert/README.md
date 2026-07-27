@@ -40,7 +40,9 @@ endpoint.
 > coordination — and therefore no shared cache — is needed. Multi-replica
 > deployments work unchanged: each pod owns its Kafka partitions and keeps
 > its own in-process state; on restart/rebalance the pod taking over
-> rebuilds state from new events (verdict protection survives via ES).
+> rebuilds state from new events (verdict protection survives via ES). The
+> same holds within a pod for `alert_agent.processes > 1` (see
+> [Multi-core scaling](#multi-core-scaling-alert_agentprocesses)).
 
 ## Project Structure
 
@@ -175,6 +177,90 @@ async_dispatch_max_in_flight ≈ 2–4 × max_vlm_concurrent
 The sustainable rate ("knee") is `max_vlm_concurrent ÷ VLM_latency`; below it
 consumer lag stays flat, above it lag grows by design (bounded backpressure).
 
+### Multi-core scaling (`alert_agent.processes`)
+
+The pipeline modes above all run inside **one** Python process, and the GIL
+lets only one thread execute bytecode at a time. A single instance therefore
+uses at most ~1 core no matter how many `num_workers` threads are configured
+or how many cores the host has, and two ceilings follow from that:
+
+- **Kafka ingest** — one scheduling loop does poll → decode → dedup → commit.
+  Extra worker threads share the same GIL, so they do not raise it.
+- **VLM dispatch** — in `event_loop` mode a single loop thread drives every
+  VST / VLM / Elasticsearch call. Once that thread saturates, raising
+  `max_vlm_concurrent` adds latency instead of throughput: the backend's
+  service time is unchanged, but the coroutine cannot be resumed promptly
+  after its response arrives.
+
+`alert_agent.processes` (integer, or `"auto"` for one per available CPU;
+default `1`) forks that many independent pipeline processes. Each child owns a
+complete stack — its own consumers, its own event loop, its own clients — and
+its own GIL, which is what actually lifts both ceilings.
+
+```yaml
+alert_agent:
+  processes: 4        # or "auto"
+```
+
+- **Effective parallelism is `min(processes, partition_count)`.** Children
+  beyond the partition count join the consumer group and idle. Raise the
+  partition count on `mdx-incidents` alongside `processes`.
+- **No shared state is needed.** `mdx-incidents` is partitioned by `sensorId`
+  and every dedup cohort key is prefixed with it, so Kafka routes a whole
+  cohort to one partition and therefore to exactly one child; confirmed-verdict
+  protection is Elasticsearch-backed and survives restart and rebalance. This
+  is the same argument that already makes multi-replica deployments safe,
+  applied within a host.
+- **Per-service caps are per process.** `max_vlm_concurrent`,
+  `async_dispatch_max_in_flight` and `num_workers` are unchanged in meaning,
+  but the instance-wide ceiling becomes `processes × cap`. Size the VLM cap
+  against `peak_survivor_rate / processes` so the backend does not see
+  `processes ×` its benchmarked concurrency.
+- **The parent runs no pipeline.** It performs the VLM warmup once, serves the
+  Prometheus scrape endpoint, owns the FastAPI child, and supervises. It never
+  joins the consumer group — a member that stopped polling would stall the
+  partitions assigned to it.
+- **Crashed children are restarted** in place, so their partitions resume
+  without waiting for a rebalance. A slot that keeps dying within 60 s is a
+  config or dependency failure: after 5 such restarts the supervisor gives up
+  and exits, surfacing the error instead of hiding it behind restart noise.
+- **Metrics aggregate automatically.** Children inherit
+  `PROMETHEUS_MULTIPROC_DIR` and the parent scrapes with
+  `MultiProcessCollector`, so `:9081` stays the single endpoint. Counters and
+  histograms sum, and the in-flight gauges (`dispatch_in_flight`,
+  `event_loop_vlm_in_flight`, `event_loop_vst_in_flight`, `async_sink_in_flight`)
+  are `livesum`, so they are instance totals. `alert_bridge_dedup_cache_occupancy`
+  is the exception: it stays `livemostrecent` and reads as a per-process
+  sample, because its `dedup`/`enddelta` stores are partitioned across
+  processes while `alert_config` is replicated in each of them.
+
+### Crash and replay semantics (`kafka.batch_commit`)
+
+Offsets are committed at poll time, before dedup, VST and VLM. That makes the
+pipeline **at-most-once**: a message lost to a crash after the poll is gone
+permanently, with no replay. TS-014 in the capability suite asserts exactly
+this.
+
+`kafka.batch_commit` (default `false`) instead records the highest offset per
+partition and commits once per poll batch, removing one commit call per
+message from the GIL-bound consume thread. Committing the highest offset is
+equivalent to committing each in turn — offsets are monotonic within a
+partition and every intermediate message is already in the returned batch —
+but it moves the crash boundary: messages polled and not yet committed **are
+redelivered** on restart, shifting the pipeline toward **at-least-once**.
+
+Enable it only where duplicates are tolerated:
+
+- In-process dedup collapses identical cohorts, so a replay inside
+  `alert_agent.event_filters.dedup_ttl_seconds` (default 300 s) is absorbed.
+  Keep that TTL above the expected replay window.
+- Confirmed-verdict protection (`protect_confirmed_verdicts`) is
+  Elasticsearch-backed and also suppresses re-verification across a restart.
+- Anything downstream of the sink that is not idempotent will see duplicates.
+
+The default keeps today's at-most-once behavior, so the two semantics can be
+adopted per deployment rather than flag-day.
+
 ### VLM concurrency ceiling benchmark (run before raising `max_vlm_concurrent`)
 
 `max_vlm_concurrent` must never exceed what the VLM backend actually serves
@@ -218,6 +304,11 @@ pytest
 For functional and end-to-end testing against local simulators (Kafka +
 Elasticsearch, sending sample payloads, verifying responses), see
 [`test/TEST_README.md`](test/TEST_README.md).
+
+Sustained-load capability checks and the multi-core scaling suite (rate ramp,
+child crash/restart, message-loss checks under overload) live in
+[`test/functional/capability/`](test/functional/capability/README.md) and need
+no GPU.
 
 ## Contributing
 

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 
@@ -30,6 +30,7 @@ class KafkaMessageBroker:
 
     def __init__(self, kafkaConfig: dict) -> None:
         self.config = kafkaConfig
+        self.batch_commit = bool(kafkaConfig.get('kafka', {}).get('batch_commit', False))
 
     def get_consumer(self, topic: str, group_id: str) -> Consumer:
         """
@@ -65,9 +66,25 @@ class KafkaMessageBroker:
         }
         return Producer(producer_config)
 
+    def _commit_pending(self, consumer: Consumer, pending: Dict[Tuple[str, int], Any]) -> None:
+        """Commit the highest offset seen for each partition in the batch."""
+        for msg in pending.values():
+            try:
+                consumer.commit(msg)
+            except KafkaException as ke:
+                logger.error(f"Failed to commit batched offset: {ke}")
+
     def get_consumed_messages(self, consumer: Consumer, batch_size: Optional[int] = None) -> Dict[str, List[Tuple[str, str]]]:
         """
         Consumes a batch of messages from a Kafka topic and manually commits the offsets.
+
+        With ``kafka.batch_commit`` enabled the commit is deferred to the end of
+        the batch instead of being issued per message. Offsets are monotonic
+        within a partition and every intermediate message is already in the
+        returned batch, so committing the highest offset per partition is
+        equivalent to committing each in turn. It does move the crash boundary:
+        messages polled but not yet committed are redelivered after a crash
+        (see README "Crash and replay semantics").
 
         :param consumer: The Confluent Kafka consumer.
         :param batch_size: The number of messages to consume in a single batch. Defaults to kafka.max_poll_records.
@@ -75,6 +92,7 @@ class KafkaMessageBroker:
         :rtype: Dict[str, List[Tuple[str, str]]]
         """
         messages = {}
+        pending_commits: Dict[Tuple[str, int], Any] = {}
         try:
             # Resolve effective batch size from argument or configuration
             effective_batch_size = batch_size if batch_size is not None else self.config['kafka'].get('max_poll_records', 10)
@@ -104,17 +122,19 @@ class KafkaMessageBroker:
                         logger.debug("Kafka message has no timestamp available")
                         kafka_timestamp_ms = None
                     messages[partition_key].append((msg.key(), msg.value(), kafka_timestamp_ms))
-                    # Manually commit the message offset
-                    try:
-                        consumer.commit(msg)
-                    except KafkaException as ke:
-                        logger.error(f"Failed to commit offset: {ke}")
-            
-            if not messages:
-                # Reduced verbosity: only log at INFO level when no messages for extended period
-                pass
+                    if self.batch_commit:
+                        pending_commits[(msg.topic(), msg.partition())] = msg
+                    else:
+                        # Manually commit the message offset
+                        try:
+                            consumer.commit(msg)
+                        except KafkaException as ke:
+                            logger.error(f"Failed to commit offset: {ke}")
 
         except KafkaException as e:
             logger.error(f"Kafka error: {e}")
+        finally:
+            if pending_commits:
+                self._commit_pending(consumer, pending_commits)
 
         return messages
