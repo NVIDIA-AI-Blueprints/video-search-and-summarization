@@ -128,13 +128,14 @@ logstash-input-redis_stream-3.3.0-java.gem
 The build writes the gem into this plugin directory. It is **git-ignored on
 purpose** — the gem is a build artifact and is not stored in the repo.
 
-To use it, **copy the gem manually** to the location the deployment consumes.
-The logstash service in `deploy/docker/services/infra/compose.yml` mounts and
-installs the gem from the deploy gems directory:
+To use it, **copy the gem manually** to the location the deployment consumes
+(renaming to the deploy gem name). The logstash service in
+`deploy/docker/services/infra/compose.yml` mounts and installs the gem from the
+deploy gems directory:
 
 ```bash
 cp logstash-input-redis_stream-3.3.0-java.gem \
-   <repo-root>/deploy/docker/services/infra/elk/logstash/gems/logstash-input-redis_stream-3.3.0-java.gem
+   <repo-root>/deploy/docker/services/infra/elk/logstash/gems/logstash-redis-stream-input-3.3.0-java.gem
 ```
 
 > If you bump `VERSION`, the gem filename changes — update the destination and

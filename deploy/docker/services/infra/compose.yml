@@ -278,7 +278,7 @@ services:
       - $VSS_APPS_DIR/services/infra/elk/logstash/configs/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
       - $VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-${STREAM_TYPE}.yml:/usr/share/logstash/config/pipelines.yml:ro
       - $VSS_APPS_DIR/services/infra/elk/logstash/pipelines/${STREAM_TYPE}/:/usr/share/logstash/pipelines/:ro
-      - $VSS_APPS_DIR/services/infra/elk/logstash/gems/logstash-input-redis_stream-3.3.0-java.gem:/usr/share/logstash/gems/logstash-redis-stream-input-java.gem
+      - $VSS_APPS_DIR/services/infra/elk/logstash/gems/logstash-redis-stream-input-3.3.0-java.gem:/usr/share/logstash/gems/logstash-redis-stream-input-java.gem
     environment:
       LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
       STREAM_TYPE: ${STREAM_TYPE}
