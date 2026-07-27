@@ -29,6 +29,9 @@ Env:
     MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
                    (all skills) — enumerates those specs instead of diffing,
                    so the matrix fans per-(spec, platform) like a push
+    MANUAL_SPEC_FILTER    optional workflow_dispatch spec stem; requires one
+                   explicit skill and narrows the sweep to that spec
+    MANUAL_PLATFORM_FILTER optional platform key; narrows the final matrix
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
 """
@@ -109,6 +112,27 @@ def list_changed_files() -> list[str]:
             sorted(p.name for p in (REPO_ROOT / "skills").iterdir() if p.is_dir())
             if manual == "*" else [manual]
         )
+        spec_filter = os.environ.get("MANUAL_SPEC_FILTER", "")
+        if spec_filter:
+            if manual == "*":
+                raise ValueError(
+                    "MANUAL_SPEC_FILTER requires one explicit MANUAL_SKILLS_FILTER"
+                )
+            if not SAFE_SLUG_RE.fullmatch(spec_filter):
+                raise ValueError(
+                    f"unsafe MANUAL_SPEC_FILTER {spec_filter!r}: expected a spec stem"
+                )
+            matches = [
+                spec_path
+                for spec_path, _, stem in specs_for_skill(manual)
+                if stem == spec_filter
+            ]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"MANUAL_SPEC_FILTER {spec_filter!r}: expected exactly one "
+                    f"spec under skills/{manual}, found {len(matches)}"
+                )
+            return matches
         return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
@@ -305,6 +329,23 @@ def emit(include: list[dict]) -> None:
     print(f"matrix={matrix}")
 
 
+def apply_manual_platform_filter(include: list[dict]) -> list[dict]:
+    platform = os.environ.get("MANUAL_PLATFORM_FILTER", "")
+    if not platform:
+        return include
+    if not SAFE_SLUG_RE.fullmatch(platform):
+        raise ValueError(
+            f"unsafe MANUAL_PLATFORM_FILTER {platform!r}: expected a platform key"
+        )
+    filtered = [leg for leg in include if leg.get("platform") == platform]
+    if len(filtered) != 1:
+        raise ValueError(
+            f"MANUAL_PLATFORM_FILTER {platform!r}: expected exactly one matrix "
+            f"leg after filtering, found {len(filtered)}"
+        )
+    return filtered
+
+
 def main() -> int:
     DAILY_RUN = os.environ.get("DAILY_RUN")
     if DAILY_RUN:
@@ -314,7 +355,7 @@ def main() -> int:
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)
-    emit(build_matrix(changed))
+    emit(apply_manual_platform_filter(build_matrix(changed)))
     return 0
 
 

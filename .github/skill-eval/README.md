@@ -7,7 +7,7 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` (legacy `skills/<skill>/eval/<name>.json` still accepted).
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Selects an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
-4. Calls [`run_leg.py`](run_leg.py), which acquires the per-instance `flock`, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes `uvx harbor run` with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md).
+4. Calls [`run_leg.py`](run_leg.py), which acquires the configured per-instance lock, holds it while every Harbor subprocess for this `(spec, platform)` runs, and invokes `uvx harbor run` with the canonical flags from [`AGENTS.md § Harbor invocation`](AGENTS.md). Single-host deployments default to `flock`; multi-host coordinators use a PostgreSQL row lease plus local `flock` defense in depth.
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 
@@ -50,6 +50,9 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
+| `GPU_LEASE_MODE` | `local` (default) or `postgres`. All active coordinators sharing a GPU pool must use the same mode. |
+| `GPU_LEASE_DATABASE_URL` | TLS PostgreSQL DSN required when `GPU_LEASE_MODE=postgres`. |
+| `COORDINATOR_ID` | Stable host/runner ID; `run_leg.py` appends the GitHub run ID and PID for each lease owner. |
 
 ## Layout
 
@@ -59,6 +62,9 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 ├── AGENTS.md              ← skills-eval agent's system prompt
 ├── skills_eval_agent.py   ← the CI entrypoint (spawns the agent)
 ├── run_leg.py             ← structural per-box lock + Harbor launcher
+├── distributed_lock.py    ← PostgreSQL lease client and heartbeat
+├── postgres-gpu-leases.sql ← operator-owned worker/lease schema
+├── ops/                   ← dormant multi-coordinator staging runbook/scripts
 ├── adapters/              ← per-skill dataset generators
 │   ├── vss-deploy-profile/            ← profile × platform × mode matrix
 │   │   └── generate.py

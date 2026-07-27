@@ -9,6 +9,7 @@ Run:
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 import time
@@ -17,8 +18,10 @@ from pathlib import Path
 from unittest import mock
 
 
+_SKILL_EVAL_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_SKILL_EVAL_ROOT))
 _SPEC = importlib.util.spec_from_file_location(
-    "run_leg", Path(__file__).resolve().parents[1] / "run_leg.py"
+    "run_leg", _SKILL_EVAL_ROOT / "run_leg.py"
 )
 run_leg = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = run_leg
@@ -435,6 +438,167 @@ class HoldPoolLock(unittest.TestCase):
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             finally:
                 probe.close()
+
+
+class HoldDistributedPoolLock(unittest.TestCase):
+    class Client:
+        def __init__(self):
+            self.released = []
+
+        def try_acquire(self, candidates):
+            if not candidates:
+                return None
+            lease = mock.Mock()
+            lease.gpu_id = candidates[0]
+            lease.generation = len(self.released) + 1
+            return lease
+
+        def release(self, lease):
+            self.released.append(lease.gpu_id)
+            return True
+
+    class Guard:
+        def __init__(self, _client, lease, _heartbeat):
+            self.lease = lease
+
+        def start(self):
+            return self
+
+        def close(self):
+            return None
+
+        def raise_if_lost(self):
+            return None
+
+    def test_database_lease_and_local_flock_are_both_held(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = self.Client()
+            with mock.patch.object(run_leg, "LeaseGuard", self.Guard):
+                with run_leg.hold_distributed_pool_lock(
+                    lambda: ["box-a"],
+                    Path(tmp),
+                    timeout_sec=5,
+                    client=client,
+                    heartbeat_sec=20,
+                ) as (chosen, guard):
+                    self.assertEqual(chosen, "box-a")
+                    self.assertEqual(guard.lease.gpu_id, "box-a")
+
+            self.assertEqual(client.released, ["box-a"])
+
+    def test_local_legacy_lock_excludes_candidate_and_releases_its_lease(self):
+        import fcntl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            held = (lock_dir / "box-a.lock").open("a+")
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            client = self.Client()
+            try:
+                with mock.patch.object(run_leg, "LeaseGuard", self.Guard):
+                    with run_leg.hold_distributed_pool_lock(
+                        lambda: ["box-a", "box-b"],
+                        lock_dir,
+                        timeout_sec=5,
+                        client=client,
+                        heartbeat_sec=20,
+                    ) as (chosen, _guard):
+                        self.assertEqual(chosen, "box-b")
+            finally:
+                held.close()
+
+            self.assertEqual(client.released, ["box-a", "box-b"])
+
+    def test_heartbeat_start_failure_releases_database_and_local_locks(self):
+        class BrokenGuard:
+            def __init__(self, *_args):
+                raise RuntimeError("thread unavailable")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_dir = Path(tmp)
+            client = self.Client()
+            with (
+                mock.patch.object(run_leg, "LeaseGuard", BrokenGuard),
+                self.assertRaisesRegex(RuntimeError, "thread unavailable"),
+            ):
+                with run_leg.hold_distributed_pool_lock(
+                    lambda: ["box-a"],
+                    lock_dir,
+                    timeout_sec=5,
+                    client=client,
+                    heartbeat_sec=20,
+                ):
+                    pass
+
+            self.assertEqual(client.released, ["box-a"])
+            probe = (lock_dir / "box-a.lock").open("a+")
+            try:
+                import fcntl
+
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                probe.close()
+
+
+class RunCommandLeaseHealth(unittest.TestCase):
+    def test_lease_loss_terminates_harbor_process_group(self):
+        proc = mock.Mock()
+        proc.pid = 4321
+        proc.wait.return_value = 1
+        lost = run_leg.LeaseLostError("renewal failed")
+
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(run_leg.os, "killpg") as killpg,
+            self.assertRaises(run_leg.LeaseLostError),
+        ):
+            run_leg.run_command(
+                ["uvx", "harbor", "run"],
+                {},
+                timeout_sec=100,
+                health_check=mock.Mock(side_effect=lost),
+            )
+
+        killpg.assert_called_once_with(4321, run_leg.signal.SIGTERM)
+        proc.wait.assert_called_once_with(timeout=20)
+
+    def test_lease_loss_kills_harbor_that_ignores_sigterm(self):
+        proc = mock.Mock()
+        proc.pid = 4321
+        proc.wait.side_effect = [
+            subprocess.TimeoutExpired(["harbor"], 20),
+            0,
+        ]
+
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(run_leg.os, "killpg") as killpg,
+            self.assertRaises(run_leg.LeaseLostError),
+        ):
+            run_leg.run_command(
+                ["uvx", "harbor", "run"],
+                {},
+                timeout_sec=100,
+                health_check=mock.Mock(
+                    side_effect=run_leg.LeaseLostError("deadline reached")
+                ),
+            )
+
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                mock.call(4321, run_leg.signal.SIGTERM),
+                mock.call(4321, run_leg.signal.SIGKILL),
+            ],
+        )
+        self.assertEqual(
+            proc.wait.call_args_list,
+            [mock.call(timeout=20), mock.call()],
+        )
+
+    def test_sigterm_is_converted_to_cleanup_exception(self):
+        with self.assertRaisesRegex(run_leg.RunCancelledError, "signal 15"):
+            run_leg._handle_termination(run_leg.signal.SIGTERM, None)
 
 
 if __name__ == "__main__":

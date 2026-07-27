@@ -31,10 +31,18 @@ import fcntl
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+from distributed_lock import (
+    LeaseError,
+    LeaseGuard,
+    LeaseLostError,
+    PostgresLeaseClient,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +69,15 @@ class HarborInvocation:
 
 class LockTimeoutError(RuntimeError):
     pass
+
+
+class RunCancelledError(RuntimeError):
+    pass
+
+
+def _handle_termination(signum, _frame) -> None:
+    """Turn SIGTERM into normal unwinding so Harbor and leases are cleaned up."""
+    raise RunCancelledError(f"received signal {signum}")
 
 
 def _read_step_count(task_toml: Path) -> int | None:
@@ -561,21 +578,146 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
         print(f"[run-leg] lock released: {chosen}", flush=True)
 
 
-def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
+@contextlib.contextmanager
+def hold_distributed_pool_lock(
+    candidates_fn,
+    lock_dir: Path,
+    timeout_sec: int,
+    client: PostgresLeaseClient,
+    heartbeat_sec: int,
+):
+    """Acquire a PostgreSQL lease plus a host-local defense-in-depth flock."""
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout_sec
+    last_names: list[str] = []
+    while True:
+        last_names = list(candidates_fn())
+        remaining = list(last_names)
+        lease = None
+        fp = None
+        while remaining:
+            lease = client.try_acquire(remaining)
+            if lease is None:
+                break
+            name = lease.gpu_id
+            if "/" in name or name in {"", ".", ".."}:
+                with contextlib.suppress(LeaseError):
+                    client.release(lease)
+                raise ValueError(f"invalid Brev instance name for lock file: {name!r}")
+            lock_path = lock_dir / f"{name}.lock"
+            candidate_fp = lock_path.open("a+")
+            try:
+                fcntl.flock(
+                    candidate_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+                )
+            except OSError as exc:
+                candidate_fp.close()
+                with contextlib.suppress(LeaseError):
+                    client.release(lease)
+                if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                    raise
+                # A legacy process on this coordinator holds the local lock.
+                # Exclude this worker for this snapshot instead of reacquiring
+                # and releasing the same PostgreSQL row in a tight loop.
+                remaining = [item for item in remaining if item != name]
+                lease = None
+                continue
+            fp = candidate_fp
+            break
+
+        if lease is not None and fp is not None:
+            break
+        remaining_sec = deadline - time.monotonic()
+        if remaining_sec <= 0:
+            raise LockTimeoutError(
+                "no eligible distributed GPU lease became free before timeout "
+                f"(last candidates: {', '.join(last_names) or 'none'})"
+            )
+        print(
+            f"[run-leg] all distributed candidates busy or unavailable "
+            f"({', '.join(last_names) or 'no RUNNING hardware match'}); "
+            f"retrying in 60s ({int(remaining_sec)}s remaining)",
+            flush=True,
+        )
+        time.sleep(min(60, remaining_sec))
+
+    guard = None
+    try:
+        guard = LeaseGuard(client, lease, heartbeat_sec).start()
+        print(
+            f"[run-leg] selected instance: {lease.gpu_id} "
+            f"(PostgreSQL lease generation={lease.generation}, local flock held)",
+            flush=True,
+        )
+        yield lease.gpu_id, guard
+    finally:
+        active_error = sys.exc_info()[0] is not None
+        cleanup_error: BaseException | None = None
+        if guard is not None:
+            try:
+                guard.close()
+            except BaseException as exc:
+                cleanup_error = exc
+        try:
+            released = client.release(lease)
+            if not released:
+                print(
+                    f"[run-leg] lease already expired or reassigned: {lease.gpu_id}",
+                    flush=True,
+                )
+        except LeaseError as exc:
+            print(f"[run-leg] lease release deferred to TTL: {exc}", file=sys.stderr)
+            cleanup_error = cleanup_error or exc
+        finally:
+            fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+            fp.close()
+        print(f"[run-leg] distributed lock released: {lease.gpu_id}", flush=True)
+        if cleanup_error is not None and not active_error:
+            raise cleanup_error
+
+
+def _terminate_process_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=20)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+
+
+def run_command(
+    cmd: list[str],
+    env: dict[str, str],
+    timeout_sec: int,
+    health_check=None,
+) -> int:
     print(f"[run-leg] exec: {' '.join(cmd)}", flush=True)
     proc = subprocess.Popen(cmd, cwd=str(REPO_ROOT), env=env, start_new_session=True)
-    try:
-        return proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        print(f"[run-leg] timeout after {timeout_sec}s; terminating harbor", flush=True)
+    deadline = time.monotonic() + timeout_sec
+    while True:
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            proc.wait(timeout=30)
-        except (ProcessLookupError, subprocess.TimeoutExpired):
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
-        return 124
+            if health_check is not None:
+                health_check()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                print(
+                    f"[run-leg] timeout after {timeout_sec}s; terminating harbor",
+                    flush=True,
+                )
+                _terminate_process_group(proc)
+                return 124
+            return proc.wait(timeout=min(5, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+        except BaseException:
+            print(
+                "[run-leg] lease health check failed; terminating harbor",
+                file=sys.stderr,
+                flush=True,
+            )
+            _terminate_process_group(proc)
+            raise
 
 
 def latest_reward(
@@ -633,6 +775,7 @@ def run_invocations(
     spec_stem: str,
     platform: str,
     harbor_timeout_sec: int,
+    health_check=None,
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -679,7 +822,7 @@ def run_invocations(
 
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
-        rc = run_command(cmd, env, harbor_timeout_sec)
+        rc = run_command(cmd, env, harbor_timeout_sec, health_check)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
@@ -729,6 +872,25 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--lock-dir", default=Path("/tmp/brev"), type=Path)
     parser.add_argument("--lock-timeout-sec", default=21000, type=int)
     parser.add_argument("--harbor-timeout-sec", default=7800, type=int)
+    parser.add_argument(
+        "--lock-mode",
+        choices=("local", "postgres"),
+        default=os.environ.get("GPU_LEASE_MODE", "local"),
+        help="local preserves the single-coordinator flock; postgres is "
+             "required before multiple coordinator hosts are activated",
+    )
+    parser.add_argument(
+        "--lease-database-url",
+        default=os.environ.get("GPU_LEASE_DATABASE_URL", ""),
+        help="PostgreSQL DSN (prefer GPU_LEASE_DATABASE_URL in the protected env)",
+    )
+    parser.add_argument(
+        "--coordinator-id",
+        default=os.environ.get("COORDINATOR_ID", socket.gethostname()),
+        help="Stable host/runner identity; run and PID are appended automatically",
+    )
+    parser.add_argument("--lease-ttl-sec", default=90, type=int)
+    parser.add_argument("--lease-heartbeat-sec", default=20, type=int)
     return parser.parse_args(argv)
 
 
@@ -755,9 +917,38 @@ def main(argv: list[str] | None = None) -> int:
             candidates_fn = (  # noqa: E731
                 lambda: pool_candidates(metadata, args.spec_stem)
             )
-        with hold_pool_lock(
-            candidates_fn, args.lock_dir, args.lock_timeout_sec
-        ) as instance:
+        if args.lock_mode == "local":
+            with hold_pool_lock(
+                candidates_fn, args.lock_dir, args.lock_timeout_sec
+            ) as instance:
+                return run_invocations(
+                    invocations,
+                    instance,
+                    args.results_root,
+                    args.scratch,
+                    args.spec_stem,
+                    args.platform,
+                    args.harbor_timeout_sec,
+                )
+
+        if not args.lease_database_url:
+            raise LeaseError(
+                "GPU_LEASE_MODE=postgres requires GPU_LEASE_DATABASE_URL"
+            )
+        run_id = os.environ.get("GITHUB_RUN_ID", "local")
+        owner_id = f"{args.coordinator_id}:{run_id}:{os.getpid()}"
+        client = PostgresLeaseClient(
+            args.lease_database_url,
+            owner_id,
+            ttl_sec=args.lease_ttl_sec,
+        )
+        with hold_distributed_pool_lock(
+            candidates_fn,
+            args.lock_dir,
+            args.lock_timeout_sec,
+            client,
+            args.lease_heartbeat_sec,
+        ) as (instance, guard):
             return run_invocations(
                 invocations,
                 instance,
@@ -766,15 +957,26 @@ def main(argv: list[str] | None = None) -> int:
                 args.spec_stem,
                 args.platform,
                 args.harbor_timeout_sec,
+                guard.raise_if_lost,
             )
     except LockTimeoutError:
         target = args.instance or f"pool ({args.platform or 'platform'})"
         print(f"BLOCKED: lock timeout on {target}", flush=True)
         return 75
+    except LeaseLostError as exc:
+        print(f"BLOCKED: distributed lease lost: {exc}", flush=True)
+        return 75
+    except LeaseError as exc:
+        print(f"BLOCKED: distributed lease unavailable: {exc}", flush=True)
+        return 75
+    except RunCancelledError as exc:
+        print(f"CANCELLED: {exc}", flush=True)
+        return 130
     except Exception as exc:  # noqa: BLE001
         print(f"FATAL: run_leg failed: {exc!r}", file=sys.stderr)
         return 1
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _handle_termination)
     sys.exit(main())

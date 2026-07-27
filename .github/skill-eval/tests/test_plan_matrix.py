@@ -292,6 +292,54 @@ class ListChangedFiles(unittest.TestCase):
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
 
+    def test_manual_spec_filter_selects_exactly_one_spec(self):
+        orig_specs = plan_matrix.specs_for_skill
+        saved = {
+            key: os.environ.get(key)
+            for key in ("CHANGED_FILES", "MANUAL_SKILLS_FILTER", "MANUAL_SPEC_FILTER")
+        }
+        os.environ.pop("CHANGED_FILES", None)
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-manage-alerts"
+        os.environ["MANUAL_SPEC_FILTER"] = "subscriptions"
+        plan_matrix.specs_for_skill = lambda _skill: [
+            ("skills/vss-manage-alerts/evals/alerts.json", "evals", "alerts"),
+            (
+                "skills/vss-manage-alerts/evals/subscriptions.json",
+                "evals",
+                "subscriptions",
+            ),
+        ]
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            plan_matrix.specs_for_skill = orig_specs
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertEqual(
+            files, ["skills/vss-manage-alerts/evals/subscriptions.json"]
+        )
+
+    def test_manual_platform_filter_requires_one_leg(self):
+        legs = [
+            {"platform": "L40S", "slug": "a"},
+            {"platform": "H100", "slug": "b"},
+        ]
+        old = os.environ.get("MANUAL_PLATFORM_FILTER")
+        os.environ["MANUAL_PLATFORM_FILTER"] = "L40S"
+        try:
+            selected = plan_matrix.apply_manual_platform_filter(legs)
+        finally:
+            if old is None:
+                os.environ.pop("MANUAL_PLATFORM_FILTER", None)
+            else:
+                os.environ["MANUAL_PLATFORM_FILTER"] = old
+
+        self.assertEqual(selected, [legs[0]])
+
 
 class EmitSlugSafety(unittest.TestCase):
     def test_emit_rejects_unsafe_slug(self):

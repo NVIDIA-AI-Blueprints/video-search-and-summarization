@@ -316,8 +316,10 @@ The canonical harbor command is in § Harbor invocation.
       requirements from the dataset's `task.toml` `[metadata]`
       (`gpu_type`, `gpu_count`), snapshots `brev ls --json`, filters to
       RUNNING `vss-eval-*` boxes whose GPU matches, and walks the
-      candidates best-first with **non-blocking** `flock` attempts —
-      claiming the first box it can actually lock. Selection and
+      candidates best-first through the configured lock backend. A
+      single coordinator defaults to non-blocking `flock`; a distributed
+      coordinator uses an atomic PostgreSQL row lease and then takes the
+      same local `flock` as defense in depth. Selection and
       reservation are one atomic step inside the wrapper, so two
       concurrent legs fan out to different boxes instead of both
       "choosing" the same lock-free-looking one and serialising
@@ -345,12 +347,12 @@ The canonical harbor command is in § Harbor invocation.
       `[metadata]`) pins the leg to one box, skipping pool selection but
       keeping the lock guard. Use this only for manual debugging runs.
 
-   b. **Run the structural leg wrapper**. Do not acquire or release
-      `flock` manually in a separate Bash call, and do not pass
-      `--instance` in CI. `run_leg.py` opens `/tmp/brev/<chosen>.lock`,
-      holds that file descriptor for the entire Harbor run (including
-      all step-1..N invocations), and releases it only when the wrapper
-      exits or dies:
+   b. **Run the structural leg wrapper**. Do not acquire or release a
+      local or PostgreSQL lock manually in a separate Bash call, and do
+      not pass `--instance` in CI. `run_leg.py` holds the configured
+      lease and `/tmp/brev/<chosen>.lock` for the entire Harbor run
+      (including all step-1..N invocations). In PostgreSQL mode it also
+      terminates Harbor if lease renewal cannot be confirmed:
       ```bash
       python3 .github/skill-eval/run_leg.py \
         --dataset-root "$DS" \

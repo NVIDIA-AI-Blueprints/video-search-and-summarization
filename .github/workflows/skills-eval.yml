@@ -39,6 +39,24 @@ on:
         required: false
         default: "*"
         type: string
+      spec:
+        description: "Optional spec filename stem. Requires one explicit skill."
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: "Optional exact platform key. Use with skill + spec for one canary leg."
+        required: false
+        default: ""
+        type: string
+      runner_label:
+        description: "Runner pool for a manual dispatch."
+        required: true
+        default: "vss-skill-eval-runner"
+        type: choice
+        options:
+          - "vss-skill-eval-runner"
+          - "vss-skill-eval-canary"
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -76,7 +94,9 @@ jobs:
   plan:
     name: Plan eval matrix
     if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on:
+      - self-hosted
+      - ${{ github.event_name == 'workflow_dispatch' && inputs.runner_label || 'vss-skill-eval-runner' }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -125,6 +145,8 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          MANUAL_SPEC_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.spec || '' }}
+          MANUAL_PLATFORM_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || '' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
@@ -134,7 +156,9 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on:
+      - self-hosted
+      - ${{ github.event_name == 'workflow_dispatch' && inputs.runner_label || 'vss-skill-eval-runner' }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
