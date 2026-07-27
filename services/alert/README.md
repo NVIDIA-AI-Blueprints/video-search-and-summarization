@@ -206,7 +206,7 @@ curl -X POST http://localhost:9080/api/v1/alerts \
 Enriched results are persisted to Elasticsearch and published to the Kafka
 sink (`event_bridge.sinkType: kafka`). Consumers receive alerts by subscribing
 to the configured sink topic, and can also query stored alerts/incidents over
-the REST API (e.g. `GET /api/v1/alerts/realtime`, `.../incidents`).
+the REST API (e.g. `GET /api/v1/realtime`, `GET /api/v1/realtime/incidents`).
 
 ## Testing
 
