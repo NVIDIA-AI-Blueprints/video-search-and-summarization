@@ -24,55 +24,24 @@ from typing import Any
 LEASE_SAFETY_MARGIN_SEC = 40
 
 ACQUIRE_SQL = """
-WITH candidate AS (
-    SELECT l.gpu_id
-    FROM gpu_leases AS l
-    JOIN gpu_workers AS w USING (gpu_id)
-    WHERE l.gpu_id = ANY(%s::text[])
-      AND w.enabled
-      AND (
-          l.owner_id IS NULL
-          OR l.lease_expires_at <= statement_timestamp()
-      )
-    ORDER BY array_position(%s::text[], l.gpu_id)
-    FOR UPDATE OF l SKIP LOCKED
-    LIMIT 1
-)
-UPDATE gpu_leases AS l
-SET owner_id = %s,
-    lease_token = %s,
-    generation = l.generation + 1,
-    acquired_at = statement_timestamp(),
-    renewed_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp() + (%s * interval '1 second')
-FROM candidate
-WHERE l.gpu_id = candidate.gpu_id
-RETURNING l.gpu_id, l.lease_token, l.generation, l.lease_expires_at
+SELECT gpu_id, lease_token, generation, lease_expires_at
+FROM public.acquire_gpu_lease(%s::text[], %s::text, %s::uuid, %s::integer)
 """
 
 RENEW_SQL = """
-UPDATE gpu_leases
-SET renewed_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp() + (%s * interval '1 second')
-WHERE gpu_id = %s
-  AND owner_id = %s
-  AND lease_token = %s
-  AND generation = %s
-  AND lease_expires_at > statement_timestamp()
-RETURNING lease_expires_at
+SELECT lease_expires_at
+FROM public.renew_gpu_lease(
+    %s::text,
+    %s::text,
+    %s::uuid,
+    %s::bigint,
+    %s::integer
+)
 """
 
 RELEASE_SQL = """
-UPDATE gpu_leases
-SET owner_id = NULL,
-    lease_token = NULL,
-    renewed_at = statement_timestamp(),
-    lease_expires_at = statement_timestamp()
-WHERE gpu_id = %s
-  AND owner_id = %s
-  AND lease_token = %s
-  AND generation = %s
-RETURNING gpu_id
+SELECT gpu_id
+FROM public.release_gpu_lease(%s::text, %s::text, %s::uuid, %s::bigint)
 """
 
 
@@ -147,7 +116,7 @@ class PostgresLeaseClient:
             with self._connection() as conn, conn.cursor() as cursor:
                 cursor.execute(
                     ACQUIRE_SQL,
-                    (ordered, ordered, self.owner_id, token, self.ttl_sec),
+                    (ordered, self.owner_id, token, self.ttl_sec),
                 )
                 row = cursor.fetchone()
         except LeaseError:
@@ -174,11 +143,11 @@ class PostgresLeaseClient:
                 cursor.execute(
                     RENEW_SQL,
                     (
-                        self.ttl_sec,
                         lease.gpu_id,
                         lease.owner_id,
                         lease.token,
                         lease.generation,
+                        self.ttl_sec,
                     ),
                 )
                 row = cursor.fetchone()

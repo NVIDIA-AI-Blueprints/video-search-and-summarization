@@ -109,7 +109,7 @@ for index in $(seq 1 "$runner_count"); do
     fi
 
     cat >"$runner_dir/.env" <<EOF
-COORDINATOR_ID=${coordinator_id}:runner-${index}
+COORDINATOR_ID=${runner_name}
 GPU_LEASE_MODE=postgres
 PATH=${coordinator_root}/venv/bin:/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
 EOF

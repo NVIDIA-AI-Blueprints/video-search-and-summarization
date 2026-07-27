@@ -47,6 +47,9 @@ from distributed_lock import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
+DISTRIBUTED_RUNNER_RE = re.compile(
+    r"^vss-skill-validator-distributed-[1-8]-runner-[1-4]$"
+)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
 # RTX 4090 capability-routing is opt-in at the spec level via gpu_type.
@@ -894,9 +897,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def validate_coordinator_lock_config(args: argparse.Namespace) -> None:
+    """Distributed GitHub runners must never fall back to host-local locking."""
+    runner_name = os.environ.get("RUNNER_NAME", "")
+    if not DISTRIBUTED_RUNNER_RE.fullmatch(runner_name):
+        return
+    if args.lock_mode != "postgres":
+        raise LeaseError(
+            f"distributed runner {runner_name} requires GPU_LEASE_MODE=postgres"
+        )
+    if args.coordinator_id != runner_name:
+        raise LeaseError(
+            f"distributed runner identity mismatch: COORDINATOR_ID="
+            f"{args.coordinator_id!r}, expected {runner_name!r}"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     try:
+        validate_coordinator_lock_config(args)
         invocations = discover_invocations(args.dataset_root)
         print(f"[run-leg] discovered {len(invocations)} harbor invocation(s)", flush=True)
         for invocation in invocations:

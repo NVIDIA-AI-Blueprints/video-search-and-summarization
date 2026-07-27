@@ -50,9 +50,9 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
-| `GPU_LEASE_MODE` | `local` (default) or `postgres`. All active coordinators sharing a GPU pool must use the same mode. |
+| `GPU_LEASE_MODE` | `local` (legacy single-coordinator only) or `postgres`. Registered distributed runners reject local mode. All active coordinators sharing a GPU pool must use the same mode. |
 | `GPU_LEASE_DATABASE_URL` | TLS PostgreSQL DSN required when `GPU_LEASE_MODE=postgres`. |
-| `COORDINATOR_ID` | Stable host/runner ID; `run_leg.py` appends the GitHub run ID and PID for each lease owner. |
+| `COORDINATOR_ID` | Stable unique runner ID; distributed workflows derive it from GitHub's `RUNNER_NAME`. `run_leg.py` appends the GitHub run ID and PID for each lease owner. |
 
 ## Layout
 

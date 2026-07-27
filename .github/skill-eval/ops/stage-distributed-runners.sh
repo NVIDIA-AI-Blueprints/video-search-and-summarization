@@ -42,15 +42,18 @@ fi
 token_file="$(mktemp)"
 chmod 600 "$token_file"
 trap 'rm -f "$token_file"' EXIT
-gh api \
-    --method POST \
-    "repos/${repository}/actions/runners/registration-token" \
-    --jq .token >"$token_file"
-[[ -s "$token_file" ]] || { echo "GitHub returned an empty registration token" >&2; exit 1; }
 
 remote_script="/tmp/configure-dormant-runner-host.sh"
 remote_token="/tmp/.actions-runner-registration-token"
 for host in "${hosts[@]}"; do
+    gh api \
+        --method POST \
+        "repos/${repository}/actions/runners/registration-token" \
+        --jq .token >"$token_file"
+    [[ -s "$token_file" ]] || {
+        echo "GitHub returned an empty registration token for $host" >&2
+        exit 1
+    }
     brev copy "$host_script" "${host}:${remote_script}"
     brev copy "$token_file" "${host}:${remote_token}"
     brev exec "$host" \
@@ -65,15 +68,24 @@ for host in "${hosts[@]}"; do
         echo "${host}-runner-${index}" >>"$expected_file"
     done
 done
-gh api "repos/${repository}/actions/runners?per_page=100" >"$runners_file"
+gh api --paginate "repos/${repository}/actions/runners?per_page=100" >"$runners_file"
 
 python3 - "$expected_file" "$runners_file" <<'PY'
 import json
 import sys
 
 expected = set(open(sys.argv[1], encoding="utf-8").read().splitlines())
-payload = json.load(open(sys.argv[2], encoding="utf-8"))
-pages = payload if isinstance(payload, list) else [payload]
+raw = open(sys.argv[2], encoding="utf-8").read()
+decoder = json.JSONDecoder()
+pages = []
+position = 0
+while position < len(raw):
+    while position < len(raw) and raw[position].isspace():
+        position += 1
+    if position == len(raw):
+        break
+    page, position = decoder.raw_decode(raw, position)
+    pages.extend(page if isinstance(page, list) else [page])
 runners = {
     runner["name"]: runner
     for page in pages

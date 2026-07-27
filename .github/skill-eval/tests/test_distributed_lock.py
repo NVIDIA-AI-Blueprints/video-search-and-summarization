@@ -83,9 +83,8 @@ class PostgresLeaseClientTests(unittest.TestCase):
         self.assertEqual(lease.generation, 8)
         params = connect.calls[0][1]
         self.assertEqual(params[0], ["gpu-a", "gpu-b"])
-        self.assertEqual(params[1], ["gpu-a", "gpu-b"])
-        self.assertEqual(params[2], "cpu-1:runner-2:123:456")
-        self.assertEqual(params[4], 90)
+        self.assertEqual(params[1], "cpu-1:runner-2:123:456")
+        self.assertEqual(params[3], 90)
         self.assertEqual(connect.connection_calls[0][1]["connect_timeout"], 5)
         self.assertIn(
             "statement_timeout=5000", connect.connection_calls[0][1]["options"]
@@ -201,17 +200,49 @@ class PostgresLeaseClientTests(unittest.TestCase):
 
 
 class SqlSafetyTests(unittest.TestCase):
+    SCHEMA = (
+        Path(__file__).resolve().parents[1] / "postgres-gpu-leases.sql"
+    ).read_text()
+
     def test_acquisition_is_atomic_and_skips_locked_rows(self):
-        sql = distributed_lock.ACQUIRE_SQL.upper()
+        sql = self.SCHEMA.upper()
         self.assertIn("FOR UPDATE OF L SKIP LOCKED", sql)
         self.assertIn("STATEMENT_TIMESTAMP()", sql)
         self.assertIn("GENERATION = L.GENERATION + 1", sql)
 
     def test_renewal_requires_unexpired_matching_fence(self):
-        sql = distributed_lock.RENEW_SQL.upper()
+        sql = self.SCHEMA.upper()
         self.assertIn("LEASE_EXPIRES_AT > STATEMENT_TIMESTAMP()", sql)
-        self.assertIn("LEASE_TOKEN = %S", sql)
-        self.assertIn("GENERATION = %S", sql)
+        self.assertIn("L.LEASE_TOKEN = REQUESTED_TOKEN", sql)
+        self.assertIn("L.GENERATION = REQUESTED_GENERATION", sql)
+
+    def test_runtime_client_uses_security_definer_functions_only(self):
+        client_sql = " ".join(
+            (
+                distributed_lock.ACQUIRE_SQL,
+                distributed_lock.RENEW_SQL,
+                distributed_lock.RELEASE_SQL,
+            )
+        ).upper()
+        self.assertNotIn("UPDATE GPU_LEASES", client_sql)
+        self.assertIn("PUBLIC.ACQUIRE_GPU_LEASE", client_sql)
+        self.assertIn("PUBLIC.RENEW_GPU_LEASE", client_sql)
+        self.assertIn("PUBLIC.RELEASE_GPU_LEASE", client_sql)
+        self.assertGreaterEqual(self.SCHEMA.upper().count("SECURITY DEFINER"), 3)
+        self.assertGreaterEqual(
+            self.SCHEMA.upper().count("SET SEARCH_PATH = PG_CATALOG"), 3
+        )
+
+    def test_owner_schema_migration_is_atomic_and_revokes_legacy_dml(self):
+        schema = self.SCHEMA.upper()
+        self.assertIn("BEGIN;", schema)
+        self.assertTrue(schema.rstrip().endswith("COMMIT;"))
+        self.assertIn("CREATE TABLE IF NOT EXISTS PUBLIC.GPU_WORKERS", schema)
+        self.assertIn("CREATE TABLE IF NOT EXISTS PUBLIC.GPU_LEASES", schema)
+        self.assertIn(
+            "REVOKE ALL ON TABLE PUBLIC.GPU_WORKERS, PUBLIC.GPU_LEASES", schema
+        )
+        self.assertIn("WHERE ROLNAME = 'SKILL_EVAL_LEASE'", schema)
 
 
 if __name__ == "__main__":

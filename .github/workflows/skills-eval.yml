@@ -218,9 +218,24 @@ jobs:
           BASH_MAX_TIMEOUT_MS: "21600000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
+          assigned_runner_name="${RUNNER_NAME:-}"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
+          # The shared secret file may not override distributed-runner safety
+          # identity or select host-local locking. RUNNER_NAME is assigned by
+          # GitHub from the registered runner record and is unique fleet-wide.
+          export RUNNER_NAME="$assigned_runner_name"
+          case "$assigned_runner_name" in
+            vss-skill-validator-distributed-[1-8]-runner-[1-4])
+              export COORDINATOR_ID="$assigned_runner_name"
+              export GPU_LEASE_MODE=postgres
+              if [ -z "${GPU_LEASE_DATABASE_URL:-}" ]; then
+                echo "FATAL: distributed runner requires GPU_LEASE_DATABASE_URL" >&2
+                exit 1
+              fi
+              ;;
+          esac
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"

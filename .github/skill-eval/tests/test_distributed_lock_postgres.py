@@ -28,11 +28,46 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import psycopg
+        from psycopg import sql
+        from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
         cls.psycopg = psycopg
         schema = (SKILL_EVAL_ROOT / "postgres-gpu-leases.sql").read_text()
         with psycopg.connect(DSN, autocommit=True) as conn:
+            conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_roles
+                        WHERE rolname = 'skill_eval_lease'
+                    ) THEN
+                        CREATE ROLE skill_eval_lease LOGIN PASSWORD 'test';
+                    END IF;
+                END
+                $$;
+                """
+            )
+            database = conn.execute("SELECT current_database()").fetchone()[0]
+            conn.execute(
+                sql.SQL("GRANT CONNECT ON DATABASE {} TO skill_eval_lease").format(
+                    sql.Identifier(database)
+                )
+            )
             conn.execute(schema)
+            # Recreate the previous release's broad grants, then reapply the
+            # owner migration and prove it removes them.
+            conn.execute(
+                """
+                GRANT SELECT, INSERT, UPDATE
+                ON public.gpu_leases
+                TO skill_eval_lease
+                """
+            )
+            conn.execute(schema)
+        runtime_params = conninfo_to_dict(DSN)
+        runtime_params.update(user="skill_eval_lease", password="test")
+        cls.runtime_dsn = make_conninfo(**runtime_params)
 
     def setUp(self):
         with self.psycopg.connect(DSN, autocommit=True) as conn:
@@ -46,6 +81,9 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
 
     def client(self, owner: str) -> PostgresLeaseClient:
         return PostgresLeaseClient(DSN, owner, ttl_sec=60)
+
+    def runtime_client(self, owner: str) -> PostgresLeaseClient:
+        return PostgresLeaseClient(self.runtime_dsn, owner, ttl_sec=60)
 
     def test_ordered_acquire_conflict_release_and_generation(self):
         first = self.client("coordinator-1").try_acquire(["gpu-b", "gpu-a"])
@@ -79,6 +117,34 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
 
     def test_disabled_worker_is_never_leased(self):
         self.assertIsNone(self.client("coordinator-1").try_acquire(["gpu-disabled"]))
+
+    def test_runtime_role_cannot_forge_rows_but_can_use_fenced_functions(self):
+        with (
+            self.assertRaises(self.psycopg.errors.InsufficientPrivilege),
+            self.psycopg.connect(self.runtime_dsn, autocommit=True) as conn,
+        ):
+            conn.execute(
+                "UPDATE gpu_leases SET owner_id = 'forged' WHERE gpu_id = 'gpu-a'"
+            )
+
+        with (
+            self.assertRaises(self.psycopg.errors.InsufficientPrivilege),
+            self.psycopg.connect(self.runtime_dsn, autocommit=True) as conn,
+        ):
+            conn.execute("SELECT lease_token FROM gpu_leases")
+
+        client = self.runtime_client("runtime-coordinator")
+        lease = client.try_acquire(["gpu-a"])
+        self.assertEqual(lease.gpu_id, "gpu-a")
+        with self.psycopg.connect(self.runtime_dsn, autocommit=True) as conn:
+            status = conn.execute(
+                "SELECT owner_id, generation FROM gpu_lease_status "
+                "WHERE gpu_id = 'gpu-a'"
+            ).fetchone()
+        self.assertEqual(status, ("runtime-coordinator", lease.generation))
+        renewed = client.renew(lease)
+        self.assertGreater(renewed.expires_at, lease.expires_at)
+        self.assertTrue(client.release(renewed))
 
     def test_concurrent_contenders_have_exactly_one_winner(self):
         barrier = threading.Barrier(16)

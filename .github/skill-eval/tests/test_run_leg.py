@@ -601,5 +601,61 @@ class RunCommandLeaseHealth(unittest.TestCase):
             run_leg._handle_termination(run_leg.signal.SIGTERM, None)
 
 
+class DistributedRunnerConfiguration(unittest.TestCase):
+    RUNNER = "vss-skill-validator-distributed-3-runner-2"
+
+    def test_distributed_runner_rejects_local_lock_mode(self):
+        args = mock.Mock(lock_mode="local", coordinator_id=self.RUNNER)
+        with (
+            mock.patch.dict(run_leg.os.environ, {"RUNNER_NAME": self.RUNNER}),
+            self.assertRaisesRegex(run_leg.LeaseError, "requires GPU_LEASE_MODE"),
+        ):
+            run_leg.validate_coordinator_lock_config(args)
+
+    def test_distributed_runner_rejects_shared_host_identity(self):
+        args = mock.Mock(
+            lock_mode="postgres",
+            coordinator_id="vss-skill-validator-distributed-3",
+        )
+        with (
+            mock.patch.dict(run_leg.os.environ, {"RUNNER_NAME": self.RUNNER}),
+            self.assertRaisesRegex(run_leg.LeaseError, "identity mismatch"),
+        ):
+            run_leg.validate_coordinator_lock_config(args)
+
+    def test_distributed_runner_accepts_unique_postgres_identity(self):
+        args = mock.Mock(lock_mode="postgres", coordinator_id=self.RUNNER)
+        with mock.patch.dict(run_leg.os.environ, {"RUNNER_NAME": self.RUNNER}):
+            run_leg.validate_coordinator_lock_config(args)
+
+    def test_legacy_runner_can_retain_local_mode_during_drain(self):
+        args = mock.Mock(lock_mode="local", coordinator_id="vss-skill-validator-v2")
+        with mock.patch.dict(
+            run_leg.os.environ, {"RUNNER_NAME": "vss-skill-validator-v2-1"}
+        ):
+            run_leg.validate_coordinator_lock_config(args)
+
+
+class WorkflowDistributedRunnerEnvironment(unittest.TestCase):
+    def test_manual_and_daily_workflows_preserve_assigned_runner_identity(self):
+        workflow_dir = _SKILL_EVAL_ROOT.parent / "workflows"
+        for name in ("skills-eval.yml", "skills-eval-daily.yml"):
+            workflow = (workflow_dir / name).read_text()
+            saved = workflow.index('assigned_runner_name="${RUNNER_NAME:-}"')
+            sourced = workflow.index(
+                "source /home/ubuntu/eval-coordinator/.env", saved
+            )
+            restored = workflow.index(
+                'export RUNNER_NAME="$assigned_runner_name"', sourced
+            )
+            self.assertLess(saved, sourced, name)
+            self.assertLess(sourced, restored, name)
+            self.assertIn("export GPU_LEASE_MODE=postgres", workflow[restored:])
+            self.assertIn(
+                'export COORDINATOR_ID="$assigned_runner_name"',
+                workflow[restored:],
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
