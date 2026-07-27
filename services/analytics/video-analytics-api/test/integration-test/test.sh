@@ -44,20 +44,32 @@ VA_API_URL="${VA_API_URL:-http://${TEST_HOST}:8081}"
 echo "Testing Elasticsearch at $ES_URL"
 echo "Testing video-analytics-api at $VA_API_URL"
 
-# Build Docker image
-cd "$VIDEO_ANALYTICS_API_ROOT"
-BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
-echo "Building Docker image (timeout ${BUILD_TIMEOUT}s)..."
-if ! timeout "$BUILD_TIMEOUT" docker build -t video-analytics-api:integration-test -f docker/Dockerfile . ; then
-    EXIT_CODE=$?
-    if [ "${EXIT_CODE}" -eq 124 ]; then
-        echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
+# Build the checked-out service only when its build inputs changed. Otherwise,
+# exercise the currently deployed image while still running the full integration
+# suite. Local invocation remains build-by-default.
+BUILD_SERVICE_IMAGE="${BUILD_SERVICE_IMAGE:-true}"
+if [ "$BUILD_SERVICE_IMAGE" = "true" ]; then
+    VIDEO_ANALYTICS_API_IMAGE="${VIDEO_ANALYTICS_API_IMAGE:-video-analytics-api:integration-test}"
+    cd "$VIDEO_ANALYTICS_API_ROOT"
+    BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
+    echo "Building changed video-analytics-api source as $VIDEO_ANALYTICS_API_IMAGE (timeout ${BUILD_TIMEOUT}s)..."
+    if timeout "$BUILD_TIMEOUT" docker build -t "$VIDEO_ANALYTICS_API_IMAGE" -f docker/Dockerfile . ; then
+        echo "✓ Docker build completed"
     else
-        echo "✗ Docker build failed"
+        EXIT_CODE=$?
+        if [ "${EXIT_CODE}" -eq 124 ]; then
+            echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
+        else
+            echo "✗ Docker build failed"
+        fi
+        exit 1
     fi
-    exit 1
+else
+    VIDEO_ANALYTICS_API_IMAGE="${CURRENT_VIDEO_ANALYTICS_API_IMAGE:?CURRENT_VIDEO_ANALYTICS_API_IMAGE is required when BUILD_SERVICE_IMAGE=false}"
+    echo "No video-analytics-api build-input change; pulling current image $VIDEO_ANALYTICS_API_IMAGE"
+    docker pull "$VIDEO_ANALYTICS_API_IMAGE"
 fi
-echo "✓ Docker build completed"
+export VIDEO_ANALYTICS_API_IMAGE
 
 # Start stack
 cd "$INTEGRATION_TEST_DIR/docker_compose"

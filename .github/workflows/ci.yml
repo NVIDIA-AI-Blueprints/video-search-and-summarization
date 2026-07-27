@@ -15,7 +15,7 @@
 
 name: CI
 
-on:
+"on":
   push:
     branches:
       - main
@@ -44,10 +44,62 @@ jobs:
     name: Prepare source artifact
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      build-behavior-analytics: ${{ steps.analytics-changes.outputs.behavior }}
+      build-video-analytics-api: ${{ steps.analytics-changes.outputs.video }}
+      current-behavior-analytics-image: ${{ steps.current-images.outputs.behavior }}
+      current-video-analytics-api-image: ${{ steps.current-images.outputs.video }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Detect analytics image changes
+        id: analytics-changes
+        run: |
+          python3 .github/scripts/detect_changed_images.py \
+            --event-name "${{ github.event_name }}" \
+            --ref-name "${{ github.ref_name }}" \
+            --before "${{ github.event.before }}" \
+            --base-branch develop > analytics-detection.json
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+
+          entries = json.load(open("analytics-detection.json"))["matrix"]
+          names = {entry["name"] for entry in entries}
+          print(f"behavior={str('vss-behavior-analytics' in names).lower()}")
+          print(f"video={str('vss-video-analytics-api' in names).lower()}")
+          PY
+
+      - name: Resolve current analytics images
+        id: current-images
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, ".github/scripts")
+          from check_container_tag_source import find_image_refs, resolve_compose_vars
+
+          def current(compose_path: str, image_name: str) -> str:
+              refs = find_image_refs(Path(compose_path), image_name)
+              if len(refs) != 1:
+                  raise RuntimeError(f"{image_name}: expected one Compose image, found {len(refs)}")
+              resolved, missing = resolve_compose_vars(refs[0], {})
+              if missing:
+                  raise RuntimeError(f"{image_name}: unresolved variables: {', '.join(missing)}")
+              return resolved
+
+          print("behavior=" + current(
+              "deploy/docker/services/analytics/behavior-analytics/compose.yml",
+              "vss-behavior-analytics",
+          ))
+          print("video=" + current(
+              "deploy/docker/services/analytics/video-analytics-api/compose.yml",
+              "vss-video-analytics-api",
+          ))
+          PY
 
       - name: Package tracked source
         run: |
@@ -481,6 +533,8 @@ jobs:
     timeout-minutes: 150
     env:
       COMPOSE_TIMEOUT: "1800"
+      BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-behavior-analytics }}
+      CURRENT_BEHAVIOR_ANALYTICS_IMAGE: ${{ needs.prepare-source.outputs.current-behavior-analytics-image }}
     defaults:
       run:
         working-directory: services/analytics/behavior-analytics
@@ -502,6 +556,14 @@ jobs:
         with:
           node-version: "22.22.3"
 
+      - name: Log in to NGC for current image reuse
+        if: needs.prepare-source.outputs.build-behavior-analytics != 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets.NGC_CLI_API_KEY }}
+
       - name: Run warehouse Kafka integration test
         run: |
           chmod +x tests/integration/test.sh tests/integration/cleanup.sh tests/integration/generate_env.sh
@@ -520,6 +582,8 @@ jobs:
     env:
       COMPOSE_TIMEOUT: "300"
       BUILD_TIMEOUT: "600"
+      BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-video-analytics-api }}
+      CURRENT_VIDEO_ANALYTICS_API_IMAGE: ${{ needs.prepare-source.outputs.current-video-analytics-api-image }}
     defaults:
       run:
         working-directory: services/analytics/video-analytics-api
@@ -540,6 +604,14 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "22.22.3"
+
+      - name: Log in to NGC for current image reuse
+        if: needs.prepare-source.outputs.build-video-analytics-api != 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets.NGC_CLI_API_KEY }}
 
       - name: Install integration-test dependencies
         run: cd test && npm install
@@ -1200,7 +1272,7 @@ jobs:
           DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
           DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
           POLL_INTERVAL_SECONDS: "120"
-          MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
+          MAX_POLL_DURATION_SECONDS: "14400"  # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
       - name: Update PR with downstream-validated GHCR candidates
