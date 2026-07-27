@@ -112,6 +112,8 @@ VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 
 **Search:** `POST ${AGENT_URL}/generate` with an explicit natural-language
 prompt that preserves resolved source, mode, attributes, time bounds, and top-k.
+Treat the Agent response as conversational text (`SEARCH_TEXT`); do not parse it
+as Docker CLI `SearchOutput` (no `.data[]` / `screenshot_url` contract).
 
 **Ingest / delete:** Agent `/api/v1/...` on the same origin. Upload URLs returned
 by the agent already use `${VST_EXTERNAL_URL}/vst/api/v1/storage/file` when

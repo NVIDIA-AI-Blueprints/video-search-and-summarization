@@ -115,7 +115,8 @@ jobs:
                   if [ -d "skills/$skill" ]; then
                     printf '%s\n' "$skill"
                   else
-                    echo "::notice::skills/$skill no longer exists on this ref; skipping."
+                    # Notices must go to stderr — stdout is the skill-name list.
+                    echo "::notice::skills/$skill no longer exists on this ref; skipping." >&2
                   fi
                 done > "$targets_file"
 

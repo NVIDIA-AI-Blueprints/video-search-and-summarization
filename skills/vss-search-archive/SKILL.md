@@ -437,32 +437,29 @@ verification. Never port-forward Elasticsearch for this check.
    request with private service access or a port-forward.
    If the command cannot start or returns a configuration error, report the
    error and stop; never replace it with another search interface.
-5. Validate each returned media URL with a bounded GET of the exact URL. The
-   stream identifier is already encoded in the VST replay path; do not add a
-   `streamId` routing header because that can route an otherwise valid public
-   replay URL to an unhealthy upstream. For availability-only validation,
-   discard the body; this is not visual inspection:
+5. Handle results by `DEPLOYMENT_KIND`. Do **not** run the Docker CLI
+   `SearchOutput` pipeline (`.data[]`, `screenshot_url`, `HIT_COUNT`) against a
+   Kubernetes `/generate` response — that response is conversational agent text,
+   not CLI JSON.
+
+   **Docker Compose only:** validate each returned media URL with a bounded GET
+   of the exact URL. The stream identifier is already encoded in the VST replay
+   path; do not add a `streamId` routing header because that can route an
+   otherwise valid public replay URL to an unhealthy upstream. For
+   availability-only validation, discard the body; this is not visual inspection.
 
    For every hit, extract the URL from the result object. Compare the
    normalized origins (scheme, hostname, and effective port), then issue the GET
    against the **same, unmodified** `SCREENSHOT_URL`:
 
-   First run exactly one selector-specific assignment. Do not assume
-   `VST_EXTERNAL_URL` is exported in the operation shell.
-
-   Docker (`PROFILE` must match `--profile`):
+   First resolve the expected origin. Do not assume `VST_EXTERNAL_URL`
+   is exported in the operation shell (`PROFILE` must match `--profile`):
 
    ```bash
    PROFILE="${PROFILE:-search}"
    EXPECTED_VST_EXTERNAL_URL=$(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
      python -c 'import sys; from cli.deployment import discover_docker; print(discover_docker(sys.argv[1]).env["VST_EXTERNAL_URL"])' \
      "${PROFILE}")
-   ```
-
-   Kubernetes:
-
-   ```bash
-   EXPECTED_VST_EXTERNAL_URL="${VSS_VIOS_URL}"
    ```
 
    Then validate the exact returned URLs. A media-bearing external VST origin
@@ -548,8 +545,18 @@ verification. Never port-forward Elasticsearch for this check.
    `VST_EXTERNAL_URL`, a localhost URL, or any reconstructed URL for the probe.
    A failed origin comparison or GET is a result/configuration error to report,
    not permission to rewrite the URL.
-6. Parse the compact JSON internally and never paste it into the final reply.
-   Use this exact response structure for nonempty results:
+
+   **Kubernetes / Helm only:** skip the Docker CLI media-validation block above.
+   Require a nonempty `SEARCH_TEXT`. Do not call `jq` on `.data`, `.data[]`, or
+   `.screenshot_url`. If the Agent reply embeds concrete public media URLs, you
+   may optionally GET those exact URLs (no `streamId` header, no URL rewrite)
+   against `${VSS_PUBLIC_URL}` / `${VST_EXTERNAL_URL:-${VSS_PUBLIC_URL}}` origins;
+   never invent structured hit fields from prose.
+6. Format the final reply by `DEPLOYMENT_KIND`. Never paste raw JSON wrappers
+   into the reply.
+
+   **Docker Compose:** parse the compact CLI JSON internally. Use this exact
+   response structure for nonempty results:
 
    ```text
    ## Video Search Results
@@ -568,14 +575,21 @@ verification. Never port-forward Elasticsearch for this check.
 
    Copy every evidence field verbatim from CLI output. Never invent or normalize
    evidence.
+
+   **Kubernetes / Helm:** present `SEARCH_TEXT` under `## Video Search Results`.
+   Preserve the Agent's evidence as returned; do not reformat it into fake CLI
+   hit rows. Offer `## Verification Step` only when the reply includes concrete
+   media URLs the user can inspect.
 7. **Never fetch, save, or visually inspect screenshots without explicit user
    opt-in or prior authorization** — validating that URLs resolve is setup work;
    *looking at the pixels* is a user decision. Without opt-in, do not save or inspect media
-   pixels. When authorized, repeat the bounded GET without adding routing headers,
+   pixels. When authorized on Docker, repeat the bounded GET without adding routing headers,
    save each returned screenshot under `/tmp/`, inspect the saved pixels, and
    report a grounded confirmed/rejected/uncertain verdict for each hit under
-   `## Verification Step`.
-8. If the result set is empty, say that no matches were found. Keep all source
+   `## Verification Step`. On Kubernetes, apply the same opt-in rule only to
+   concrete media URLs present in `SEARCH_TEXT`.
+8. If the result set is empty (Docker: zero-length `data`; Kubernetes: Agent
+   reports no matches), say that no matches were found. Keep all source
    constraints, explain that the object may be absent or the query too narrow,
    and offer a specific query or similarity-threshold refinement. Never broaden
    the search silently or fabricate a result.

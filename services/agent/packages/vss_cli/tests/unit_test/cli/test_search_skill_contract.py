@@ -59,7 +59,7 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "do not construct a Brev hostname" in skill_text
     assert "## Video Search Results" in skill_text
     assert "## Verification Step" in skill_text
-    assert "never paste it into the final reply" in skill_text
+    assert "Never paste raw JSON wrappers" in skill_text
     assert '"streamId: ${STREAM_ID}"' not in skill_text
     assert "without adding routing headers" in skill_text
     assert 'curl -sfS --connect-timeout 10 --max-time 300 -X POST "${UPLOAD_URL}"' in skill_text
@@ -77,10 +77,14 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "SEARCH_COMMAND=(" in skill_text
     assert '--deployment docker --profile "${PROFILE}"' in skill_text
     assert 'SEARCH_JSON=$("${SEARCH_COMMAND[@]}")' in skill_text
-    assert 'SEARCH_JSON=$(curl -sfS --connect-timeout 10 --max-time 3600' in skill_text
+    assert "SEARCH_JSON=$(curl -sfS --connect-timeout 10 --max-time 3600" in skill_text
     assert '-X POST "${AGENT_URL}/generate"' in skill_text
     assert "host CLI's Kubernetes deployment selector" in skill_text
     assert 'jq -e \'type == "object"' in skill_text
+    assert "Do **not** run the Docker CLI" in skill_text
+    assert "Require a nonempty `SEARCH_TEXT`" in skill_text
+    assert "Do not call `jq` on `.data`" in skill_text
+    assert "present `SEARCH_TEXT` under `## Video Search Results`" in skill_text
     assert 'if [ "${HIT_COUNT}" -gt 0 ]; then' in skill_text
     assert "A zero-length `data` array has zero media URLs to validate" in skill_text
     assert '"${VALIDATED_COUNT}" -eq "${HIT_COUNT}"' in skill_text
