@@ -581,19 +581,21 @@ ensure_toolchain_image() {
     local image_name
     image_name=$(get_toolchain_image_name)
 
-    if image_exists "$image_name"; then
-        echo "[auto-deps] Toolchain image already present: $image_name"
-        return 0
-    fi
-
-    # Not in the local store. Try to PULL it from the registry first (the toolchain
-    # images are published in the gitlab registry) before building it locally.
-    echo "[auto-deps] Toolchain image not in local store; attempting pull: $image_name"
+    # Always ask the registry for the latest published toolchain image. 'docker
+    # pull' is digest-aware (no-op if the local copy matches the registry digest;
+    # pulls only changed layers otherwise), so an in-place tag overwrite is picked
+    # up while an unchanged tag costs just a manifest check. Fall back to a cached
+    # local copy only when the registry is unreachable, and build as a last resort.
+    echo "[auto-deps] Ensuring latest toolchain image: $image_name"
     if docker pull "$image_name"; then
-        echo "[auto-deps] Pulled toolchain image: $image_name"
+        echo "[auto-deps] Toolchain image up to date (pulled if changed): $image_name"
         return 0
     fi
-    echo "[auto-deps] Pull failed (toolchain image not published in the registry?)."
+    if image_exists "$image_name"; then
+        echo "[auto-deps] Pull failed (registry unreachable?); using cached local toolchain image: $image_name"
+        return 0
+    fi
+    echo "[auto-deps] Toolchain image not available from registry and not cached locally."
 
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
         echo "[ERROR] Toolchain image not found locally or in registry: $image_name"
@@ -619,21 +621,22 @@ ensure_base_image() {
     fi
     base_image_name="$IMAGE_REGISTRY/vst-base:$base_tag"
 
-    if image_exists "$base_image_name"; then
-        echo "[auto-deps] VST Runtime base-image already present: $base_image_name"
-        return 0
-    fi
-
-    # Not in the local store. Try to PULL the prebuilt base from the registry
-    # before falling back to building it -- pulling is the fast path and the whole
-    # point of a prebuilt base image. Only build when the tag genuinely does not
-    # exist in the registry (e.g. a brand-new base tag not yet published).
-    echo "[auto-deps] VST Runtime base-image not in local store; attempting pull: $base_image_name"
+    # Always ask the registry for the latest published base image. 'docker pull' is
+    # digest-aware: if the local copy already matches the registry digest it is a
+    # no-op ("Image is up to date", no download); if the tag was overwritten in
+    # place it pulls only the changed layers. So an updated base is picked up while
+    # an unchanged tag costs just a manifest check. Fall back to a cached local copy
+    # only when the registry is unreachable, and build only as a last resort.
+    echo "[auto-deps] Ensuring latest VST Runtime base-image: $base_image_name"
     if docker pull "$base_image_name"; then
-        echo "[auto-deps] Pulled prebuilt base-image: $base_image_name"
+        echo "[auto-deps] Base-image up to date (pulled if changed): $base_image_name"
         return 0
     fi
-    echo "[auto-deps] Pull failed (base-image tag not published in the registry?)."
+    if image_exists "$base_image_name"; then
+        echo "[auto-deps] Pull failed (registry unreachable?); using cached local base-image: $base_image_name"
+        return 0
+    fi
+    echo "[auto-deps] Base-image not available from registry and not cached locally."
 
     if [[ $NO_AUTO_DEPS -eq 1 ]]; then
         echo "[ERROR] VST Runtime base-image not found locally or in registry: $base_image_name"
