@@ -772,17 +772,22 @@ ensure_bdd_test_image() {
     local image="${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}"
     export BDD_TEST_IMAGE="$image"
 
-    if docker image inspect "$image" >/dev/null 2>&1; then
-        info "BDD test image already present locally: $image"
-        return 0
-    fi
-
-    info "BDD test image not in local store; attempting pull: $image"
+    # Always ask the registry for the latest published BDD test image. 'docker
+    # pull' is digest-aware: it's a no-op when the local copy already matches the
+    # registry digest, and pulls only changed layers when the tag was overwritten
+    # in place -- so an updated image is picked up while an unchanged tag costs just
+    # a manifest check. Fall back to a cached local copy only if the registry is
+    # unreachable, and build from the Dockerfile as a last resort.
+    info "Ensuring latest BDD test image: $image"
     if docker pull "$image"; then
-        info "Pulled BDD test image: $image"
+        info "BDD test image up to date (pulled if changed): $image"
         return 0
     fi
-    info "Pull failed for $image; building it from ${BDD_TESTS_DIR}/Dockerfile"
+    if docker image inspect "$image" >/dev/null 2>&1; then
+        info "Pull failed (registry unreachable?); using cached local BDD test image: $image"
+        return 0
+    fi
+    info "BDD test image not available from registry; building it from ${BDD_TESTS_DIR}/Dockerfile"
 
     if [[ ! -f "$BDD_TESTS_DIR/Dockerfile" ]]; then
         error "BDD test Dockerfile not found: $BDD_TESTS_DIR/Dockerfile"
