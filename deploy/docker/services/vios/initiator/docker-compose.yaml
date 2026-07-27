@@ -42,6 +42,7 @@ services:
       - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+      - VST_ENABLE_NOTIFICATION=${VST_ENABLE_NOTIFICATION:-${VST_USE_SDRC:-false}}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
