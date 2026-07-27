@@ -161,7 +161,7 @@ usecases:
     description: 3D warehouse multi-camera BEV (Sparse4D, 6 classes)
     model:
       source: warehouse_sparse4d_model
-      path:   sparse4d_warehouse_v2.2.onnx
+      path:   sparse4d_warehouse_v2.2_r50.onnx
     videos:
       source: warehouse_dataset
       path:   vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic
