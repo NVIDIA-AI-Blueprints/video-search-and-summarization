@@ -1643,6 +1643,446 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(selected, "vss-eval-rtx-1g-3")
 
+    def test_worker_selection_skips_excluded_candidate(self):
+        instances = [
+            {"name": "vss-eval-rtx-1g-2", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+            {"name": "vss-eval-rtx-1g-3", "status": "RUNNING", "gpu": "RTX PRO 6000"},
+        ]
+        acquire_lock = mock.Mock(
+            return_value=smoke_runner.WorkerLock(123, object(), None)
+        )
+
+        with (
+            mock.patch.object(smoke_runner, "_list_instances", return_value=instances),
+            mock.patch.object(smoke_runner, "_reachable", return_value=True),
+            mock.patch.object(smoke_runner, "_try_acquire_lock", acquire_lock),
+        ):
+            selected, _lock = smoke_runner._select_and_lock_instance(
+                "RTXPRO6000BW",
+                1,
+                None,
+                10,
+                excluded={"vss-eval-rtx-1g-2"},
+            )
+
+        self.assertEqual(selected, "vss-eval-rtx-1g-3")
+        acquire_lock.assert_called_once_with(
+            "vss-eval-rtx-1g-3",
+            "vss-eval-rtx-1g-3",
+        )
+
+    def test_pre_agent_brev_environment_failure_is_retryable(self):
+        result = {
+            "config": {
+                "environment": {
+                    "import_path": "envs.brev_env:BrevEnvironment",
+                }
+            },
+            "environment_setup": {
+                "started_at": "2026-07-27T12:49:45Z",
+                "finished_at": "2026-07-27T12:52:09Z",
+            },
+            "agent_setup": None,
+            "agent_execution": None,
+            "verifier": None,
+            "agent_result": None,
+            "verifier_result": None,
+            "exception_info": {
+                "exception_type": "RuntimeError",
+                "exception_message": (
+                    "NemoClaw setup failed on vss-eval-rtx-1g-3: exit 1"
+                ),
+                "exception_traceback": (
+                    'File "/workspace/.github/skill-eval/envs/brev_env.py", '
+                    "line 489, in start"
+                ),
+            },
+        }
+
+        with mock.patch.object(
+            smoke_runner,
+            "_latest_trial",
+            return_value=(Path("/tmp/trial"), result),
+        ):
+            reason = smoke_runner._retryable_worker_setup_failure(
+                Path("/tmp/results"),
+                "30266918843",
+                since=1.0,
+                instance="vss-eval-rtx-1g-3",
+            )
+            mismatched_worker_reason = (
+                smoke_runner._retryable_worker_setup_failure(
+                    Path("/tmp/results"),
+                    "30266918843",
+                    since=1.0,
+                    instance="vss-eval-rtx-1g-2",
+                )
+            )
+
+        self.assertEqual(
+            reason,
+            "NemoClaw setup failed on vss-eval-rtx-1g-3: exit 1",
+        )
+        self.assertIsNone(mismatched_worker_reason)
+
+    def test_worker_failure_after_agent_setup_is_not_retryable(self):
+        result = {
+            "config": {
+                "environment": {
+                    "import_path": "envs.brev_env:BrevEnvironment",
+                }
+            },
+            "environment_setup": {},
+            "agent_setup": {
+                "started_at": "2026-07-27T12:52:09Z",
+            },
+            "agent_execution": None,
+            "verifier": None,
+            "agent_result": None,
+            "verifier_result": None,
+            "exception_info": {
+                "exception_type": "RuntimeError",
+                "exception_message": (
+                    "NemoClaw setup failed on vss-eval-rtx-1g-3: exit 1"
+                ),
+                "exception_traceback": (
+                    'File "/workspace/.github/skill-eval/envs/brev_env.py", '
+                    "line 489, in start"
+                ),
+            },
+        }
+
+        with mock.patch.object(
+            smoke_runner,
+            "_latest_trial",
+            return_value=(Path("/tmp/trial"), result),
+        ):
+            reason = smoke_runner._retryable_worker_setup_failure(
+                Path("/tmp/results"),
+                "30266918843",
+                since=1.0,
+                instance="vss-eval-rtx-1g-3",
+            )
+
+        self.assertIsNone(reason)
+
+    def test_runner_fails_over_once_and_reports_only_final_attempt(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-deploy-profile",
+            spec_name="base",
+            spec_path=Path("/tmp/base.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/dataset/base/rtxpro6000bw"),
+            harbor_path=Path("/tmp/dataset/base"),
+            task_name="rtxpro6000bw",
+            deployment_profile="base",
+        )
+        selections: list[set[str]] = []
+        events: list[str] = []
+
+        def select_worker(*args, excluded=None, **kwargs):
+            selections.append(set(excluded or set()))
+            instance = (
+                "vss-eval-rtx-1g-2"
+                if len(selections) == 1
+                else "vss-eval-rtx-1g-3"
+            )
+            events.append(f"select:{instance}")
+            return instance, smoke_runner.WorkerLock(123, object(), None)
+
+        def release_worker(instance, worker_lock):
+            events.append(f"release:{instance}")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report = mock.Mock()
+            release = mock.Mock(side_effect=release_worker)
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30266918843",
+                        "NEMOCLAW_MAX_WORKER_FAILOVERS": "2",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    side_effect=select_worker,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    side_effect=[0, 0],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    side_effect=[(None, None), (1.0, Path("/tmp/reward.txt"))],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    side_effect=["repo sync failed on worker", None],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(smoke_runner, "_release_lock", release),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-deploy-profile",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            selections,
+            [set(), {"vss-eval-rtx-1g-2"}],
+        )
+        self.assertEqual(
+            events,
+            [
+                "select:vss-eval-rtx-1g-2",
+                "release:vss-eval-rtx-1g-2",
+                "select:vss-eval-rtx-1g-3",
+                "release:vss-eval-rtx-1g-3",
+            ],
+        )
+        self.assertEqual(release.call_count, 2)
+        report.assert_called_once()
+        self.assertEqual(
+            report.call_args.kwargs["instance"],
+            "vss-eval-rtx-1g-3",
+        )
+        self.assertIn(
+            "vss-eval-rtx-1g-3",
+            report.call_args.kwargs["log_path"].name,
+        )
+
+    def test_runner_does_not_fail_over_explicit_worker(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-deploy-profile",
+            spec_name="base",
+            spec_path=Path("/tmp/base.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/dataset/base/rtxpro6000bw"),
+            harbor_path=Path("/tmp/dataset/base"),
+            task_name="rtxpro6000bw",
+            deployment_profile="base",
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            select = mock.Mock(
+                return_value=(
+                    "pinned-worker",
+                    smoke_runner.WorkerLock(123, object(), None),
+                )
+            )
+            report = mock.Mock()
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30266918843",
+                        "NEMOCLAW_MAX_WORKER_FAILOVERS": "2",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    select,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    return_value=(None, None),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    return_value="repo sync failed on pinned-worker",
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(smoke_runner, "_release_lock", release),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-deploy-profile",
+                        "--instance",
+                        "pinned-worker",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 1)
+        select.assert_called_once()
+        report.assert_called_once()
+        release.assert_called_once()
+
+    def test_runner_does_not_restart_group_after_second_step_setup_failure(self):
+        scenarios = [
+            smoke_runner.NemoClawScenario(
+                skill="vss-ask-video",
+                spec_name="base_profile_video_understanding",
+                spec_path=Path("/tmp/base_profile_video_understanding.json"),
+                platform="RTXPRO6000BW",
+                gpu_count=1,
+                task_dir=Path("/tmp/dataset/step-1"),
+                harbor_path=Path("/tmp/dataset"),
+                task_name="step-1",
+                deployment_profile="base",
+            ),
+            smoke_runner.NemoClawScenario(
+                skill="vss-ask-video",
+                spec_name="base_profile_video_understanding",
+                spec_path=Path("/tmp/base_profile_video_understanding.json"),
+                platform="RTXPRO6000BW",
+                gpu_count=1,
+                task_dir=Path("/tmp/dataset/step-2"),
+                harbor_path=Path("/tmp/dataset"),
+                task_name="step-2",
+                deployment_profile="base",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            select = mock.Mock(
+                return_value=(
+                    "vss-eval-rtx-1g-2",
+                    smoke_runner.WorkerLock(123, object(), None),
+                )
+            )
+            report = mock.Mock()
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30266918843",
+                        "NEMOCLAW_MAX_WORKER_FAILOVERS": "2",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=(scenarios, []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[scenarios],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    select,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    side_effect=[0, 0],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    side_effect=[(1.0, Path("/tmp/reward.txt")), (None, None)],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    return_value="NemoClaw setup failed on vss-eval-rtx-1g-2",
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(smoke_runner, "_release_lock", release),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-ask-video",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 1)
+        select.assert_called_once()
+        self.assertEqual(report.call_count, 2)
+        release.assert_called_once()
+
     def test_worker_selection_uses_brev_id_as_exec_target(self):
         previous = {
             "_list_instances": smoke_runner._list_instances,
