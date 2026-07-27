@@ -130,7 +130,7 @@ services:
       wdm-env-from-config:
         condition: service_completed_successfully
     environment:
-      DOCKER_WORKLOAD_WAIT_SECONDS: "${DOCKER_WORKLOAD_WAIT_SECONDS:-300}"
+      DOCKER_WORKLOAD_WAIT_SECONDS: "${DOCKER_WORKLOAD_WAIT_SECONDS:-600}"
     volumes:
       - ./wait-for-docker-workloads.sh:/wait-for-docker-workloads.sh:ro
       - ./.wdm-env:/wdm-env:ro
