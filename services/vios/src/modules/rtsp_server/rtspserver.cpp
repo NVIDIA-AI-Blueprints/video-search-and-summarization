@@ -754,8 +754,9 @@ static void fillVideoDetailsFromParameterSets(const Json::Value& parameterSets, 
         return;
     }
 
+    // Parses in milliseconds; cap the wait so it cannot stall the async worker
     string parserCodec = codec;
-    Json::Value details = getRTSPStreamDetails(url, parserCodec, nalUnits);
+    Json::Value details = getRTSPStreamDetails(url, parserCodec, nalUnits, /*timeoutSec=*/1);
 
     const string width  = details.get("width", EMPTY_STRING).asString();
     const string height = details.get("height", EMPTY_STRING).asString();
