@@ -942,7 +942,7 @@ class PoolCandidates(unittest.TestCase):
     def setUp(self):
         self._orig = run_leg._list_pool_instances
         run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: self.FLEET
+            lambda _required_gpu_type=None: self.FLEET
         )
 
     def tearDown(self):
@@ -1042,7 +1042,7 @@ class PoolCandidates(unittest.TestCase):
             ["vss-eval-rtx-2g-VM1b"],
         )
 
-    def test_4090_pool_is_limited_to_approved_skills(self):
+    def test_4090_pool_is_gated_by_explicit_gpu_type(self):
         env = {
             "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
             "BREV_RTX4090_POOL": (
@@ -1051,79 +1051,90 @@ class PoolCandidates(unittest.TestCase):
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
-            approved = run_leg._registered_pool_allowlist(
-                "vss-ask-video", "base_profile_video_understanding"
-            )
-            unapproved = run_leg._registered_pool_allowlist(
-                "vss-deploy-profile", "search"
+            rtx_pro = run_leg._registered_pool_allowlist("RTX PRO 6000")
+            rtx4090 = run_leg._registered_pool_allowlist(
+                "GEFORCE RTX 4090"
             )
 
+        self.assertEqual(rtx_pro, {"vss-eval-rtx-2g-vm1b"})
         self.assertEqual(
-            approved,
+            rtx4090,
             {
                 "vss-eval-rtx-2g-vm1b",
                 "vss-eval-geforce-rtx4090-vm1",
                 "vss-eval-geforce-rtx4090-vm2",
             },
         )
-        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
 
-    def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "alerts_cv"
-        ))
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-manage-alerts", "subscriptions_lifecycle"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "search"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "warehouse"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-dense-captioning", "alerts_profile_api"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-detection-tracking-3d", "deploy"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+    def test_registered_4090_discovery_requires_explicit_gpu_type(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_pool_instances = self._orig
+            run_leg._list_brev_instances = lambda: []
+            run_leg._list_registered_nodes = lambda: [
+                {
+                    "name": "vss-eval-geforce-rtx4090-vm1",
+                    "status": "Connected",
+                },
+            ]
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "BREV_RTX4090_POOL":
+                        "vss-eval-geforce-rtx4090-vm1",
+                },
+                clear=True,
+            ):
+                rtx_pro = run_leg.pool_candidates({
+                    "gpu_type": "RTX PRO 6000",
+                    "gpu_count": 1,
+                })
+                rtx4090 = run_leg.pool_candidates({
+                    "gpu_type": "GEFORCE RTX 4090",
+                    "gpu_count": 1,
+                })
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
 
-    def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
+        self.assertEqual(rtx_pro, [])
+        self.assertEqual(rtx4090, ["vss-eval-geforce-rtx4090-vm1"])
+
+    def test_4090_selection_requires_explicit_gpu_type(self):
         fleet = [{
             "name": "vss-eval-geforce-rtx4090-vm1",
             "status": "RUNNING",
             "gpu": "GEFORCE RTX 4090",
             "_registered": True,
-            "_rtx4090_capability_routed": True,
         }]
         run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: fleet
+            lambda _required_gpu_type=None: fleet
         )
         requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
 
-        approved = run_leg.pool_candidates({
+        legacy_route = run_leg.pool_candidates({
             **requirements,
             "skill": "vss-ask-video",
         }, "base_profile_video_understanding")
-        unapproved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-deploy-dense-captioning",
-        }, "alerts_profile_api")
+        explicit_route = run_leg.pool_candidates({
+            "gpu_type": "GEFORCE RTX 4090",
+            "gpu_count": 1,
+            "skill": "vss-ask-video",
+        }, "base_profile_video_understanding")
 
-        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
-        self.assertEqual(unapproved, [])
+        self.assertEqual(legacy_route, [])
+        self.assertEqual(explicit_route, ["vss-eval-geforce-rtx4090-vm1"])
 
     def test_underprovisioned_registered_node_is_filtered(self):
         fleet = [
             {"name": "vss-eval-geforce-rtx4090-vm1", "status": "RUNNING",
-             "gpu": "GEFORCE RTX 4090", "_registered": True,
-             "_rtx4090_capability_routed": True},
+             "gpu": "GEFORCE RTX 4090", "_registered": True},
             {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
              "gpu": "RTX PRO 6000", "_registered": True},
         ]
         run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: fleet
+            lambda _required_gpu_type=None: fleet
         )
 
         names = run_leg.pool_candidates({

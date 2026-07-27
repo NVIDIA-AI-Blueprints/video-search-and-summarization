@@ -1396,9 +1396,16 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertNotIn("vss-generate-video-calibration", skills)
         self.assertNotIn("vss-manage-video-io-storage", skills)
         self.assertNotIn("vss-search-archive", skills)
-        self.assertNotIn("vss-setup-behavior-analytics", skills)
+        self.assertIn("vss-setup-behavior-analytics", skills)
         self.assertNotIn("vss-setup-video-analytics-api", skills)
         self.assertNotIn("evals", [row["spec_stem"] for row in rows])
+        behavior_row = next(
+            row
+            for row in rows
+            if row["skill"] == "vss-setup-behavior-analytics"
+        )
+        self.assertEqual(behavior_row["spec_stem"], "deploy_search_and_alerts")
+        self.assertEqual(behavior_row["platform"], "ANY")
         self.assertTrue(
             any("vss-generate-video-report-rag: missing Harbor adapter" in item for item in blockers)
         )
@@ -1492,7 +1499,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             else:
                 os.environ["NEMOCLAW_ENABLE_RTCV"] = previous
 
-    def test_standalone_host_docker_spec_is_blocked_for_nemoclaw(self):
+    def test_standalone_host_docker_spec_is_blocked_while_live_specs_run(self):
         rows, blockers = smoke_runner._build_matrix(
             skills_filter="vss-setup-behavior-analytics",
             profile_filter=None,
@@ -1501,7 +1508,16 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             representative_per_skill=False,
         )
 
-        self.assertEqual(rows, [])
+        self.assertEqual(
+            {row["spec_stem"] for row in rows},
+            {
+                "deploy_search_and_alerts",
+                "fov_count_alert",
+                "proximity_alert",
+                "roi_bbox_overlap",
+            },
+        )
+        self.assertTrue(all(row["platform"] == "ANY" for row in rows))
         self.assertTrue(
             any(
                 "vss-setup-behavior-analytics/standalone_deploy.json: standalone host-Docker eval"

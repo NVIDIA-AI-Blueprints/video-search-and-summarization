@@ -55,6 +55,7 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 # (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
 # the host, not per leg, so every leg publishes its trials in here.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
+RTX4090_GPU_TYPE = "GEFORCE RTX 4090"
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
 # 600-second base used by Harbor for environment build and verification; these
@@ -522,43 +523,28 @@ def _parse_pool_names(raw: str) -> set[str]:
     }
 
 
-def _rtx4090_supports(skill: str | None, spec_stem: str | None) -> bool:
-    """Whether resource data supports this exact test on a 24 GB RTX 4090."""
-    if not skill or not spec_stem:
-        return False
-    return (
-        skill in RTX4090_ALL_TESTS
-        or spec_stem in RTX4090_TESTS.get(skill, ())
-    )
-
-
 def _registered_pool_allowlist(
-    skill: str | None = None,
-    spec_stem: str | None = None,
+    required_gpu_type: str | None = None,
 ) -> set[str]:
     """Registered nodes approved for this test.
 
     ``BREV_REGISTERED_POOL`` contains full-capability workers. The separate
-    RTX 4090 pool is intentionally capability-routed because those 24 GB
-    cards cannot safely satisfy every RTX PRO 6000 task.
+    RTX 4090 pool is exposed only when the spec explicitly requests that GPU;
+    those 24 GB cards cannot safely satisfy RTX PRO 6000 tasks.
     """
     names = _parse_pool_names(os.environ.get("BREV_REGISTERED_POOL", ""))
-    if _rtx4090_supports(skill, spec_stem):
+    if (required_gpu_type or "").upper() == RTX4090_GPU_TYPE:
         names.update(_parse_pool_names(os.environ.get("BREV_RTX4090_POOL", "")))
     return names
 
 
 def _list_pool_instances(
-    skill: str | None = None,
-    spec_stem: str | None = None,
+    required_gpu_type: str | None = None,
 ) -> list[dict]:
     """Return managed instances plus connected registered pool nodes."""
     instances = list(_list_brev_instances())
     seen = {(inst.get("name") or "").lower() for inst in instances}
-    registered_allowlist = _registered_pool_allowlist(skill, spec_stem)
-    rtx4090_allowlist = _parse_pool_names(
-        os.environ.get("BREV_RTX4090_POOL", "")
-    )
+    registered_allowlist = _registered_pool_allowlist(required_gpu_type)
     if not registered_allowlist:
         return instances
     for node in _list_registered_nodes():
@@ -578,10 +564,6 @@ def _list_pool_instances(
             "gpu": _registered_gpu_hint(name),
             "instance_type": "registered-external-node",
             "_registered": True,
-            "_rtx4090_capability_routed": (
-                name.lower() in rtx4090_allowlist
-                and name.lower().startswith(RTX4090_PREFIX)
-            ),
         })
         seen.add(name.lower())
     return instances
@@ -618,18 +600,14 @@ def pool_candidates(
     pick with live nvidia-smi and the box is reset either way.
     gpu_count == 0 (remote-all / GPU-independent) accepts any RUNNING box.
     """
+    # Retained for compatibility with existing callers; hardware routing now
+    # derives exclusively from the spec's explicit resource metadata.
+    del spec_stem
     required_type = (metadata.get("gpu_type") or "").upper()
     required_count = int(metadata.get("gpu_count", 1) or 0)
-    skill = metadata.get("skill") or os.environ.get("EVAL_SKILL") or None
-    spec_stem = (
-        spec_stem
-        or metadata.get("spec_stem")
-        or os.environ.get("EVAL_SPEC_STEM")
-        or None
-    )
 
     candidates: list[tuple[str, bool]] = []
-    for inst in _list_pool_instances(skill, spec_stem):
+    for inst in _list_pool_instances(required_type):
         name = inst.get("name") or ""
         if not name.startswith("vss-eval-"):
             continue
@@ -642,15 +620,10 @@ def pool_candidates(
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
             itype = (inst.get("instance_type") or "").upper()
-            capability_routed = (
-                bool(inst.get("_rtx4090_capability_routed"))
-                and _rtx4090_supports(skill, spec_stem)
-            )
             # Accept via instance_type when `gpu` is a transient "-"/"" flake
             # (brev catalog refresh) — same soft-fail brev_env applies.
             if not (_loose_gpu_match(required_type, gpu)
-                    or _loose_gpu_match(required_type, itype)
-                    or capability_routed):
+                    or _loose_gpu_match(required_type, itype)):
                 continue
         candidates.append((name, bool(inst.get("_registered"))))
 

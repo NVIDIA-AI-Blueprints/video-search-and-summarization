@@ -505,13 +505,14 @@ The canonical harbor command is in § Harbor invocation.
 |---|---|---|
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
+| `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Single-GPU RTX 4090 nodes are eligible only when the spec declares `gpu_type: GEFORCE RTX 4090`. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
 Pool naming is operator-managed; the actual fleet is the union of managed
 instances from `brev ls --json` and connected registered nodes from
 `brev ls nodes --json` that are explicitly named in the coordinator's
-comma/space-separated `BREV_REGISTERED_POOL` allowlist. Registered-node
+comma/space-separated `BREV_REGISTERED_POOL` allowlist (or the separate
+`BREV_RTX4090_POOL` for an explicitly requested RTX 4090). Registered-node
 JSON omits GPU metadata, so `run_leg.py` accepts only documented hardware
 prefixes (`vss-eval-rtx*`, `vss-eval-geforce-rtx4090-vm*`,
 `vss-eval-l40s*`, `vss-eval-h100*`) and fails closed for unknown GPU
@@ -521,16 +522,12 @@ the operator's job**; the box lock and the trials both live inside
 `run_leg.py` — see Hard rules about `brev create / start / stop / delete /
 reset`.
 
-`BREV_RTX4090_POOL` is a separate, capability-routed allowlist. Its nodes
-are selected only when the skill and spec stem match the resource-proven
-matrix in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS`. This includes
-the proven ask-video, report, base/LVS/Alerts profile, summarize, alerts,
-query analytics, 2D detection, embedding, calibration, VIOS, setup, and
-standalone dense-captioning tests. Search, Warehouse, dense-captioning
-Alerts, and every 3D detection/calibration test remain on full-capability
-workers. Missing skill/spec metadata fails closed. A registered single-GPU
-node is also filtered from any task requiring two GPUs before lock
-acquisition.
+`BREV_RTX4090_POOL` is a separate, metadata-routed allowlist. Its nodes
+are considered only when the eval spec explicitly declares
+`gpu_type: GEFORCE RTX 4090`; skill names and spec stems never override the
+declared hardware. Missing or different GPU metadata fails closed. A
+registered single-GPU node is also filtered from any task requiring two
+GPUs before lock acquisition.
 
 `vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
