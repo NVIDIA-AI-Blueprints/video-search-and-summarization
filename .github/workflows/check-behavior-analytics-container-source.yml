@@ -3,7 +3,7 @@
 
 name: Check Behavior Analytics Container Source
 
-on:
+"on":
   push:
     branches:
       - main
