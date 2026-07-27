@@ -142,6 +142,7 @@
           "camera_add_unfiltered": "/bdd/webhooks/camera/add/unfiltered",
           "camera_add_rtsp_only": "/bdd/webhooks/camera/add/rtsp-only",
           "camera_streaming": "/bdd/webhooks/camera/streaming",
+          "camera_streaming_rtsp": "/bdd/webhooks/camera/streaming/rtsp-only",
           "camera_remove": "/bdd/webhooks/camera/remove"
         },
         "webhook_ids": {
@@ -153,7 +154,10 @@
         "filter_absence_timeout_sec": 2,
         "upload_timeout_sec": 60,
         "api_timeout_sec": 30,
-        "upload_timestamp": "2025-06-15T12:00:00.000Z"
+        "upload_timestamp": "2025-01-01T00:00:00.000Z",
+        "rtsp_sensor": "",
+        "rtsp_streaming_timeout_sec": 90,
+        "rtsp_stream_resolve_timeout_sec": 30
       }
     },
     "performance_tests": {
