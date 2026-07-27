@@ -441,7 +441,8 @@ vss-agent-ui:
 #         http: 80
 #         https: 443
 
-# LVS profile Ingress: UI, agent, VST; optional kibana.* and phoenix.* hosts when those subcharts are enabled.
+# LVS profile Ingress: UI, agent, VST, LVS/RT-VLM summarization APIs; optional
+# kibana.* and phoenix.* hosts when those subcharts are enabled.
 vssIngress:
   enabled: false
   ingressClassName: haproxy
@@ -449,6 +450,10 @@ vssIngress:
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
+  # Exact public API paths: /v1/ready and /v1/summarize route to LVS;
+  # /v1/models and /v1/chat/completions route to RT-VLM.
+  lvsBackendPort: 38111
+  rtviVlmPort: 8000
   # Optional; default kibana.<global.externalHost or vssIngress.host>.
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix

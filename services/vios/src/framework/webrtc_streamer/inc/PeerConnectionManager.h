@@ -49,7 +49,7 @@
 #define STANDARD_BITRATE_720P_KBPS 3000
 #define PASS_THROUGH_QUALITY "pass_through"
 
-typedef std::pair< rtc::scoped_refptr<webrtc::VideoTrackSourceInterface>, rtc::scoped_refptr<webrtc::AudioSourceInterface>> AudioVideoPair;
+typedef std::pair< webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>, webrtc::scoped_refptr<webrtc::AudioSourceInterface>> AudioVideoPair;
 
 struct ClientInfo
 {
@@ -138,7 +138,7 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         shared_ptr<IWebrtcConnection>                         CreatePeerConnection(std::unordered_map<std::string, std::string>& opts);
         bool                                                  streamStillUsed(const std::string & streamLabel);
         const std::list<std::string>                          getVideoCaptureDeviceList();
-        rtc::scoped_refptr<webrtc::PeerConnectionInterface>   getRtcPeerConnection(const std::string& peerid);
+        webrtc::scoped_refptr<webrtc::PeerConnectionInterface>   getRtcPeerConnection(const std::string& peerid);
         const std::string                                     sanitizeLabel(const std::string &label);
         bool                                                  isWebrtcOutLimitCrossed();
         bool                                                  isWebrtcInLimitCrossed();
@@ -172,7 +172,7 @@ class PeerConnectionManager : public IStreamStatusEvent, public IVstModule
         std::string                                                     m_pcType {""};
     protected:
         std::unique_ptr<webrtc::TaskQueueFactory>                       m_taskQueueFactory;
-        rtc::scoped_refptr<webrtc::AudioDeviceModule>                   m_audioDeviceModule;
+        webrtc::scoped_refptr<webrtc::AudioDeviceModule>                   m_audioDeviceModule;
 #ifndef ASYNC_API
         std::mutex                                                      m_peerMapMutex;
         std::mutex                                                      m_peerInConnMapMutex;

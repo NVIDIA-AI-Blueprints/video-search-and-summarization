@@ -24,7 +24,7 @@ set -euo pipefail
 MODE=${1:-dev}  # Use first argument or default to dev
 
 # Validate mode parameter
-if [ "$MODE" != "dev" ] && [ "$MODE" != "prod" ]; then
+if [[ "$MODE" != "dev" ]] && [[ "$MODE" != "prod" ]]; then
     echo "Invalid mode: $MODE. Must be 'dev' or 'prod'"
     exit 1
 fi
@@ -44,7 +44,7 @@ run_test() {
     ./test.sh "$profile1" "$profile2" "$MODE"
     TEST_EXIT_CODE=$?
     
-    if [ $TEST_EXIT_CODE -ne 0 ]; then
+    if [[ $TEST_EXIT_CODE -ne 0 ]]; then
         echo ""
         echo "❌ Test FAILED, skipping other tests..."
         exit 1

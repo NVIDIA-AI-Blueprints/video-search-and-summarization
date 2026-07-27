@@ -23,8 +23,8 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
 
 ## Common app keys (examples)
 - `in3dMode`: "false" (supports env var when value starts with `$`)
-- `coordinateSystem`: "image" | "euclidean" | "geo"
 - `imageLocationMode`: "center" | "bottom_center" (for image coordinate system, determines which point from bbox is used to calculate location; default: "bottom_center")
+- `roiEventDetectionMode`: "coordinate" | "bbox" (ROI ENTRY/EXIT detection; "coordinate" [default] checks whether the object's coordinate is inside the ROI polygon, "bbox" checks whether the object's bounding box overlaps the ROI polygon). "bbox" is supported only for **image** calibration, where `object.bbox` and the ROI polygon share image-pixel coordinates. For **cartesian** and **geo** calibration it falls back to the coordinate-inside check with a one-time warning, since `object.bbox` is in image pixels while the ROI/trajectory are in world units.
 - `behaviorMaxPoints`: "200"
 - `sourceType` / `sinkType`: typically "kafka" (also supports `redisStream`, `mqtt`)
 - `spaceAnalyticsIntervalSec`: "5.0"
@@ -54,7 +54,7 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
   "sensors": [{"id": "default", "configs": []}],
   "app": [
     {"name": "behaviorMaxPoints", "value": "200"},
-    {"name": "coordinateSystem", "value": "image"}
+    {"name": "in3dMode", "value": "false"}
   ]
 }
 ```
@@ -62,7 +62,7 @@ Configurations are JSON files consumed by `AppConfig` (`src/mdx/analytics/core/s
 ## Incidents & frame state
 - All incident types (proximity, restricted area, confined area, FOV count) default to disabled (`...IncidentEnable = "false"`). Set the corresponding `...IncidentEnable = "true"` to turn them on.
 - Each type has its own `...Threshold` (duration in sec) and `...ExpirationWindow` (gap tolerance in sec); both default to `"1"`.
-- FOV count additionally requires `fovCountViolationIncidentObjectThreshold` — the object type being counted.
+- FOV count uses two extra keys: `fovCountViolationIncidentObjectThreshold` — the numeric count threshold (default `"1"`) — and `fovCountViolationIncidentObjectType` — the object type being counted (default `"Person"`).
 - Details and timing: `docs/incident-detection.md`.
 
 ## Examples directory

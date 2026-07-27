@@ -138,23 +138,21 @@ repo evolves.
    | new Dockerfile (new service) | new `templates/<svc>-deployment.yaml` + values entry |
    | NIM / GPU resource hints | `resources.limits.nvidia.com/gpu` + tolerations / nodeSelector |
 
-   **Intentional developer/release image-channel split.** Image-coordinate
-   equality has one explicit exception and must not be reported as Helm drift:
+   **Shared managed-image channel.** Images classified with `"ghcr_build": true`
+   in `deploy/docker/container-inventory.json` use the same defaults in Docker
+   Compose and Helm:
 
-   - Images classified with `"ghcr_build": true` in
-     `deploy/docker/container-inventory.json` use GHCR moving aliases in Docker
-     Compose for continuous developer testing.
-   - Their Helm charts are the QA/release channel and intentionally retain
-     immutable `nvcr.io/nvstaging/vss-core/*` pins until the tested digest is
-     promoted. Each intentional pin carries a
-     `HELM_RELEASE_CHANNEL_POLICY` comment immediately above its `image:` block.
-   - Treat that GHCR `develop-latest` versus immutable NGC staging difference
-     as **already synced**. Never propose putting `develop-latest` in Helm:
-     doing so would bypass nightly acceptance and make Kubernetes deployments
-     consume an unvalidated mutable alias.
-   - Continue to flag every other semantic difference, including image changes
-     for inventory entries without `ghcr_build`, missing policy comments,
-     container env, ports, mounts, commands, probes, resources, and topology.
+   - Both deployment paths default to
+     `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
+   - Helm resolves the managed image prefix and tag from
+     `global.container_prefix` and `global.container_tag` when set. QA uses
+     those two values to select a promoted NGC staging drop without editing
+     individual subcharts.
+   - Treat a Helm chart that retains an immutable
+     `nvcr.io/nvstaging/vss-core/*` default, ignores either global override, or
+     hard-codes a managed image in an umbrella profile as drift.
+   - Continue to flag every other semantic difference, including container
+     env, ports, mounts, commands, probes, resources, and topology.
 
    For each docker-side change, decide one of:
    - **already synced** — the helm-side change matches semantically.

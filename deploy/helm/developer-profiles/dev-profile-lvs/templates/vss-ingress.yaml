@@ -17,8 +17,14 @@ metadata:
     app.kubernetes.io/name: vss
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-  {{- if $phoenixStackEnabled }}
   annotations:
+    # LVS /v1/summarize runs the full chunk -> VLM caption -> merge -> aggregate
+    # pipeline and can take several minutes. Raise the HAProxy timeouts well
+    # above the 50s controller default so the ingress does not return a
+    # 504 Gateway Time-out while the summarization backend is still working.
+    haproxy.org/timeout-client: {{ $vi.timeoutClient | default "600s" | quote }}
+    haproxy.org/timeout-server: {{ $vi.timeoutServer | default "600s" | quote }}
+  {{- if $phoenixStackEnabled }}
     haproxy.org/path-rewrite: |
       /phoenix/(.*) /\1
       /phoenix /
@@ -57,7 +63,65 @@ spec:
                 name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
                 port:
                   number: {{ $vi.vssAgentPort }}
+          # The summarization workflow uses the same public origin for LVS and
+          # RT-VLM. Keep these as exact paths: both backends own /v1 APIs.
+          - path: /v1/ready
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }}
+                port:
+                  number: {{ $vi.lvsBackendPort | default 38111 }}
+          - path: /v1/summarize
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }}
+                port:
+                  number: {{ $vi.lvsBackendPort | default 38111 }}
+          - path: /v1/models
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }}
+                port:
+                  number: {{ $vi.rtviVlmPort | default 8000 }}
+          - path: /v1/chat/completions
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }}
+                port:
+                  number: {{ $vi.rtviVlmPort | default 8000 }}
           - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /redoc
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /generate
             pathType: Prefix
             backend:
               service:

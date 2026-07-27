@@ -14,17 +14,52 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-enum LogLevel {
-    VERBOSE,
-    INFO,
-    WARN,
-    ERROR,
+/* eslint-disable no-console -- this module is the sanctioned console boundary for the app */
+/**
+ * Severity levels, ordered low → high. Messages below the active threshold are dropped.
+ * `SILENT` disables all output.
+ */
+export enum LogLevel {
+    VERBOSE = 0,
+    INFO = 1,
+    WARN = 2,
+    ERROR = 3,
+    SILENT = 4,
 }
 
-type LogFunction = (message: string, ...args: unknown[]) => void;
+type LogFunction = (message?: unknown, ...args: unknown[]) => void;
+
+const LEVEL_NAMES: Record<LogLevel, string> = {
+    [LogLevel.VERBOSE]: 'VERBOSE',
+    [LogLevel.INFO]: 'INFO',
+    [LogLevel.WARN]: 'WARN',
+    [LogLevel.ERROR]: 'ERROR',
+    [LogLevel.SILENT]: 'SILENT',
+};
+
+/**
+ * Resolve the initial threshold. Production defaults to INFO (no verbose noise); development
+ * defaults to VERBOSE. Either can be overridden at runtime via `localStorage.LOG_LEVEL`
+ * (e.g. `localStorage.LOG_LEVEL = 'WARN'`) without a rebuild — a standard field-debugging affordance.
+ */
+const resolveInitialLevel = (): LogLevel => {
+    try {
+        const override = typeof localStorage !== 'undefined' ? localStorage.getItem('LOG_LEVEL') : null;
+        // Numeric enums emit reverse mappings ('0' -> 'VERBOSE'), so guard against numeric keys:
+        // only accept named levels, otherwise LogLevel['0'] would return the string 'VERBOSE'.
+        const nameKeys = Object.keys(LogLevel).filter((k) => isNaN(Number(k)));
+        if (override && nameKeys.includes(override.toUpperCase())) {
+            return LogLevel[override.toUpperCase() as keyof typeof LogLevel];
+        }
+    } catch {
+        // localStorage may be unavailable (SSR/sandboxed); fall back to the env default.
+    }
+    return process.env.NODE_ENV === 'development' ? LogLevel.VERBOSE : LogLevel.INFO;
+};
 
 class Logger {
     private static instance: Logger;
+    private minLevel: LogLevel = resolveInitialLevel();
 
     public static getInstance(): Logger {
         if (!Logger.instance) {
@@ -33,14 +68,46 @@ class Logger {
         return Logger.instance;
     }
 
-    private formatMessage(_level: string, message: string, args: unknown[]): string {
-        const timestamp = new Date().toISOString();
-        const formattedArgs = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg))).join(' ');
-        return `[${timestamp}] ${message} ${formattedArgs}`;
+    /** Raise or lower the active threshold at runtime. */
+    public setLevel(level: LogLevel): void {
+        this.minLevel = level;
     }
 
-    private log(level: LogLevel, message: string, args: unknown[]): void {
-        const formattedMessage = this.formatMessage(LogLevel[level], message, args);
+    public getLevel(): LogLevel {
+        return this.minLevel;
+    }
+
+    /** Convenience toggle: `false` silences all output, `true` restores the env default. */
+    public setEnabled(enabled: boolean): void {
+        this.minLevel = enabled ? resolveInitialLevel() : LogLevel.SILENT;
+    }
+
+    private isEnabled(level: LogLevel): boolean {
+        return level >= this.minLevel && this.minLevel !== LogLevel.SILENT;
+    }
+
+    private formatMessage(level: LogLevel, message: unknown, args: unknown[]): string {
+        const timestamp = new Date().toISOString();
+        const stringify = (arg: unknown): string => {
+            if (typeof arg !== 'object' || arg === null) {
+                return String(arg);
+            }
+            try {
+                return JSON.stringify(arg, null, 2);
+            } catch {
+                return String(arg);
+            }
+        };
+        const head = stringify(message);
+        const tail = args.map(stringify).join(' ');
+        return `[${timestamp}] [${LEVEL_NAMES[level]}] ${head}${tail ? ` ${tail}` : ''}`;
+    }
+
+    private log(level: LogLevel, message: unknown, args: unknown[]): void {
+        if (!this.isEnabled(level)) {
+            return;
+        }
+        const formattedMessage = this.formatMessage(level, message, args);
         switch (level) {
             case LogLevel.VERBOSE:
                 console.debug(formattedMessage);
@@ -54,7 +121,6 @@ class Logger {
             case LogLevel.ERROR:
                 console.error(formattedMessage);
                 break;
-
             default:
                 break;
         }
@@ -77,23 +143,33 @@ class Logger {
     };
 
     public group(label: string): void {
-        console.group(label);
+        if (this.minLevel !== LogLevel.SILENT) {
+            console.group(label);
+        }
     }
 
     public groupEnd(): void {
-        console.groupEnd();
+        if (this.minLevel !== LogLevel.SILENT) {
+            console.groupEnd();
+        }
     }
 
     public table(tabularData: Record<string, unknown>[], properties?: readonly string[] | string[]): void {
-        console.table(tabularData, properties as string[] | undefined);
+        if (this.minLevel !== LogLevel.SILENT) {
+            console.table(tabularData, properties as string[] | undefined);
+        }
     }
 
     public time(label: string): void {
-        console.time(label);
+        if (this.minLevel !== LogLevel.SILENT) {
+            console.time(label);
+        }
     }
 
     public timeEnd(label: string): void {
-        console.timeEnd(label);
+        if (this.minLevel !== LogLevel.SILENT) {
+            console.timeEnd(label);
+        }
     }
 }
 

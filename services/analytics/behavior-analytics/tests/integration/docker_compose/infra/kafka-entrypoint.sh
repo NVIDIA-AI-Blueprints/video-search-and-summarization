@@ -18,7 +18,7 @@ set -e
 
 CLUSTER_ID_FILE=/tmp/kafka-data/cluster_id
 
-if [ -f "$CLUSTER_ID_FILE" ]; then
+if [[ -f "$CLUSTER_ID_FILE" ]]; then
     export KAFKA_CLUSTER_ID=$(cat "$CLUSTER_ID_FILE")
     echo "Found existing Cluster ID from file: $KAFKA_CLUSTER_ID"
 else

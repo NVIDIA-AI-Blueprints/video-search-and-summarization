@@ -456,6 +456,8 @@ services:
         condition: service_healthy
       sensor-ms:
         condition: service_healthy
+      streamprocessing-ms-1:
+        condition: service_healthy
     environment:
       - DASHBOARD_API_ENDPOINT=${DASHBOARD_API_ENDPOINT:-http://localhost:8000}
       - GIT_BRANCH=${GIT_BRANCH:-unknown}
@@ -710,42 +712,112 @@ run_build_commands() {
     # and is provided via the IMAGE_REGISTRY env var consumed by build.sh.
     # Use an array so an empty value expands to nothing and a value containing
     # whitespace/globs is passed as a single argument (no word-splitting).
-    local -a base_tag_arg=()
+    local -a build_args=()
     if [[ -n "${VST_BASE_TAG:-}" ]]; then
-        base_tag_arg=("base-tag=${VST_BASE_TAG}")
+        build_args+=("base-tag=${VST_BASE_TAG}")
         info "Using prebuilt base image tag: ${VST_BASE_TAG}"
+    fi
+
+    # Optional per-arch image tag + push, supplied by CI for the MULTIARCH publish
+    # flow (e.g. VST_BUILD_TAG=2.1.0-amd64-26.05.5 on the amd64 node,
+    # 2.1.0-arm64-... on the arm64 node) so the built images are pushed and later
+    # merged into a multiarch manifest. Unset for a plain local build-and-test
+    # (images stay local at their default tag and are not pushed). Registry/org
+    # still comes from IMAGE_REGISTRY/NVSTREAMER_IMAGE_REGISTRY; only the tag is
+    # referenced. NOTE: this is VST_BUILD_TAG (not BUILD_TAG) -- Jenkins defines a
+    # built-in BUILD_TAG=jenkins-<job>-<num>, which would otherwise be picked up
+    # here and mis-tag the images.
+    if [[ -n "${VST_BUILD_TAG:-}" ]]; then
+        build_args+=("tag=${VST_BUILD_TAG}")
+        info "Building images with tag: ${VST_BUILD_TAG}"
+    fi
+    if [[ "${PUSH_IMAGES:-}" == "1" || "${PUSH_IMAGES:-}" == "true" ]]; then
+        build_args+=("push=1")
+        info "Images will be pushed after build"
     fi
 
     # Build nvstreamer
     info "Building nvstreamer for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container nvstreamer "${base_tag_arg[@]}" || error "nvstreamer build failed"
+        ./build.sh container nvstreamer "${build_args[@]}" || error "nvstreamer build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container nvstreamer "${base_tag_arg[@]}" || error "nvstreamer build failed"
+        ./build.sh arch=${ARCH} container nvstreamer "${build_args[@]}" || error "nvstreamer build failed"
     fi
 
-    # Build sensor + stream-processor
+    # Build sensor + stream-processor in a single call. build.sh cleans each
+    # module before building it (MODULE=<m> make clean) for a multi-module build,
+    # so the between-module clean is preserved while the shared framework compiles
+    # once instead of being wiped and rebuilt per module. A single initial clean
+    # gives a fresh start after the nvstreamer build.
     info "Building sensor and stream-processor for ${ARCH}..."
     if [[ "$ARCH" = "x86_64" || "$ARCH" = "amd64" ]]; then
         ./build.sh clean || error "clean build failed"
-        ./build.sh container module=sensor "${base_tag_arg[@]}" || error "sensor build failed"
-        ./build.sh clean || error "clean build failed"
-        ./build.sh container module=streamprocessing "${base_tag_arg[@]}" || error "stream-processor build failed"
+        ./build.sh container module=sensor,streamprocessing "${build_args[@]}" || error "sensor/stream-processor build failed"
     else
         ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=sensor "${base_tag_arg[@]}" || error "sensor build failed"
-        ./build.sh arch=${ARCH} clean || error "clean build failed"
-        ./build.sh arch=${ARCH} container module=streamprocessing "${base_tag_arg[@]}" || error "stream-processor build failed"
+        ./build.sh arch=${ARCH} container module=sensor,streamprocessing "${build_args[@]}" || error "sensor/stream-processor build failed"
     fi
 }
 
 # Function to run docker compose
+# Ensure the BDD test-runner image referenced by docker-compose.test.yaml exists.
+# Order: use it if already local -> else try to pull (works when BDD_TEST_IMAGE
+# points at a registry image) -> else build it from the Dockerfile. The compose
+# `test` service uses ${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}, so export the same
+# value here to guarantee `docker compose up` resolves the identical reference.
+# The Jenkins node is pruned between runs, so this runs every test invocation.
+ensure_bdd_test_image() {
+    local image="${BDD_TEST_IMAGE:-bdd_tests:v1.10.0_x86}"
+    export BDD_TEST_IMAGE="$image"
+
+    # Always ask the registry for the latest published BDD test image. 'docker
+    # pull' is digest-aware: it's a no-op when the local copy already matches the
+    # registry digest, and pulls only changed layers when the tag was overwritten
+    # in place -- so an updated image is picked up while an unchanged tag costs just
+    # a manifest check. Fall back to a cached local copy only if the registry is
+    # unreachable, and build from the Dockerfile as a last resort.
+    info "Ensuring latest BDD test image: $image"
+    if docker pull "$image"; then
+        info "BDD test image up to date (pulled if changed): $image"
+        return 0
+    fi
+    if docker image inspect "$image" >/dev/null 2>&1; then
+        info "Pull failed (registry unreachable?); using cached local BDD test image: $image"
+        return 0
+    fi
+    info "BDD test image not available from registry; building it from ${BDD_TESTS_DIR}/Dockerfile"
+
+    if [[ ! -f "$BDD_TESTS_DIR/Dockerfile" ]]; then
+        error "BDD test Dockerfile not found: $BDD_TESTS_DIR/Dockerfile"
+    fi
+    if ! docker build -t "$image" -f "$BDD_TESTS_DIR/Dockerfile" "$BDD_TESTS_DIR"; then
+        error "Failed to build BDD test image: $image"
+    fi
+    info "Built BDD test image: $image"
+}
+
+# Return 0 if the host answers with ANY HTTP response on the given port (server
+# up), else 1. Mirrors oneclick_dc_deployment.py::_http_endpoint_responds (a
+# 4xx/5xx still means the HTTP server is alive and listening). Prefers curl;
+# falls back to a TCP-connect check when curl is unavailable.
+nvstreamer_http_ready() {
+    local port=$1
+    if command -v curl >/dev/null 2>&1; then
+        curl -s -o /dev/null -m 3 "http://${CURRENT_IP}:${port}"
+    else
+        timeout 3 bash -c "exec 3<>/dev/tcp/${CURRENT_IP}/${port}" 2>/dev/null
+    fi
+}
+
 run_docker_compose() {
     # Ensure BDD test reports directory exists before starting containers
     ensure_bdd_reports_dir || error "Failed to ensure BDD reports directory exists"
-    
+
+    # Ensure the BDD test-runner image is available (pull, else build) before compose up
+    ensure_bdd_test_image || error "Failed to ensure BDD test image is available"
+
     info "Docker version: $(docker --version 2>&1)"
     info "Docker Compose version: $(docker compose version 2>&1)"
 
@@ -763,16 +835,36 @@ run_docker_compose() {
     done
     docker compose --env-file ./compose.env up -d "${ns_services[@]}" || error "Failed to start nvstreamer containers"
 
-    # Wait for nvstreamer containers to initialize
-    info "Waiting for nvstreamer containers to initialize..."
-    info "Step 1: (300s remaining)"
-    sleep 100
-
-    info "Step 2: (200s remaining)"
-    sleep 100
-
-    info "Step 3: (100s remaining)"
-    sleep 100
+    # Wait until each active NVStreamer instance answers on its HTTP port instead
+    # of a fixed sleep. Any HTTP response (incl. 4xx/5xx) means the server is up.
+    # Modeled on oneclick_dc_deployment.py::_wait_for_nvstreamer_http_ready --
+    # returns as soon as all are reachable; caps at NVSTREAMER_READY_TIMEOUT
+    # (default 300s, same ceiling as the old 3x100s sleep).
+    local ns_ready_timeout="${NVSTREAMER_READY_TIMEOUT:-300}"
+    local ns_deadline=$(( $(date +%s) + ns_ready_timeout ))
+    local -a ns_pending=()
+    for ((i = 0; i < NVSTREAMER_COUNT; i++)); do
+        ns_pending+=("$((NVSTREAMER_PORT_BASE + i))")
+    done
+    info "Waiting for NVStreamer HTTP endpoints on ports ${ns_pending[*]} (timeout ${ns_ready_timeout}s)..."
+    while (( ${#ns_pending[@]} > 0 )); do
+        local -a ns_still=()
+        local ns_port
+        for ns_port in "${ns_pending[@]}"; do
+            if nvstreamer_http_ready "$ns_port"; then
+                info "NVStreamer reachable on http://${CURRENT_IP}:${ns_port}"
+            else
+                ns_still+=("$ns_port")
+            fi
+        done
+        ns_pending=( ${ns_still[@]+"${ns_still[@]}"} )
+        (( ${#ns_pending[@]} == 0 )) && break
+        if (( $(date +%s) >= ns_deadline )); then
+            info "WARNING: timed out after ${ns_ready_timeout}s waiting for NVStreamer HTTP; still pending ports: ${ns_pending[*]} -- proceeding anyway"
+            break
+        fi
+        sleep 3
+    done
 
     info "Nvstreamer container status after init wait:"
     docker ps -a --filter "name=nvstreamer" --format 'table {{.Names}}\t{{.Status}}' || true

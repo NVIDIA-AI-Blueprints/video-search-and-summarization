@@ -712,9 +712,6 @@ vss-agent-ui:
   global:
     externalHost: ''
     imagePullPolicy: IfNotPresent
-  image:
-    repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.1-26.07.1-dd945777eef9"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''

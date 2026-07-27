@@ -115,6 +115,34 @@ spec:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
                 port:
                   number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /redoc
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
+          - path: /generate
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $ing.vssAgentPort | default 8000 }}
           {{- end }}
           {{- $vioIng := index $vios "vss-vios-ingress" | default dict }}
           {{- if $vioIng.enabled }}

@@ -25,6 +25,7 @@ interface ProximitySettingsSectionProps {
     proximityAnimation: string;
     setProximityAnimation: (value: string) => void;
     availableClassLabels?: string[];
+    menuContainer?: Element | null;
 }
 
 const ProximitySettingsSection: React.FC<ProximitySettingsSectionProps> = ({
@@ -35,6 +36,7 @@ const ProximitySettingsSection: React.FC<ProximitySettingsSectionProps> = ({
     proximityAnimation,
     setProximityAnimation,
     availableClassLabels,
+    menuContainer,
 }) => {
     return (
         <Box
@@ -60,6 +62,7 @@ const ProximitySettingsSection: React.FC<ProximitySettingsSectionProps> = ({
                                     value={proximityClass}
                                     onChange={e => setProximityClass(e.target.value as string[])}
                                     label='Proximity Class'
+                                    MenuProps={{ container: menuContainer }}
                                 >
                                     {availableClassLabels?.map(label => (
                                         <MenuItem key={label} value={label}>
@@ -79,6 +82,7 @@ const ProximitySettingsSection: React.FC<ProximitySettingsSectionProps> = ({
                                     value={entrantClass}
                                     onChange={e => setEntrantClass(e.target.value as string[])}
                                     label='Entrant Class'
+                                    MenuProps={{ container: menuContainer }}
                                 >
                                     {availableClassLabels?.map(label => (
                                         <MenuItem key={label} value={label}>
@@ -97,6 +101,7 @@ const ProximitySettingsSection: React.FC<ProximitySettingsSectionProps> = ({
                             value={proximityAnimation}
                             onChange={e => setProximityAnimation(e.target.value)}
                             label='Proximity Animation'
+                            MenuProps={{ container: menuContainer }}
                         >
                             <MenuItem value='circleAndLine'>Circle and Line</MenuItem>
                             <MenuItem value='circleOnly'>Circle Only</MenuItem>

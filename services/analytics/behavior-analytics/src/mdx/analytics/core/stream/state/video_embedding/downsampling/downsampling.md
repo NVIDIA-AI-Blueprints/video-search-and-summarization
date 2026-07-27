@@ -79,8 +79,8 @@ within_tolerance = similarity >= threshold
 |-----------|------------------|-------|
 | 0.99 | ~8.1° | Very strict |
 | 0.95 | ~18.2° | Moderate |
-| 0.91 | ~24.2° | Current default for SDT |
-| 0.90 | ~25.8° | Recommended for Window |
+| 0.91 | ~24.2° | Tighter than the shared default; suggested starting point for SDT |
+| 0.90 | ~25.8° | Shared config default (both algorithms); suggested for Window |
 | 0.85 | ~31.8° | Very loose |
 
 
@@ -602,26 +602,32 @@ They're solving different problems with different semantic meanings for "similar
 
 ## Configuration
 
-Configuration parameters in `AppConfig`:
+Configuration keys in `AppConfig` (JSON app keys, `embed` prefix) with their
+actual defaults:
 
 ```python
+# Gating / selection
+embedEnableDownsampling = "false"   # downsampling is OFF by default
+embedDownsamplerType = "window"     # "window" (default) or "sdt"
+
 # Common parameters (both algorithms)
-embedDownsampleToleranceMode = "distance"  # or "cosine"
-embedDownsampleMaxIntervalSec = "300"  # 5 minutes max gap
+embedDownsampleToleranceMode = "cosine"  # default; or "distance"
+embedDownsampleMaxIntervalSec = "60"     # 1 minute max gap
 
-# Threshold defaults (algorithm-specific)
-# SDT defaults:
-embedDownsampleDistanceThreshold = "0.15"  # for distance mode
-embedDownsampleSimilarityThreshold = "0.91"  # for cosine mode
-
-# Window defaults:
-embedDownsampleDistanceThreshold = "0.45"  # for distance mode
+# Threshold defaults (single shared set for both algorithms)
+embedDownsampleDistanceThreshold = "0.15"    # for distance mode
 embedDownsampleSimilarityThreshold = "0.90"  # for cosine mode
 
 # Window-specific parameters
-embedDownsampleWindowSize = "60"  # number of points in window
+embedDownsampleWindowSize = "60"    # number of points in window
 embedDownsampleMinNeighbours = "3"  # minimum consecutive similar neighbors
 ```
+
+> **Note:** there is a single default threshold set (distance `0.15`,
+> similarity `0.90`) shared by both algorithms. The algorithm-specific
+> numbers discussed above (e.g. distance `0.45` for the sliding window, or a
+> tighter cosine value for SDT) are **tuning recommendations**, not code
+> defaults — set them explicitly per profile if you want them.
 
 ## Known Limitations
 

@@ -29,6 +29,7 @@
 {{- $subVn := trim (default "" .Values.vlmName) }}
 {{- $globVn := trim (default "" (index $g "vlmName")) }}
 {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos3-nano-reasoner" }}
+{{- $rtviVlmBase := printf "http://%s:8000" (ternary (printf "%s-vss-rtvi-vlm" .Release.Name) "vss-rtvi-vlm" $pfx) }}
 {{- $internalVst := printf "http://%s" $vstIngHost }}
 {{- /* vstBaseUrl: optional explicit override via tpl; when empty, always use in-cluster VST (Docker parity: ${VST_INTERNAL_URL}). */}}
 {{- $rawVst := .Values.vstBaseUrl | default "" | toString }}
@@ -110,6 +111,42 @@ alert_agent:
       threshold_seconds: 3
       ttl_seconds: 3600
     end_time_in_dedup_key_categories: []
+
+  # Pipeline mode: sync | thread_bridge | event_loop (invalid value fails startup).
+  # For A/B perf arms flip only this key; thread_bridge reproduces the legacy
+  # async path, sync is the reference arm. See services/alert/README.md
+  # "Pipeline modes & concurrency sizing".
+  pipeline_mode: event_loop
+  async_dispatch_max_in_flight: 16    # Global in-flight bound, 2-4x max_vlm_concurrent
+  async_io:
+    enabled: true                     # Ignored when pipeline_mode is set; kept for config-only rollback
+    vst_enabled: true
+    elastic_enabled: true
+    dedup_enabled: true
+    external_timeout_seconds: 30
+    sink_warn_in_flight: 20
+    # event_loop per-service caps. max_vlm_concurrent MUST be set explicitly
+    # (default falls back to async_dispatch_workers) and MUST stay at or below
+    # the benchmarked VLM backend ceiling.
+    max_vlm_concurrent: 4
+    max_vst_concurrent: 8
+
+# RTVI VLM Configuration - Real-time VLM alert management
+rtvi_vlm:
+  base_url: "{{ $rtviVlmBase }}/v1"
+  timeout: 10
+  default_model: "{{ $vlmNameStr }}"
+  rules_collection: "alert-realtime-rules"
+  pending_ttl_seconds: 300
+  health_check_interval_seconds: 30
+  enable_realtime_persistence: true
+  # Realtime alert consolidation — group repeated VLM positives from the same
+  # camera and alert type into a single event. Controlled per request via the
+  # `consolidate` query param on GET /api/v1/realtime/incidents.
+  consolidation:
+    max_inter_alert_gap_seconds: 60
+    max_event_duration_seconds: 300
+    representative: "latest"
 
 elastic:
   enabled: true

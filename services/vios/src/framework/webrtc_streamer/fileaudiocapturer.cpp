@@ -32,7 +32,7 @@
 
 #include "fileaudiocapturer.h"
 
-FileAudioSource::FileAudioSource(rtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts) 
+FileAudioSource::FileAudioSource(webrtc::scoped_refptr<webrtc::AudioDecoderFactory> audioDecoderFactory, const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts) 
 				: LiveAudioSource(audioDecoderFactory, uri, opts, true) {
 	LOG(info) << "FileAudioSource " << uri ;					
 }
