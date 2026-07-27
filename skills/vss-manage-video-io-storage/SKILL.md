@@ -54,7 +54,7 @@ This skill bundles four reference files under `references/`. Read whichever appl
 This skill is primarily an API client and assumes VIOS is already up and
 reachable at the VST ingress. Resolve endpoints once before doing any work.
 Follow the shared public-Ingress contract in
-[`../vss-search-archive/references/deployment_resolution.md`](../vss-search-archive/references/deployment_resolution.md)
+[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md)
 (`VSS_PUBLIC_URL`, `VSS_VIOS_URL`, `VST_API_BASE`, `VSS_STREAMER_URL`).
 
 ```bash

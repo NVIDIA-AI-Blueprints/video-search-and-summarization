@@ -46,10 +46,9 @@ VSS-based deployments are multi-layer systems. Most skills map to exactly one la
 
 **Kubernetes runtime endpoint contract.** Operate skills run on the caller's
 host, not inside VSS pods. Supply one public Ingress origin as
-`VSS_PUBLIC_URL` (equivalent to Helm `global.externalHost` /
-`VST_EXTERNAL_URL` on search). Canonical variable mapping, Docker fallbacks,
-and the no-port-forward rule live in
-[`vss-search-archive/references/deployment_resolution.md`](vss-search-archive/references/deployment_resolution.md).
+`VSS_PUBLIC_URL` (Helm `global.externalHost` / main Ingress host). Canonical
+variable mapping, Docker fallbacks, and the no-port-forward rule live in
+[`vss-build-vision-agent/references/deployment_resolution.md`](vss-build-vision-agent/references/deployment_resolution.md).
 Profile-specific routes also include Alert Bridge, VA-MCP, and LVS paths on
 their respective Ingress hosts. NvStreamer requires a separate
 `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each skill retains its

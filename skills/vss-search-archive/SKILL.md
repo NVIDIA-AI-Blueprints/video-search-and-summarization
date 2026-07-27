@@ -56,9 +56,10 @@ For Kubernetes, do not require a repository checkout, `uv`, Docker, or
 
 This skill requires the VSS **search** profile. Resolve its public or Compose
 endpoints exactly once. See
-[Deployment resolution](references/deployment_resolution.md) for the shared
-`VSS_PUBLIC_URL` ↔ `VST_EXTERNAL_URL` mapping and derived variables
-(`VSS_VIOS_URL`, `VST_API_BASE`):
+[Deployment resolution](../vss-build-vision-agent/references/deployment_resolution.md)
+for the deployment-owned
+`VSS_PUBLIC_URL` contract and derived variables (`VSS_VIOS_URL`,
+`VST_API_BASE`):
 
 ```bash
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
@@ -550,8 +551,8 @@ verification. Never port-forward Elasticsearch for this check.
    Require a nonempty `SEARCH_TEXT`. Do not call `jq` on `.data`, `.data[]`, or
    `.screenshot_url`. If the Agent reply embeds concrete public media URLs, you
    may optionally GET those exact URLs (no `streamId` header, no URL rewrite)
-   against `${VSS_PUBLIC_URL}` / `${VST_EXTERNAL_URL:-${VSS_PUBLIC_URL}}` origins;
-   never invent structured hit fields from prose.
+   against `${VSS_PUBLIC_URL}` origins; never invent structured hit fields from
+   prose.
 6. Format the final reply by `DEPLOYMENT_KIND`. Never paste raw JSON wrappers
    into the reply.
 

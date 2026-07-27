@@ -1,49 +1,54 @@
-# Deployment resolution for operate skills
+# Deployment endpoint resolution
 
-Archive search and VIOS listing/inspection select their interface by deployment
-type. Neither path needs a shell inside a container or pod.
+`vss-build-vision-agent` owns publication of the public endpoints that operate
+skills consume. Archive search and VIOS operations do not discover Helm
+releases, Services, or hostnames; the completed deployment supplies the public
+origin as `VSS_PUBLIC_URL`.
 
 For the catalog-level overview, see `skills/README.md`. This file is the
-**canonical contract** for public Ingress operate mode and the mapping between
-operator-facing names and Helm/runtime variables.
+canonical contract for mapping deployment settings to operator-facing public
+endpoint variables.
 
-## Operator input: `VSS_PUBLIC_URL`
+## Deployment output: `VSS_PUBLIC_URL`
 
-Operate skills on Kubernetes require one public Ingress origin, including the
+A Kubernetes deployment must publish one public Ingress origin, including the
 scheme and any non-default port:
 
 ```bash
 VSS_PUBLIC_URL=https://vss-search.example.com
 ```
 
-Trim trailing slashes before building derived URLs.
+The deployment workflow must surface this value to the operator. Operate skills
+trim trailing slashes before building derived URLs.
 
 ### Helm / runtime name mapping (search profile)
 
-Helm and agent pods usually expose the same origin under different names. Treat
-them as equivalent when they resolve to the same host:
+Operate skills take **one** public origin: `VSS_PUBLIC_URL`. Helm and agent pods
+may label that same host differently; treat those names as deploy-side aliases,
+not additional operate inputs:
 
 | Operate-skill name | Helm / runtime equivalents |
 |---|---|
-| `VSS_PUBLIC_URL` | `global.externalHost`, main Ingress host (`vss-search.<ip>.nip.io`), `AGENT_BASE_URL`, `VSS_AGENT_EXTERNAL_URL` |
-| `VST_EXTERNAL_URL` | Same public origin used for shareable VST media links and agent upload URLs |
+| `VSS_PUBLIC_URL` | `global.externalHost`, main Ingress host (`vss-search.<ip>.nip.io`), `AGENT_BASE_URL`, `VSS_AGENT_EXTERNAL_URL`, and deploy-minted `VST_EXTERNAL_URL` when it equals that origin |
 | `VSS_VIOS_URL` | `${VSS_PUBLIC_URL}/vst` |
 | `VST_API_BASE` | `${VSS_VIOS_URL}/api/v1` — all VIOS `curl` targets |
 | `AGENT_URL` | `${VSS_PUBLIC_URL}` for Kubernetes operate skills |
 | `VSS_STREAMER_URL` | Separate streamer Ingress host (`streamer.<ip>.nip.io`); **not** under `/vst` |
 
-Do not invent a Brev or nip.io hostname in operate skills. The deployment
-workflow supplies `VST_EXTERNAL_URL` / secure-link values; operate skills consume
-them.
+Do not make operate skills invent a Brev or nip.io hostname. The deployment
+workflow publishes the public origin; operate skills consume it as
+`VSS_PUBLIC_URL` only. Do not require a second operate variable named
+`VST_EXTERNAL_URL`.
 
-### Derived public endpoints
+### Consumer-derived public endpoints
+
+Operate skills may derive these values from the deployment output:
 
 ```bash
 VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
 AGENT_URL="${AGENT_URL:-${VSS_PUBLIC_URL}}"
 VSS_VIOS_URL="${VSS_VIOS_URL:-${VSS_PUBLIC_URL}/vst}"
 VST_API_BASE="${VST_API_BASE:-${VSS_VIOS_URL}/api/v1}"
-VST_EXTERNAL_URL="${VST_EXTERNAL_URL:-${VSS_PUBLIC_URL}}"
 ```
 
 Public route contract (search profile):
@@ -57,15 +62,15 @@ Public route contract (search profile):
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate host, no `/vst` prefix |
 
 Shareable media URLs from `/url` endpoints may embed an internal host at mint
-time. Compare and validate against `VST_EXTERNAL_URL` / `VSS_PUBLIC_URL`; do
-not substitute localhost or reconstructed URLs for returned screenshot or clip
+time. On Kubernetes, compare and validate against `VSS_PUBLIC_URL`; do not
+substitute localhost or reconstructed URLs for returned screenshot or clip
 links.
 
 ## Docker Compose
 
 Use `--deployment docker --profile <profile>` for host CLI search. The profile
-must have both its checked-in `.env` and a runtime `generated.env` created by
-`dev-profile.sh`.
+must have both its checked-in `.env` and a runtime `generated.env` from the
+profile deploy workflow.
 
 Resolve operate endpoints with `discover_docker_host_endpoints(profile)`:
 
@@ -90,8 +95,11 @@ VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 NVSTREAMER_ENDPOINT="http://${HOST_IP:-127.0.0.1}:${NVSTREAMER_HTTP_PORT:-31000}"
 ```
 
-Read `VST_EXTERNAL_URL` from `generated.env` for shareable media origin checks
-(Brev HTTPS, not localhost).
+For Docker shareable-media origin checks, read the deploy-minted
+`VST_EXTERNAL_URL` from `generated.env` (Brev HTTPS, not localhost). That
+variable is a Compose/deploy runtime detail, not a Kubernetes operate input;
+when `VSS_PUBLIC_URL` is set, ignore `VST_EXTERNAL_URL` and use
+`VSS_PUBLIC_URL`.
 
 The host CLI reads shared VST/RTVI defaults, overlays `.env` then
 `generated.env`, maps Compose service DNS to loopback ports, and resolves index
@@ -99,9 +107,10 @@ names from the interpolated agent config. Direct Elasticsearch and RTVI probes
 are valid Docker readiness checks; they are not Kubernetes operate
 prerequisites.
 
-## Kubernetes operate (no port-forward)
+## Kubernetes consumer contract (no port-forward)
 
-Require `VSS_PUBLIC_URL`. Use the derived variables above.
+Operate skills require `VSS_PUBLIC_URL` and use the consumer-derived variables
+above:
 
 ```bash
 : "${VSS_PUBLIC_URL:?Provide the public VSS search Ingress origin}"
@@ -110,23 +119,10 @@ VSS_VIOS_URL="${AGENT_URL}/vst"
 VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 ```
 
-**Search:** `POST ${AGENT_URL}/generate` with an explicit natural-language
-prompt that preserves resolved source, mode, attributes, time bounds, and top-k.
-Treat the Agent response as conversational text (`SEARCH_TEXT`); do not parse it
-as Docker CLI `SearchOutput` (no `.data[]` / `screenshot_url` contract).
-
-**Ingest / delete:** Agent `/api/v1/...` on the same origin. Upload URLs returned
-by the agent already use `${VST_EXTERNAL_URL}/vst/api/v1/storage/file` when
-Ingress is configured.
-
-**Source listing:** `GET ${VST_API_BASE}/sensor/list` (or `/sensor/streams`).
-
-This operate-skill path deliberately does **not** use the host CLI's
-`--deployment kubernetes` selector. That selector port-forwards private backends
-(Elasticsearch, RTVI, in-cluster VST) and is outside the public Ingress contract.
-
-Do not read Deployments, ConfigMaps, Services, Secrets, or Helm values; do not
-use Service DNS, NodePorts, guessed release names, or `kubectl port-forward`.
+The public Agent and VIOS routes are the supported operate interfaces. Operate
+skills do not read Deployments, ConfigMaps, Services, Secrets, or Helm values,
+and do not use Service DNS, NodePorts, guessed release names, or
+`kubectl port-forward`.
 
 Private backends (Elasticsearch, RTVI-Embed, RTVI-CV, RT-VLM) remain agent-side
 dependencies. Do not expose or forward them merely to satisfy host-side operate

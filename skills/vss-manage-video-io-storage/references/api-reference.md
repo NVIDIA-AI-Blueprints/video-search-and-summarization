@@ -3,7 +3,7 @@
 ## Endpoint convention
 
 Resolve `${VST_API_BASE}` in `SKILL.md` and
-[`../../vss-search-archive/references/deployment_resolution.md`](../../vss-search-archive/references/deployment_resolution.md)
+[`../../vss-build-vision-agent/references/deployment_resolution.md`](../../vss-build-vision-agent/references/deployment_resolution.md)
 before using this reference. Every `http://<VST_ENDPOINT>/vst/api/v1` placeholder
 below means `${VST_API_BASE}` (Kubernetes: public `${VSS_PUBLIC_URL}/vst/api/v1`;
 Compose: `http://${HOST_IP}:30888/vst/api/v1`).

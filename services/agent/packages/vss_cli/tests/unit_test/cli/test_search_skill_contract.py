@@ -15,6 +15,9 @@ from vss_cli.search import _parse_args
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[7]
 SKILL_ROOT = REPOSITORY_ROOT / "skills" / "vss-search-archive"
+DEPLOYMENT_RESOLUTION_PATH = (
+    REPOSITORY_ROOT / "skills" / "vss-build-vision-agent" / "references" / "deployment_resolution.md"
+)
 ADAPTER_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "adapters" / "vss-search-archive" / "generate.py"
 GENERIC_JUDGE_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "verifiers" / "generic_judge.py"
 REMOVED_FLAGS = (
@@ -105,9 +108,11 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "`RAW_INDEX`, `sensorId.keyword`, canonical source name" in skill_text
     decomposition_text = (SKILL_ROOT / "references/query_decomposition.md").read_text(encoding="utf-8")
     cli_usage_text = (SKILL_ROOT / "references/cli_usage.md").read_text(encoding="utf-8")
-    deployment_resolution_text = (SKILL_ROOT / "references/deployment_resolution.md").read_text(encoding="utf-8")
+    deployment_resolution_text = DEPLOYMENT_RESOLUTION_PATH.read_text(encoding="utf-8")
     assert "deployment_resolution.md" in skill_text
-    assert "VST_EXTERNAL_URL" in deployment_resolution_text
+    assert "VSS_PUBLIC_URL" in deployment_resolution_text
+    assert "Do not require a second operate variable named" in deployment_resolution_text
+    assert 'VST_EXTERNAL_URL="${VST_EXTERNAL_URL:-${VSS_PUBLIC_URL}}"' not in deployment_resolution_text
     assert "VST_API_BASE" in deployment_resolution_text
     assert "openapi.json" in deployment_resolution_text
     assert "VSS_STREAMER_URL" in deployment_resolution_text
