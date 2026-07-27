@@ -68,16 +68,13 @@ service outside that closure, including a peer whose only consumer was removed
 requested). A service is retained only because a requested capability reaches it,
 never because the Foundation happened to ship it.
 
-When a combined request reaches the same capability owner through more than one
-capability (one detector feeding two downstream pipelines, one analytics owner
-serving two rule sets), converge on a single instance of that owner: one service
-key, one selected variant, one mounted config. Do not activate two
-variants of a shared singleton owner for one physical role. When the delta then
-selects a variant of an owner whose output another service consumes, align every
-dependent consumer config to the selected variant rather than to the variant its
-Foundation happened to ship. Owner contracts declare these dependencies (which
-owner is a singleton, what output taxonomy it fixes, which consumer keys track
-it); read them before merging configs.
+When more than one requested capability maps to the same owner, converge on a
+single instance — one service key, one variant, one config — never two variants
+of one owner for the same role (for example, one detector feeding two pipelines).
+If that owner's output feeds another service, align the consumer's config to the
+variant you selected, not to the one its Foundation shipped. Owner contracts
+state which owners are singletons, what output each fixes, and which consumer
+keys track it; read them before merging configs.
 
 Service activation alone is never a Compose-definition change.
 
