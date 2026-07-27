@@ -105,9 +105,7 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "`RAW_INDEX`, `sensorId.keyword`, canonical source name" in skill_text
     decomposition_text = (SKILL_ROOT / "references/query_decomposition.md").read_text(encoding="utf-8")
     cli_usage_text = (SKILL_ROOT / "references/cli_usage.md").read_text(encoding="utf-8")
-    deployment_resolution_text = (SKILL_ROOT / "references/deployment_resolution.md").read_text(
-        encoding="utf-8"
-    )
+    deployment_resolution_text = (SKILL_ROOT / "references/deployment_resolution.md").read_text(encoding="utf-8")
     assert "deployment_resolution.md" in skill_text
     assert "VST_EXTERNAL_URL" in deployment_resolution_text
     assert "VST_API_BASE" in deployment_resolution_text
@@ -388,9 +386,7 @@ def test_harbor_adapter_generation_is_deterministic(tmp_path: Path) -> None:
     first_files = {path.relative_to(first): path.read_bytes() for path in first.rglob("*") if path.is_file()}
     second_files = {path.relative_to(second): path.read_bytes() for path in second.rglob("*") if path.is_file()}
     assert first_files == second_files
-    kubernetes_instruction = (
-        first / "search" / "rtxpro6000bw" / "step-7" / "instruction.md"
-    ).read_text()
+    kubernetes_instruction = (first / "search" / "rtxpro6000bw" / "step-7" / "instruction.md").read_text()
     assert "read-only Kubernetes Ingress contract check" in kubernetes_instruction
     assert "public Agent /generate route" in kubernetes_instruction
     assert "Do not deploy, redeploy, execute the example commands" in kubernetes_instruction
