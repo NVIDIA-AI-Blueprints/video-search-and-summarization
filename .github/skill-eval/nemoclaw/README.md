@@ -4,7 +4,7 @@ This directory contains the GitHub CI integration for opt-in NemoClaw/OpenClaw s
 
 - `notebook_cells.json` selects setup-only cells from `deploy/docker/scripts/deploy_nemoclaw.ipynb` and `deploy/docker/scripts/deploy_vss_orchestrator.ipynb` by stable cell id.
 - `notebook_setup_adapter.py` combines and executes those cells as a temporary setup notebook, then writes `/tmp/skill-eval/nemoclaw/nemoclaw.env` on the Brev worker.
-- `readiness.py` checks host tools, sandbox state, and VSS Orchestrator MCP health before Harbor runs the scenario.
+- `readiness.py` checks host tools, in-sandbox OpenClaw gateway health, and VSS Orchestrator MCP health before Harbor runs the scenario.
 - `headless_runner.py` is called from the Harbor trial. It posts the real task prompt to the OpenClaw hooks endpoint so the scenario runs through NemoClaw/OpenClaw.
 
 Harbor remains the CI entrypoint and result owner. The default runner is unchanged unless a spec declares `runner: "nemoclaw"` / `requires_nemoclaw: true`, or a manual workflow dispatch selects `runner=nemoclaw`.

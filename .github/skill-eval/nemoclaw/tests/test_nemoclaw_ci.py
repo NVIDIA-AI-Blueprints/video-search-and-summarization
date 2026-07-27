@@ -766,6 +766,118 @@ class NemoClawEnvFileTest(unittest.TestCase):
                 else:
                     os.environ.pop("NEMOCLAW_SANDBOX_NAME", None)
 
+    def test_readiness_requires_gateway_health_inside_sandbox(self):
+        calls: list[tuple[str, ...]] = []
+
+        def fake_run(cmd, *, timeout=30, cwd=None):
+            calls.append(tuple(cmd))
+            if "exec" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    7,
+                    stdout="",
+                    stderr="curl: failed to connect",
+                )
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout="sandbox exists",
+                stderr="",
+            )
+
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
+            mock.patch.object(readiness, "_run", side_effect=fake_run),
+        ):
+            report = readiness._check_sandbox("demo")
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["gateway_ok"])
+        self.assertIn("failed to connect", report["gateway_stderr_tail"])
+        self.assertEqual(
+            calls[1],
+            (
+                "openshell",
+                "sandbox",
+                "exec",
+                "-n",
+                "demo",
+                "--",
+                "sh",
+                "-lc",
+                "curl -fsS http://127.0.0.1:18789/health >/dev/null",
+            ),
+        )
+
+    def test_readiness_accepts_healthy_gateway_inside_sandbox(self):
+        responses = [
+            subprocess.CompletedProcess(
+                ["openshell", "sandbox", "get", "demo"],
+                0,
+                stdout="sandbox exists",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                ["openshell", "sandbox", "exec", "demo"],
+                0,
+                stdout="",
+                stderr="",
+            ),
+        ]
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
+            mock.patch.object(readiness, "_run", side_effect=responses) as run,
+        ):
+            report = readiness._check_sandbox("demo")
+
+        self.assertTrue(report["ok"])
+        self.assertTrue(report["gateway_ok"])
+        self.assertEqual(run.call_count, 2)
+
+    def test_readiness_skips_gateway_probe_when_sandbox_lookup_fails(self):
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    ["openshell", "sandbox", "get", "demo"],
+                    1,
+                    stdout="",
+                    stderr="sandbox not found",
+                ),
+            ) as run,
+        ):
+            report = readiness._check_sandbox("demo")
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["gateway_ok"])
+        run.assert_called_once()
+
+    def test_readiness_reports_gateway_probe_timeout(self):
+        sandbox_result = subprocess.CompletedProcess(
+            ["openshell", "sandbox", "get", "demo"],
+            0,
+            stdout="sandbox exists",
+            stderr="",
+        )
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
+            mock.patch.object(
+                readiness,
+                "_run",
+                side_effect=[
+                    sandbox_result,
+                    subprocess.TimeoutExpired(["openshell"], 30),
+                ],
+            ),
+        ):
+            report = readiness._check_sandbox("demo")
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["gateway_ok"])
+        self.assertIn("timed out after 30s", report["gateway_stderr_tail"])
+
 
 class NemoClawHeadlessRunnerTest(unittest.TestCase):
     def test_non_json_hook_response_is_not_treated_as_success(self):
