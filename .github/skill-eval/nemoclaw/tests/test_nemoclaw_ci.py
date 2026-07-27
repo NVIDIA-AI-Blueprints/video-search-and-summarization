@@ -13,8 +13,10 @@ import json
 import os
 import re
 import subprocess
-import textwrap
+import sys
 import tempfile
+import textwrap
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -2608,6 +2610,165 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("cleanup_incomplete_lock", calls[0][3])
 
+    def test_remote_lock_refresh_is_atomic_and_exact_owner_only(self):
+        with mock.patch.object(
+            smoke_runner,
+            "_run",
+            return_value=smoke_runner.CommandResult(
+                0,
+                "refreshed NemoClaw worker lock owned by expected-owner",
+                "",
+            ),
+        ) as run:
+            status = smoke_runner._refresh_remote_worker_lock(
+                "worker-id",
+                "expected-owner",
+            )
+
+        self.assertEqual(status, "refreshed")
+        command = run.call_args.args[0][3]
+        self.assertIn("expected=expected-owner", command)
+        self.assertIn("stat -Lc '%d:%i'", command)
+        self.assertIn('mktemp "$lock_dir/.created.', command)
+        self.assertIn('mv -f "$tmp" "$lock_dir/created"', command)
+        self.assertNotIn('mkdir "$lock_dir"', command)
+        self.assertNotIn('rm -rf "$lock_dir"', command)
+
+    def test_remote_lock_refresh_reports_owner_loss_without_mutation(self):
+        with mock.patch.object(
+            smoke_runner,
+            "_run",
+            return_value=smoke_runner.CommandResult(
+                3,
+                "NemoClaw worker lock is not owned by expected-owner",
+                "",
+            ),
+        ):
+            status = smoke_runner._refresh_remote_worker_lock(
+                "worker-id",
+                "expected-owner",
+            )
+
+        self.assertEqual(status, "not_owner")
+
+    def test_remote_lock_refresh_timeout_is_unknown(self):
+        with mock.patch.object(
+            smoke_runner,
+            "_run",
+            side_effect=subprocess.TimeoutExpired(["brev", "exec"], 30),
+        ):
+            status = smoke_runner._refresh_remote_worker_lock(
+                "worker-id",
+                "expected-owner",
+            )
+
+        self.assertEqual(status, "unknown")
+
+    def test_remote_lock_refresh_os_error_is_unknown(self):
+        with mock.patch.object(
+            smoke_runner,
+            "_run",
+            side_effect=OSError("brev executable unavailable"),
+        ):
+            status = smoke_runner._refresh_remote_worker_lock(
+                "worker-id",
+                "expected-owner",
+            )
+
+        self.assertEqual(status, "unknown")
+
+    def test_heartbeat_start_failure_clears_exact_remote_lock(self):
+        handle = mock.Mock()
+        with (
+            mock.patch.object(smoke_runner.os, "open", return_value=123),
+            mock.patch.object(smoke_runner.os, "fdopen", return_value=handle),
+            mock.patch.object(smoke_runner.fcntl, "flock"),
+            mock.patch.object(
+                smoke_runner,
+                "_try_acquire_remote_worker_lock",
+                return_value="expected-owner",
+            ),
+            mock.patch.object(
+                smoke_runner,
+                "_start_remote_worker_lock_heartbeat",
+                side_effect=RuntimeError("thread start failed"),
+            ),
+            mock.patch.object(
+                smoke_runner,
+                "_clear_remote_worker_lock",
+                return_value=True,
+            ) as clear,
+            self.assertRaisesRegex(RuntimeError, "thread start failed"),
+        ):
+            smoke_runner._try_acquire_lock(
+                "worker-name",
+                "worker-id",
+            )
+
+        clear.assert_called_once_with("worker-id", "expected-owner")
+        handle.close.assert_called_once()
+
+    def test_release_stops_heartbeat_before_exact_owner_delete(self):
+        events: list[str] = []
+        heartbeat = smoke_runner.RemoteLockHeartbeat(
+            threading.Event(),
+            threading.Event(),
+            mock.Mock(),
+        )
+        handle = mock.Mock()
+
+        def stop_heartbeat(_heartbeat):
+            events.append("stop")
+
+        def run(cmd, *, timeout=60, env=None):
+            events.append("delete")
+            return smoke_runner.CommandResult(0, "", "")
+
+        with (
+            mock.patch.object(
+                smoke_runner,
+                "_stop_remote_worker_lock_heartbeat",
+                side_effect=stop_heartbeat,
+            ),
+            mock.patch.object(smoke_runner, "_run", side_effect=run),
+            mock.patch.object(smoke_runner.fcntl, "flock"),
+        ):
+            smoke_runner._release_lock(
+                "worker-name",
+                smoke_runner.WorkerLock(
+                    123,
+                    handle,
+                    "expected-owner",
+                    "worker-id",
+                    heartbeat,
+                ),
+            )
+
+        self.assertEqual(events, ["stop", "delete"])
+        handle.close.assert_called_once()
+
+    def test_stream_command_aborts_after_confirmed_lock_loss(self):
+        abort_event = threading.Event()
+        abort_event.set()
+        with tempfile.TemporaryDirectory() as td:
+            log_path = Path(td) / "harbor.log"
+            rc = smoke_runner._stream_command(
+                [
+                    sys.executable,
+                    "-c",
+                    "pass",
+                ],
+                timeout_s=10,
+                env=os.environ.copy(),
+                log_path=log_path,
+                abort_event=abort_event,
+            )
+
+            log = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(rc, 125)
+        self.assertIn("aborting Harbor after remote worker lock loss", log)
+
     def test_completed_matrix_job_lock_is_inactive_within_current_run(self):
         owner = (
             "v2__30275546898__1__"
@@ -3686,6 +3847,14 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("runs-on: [self-hosted, nemoclaw-ci-runner]", source)
         self.assertIn("timeout-minutes: 90", source)
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=1200", source)
+        self.assertIn(
+            "export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180",
+            source,
+        )
+        self.assertIn(
+            "export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660",
+            source,
+        )
         self.assertIn("NEMOCLAW_INPUT_INSTANCE:", source)
         self.assertIn('export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"', source)
         self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=2400", source)
