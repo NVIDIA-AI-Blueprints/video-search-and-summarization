@@ -85,7 +85,7 @@ VLLM_GPU_MEMORY_UTILIZATION=0.6            # 0.3 is fine on ≥80 GB GPUs
 #   get_sop_*). VSS_AGENT_SITE_PACKAGES → mount root; verify vs the ghcr.io image.
 VSS_VA_MCP_CONFIG_FILE=<staged: adapted from the downloaded SOP release VA-MCP config — see § Patch specifics>
 VSS_AGENT_SITE_PACKAGES=/vss-agent/.venv/lib/python3.13/site-packages
-VSS_AGENT_PKG=vss_agents            # resolved from the image — see § Patch specifics (vss_agents on develop)
+VSS_AGENT_PKG=agent                 # resolved from the image (the pkg that holds video_analytics) — see § Patch specifics
 ```
 
 Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
@@ -102,7 +102,7 @@ Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.6` on ≤48 GB GPUs (the `0.3` default is H100-tuned). |
 | `VSS_VA_MCP_CONFIG_FILE` | SOP VA-MCP config (adapted from the downloaded SOP release config — see § Patch specifics; selects the `get_sop_*` tools). |
 | `VSS_AGENT_SITE_PACKAGES` | In-container site-packages root the SOP patch mounts over. |
-| `VSS_AGENT_PKG` | Video-analytics package name in the image (`vss_agents` on develop, `agent` on some builds) — resolve it (§ Patch specifics), never hardcode. |
+| `VSS_AGENT_PKG` | Package in the image that holds `video_analytics` (`agent` on develop-latest; `vss_agents` ships only `api`) — resolve it by probing `<pkg>.video_analytics` (§ Patch specifics), never hardcode. |
 
 ## Patch specifics — download the SOP release patch, then adapt it
 
@@ -115,8 +115,11 @@ own public repo, **no license grant or OSRB is needed** — nothing third-party 
 - Repo: `https://github.com/NVIDIA/sop-monitoring-blueprints` (public, branch `main`, pin `0dd472f`)
 - Path: `agentic/vss-sop-skills/vss-sop-build/references/deployments/sop/vss-agent/`
   - `patches/tools.py` — the release's **3.1 monolith** `video_analytics/tools.py` (stock
-    tools + the SOP additions). `patches/{es_client.py,utils.py}` are stock — the image
-    already ships them, so no download needed.
+    tools + the SOP additions). `patches/utils.py` is stock (the image ships it).
+    `patches/es_client.py` is **NOT stock** — the release adds the SOP index to the whitelist
+    (`vision_llm_messages → mdx-vlm-captions-*` + `NO_PREFIX_INDEXES`); without it `get_sop_*`
+    raises `ValueError` before reaching ES. Handle it per § caveats (register the index from
+    `sop_tools.py`, or mount the release `es_client.py` as a third file).
   - `configs/va_mcp_server_config.yml` — release VA-MCP config (selects `get_sop_*`).
 
 `sop/build-ds-sop.md` § Step 0 already clones this same repo — reuse that clone, or fetch
@@ -131,20 +134,22 @@ curl -fsSL $REPO/$BASE/configs/va_mcp_server_config.yml -o /tmp/sop-release-va-m
 **Adapt to the running image** — do NOT mount the 3.1 `tools.py` verbatim (it would regress
 the image's other `video_analytics` tools and targets the old package layout):
 
-1. **Resolve the package name + site-packages path** on the image — the package name has
-   varied across releases (`vss_agents` on develop, `agent` on some builds), so **detect it,
-   don't hardcode**:
+1. **Resolve which package holds `video_analytics` + the site-packages path** on the image —
+   the layout varies between builds (on `develop-latest`, `video_analytics` lives under `agent`;
+   `vss_agents` ships only `api`), so **probe for the `video_analytics` submodule, not the bare
+   package**:
    ```bash
    docker run --rm --entrypoint /vss-agent/.venv/bin/python3 \
      ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest -c '
    import importlib, os
-   for pkg in ("vss_agents", "agent"):
+   for pkg in ("agent", "vss_agents"):
        try:
+           importlib.import_module(pkg + ".video_analytics")   # the pkg that ACTUALLY holds video_analytics
            m = importlib.import_module(pkg)
            print(pkg, os.path.dirname(os.path.dirname(m.__file__))); break
        except ImportError: pass'
    ```
-   Set `VSS_AGENT_PKG` (e.g. `vss_agents`) and `VSS_AGENT_SITE_PACKAGES` from the output.
+   Set `VSS_AGENT_PKG` (e.g. `agent` on develop-latest) and `VSS_AGENT_SITE_PACKAGES` from the output.
 2. **Locate the SOP additions** in the downloaded `tools.py` — a self-contained block of the
    four SOP tool implementations plus their four include-gated registrations. Diffing it
    against the image's own `<pkg>/video_analytics/tools.py` makes them obvious.
@@ -174,9 +179,12 @@ The image is the Foundation's stock `vss-va-mcp`
 (python minor) against it. The adaptation is mostly a module move + graft, but a few caveats
 need handling:
 
-- **Ensure the SOP captions index exists before querying.** The stock `es_client` on
-  `develop-latest` does not register the SOP captions index, so a query can fail before
-  returning data — make the `mdx-vlm-captions-*` index exist idempotently at startup.
+- **Register the SOP index in the `es_client` whitelist.** The stock `es_client` on
+  `develop-latest` doesn't know the SOP captions index, so `get_sop_*` raises `ValueError` on the
+  index whitelist (`get_index`) *before* reaching ES. The release `es_client.py` adds it
+  (`vision_llm_messages → mdx-vlm-captions-*` + `NO_PREFIX_INDEXES`). Fix by **either** registering
+  the SOP index from within `sop_tools.py` (idempotent, prefix-aware — keeps 2 mounts, verified
+  working) **or** downloading + mounting the release `es_client.py` as a third file.
 - **Do not add `from __future__ import annotations`** to the adapted modules. NAT evaluates
   each tool's annotations at registration time; postponed annotations raise a `NameError` and
   the `get_sop_*` tools never register.
