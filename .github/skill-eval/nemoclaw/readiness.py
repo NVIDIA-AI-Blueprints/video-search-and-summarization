@@ -81,6 +81,43 @@ def _check_sandbox(name: str) -> dict[str, Any]:
     }
 
 
+def _check_sandbox_mcp(name: str, required_tools: list[str]) -> dict[str, Any]:
+    if not shutil.which("nemoclaw"):
+        return {"ok": False, "error": "nemoclaw not found"}
+
+    cmd = [
+        "nemoclaw",
+        "sandbox",
+        "exec",
+        name,
+        "--",
+        "mcporter",
+        "list",
+        "vss_orchestrator",
+        "--json",
+    ]
+    try:
+        result = _run(cmd, timeout=90)
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "error": f"in-sandbox MCP discovery timed out after {exc.timeout}s",
+            "required_tools": required_tools,
+        }
+
+    detail = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    missing_tools = [tool for tool in required_tools if tool not in detail]
+    return {
+        "ok": result.returncode == 0 and not missing_tools,
+        "returncode": result.returncode,
+        "required_tools": required_tools,
+        "missing_tools": missing_tools,
+        "stdout_tail": (result.stdout or "")[-4000:],
+        "stderr_tail": (result.stderr or "")[-2000:],
+        "note": "Runs mcporter tool discovery through the sandbox egress policy.",
+    }
+
+
 def _check_mcp(repo_root: Path, mcp_url: str, required_tools: list[str]) -> dict[str, Any]:
     helper_path = repo_root / "deploy" / "docker" / "scripts" / "orchestrator_mcp_helper.py"
     agent_dir = repo_root / "services" / "agent"
@@ -125,8 +162,14 @@ def main(argv: list[str] | None = None) -> int:
         "commands": [_check_cmd(name) for name in ("nemoclaw", "openshell", "docker", "curl", "uv")],
         "sandbox": _check_sandbox(sandbox_name),
         "mcp": _check_mcp(repo_root, mcp_url, required_tools),
+        "sandbox_mcp": _check_sandbox_mcp(sandbox_name, required_tools),
     }
-    ok = all(item["ok"] for item in report["commands"]) and report["sandbox"]["ok"] and report["mcp"]["ok"]
+    ok = (
+        all(item["ok"] for item in report["commands"])
+        and report["sandbox"]["ok"]
+        and report["mcp"]["ok"]
+        and report["sandbox_mcp"]["ok"]
+    )
     report["ok"] = ok
 
     output = Path(args.output)
