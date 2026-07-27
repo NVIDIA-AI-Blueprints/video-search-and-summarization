@@ -127,8 +127,8 @@ just the two files:
 ```bash
 REPO=https://raw.githubusercontent.com/NVIDIA/sop-monitoring-blueprints/0dd472f
 BASE=agentic/vss-sop-skills/vss-sop-build/references/deployments/sop/vss-agent
-curl -fsSL $REPO/$BASE/patches/tools.py                 -o /tmp/sop-release-tools.py
-curl -fsSL $REPO/$BASE/configs/va_mcp_server_config.yml -o /tmp/sop-release-va-mcp.yml
+curl -fsSL --max-time 60 $REPO/$BASE/patches/tools.py                 -o /tmp/sop-release-tools.py
+curl -fsSL --max-time 60 $REPO/$BASE/configs/va_mcp_server_config.yml -o /tmp/sop-release-va-mcp.yml
 ```
 
 **Adapt to the running image** — do NOT mount the 3.1 `tools.py` verbatim (it would regress

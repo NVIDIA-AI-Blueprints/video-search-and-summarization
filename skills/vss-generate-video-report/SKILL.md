@@ -27,7 +27,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts, Mode C when the request asks for an SOP / compliance report (match against *Examples*).
 2. **Verify the deployment profile** for that mode under *Deployment prerequisite*; hand off to `/vss-deploy-profile` if its probe fails.
-3. **Run that mode's numbered steps** — *Mode A* or *Mode B* below.
+3. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
 4. **Rewrite every user-facing clip URL** with the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` one-liner (*Browser-playable clip URL*) before embedding it in the report.
 5. **Return the rendered report markdown** to the user.
 
@@ -68,7 +68,7 @@ Never route reports through VSS-agent `POST /generate`.
 
 **Mode A** needs the VSS **base** profile (VST + VLM NIM).
 **Mode B** needs the VSS **alerts** profile (VA-MCP + Elasticsearch).
-**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see its `references/services/sop.md` § Patch specifics).
+**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see `skills/vss-build-vision-agent/references/services/sop.md` § Patch specifics).
 
 Probe:
 
@@ -76,8 +76,13 @@ Probe:
 # Mode A — VST + VLM reachability
 curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null
 
-# Mode B / C — VA-MCP reachable (Mode C also needs the SOP tools — see Mode C Step 1)
+# Mode B — VA-MCP reachable
 curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+
+# Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
+# tools/list on :9901 (two-step JSON-RPC, see Mode C Step 1) must include
+# video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
+# hand off to /vss-build-vision-agent and do NOT proceed with Mode C.
 ```
 
 If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or `-p alerts` (Mode B), or to `/vss-build-vision-agent` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm the deploy with the user first.
@@ -372,7 +377,7 @@ Read-only boundary (mandatory): Mode C is strictly read-only. Never write, seed,
 
 ### Step 3 — Fill the SOP Compliance Report template
 
-Copy [`assets/sop-compliance-report.md`](assets/sop-compliance-report.md), fill every placeholder from the Step 2 result (message count, compliance status, cycle counts, the missing / mis-ordered step tables, actions observed), and return the rendered markdown. For placeholders `get_sop_report` does not carry: generate `{report_id}` + `{report_date}`, set `{agent_version}` to `vss-generate-video-report (Mode C)`, and set `{video_analysis_details}` / `{snapshot_image}` to `N/A` (Mode C runs no report-time VLM and fetches no media). Keep the source asset unchanged; never leave a placeholder, and never include template instructions in a filled cell.
+Copy [`assets/sop-compliance-report.md`](assets/sop-compliance-report.md), fill every placeholder from the Step 2 result (message count, compliance status, cycle counts, the missing / mis-ordered step tables, actions observed), and return the rendered markdown. For placeholders `get_sop_report` does not carry: generate `{report_id}` + `{report_date}`, set `{agent_version}` to `vss-generate-video-report (Mode C)`, and set `{video_analysis_details}` / `{snapshot_image}` to `N/A` (Mode C runs no report-time VLM and fetches no media). Fill `{notes}` with the data provenance and snapshot caveats (source/scope, the bounded `end_time` used, the doc count vs the 1000-doc `get_sop_report` cap, and that a live stream never reaches EOS so `final_*` counts stay 0 and every violation is per-chunk); fill `{recommendations}` with the compliance interpretation (recurring missing / mis-ordered steps and whether they reflect the source clip rather than an operator fault). Keep the source asset unchanged; never leave a placeholder, and never include template instructions in a filled cell.
 
 If `get_sop_report` returns an error or zero messages for the range/scope, STOP and return a one-line empty-range statement naming the sensor + range. Do not render the full template, invent data, or fall back to another mode.
 
@@ -392,7 +397,7 @@ If `get_sop_report` returns an error or zero messages for the range/scope, STOP 
 
 - **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1.
 - **`/vss-query-analytics`** — incident retrieval for Mode B Step 2, and `get_sop_report` retrieval for Mode C Step 2.
-- **`/vss-build-vision-agent`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `references/services/sop/`).
+- **`/vss-build-vision-agent`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-agent/references/services/sop/`).
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
 

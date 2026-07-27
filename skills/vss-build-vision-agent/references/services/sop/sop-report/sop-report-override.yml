@@ -9,7 +9,8 @@
 #   docker compose --env-file <generated.env> \
 #     -f <BUILD_DIR>/compose.yml \
 #     -f <staged>/sop-report-override.yml \
-#     --profile <invented-flag> up -d vss-va-mcp
+#     up -d vss-va-mcp
+# (target the service directly — never invent a COMPOSE_PROFILES entry)
 #
 # The patch adds the SOP tools (get_sop_status / get_sop_report /
 # get_sop_as_incidents / get_sop_as_incident) to the `video_analytics` group; they

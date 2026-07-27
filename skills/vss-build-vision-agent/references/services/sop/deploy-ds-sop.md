@@ -67,8 +67,11 @@ Models are **not** baked into the image — stage on the host before bring-up. D
   #    (mounts flat to /usr/share/logstash/pipelines/ in the container)
   cp <sop-ref-bundle>/sop-vlm-captions-json-logstash.conf \
      <BUILD_DIR>/patched/services/infra/elk/logstash/pipelines/kafka/
-  # 2. register a SEPARATE pipeline-id in the build-local pipelines-kafka.yml (do NOT merge into mdx-lvs)
-  cat >> <BUILD_DIR>/patched/services/infra/elk/logstash/configs/pipelines-kafka.yml <<'YML'
+  # 2. register a SEPARATE pipeline-id in the build-local pipelines-kafka.yml (do NOT merge into
+  #    mdx-lvs). Guard the append so a re-run does not duplicate the entry (a duplicate pipeline.id
+  #    makes Logstash refuse to start):
+  PK=<BUILD_DIR>/patched/services/infra/elk/logstash/configs/pipelines-kafka.yml
+  grep -q 'sop-vlm-captions-json' "$PK" || cat >> "$PK" <<'YML'
   - pipeline.id: sop-vlm-captions-json
     path.config: "/usr/share/logstash/pipelines/sop-vlm-captions-json-logstash.conf"
   YML
