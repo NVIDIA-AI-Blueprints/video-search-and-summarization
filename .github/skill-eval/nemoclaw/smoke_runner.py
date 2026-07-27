@@ -19,11 +19,12 @@ import math
 import os
 import re
 import selectors
-import signal
-import shutil
 import shlex
+import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -98,11 +99,18 @@ class InfrastructureBlocked(RuntimeError):
     """Raised when CI infra capacity prevents the smoke from running."""
 
 
+class RemoteLockHeartbeat(NamedTuple):
+    stop_event: threading.Event
+    lost_event: threading.Event
+    thread: threading.Thread
+
+
 class WorkerLock(NamedTuple):
     local_fd: int
     local_handle: Any
     remote_owner: str | None
     remote_target: str | None = None
+    heartbeat: RemoteLockHeartbeat | None = None
 
 
 def _task_dir_sort_key(task_dir: Path) -> tuple[str, int, str]:
@@ -1156,8 +1164,26 @@ def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLo
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 handle.close()
                 return None
-        return WorkerLock(fd, handle, remote_owner, exec_target)
+            heartbeat = _start_remote_worker_lock_heartbeat(
+                remote_target,
+                remote_owner,
+            )
+        else:
+            heartbeat = None
+        return WorkerLock(fd, handle, remote_owner, exec_target, heartbeat)
     except Exception:
+        if remote_owner:
+            try:
+                _clear_remote_worker_lock(
+                    exec_target or instance,
+                    remote_owner,
+                )
+            except Exception as cleanup_exc:  # noqa: BLE001 - preserve original error.
+                print(
+                    "[nemoclaw-ci] WARN: failed to clean up remote lock after "
+                    f"heartbeat setup error on {instance}: {cleanup_exc!r}",
+                    flush=True,
+                )
         fcntl.flock(fd, fcntl.LOCK_UN)
         handle.close()
         raise
@@ -1403,7 +1429,153 @@ exit 1
     return True
 
 
+def _refresh_remote_worker_lock(instance: str, owner: str) -> str:
+    """Refresh a held lock for legacy age-based contenders.
+
+    Returns ``refreshed`` only after an atomic exact-owner update,
+    ``not_owner`` when the lock is missing/replaced, and ``unknown`` for
+    transport failures. It never creates or removes a lock.
+    """
+    command = f"""set -eu
+lock_dir=/tmp/skill-eval/locks/nemoclaw-worker.lockdir
+expected={shlex.quote(owner)}
+not_owner() {{
+  echo "NemoClaw worker lock is not owned by $expected"
+  exit 3
+}}
+[ -d "$lock_dir" ] || not_owner
+actual=$(cat "$lock_dir/owner" 2>/dev/null || true)
+[ "$actual" = "$expected" ] || not_owner
+before=$(stat -Lc '%d:%i' "$lock_dir" 2>/dev/null) || not_owner
+tmp=$(mktemp "$lock_dir/.created.XXXXXX") || exit 4
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+printf '%s\n' "$(date +%s)" > "$tmp"
+after=$(stat -Lc '%d:%i' "$lock_dir" 2>/dev/null) || not_owner
+actual=$(cat "$lock_dir/owner" 2>/dev/null || true)
+[ "$before" = "$after" ] && [ "$actual" = "$expected" ] || not_owner
+mv -f "$tmp" "$lock_dir/created"
+trap - EXIT HUP INT TERM
+echo "refreshed NemoClaw worker lock owned by $expected"
+"""
+    try:
+        timeout_s = min(
+            30,
+            max(
+                5,
+                int(
+                    os.environ.get(
+                        "NEMOCLAW_REMOTE_LOCK_HEARTBEAT_TIMEOUT_SEC",
+                        "30",
+                    )
+                ),
+            ),
+        )
+        result = _run(["brev", "exec", instance, command], timeout=timeout_s)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return "unknown"
+    output = (result.stdout or "") + (result.stderr or "")
+    if result.returncode == 0 and "refreshed NemoClaw worker lock" in output:
+        return "refreshed"
+    if result.returncode == 3 or "lock is not owned by" in output:
+        return "not_owner"
+    return "unknown"
+
+
+def _start_remote_worker_lock_heartbeat(
+    instance: str,
+    owner: str,
+) -> RemoteLockHeartbeat:
+    stop_event = threading.Event()
+    lost_event = threading.Event()
+    try:
+        configured_interval = int(
+            os.environ.get("NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC", "180")
+        )
+    except ValueError:
+        configured_interval = 180
+    interval_s = min(240, max(30, configured_interval))
+    try:
+        configured_max_silence = int(
+            os.environ.get(
+                "NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC",
+                "660",
+            )
+        )
+    except ValueError:
+        configured_max_silence = 660
+    max_silence_s = min(
+        660,
+        max(
+            interval_s * 2,
+            configured_max_silence,
+        ),
+    )
+
+    def heartbeat() -> None:
+        last_success = time.monotonic()
+        while not stop_event.wait(interval_s):
+            try:
+                status = _refresh_remote_worker_lock(instance, owner)
+            except Exception as exc:  # noqa: BLE001 - heartbeat must fail closed.
+                print(
+                    "[nemoclaw-ci] WARN: remote worker lock heartbeat "
+                    f"raised on {instance}: {exc!r}",
+                    flush=True,
+                )
+                status = "unknown"
+            if stop_event.is_set():
+                return
+            if status == "refreshed":
+                last_success = time.monotonic()
+                continue
+            if status == "not_owner":
+                print(
+                    f"[nemoclaw-ci] ERROR: lost remote worker lock on {instance}",
+                    flush=True,
+                )
+                lost_event.set()
+                return
+            silence = time.monotonic() - last_success
+            print(
+                "[nemoclaw-ci] WARN: remote worker lock heartbeat "
+                f"unconfirmed on {instance} ({int(silence)}s since success)",
+                flush=True,
+            )
+            if silence >= max_silence_s:
+                print(
+                    "[nemoclaw-ci] ERROR: remote worker lock heartbeat exceeded "
+                    f"the {max_silence_s}s safety window on {instance}",
+                    flush=True,
+                )
+                lost_event.set()
+                return
+
+    thread = threading.Thread(
+        target=heartbeat,
+        name=f"nemoclaw-lock-heartbeat-{_safe_slug(instance)}",
+        daemon=True,
+    )
+    thread.start()
+    return RemoteLockHeartbeat(stop_event, lost_event, thread)
+
+
+def _stop_remote_worker_lock_heartbeat(
+    heartbeat: RemoteLockHeartbeat | None,
+) -> None:
+    if heartbeat is None:
+        return
+    heartbeat.stop_event.set()
+    heartbeat.thread.join(timeout=32)
+    if heartbeat.thread.is_alive():
+        print(
+            "[nemoclaw-ci] WARN: remote worker lock heartbeat did not stop "
+            "before release",
+            flush=True,
+        )
+
+
 def _release_lock(instance: str, lock: WorkerLock) -> None:
+    _stop_remote_worker_lock_heartbeat(lock.heartbeat)
     if lock.remote_owner:
         remote_target = lock.remote_target or instance
         owner = shlex.quote(lock.remote_owner)
@@ -1578,6 +1750,7 @@ def _stream_command(
     timeout_s: int,
     env: dict[str, str],
     log_path: Path,
+    abort_event: threading.Event | None = None,
 ) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as log:
@@ -1612,6 +1785,20 @@ def _stream_command(
                     log.write(heartbeat)
                     log.flush()
                     last_heartbeat = now
+                if abort_event is not None and abort_event.is_set():
+                    message = (
+                        "[nemoclaw-ci] aborting Harbor after remote worker "
+                        "lock loss\n"
+                    )
+                    print(message, end="", flush=True)
+                    log.write(message)
+                    log.flush()
+                    _kill_process_group(proc, signal.SIGTERM)
+                    try:
+                        proc.wait(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        _kill_process_group(proc, signal.SIGKILL)
+                    return 125
                 if proc.poll() is not None:
                     for rest in proc.stdout:
                         print(rest, end="", flush=True)
@@ -2558,12 +2745,23 @@ def main(argv: list[str] | None = None) -> int:
                         harbor_env["BREV_INSTANCE"] = brev_instance
                         cmd = _harbor_command(scenario, results_root, run_id)
                         print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
+                        heartbeat_lost_event = (
+                            worker_lock.heartbeat.lost_event
+                            if worker_lock.heartbeat
+                            else None
+                        )
                         harbor_rc = _stream_command(
                             cmd,
                             timeout_s=args.harbor_timeout,
                             env=harbor_env,
                             log_path=log_path,
+                            abort_event=heartbeat_lost_event,
                         )
+                        if (
+                            heartbeat_lost_event is not None
+                            and heartbeat_lost_event.is_set()
+                        ):
+                            harbor_rc = 125
 
                         reward, _reward_path = _latest_reward(
                             results_root,

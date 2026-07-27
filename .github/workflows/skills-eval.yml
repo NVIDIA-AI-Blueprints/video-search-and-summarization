@@ -434,6 +434,10 @@ jobs:
           # Give warm GPU workers enough time to become available while keeping
           # the serialized sweep bounded.
           export NEMOCLAW_LOCK_TIMEOUT_SEC=1200
+          # Keep the shared lock timestamp fresh for older runners that still
+          # use a 900-second age cutoff. Ownership is rechecked on every beat.
+          export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180
+          export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_MAX_SILENCE_SEC=660
           # Bound the setup + OpenClaw handoff. Successful representative rows
           # are normally well under this; a breach should be reported as a
           # failed scenario instead of a GitHub job timeout.
