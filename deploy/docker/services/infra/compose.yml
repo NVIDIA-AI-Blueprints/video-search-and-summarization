@@ -91,7 +91,7 @@ services:
 
   phoenix:
     container_name: phoenix
-    image: 'arizephoenix/phoenix:14.15.0'
+    image: 'arizephoenix/phoenix:19.8.0'
     profiles: ["phoenix"]
     environment:
       PHOENIX_WORKING_DIR: '/.phoenix/'
