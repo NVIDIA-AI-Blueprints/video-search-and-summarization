@@ -23,6 +23,13 @@ a custom worker (selected via ``--runner_class`` / ``runner_class:``) whose
 transport ``run_*`` coroutines to thread ``ssl_certfile`` / ``ssl_keyfile`` into
 the ``uvicorn.Config`` that FastMCP builds.
 
+NAT 1.6's ``MCPFrontEndPluginWorker.create_mcp_server`` hardcodes ``FastMCP(...)``
+and does not expose a FastMCP class/factory hook. ``SSLMCPWorker`` therefore
+temporarily substitutes :class:`_SSLFastMCP` for the module-level ``FastMCP``
+binding while calling ``super().create_mcp_server()``, so auth wiring stays in
+NAT and only the server class differs. When HTTPS is enabled, the stock
+``http://`` ``resource_server_url`` is rewritten to ``https://``.
+
 Toggle via environment:
 
 - ``ORCHESTRATOR_ENABLE_HTTPS`` selects the scheme: ``true`` enables TLS, ``false``
@@ -43,6 +50,7 @@ import os
 from typing import cast
 
 from mcp.server.fastmcp import FastMCP
+from nat.plugins.mcp.server import front_end_plugin_worker as mcp_worker
 from nat.plugins.mcp.server.front_end_plugin_worker import MCPFrontEndPluginWorker
 from starlette.types import ASGIApp
 
@@ -135,36 +143,28 @@ class _SSLFastMCP(FastMCP):
 
 
 class SSLMCPWorker(MCPFrontEndPluginWorker):
-    """Default MCP worker that returns a TLS-capable ``FastMCP`` instance.
+    """MCP worker that returns a TLS-capable ``FastMCP`` while reusing NAT auth wiring.
 
-    Mirrors the stock ``MCPFrontEndPluginWorker.create_mcp_server`` (including
-    ``server_auth`` wiring) but instantiates :class:`_SSLFastMCP` so the
-    transport honors the SSL cert/key environment toggle.
+    Because NAT 1.6 does not expose a FastMCP factory hook, this worker substitutes
+    :class:`_SSLFastMCP` for the module-level ``FastMCP`` name during
+    ``super().create_mcp_server()`` and then aligns the auth resource URL scheme
+    when HTTPS is enabled.
     """
 
     async def create_mcp_server(self) -> FastMCP:
-        auth_settings = None
-        token_verifier = None
+        original = mcp_worker.FastMCP
+        mcp_worker.FastMCP = _SSLFastMCP
+        try:
+            server = await super().create_mcp_server()
+        finally:
+            mcp_worker.FastMCP = original
 
-        if self.front_end_config.server_auth:
-            from mcp.server.auth.settings import AuthSettings
-            from nat.plugins.mcp.server.introspection_token_verifier import IntrospectionTokenVerifier
+        # NAT hardcodes http:// for resource_server_url; rewrite when HTTPS is on.
+        auth = server.settings.auth
+        if auth is not None and https_enabled():
             from pydantic import AnyHttpUrl
 
-            scheme = "https" if https_enabled() else "http"
-            server_url = f"{scheme}://{self.front_end_config.host}:{self.front_end_config.port}"
-            auth_settings = AuthSettings(
-                issuer_url=AnyHttpUrl(self.front_end_config.server_auth.issuer_url),
-                required_scopes=self.front_end_config.server_auth.scopes,
-                resource_server_url=AnyHttpUrl(server_url),
+            auth.resource_server_url = AnyHttpUrl(
+                f"https://{self.front_end_config.host}:{self.front_end_config.port}",
             )
-            token_verifier = IntrospectionTokenVerifier(self.front_end_config.server_auth)
-
-        return _SSLFastMCP(
-            name=self.front_end_config.name,
-            host=self.front_end_config.host,
-            port=self.front_end_config.port,
-            debug=self.front_end_config.debug,
-            auth=auth_settings,
-            token_verifier=token_verifier,
-        )
+        return server
