@@ -31,4 +31,4 @@
 - `deploy/docker/developer-profiles/dev-profile-search/overrides.env`
 - `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`
 - `deploy/docker/services/analytics/behavior-analytics/compose.yml`
-- `skills/vss-search-archive/references/deployment_resolution.md`
+- `skills/vss-build-vision-agent/references/deployment_resolution.md`

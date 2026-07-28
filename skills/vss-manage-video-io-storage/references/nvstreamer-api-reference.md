@@ -14,7 +14,28 @@ NvStreamer is the same `launch_vst` binary as VIOS, launched with `ADAPTOR=strea
 http://<NVSTREAMER_ENDPOINT>/api/v1
 ```
 
-The conventional endpoint is `http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}`. A deployment may run multiple NvStreamer instances on adjacent ports (`31000`, `31001`, …); always confirm from the deployment context rather than assuming. Each instance has its own sensor list — a file uploaded to `nvstreamer-1` is not visible on `nvstreamer-2`.
+Resolve the endpoints before using this reference. NvStreamer and VIOS are
+separate origins; the VIOS handoff in the canonical workflow below needs both:
+
+```bash
+if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+  : "${VSS_STREAMER_URL:?Provide the public NvStreamer Ingress origin for Kubernetes}"
+  NVSTREAMER_ENDPOINT="${VSS_STREAMER_URL%/}"
+  VSS_VIOS_URL="${VSS_PUBLIC_URL%/}/vst"
+else
+  NVSTREAMER_ENDPOINT="http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}"
+  VSS_VIOS_URL="http://${HOST_IP}:${VST_INGRESS_HOST_PORT:-30888}/vst"
+fi
+```
+
+Every `http://<NVSTREAMER_ENDPOINT>` placeholder below means
+`${NVSTREAMER_ENDPOINT}`. NvStreamer uses a separate Ingress host, so do not
+derive it from `VSS_PUBLIC_URL`, use an in-cluster Service, or start a
+`kubectl port-forward`. A Compose deployment may run multiple instances on
+adjacent ports (`31000`, `31001`, …); always confirm from deployment context.
+Each instance has its own sensor list — a file uploaded to `nvstreamer-1` is
+not visible on `nvstreamer-2`. Resolve `${VSS_VIOS_URL}` as above before the
+VIOS handoff in the canonical workflow.
 
 ---
 
@@ -291,7 +312,7 @@ curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/list" | jq '.[] | {sensorId,
 
 The reason this reference exists in the VIOS skill: the load-bearing pattern that uses NvStreamer is **upload to NvStreamer, get RTSP URL, register with VIOS**.
 
-> **Precondition for step 4.** The handoff requires the VIOS stream-processor to be part of the active deployment. Most VSS profiles ship both (`dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles), but custom or NvStreamer-only setups may not include VIOS. **Probe `curl -sf --max-time 5 http://${HOST_IP}:30888/vst/api/v1/sensor/version` and confirm `type == "vst"` before attempting `POST /sensor/add`.** If VIOS is not present, stop at step 3 — NvStreamer's RTSP URL is already serving and can be consumed directly by any RTSP client (ffmpeg, VLC, mediamtx, custom analytic).
+> **Precondition for step 4.** The handoff requires the VIOS stream-processor to be part of the active deployment. Most VSS profiles ship both (`dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles), but custom or NvStreamer-only setups may not include VIOS. **Probe `curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version"` and confirm `type == "vst"` before attempting `POST /sensor/add`.** If VIOS is not present, stop at step 3 — NvStreamer's RTSP URL is already serving and can be consumed directly by any RTSP client (ffmpeg, VLC, mediamtx, custom analytic).
 
 1. Verify NvStreamer is reachable and is a streamer (not a VIOS gateway):
    ```bash
@@ -312,13 +333,13 @@ The reason this reference exists in the VIOS skill: the load-bearing pattern tha
    sleep 5
    URL=$(curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/$SID/streams" | jq -r '.[0].url')
    ```
-4. **(Only if VIOS stream-processor is part of the deployment — see precondition above.)** Register that RTSP URL with VIOS via VIOS's `POST /vst/api/v1/sensor/add` (see `api-reference.md § 6`):
+4. **(Only if VIOS stream-processor is part of the deployment — see precondition above.)** Register that RTSP URL with VIOS via VIOS's `POST /api/v1/sensor/add` on `${VSS_VIOS_URL}` (see `api-reference.md § 6`):
    ```bash
    # Confirm VIOS is up before attempting registration.
-   curl -sf --max-time 5 "http://<VST_ENDPOINT>/vst/api/v1/sensor/version" | jq -e '.type == "vst"' \
+   curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" | jq -e '.type == "vst"' \
      || { echo "VIOS stream-processor not deployed — skipping /sensor/add"; exit 0; }
 
-   curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/add" \
+   curl -s -X POST "${VSS_VIOS_URL}/api/v1/sensor/add" \
      -H "Content-Type: application/json" \
      -d "{\"sensorUrl\": \"$URL\"}" | jq .
    ```

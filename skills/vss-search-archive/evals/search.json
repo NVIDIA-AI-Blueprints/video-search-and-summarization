@@ -75,6 +75,16 @@
         "The agent reused the authoritative `RUNTIME_JSON` resolver and verified exactly zero embedding documents in `mdx-embed-filtered-2025-01-01` for the resolved UUID using `sensor.id.keyword`, exactly zero behavior documents in `mdx-behavior-2025-01-01` for `warehouse-ladder` using `sensor.id.keyword`, and exactly zero raw documents in `mdx-raw-2025-01-01` for `warehouse-ladder` using `sensorId.keyword`; it did not reuse the embedding index for behavior/raw cleanup checks",
         "The final reply reported the DELETE status and the actual VIOS, embedding, behavior, and raw cleanup results"
       ]
+    },
+    {
+      "scenario": "kubernetes-ingress-contract",
+      "query": "Explain the exact host-side commands you would use to list registered sources and search the Kubernetes search profile exposed at `VSS_PUBLIC_URL=https://vss-search.example.com`. Search only the resolved `warehouse_sample` source for forklifts with embed mode and top-k 3. This is a contract check: show the commands but do not execute them or deploy anything.",
+      "checks": [
+        "The answer trims the VSS_PUBLIC_URL trailing slash, uses `https://vss-search.example.com/vst/api/v1/sensor/list` for source listing, and uses `POST https://vss-search.example.com/generate` for search",
+        "The `/generate` JSON body contains `input_message` and preserves the resolved `warehouse_sample` source, forklift query, embed mode, and top-k 3",
+        "The answer does not use kubectl, port-forward, Kubernetes Service DNS, a NodePort, localhost, direct `:8000`, direct `:9200`, direct `:30888`, `discover_kubernetes`, or `vss search run --deployment kubernetes`",
+        "The answer explains that Elasticsearch and RTVI are private Agent dependencies in Kubernetes and does not propose exposing them for the operate skill"
+      ]
     }
   ]
 }
