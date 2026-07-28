@@ -1359,7 +1359,26 @@ namespace vst_common
         }
     }
 
-    void notifyEvent(const SensorStatus& status, const string& sensor_url, const SensorVideoEncoderSettingsValues* encoder_values)
+    void addStreamMetadata(Json::Value& metadata, const SensorVideoEncoderSettingsValues& encoder_values)
+    {
+        if (encoder_values.encoding.empty() == false)
+        {
+            metadata["codec"] = encoder_values.encoding;
+        }
+        if (encoder_values.resolution.empty() == false)
+        {
+            metadata["resolution"] = encoder_values.resolution.getString();
+        }
+        // Webhooks publish whole-number frame rates.
+        const int framerate = static_cast<int>(std::lround(stringToDouble(encoder_values.frameRate, 0.0)));
+        if (framerate > 0)
+        {
+            metadata["framerate"] = framerate;
+        }
+    }
+
+    void notifyEvent(const SensorStatus& status, const string& sensor_url,
+                     const SensorVideoEncoderSettingsValues* encoder_values, int64_t fileStartTimeMs)
     {
         string change = vst_common::sensorStatusEventToString(status.event);
 
@@ -1376,9 +1395,15 @@ namespace vst_common
         }
         if (encoder_values != nullptr)
         {
-            metadata["codec"] = encoder_values->encoding;
-            metadata["resolution"] = encoder_values->resolution.getString();
-            metadata["framerate"] = encoder_values->frameRate;
+            addStreamMetadata(metadata, *encoder_values);
+        }
+        if (fileStartTimeMs > 0)
+        {
+            metadata["file_start_time"] = convertEpocToISO8601_2(fileStartTimeMs * 1000);
+        }
+        // Preserve the rule that sensor_type alone does not add metadata.
+        if ((encoder_values != nullptr || fileStartTimeMs > 0) && metadata.empty() == false)
+        {
             event["metadata"] = metadata;
         }
         payload["created_at"] = status.timeStamp;
@@ -1403,7 +1428,7 @@ namespace vst_common
     }
 
     void notifySensorStatusEvent(SensorStatusEvent event, shared_ptr<SensorInfo> sensor,
-                                 string httpFileUrl)
+                                 string httpFileUrl, int64_t fileStartTimeMs)
     {
         if(sensor != nullptr)
         {
@@ -1423,7 +1448,7 @@ namespace vst_common
                     return; // Skip notification if camera url is not present.
                 }
                 LOG(info) << "notifySensorStatusEvent sensor:" << streams[0]->name << ", event:" << secureUrlForLogging(sensor_url) << endl;
-                notifyEvent(status, sensor_url);
+                notifyEvent(status, sensor_url, &streams[0]->getvideoEncoderValues(), fileStartTimeMs);
             }
         }
     }
