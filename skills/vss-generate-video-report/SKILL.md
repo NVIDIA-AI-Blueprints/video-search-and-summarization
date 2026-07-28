@@ -17,7 +17,7 @@ Generate a video analysis report by routing to one of three backends — **never
 |---|---|
 | **A. Video clip** | `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** |
 | **B. Incident range** | `/vss-query-analytics` → incident list → narrative report |
-| **C. SOP compliance** | `/vss-query-analytics` → `get_sop_report` → SOP compliance report |
+| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `:9901`) → SOP compliance report |
 
 If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range. See **Examples** below for the request phrasings that route to each mode.
 
@@ -357,23 +357,25 @@ Use for "generate an SOP compliance report" over a sensor + time range. Data com
 
 ```bash
 MCP="http://${HOST_IP}:9901/mcp"
-HDR=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
-SID=$(curl -si --max-time 10 -X POST "$MCP" "${HDR[@]}" \
+CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
+SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
-  | grep -i '^mcp-session-id' | awk '{print $2}' | tr -d '\r')
-curl -s --max-time 10 -X POST "$MCP" "${HDR[@]}" -H "mcp-session-id: $SID" \
+  | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
+[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is vss-va-mcp up on :9901?" >&2; exit 1; }
+curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
-  | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep video_analytics__get_sop_report
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
+  || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-agent to compose the SOP profile" >&2; exit 1; }
 ```
 
-If `video_analytics__get_sop_report` is absent, the deployment lacks the SOP tools — hand off to `/vss-build-vision-agent` to compose the SOP profile.
+(No bash arrays — POSIX-`sh` safe; the session id is guarded, and the tool check exits non-zero when `get_sop_report` is missing.)
 
 ### Step 2 — Fetch the aggregated SOP report from VA-MCP
 
-Call `video_analytics__get_sop_report` on the same endpoint (reuse `$MCP` / `$SID` / `$HDR` from Step 1; `tools/call` after `initialize`):
+Call `video_analytics__get_sop_report` on the same endpoint (reuse `$MCP` / `$SID` / `$CT` / `$AC` from Step 1; `tools/call` after `initialize`):
 
 ```bash
-curl -s --max-time 30 -X POST "$MCP" "${HDR[@]}" -H "mcp-session-id: $SID" \
+curl -s --max-time 30 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
 ```
@@ -403,7 +405,7 @@ If `get_sop_report` returns an error or zero messages for the range/scope, STOP 
 ## Cross-Reference
 
 - **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1.
-- **`/vss-query-analytics`** — incident retrieval for Mode B Step 2, and `get_sop_report` retrieval for Mode C Step 2.
+- **`/vss-query-analytics`** — incident retrieval for Mode B Step 2. (Mode C does **not** use it — it calls VA-MCP's `get_sop_report` directly; see Mode C Step 2.)
 - **`/vss-build-vision-agent`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-agent/references/services/sop/`).
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
