@@ -19,12 +19,14 @@
 
 #include "utilities/config.h"
 #include "notification_manager.h"
+#include "composite_notifier.h"
 #include "redis/redis_publisher.h"
 #include "redis/redis_subscriber.h"
 #include "kafka/kafka_producer.h"
 #include "kafka/kafka_consumer.h"
 #include "mqtt/mqtt_publisher.h"
 #include "mqtt/mqtt_subscriber.h"
+#include "webhook/webhook_notifier.h"
 
 namespace nv_vms
 {
@@ -34,28 +36,46 @@ class NotificationFactory
         static INotificationInterface* CreatePlatformNotification()
         {
             nv_vms::DeviceConfig config =  GET_CONFIG();
-            if (config.enable_notification == false)
+            INotificationInterface* broker = nullptr;
+            if (config.enable_notification)
             {
-                return nullptr;
-            }
-            if (config.use_message_broker == "redis")
-            {
-                return NvRedis::getInstance();
-            }
-            if (config.use_message_broker == "kafka")
-            {
-                return NvKafka::getInstance();
-            }
-            if (config.use_message_broker == "mqtt")
-            {
-                return MqttPublisher::getInstance();
+                if (config.use_message_broker == "redis")
+                {
+                    broker = NvRedis::getInstance();
+                }
+                else if (config.use_message_broker == "kafka")
+                {
+                    broker = NvKafka::getInstance();
+                }
+                else if (config.use_message_broker == "mqtt")
+                {
+                    broker = MqttPublisher::getInstance();
+                }
             }
 
-            return nullptr;
+            // nullptr unless notification_config.json defines enabled webhooks.
+            INotificationInterface* webhook = WebhookNotifier::getInstance();
+
+            if (broker != nullptr && webhook != nullptr)
+            {
+                CompositeNotifier* composite = CompositeNotifier::getInstance();
+                composite->addNotifier(broker);
+                composite->addNotifier(webhook);
+                return composite;
+            }
+            if (webhook != nullptr)
+            {
+                return webhook;
+            }
+            return broker;
         }
 
         static void DeletePlatformNotification()
         {
+            // The composite only references the singletons below; drop it first.
+            CompositeNotifier::deleteInstance();
+            WebhookNotifier::deleteInstance();
+
             nv_vms::DeviceConfig config =  GET_CONFIG();
             if (config.enable_notification == false)
             {
