@@ -99,11 +99,9 @@ repo evolves.
      or `deploy/helm/services/`: `Chart.yaml`, `values*.yaml`,
      `templates/**`, `configs/**`, `charts/**` (subcharts), `Chart.lock`.
    - **skip entirely** — `deploy/docker/industry-profiles/**`,
-     `deploy/docker/scripts/**`, `deploy/docker/container-inventory.json`,
-     and any `deploy/*.md` / README / non-deployment file. Don't
-     drift-flag, don't comment, don't bot-PR; treat them as out of
-     scope for this workflow. Inventory build classification
-     (`ghcr_build` flips) is not a runtime compose change.
+     `deploy/docker/scripts/**`, and any `deploy/*.md` / README /
+     non-deployment file. Don't drift-flag, don't comment, don't
+     bot-PR; treat them as out of scope for this workflow.
 
    For docker-side paths, derive the `<group>` (the relative path
    under `deploy/docker/`) and the candidate helm dir at
@@ -140,13 +138,9 @@ repo evolves.
    | new Dockerfile (new service) | new `templates/<svc>-deployment.yaml` + values entry |
    | NIM / GPU resource hints | `resources.limits.nvidia.com/gpu` + tolerations / nodeSelector |
 
-   **Shared managed-image channel.** The agent / UI / alert images
-   (`vss-agent`, `vss-agent-ui`, `vss-alert-ms`) use the same defaults in
-   Docker Compose and Helm. Other images may be `"ghcr_build": true` for
-   GitHub publication without joining this channel — do not rewrite their
-   charts to honor `global.container_prefix` / `global.container_tag`
-   unless their compose default itself migrates to
-   `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`:
+   **Shared managed-image channel.** Images classified with `"ghcr_build": true`
+   in `deploy/docker/container-inventory.json` use the same defaults in Docker
+   Compose and Helm:
 
    - Both deployment paths default to
      `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
@@ -156,8 +150,7 @@ repo evolves.
      individual subcharts.
    - Treat a Helm chart that retains an immutable
      `nvcr.io/nvstaging/vss-core/*` default, ignores either global override, or
-     hard-codes a managed image in an umbrella profile as drift — only for
-     images already on the managed compose channel above.
+     hard-codes a managed image in an umbrella profile as drift.
    - Continue to flag every other semantic difference, including container
      env, ports, mounts, commands, probes, resources, and topology.
 

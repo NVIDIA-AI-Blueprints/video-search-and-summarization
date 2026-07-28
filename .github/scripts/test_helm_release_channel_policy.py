@@ -21,9 +21,6 @@ HELM_VALUES = {
     "vss-agent-ui": ["deploy/helm/services/ui/values.yaml"],
     "vss-alert-ms": ["deploy/helm/services/alert/values.yaml"],
 }
-# Compose/Helm develop-latest channel. A subset of ghcr_build images may
-# publish to GHCR without joining this channel (e.g. video-summarization).
-MANAGED_CHANNEL_IMAGES = set(HELM_VALUES)
 HELM_HELPERS = {
     "vss-agent": [
         "deploy/helm/services/agent/charts/agent/templates/_helpers.tpl",
@@ -53,17 +50,16 @@ def image_coordinates(path: Path) -> tuple[str, str]:
 
 
 class HelmReleaseChannelPolicyTest(unittest.TestCase):
-    def test_policy_covers_managed_channel_images(self):
+    def test_policy_covers_every_github_built_image(self):
         inventory = json.loads(
             (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
         )
-        by_name = {image["name"]: image for image in inventory["images"]}
-        for name in MANAGED_CHANNEL_IMAGES:
-            self.assertTrue(
-                by_name[name].get("ghcr_build") is True,
-                f"{name} must be ghcr_build: true",
-            )
-        self.assertEqual(set(HELM_VALUES), MANAGED_CHANNEL_IMAGES)
+        managed = {
+            image["name"]
+            for image in inventory["images"]
+            if image.get("ghcr_build") is True
+        }
+        self.assertEqual(managed, set(HELM_VALUES))
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():
