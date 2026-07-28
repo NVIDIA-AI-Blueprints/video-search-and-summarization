@@ -8,8 +8,8 @@
 - Prefer as the Foundation when the request needs VIOS + inference but no
   ELK-backed alerts, search, or long-video summarization.
 - The Agent and UI layer is **optional in a delta** — see
-  [Optional Agent/UI layer](#optional-agentui-layer) before assuming a request
-  for "Q&A" requires it.
+  [Capability owners present](#capability-owners-present) before assuming a
+  request for "Q&A" requires it.
 
 ## Profile Service Set
 
