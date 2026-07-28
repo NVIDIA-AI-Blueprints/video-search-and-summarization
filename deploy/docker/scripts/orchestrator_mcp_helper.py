@@ -149,7 +149,7 @@ def ensure_mcp_tls_certs(
     days: int = 365,
     subject: str = "/CN=vss-orchestrator-mcp",
 ) -> tuple[Path, Path]:
-    """Ensure MCP TLS cert/key exist; generate a self-signed pair if either is missing.
+    """Ensure MCP TLS cert/key exist; generate a self-signed pair only if both are missing.
 
     Args:
         certfile: Destination PEM certificate path.
@@ -162,14 +162,22 @@ def ensure_mcp_tls_certs(
         Resolved ``(cert_path, key_path)``.
 
     Raises:
+        FileNotFoundError: if exactly one of cert/key exists (refuses to overwrite
+            a partial custom pair by auto-generating).
         ValueError: if ``san`` is empty when generation is required.
         RuntimeError: if ``openssl`` is not available when generation is required.
         subprocess.CalledProcessError: if ``openssl`` fails.
     """
     cert_path = Path(certfile).expanduser().resolve()
     key_path = Path(keyfile).expanduser().resolve()
-    if cert_path.is_file() and key_path.is_file():
+    cert_exists = cert_path.is_file()
+    key_exists = key_path.is_file()
+    if cert_exists and key_exists:
         return cert_path, key_path
+    if cert_exists != key_exists:
+        raise FileNotFoundError(
+            "MCP TLS cert/key must both exist or both be absent for auto-generation."
+        )
 
     san_value = san.strip()
     if not san_value:
