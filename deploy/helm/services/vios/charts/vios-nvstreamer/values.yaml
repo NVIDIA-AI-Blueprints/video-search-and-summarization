@@ -30,6 +30,8 @@ videoMetadataServerUrl: ""   # default: http://<release>-elasticsearch:9200/mdx-
 env:
   ADAPTOR: "streamer"
   HTTP_PORT: "31000"
+  # Public UI/API path. A non-empty value requires the upstream proxy to strip it.
+  NVSTREAMER_UI_BASE_PATH: ""
   NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES: "true"
 
 service:
