@@ -3847,6 +3847,411 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             "vss-eval-rtx-1g-3",
         )
 
+    def test_latest_reward_rejects_non_finite_and_out_of_range_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            results_root = Path(td)
+            reward_path = (
+                results_root
+                / "30324411561"
+                / "2026-07-28__03-14-31"
+                / "any__ssr45bt"
+                / "verifier"
+                / "reward.txt"
+            )
+            reward_path.parent.mkdir(parents=True)
+
+            reward_path.write_text("0.75\n", encoding="utf-8")
+            self.assertEqual(
+                smoke_runner._latest_reward(
+                    results_root,
+                    "30324411561",
+                ),
+                (0.75, reward_path),
+            )
+
+            for malformed in ("nan", "inf", "-inf", "-0.1", "1.1"):
+                with self.subTest(malformed=malformed):
+                    reward_path.write_text(
+                        f"{malformed}\n",
+                        encoding="utf-8",
+                    )
+                    self.assertEqual(
+                        smoke_runner._latest_reward(
+                            results_root,
+                            "30324411561",
+                        ),
+                        (None, reward_path),
+                    )
+
+    def test_attempt_owner_status_verifies_exact_collected_marker(self):
+        token = "a" * 32
+        result = {
+            "environment_setup": {
+                "started_at": "2026-07-28T03:14:31Z",
+                "finished_at": "2026-07-28T03:23:27Z",
+            }
+        }
+        with tempfile.TemporaryDirectory() as td:
+            trial_dir = Path(td) / "trial"
+            artifact_dir = trial_dir / "artifacts" / "logs" / "artifacts"
+            artifact_dir.mkdir(parents=True)
+            (trial_dir / "artifacts" / "manifest.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "source": "/logs/artifacts",
+                            "destination": "artifacts/logs/artifacts",
+                            "type": "directory",
+                            "status": "ok",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (artifact_dir / smoke_runner.ATTEMPT_OWNER_FILE).write_text(
+                f"{token}\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                smoke_runner,
+                "_latest_trial",
+                return_value=(trial_dir, result),
+            ):
+                status = smoke_runner._attempt_owner_status(
+                    Path(td),
+                    "30324411561",
+                    since=1.0,
+                    expected_token=token,
+                )
+
+        self.assertEqual(
+            status,
+            smoke_runner.AttemptOwnerStatus(
+                "verified",
+                "attempt owner marker verified",
+            ),
+        )
+
+    def test_attempt_owner_status_detects_missing_or_foreign_marker(self):
+        token = "a" * 32
+        result = {
+            "environment_setup": {
+                "started_at": "2026-07-28T03:14:31Z",
+                "finished_at": "2026-07-28T03:23:27Z",
+            }
+        }
+        for marker_content, reason in (
+            (
+                None,
+                "attempt owner marker disappeared after successful "
+                "artifact collection",
+            ),
+            (
+                f"{'b' * 32}\n",
+                "attempt owner marker belongs to another worker consumer",
+            ),
+            (
+                "malformed\n",
+                "attempt owner marker belongs to another worker consumer",
+            ),
+        ):
+            with self.subTest(marker_content=marker_content):
+                with tempfile.TemporaryDirectory() as td:
+                    trial_dir = Path(td) / "trial"
+                    artifact_dir = (
+                        trial_dir / "artifacts" / "logs" / "artifacts"
+                    )
+                    artifact_dir.mkdir(parents=True)
+                    (trial_dir / "artifacts" / "manifest.json").write_text(
+                        json.dumps(
+                            [
+                                {
+                                    "source": "/logs/artifacts",
+                                    "destination": "artifacts/logs/artifacts",
+                                    "type": "directory",
+                                    "status": "ok",
+                                }
+                            ]
+                        ),
+                        encoding="utf-8",
+                    )
+                    if marker_content is not None:
+                        (
+                            artifact_dir / smoke_runner.ATTEMPT_OWNER_FILE
+                        ).write_text(marker_content, encoding="utf-8")
+                    with mock.patch.object(
+                        smoke_runner,
+                        "_latest_trial",
+                        return_value=(trial_dir, result),
+                    ):
+                        status = smoke_runner._attempt_owner_status(
+                            Path(td),
+                            "30324411561",
+                            since=1.0,
+                            expected_token=token,
+                        )
+
+                self.assertEqual(
+                    status,
+                    smoke_runner.AttemptOwnerStatus("contaminated", reason),
+                )
+
+    def test_attempt_owner_status_does_not_guess_from_incomplete_manifest(self):
+        token = "a" * 32
+        result = {
+            "environment_setup": {
+                "started_at": "2026-07-28T03:14:31Z",
+                "finished_at": "2026-07-28T03:23:27Z",
+            }
+        }
+        manifests = (
+            None,
+            [],
+            [
+                {
+                    "source": "/logs/artifacts",
+                    "destination": "../../foreign",
+                    "type": "directory",
+                    "status": "ok",
+                }
+            ],
+            [
+                {
+                    "source": "/logs/artifacts",
+                    "destination": "artifacts/logs/artifacts",
+                    "type": "directory",
+                    "status": "error",
+                }
+            ],
+        )
+        for manifest in manifests:
+            with self.subTest(manifest=manifest):
+                with tempfile.TemporaryDirectory() as td:
+                    trial_dir = Path(td) / "trial"
+                    (trial_dir / "artifacts").mkdir(parents=True)
+                    if manifest is not None:
+                        (trial_dir / "artifacts" / "manifest.json").write_text(
+                            json.dumps(manifest),
+                            encoding="utf-8",
+                        )
+                    with mock.patch.object(
+                        smoke_runner,
+                        "_latest_trial",
+                        return_value=(trial_dir, result),
+                    ):
+                        status = smoke_runner._attempt_owner_status(
+                            Path(td),
+                            "30324411561",
+                            since=1.0,
+                            expected_token=token,
+                        )
+
+                self.assertEqual(status.status, "unavailable")
+
+    def test_live_attempt_owner_status_retries_transport_and_uses_exec_target(self):
+        token = "a" * 32
+        verified = smoke_runner.CommandResult(
+            0,
+            "brev spinner\n__NEMOCLAW_ATTEMPT_OWNER_VERIFIED__\n",
+            "",
+        )
+        with (
+            mock.patch.object(
+                smoke_runner,
+                "_run",
+                side_effect=[
+                    subprocess.TimeoutExpired(["brev", "exec"], 45),
+                    verified,
+                ],
+            ) as run,
+            mock.patch.object(smoke_runner.time, "sleep") as sleep,
+        ):
+            status = smoke_runner._live_attempt_owner_status(
+                "instance-123",
+                token,
+            )
+
+        self.assertEqual(status.status, "verified")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args.args[0][:3], ["brev", "exec", "instance-123"])
+        command = run.call_args.args[0][3]
+        self.assertIn(f"expected={token}", command)
+        self.assertNotIn('cat "$owner"', command)
+        sleep.assert_called_once_with(
+            smoke_runner.ATTEMPT_OWNER_PROBE_RETRY_DELAY_S
+        )
+
+    def test_live_attempt_owner_status_classifies_definite_replacement(self):
+        token = "a" * 32
+        for returncode, reason in (
+            (44, "disappeared or was malformed"),
+            (45, "disappeared or was malformed"),
+            (46, "belongs to another worker consumer"),
+        ):
+            with self.subTest(returncode=returncode):
+                with (
+                    mock.patch.object(
+                        smoke_runner,
+                        "_run",
+                        return_value=smoke_runner.CommandResult(
+                            returncode,
+                            "",
+                            "",
+                        ),
+                    ) as run,
+                    mock.patch.object(smoke_runner.time, "sleep") as sleep,
+                ):
+                    status = smoke_runner._live_attempt_owner_status(
+                        "instance-123",
+                        token,
+                    )
+
+                self.assertEqual(status.status, "contaminated")
+                self.assertIn(reason, status.reason)
+                run.assert_called_once()
+                sleep.assert_not_called()
+
+    def test_live_attempt_owner_status_fails_closed_after_transient_retries(self):
+        with (
+            mock.patch.object(
+                smoke_runner,
+                "_run",
+                side_effect=OSError("brev unavailable"),
+            ) as run,
+            mock.patch.object(smoke_runner.time, "sleep") as sleep,
+        ):
+            status = smoke_runner._live_attempt_owner_status(
+                "instance-123",
+                "a" * 32,
+            )
+
+        self.assertEqual(status.status, "unavailable")
+        self.assertIn("after 3 attempts", status.reason)
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_attempt_evidence_owner_status_short_circuits_collected_contamination(
+        self,
+    ):
+        contaminated = smoke_runner.AttemptOwnerStatus(
+            "contaminated",
+            "collected marker was replaced",
+        )
+        with (
+            mock.patch.object(
+                smoke_runner,
+                "_attempt_owner_status",
+                return_value=contaminated,
+            ),
+            mock.patch.object(
+                smoke_runner,
+                "_live_attempt_owner_status",
+            ) as live,
+        ):
+            status = smoke_runner._attempt_evidence_owner_status(
+                Path("/tmp/results"),
+                "30324411561",
+                since=1.0,
+                remote_target="instance-123",
+                expected_token="a" * 32,
+            )
+
+        self.assertEqual(status, contaminated)
+        live.assert_not_called()
+
+    def test_attempt_evidence_owner_status_requires_collected_and_live_match(
+        self,
+    ):
+        verified = smoke_runner.AttemptOwnerStatus("verified", "verified")
+        unavailable = smoke_runner.AttemptOwnerStatus(
+            "unavailable",
+            "live probe unavailable",
+        )
+        with (
+            mock.patch.object(
+                smoke_runner,
+                "_attempt_owner_status",
+                return_value=verified,
+            ),
+            mock.patch.object(
+                smoke_runner,
+                "_live_attempt_owner_status",
+                side_effect=[verified, unavailable],
+            ) as live,
+        ):
+            matched = smoke_runner._attempt_evidence_owner_status(
+                Path("/tmp/results"),
+                "30324411561",
+                since=1.0,
+                remote_target="instance-123",
+                expected_token="a" * 32,
+            )
+            missing = smoke_runner._attempt_evidence_owner_status(
+                Path("/tmp/results"),
+                "30324411561",
+                since=2.0,
+                remote_target="instance-456",
+                expected_token="b" * 32,
+            )
+
+        self.assertEqual(matched.status, "verified")
+        self.assertEqual(missing.status, "unavailable")
+        self.assertEqual(
+            [call.args[0] for call in live.call_args_list],
+            ["instance-123", "instance-456"],
+        )
+
+    def test_discard_contaminated_attempt_removes_timestamp_result_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            results_root = Path(td) / "results"
+            run_root = results_root / "30324411561"
+            timestamp_root = run_root / "2026-07-28__03-14-31"
+            trial_dir = timestamp_root / "any__ssr45bt"
+            trial_dir.mkdir(parents=True)
+            (trial_dir / "result.json").write_text("{}", encoding="utf-8")
+            (trial_dir / "trial.log").write_text("foreign", encoding="utf-8")
+
+            discarded, reason = smoke_runner._discard_contaminated_attempt(
+                results_root,
+                "30324411561",
+                since=0.0,
+            )
+
+            self.assertTrue(discarded, reason)
+            self.assertFalse(timestamp_root.exists())
+            self.assertTrue(run_root.is_dir())
+
+    def test_discard_contaminated_attempt_rejects_symlinked_result_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            results_root = Path(td) / "results"
+            run_root = results_root / "30324411561"
+            outside = Path(td) / "outside"
+            trial_dir = outside / "any__ssr45bt"
+            trial_dir.mkdir(parents=True)
+            (trial_dir / "result.json").write_text("{}", encoding="utf-8")
+            (trial_dir / "trial.log").write_text("foreign", encoding="utf-8")
+            run_root.mkdir(parents=True)
+            timestamp_link = run_root / "2026-07-28__03-14-31"
+            timestamp_link.symlink_to(outside, target_is_directory=True)
+            linked_trial = timestamp_link / trial_dir.name
+
+            with mock.patch.object(
+                smoke_runner,
+                "_latest_trial",
+                return_value=(linked_trial, {}),
+            ):
+                discarded, reason = (
+                    smoke_runner._discard_contaminated_attempt(
+                        results_root,
+                        "30324411561",
+                        since=0.0,
+                    )
+                )
+
+            self.assertFalse(discarded)
+            self.assertIn("symlinked", reason)
+            self.assertTrue(outside.is_dir())
+
     def test_pre_agent_brev_environment_failure_is_retryable(self):
         result = {
             "config": {
@@ -4167,6 +4572,14 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 ),
                 mock.patch.object(
                     smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    return_value=smoke_runner.AttemptOwnerStatus(
+                        "verified",
+                        "attempt owner marker verified",
+                    ),
+                ),
+                mock.patch.object(
+                    smoke_runner,
                     "_append_harbor_report",
                     report,
                 ),
@@ -4219,6 +4632,301 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             report.call_args.kwargs["log_path"].parent,
             root / "scratch" / "30266918843" / "harbor",
         )
+
+    def test_runner_discards_reward_from_contaminated_worker_and_retries(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-setup-behavior-analytics",
+            spec_name="deploy_search_and_alerts",
+            spec_path=Path("/tmp/deploy_search_and_alerts.json"),
+            platform="ANY",
+            gpu_count=0,
+            task_dir=Path("/tmp/dataset/any"),
+            harbor_path=Path("/tmp/dataset"),
+            task_name="any",
+            deployment_profile=None,
+        )
+        selections: list[set[str]] = []
+        selection_timeouts: list[int] = []
+        harbor_timeouts: list[int] = []
+        attempt_tokens: list[str] = []
+        now = [0.0]
+
+        def select_worker(*args, excluded=None, **kwargs):
+            selections.append(set(excluded or set()))
+            selection_timeouts.append(args[3])
+            instance = (
+                "vss-eval-l40s"
+                if len(selections) == 1
+                else "vss-eval-l40s-1g"
+            )
+            return instance, smoke_runner.WorkerLock(
+                123,
+                object(),
+                None,
+                f"{instance}-id",
+            )
+
+        def stream_command(cmd, *, env, timeout_s, **kwargs):
+            attempt_tokens.append(env[smoke_runner.ATTEMPT_OWNER_ENV])
+            harbor_timeouts.append(timeout_s)
+            if len(attempt_tokens) == 1:
+                now[0] = 50.0
+            return 0
+
+        owner_calls = [0]
+
+        def owner_status(*args, remote_target, expected_token, **kwargs):
+            self.assertEqual(expected_token, attempt_tokens[owner_calls[0]])
+            selected_instance = (
+                "vss-eval-l40s"
+                if owner_calls[0] == 0
+                else "vss-eval-l40s-1g"
+            )
+            self.assertEqual(remote_target, f"{selected_instance}-id")
+            owner_calls[0] += 1
+            if owner_calls[0] == 1:
+                return smoke_runner.AttemptOwnerStatus(
+                    "contaminated",
+                    "attempt owner marker disappeared after successful "
+                    "artifact collection",
+                )
+            return smoke_runner.AttemptOwnerStatus(
+                "verified",
+                "attempt owner marker verified",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report = mock.Mock()
+            blocked = mock.Mock()
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30324411561",
+                        "NEMOCLAW_MAX_WORKER_FAILOVERS": "2",
+                        "NEMOCLAW_MAX_CONTAMINATION_FAILOVERS": "1",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "1000",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner.time,
+                    "monotonic",
+                    side_effect=lambda: now[0],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    side_effect=select_worker,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    side_effect=stream_command,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    side_effect=[
+                        (1.0, Path("/tmp/foreign-reward.txt")),
+                        (1.0, Path("/tmp/current-reward.txt")),
+                    ],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    return_value=None,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    side_effect=owner_status,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_release_lock",
+                    release,
+                ),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-setup-behavior-analytics",
+                        "--lock-timeout",
+                        "80",
+                        "--harbor-timeout",
+                        "900",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            selections,
+            [set(), {"vss-eval-l40s"}],
+        )
+        self.assertEqual(selection_timeouts, [80, 50])
+        self.assertEqual(harbor_timeouts, [900, 900])
+        self.assertEqual(len(attempt_tokens), 2)
+        self.assertNotEqual(attempt_tokens[0], attempt_tokens[1])
+        self.assertTrue(
+            all(
+                re.fullmatch(r"[0-9a-f]{32}", token)
+                for token in attempt_tokens
+            )
+        )
+        self.assertEqual(report.call_count, 1)
+        self.assertEqual(
+            report.call_args.kwargs["instance"],
+            "vss-eval-l40s-1g",
+        )
+        blocked.assert_not_called()
+        self.assertEqual(release.call_count, 2)
+
+    def test_runner_rejects_unowned_success_without_contamination_retry(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-setup-behavior-analytics",
+            spec_name="deploy_search_and_alerts",
+            spec_path=Path("/tmp/deploy_search_and_alerts.json"),
+            platform="ANY",
+            gpu_count=0,
+            task_dir=Path("/tmp/dataset/any"),
+            harbor_path=Path("/tmp/dataset"),
+            task_name="any",
+            deployment_profile=None,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            select = mock.Mock(
+                return_value=(
+                    "vss-eval-l40s",
+                    smoke_runner.WorkerLock(123, object(), None),
+                )
+            )
+            report = mock.Mock()
+            blocked = mock.Mock()
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30324411561",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "5000",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    select,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    return_value=(1.0, Path("/tmp/reward.txt")),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    return_value=None,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    return_value=smoke_runner.AttemptOwnerStatus(
+                        "unavailable",
+                        "artifact manifest is missing",
+                    ),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_release_lock",
+                    release,
+                ),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-setup-behavior-analytics",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 1)
+        select.assert_called_once()
+        report.assert_not_called()
+        blocked.assert_called_once()
+        self.assertIn(
+            "refusing to accept reward=1.0",
+            blocked.call_args.kwargs["reason"],
+        )
+        release.assert_called_once()
 
     def test_runner_does_not_fail_over_explicit_worker(self):
         scenario = smoke_runner.NemoClawScenario(
@@ -4285,6 +4993,14 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                     smoke_runner,
                     "_retryable_worker_setup_failure",
                     return_value="repo sync failed on pinned-worker",
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    return_value=smoke_runner.AttemptOwnerStatus(
+                        "verified",
+                        "attempt owner marker verified",
+                    ),
                 ),
                 mock.patch.object(
                     smoke_runner,
@@ -4391,6 +5107,14 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                     smoke_runner,
                     "_retryable_worker_setup_failure",
                     return_value="NemoClaw setup failed on vss-eval-rtx-1g-2",
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    return_value=smoke_runner.AttemptOwnerStatus(
+                        "verified",
+                        "attempt owner marker verified",
+                    ),
                 ),
                 mock.patch.object(
                     smoke_runner,

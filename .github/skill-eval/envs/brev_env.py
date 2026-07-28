@@ -59,6 +59,9 @@ BREV_DOWNLOAD_BACKOFF_SEC = float(os.environ.get("BREV_DOWNLOAD_BACKOFF_SEC", "5
 BREV_UPLOAD_RETRIES = int(os.environ.get("BREV_UPLOAD_RETRIES", "3"))
 BREV_UPLOAD_BACKOFF_SEC = float(os.environ.get("BREV_UPLOAD_BACKOFF_SEC", "5"))
 
+NEMOCLAW_ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
+NEMOCLAW_ATTEMPT_OWNER_PATH = "/logs/artifacts/nemoclaw-attempt-owner"
+
 
 def _is_transient_brev_transport_error(message: str | None) -> bool:
     if not message:
@@ -128,6 +131,38 @@ def _uses_nemoclaw(meta: dict) -> bool:
     """Return True when task metadata opts into the NemoClaw runner."""
     runner = str(meta.get("runner", "")).strip().lower()
     return runner == "nemoclaw" or bool(meta.get("requires_nemoclaw"))
+
+
+def _nemoclaw_attempt_owner_setup_command() -> str:
+    """Return an optional atomic owner-marker suffix for NemoClaw CI.
+
+    Direct Harbor invocations do not set ``SKILLS_EVAL_RUNNER`` and remain
+    compatible with the provider's historical setup.  The deterministic
+    NemoClaw smoke runner supplies a fresh lowercase UUID-hex token for each
+    Harbor attempt; reject anything outside that narrow format before it can
+    enter a remote shell command.
+    """
+    runner = os.environ.get("SKILLS_EVAL_RUNNER", "").strip().lower()
+    if runner != "nemoclaw":
+        return ""
+
+    token = os.environ.get(NEMOCLAW_ATTEMPT_OWNER_ENV)
+    if token is None or token == "":
+        return ""
+    if len(token) != 32 or any(char not in "0123456789abcdef" for char in token):
+        raise RuntimeError(
+            f"{NEMOCLAW_ATTEMPT_OWNER_ENV} must be exactly 32 lowercase "
+            "hexadecimal characters"
+        )
+
+    destination = shlex.quote(NEMOCLAW_ATTEMPT_OWNER_PATH)
+    return (
+        " && umask 077"
+        " && attempt_owner_tmp=/logs/artifacts/.nemoclaw-attempt-owner.$$"
+        f" && printf '%s\\n' {shlex.quote(token)} > \"$attempt_owner_tmp\""
+        " && chmod 600 \"$attempt_owner_tmp\""
+        f" && mv -f \"$attempt_owner_tmp\" {destination}"
+    )
 
 
 class BrevEnvironmentType(str, Enum):
@@ -304,6 +339,7 @@ class BrevEnvironment(BaseEnvironment):
         #
         # Do NOT wipe /tests, /solution, or /skills here: Harbor may already
         # have staged the current trial inputs by the time start() runs.
+        attempt_owner_setup = _nemoclaw_attempt_owner_setup_command()
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
             "if [ -L /logs/agent ]; then "
@@ -320,7 +356,8 @@ class BrevEnvironment(BaseEnvironment):
             "/logs/agent/claude-code.txt "
             "/logs/agent/nemoclaw-headless-runner.stdout && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
-            "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills",
+            "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills"
+            f"{attempt_owner_setup}",
             timeout=30,
         )
         # Fail loud: this is the load-bearing per-trial wipe. A silent failure
