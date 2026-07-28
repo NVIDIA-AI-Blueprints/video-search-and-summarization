@@ -22,13 +22,13 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 
 ## Capability owners present
 
-| Owner | Service profile keys | Required in a delta? |
-|---|---|---|
-| Ingress | `vss-haproxy-ingress` | **Required** — the central place ports and service discovery are documented; fronts VIOS/VST and every other HTTP backend, not just the Agent |
-| VIOS | `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` | **Required** — video ingest, storage, and retrieval |
-| RT-VLM | `rtvi-vlm` | **Required** — captioning and VLM inference. Serves VLM Q&A directly on `POST /v1/chat/completions` (port 8018) |
-| Agent | `vss-agent`, `vss-ui`, `phoenix` | **Optional** — only when the user wants to chat through VSS-UI or needs Agent orchestration. A request for "VLM Q&A" alone does not require it |
-| LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` | **Optional** — `vss-agent` is its only consumer here; drop it whenever the Agent is dropped |
+| Owner | Service profile keys |
+|---|---|
+| Agent | `vss-agent`, `vss-ui`, `phoenix` |
+| Ingress | `vss-haproxy-ingress` |
+| VIOS | `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
+| LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
+| RT-VLM | `rtvi-vlm` |
 
 `redis` is a shared peer used by this profile graph.
 

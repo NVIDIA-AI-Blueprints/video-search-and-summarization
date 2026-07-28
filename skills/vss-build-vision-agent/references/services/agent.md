@@ -7,18 +7,18 @@
 | Agent orchestration and REST API | `vss-agent` |
 | Video-analytics MCP | `vss-va-mcp` |
 | Web UI | `vss-ui` |
-| Public ingress | `vss-haproxy-ingress` |
 | Tracing UI | `phoenix` |
 
 ## Access role
 
-This owner backs the interactive surface — conversational orchestration and REST
-API, video-analytics MCP, Web UI, public ingress, and tracing. It is not part of
-the ingest, detection, embedding, indexing, or service-native (Kibana/REST)
-browse path, and no write-path service depends on it. A headless, ingestion-only,
-or service-native-browse request reaches none of these keys, so the whole owner —
-and the LLM peer that only `vss-agent` required — falls outside the reachable set
-and is pruned.
+This owner backs the interactive surface: conversational orchestration and REST
+API, video-analytics MCP, Web UI, and tracing. Its public front door is a
+separate owner (`ingress.md`), so browse ingress can be requested without this
+tier. None of these keys sit on the ingest, detection, embedding, indexing, or
+service-native (Kibana/REST) browse path, and no write-path service depends on
+them. A headless, ingestion-only, or service-native-browse request reaches none
+of them, so the whole owner (and the LLM peer only `vss-agent` required) is
+pruned as unreachable.
 
 ## Required peers
 
@@ -27,6 +27,8 @@ and is pruned.
 - Add a VLM owner only when the config enables video understanding, critique,
   alerts, or summarization that calls it.
 - Add `vss-va-mcp` only for agent configurations that use video-analytics MCP.
+- When the interactive surface must be reachable through a single public origin,
+  add the Ingress owner (`vss-haproxy-ingress`, `ingress.md`) as the front door.
 - ELK, Alerts, Search, and LVS peers are capability-dependent, not universal
   Agent dependencies.
 
@@ -43,11 +45,10 @@ and is pruned.
 | `LVS_BACKEND_URL`, `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, `ALERT_BRIDGE_URL` | Enable capability-specific tools. |
 | `ENABLE_CRITIC`, `ENABLE_AUDIO` | Toggle critique and audio-aware flows. |
 | `VSS_AGENT_REPORTS_BASE_URL`, `VSS_AGENT_EXTERNAL_URL` | Generate externally reachable links. |
-| `VSS_UI_HOST_PORT`, `HAPROXY_HOST_PORT`, `VSS_PUBLIC_*` | Configure UI and public ingress. |
+| `VSS_UI_HOST_PORT` | Publish the Web UI (public-ingress knobs live with the Ingress owner, `ingress.md`). |
 
 ## Sources
 
 - `deploy/docker/services/agent/compose.yml`
 - `deploy/docker/services/ui/compose.yml`
-- `deploy/docker/services/infra/haproxy/compose.yml`
 - `services/agent/README.md`
