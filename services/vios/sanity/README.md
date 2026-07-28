@@ -18,8 +18,9 @@ Plans live in [`sanity_plans.yaml`](./sanity_plans.yaml); toggle each with `enab
 |------|----------|---------|---------|-------|
 | Plan-1 | redis | variant matrix (codec/res/fps) from one video | full | includes `download_overlay_long` (60s sustained-box) |
 | Plan-2 | kafka | 4 synchronized copies | full | WebRTC video-wall + latency perf |
-| Plan-3 | — | Milestone VMS cameras (adaptor) | none | Milestone owns metadata |
-| Plan-4 | redis | ONVIF-discovered cameras | full | ONVIF adaptor (no NVStreamer) |
+| Plan-3 | kafka + webhooks | 1 NVStreamer RTSP + 1 VIOS file sensor | RTSP download/picture | direct mode; no Redis, SDRC, synchronization, or video-wall |
+| Plan-4 | — | Milestone VMS cameras (adaptor) | none | Milestone owns metadata |
+| Plan-5 | redis | ONVIF-discovered cameras | full | ONVIF adaptor (no NVStreamer) |
 
 Each ENABLED plan runs against every ENABLED entry in its `systems:` map (local/remote/...).
 
@@ -70,6 +71,11 @@ Per-plan `setup.vst_config` and `setup.nvstreamer_config` override each service'
 `vst_config.json`. Broker and notification settings belong in
 `setup.vst_notification_config` and `setup.nvstreamer_notification_config`; the harness writes
 those to the separate `notification_config.json` mounted by each service.
+
+Plan-3 sets `setup.deployment_mode: direct` and `setup.event_transport: webhook`. The harness
+starts the overlay plugin's `camera_streaming` and `camera_remove` HTTP receivers before VIOS,
+disables message-broker event publication, and verifies that neither Redis nor SDRC is running.
+Kafka remains the live overlay-metadata consumer; it is not used for camera lifecycle events.
 
 Useful flags: `--only <case,case>` (subset), `--deploy-only`, `--no-serve` (don't auto-start the
 evidence server), `--from-json <results.json>` (re-render the PDF without re-running),
@@ -130,8 +136,9 @@ evidence server), `--from-json <results.json>` (re-render the PDF without re-run
 
 Overlay evidence is fed by a continuous metadata service
 ([`test/bdd_tests/scripts/overlay/metadata_service.py`](../test/bdd_tests/scripts/overlay/metadata_service.py))
-that subscribes to `camera_streaming` events, reads each VIOS RTSP proxy's SEI, publishes live
-metadata to the broker, and serves a fake Elasticsearch (`:19200`) that VIOS's
+that receives `camera_streaming` events from Redis in Plans 1/2/5 or from the two direct-mode
+webhooks in Plan-3, reads each VIOS RTSP proxy's SEI, publishes live metadata to the configured
+consumer broker, and serves a fake Elasticsearch (`:19200`) that VIOS's
 `overlay.video_metadata_server` queries for download/replay overlay. The fake-ES retains a
 rolling 3-hour event-time window per sensor by default (324,000 documents at 30 fps). Use
 `--es-retention-hours 10` when a deployment needs ten hours of metadata; there is no separate

@@ -951,7 +951,7 @@ def default_suite(ctx: SanityContext, sync_wall: bool = False, nvstreamer: bool 
 
 
 def milestone_suite(ctx: SanityContext):
-    """Plan-3 Milestone suite: NO overlay (Milestone cameras carry no VST metadata). For each
+    """Plan-4 Milestone suite: NO overlay (Milestone cameras carry no VST metadata). For each
     ONLINE discovered camera, exercise the read paths -- download (recorded clip), live +
     replay picture, and webrtc live + replay -- all overlay=False. Returns [(label, fn, meta)]."""
     import functools

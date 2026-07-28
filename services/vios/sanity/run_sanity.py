@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -456,9 +457,41 @@ def _health(base_url, timeout: int = 120):
     log.warning("VST health not ready after %ds (%s); continuing", timeout, base_url)
 
 
+def _verify_direct_mode_runtime():
+    """Fail Plan-3 unless direct mode is active and Redis/SDRC are absent."""
+    import re
+    import subprocess
+
+    compose_env = (Path(__file__).resolve().parents[1]
+                   / "deployment/stream-processing/docker-compose/compose.env")
+    text = compose_env.read_text()
+
+    def active_value(key):
+        match = re.search(rf"(?m)^{re.escape(key)}=(.*)$", text)
+        return match.group(1).strip() if match else ""
+
+    expected = {
+        "VST_USE_SDRC": "false",
+        "NGINX_MODE": "vst",
+        "STREAM_PROCESSOR_MODULE_ENDPOINT": "http://${HOST_IP}:30001",
+    }
+    wrong = {key: active_value(key) for key, value in expected.items()
+             if active_value(key) != value}
+    names = subprocess.run(
+        ["docker", "ps", "--format", "{{.Names}}"], capture_output=True,
+        text=True, check=True, timeout=30,
+    ).stdout.splitlines()
+    forbidden = sorted(name for name in names
+                       if name == "redis-server" or "sdr-controller" in name)
+    if wrong or forbidden:
+        raise RuntimeError(f"Plan-3 direct-mode gate failed: env={wrong}, running={forbidden}")
+    log.info("PLAN-3 DIRECT READY: no Redis, no SDRC, ingress mode=vst, endpoint=:30001")
+
+
 def _start_metadata_service(ctx, wait_s: int = 12):
-    """Start the EVENT-DRIVEN overlay plugin (the DeepStream stand-in): it subscribes to
-    VIOS's camera_streaming events and, per stream, reads its SEI off the VIOS rtsp proxy and
+    """Start the event-driven overlay plugin (the DeepStream stand-in). It receives VIOS
+    camera lifecycle events through Redis or direct-mode webhooks and, per stream, reads SEI
+    off the VIOS RTSP proxy and
     publishes a per-frame bbox (objectId = the incrementing frame number) to the plan's broker
     AND the fake-ES on :19200. The overlay use-cases consume this. Idempotent per ctx (returns
     the already-running proc); start it with wait_s=0 BEFORE the VIOS deploy so it is
@@ -466,26 +499,46 @@ def _start_metadata_service(ctx, wait_s: int = 12):
     existing = getattr(ctx, "_mds", None)
     if existing is not None and existing.poll() is None:
         return existing
+    import socket
     import subprocess
     import time as _t
     svc = Path(__file__).resolve().parents[1] / "test/bdd_tests/scripts/overlay/metadata_service.py"
     retention_hours = float(os.environ.get("VIOS_SANITY_ES_RETENTION_HOURS", "3"))
     if retention_hours <= 0:
         raise ValueError("VIOS_SANITY_ES_RETENTION_HOURS must be greater than zero")
+    event_transport = getattr(ctx, "event_transport", "redis")
     cmd = ["python3", str(svc), "--broker", ctx.broker, "--base-url", ctx.base_url,
            "--nvstreamer-url", ctx.nvstreamer_url, "--es-port", "19200",
-           "--es-retention-hours", f"{retention_hours:g}"]
+           "--es-retention-hours", f"{retention_hours:g}",
+           "--event-transport", event_transport]
+    if event_transport == "webhook":
+        cmd += ["--webhook-host", "0.0.0.0", "--webhook-port", "18088"]
     if ctx.broker == "kafka" and getattr(ctx, "kafka_brokers", None):
         cmd += ["--kafka", ctx.kafka_brokers]
     log.info(
-        "starting event-driven overlay plugin (broker=%s, retention=%g hours/sensor, "
-        "subscribing camera_streaming)",
+        "starting event-driven overlay plugin (metadata broker=%s, events=%s, "
+        "retention=%g hours/sensor)",
         ctx.broker,
+        event_transport,
         retention_hours,
     )
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)
     ctx._mds = proc
+    if event_transport == "webhook":
+        deadline = _t.time() + 30
+        while _t.time() < deadline:
+            if proc.poll() is not None:
+                raise RuntimeError("overlay webhook plugin exited before binding port 18088")
+            try:
+                with socket.create_connection(("127.0.0.1", 18088), timeout=1):
+                    break
+            except OSError:
+                _t.sleep(0.25)
+        else:
+            proc.terminate()
+            raise RuntimeError("overlay webhook plugin did not bind 127.0.0.1:18088")
+        log.info("overlay webhook receivers ready on 127.0.0.1:18088")
     if wait_s:
         _t.sleep(wait_s)   # let it bind fake-ES + subscribe before use-cases run
     return proc
@@ -528,12 +581,12 @@ def _run_plans(plans_path: str, deploy_only: bool = False, images: dict = None,
 
     # Make the host-specific bits implicit: set HOST_IP + repo-local paths, and point the
     # deployment at the requested images (CLI overrides sanity_plans.yaml `defaults.images`).
-    apply_deploy_env(host_ip)
-    imgs = {**(defaults.get("images") or {}), **(images or {})}
-    if imgs:
-        apply_images(imgs.get("streamprocessing"), imgs.get("sensor"), imgs.get("nvstreamer"))
     backup_configs()
     try:
+        apply_deploy_env(host_ip)
+        imgs = {**(defaults.get("images") or {}), **(images or {})}
+        if imgs:
+            apply_images(imgs.get("streamprocessing"), imgs.get("sensor"), imgs.get("nvstreamer"))
         return _run_plans_inner(plans, deploy_only, results, plan_meta, expand_usecases,
                                 keep_deployment=False, leave_deployment=leave_deployment)
     finally:
@@ -608,10 +661,11 @@ def _adopt_running_nvstreamer(ctx):
 def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
     """The NVStreamer-first flow: write config, stop --clean, deploy NVStreamer, provision +
     verify its RTSP sources, then deploy VIOS against a live NVStreamer, then the recording
-    gate. Provisions ctx.provisioned_streams / ctx.file_sensor. (Plans 1 & 2.)"""
+    gate. Provisions ctx.provisioned_streams / ctx.file_sensor. (Plans 1, 2, and 3.)"""
     from provision import (apply_vst_config, apply_nvstreamer_config,
                            apply_vst_notification_config,
-                           apply_nvstreamer_notification_config, clean_stop, deploy_target,
+                           apply_nvstreamer_notification_config, configure_overlay_webhooks,
+                           clean_stop, deploy_target,
                            wipe_nvstreamer_videos, recreate_service, _wait_ready,
                            _wait_recording_current, verify_nvstreamer_stream_count)
     import requests as _rq
@@ -621,7 +675,7 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
     # (the live/recent path goes through the broker and is unaffected).
     vst_over = {"video_metadata_server": _FAKE_ES}
     notification_over = {
-        "enable_notification": True,
+        "enable_notification": ctx.event_transport != "webhook",
         "use_message_broker": "redis",
         "message_broker_topic": "vst_events",
     }
@@ -640,6 +694,7 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
     try:
         apply_vst_config(vst_over, recreate=False)
         apply_vst_notification_config(notification_over, recreate=False)
+        configure_overlay_webhooks(ctx.event_transport == "webhook")
         apply_nvstreamer_config(setup.get("nvstreamer_config", {}) or {}, recreate=False)
         apply_nvstreamer_notification_config(
             setup.get("nvstreamer_notification_config", {}) or {}, recreate=False
@@ -662,10 +717,17 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
         _start_metadata_service(ctx, wait_s=0)
         deploy_target("vst")
         _health(ctx.base_url, timeout=180)
+        if setup.get("deployment_mode") == "direct":
+            _verify_direct_mode_runtime()
 
-    _provision(ctx, video_path, _RTSP_COPIES, sync_wall,
+    _provision(ctx, video_path, int(setup.get("rtsp_copies", _RTSP_COPIES)), sync_wall,
                plan.get("max_streams", 4), bool(setup.get("variants")),
                deploy_vios=_bring_up_vios)
+    if setup.get("deployment_mode") == "direct":
+        if len(ctx.provisioned_streams) != 1 or not ctx.file_sensor:
+            raise RuntimeError(
+                "Plan-3 stream gate failed: expected exactly one RTSP stream and one file "
+                f"sensor, got rtsp={ctx.provisioned_streams}, file={ctx.file_sensor}")
     # DEPLOYMENT-READY GATE: proceed only once every provisioned RTSP stream is recording
     # continuous-to-now with >=60s of history -- a full minute so the overlay use-cases (whose
     # historical window sits early in the recording) have settled metadata everywhere, and the
@@ -696,7 +758,7 @@ def _deploy_adaptor_plan(ctx, name, adaptor, setup):
     (ONVIF network discovery, full overlay). For onvif, the overlay plugin is started before
     VIOS. Populates ctx.provisioned_streams with the ONLINE camera ids."""
     from provision import (apply_vst_config, apply_vst_notification_config,
-                           apply_adaptor_config, clean_stop, deploy_target,
+                           apply_adaptor_config, configure_overlay_webhooks, clean_stop, deploy_target,
                            discover_online_cameras)
     overlay = adaptor != "milestone"
     vst_over = {"video_metadata_server": _FAKE_ES} if overlay else {}
@@ -719,6 +781,7 @@ def _deploy_adaptor_plan(ctx, name, adaptor, setup):
     try:
         apply_vst_config(vst_over, recreate=False)
         apply_vst_notification_config(notification_over, recreate=False)
+        configure_overlay_webhooks(False)
         apply_adaptor_config(adaptor, setup)     # enable adaptor + write server config
     except Exception as e:  # noqa: BLE001
         log.warning("adaptor config write failed: %s", e)
@@ -741,6 +804,7 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     plan_namespace = "/".join(filter(None, (run_namespace, _plan_tag(name))))
     ctx = SanityContext(base_url=system.get("base_url", "http://localhost:30888"),
                         broker=setup.get("consumer", "redis"),
+                        event_transport=setup.get("event_transport", "redis"),
                         stream_id=plan.get("stream_id", "warehouse_sample"),
                         artifact_namespace=plan_namespace)
     if setup.get("broker_addr"):
@@ -751,6 +815,10 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
     overlay = adaptor != "milestone"             # milestone has NO overlay
     log.info("===================== PLAN: %s (target=%s, adaptor=%s) =====================",
              name, target, adaptor or "nvstreamer")
+
+    if target == "local" and not keep_deployment:
+        from provision import apply_deployment_mode
+        apply_deployment_mode(setup.get("deployment_mode", "sdrc"))
 
     if keep_deployment:
         if target != "local" or adaptor or not setup.get("nvstreamer"):
@@ -766,6 +834,8 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
 
     plan_meta[name] = {
         "consumer": setup.get("consumer", ctx.broker), "target": target, "system": sysname,
+        "event_transport": ctx.event_transport,
+        "deployment_mode": setup.get("deployment_mode", "sdrc"),
         "adaptor": adaptor or "nvstreamer", "base_url": system.get("base_url", ctx.base_url),
         "nvstreamer": ctx.nvstreamer_url, "streams": list(ctx.provisioned_streams),
         "file_sensor": ctx.file_sensor, "stream_id": ctx.stream_id,
@@ -796,6 +866,10 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
         if leave_deployment and mds is not None and mds.poll() is None:
             log.info("leave-deployment: metadata service left running (pid=%d)", mds.pid)
         else:
+            if ctx.event_transport == "webhook" and target == "local":
+                from provision import delete_all_vios_sensors
+                delete_all_vios_sensors(ctx.base_url, ctx.verify_ssl)
+                time.sleep(3)  # let camera_remove reach the plugin before it exits
             _stop_metadata_service(mds)
     # Capture THIS plan-run's container logs while the containers are still alive.
     if target == "local" and any(r.plan == name and r.status == "FAIL" for r in results):

@@ -74,6 +74,7 @@ class SanityContext:
     es_port: int = 19200
     es_index: str = "mdx-bev-test"
     broker: str = "redis"            # live consumer type: redis|kafka
+    event_transport: str = "redis"   # camera lifecycle events: redis|webhook
     redis_host: str = "localhost"
     redis_port: int = 6379
     kafka_brokers: str = "172.17.0.1:9092"

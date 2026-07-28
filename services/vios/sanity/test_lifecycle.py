@@ -50,6 +50,89 @@ class LifecycleTest(unittest.TestCase):
             self.assertEqual(config["message_broker_topic_consumer"], "vst-overlay-test")
             self.assertEqual(config["kafka_server_address"], "172.17.0.1:9092")
 
+    def test_overlay_webhooks_enable_only_streaming_and_remove(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            notification_config = Path(tempdir) / "notification_config.json"
+            notification_config.write_text(json.dumps({
+                "message_broker": {},
+                "webhooks": {"enabled": False, "items": [
+                    {"enabled": False, "id": "add", "camera_status_change": "camera_add",
+                     "request": [{"url": "http://old/add", "method": "POST"}]},
+                    {"enabled": False, "id": "stream", "camera_status_change": "camera_streaming",
+                     "request": [{"url": "http://old/stream", "method": "POST"}],
+                     "auth": {"type": "hmac"}},
+                    {"enabled": False, "id": "remove", "camera_status_change": "camera_remove",
+                     "request": [{"url": "http://old/remove", "method": "POST"}]},
+                ]},
+            }))
+            original = provision._VST_NOTIFICATION_CONFIG
+            try:
+                provision._VST_NOTIFICATION_CONFIG = notification_config
+                provision.configure_overlay_webhooks(True)
+            finally:
+                provision._VST_NOTIFICATION_CONFIG = original
+
+            config = json.loads(notification_config.read_text())
+            items = {item["camera_status_change"]: item for item in config["webhooks"]["items"]}
+            self.assertTrue(config["webhooks"]["enabled"])
+            self.assertFalse(items["camera_add"]["enabled"])
+            self.assertTrue(items["camera_streaming"]["enabled"])
+            self.assertTrue(items["camera_remove"]["enabled"])
+            self.assertEqual(items["camera_streaming"]["request"][0]["method"], "PUT")
+            self.assertEqual(items["camera_remove"]["request"][0]["method"], "DELETE")
+            self.assertNotIn("auth", items["camera_streaming"])
+
+    def test_deployment_mode_toggle_is_reversible(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            compose_env = Path(tempdir) / "compose.env"
+            compose_env.write_text("""HOST_IP=10.0.0.1
+# ---------- DIRECT MODE (uncomment below for direct mode) ----------
+#VST_USE_SDRC=false
+#NGINX_MODE=vst
+#STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:30001
+
+# ---------- SDRC MODE (comment below to use direct mode) ----------
+VST_USE_SDRC=true
+COMPOSE_PROFILES=sdrc
+NGINX_MODE=vst-sdrc
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:10000
+
+################ next section
+VALUE=kept
+""")
+            original = provision._COMPOSE_ENV
+            try:
+                provision._COMPOSE_ENV = compose_env
+                provision.apply_deployment_mode("direct")
+                direct = compose_env.read_text()
+                provision.apply_deployment_mode("sdrc")
+                sdrc = compose_env.read_text()
+            finally:
+                provision._COMPOSE_ENV = original
+
+            self.assertIn("\nVST_USE_SDRC=false\n", direct)
+            self.assertIn("\nNGINX_MODE=vst\n", direct)
+            self.assertNotIn("\nCOMPOSE_PROFILES=sdrc\n", direct)
+            self.assertIn("\nVST_USE_SDRC=true\n", sdrc)
+            self.assertIn("\nCOMPOSE_PROFILES=sdrc\n", sdrc)
+            self.assertIn("VALUE=kept", sdrc)
+
+    def test_plan3_is_one_rtsp_one_file_without_sync(self):
+        from plans import load_plans
+
+        _defaults, loaded = load_plans(str(Path(__file__).with_name("sanity_plans.yaml")))
+        self.assertEqual([plan["name"].split(" | ")[0] for plan in loaded],
+                         ["Plan-1", "Plan-2", "Plan-3", "Plan-4", "Plan-5"])
+        plan3 = loaded[2]
+        setup = plan3["setup"]
+        self.assertEqual(setup["deployment_mode"], "direct")
+        self.assertEqual(setup["event_transport"], "webhook")
+        self.assertEqual(setup["consumer"], "kafka")
+        self.assertEqual(setup["rtsp_copies"], 1)
+        self.assertFalse(setup.get("sync_wall", False))
+        self.assertEqual(len(plan3["usecases"]), 6)
+        self.assertNotIn("webrtc", {case["test"] for case in plan3["usecases"]})
+
     def test_cleanup_removes_only_reproducible_transients(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)

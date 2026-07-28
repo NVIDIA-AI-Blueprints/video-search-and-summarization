@@ -41,6 +41,8 @@ plans:
     setup:
       nvstreamer: true
       vios: true
+      deployment_mode: sdrc
+      event_transport: redis
       consumer: redis
       variants: true
       vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}
@@ -56,6 +58,8 @@ plans:
     setup:
       nvstreamer: true
       vios: true
+      deployment_mode: sdrc
+      event_transport: redis
       consumer: kafka
       broker_addr: "172.17.0.1:9092"
       sync_wall: true
@@ -63,15 +67,43 @@ plans:
       nvstreamer_config: {nv_streamer_sync_file_count: 4}
 
   # ---------------------------------------------------------------------------
-  # Plan-3: Milestone VMS adaptor (milestone_onvif, type mms). NO overlay -- Milestone
+  # Plan-3: direct-mode webhook sanity. Exactly one NVStreamer RTSP stream plus one VIOS
+  # file sensor. Camera lifecycle events reach the overlay plugin through HTTP webhooks;
+  # Redis and SDRC are absent. Live overlay metadata still uses the Plan-2 Kafka consumer.
+  - name: "Plan-3 | direct webhook | one RTSP + one file sensor"
+    enabled: false
+    systems:
+      local:  { enabled: true,  target: local,  base_url: "http://localhost:30888" }
+      remote: { enabled: false, target: remote, host: "10.0.0.5", user: "user", password: "password", base_url: "http://10.0.0.5:30888" }
+    setup:
+      nvstreamer: true
+      vios: true
+      deployment_mode: direct
+      event_transport: webhook
+      consumer: kafka
+      broker_addr: "172.17.0.1:9092"
+      rtsp_copies: 1
+      vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}
+      nvstreamer_config: {nv_streamer_sync_file_count: 0, nv_streamer_sync_playback: false}
+    usecases:
+      - {test: download, target: rtsp}
+      - {test: picture, target: rtsp}
+      - {test: download, target: file}
+      - {test: picture, target: file}
+      - {test: download, target: rtsp, overlay: true, evidence: true}
+      - {test: picture, target: rtsp, overlay: true, evidence: true}
+
+  # ---------------------------------------------------------------------------
+  # Plan-4: Milestone VMS adaptor (milestone_onvif, type mms). NO overlay -- Milestone
   # cameras carry no VST metadata. Discovers Milestone cameras; for each ONLINE camera runs
   # download + live/replay picture + webrtc live/replay (all overlay=False).
-  - name: "Plan-3 | Milestone adaptor (no overlay)"
+  - name: "Plan-4 | Milestone adaptor (no overlay)"
     enabled: false
     systems:
       local: { enabled: true, target: local, base_url: "http://localhost:30888" }
     setup:
       vios: true
+      deployment_mode: sdrc
       adaptor: milestone
       # Milestone server config -> adaptor_config.json milestone_onvif (enabled:true).
       ip: ""
@@ -83,15 +115,16 @@ plans:
       always_recording: false
 
   # ---------------------------------------------------------------------------
-  # Plan-4: ONVIF adaptor. Cameras from ONVIF network discovery (no NVStreamer). Same suite
+  # Plan-5: ONVIF adaptor. Cameras from ONVIF network discovery (no NVStreamer). Same suite
   # as Plan-1 with FULL overlay (the event-driven plugin subscribes camera_streaming for the
   # discovered cameras).
-  - name: "Plan-4 | ONVIF adaptor (full overlay)"
+  - name: "Plan-5 | ONVIF adaptor (full overlay)"
     enabled: false
     systems:
       local: { enabled: true, target: local, base_url: "http://localhost:30888" }
     setup:
       vios: true
+      deployment_mode: sdrc
+      event_transport: redis
       adaptor: onvif
       consumer: redis
-      vst_config: {use_sensor_ntp_time: true, enable_proxy_server_sei_metadata: true}

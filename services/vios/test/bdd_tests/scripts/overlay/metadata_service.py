@@ -27,13 +27,16 @@ On stop (SIGINT/SIGTERM) it clears the broker stream + ES so the box is left cle
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import re
 import signal
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 
@@ -48,6 +51,96 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("metadata_service")
 
 _STOP = threading.Event()
+
+_STREAMING_PATH = "/bdd/webhooks/camera/streaming"
+_REMOVE_PATH = "/bdd/webhooks/camera/remove"
+_MAX_WEBHOOK_BODY = 1024 * 1024
+
+
+class _OverlayWebhookHandler(BaseHTTPRequestHandler):
+    """Receive VIOS camera lifecycle callbacks for direct-mode sanity."""
+
+    protocol_version = "HTTP/1.1"
+
+    def do_PUT(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        self._dispatch(_STREAMING_PATH, "camera_streaming")
+
+    def do_DELETE(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        self._dispatch(_REMOVE_PATH, "camera_remove")
+
+    def _dispatch(self, expected_path, expected_change):
+        if urlsplit(self.path).path != expected_path:
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error(400, "invalid Content-Length")
+            return
+        if length <= 0 or length > _MAX_WEBHOOK_BODY:
+            self.send_error(400 if length <= 0 else 413)
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(400, "invalid JSON")
+            return
+        event = payload.get("event", {}) if isinstance(payload, dict) else {}
+        if event.get("change") != expected_change:
+            self.send_error(400, f"expected event.change={expected_change}")
+            return
+        server = self.server
+        try:
+            if expected_change == "camera_streaming":
+                url = str(event.get("camera_url") or "")
+                sensor_id = event.get("camera_id") or event.get("camera_name")
+                if not sensor_id or not url.startswith("rtsp://"):
+                    raise ValueError("camera_streaming requires camera_id and RTSP camera_url")
+                codec = (event.get("metadata") or {}).get("codec", "H264")
+                server.on_streaming(url, str(sensor_id), str(codec))
+            else:
+                sensor_id = event.get("camera_id") or event.get("camera_name")
+                if not sensor_id:
+                    raise ValueError("camera_remove requires camera_id")
+                server.on_remove(str(sensor_id))
+        except ValueError as exc:
+            self.send_error(400, str(exc))
+            return
+        response = b'{"ok":true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(response)
+        self.close_connection = True
+
+    def log_message(self, _format, *_args):
+        return
+
+
+class OverlayWebhookServer:
+    """Threaded HTTP receiver for camera_streaming and camera_remove."""
+
+    def __init__(self, host, port, on_streaming, on_remove):
+        self._server = ThreadingHTTPServer((host, port), _OverlayWebhookHandler)
+        self._server.on_streaming = on_streaming
+        self._server.on_remove = on_remove
+        self._thread = threading.Thread(target=self._server.serve_forever,
+                                        name="overlay-webhooks", daemon=True)
+
+    @property
+    def port(self):
+        return self._server.server_address[1]
+
+    def start(self):
+        self._thread.start()
+        return self
+
+    def stop(self):
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
 
 
 def _centered_box(w, h, frac=0.20):
@@ -243,14 +336,15 @@ def _burned_object_id(frame_id, loop_frames, source_frames):
 
 
 def run_sensor(sensor_id, url, codec, w, h, broker, topic, es, redis_host, redis_port, kafka,
-               field, loop_frames, source_frames, base_url="", fps=0.0):
+               field, loop_frames, source_frames, base_url="", fps=0.0, stop_event=None):
     """Continuously read SEI off one RTSP and publish live + append to ES, reconnecting.
 
     First backfills ES for the already-recorded window (so replay of time recorded before
     this worker attached still has overlay metadata), then streams real-time forward."""
     import av
     backfilled = False
-    while not _STOP.is_set():
+    should_stop = lambda: _STOP.is_set() or (stop_event is not None and stop_event.is_set())
+    while not should_stop():
         pub = None
         try:
             container = av.open(url, options={"rtsp_transport": "tcp", "stimeout": "5000000"}, timeout=10)
@@ -264,7 +358,7 @@ def run_sensor(sensor_id, url, codec, w, h, broker, topic, es, redis_host, redis
             pub, spec = _publisher(broker, sensor_id, topic, rw, rh, redis_host, redis_port, kafka, field)
             batch, last_flush = [], time.time()
             for packet in container.demux(vstream):
-                if _STOP.is_set():
+                if should_stop():
                     break
                 for nal in re.split(b"\x00\x00\x01", bytes(packet))[1:]:
                     r = parse_vst_sei(nal, codec)
@@ -294,7 +388,7 @@ def run_sensor(sensor_id, url, codec, w, h, broker, topic, es, redis_host, redis
                 pub and pub.stop()
             except Exception:  # noqa: BLE001
                 pass
-        if not _STOP.is_set():
+        if not should_stop():
             time.sleep(2)
 
 
@@ -329,6 +423,10 @@ def main():
     ap.add_argument("--meta-topic", default="vst-overlay-test")
     ap.add_argument("--events-topic", default="vst_events",
                     help="VIOS camera_status_change event topic to subscribe for camera_streaming")
+    ap.add_argument("--event-transport", default="redis", choices=["redis", "webhook"],
+                    help="how camera_streaming/camera_remove reach this plugin")
+    ap.add_argument("--webhook-host", default="0.0.0.0")
+    ap.add_argument("--webhook-port", type=int, default=18088)
     ap.add_argument("--field", default="value",
                     help="redis stream payload field key (DeepStream schema: 'value'; legacy: 'sensor.id')")
     ap.add_argument("--source-fps", type=float, default=0.0,
@@ -365,82 +463,104 @@ def main():
         a.es_retention_hours,
     )
 
-    running = {}       # sensorId -> worker thread
+    running = {}       # sensorId -> (worker thread, per-sensor stop event)
+    starting = set()   # webhook retry dedupe while a worker is being constructed
+    running_lock = threading.Lock()
     minfo_cache = {}   # sensorId -> {frames,w,h} from NVStreamer mediainfo (fetched lazily)
 
     def _start_worker(sid, url, codec, w=0, h=0):
-        """Start (idempotently) one RTSP stream's metadata worker. Reads SEI off the VIOS
-        proxy `url` (rtsp://.../live/<name>), publishes to broker + fake-ES. Called from the
-        camera_streaming event handler (primary) and the reconcile backstop."""
+        """Start one idempotent RTSP metadata worker from a lifecycle event."""
         if not sid or "_file" in sid:                 # overlay is RTSP-only; never file sensors
-            return
-        t = running.get(sid)
-        if t is not None and t.is_alive():
-            return
+            return False
+        with running_lock:
+            current = running.get(sid)
+            if sid in starting or (current is not None and current[0].is_alive()):
+                return False
+            starting.add(sid)
         mi = minfo_cache.get(sid)
-        if mi is None:                                # (re)fetch mediainfo for an unseen sensor
+        if mi is None:
             try:
                 minfo_cache.update(_media_info(a.nvstreamer_url))
-            except Exception as e:  # noqa: BLE001
-                log.warning("mediainfo fetch failed: %s", e)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("mediainfo fetch failed: %s", exc)
             mi = minfo_cache.get(sid, {})
         loop_frames = mi.get("frames") or _loop_frames(sid, a.videos_dir, a.clip_seconds)
         mw, mh = (mi.get("w") or w or 1920), (mi.get("h") or h or 1080)
-        # as-is playback (source_fps<=0): objectId = frameId mod frame_count (exact, per-video).
         source_frames = (int(round(a.source_fps * a.clip_seconds))
                          if a.source_fps > 0 else loop_frames)
-        # fps for the ES backfill cadence: frames-per-clip / clip-seconds.
         fps = (loop_frames / a.clip_seconds) if a.clip_seconds else 0.0
+        worker_stop = threading.Event()
         th = threading.Thread(target=run_sensor, daemon=True, args=(
             sid, url, codec, mw, mh, a.broker, a.meta_topic, es,
             a.redis_host, a.redis_port, a.kafka, a.field, loop_frames, source_frames,
-            a.base_url, fps))
+            a.base_url, fps, worker_stop))
+        with running_lock:
+            starting.discard(sid)
+            running[sid] = (th, worker_stop)
         th.start()
-        running[sid] = th
         log.info("started metadata worker: %s (%s) loop_frames=%d", sid, url, loop_frames)
+        return True
+
+    def _stop_worker(sid):
+        """Idempotently stop the worker associated with camera_remove."""
+        with running_lock:
+            current = running.get(sid)
+        if current is None:
+            log.info("camera_remove for inactive worker: %s", sid)
+            return False
+        current[1].set()
+        log.info("stopping metadata worker after camera_remove: %s", sid)
+        return True
+
+    def _alive_workers():
+        with running_lock:
+            return [sid for sid, (thread, _stop) in running.items() if thread.is_alive()]
 
     def _shutdown(*_):
         log.info("stopping: clearing metadata (broker + ES)")
         _STOP.set()
+        with running_lock:
+            for _thread, worker_stop in running.values():
+                worker_stop.set()
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    # PRIMARY: event-driven, like the real DeepStream plugin. Subscribe to camera_streaming
-    # (VIOS emits it per stream as it goes live) and, on each event, take the camera_url
-    # (VIOS rtsp://.../live/<name> proxy -- always VIOS RTSP, never NVStreamer) and start a
-    # worker. Started here so if the plugin is launched BEFORE VIOS it is already subscribed
-    # when the events fire -- no stream's initial window is missed.
-    _ensure_group(a.redis_host, a.redis_port, a.meta_topic)
-    from scripts.overlay.deepstream_sim import listen_camera_streaming
+    webhook_server = None
+    if a.event_transport == "webhook":
+        webhook_server = OverlayWebhookServer(
+            a.webhook_host, a.webhook_port, _start_worker, _stop_worker).start()
+        log.info("event-driven overlay plugin: webhook receivers on %s:%d",
+                 a.webhook_host, webhook_server.port)
+    else:
+        from scripts.overlay.deepstream_sim import listen_camera_streaming
 
-    def _event_listener():
-        # camera_status_change events are always published to REDIS (vst_events), even when
-        # the overlay METADATA broker is kafka (Plan-2). So subscribe on redis regardless.
-        while not _STOP.is_set():
-            try:
-                listen_camera_streaming(
-                    "redis", a.events_topic, a.redis_host, a.redis_port, a.kafka,
-                    lambda url, sid, codec: _start_worker(sid, url, codec),
-                    seconds=0, stop_event=_STOP)
-            except Exception as e:  # noqa: BLE001
-                log.warning("camera_streaming listener error (retrying): %s", e)
-                time.sleep(2)
-    threading.Thread(target=_event_listener, daemon=True).start()
-    log.info("event-driven overlay plugin: subscribed to '%s' (camera_streaming), broker=%s",
-             a.events_topic, a.broker)
+        def _event_listener():
+            while not _STOP.is_set():
+                try:
+                    listen_camera_streaming(
+                        "redis", a.events_topic, a.redis_host, a.redis_port, a.kafka,
+                        lambda url, sid, codec: _start_worker(sid, url, codec),
+                        seconds=0, stop_event=_STOP)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("camera_streaming listener error (retrying): %s", exc)
+                    time.sleep(2)
+        threading.Thread(target=_event_listener, daemon=True).start()
+        log.info("event-driven overlay plugin: subscribed to Redis '%s'", a.events_topic)
 
-    # BACKSTOP: periodically reconcile against VIOS's sensor list -- start workers for any
-    # already-streaming RTSP sensor the events missed (fired before we subscribed, or dropped).
     def reconcile():
-        _ensure_group(a.redis_host, a.redis_port, a.meta_topic)
+        """Redis-mode backstop; webhook mode deliberately has no Redis dependency."""
+        if a.event_transport != "redis":
+            return
+        if a.broker == "redis":
+            _ensure_group(a.redis_host, a.redis_port, a.meta_topic)
         try:
             for sid, url, codec, w, h in _discover_sensors(a.base_url):
                 _start_worker(sid, url, codec, w, h)
-        except Exception as e:  # noqa: BLE001
-            log.warning("reconcile discovery failed (will retry): %s", e)
-        alive = [s for s, t in running.items() if t.is_alive()]
-        log.info("continuous metadata: %d workers alive %s", len(alive), alive)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("reconcile discovery failed (will retry): %s", exc)
 
+    if a.broker == "redis":
+        _ensure_group(a.redis_host, a.redis_port, a.meta_topic)
     while not _STOP.is_set():
         for _ in range(15):
             if _STOP.is_set():
@@ -448,15 +568,21 @@ def main():
             time.sleep(1)
         if not _STOP.is_set():
             reconcile()
+            alive = _alive_workers()
+            log.info("continuous metadata: %d workers alive %s", len(alive), alive)
+    if webhook_server is not None:
+        webhook_server.stop()
     # clear on stop -- XTRIM to 0 empties the metadata but keeps the stream key and
     # VIOS's consumer group intact. DEL would destroy the group, and VIOS (shared
     # persistent connection) never recreates it -> XREADGROUP NOGROUP -> live overlay
     # silently stops until streamprocessing restarts. Never DEL this stream.
-    try:
-        import redis
-        redis.Redis(host=a.redis_host, port=a.redis_port).xtrim(a.meta_topic, maxlen=0, approximate=False)
-    except Exception:  # noqa: BLE001
-        pass
+    if a.broker == "redis":
+        try:
+            import redis
+            redis.Redis(host=a.redis_host, port=a.redis_port).xtrim(
+                a.meta_topic, maxlen=0, approximate=False)
+        except Exception:  # noqa: BLE001
+            pass
     try:
         es.store.clear(); es.stop()
     except Exception:  # noqa: BLE001

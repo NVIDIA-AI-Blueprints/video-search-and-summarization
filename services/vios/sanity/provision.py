@@ -131,6 +131,50 @@ def apply_vst_notification_config(overrides: dict, recreate: bool = True) -> boo
     return _apply_config(_VST_NOTIFICATION_CONFIG, overrides, "streamprocessing", recreate)
 
 
+def configure_overlay_webhooks(enabled: bool, host: str = "127.0.0.1",
+                               port: int = 18088) -> bool:
+    """Enable exactly the overlay plugin's streaming/remove webhook receivers.
+
+    The VIOS containers use host networking, so the loopback endpoint reaches the
+    host-side sanity plugin without depending on Redis, SDRC, or Docker bridge DNS.
+    Other webhook definitions stay present but disabled.
+    """
+    import json
+
+    if not _VST_NOTIFICATION_CONFIG.exists():
+        logger.warning("notification config not found: %s", _VST_NOTIFICATION_CONFIG)
+        return False
+    config = json.loads(_VST_NOTIFICATION_CONFIG.read_text())
+    webhooks = config.setdefault("webhooks", {})
+    webhooks["enabled"] = bool(enabled)
+    found = set()
+    methods = {"camera_streaming": "PUT", "camera_remove": "DELETE"}
+    paths = {
+        "camera_streaming": "/bdd/webhooks/camera/streaming",
+        "camera_remove": "/bdd/webhooks/camera/remove",
+    }
+    for item in webhooks.get("items", []):
+        change = item.get("camera_status_change")
+        active = bool(enabled and change in methods)
+        item["enabled"] = active
+        if not active:
+            continue
+        found.add(change)
+        item["id"] = f"sanity-overlay-{change.replace('_', '-')}"
+        item.pop("auth", None)
+        for request in item.get("request", []):
+            request["url"] = f"http://{host}:{port}{paths[change]}"
+            request["method"] = methods[change]
+            request["camera_type"] = ["rtsp"]
+    missing = set(methods) - found if enabled else set()
+    if missing:
+        raise ValueError(f"notification_config.json missing webhook item(s): {sorted(missing)}")
+    _VST_NOTIFICATION_CONFIG.write_text(json.dumps(config, indent=2) + "\n")
+    logger.info("overlay webhooks %s at http://%s:%d", "enabled" if enabled else "disabled",
+                host, port)
+    return True
+
+
 def apply_nvstreamer_notification_config(overrides: dict, recreate: bool = True) -> bool:
     """Apply broker/notification overrides for NVStreamer and recreate nvstreamer."""
     return _apply_config(_NVS_NOTIFICATION_CONFIG, overrides, "nvstreamer", recreate)
@@ -156,6 +200,54 @@ def _write_env(path, updates: dict) -> bool:
             text = text.rstrip("\n") + f"\n{k}={v}\n"
     path.write_text(text)
     logger.info("updated %s [%s]", path.name, ", ".join(updates))
+    return True
+
+
+def apply_deployment_mode(mode: str) -> bool:
+    """Select the shipped SDRC/direct compose.env toggle block for one sanity plan."""
+    mode = str(mode or "sdrc").strip().lower()
+    if mode not in {"sdrc", "direct"}:
+        raise ValueError(f"unsupported deployment_mode={mode!r}; expected 'sdrc' or 'direct'")
+    if not _COMPOSE_ENV.exists():
+        raise FileNotFoundError(_COMPOSE_ENV)
+
+    lines = _COMPOSE_ENV.read_text().splitlines()
+    start = next((i for i, line in enumerate(lines)
+                  if "DIRECT MODE" in line and "---" in line), None)
+    end = next((i for i in range((start or 0) + 1, len(lines))
+                if lines[i].lstrip().startswith("###")), None)
+    if start is None or end is None:
+        raise ValueError("compose.env deployment-mode toggle block not found")
+    if mode == "direct":
+        block = [
+            "# ---------- DIRECT MODE (default) ----------",
+            "VST_USE_SDRC=false",
+            "NGINX_MODE=vst",
+            "STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:30001",
+            "",
+            "",
+            "# ---------- SDRC MODE (uncomment below to use this mode) ----------",
+            "#VST_USE_SDRC=true",
+            "#COMPOSE_PROFILES=sdrc",
+            "#NGINX_MODE=vst-sdrc",
+            "#STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:10000",
+        ]
+    else:
+        block = [
+            "# ---------- DIRECT MODE (uncomment below to use this mode) ----------",
+            "#VST_USE_SDRC=false",
+            "#NGINX_MODE=vst",
+            "#STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:30001",
+            "",
+            "",
+            "# ---------- SDRC MODE (default) ----------",
+            "VST_USE_SDRC=true",
+            "COMPOSE_PROFILES=sdrc",
+            "NGINX_MODE=vst-sdrc",
+            "STREAM_PROCESSOR_MODULE_ENDPOINT=http://${HOST_IP}:10000",
+        ]
+    _COMPOSE_ENV.write_text("\n".join(lines[:start] + block + [""] + lines[end:]) + "\n")
+    logger.info("deployment mode configured: %s", mode)
     return True
 
 
@@ -368,6 +460,7 @@ _CONFIG_FILES = [
     _VST_NOTIFICATION_CONFIG,
     _NVS_NOTIFICATION_CONFIG,
     _ADAPTOR_CONFIG,
+    _COMPOSE_ENV,
 ]
 
 
