@@ -1,0 +1,56 @@
+{
+  "profile": "lvs",
+  "skills": [
+    "vss-generate-video-report",
+    "vss-deploy-profile",
+    "vss-summarize-video",
+    "vss-manage-video-io-storage"
+  ],
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Deploy the VSS **lvs** profile on `{{platform}}` via `/vss-deploy-profile -p lvs`. Run autonomously.\n\n**RT-VLM model (required):** RT-VLM must serve **Cosmos Reason 3 super reasoner, FP8** — the `modelopt-fp8-final_format_fix` checkpoint of `nim/nvidia/cosmos3-super-reasoner` (https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-fp8-final_format_fix). The shipped `dev-profile-lvs` default is the Cosmos3 **nano BF16** checkpoint, so override it in `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env` before bringing the stack up:\n\n```\nRTVI_VLM_MODEL_PATH='ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix'\nVLM_NAME=nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix\n```\n\nKeep the rest of the profile's local RT-VLM wiring as shipped (`RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, `VLM_BASE_URL=http://rtvi-vlm:8000`, `RTVI_VLM_PORT=8018`) — do NOT fall back to a remote VLM. RT-VLM downloads and builds the FP8 checkpoint on first boot, so allow it several minutes to become ready before treating a probe failure as real.\n\n**Required services:** VSS Agent at http://localhost:8000/docs, video summarization (LVS) at http://localhost:38111/v1/ready (retry only on 503 warmup), and VIOS at http://localhost:30888/vst/api/v1.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
+        "`curl -sf --max-time 15 http://localhost:38111/v1/ready` returns exit 0 — this is the gate `/vss-generate-video-report` uses to choose the LVS summarize backend over the direct-VLM path",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (the profile's local RT-VLM is running; a remote-VLM deployment does NOT satisfy this check)",
+        "RT-VLM is configured for the **super** reasoner FP8 checkpoint rather than the shipped nano BF16 default: `docker inspect vss-rtvi-vlm` (or the effective dev-profile-lvs env used for this deploy) shows a model path containing `cosmos3-super-reasoner` AND the `modelopt-fp8-final_format_fix` checkpoint. Match on substrings only — vendor prefix and separator style vary by packaging, so both `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` and `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix` satisfy it. Any value naming `cosmos3-nano-reasoner` or `bf16-final` fails",
+        "`curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS reachable for clip upload and materialization)"
+      ]
+    },
+    {
+      "query": "Make both sample videos available in VIOS: the short clip `warehouse_safety_0002` and the longer `warehouse_sample`. If the NGC sample bundle is not already on disk, download and extract `nvidia/vss-developer/dev-profile-sample-data:3.2.0` so that `/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0002.mp4` and `/tmp/vss-sample-data/dev-profile-sample-data/warehouse_sample.mp4` both exist. For each video, check whether it is already registered in VIOS before uploading — upload the exact source file only when it is absent, with timestamp 2025-01-01T00:00:00.000Z. Only consider an upload successful once `/sensor/list` actually shows the sensor. Do not substitute `/data/videos/cam_*.mp4`, a calibration fixture, or another warehouse-looking file.",
+      "checks": [
+        "`test -s /tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0002.mp4` and `test -s /tmp/vss-sample-data/dev-profile-sample-data/warehouse_sample.mp4` both return exit 0, sourced from the NGC `nvidia/vss-developer/dev-profile-sample-data` resource",
+        "Trajectory or reasoning shows probing VIOS for each video before deciding to upload — for example listing sensors/streams via the agent tools or GET /vst/api/v1/sensor/list — rather than unconditional upload; probe order is not enforced",
+        "`curl -sf http://localhost:30888/vst/api/v1/sensor/list` returns a JSON array containing a sensor whose name matches `warehouse_safety_0002` AND a sensor whose name matches `warehouse_sample`",
+        "For each of the two sensors, a GET to a VST timelines endpoint for its resolved id returns a non-empty {startTime, endTime} range, so a clip URL can be constructed for either video in the following steps"
+      ]
+    },
+    {
+      "query": "Give me a report for warehouse_safety_0002.",
+      "checks": [
+        "The run resolved the sensorId/streamId for warehouse_safety_0002 from GET /vst/api/v1/sensor/list and used that exact id verbatim — whatever its shape (a UUID on a warm VST registry, or the sensor name on a fresh registry) — then materialized and consumed a clip for that video. A report built from warehouse_sample, a cam_* stream, or a calibration fixture fails this check",
+        "The run did NOT POST to http://localhost:8000/generate",
+        "The user-facing markdown has a single top-level title line matching `# Video Analysis Report` (leading whitespace after # allowed) and a `## Basic Information` pipe-table (Field | Value) whose cells hold concrete text — no raw placeholders such as literal <sensor_id> or <YYYY-MM-DD>",
+        "The markdown contains `## Analysis Results` with substantive content grounded in the clip — a summary carrying timestamps or time segments, in chronological sense, non-empty and not only headings or placeholders. Any `<think>...</think>` reasoning block emitted by Cosmos Reason models is stripped before insertion"
+      ]
+    },
+    {
+      "query": "Give me a report for warehouse_sample.",
+      "checks": [
+        "Because the lvs profile is deployed and `GET http://localhost:38111/v1/ready` returns 200, the run routed through the **LVS summarize backend** per the skill's Mode A LVS rule: at least one POST to http://localhost:38111/v1/summarize whose request body `url` is a VIOS clip URL identifying warehouse_sample (not warehouse_safety_0002, a cam_* stream, or a calibration fixture)",
+        "The run did NOT take the direct-VLM Mode A path for this video: no POST to a VLM/RT-VLM chat-completions endpoint (e.g. http://localhost:8018/v1/chat/completions) to produce the report body, and no POST to http://localhost:8000/generate",
+        "The POST /v1/summarize response is HTTP 200 and the body is an OpenAI-style envelope whose `choices[0].message.content` parses as JSON yielding an object with `video_summary` (string) and `events` (array)",
+        "The report's `## Analysis Results` section reproduces the LVS `video_summary` faithfully. If the service returned an empty summary, the run states that explicitly rather than inventing content or silently falling back to the direct-VLM path",
+        "The report's `## Basic Information` pipe-table is filled with concrete values for warehouse_sample — Video Source, Clip Range, Clip URL, and VLM rows all populated, no raw placeholders"
+      ]
+    }
+  ]
+}

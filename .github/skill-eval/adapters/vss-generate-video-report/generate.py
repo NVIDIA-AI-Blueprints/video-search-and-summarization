@@ -3,17 +3,24 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-generate-video-report skill.
 
-The vss-generate-video-report skill produces video analysis reports by querying the VSS agent's
-``POST /generate`` endpoint and formatting the timestamped response as a
-structured Video Analysis Report markdown.  It requires a **full-remote
-deployed VSS base profile** (deploy mode = ``remote-all``; LLM and VLM both
-via remote launchpad endpoints, no local NIMs). It does NOT deploy VSS
-itself; the coordinator chains a deploy task in front and a VIOS seed task
-before these checks.
+The vss-generate-video-report skill produces a structured Video Analysis
+Report markdown.  Since #1254 it is skill-first and does **not** use the
+agent's ``POST /generate``: Mode A analyses a recorded clip, Mode B reports
+an incident range via ``/vss-query-analytics``.  Mode A picks its backend at
+run time — when the ``lvs`` profile is deployed (``:38111/v1/ready`` → 200)
+it hands off to ``/vss-summarize-video``, otherwise it calls the VLM
+directly.  Each spec's step-1 stands the required profile up itself.
 
-Because the vss-generate-video-report skill is a thin wrapper around POST /generate — purely
-HTTP, GPU-independent at the harness level — the spec targets **ONE platform**
-by default (RTXPRO6000BW).  Override with ``--platform``.
+Specs target **ONE platform** by default (RTXPRO6000BW); override with
+``--platform``.
+
+    base_profile_report.json  profile ``base`` — Mode A direct-VLM against a
+                              local CR3 NIM on :30082, plus Mode B analytics.
+    lvs_profile_report.json   profile ``lvs``  — RT-VLM on the CR3 super
+                              reasoner FP8 checkpoint; a short clip
+                              (warehouse_safety_0002) then a longer one
+                              (warehouse_sample) that must route through the
+                              LVS summarize backend on :38111.
 
 ## Directory layout
 
@@ -27,9 +34,11 @@ by default (RTXPRO6000BW).  Override with ``--platform``.
         skills/vss-generate-video-report/
         skills/vss-deploy-profile/
         skills/vss-manage-video-io-storage/
+        skills/vss-query-analytics/
+        skills/vss-summarize-video/
         environment/Dockerfile
 
-``<profile>`` comes from ``spec.profile`` (here: ``base``).
+``<profile>`` comes from ``spec.profile`` (``base`` when the spec omits it).
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-generate-video-report/generate.py \\
@@ -37,7 +46,9 @@ Usage from the repository root:
         --skill-dir skills/vss-generate-video-report \\
         --deploy-skill-dir skills/vss-deploy-profile \\
         --video-io-skill-dir skills/vss-manage-video-io-storage \\
-        --spec skills/vss-generate-video-report/evals/base_profile_report.json
+        --query-analytics-skill-dir skills/vss-query-analytics \\
+        --summarize-skill-dir skills/vss-summarize-video \\
+        --spec skills/vss-generate-video-report/evals/lvs_profile_report.json
 """
 from __future__ import annotations
 
@@ -140,6 +151,7 @@ def generate_task(
     deploy_skill_dir: Path | None,
     video_io_skill_dir: Path | None,
     query_analytics_skill_dir: Path | None = None,
+    summarize_skill_dir: Path | None = None,
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'] — i.e.
     step-<k>/ subdirs under ``<profile>/<platform_short>/`` per AGENTS.md § 4.
@@ -240,6 +252,7 @@ def generate_task(
             (deploy_skill_dir, "vss-deploy-profile"),
             (video_io_skill_dir,   "vss-manage-video-io-storage"),
             (query_analytics_skill_dir, "vss-query-analytics"),
+            (summarize_skill_dir, "vss-summarize-video"),
         ]
         for src, name in copies:
             if src and src.exists():
@@ -282,6 +295,12 @@ def main() -> None:
         help="Path to skills/vss-query-analytics (optional — spec steps 5-7 use /vss-query-analytics)",
     )
     parser.add_argument(
+        "--summarize-skill-dir", default=None,
+        help="Path to skills/vss-summarize-video (optional — the lvs spec's Mode A "
+             "LVS rule hands off to /vss-summarize-video. Defaults to the sibling "
+             "skills/vss-summarize-video next to --skill-dir when it exists)",
+    )
+    parser.add_argument(
         "--spec", default=None,
         help="Path to spec JSON (default: <skill-dir>/evals/base_profile_report.json)",
     )
@@ -297,6 +316,16 @@ def main() -> None:
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
     query_analytics_skill_dir = Path(args.query_analytics_skill_dir) if args.query_analytics_skill_dir else None
+    # Fall back to the sibling skill dir: the harness agent builds this command
+    # from the docstring, and an omitted --summarize-skill-dir would silently
+    # ship an lvs dataset with no /vss-summarize-video for the agent to load.
+    summarize_skill_dir = (
+        Path(args.summarize_skill_dir)
+        if args.summarize_skill_dir
+        else skill_dir.parent / "vss-summarize-video"
+    )
+    if not summarize_skill_dir.exists():
+        summarize_skill_dir = None
     spec_path = (
         Path(args.spec)
         if args.spec
@@ -327,6 +356,7 @@ def main() -> None:
         generate_task(
             platform, profile, spec, output_root, skill_dir,
             deploy_skill_dir, video_io_skill_dir, query_analytics_skill_dir,
+            summarize_skill_dir,
         )
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
