@@ -28,8 +28,10 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -59,6 +61,10 @@ RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
 # its spec metadata declares gpu_type that matches GEFORCE RTX 4090.
 RTX4090_ALL_TESTS: frozenset[str] = frozenset()
 RTX4090_TESTS: dict[str, frozenset[str]] = {}
+# Shared root served by the coordinator's persistent `harbor-view.service`
+# (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
+# the host, not per leg, so every leg publishes its trials in here.
+VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -763,6 +769,106 @@ def latest_reward(
     return latest.read_text().strip()
 
 
+def _coordinator_env_id() -> str | None:
+    """Brev env id of the COORDINATOR host — the box running `harbor view`.
+
+    Never derive this from `brev ls`: that yields a per-trial instance id,
+    and the resulting URL points at a subdomain with no viewer behind it.
+    """
+    env_id = os.environ.get("BREV_ENV_ID", "").strip()
+    if env_id:
+        return env_id
+    try:
+        for line in Path("/etc/environment").read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "BREV_ENV_ID":
+                return value.strip().strip('"').strip("'") or None
+    except OSError:
+        pass
+    return None
+
+
+def trace_url(result_json: Path, job_name: str) -> str | None:
+    """Harbor viewer deep-link for one finished trial.
+
+    Every segment is read from the trial's own result.json, so the link
+    cannot drift from what the viewer indexes. `task_name` in particular is
+    Harbor's fully-qualified name (`nvidia-vss/<dataset>-step-N`), NOT the
+    `--include-task-name` filter (`step-N`) that selects the task here — the
+    viewer resolves its task route by the former. A bare `step-N` matches
+    nothing and renders a BLANK PAGE rather than a 404, because the viewer
+    is a client-side SPA where every route returns the same HTTP 200 shell.
+    That failure mode is indistinguishable from missing trace data, which is
+    why the URL is built here instead of being assembled by hand.
+    """
+    env_id = _coordinator_env_id()
+    if not env_id:
+        return None
+    try:
+        data = json.loads(result_json.read_text())
+    except (OSError, ValueError):
+        return None
+    agent_info = data.get("agent_info") or {}
+    model_info = agent_info.get("model_info") or {}
+    parts = [
+        data.get("source"),
+        agent_info.get("name"),
+        model_info.get("provider"),
+        model_info.get("name"),
+        data.get("task_name"),
+    ]
+    if not all(parts):
+        return None
+    # safe="" so the slashes inside <model> and <task> encode as %2F — the
+    # viewer expects them as single path segments, not extra path levels.
+    encoded = "/".join(urllib.parse.quote(str(part), safe="") for part in parts)
+    return f"https://harbor-{env_id}.brevlab.com/jobs/{job_name}/tasks/{encoded}"
+
+
+def publish_trace(
+    results_root: Path,
+    invocation: HarborInvocation,
+    started_at: float,
+    leg_slug: str,
+    run_id: str,
+) -> str | None:
+    """Copy a finished trial into the viewer root and record its trace URL.
+
+    Returns None when the trial produced no result.json (errored or timed
+    out before the verifier ran) — such a step has no trace to link.
+    """
+    matches = [
+        path.parent
+        for path in results_root.glob(
+            f"*/{invocation.include_task_name}__*/result.json"
+        )
+        if path.stat().st_mtime >= started_at
+    ]
+    if not matches:
+        return None
+    trial_dir = max(matches, key=lambda path: path.stat().st_mtime)
+    date_dir = trial_dir.parent
+    job_name = f"{leg_slug}__{run_id}__{date_dir.name}"
+    viewer_job = VIEWER_ROOT / job_name
+    viewer_job.mkdir(parents=True, exist_ok=True)
+    # Copy (never move) the date dir's *contents*: the workflow's "Collect
+    # results" step runs after this and tars results_root for the artifact,
+    # and copying the dir itself would nest a later trial under
+    # <job>/<date>/ where the viewer cannot see it.
+    shutil.copytree(date_dir, viewer_job, dirs_exist_ok=True)
+    url = trace_url(trial_dir / "result.json", job_name)
+    if url:
+        with (results_root / "trace-urls.tsv").open("a") as handle:
+            handle.write(
+                f"{invocation.include_task_name}\t{trial_dir.name}\t{url}\n"
+            )
+        print(
+            f"[run-leg] trace: {invocation.include_task_name} -> {url}",
+            flush=True,
+        )
+    return url
+
+
 def _reward_value(reward: str | None) -> float:
     if reward is None:
         return 0.0
@@ -839,6 +945,10 @@ def run_invocations(
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
+    # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
+    # the env vars are the authoritative source when the agent exports them.
+    leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
+    run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 
@@ -853,6 +963,14 @@ def run_invocations(
         cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
         started_at = time.time() - 1.0
         rc = run_command(cmd, env, harbor_timeout_sec, health_check)
+        # Publish before the rc checks below: a timed-out (rc=124) trial
+        # returns early, and its partial trace is exactly what needs reading.
+        try:
+            publish_trace(results_root, invocation, started_at, leg_slug, run_id)
+        except Exception as exc:  # noqa: BLE001
+            # A trace link is reporting convenience; the verdict comes from
+            # reward.txt. Never let a viewer-publish error fail the leg.
+            print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
