@@ -765,6 +765,16 @@ app.logger.info(
     % (app.config["WDM_KAFKA_MSG_KEY"], app.config["WDM_REDIS_MSG_KEY"])
 )
 app.logger.info(app.config["WDM_WL_REDIS_SERVER"])
+
+_VALID_ASSIGNING_METHODS = ("lru_round_robin", "sequential")
+_assigning_method = app.config["WDM_WL_ASSIGNING_METHOD"]
+if _assigning_method not in _VALID_ASSIGNING_METHODS:
+    raise ValueError(
+        f"WDM_WL_ASSIGNING_METHOD='{_assigning_method}' is not valid. "
+        f"Choose one of: {_VALID_ASSIGNING_METHODS}"
+    )
+app.logger.info("WDM_WL_ASSIGNING_METHOD=%s", _assigning_method)
+
 kfk = kafka(app.config)
 lock = Lock()
 envy = envoyxDS(app.config)
@@ -785,6 +795,29 @@ if app.config["WDM_DISABLE_WERKZEUG_LOGGING"]:
 
 
 id_ctx_mapping = {}
+
+
+def _pod_ordinal(pod_name):
+    """Return a stable sort key for round-robin tie-breaking.
+
+    Returns a ``(numeric_ordinal, pod_name)`` tuple so that the round-robin
+    selection is deterministic regardless of pod naming convention:
+
+    * **Indexed pods** (e.g. ``my-app-3``): ``(3, "my-app-3")``.
+      The numeric ordinal is the primary discriminator, so the existing
+      0→1→2→3→4→0 cycle is preserved unchanged.
+
+    * **Non-indexed pods** (e.g. ``worker-alpha``): ``(0, "worker-alpha")``.
+      All such pods share ordinal 0, so they are sorted lexicographically by
+      name.  This produces an alphabetic round-robin
+      (alpha→beta→gamma→alpha→…) without requiring any global state.
+
+    Using only the integer (the old behaviour) caused all non-indexed pods to
+    compare equal, making ``min()`` fall through to iteration order — correct
+    only accidentally when the API returns pods in a stable sequence.
+    """
+    m = re.search(r"-(\d+)$", pod_name)
+    return (int(m.group(1)) if m else 0, pod_name)
 
 
 @app.route("/healthz", methods=["GET"])
@@ -1834,6 +1867,9 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
             if podsInfo is not None:
                 provisionNewPod = True
                 any_pod_down = False
+                # Phase 1: collect eligible pods (not down, not full, regex match)
+                # and run stale-data cleanup while iterating.
+                eligible_pods = []  # (podInfoItm, spec_count, wl_spec)
                 for podInfoItm in podsInfo:
                     if curr_cluster.ifPodDown(podInfoItm["podName"]):
                         any_pod_down = True
@@ -1877,34 +1913,78 @@ def provisionStreamRedis(k8swlob_name, data, originalJson, parent_context=None):
                     spec_count = cfg.getSpecCount(podInfoItm["podName"])
                     if spec_count >= threshold:
                         continue
-                    otel_carrier = tracing.inject_context(parent_context)
-                    if wl_spec is None:
+                    eligible_pods.append((podInfoItm, spec_count, wl_spec))
+
+                # Phase 2: pod selection — strategy controlled by
+                # WDM_WL_ASSIGNING_METHOD.
+                #
+                # "lru_round_robin" (default)
+                #   Pick the pod with the fewest current streams; break ties
+                #   with _pod_ordinal() → (ordinal, name) for a deterministic
+                #   cycle.  Self-heals after uneven stream removal.
+                #
+                #   Trace — 5 indexed pods, threshold 4:
+                #     s1  min=0 tied=[0,1,2,3,4] → pod-0  [1,0,0,0,0]
+                #     s2  min=0 tied=[1,2,3,4]   → pod-1  [1,1,0,0,0]
+                #     s3  min=0 tied=[2,3,4]     → pod-2  [1,1,1,0,0]
+                #     ...  → 0→1→2→3→4→0→… (perfect round-robin)
+                #
+                # "sequential"
+                #   Original first-fit: pick the first pod in the order
+                #   returned by getPodIps() that is below threshold — no
+                #   sorting, no load comparison.  Mirrors the pre-LRU inline
+                #   loop+break.  Assignment order depends entirely on the API
+                #   iteration order (typically StatefulSet ordinal order for
+                #   K8s, insertion order for Docker).
+                if eligible_pods:
+                    assigning_method = app.config["WDM_WL_ASSIGNING_METHOD"]
+                    if assigning_method == "sequential":
+                        # Original first-fit: take the first pod in the order
+                        # returned by getPodIps() that passed all filters.
+                        # No sorting — mirrors the original inline loop+break.
+                        _entry = eligible_pods[0]
+                        selected_pod, _sel_count, selected_wl_spec = _entry
                         app.logger.info(
-                            "stream_updates - %s adding_stream: %s",
+                            "stream_updates - %s adding_stream: %s "
+                            "(sequential selected pod=%s streams=%d)",
                             wl_object_name, wl_id,
+                            selected_pod["podName"], _sel_count,
                         )
+                    else:
+                        # lru_round_robin (default): fewest streams first,
+                        # tie-broken by (ordinal, name).
+                        min_count = min(count for _, count, _ in eligible_pods)
+                        selected_pod, selected_wl_spec = min(
+                            (
+                                (pod, wl_spec)
+                                for pod, count, wl_spec in eligible_pods
+                                if count == min_count
+                            ),
+                            key=lambda x: _pod_ordinal(x[0]["podName"]),
+                        )
+                        app.logger.info(
+                            "stream_updates - %s adding_stream: %s "
+                            "(lru_round_robin selected pod=%s streams=%d)",
+                            wl_object_name, wl_id,
+                            selected_pod["podName"], min_count,
+                        )
+                    otel_carrier = tracing.inject_context(parent_context)
+                    if selected_wl_spec is None:
                         _run_provision_add_stream(
-                            podInfoItm, data, originalJson, config_data,
+                            selected_pod, data, originalJson, config_data,
                             wl_id, camera_id, otel_carrier, parent_context,
                             k8swlob_name, cfg_ev_obj, originalJson,
                         )
-                        provisionNewPod = False
-                        break
-                    app.logger.info(
-                        "%s pod is already deployed", podInfoItm["podName"]
-                    )
-                    if spec_count < threshold:
+                    else:
                         app.logger.info(
-                            "stream_updates - %s adding_stream: %s",
-                            wl_object_name, wl_id,
+                            "%s pod is already deployed", selected_pod["podName"]
                         )
                         _run_provision_add_stream(
-                            podInfoItm, data, originalJson, config_data,
+                            selected_pod, data, originalJson, config_data,
                             wl_id, camera_id, otel_carrier, parent_context,
                             k8swlob_name, cfg_ev_obj, config_data,
                         )
-                        provisionNewPod = False
-                        break
+                    provisionNewPod = False
                 if provisionNewPod and app.config["WDM_CLUSTER_TYPE"].lower() == "docker":
                     if any_pod_down:
                         app.logger.info(
