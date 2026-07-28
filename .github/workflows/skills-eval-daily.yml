@@ -70,7 +70,7 @@ jobs:
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
-    runs-on: [self-hosted, vss-skill-eval-postgres]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}

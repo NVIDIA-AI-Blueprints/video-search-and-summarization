@@ -94,9 +94,7 @@ jobs:
   plan:
     name: Plan eval matrix
     if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
-    runs-on:
-      - self-hosted
-      - ${{ github.event_name == 'workflow_dispatch' && inputs.runner_label || 'vss-skill-eval-postgres' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
