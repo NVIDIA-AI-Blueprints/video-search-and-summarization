@@ -18,11 +18,11 @@ VIOS is a **multi-image microservice**. Source: `vst.env` lines 64–66 (canonic
 | `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:${VST_STREAM_PROCESSOR_IMAGE_TAG}` | same | `nvcr.io` | streamprocessing-ms |
 | `nvcr.io/nvidia/vss-core/vss-vios-ingress:${VST_INGRESS_IMAGE_TAG}` | same | `nvcr.io` | vst-ingress |
 | `nvcr.io/nvidia/vss-core/sdr-mw-l:${SDR_MW_L_IMAGE_TAG:-3.2.0}` | `3.2.0` | `nvcr.io` | `sdr-controller` — combined WDM SDRC controller + Envoy router. **Replaces the legacy `sdr:3.1.0` + `envoy-proxy:3.1.0` pair** that previously ran as `vss-vios-sdr` / `vss-vios-envoy`; the legacy pair is deprecated and the source tree has been removed from `develop` (was kept around for the now-removed smart-city profile). Image source: [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) `sdr-controller` service. |
-| `alpine:3.23.4` | pinned | Docker Hub | SDRC init containers (`init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-docker-workloads`) |
+| `alpine:3.24.1` | pinned | Docker Hub | SDRC init containers (`init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-docker-workloads`) |
 | `redis:8.6.2-alpine` | pinned | Docker Hub | SDRC `wait-for-redis` init container (separate from the Redis broker peer) |
 | `postgres:17.9-alpine` | upstream Postgres tag | Docker Hub | centralizedb |
 
-- **NGC pull:** the four `nvcr.io/nvidia/vss-core/*` images (`vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-mw-l`) require `docker login nvcr.io` with `NGC_CLI_API_KEY` (`$oauthtoken` username), and the deploying key must have access to the published artifacts. The Docker Hub support images (`alpine:3.23.4`, `redis:8.6.2-alpine`, `postgres:17.9-alpine`) pull without authentication.
+- **NGC pull:** the four `nvcr.io/nvidia/vss-core/*` images (`vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-mw-l`) require `docker login nvcr.io` with `NGC_CLI_API_KEY` (`$oauthtoken` username), and the deploying key must have access to the published artifacts. The Docker Hub support images (`alpine:3.24.1`, `redis:8.6.2-alpine`, `postgres:17.9-alpine`) pull without authentication.
 - **Architecture support:** x86_64 + aarch64 (Jetson Thor / IGX Thor / AGX Thor). SBSA Grace/Spark uses a separate suffix when applicable (the VIOS rst note is "see canonical `vios-microservices.rst` § VIOS Microservices table" for per-arch container-name suffixes `-smc`, `-2d`, `-3d`, `-dev`).
 - **Canonical naming (Finding 2 — IMPORTANT):** the legacy `vss-vst-*` image names are **deprecated**. Always use the `vss-vios-*` names from `vst.env`.
 - **SDR → SDRC migration:** the legacy `nvcr.io/nvidia/vss-core/sdr:3.1.0` (Flask WDM agent on port 4003) and `nvcr.io/nvidia/vss-core/envoy-proxy:3.1.0` (L7 proxy on port 10000) that previously ran as `vss-vios-sdr` + `vss-vios-envoy` are **deprecated** in 3.2. Their roles are now combined in a single `sdr-controller` workload (image `sdr-mw-l`) defined at [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
@@ -65,7 +65,7 @@ This makes VIOS a light-weight GPU consumer: only `streamprocessing-ms` contends
 | `${VST_DATA_PATH}` → `/opt/vst_data` | Internal data + DB seed + logs | bind | < 5 GB | writable by UID 1001 |
 | `${VST_CONFIG_PATH}` → `/opt/vst_config` (ro) | VIOS configs (JSON, scripts) | bind (ro) | minimal | readable by container |
 | `${SDR_CONTROLLER_CONFIG_PATH}/configs` → `/configs/` (ro on `sdr-controller`) / `/tmpl` (on `render-config`) | SDRC workload definitions: `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` (rendered in place to `config.yml` / `*.json` by the `render-config` init container). Source: [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 71 + 157. | bind | minimal | readable by both containers; templates rendered as root |
-| `./log` → `/mnt/log` (on `init-dirs`) / `/logs` (on `sdr-controller`) | `sdr-controller` runtime logs. **Host path is relative to the SDRC compose-file directory** (`services/infra/sdrc/log/` upstream; whatever the patched build-output places the compose next to) — NOT under `SDR_CONTROLLER_CONFIG_PATH`. | bind | low | chmod 0777 by the `init-dirs` container at first boot — host user can `rm -rf` without sudo |
+| `./log` → `/mnt/log` (on `init-dirs`) / `/logs` (on `sdr-controller`) | `sdr-controller` runtime logs. **Host path is relative to the SDRC compose-file directory** (`services/infra/sdrc/log/` upstream; wherever a patched copy places the compose next to) — NOT under `SDR_CONTROLLER_CONFIG_PATH`. | bind | low | chmod 0777 by the `init-dirs` container at first boot — host user can `rm -rf` without sudo |
 | `./.wdm-env` → `/mnt/wdm-env` (`init-dirs`) / `/env` (`wdm-env-from-config`) / `/wdm-env` (`wait-for-redis`, `wait-for-docker-workloads`) | WDM env vars rendered from `config.yml` by `wdm-env-from-config`; consumed by the two wait-* init containers and downstream peer services (e.g. RT-CV). **`sdr-controller` does NOT mount this** — its env is set explicitly in the compose `environment:` block (see compose line 135). Host path is relative to the SDRC compose-file directory. | bind | minimal | chmod 0777 by `init-dirs` (same rationale) |
 | `/var/run/docker.sock` → `/var/run/docker.sock` | Host docker socket — `sdr-controller` discovers `vss-vios-streamprocessing` via `WDM_CLUSTER_TYPE: docker`; also mounted on `wait-for-docker-workloads`. | bind | n/a | host docker socket; not required when running under k8s |
 
@@ -118,6 +118,9 @@ mkdir -p ${SDR_CONTROLLER_CONFIG_PATH}/configs
 
 These env vars MUST be set in the consumer `.env` (or `vst.env` must be loaded into the patched VIOS compose include) before deploying — they affect runtime correctness, not just configuration. The skill's Step 6 `.env` generation must emit them.
 
+`HOST_IP` is the VST-specific public host setting for this standalone Compose
+bring-up. It is not a profile-level endpoint setting.
+
 > **Set `HOST_IP` first.** `VST_INGRESS_ENDPOINT=${HOST_IP}:30888/vst` (`compose.env:59`) is the host VIOS mints into every **shareable media URL** (`/picture/url` → `imageUrl`, clip URLs, etc.). SDRC mode fails fast if `HOST_IP` is unset. Auto-detect the routable IP before deploying — the SAME method the profile orchestrator uses (`orchestrator/network_util.py:detect_internal_ip` = `ip route get 1.1.1.1` → the `src` token; `/vss-deploy-profile` always resolves `HOST_IP` this way or fails fast):
 >
 > ```bash
@@ -158,7 +161,7 @@ These env vars MUST be set in the consumer `.env` (or `vst.env` must be loaded i
 | `sdrc-render-config` exits non-zero with `HOST_IP must be set in .env or shell before running compose` (or `wdm-env-from-config` aborts on the same env check) | `HOST_IP` env var unset on the compose invocation. Required by [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 66 + 84 — the SDRC init chain refuses to start without it. | Export `HOST_IP=<host's reachable IP>` (NOT `localhost` — gets baked into rendered `WDM_WL_REDIS_SERVER`, which downstream consumers reach from other containers) before `docker compose up`. |
 | `sdrc-render-config` exits non-zero with `render-config: no *.tmpl files found in /tmpl` | The `${SDR_CONTROLLER_CONFIG_PATH}/configs/` host directory contains no `*.tmpl` files for the render-config init container to consume. SDRC requires at minimum a `config.yml.tmpl` describing the `docker-workload-streamprocessing` workload. | Drop a `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` pair under `${SDR_CONTROLLER_CONFIG_PATH}/configs/`, modeled after [`dev-profile-alerts/sdrc/2d_vlm/configs/`](../../../deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/) (single-workload, no rtvi-cv variant). |
 | `POST /vst/api/v1/sensor/add` returns `{"error_code":"InvalidParameterError","error_message":"Invalid Parameters"}` instantly, no validator field cited in `vss-vios-sensor` logs | `sdr-controller` is not listening on the SDRC-rendered Envoy listener port (default `10000` per `WDM_MS_LISTENER_PORT` in the rendered `config.yml`). `vss-vios-sensor` env contains `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:10000`; without that listener up, the adaptor pre-check fails. | Confirm `vss-vios-sensor`, `vss-vios-streamprocessing`, **and** `sdr-controller` (plus its strict prerequisites `sdrc-init-dirs` + `sdrc-render-config` exited 0 — the other three SDRC init containers gate downstream peers, not sdr-controller itself) are all up: `docker ps --format '{{.Names}}' \| grep -E 'vss-vios-(sensor\|streamprocessing)\|sdr-controller'`. Then `nc -z localhost 10000`. If the SDRC critical-path init failed, fix that first (see the two rows above). |
-| `POST /vst/api/v1/sensor/add` rejects payload with field name `url` | The in-container OpenAPI YAML (`${VST_CONTAINER_ROOT}/webroot/doc/sensor_management_ms.yaml`) is stale — declares `url` but the binary requires `sensorUrl`. Finding 6, 2026-05-23. | Use `sensorUrl` instead of `url`; cross-check against `services/agent/src/vss_agents/tools/vst/utils.py` for the authoritative payload shape |
+| `POST /vst/api/v1/sensor/add` rejects payload with field name `url` | The in-container OpenAPI YAML (`${VST_CONTAINER_ROOT}/webroot/doc/sensor_management_ms.yaml`) is stale — declares `url` but the binary requires `sensorUrl`. Finding 6, 2026-05-23. | Use `sensorUrl` instead of `url`; cross-check against `services/agent/src/agent/tools/vst/utils.py` for the authoritative payload shape |
 | SDRC-rendered Envoy listener on `localhost:10000` returns 503 `Service Unavailable` for `/record/*` or `/replay/*` calls immediately after deploy | `sdr-controller` is healthy but hasn't yet pushed the LDS/CDS update for the `docker-workload-streamprocessing` entry — the WDM agent watches Docker for `vss-vios-streamprocessing` to report `healthy` before it registers the route. | Wait ~30 s after `vss-vios-streamprocessing` flips to healthy; check `docker logs sdr-controller` for the workload-add log line tied to `vss-vios-streamprocessing`. Persistent 503 → `docker restart sdr-controller`. |
 | Sensor registers (`state: online`) but VOD URL `rtsp://<host>:30564/vod/<id>` returns 404 | Recording is active (state=2) but no segment has rolled to disk yet | Wait for the segment-rotation interval (default 5 min); confirm `SELECT * FROM video_record_details` in `vss-vios-postgres` shows non-zero rows; explicitly trigger via `POST /vst/api/v1/record/<sensorId>/start` if recording was not auto-started |
 | `GET /vst/api/v1/sensor/list` or `/sensor/<id>/streams` returns **HTTP 502 Bad Gateway** or stale results | Leftover `*-smc` containers from a prior alerts-profile deploy (older `develop`) survived teardown and lose the port-bind race against the new `*-dev` containers (both use `network_mode: host` on ports 30000 / 30888). See issue [#151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151). On the current contract only `sdr-controller` runs alongside, so the failure mode is narrower — but a stale host can still carry pre-SDRC `sdr-streamprocessing` / `envoy-streamprocessing` containers from a prior deploy. | Re-run `/vss-deploy-profile` (its Step 0 teardown grep covers `sensor-ms-*`, `vst-ingress-*`, `centralizedb-*`, `storage-ms-*`, `sdr-*`, `envoy-*`, `sdr-controller`, `sdrc-*`, `rtspserver-ms-*`) or manually `docker rm -f` any surviving `*-smc` or legacy `vss-vios-sdr` / `vss-vios-envoy` containers before re-deploying. |
@@ -191,7 +194,7 @@ docker compose --env-file <consumer.env> \
   config --no-interpolate
 ```
 
-When build-vision-agent generates IN-1, it uses the **patched** copies at `build-output/patched/services/vios/compose.yml` + `build-output/patched/services/infra/sdrc/docker-compose.yaml` and resolves against `build-output/.env`; never against the upstream tree directly (per `feedback_build_output_self_contained`).
+A standalone deployment uses **patched** copies of `services/vios/compose.yml` + `services/infra/sdrc/docker-compose.yaml` and resolves against its own `.env`; never against the upstream tree directly.
 
 ## Verify Deployment
 
@@ -229,21 +232,21 @@ ls -la ${VSS_DATA_DIR}/data_log/vst/clip_storage  # same dir from host side
 # rendered SDRC configs)
 docker compose -f deploy/docker/services/vios/compose.yml \
                -f deploy/docker/services/infra/sdrc/docker-compose.yaml \
-               --profile bp_developer_in_1 down
+               --profile <profile> down
 
 # Stop + wipe named volumes (centralizedb may live in one — kills sensor configs)
 docker compose -f deploy/docker/services/vios/compose.yml \
                -f deploy/docker/services/infra/sdrc/docker-compose.yaml \
-               --profile bp_developer_in_1 down -v
+               --profile <profile> down -v
 
 # SDRC runtime artifact cleanup — log/ and .wdm-env/ are written as root inside the
 # container; rm needs write+exec on the parent dirs (init-dirs chmod-0777ed them so
 # this works without sudo). Same shape as dev-profile.sh:1585-1617.
 # IMPORTANT: ./log and ./.wdm-env are relative to the SDRC compose-file directory
 # (typically `deploy/docker/services/infra/sdrc/` upstream, or
-# `build-output/patched/services/infra/sdrc/` for IN-1) — NOT under
+# a patched copy of `services/infra/sdrc/`) — NOT under
 # SDR_CONTROLLER_CONFIG_PATH. Substitute the actual SDRC compose dir below.
-SDRC_DIR=deploy/docker/services/infra/sdrc      # or build-output/patched/services/infra/sdrc
+SDRC_DIR=deploy/docker/services/infra/sdrc      # or your patched copy of services/infra/sdrc
 rm -rf "${SDRC_DIR}/log/"* "${SDRC_DIR}/.wdm-env/"*
 # And the render-config-rendered siblings under SDR_CONTROLLER_CONFIG_PATH (the *.tmpl
 # source files stay):

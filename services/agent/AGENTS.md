@@ -12,7 +12,7 @@ Pydantic v2, OpenCV, xhtml2pdf. Package manager: `uv`. Linter/formatter: Ruff. T
 
 ```bash
 # Setup
-uv venv --python 3.13 && uv sync --group dev && source .venv/bin/activate
+uv venv --python 3.13 && uv sync --group dev --extra agent && source .venv/bin/activate
 sudo apt-get install libcairo2-dev pkg-config python3-dev   # PDF generation deps
 pre-commit install
 

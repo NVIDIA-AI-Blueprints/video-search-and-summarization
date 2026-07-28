@@ -10,6 +10,9 @@
 #ifndef MODULES_DESKTOP_CAPTURE_DESKTOP_CAPTURE_OPTIONS_H_
 #define MODULES_DESKTOP_CAPTURE_DESKTOP_CAPTURE_OPTIONS_H_
 
+#include <cstdint>
+
+#include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
 #include "rtc_base/system/rtc_export.h"
 
@@ -25,7 +28,12 @@
 #include "modules/desktop_capture/mac/desktop_configuration_monitor.h"
 #endif
 
+#if defined(WEBRTC_WIN)
+#include <windows.h>
+#endif
+
 #include "modules/desktop_capture/full_screen_window_detector.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
@@ -37,8 +45,10 @@ class RTC_EXPORT DesktopCaptureOptions {
   // also initializes X window connection. x_display() will be set to null if
   // X11 connection failed (e.g. DISPLAY isn't set).
   static DesktopCaptureOptions CreateDefault();
+  static DesktopCaptureOptions CreateDefault(const Environment& env);
 
   DesktopCaptureOptions();
+  explicit DesktopCaptureOptions(const Environment& env);
   DesktopCaptureOptions(const DesktopCaptureOptions& options);
   DesktopCaptureOptions(DesktopCaptureOptions&& options);
   ~DesktopCaptureOptions();
@@ -46,11 +56,13 @@ class RTC_EXPORT DesktopCaptureOptions {
   DesktopCaptureOptions& operator=(const DesktopCaptureOptions& options);
   DesktopCaptureOptions& operator=(DesktopCaptureOptions&& options);
 
-#if defined(WEBRTC_USE_X11)
-  const rtc::scoped_refptr<SharedXDisplay>& x_display() const {
-    return x_display_;
+  Clock& clock() const {
+    return env_.has_value() ? env_->clock() : *Clock::GetRealTimeClock();
   }
-  void set_x_display(rtc::scoped_refptr<SharedXDisplay> x_display) {
+
+#if defined(WEBRTC_USE_X11)
+  const scoped_refptr<SharedXDisplay>& x_display() const { return x_display_; }
+  void set_x_display(scoped_refptr<SharedXDisplay> x_display) {
     x_display_ = x_display;
   }
 #endif
@@ -59,27 +71,41 @@ class RTC_EXPORT DesktopCaptureOptions {
   // TODO(zijiehe): Remove both DesktopConfigurationMonitor and
   // FullScreenChromeWindowDetector out of DesktopCaptureOptions. It's not
   // reasonable for external consumers to set these two parameters.
-  const rtc::scoped_refptr<DesktopConfigurationMonitor>& configuration_monitor()
+  const scoped_refptr<DesktopConfigurationMonitor>& configuration_monitor()
       const {
     return configuration_monitor_;
   }
   // If nullptr is set, ScreenCapturer won't work and WindowCapturer may return
   // inaccurate result from IsOccluded() function.
-  void set_configuration_monitor(
-      rtc::scoped_refptr<DesktopConfigurationMonitor> m) {
+  void set_configuration_monitor(scoped_refptr<DesktopConfigurationMonitor> m) {
     configuration_monitor_ = m;
   }
 
   bool allow_iosurface() const { return allow_iosurface_; }
   void set_allow_iosurface(bool allow) { allow_iosurface_ = allow; }
+
+  // If this flag is set, and the system supports it, ScreenCaptureKit will be
+  // used for desktop capture.
+  // TODO: crbug.com/327458809 - Force the use of SCK and ignore this flag in
+  // new versions of macOS that remove support for the CGDisplay-based APIs.
+  bool allow_sck_capturer() const { return allow_sck_capturer_; }
+  void set_allow_sck_capturer(bool allow) { allow_sck_capturer_ = allow; }
+
+  // If ScreenCaptureKit is used for desktop capture and this flag is
+  // set, the ScreenCaptureKit backend will use SCContentSharingPicker for
+  // picking source.
+  bool allow_sck_system_picker() const { return allow_sck_system_picker_; }
+  void set_allow_sck_system_picker(bool allow) {
+    allow_sck_system_picker_ = allow;
+  }
 #endif
 
-  const rtc::scoped_refptr<FullScreenWindowDetector>&
-  full_screen_window_detector() const {
+  const scoped_refptr<FullScreenWindowDetector>& full_screen_window_detector()
+      const {
     return full_screen_window_detector_;
   }
   void set_full_screen_window_detector(
-      rtc::scoped_refptr<FullScreenWindowDetector> detector) {
+      scoped_refptr<FullScreenWindowDetector> detector) {
     full_screen_window_detector_ = detector;
   }
 
@@ -193,6 +219,38 @@ class RTC_EXPORT DesktopCaptureOptions {
   // The flag has no effect if the allow_wgc_capturer flag is false.
   bool allow_wgc_zero_hertz() const { return allow_wgc_zero_hertz_; }
   void set_allow_wgc_zero_hertz(bool allow) { allow_wgc_zero_hertz_ = allow; }
+
+  // This flag controls whether the WGC capturer is required to draw a border
+  // around the captured window/screen.
+  // The flag has no effect if the allow_wgc_capturer flag is false.
+  bool wgc_require_border() const { return wgc_require_border_; }
+  void set_wgc_require_border(bool require) { wgc_require_border_ = require; }
+
+  // For window capture, set to true to include more application content like
+  // tool tips and drop downs. From the Microsoft developer docs:
+  //
+  // "Secondary Windows are considered to be windows that have either the
+  // WS_POPUP or WS_EX_TOOLWINDOW styles that intersect the main window. The
+  // windows are drawn into the texture the app receives and are clipped if they
+  // go outside the bounds of the main top level window."
+  bool wgc_include_secondary_windows() const {
+    return wgc_include_secondary_windows_;
+  }
+  void set_wgc_include_secondary_windows(bool include) {
+    wgc_include_secondary_windows_ = include;
+  }
+
+  // This flag enables native texture of frame with the WGC capturer.
+  // The flag has no effect if the allow_wgc_capturer flag is false.
+  bool allow_wgc_using_texture() const { return allow_wgc_using_texture_; }
+  void set_allow_wgc_using_texture(bool allow) {
+    allow_wgc_using_texture_ = allow;
+  }
+
+  // The LUID of the GPU adapter to use for D3D11 device creation in the WGC
+  // capturer. A zero LUID means use the system default adapter.
+  LUID d3d_device_luid() const { return d3d_device_luid_; }
+  void set_d3d_device_luid(LUID luid) { d3d_device_luid_ = luid; }
 #endif  // defined(RTC_ENABLE_WIN_WGC)
 #endif  // defined(WEBRTC_WIN)
 
@@ -200,11 +258,10 @@ class RTC_EXPORT DesktopCaptureOptions {
   bool allow_pipewire() const { return allow_pipewire_; }
   void set_allow_pipewire(bool allow) { allow_pipewire_ = allow; }
 
-  const rtc::scoped_refptr<SharedScreenCastStream>& screencast_stream() const {
+  const scoped_refptr<SharedScreenCastStream>& screencast_stream() const {
     return screencast_stream_;
   }
-  void set_screencast_stream(
-      rtc::scoped_refptr<SharedScreenCastStream> stream) {
+  void set_screencast_stream(scoped_refptr<SharedScreenCastStream> stream) {
     screencast_stream_ = stream;
   }
 
@@ -224,20 +281,22 @@ class RTC_EXPORT DesktopCaptureOptions {
 
  private:
 #if defined(WEBRTC_USE_X11)
-  rtc::scoped_refptr<SharedXDisplay> x_display_;
+  scoped_refptr<SharedXDisplay> x_display_;
 #endif
 #if defined(WEBRTC_USE_PIPEWIRE)
   // An instance of shared PipeWire ScreenCast stream we share between
   // BaseCapturerPipeWire and MouseCursorMonitorPipeWire as cursor information
   // is sent together with screen content.
-  rtc::scoped_refptr<SharedScreenCastStream> screencast_stream_;
+  scoped_refptr<SharedScreenCastStream> screencast_stream_;
 #endif
 #if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
-  rtc::scoped_refptr<DesktopConfigurationMonitor> configuration_monitor_;
+  scoped_refptr<DesktopConfigurationMonitor> configuration_monitor_;
   bool allow_iosurface_ = false;
+  bool allow_sck_capturer_ = false;
+  bool allow_sck_system_picker_ = false;
 #endif
 
-  rtc::scoped_refptr<FullScreenWindowDetector> full_screen_window_detector_;
+  scoped_refptr<FullScreenWindowDetector> full_screen_window_detector_;
 
 #if defined(WEBRTC_WIN)
   bool enumerate_current_process_windows_ = true;
@@ -248,6 +307,10 @@ class RTC_EXPORT DesktopCaptureOptions {
   bool allow_wgc_window_capturer_ = false;
   bool allow_wgc_capturer_fallback_ = false;
   bool allow_wgc_zero_hertz_ = false;
+  bool wgc_require_border_ = false;
+  bool wgc_include_secondary_windows_ = false;
+  bool allow_wgc_using_texture_ = false;
+  LUID d3d_device_luid_ = {};
 #endif
 #endif
 #if defined(WEBRTC_USE_X11)
@@ -258,6 +321,7 @@ class RTC_EXPORT DesktopCaptureOptions {
   bool disable_effects_ = true;
   bool detect_updated_region_ = false;
   bool prefer_cursor_embedded_ = false;
+  std::optional<Environment> env_;
 #if defined(WEBRTC_USE_PIPEWIRE)
   bool allow_pipewire_ = false;
   bool pipewire_use_damage_region_ = true;

@@ -395,6 +395,18 @@ Json::Value loadStorageConfig(const string& storage_config_file_path)
     return config;
 }
 
+Json::Value loadNotificationConfig(const string& notification_config_file_path)
+{
+    Json::Value config;
+    Json::Reader reader;
+    std::ifstream file(notification_config_file_path.c_str());
+    if(file.good())
+    {
+        reader.parse(file, config, true);
+    }
+    return config;
+}
+
 Json::Value scanCameraBackList()
 {
     Json::Value backlist;
@@ -2337,7 +2349,7 @@ bool blockSensor(const string ip, string action)
 
 Json::Value vectorToJson(const std::vector<string>& vec)
 {
-	Json::Value jsonArray = Json::nullValue;
+	Json::Value jsonArray = Json::arrayValue;
 	for(auto itr : vec)
 	{
 		jsonArray.append(itr);

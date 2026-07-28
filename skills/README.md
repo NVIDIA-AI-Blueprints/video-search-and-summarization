@@ -44,6 +44,16 @@ VSS-based deployments are multi-layer systems. Most skills map to exactly one la
 - **Deploy time** — *"Deploy VSS for video search."* A skill selects the right profile or microservice, runs pre-flight checks, and brings up the Docker Compose stack. (`vss-deploy-*`, `vss-setup-*`, `vss-generate-video-calibration`)
 - **Runtime** — *"Add this camera," "summarize this clip," "show me today's incidents."* Once VSS is running, a skill calls the live REST / MCP / VIOS APIs. (everything else)
 
+**Kubernetes runtime endpoint contract.** Operate skills run on the caller's
+host, not inside VSS pods. Supply one public Ingress origin as
+`VSS_PUBLIC_URL` (Helm `global.externalHost` / main Ingress host). Canonical
+variable mapping, Docker fallbacks, and the no-port-forward rule live in
+[`vss-build-vision-agent/references/deployment_resolution.md`](vss-build-vision-agent/references/deployment_resolution.md).
+Profile-specific routes also include Alert Bridge, VA-MCP, and LVS paths on
+their respective Ingress hosts. NvStreamer requires a separate
+`VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each skill retains its
+documented Docker Compose discovery or `HOST_IP` fallback.
+
 **Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
 
 | Profile | Workflow it deploys |

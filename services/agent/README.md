@@ -67,8 +67,19 @@ Install `uv` and create the virtual environment. If Python 3.13 is not present o
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv --python 3.13
-uv sync
+uv sync --extra agent
 source .venv/bin/activate
+```
+
+The project ships three install profiles, smallest to largest: `nvidia-vss`
+(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `vss` console
+script name; the script itself ships with the base wheel), and
+`nvidia-vss[agent]` (the full NAT-based agent application). `uv sync` without
+`--extra agent` gives the
+NAT-free base environment used by the host CLI:
+
+```bash
+uv run --no-dev vss --help
 ```
 
 ### Docker
@@ -262,7 +273,7 @@ uv run pytest tests/unit_test/ --cov=src/vss_agents --cov-report=term-missing -v
 ## Contributing
 
 1. Fork the repository and create a feature branch.
-2. Install dev dependencies: `uv sync --group dev`
+2. Install dev dependencies: `uv sync --group dev --extra agent`
 3. Install pre-commit hooks: `pre-commit install`
    Hooks include [gitleaks](https://github.com/gitleaks/gitleaks) for secret scanning,
    installed automatically as a Go binary via the pre-commit framework.

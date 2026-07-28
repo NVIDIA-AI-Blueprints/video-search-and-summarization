@@ -18,8 +18,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-alert-ms
-  tag: "3.3.0-26.07.10-e4c886ba00e5"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms
+  tag: develop-latest
   pullPolicy: IfNotPresent
 replicas: 1
 

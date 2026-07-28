@@ -42,11 +42,14 @@ COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
 COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
 COPY --chown=root:root --chmod=0444 agent/NVIDIA-Software-License-Agreement.pdf /vss-agent/NVIDIA-Software-License-Agreement.pdf
 COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
-COPY --chown=root:root --chmod=0555 agent/src/vss_agents /vss-agent/src/vss_agents
-# `lib/` is a sibling top-level package shipped in the same wheel
-# (see pyproject.toml `packages = ["src/vss_agents", "src/lib"]`); without
-# this copy, lib.knowledge would be missing from the built image.
-COPY --chown=root:root --chmod=0555 agent/src/lib /vss-agent/src/lib
+# uv workspace: the meta pyproject (copied above) + each member's pyproject/src.
+# Tests are intentionally omitted from the image.
+COPY --chown=root:root --chmod=0444 agent/packages/vss_core/pyproject.toml /vss-agent/packages/vss_core/pyproject.toml
+COPY --chown=root:root --chmod=0555 agent/packages/vss_core/src /vss-agent/packages/vss_core/src
+COPY --chown=root:root --chmod=0444 agent/packages/vss_agents/pyproject.toml /vss-agent/packages/vss_agents/pyproject.toml
+COPY --chown=root:root --chmod=0555 agent/packages/vss_agents/src /vss-agent/packages/vss_agents/src
+COPY --chown=root:root --chmod=0444 agent/packages/vss_cli/pyproject.toml /vss-agent/packages/vss_cli/pyproject.toml
+COPY --chown=root:root --chmod=0555 agent/packages/vss_cli/src /vss-agent/packages/vss_cli/src
 COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
 COPY --chown=root:root --chmod=0444 agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
 COPY --chown=root:root --chmod=0555 agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
@@ -59,7 +62,7 @@ RUN python3 /vss-agent/verify_ffmpeg_tarball.py
 RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=private \
     uv venv --seed .venv && \
     . .venv/bin/activate && \
-    uv sync --frozen --no-dev --no-editable --link-mode copy
+    uv sync --frozen --no-dev --no-editable --extra agent --link-mode copy
 
 RUN uv pip uninstall setuptools
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/setuptools

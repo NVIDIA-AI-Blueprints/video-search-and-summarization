@@ -9,11 +9,14 @@ Run:
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -171,6 +174,139 @@ class SkipMarkers(unittest.TestCase):
             )
 
 
+class TraceUrls(unittest.TestCase):
+    """Regression cover for the blank-Harbor-page bug.
+
+    PR #1254 / run 30284131217 shipped seven trace links whose final
+    segment was the `--include-task-name` filter (`step-7`) instead of
+    Harbor's `task_name`. The viewer is a client-side SPA, so every one
+    of them opened as an empty page instead of erroring.
+    """
+
+    # Shape mirrors a real trial's result.json.
+    RESULT = {
+        "task_name": "nvidia-vss/vss-generate-video-report-base-l40s-step-7",
+        "trial_name": "step-7__E6dBECL",
+        "source": "l40s",
+        "agent_info": {
+            "name": "claude-code",
+            "model_info": {
+                "name": "anthropic/bedrock-claude-opus-4-6",
+                "provider": "aws",
+            },
+        },
+    }
+    JOB = (
+        "vss-generate-video-report__base_profile_report__L40S"
+        "__30284131217__2026-07-27__17-16-47"
+    )
+
+    def setUp(self):
+        self._orig_env = os.environ.get("BREV_ENV_ID")
+        os.environ["BREV_ENV_ID"] = "13xh5gpe7"
+
+    def tearDown(self):
+        if self._orig_env is None:
+            os.environ.pop("BREV_ENV_ID", None)
+        else:
+            os.environ["BREV_ENV_ID"] = self._orig_env
+
+    def _write_result(self, directory: Path, payload=None) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        result = directory / "result.json"
+        result.write_text(json.dumps(payload if payload is not None else self.RESULT))
+        return result
+
+    def test_trace_url_matches_the_viewer_route(self):
+        with tempfile.TemporaryDirectory() as td:
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            url = run_leg.trace_url(result, self.JOB)
+
+        self.assertEqual(
+            url,
+            "https://harbor-13xh5gpe7.brevlab.com/jobs/"
+            + self.JOB
+            + "/tasks/l40s/claude-code/aws"
+            + "/anthropic%2Fbedrock-claude-opus-4-6"
+            + "/nvidia-vss%2Fvss-generate-video-report-base-l40s-step-7",
+        )
+
+    def test_trace_url_never_ends_in_the_include_task_filter(self):
+        """The exact regression: a bare `step-7` tail renders a blank page."""
+        with tempfile.TemporaryDirectory() as td:
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            url = run_leg.trace_url(result, self.JOB)
+
+        self.assertFalse(url.endswith("/step-7"))
+        self.assertTrue(url.endswith("-step-7"))
+        # Slashes inside <model>/<task> must be segments, not path levels.
+        self.assertEqual(url.count("%2F"), 2)
+
+    def test_trace_url_none_on_incomplete_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            partial = dict(self.RESULT)
+            partial.pop("task_name")
+            result = self._write_result(Path(td) / "step-7__X", partial)
+
+            self.assertIsNone(run_leg.trace_url(result, self.JOB))
+            self.assertIsNone(run_leg.trace_url(Path(td) / "missing.json", self.JOB))
+
+    def test_publish_trace_flattens_into_viewer_and_records_url(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-7",
+            chain_key="base_l40s",
+            step_index=7,
+            step_count=8,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results_root = root / "results" / "leg" / "30284131217"
+            trial = results_root / "2026-07-27__17-16-47" / "step-7__E6dBECL"
+            self._write_result(trial)
+            viewer_root = root / "_viewer"
+            orig_viewer = run_leg.VIEWER_ROOT
+            run_leg.VIEWER_ROOT = viewer_root
+            try:
+                url = run_leg.publish_trace(
+                    results_root, invocation, 0.0, "leg", "30284131217"
+                )
+            finally:
+                run_leg.VIEWER_ROOT = orig_viewer
+
+            job_dir = viewer_root / "leg__30284131217__2026-07-27__17-16-47"
+            # Flattened: the trial sits at the job's top level, with no
+            # intervening <date>/ level for the viewer to miss.
+            self.assertTrue((job_dir / "step-7__E6dBECL" / "result.json").is_file())
+            self.assertFalse((job_dir / "2026-07-27__17-16-47").exists())
+            # Copy, not move — the workflow collector still tars results_root.
+            self.assertTrue((trial / "result.json").is_file())
+
+            row = (results_root / "trace-urls.tsv").read_text().strip().split("\t")
+
+        self.assertEqual(row[0], "step-7")
+        self.assertEqual(row[1], "step-7__E6dBECL")
+        self.assertEqual(row[2], url)
+        self.assertIn("/jobs/leg__30284131217__2026-07-27__17-16-47/tasks/", url)
+
+    def test_publish_trace_returns_none_when_trial_produced_no_result(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-1",
+            chain_key="base_l40s",
+            step_index=1,
+            step_count=8,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            results_root = Path(td) / "results"
+            results_root.mkdir(parents=True)
+
+            self.assertIsNone(
+                run_leg.publish_trace(results_root, invocation, 0.0, "leg", "1")
+            )
+            self.assertFalse((results_root / "trace-urls.tsv").exists())
+
+
 class PoolCandidates(unittest.TestCase):
     FLEET = [
         {"name": "vss-eval-rtx-1g-2", "status": "RUNNING",
@@ -184,26 +320,38 @@ class PoolCandidates(unittest.TestCase):
         # gpu flake: catalog refresh returns "-" but instance_type carries it
         {"name": "vss-eval-l40s-2", "status": "RUNNING",
          "gpu": "-", "instance_type": "massedcompute_L40Sx2"},
+        {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
+         "gpu": "RTX PRO 6000",
+         "instance_type": "registered-external-node", "_registered": True},
         {"name": "not-a-pool-box", "status": "RUNNING",
          "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
     ]
 
     def setUp(self):
-        self._orig = run_leg._list_brev_instances
-        run_leg._list_brev_instances = lambda: self.FLEET
+        self._orig = run_leg._list_pool_instances
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: self.FLEET
+        )
 
     def tearDown(self):
-        run_leg._list_brev_instances = self._orig
+        run_leg._list_pool_instances = self._orig
 
     def test_filters_running_pool_and_gpu_type(self):
         names = run_leg.pool_candidates(
             {"gpu_type": "RTX PRO 6000", "gpu_count": 1})
-        self.assertEqual(names, ["vss-eval-rtx-1g-2", "vss-eval-rtx-2g-2"])
+        self.assertEqual(
+            names,
+            [
+                "vss-eval-rtx-2g-VM1b",
+                "vss-eval-rtx-1g-2",
+                "vss-eval-rtx-2g-2",
+            ],
+        )
 
     def test_exact_count_hint_sorts_first(self):
         names = run_leg.pool_candidates(
             {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
-        self.assertEqual(names[0], "vss-eval-rtx-2g-2")
+        self.assertEqual(names[0], "vss-eval-rtx-2g-VM1b")
 
     def test_gpu_flake_accepted_via_instance_type(self):
         names = run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1})
@@ -211,9 +359,168 @@ class PoolCandidates(unittest.TestCase):
 
     def test_gpu_count_zero_accepts_any_running_pool_box(self):
         names = run_leg.pool_candidates({"gpu_count": 0})
-        self.assertEqual(len(names), 4)
+        self.assertEqual(len(names), 5)
         self.assertNotIn("not-a-pool-box", names)
         self.assertNotIn("vss-eval-rtx-1g-3", names)
+
+    def test_registered_gpu_hint_fails_closed_for_unknown_pool(self):
+        self.assertEqual(
+            run_leg._registered_gpu_hint("vss-eval-rtx-2g-VM1b"),
+            "RTX PRO 6000",
+        )
+        self.assertEqual(
+            run_leg._registered_gpu_hint(
+                "vss-eval-geforce-rtx4090-vm1"
+            ),
+            "GEFORCE RTX 4090",
+        )
+        self.assertEqual(run_leg._registered_gpu_hint("vss-eval-mystery"), "")
+
+    def test_pool_snapshot_merges_and_normalizes_registered_nodes(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_brev_instances = lambda: [
+                {"name": "vss-eval-rtx-2g", "status": "RUNNING"}
+            ]
+            run_leg._list_registered_nodes = lambda: [
+                {"name": "vss-eval-rtx-2g-VM1b", "status": "Connected"},
+                # A duplicate must not be added twice.
+                {"name": "vss-eval-rtx-2g", "status": "Connected"},
+            ]
+
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+            ):
+                instances = self._orig()
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(len(instances), 2)
+        registered = instances[1]
+        self.assertEqual(registered["status"], "RUNNING")
+        self.assertEqual(registered["gpu"], "RTX PRO 6000")
+        self.assertTrue(registered["_registered"])
+
+    def test_registered_pool_requires_explicit_allowlist(self):
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_brev_instances = lambda: []
+            run_leg._list_registered_nodes = lambda: [
+                {"name": "vss-eval-rtx-2g-VM1b", "status": "Connected"},
+                {"name": "vss-eval-rtx-2g-skybridge", "status": "Connected"},
+            ]
+            with mock.patch.dict(
+                run_leg.os.environ,
+                {
+                    "BREV_REGISTERED_POOL":
+                        "vss-eval-rtx-2g-VM1b, vss-eval-rtx-2g-VM2b"
+                },
+            ):
+                instances = self._orig()
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(
+            [instance["name"] for instance in instances],
+            ["vss-eval-rtx-2g-VM1b"],
+        )
+
+    def test_4090_pool_is_limited_to_approved_skills(self):
+        env = {
+            "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
+            "BREV_RTX4090_POOL": (
+                "vss-eval-geforce-rtx4090-vm1,"
+                "vss-eval-geforce-rtx4090-vm2"
+            ),
+        }
+        with mock.patch.dict(run_leg.os.environ, env, clear=True):
+            approved = run_leg._registered_pool_allowlist(
+                "vss-ask-video", "base_profile_video_understanding"
+            )
+            unapproved = run_leg._registered_pool_allowlist(
+                "vss-deploy-profile", "search"
+            )
+
+        self.assertEqual(
+            approved,
+            {
+                "vss-eval-rtx-2g-vm1b",
+                "vss-eval-geforce-rtx4090-vm1",
+                "vss-eval-geforce-rtx4090-vm2",
+            },
+        )
+        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
+
+    def test_4090_test_capabilities_fail_closed(self):
+        self.assertTrue(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "alerts_cv"
+        ))
+        self.assertTrue(run_leg._rtx4090_supports(
+            "vss-manage-alerts", "subscriptions_lifecycle"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "search"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-profile", "warehouse"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-dense-captioning", "alerts_profile_api"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports(
+            "vss-deploy-detection-tracking-3d", "deploy"
+        ))
+        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+
+    def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
+        fleet = [{
+            "name": "vss-eval-geforce-rtx4090-vm1",
+            "status": "RUNNING",
+            "gpu": "GEFORCE RTX 4090",
+            "_registered": True,
+            "_rtx4090_capability_routed": True,
+        }]
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
+        requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
+
+        approved = run_leg.pool_candidates({
+            **requirements,
+            "skill": "vss-ask-video",
+        }, "base_profile_video_understanding")
+        unapproved = run_leg.pool_candidates({
+            **requirements,
+            "skill": "vss-deploy-dense-captioning",
+        }, "alerts_profile_api")
+
+        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
+        self.assertEqual(unapproved, [])
+
+    def test_underprovisioned_registered_node_is_filtered(self):
+        fleet = [
+            {"name": "vss-eval-geforce-rtx4090-vm1", "status": "RUNNING",
+             "gpu": "GEFORCE RTX 4090", "_registered": True,
+             "_rtx4090_capability_routed": True},
+            {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
+             "gpu": "RTX PRO 6000", "_registered": True},
+        ]
+        run_leg._list_pool_instances = (
+            lambda _skill=None, _spec_stem=None: fleet
+        )
+
+        names = run_leg.pool_candidates({
+            "skill": "vss-ask-video",
+            "gpu_type": "RTX PRO 6000",
+            "gpu_count": 2,
+        }, "base_profile_video_understanding")
+
+        self.assertEqual(names, ["vss-eval-rtx-2g-VM1b"])
 
 
 class HoldPoolLock(unittest.TestCase):

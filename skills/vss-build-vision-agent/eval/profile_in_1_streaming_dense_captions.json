@@ -1,0 +1,62 @@
+{
+  "skills": [
+    "vss-build-vision-agent"
+  ],
+  "profile": "in-1",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval composes streaming and on-demand VLM dense captioning with Kafka and Elasticsearch from one current developer profile. Use `_builds/in-1/` only as a filesystem label. The requested deployment excludes LVS summarization, the runtime VSS agent and UI, public ingress, Phoenix, and the LLM NIM. Existing files under `deploy/docker/` remain authoritative and unmodified.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-agent` to propose the architecture for: \"Provide VLM Q&A and dense captioning for streamed and uploaded video. Video must remain retrievable through VIOS. Publish streamed captions to Kafka topic `mdx-vlm-captions` and store them in Elasticsearch.\" Do not write files or deploy yet. Explain the selected current Foundation, the smallest delta, the canonical build location `_builds/in-1/`, and the validation/deployment path.",
+      "artifact_expected": false,
+      "checks": [
+        "The proposal selects exactly one current developer Foundation and chooses `lvs` because it already owns RT-VLM, VIOS, NvStreamer, SDRC, Kafka, and Elasticsearch.",
+        "The proposal treats `in-1` only as a filesystem label and does not invent a Compose profile name.",
+        "The proposal removes unrequested `lvs-server`, `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, and the LLM NIM key while retaining the LVS profile's RT-VLM, VIOS, NvStreamer, SDRC, and ELK/Kafka service keys.",
+        "The proposal sets `RTVI_VLM_KAFKA_ENABLED=true` and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`, with RT-VLM model, cache, GPU, and VIOS path knobs sourced from current references.",
+        "The proposal says generation always writes `_builds/in-1/override.env`, `compose.yml`, and fully resolved `resolved.yml`; no file under `patches/` is needed because all selected services already exist and no service definition changes are requested.",
+        "No files are written and no deployment is started during this proposal-only turn."
+      ]
+    },
+    {
+      "query": "Build the proposed delta under `_builds/in-1/` and run the Compose validation. Stop after validation; do not deploy.",
+      "checks": [
+        "`{{repo_root}}/_builds/in-1/override.env` exists with `FOUNDATION=lvs`, a full effective `COMPOSE_PROFILES`, and only customized environment values that differ from the LVS Foundation.",
+        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-lvs,nvstreamer-lvs,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.",
+        "The exact set therefore excludes `lvs-server`, `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, and every LLM NIM profile key.",
+        "`COMPOSE_PROFILES` contains no `in-1`, aggregate, `bp_developer_*`, or other invented profile key.",
+        "`RTVI_VLM_KAFKA_ENABLED=true` and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` are present; unchanged LVS defaults are not copied into the delta.",
+        "`_builds/in-1/compose.yml` includes `../../deploy/docker/compose.yml`, and `_builds/in-1/patches/` is absent because service activation and removal are expressed only through `COMPOSE_PROFILES`.",
+        "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and no copied Foundation `.env`, copied root Compose project, patched source tree, manifest, allow-list, or generated skill bundle.",
+        "Resolution uses `containers.env`, the LVS Foundation `.env`, the LVS Foundation `overrides.env`, and the build `override.env`, in that order, with the build `compose.yml`; it writes `_builds/in-1/resolved.yml` through `docker compose config --no-consistency` and the normalizer.",
+        "`docker compose -f _builds/in-1/resolved.yml config --quiet`, `config --services`, and `config --images` succeed directly; every selected profile key exists in the source graph, the resolved service list is non-empty, required peers resolve, excluded services do not resolve, no service retains a `profiles:` gate, no real `${...}` interpolation remains unresolved, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and every checked-in bind source exists with the expected file/directory type.",
+        "No file under `{{repo_root}}/deploy/docker/` is modified."
+      ]
+    },
+    {
+      "query": "Deploy the validated `_builds/in-1/resolved.yml`, wait for readiness, and leave it running for runtime validation.",
+      "checks": [
+        "Deployment uses exactly `docker compose -f _builds/in-1/resolved.yml up -d`; it does not re-read Foundation env files, use an invented Compose profile, or deploy a copied Compose project.",
+        "All selected long-running services are running or healthy and selected one-shot initialization containers exit 0.",
+        "RT-VLM readiness succeeds on port 8018, Elasticsearch cluster health succeeds, Kafka topics initialize, and VIOS APIs become reachable.",
+        "No excluded LVS, Agent, UI, ingress, Phoenix, or LLM-NIM service is running for this delta."
+      ]
+    },
+    {
+      "query": "Validate streamed and uploaded dense captioning end to end. Use an available sample video, verify VIOS playback, confirm `mdx-vlm-captions` advances, and confirm the captions are indexed in Elasticsearch. Report evidence and leave services running unless cleanup is explicitly requested.",
+      "checks": [
+        "A streamed source and an uploaded video are accepted by VIOS and remain retrievable through playback or clip APIs.",
+        "RT-VLM processes the selected media and returns non-empty caption or VLM output.",
+        "Kafka topic `mdx-vlm-captions` exists and its end offset advances after streamed processing.",
+        "Elasticsearch contains a caption document attributable to the processed sensor or video.",
+        "The final response reports `lvs` as the Foundation, the removed service keys, changed environment knobs, readiness evidence, Kafka before/after offsets, and Elasticsearch evidence."
+      ]
+    }
+  ]
+}

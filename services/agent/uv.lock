@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13, <3.15"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -22,6 +22,12 @@ resolution-markers = [
 prerelease-mode = "allow"
 
 [manifest]
+members = [
+    "nvidia-vss",
+    "nvidia-vss-agents",
+    "nvidia-vss-cli",
+    "nvidia-vss-core",
+]
 constraints = [
     { name = "authlib", specifier = ">=1.7.2,<1.8" },
     { name = "cryptography", specifier = ">=46.0.7" },
@@ -3796,6 +3802,210 @@ wheels = [
 ]
 
 [[package]]
+name = "nvidia-vss"
+source = { editable = "." }
+dependencies = [
+    { name = "nvidia-vss-core" },
+]
+
+[package.optional-dependencies]
+agent = [
+    { name = "nvidia-vss-agents" },
+    { name = "nvidia-vss-cli" },
+]
+all = [
+    { name = "nvidia-vss-agents" },
+    { name = "nvidia-vss-cli" },
+]
+cli = [
+    { name = "nvidia-vss-cli" },
+]
+
+[package.dev-dependencies]
+cli-dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+]
+dev = [
+    { name = "detect-secrets" },
+    { name = "ipdb" },
+    { name = "ipykernel" },
+    { name = "ipython" },
+    { name = "mypy" },
+    { name = "nvidia-nat", extra = ["test"] },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "types-markdown" },
+    { name = "types-python-dateutil" },
+    { name = "types-pyyaml" },
+    { name = "types-requests" },
+]
+eval = [
+    { name = "nvdataset" },
+    { name = "nvidia-nat", extra = ["langchain", "weave"] },
+    { name = "spacy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "nvidia-vss-agents", marker = "extra == 'agent'", editable = "packages/vss_agents" },
+    { name = "nvidia-vss-agents", marker = "extra == 'all'", editable = "packages/vss_agents" },
+    { name = "nvidia-vss-cli", marker = "extra == 'agent'", editable = "packages/vss_cli" },
+    { name = "nvidia-vss-cli", marker = "extra == 'all'", editable = "packages/vss_cli" },
+    { name = "nvidia-vss-cli", marker = "extra == 'cli'", editable = "packages/vss_cli" },
+    { name = "nvidia-vss-core", editable = "packages/vss_core" },
+]
+provides-extras = ["agent", "all", "cli"]
+
+[package.metadata.requires-dev]
+cli-dev = [
+    { name = "mypy", specifier = ">=1.15.0" },
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=6.1" },
+    { name = "ruff", specifier = ">=0.12.0" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+]
+dev = [
+    { name = "detect-secrets", specifier = ">=1.5.0" },
+    { name = "ipdb", specifier = ">=0.13.13" },
+    { name = "ipykernel", specifier = ">=6.29.5" },
+    { name = "ipython", specifier = ">=9.0.2" },
+    { name = "mypy", specifier = ">=1.15.0" },
+    { name = "nvidia-nat", extras = ["test"], specifier = "==1.6.0" },
+    { name = "pre-commit", specifier = ">=4.2.0" },
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=6.1" },
+    { name = "ruff", specifier = ">=0.12.0" },
+    { name = "types-markdown", specifier = ">=3.10.0.20251106" },
+    { name = "types-python-dateutil", specifier = ">=2.9.0.20260124" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+    { name = "types-requests", specifier = ">=2.32.4.20260107" },
+]
+eval = [
+    { name = "nvdataset", specifier = ">=0.77", index = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple" },
+    { name = "nvidia-nat", extras = ["langchain", "weave"], specifier = "==1.6.0" },
+    { name = "spacy", specifier = ">=3.7,<4.0" },
+]
+
+[[package]]
+name = "nvidia-vss-agents"
+source = { editable = "packages/vss_agents" }
+dependencies = [
+    { name = "docker" },
+    { name = "duckdb" },
+    { name = "langchain-core" },
+    { name = "langchain-nvidia-ai-endpoints" },
+    { name = "langgraph-checkpoint" },
+    { name = "markdown" },
+    { name = "matplotlib" },
+    { name = "mcp" },
+    { name = "nvidia-nat", extra = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"] },
+    { name = "nvidia-vss-core" },
+    { name = "protobuf" },
+    { name = "pydantic-settings" },
+    { name = "python-multipart" },
+    { name = "sentence-transformers" },
+    { name = "starlette" },
+    { name = "tiktoken" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'" },
+    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "urllib3" },
+    { name = "xhtml2pdf" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "docker", specifier = ">=7.1.0" },
+    { name = "duckdb", specifier = ">=1.5.0.dev44" },
+    { name = "langchain-core", specifier = ">=1.3.3" },
+    { name = "langchain-nvidia-ai-endpoints", specifier = ">=1.0.4", index = "https://pypi.org/simple" },
+    { name = "langgraph-checkpoint", specifier = ">=4.0.0" },
+    { name = "markdown", specifier = ">=3.4.0" },
+    { name = "matplotlib", specifier = ">=3.8.0" },
+    { name = "mcp", specifier = ">=1.23.0" },
+    { name = "nvidia-nat", extras = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"], specifier = "==1.6.0" },
+    { name = "nvidia-vss-core", editable = "packages/vss_core" },
+    { name = "protobuf", specifier = ">=6.33.5" },
+    { name = "pydantic-settings", specifier = "~=2.13" },
+    { name = "python-multipart", specifier = ">=0.0.27" },
+    { name = "sentence-transformers", specifier = ">=3.0.0" },
+    { name = "starlette", specifier = ">=0.49.1" },
+    { name = "tiktoken", specifier = ">=0.9.0" },
+    { name = "torch", marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'", specifier = ">=2.5.0" },
+    { name = "torch", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'", specifier = ">=2.5.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "urllib3", specifier = ">=2.7.0" },
+    { name = "xhtml2pdf", specifier = ">=0.2.11" },
+]
+
+[[package]]
+name = "nvidia-vss-cli"
+source = { editable = "packages/vss_cli" }
+dependencies = [
+    { name = "nvidia-vss-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "nvidia-vss-core", editable = "packages/vss_core" }]
+
+[[package]]
+name = "nvidia-vss-core"
+source = { editable = "packages/vss_core" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "elasticsearch" },
+    { name = "httpx" },
+    { name = "opencv-python-headless" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "tenacity" },
+]
+
+[package.optional-dependencies]
+frag-lib = [
+    { name = "nvidia-rag" },
+]
+langchain = [
+    { name = "chromadb" },
+    { name = "langchain-chroma" },
+    { name = "langchain-nvidia-ai-endpoints" },
+]
+llama-index = [
+    { name = "chromadb" },
+    { name = "llama-index-core" },
+    { name = "llama-index-embeddings-nvidia" },
+    { name = "llama-index-vector-stores-chroma" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = "~=3.13" },
+    { name = "chromadb", marker = "extra == 'langchain'", specifier = ">=0.5" },
+    { name = "chromadb", marker = "extra == 'llama-index'", specifier = ">=0.5" },
+    { name = "elasticsearch", specifier = "~=8.17.0" },
+    { name = "httpx", specifier = "~=0.28" },
+    { name = "langchain-chroma", marker = "extra == 'langchain'", specifier = ">=0.1" },
+    { name = "langchain-nvidia-ai-endpoints", marker = "extra == 'langchain'", specifier = ">=0.3", index = "https://pypi.org/simple" },
+    { name = "llama-index-core", marker = "extra == 'llama-index'", specifier = ">=0.11" },
+    { name = "llama-index-embeddings-nvidia", marker = "extra == 'llama-index'", specifier = ">=0.3" },
+    { name = "llama-index-vector-stores-chroma", marker = "extra == 'llama-index'", specifier = ">=0.3" },
+    { name = "nvidia-rag", marker = "extra == 'frag-lib'", specifier = ">=2.4.0" },
+    { name = "opencv-python-headless", specifier = ">=4.13.0.92" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
+    { name = "pyyaml", specifier = "~=6.0" },
+    { name = "tenacity", specifier = "~=9.0" },
+]
+provides-extras = ["frag-lib", "langchain", "llama-index"]
+
+[[package]]
 name = "oauthlib"
 version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -6276,23 +6486,19 @@ dependencies = [
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313-linux_aarch64.whl", hash = "sha256:fd215f3d0f681905c5b56b0630a3d666900a37fcc3ca5b937f95275c66f9fd9c", upload-time = "2026-01-23T15:10:34Z" },
-    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313-linux_s390x.whl", hash = "sha256:170a0623108055be5199370335cf9b41ba6875b3cb6f086db4aee583331a4899", upload-time = "2026-01-23T15:10:35Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:e51994492cdb76edce29da88de3672a3022f9ef0ffd90345436948d4992be2c7", upload-time = "2026-01-23T15:10:37Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:8d316e5bf121f1eab1147e49ad0511a9d92e4c45cc357d1ab0bee440da71a095", upload-time = "2026-01-23T15:10:38Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313-win_amd64.whl", hash = "sha256:b719da5af01b59126ac13eefd6ba3dd12d002dc0e8e79b8b365e55267a8189d3", upload-time = "2026-01-23T15:10:41Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313-win_arm64.whl", hash = "sha256:b67d91326e4ed9eccbd6b7d84ed7ffa43f93103aa3f0b24145f3001f3b11b714", upload-time = "2026-01-23T15:10:42Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313t-linux_aarch64.whl", hash = "sha256:5af75e5f49de21b0bdf7672bc27139bd285f9e8dbcabe2d617a2eb656514ac36", upload-time = "2026-01-23T15:10:44Z" },
-    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313t-linux_s390x.whl", hash = "sha256:ba51ef01a510baf8fff576174f702c47e1aa54389a9f1fba323bb1a5003ff0bf", upload-time = "2026-01-23T15:10:48Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313t-manylinux_2_28_aarch64.whl", hash = "sha256:0fedcb1a77e8f2aaf7bfd21591bf6d1e0b207473268c9be16b17cb7783253969", upload-time = "2026-01-23T15:10:48Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313t-manylinux_2_28_x86_64.whl", hash = "sha256:106dd1930cb30a4a337366ba3f9b25318ebf940f51fd46f789281dd9e736bdc4", upload-time = "2026-01-23T15:10:50Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313t-win_amd64.whl", hash = "sha256:eb1bde1ce198f05c8770017de27e001d404499cf552aaaa014569eff56ca25c0", upload-time = "2026-01-23T15:10:50Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314-linux_aarch64.whl", hash = "sha256:ea2bcc9d1fca66974a71d4bf9a502539283f35d61fcab5a799b4e120846f1e02", upload-time = "2026-01-23T15:10:53Z" },
-    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314-linux_s390x.whl", hash = "sha256:f8294fd2fc6dd8f4435a891a0122307a043b14b21f0dac1bca63c85bfb59e586", upload-time = "2026-01-23T15:10:55Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:a28fdbcfa2fbacffec81300f24dd1bed2b0ccfdbed107a823cff12bc1db070f6", upload-time = "2026-01-23T15:10:56Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:aada8afc068add586464b2a55adb7cc9091eec55caf5320447204741cb6a0604", upload-time = "2026-01-23T15:10:58Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314-win_amd64.whl", hash = "sha256:2adc71fe471e98a608723bfc837f7e1929885ebb912c693597711e139c1cda41", upload-time = "2026-01-23T15:11:01Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314t-linux_aarch64.whl", hash = "sha256:9412bd37b70f5ebd1205242c4ba4cabae35a605947f2b30806d5c9b467936db9", upload-time = "2026-01-23T15:11:03Z" },
-    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314t-linux_s390x.whl", hash = "sha256:e71c476517c33e7db69825a9ff46c7f47a723ec4dac5b2481cff4246d1c632be", upload-time = "2026-01-23T15:11:04Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:23882f8d882460aca809882fc42f5e343bf07585274f929ced00177d1be1eb67", upload-time = "2026-01-23T15:11:07Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:4fcd8b4cc2ae20f2b7749fb275349c55432393868778c2d50a08e81d5ee5591e", upload-time = "2026-01-23T15:11:07Z" },
     { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp314-cp314t-win_amd64.whl", hash = "sha256:ffc8da9a1341092d6a90cb5b1c1a33cd61abf0fb43f0cd88443c27fa372c26ae", upload-time = "2026-01-23T15:11:10Z" },
@@ -6580,133 +6786,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d2/03/a94d404ca09a89a7301a7008467aed525d4cdeb9186d262154dd23208709/virtualenv-20.38.0.tar.gz", hash = "sha256:94f39b1abaea5185bf7ea5a46702b56f1d0c9aa2f41a6c2b8b0af4ddc74c10a7", size = 5864558, upload-time = "2026-02-19T07:48:02.385Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/42/d7/394801755d4c8684b655d35c665aea7836ec68320304f62ab3c94395b442/virtualenv-20.38.0-py3-none-any.whl", hash = "sha256:d6e78e5889de3a4742df2d3d44e779366325a90cf356f15621fddace82431794", size = 5837778, upload-time = "2026-02-19T07:47:59.778Z" },
-]
-
-[[package]]
-name = "vss-agents"
-source = { editable = "." }
-dependencies = [
-    { name = "docker" },
-    { name = "duckdb" },
-    { name = "elasticsearch" },
-    { name = "langchain-core" },
-    { name = "langchain-nvidia-ai-endpoints" },
-    { name = "langgraph-checkpoint" },
-    { name = "markdown" },
-    { name = "matplotlib" },
-    { name = "mcp" },
-    { name = "nvidia-nat", extra = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"] },
-    { name = "opencv-python-headless" },
-    { name = "protobuf" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
-    { name = "sentence-transformers" },
-    { name = "starlette" },
-    { name = "tiktoken" },
-    { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'" },
-    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "urllib3" },
-    { name = "xhtml2pdf" },
-]
-
-[package.optional-dependencies]
-frag-lib = [
-    { name = "nvidia-rag" },
-]
-langchain = [
-    { name = "chromadb" },
-    { name = "langchain-chroma" },
-    { name = "langchain-nvidia-ai-endpoints" },
-]
-llama-index = [
-    { name = "chromadb" },
-    { name = "llama-index-core" },
-    { name = "llama-index-embeddings-nvidia" },
-    { name = "llama-index-vector-stores-chroma" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "detect-secrets" },
-    { name = "ipdb" },
-    { name = "ipykernel" },
-    { name = "ipython" },
-    { name = "mypy" },
-    { name = "nvidia-nat", extra = ["test"] },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "types-markdown" },
-    { name = "types-python-dateutil" },
-    { name = "types-pyyaml" },
-    { name = "types-requests" },
-]
-eval = [
-    { name = "nvdataset" },
-    { name = "nvidia-nat", extra = ["langchain", "weave"] },
-    { name = "spacy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "chromadb", marker = "extra == 'langchain'", specifier = ">=0.5" },
-    { name = "chromadb", marker = "extra == 'llama-index'", specifier = ">=0.5" },
-    { name = "docker", specifier = ">=7.1.0" },
-    { name = "duckdb", specifier = ">=1.5.0.dev44" },
-    { name = "elasticsearch", specifier = "~=8.17.0" },
-    { name = "langchain-chroma", marker = "extra == 'langchain'", specifier = ">=0.1" },
-    { name = "langchain-core", specifier = ">=1.3.3" },
-    { name = "langchain-nvidia-ai-endpoints", specifier = ">=1.0.4", index = "https://pypi.org/simple" },
-    { name = "langchain-nvidia-ai-endpoints", marker = "extra == 'langchain'", specifier = ">=0.3", index = "https://pypi.org/simple" },
-    { name = "langgraph-checkpoint", specifier = ">=4.0.0" },
-    { name = "llama-index-core", marker = "extra == 'llama-index'", specifier = ">=0.11" },
-    { name = "llama-index-embeddings-nvidia", marker = "extra == 'llama-index'", specifier = ">=0.3" },
-    { name = "llama-index-vector-stores-chroma", marker = "extra == 'llama-index'", specifier = ">=0.3" },
-    { name = "markdown", specifier = ">=3.4.0" },
-    { name = "matplotlib", specifier = ">=3.8.0" },
-    { name = "mcp", specifier = ">=1.23.0" },
-    { name = "nvidia-nat", extras = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"], specifier = "==1.6.0" },
-    { name = "nvidia-rag", marker = "extra == 'frag-lib'", specifier = ">=2.4.0" },
-    { name = "opencv-python-headless", specifier = ">=4.13.0.92" },
-    { name = "protobuf", specifier = ">=6.33.5" },
-    { name = "pydantic", specifier = ">=2.11,<3" },
-    { name = "pydantic-settings", specifier = "~=2.13" },
-    { name = "python-multipart", specifier = ">=0.0.27" },
-    { name = "sentence-transformers", specifier = ">=3.0.0" },
-    { name = "starlette", specifier = ">=0.49.1" },
-    { name = "tiktoken", specifier = ">=0.9.0" },
-    { name = "torch", marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'", specifier = ">=2.5.0" },
-    { name = "torch", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'", specifier = ">=2.5.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "urllib3", specifier = ">=2.7.0" },
-    { name = "xhtml2pdf", specifier = ">=0.2.11" },
-]
-provides-extras = ["frag-lib", "langchain", "llama-index"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "detect-secrets", specifier = ">=1.5.0" },
-    { name = "ipdb", specifier = ">=0.13.13" },
-    { name = "ipykernel", specifier = ">=6.29.5" },
-    { name = "ipython", specifier = ">=9.0.2" },
-    { name = "mypy", specifier = ">=1.15.0" },
-    { name = "nvidia-nat", extras = ["test"], specifier = "==1.6.0" },
-    { name = "pre-commit", specifier = ">=4.2.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-cov", specifier = ">=6.1" },
-    { name = "ruff", specifier = ">=0.12.0" },
-    { name = "types-markdown", specifier = ">=3.10.0.20251106" },
-    { name = "types-python-dateutil", specifier = ">=2.9.0.20260124" },
-    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
-    { name = "types-requests", specifier = ">=2.32.4.20260107" },
-]
-eval = [
-    { name = "nvdataset", specifier = ">=0.77", index = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple" },
-    { name = "nvidia-nat", extras = ["langchain", "weave"], specifier = "==1.6.0" },
-    { name = "spacy", specifier = ">=3.7,<4.0" },
 ]
 
 [[package]]

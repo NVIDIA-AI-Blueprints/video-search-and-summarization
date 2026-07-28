@@ -33,4 +33,10 @@ public:
     virtual void fetchMetadata() =0;
     virtual void fetchMetadataAgain(const std::string& newStartTime) =0;
     virtual bool isSearching() =0;
+
+    // Optional eager prefetch used by the download path to fully populate the
+    // metadata queue before/while the pipeline starts, so faster-than-real-time
+    // transcoding never outruns the async fetch (bbox flicker). Default no-op
+    // preserves existing behavior for stores that do not implement it.
+    virtual void startPrefetch() {}
 };

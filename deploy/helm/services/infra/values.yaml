@@ -27,7 +27,7 @@ phoenix:
   replicas: 1
   image:
     repository: arizephoenix/phoenix
-    tag: "14.15.0"
+    tag: "19.8.0"
     pullPolicy: IfNotPresent
   phoenixHost: "0.0.0.0"
   env: []
@@ -56,6 +56,23 @@ redis:
   resources: {}
   nodeSelector: {}
   tolerations: []
+
+# Mosquitto subchart (MQTT broker for MV3DT cross-camera messaging). Service
+# name stays "mosquitto" when useReleaseNamePrefix is false.
+mosquitto:
+  enabled: false
+  replicas: 1
+  image:
+    repository: eclipse-mosquitto
+    tag: "2"
+    pullPolicy: IfNotPresent
+  port: 1883
+  service:
+    type: ClusterIP
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  config: ""
 
 # SDRC (combined WDM controller + Envoy router). Disabled by default; parent
 # profiles enable it and provide a profile-owned workload config ConfigMap.

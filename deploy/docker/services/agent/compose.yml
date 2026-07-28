@@ -17,12 +17,9 @@
 
 services:
   vss-va-mcp:
-    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: ${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}
     container_name: vss-va-mcp
-    profiles:
-    - bp_wh_2d
-    - bp_developer_alerts_2d_cv
-    - bp_developer_alerts_2d_vlm
+    profiles: ["vss-va-mcp"]
     ports:
     - ${VSS_VA_MCP_HOST_PORT:-9901}:${VSS_VA_MCP_PORT:-9901}
     volumes:
@@ -62,15 +59,9 @@ services:
 
   vss-agent:
     # Version pinned via VSS_AGENT_VERSION (see the profile .env files).
-    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: ${VSS_AGENT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent}:${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}
     container_name: vss-agent
-    profiles:
-    - bp_wh_2d
-    - bp_developer_base_2d
-    - bp_developer_search_2d
-    - bp_developer_lvs_2d
-    - bp_developer_alerts_2d_cv
-    - bp_developer_alerts_2d_vlm
+    profiles: ["vss-agent"]
     ports:
     - ${VSS_AGENT_HOST_PORT:-8000}:${VSS_AGENT_PORT:-8000}
     environment:
@@ -145,8 +136,6 @@ services:
       COSMOS_EMBED_ENDPOINT: ${COSMOS_EMBED_ENDPOINT}
       ELASTIC_SEARCH_ENDPOINT: ${ELASTIC_SEARCH_ENDPOINT}
       ELASTIC_SEARCH_INDEX: ${ELASTIC_SEARCH_INDEX}
-      # Critic agent toggles (for search profile)
-      ENABLE_CRITIC: ${ENABLE_CRITIC:-true}
       # Evaluation, used with nat eval workflow
       EVAL_LLM_JUDGE_NAME: ${EVAL_LLM_JUDGE_NAME}
       EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL:-http://vss-llm-nim:8000}

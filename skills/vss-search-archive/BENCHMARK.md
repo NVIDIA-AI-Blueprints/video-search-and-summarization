@@ -1,12 +1,14 @@
 # Evaluation Report
 
-Evaluation of the `vss-search-archive` skill before publication through NVSkills-Eval.
+Historical evaluation of `vss-search-archive` version 3.3.0 before publication
+through NVSkills-Eval. The current 3.4.0 skill and its six-step Harbor
+operational scenario have not been validated by this one-task run.
 
 This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the skill. The goal is to document whether the skill is safe, discoverable, effective, and useful for agents before it is published for broader workflow use.
 
 ## Evaluation Summary
 
-- Skill: `vss-search-archive`
+- Skill: `vss-search-archive` 3.3.0
 - Evaluation date: 2026-07-10
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`

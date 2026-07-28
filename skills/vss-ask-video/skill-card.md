@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill to ask the VSS agent's video_understanding tool a fresh visual question about a recorded clip. <br>
+Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions). <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers building video analytics applications who need to ask ad-hoc visual questions about recorded video clips using a vision language model through the VSS agent. <br>
+Developers and engineers building video analytics applications who need to ask ad-hoc visual questions about recorded video clips by calling a vision language model endpoint directly. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -27,7 +27,7 @@ Mitigation: Review and scan skill before deployment. <br>
 **Output Type(s):** [Analysis, API Calls] <br>
 **Output Format:** [Markdown with extracted VLM response text] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [Agent-think blocks are stripped from the VSS agent response before returning the final answer] <br>
+**Other Properties Related to Output:** [VLM reasoning (`<think>...</think>`) blocks are stripped before returning the final answer] <br>
 
 ## Evaluation Agents Used: <br>
 - Claude Code (`claude-code`) <br>

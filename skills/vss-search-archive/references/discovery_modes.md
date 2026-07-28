@@ -1,55 +1,91 @@
 # Examples of discovery modes
 
+For Docker Compose, run host-side
+`uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run`
+with `--deployment docker --profile search`. Resolve and validate
+`VSS_REPO_ROOT` first. Do not invoke it in a container or pod.
+
+For Kubernetes, translate the same controls into explicit natural-language
+constraints in `SEARCH_PROMPT` and send that prompt to
+`${VSS_PUBLIC_URL%/}/generate`. Do not invoke the Kubernetes CLI selector or
+start a port-forward. The snippets below show the controls that must be
+preserved on either path.
+
+The search command is retrieval-only. Inspect returned screenshots separately
+when the user requests or pre-authorizes visual verification.
+
 ## Wide-net discovery — cast the widest net, fast
 
-For exploratory searches when recall matters more than precision.
-Start broad (high result count e.g. 50–100, low similarity threshold e.g. 0.1, critic disabled exceptionally) then refine based on returned results.
+For exploratory searches when recall matters more than precision. Start broad with a high result count and low similarity threshold, then refine based on returned results.
 
 ```bash
-curl -s -X POST http://${HOST_IP}:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"input_message": "find unusual activity, return top 100 results, any similarity, disable critic"}' | jq .
+--query "find unusual activity" \
+  --source-type video_file \
+  --top-k 100 \
+  --min-cosine-similarity -1
 ```
 
 Typical follow-ups:
-- Take the most promising results and re-run with high-precision mode (higher similarity threshold, lower top_k to filter noise) 
-- Scope to cameras/time — if certain cameras or time windows surfaced interesting results, re-run narrowed to those specific video sources and time ranges
-- Search based on attributes — if a person of interest appeared in the results, follow up with an appearance-based query (e.g., "person wearing red jacket and blue jeans") to find other occurrences across cameras.
+- Take the most promising results and re-run with high-precision mode.
+- Scope to cameras/time — if certain cameras or time windows surfaced interesting results, re-run narrowed to those specific video sources and time ranges.
+- Search based on attributes — if a person of interest appeared in the results, follow up with `--search-mode attribute` or `--search-mode fusion` and `--attribute`.
 
 ## Narrow to specific cameras and/or time — scope to a known incident
 
-When the camera location and time window are known. Reduces search space and returns faster, more relevant results.
-
-Specify camera names as the video sources in the user input. Set explicit time range, keep critic enabled.
-For RTSP camera streams, use the RTSP `messages` + `search_source_type` request shape from the main SKILL.md instead of the `input_message` shortcut.
+When the camera location and time window are known, pass every known camera with `--video-source` and explicit ISO-8601 timestamps.
 
 ```bash
-curl -s -X POST http://${HOST_IP}:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"input_message": "find person carrying a box at loading_dock_cam and warehouse_entrance between 10pm and 6am"}' | jq .
+--query "person carrying a box" \
+  --source-type video_file \
+  --video-source loading_dock_cam \
+  --video-source warehouse_entrance \
+  --timestamp-start "2025-01-01T22:00:00" \
+  --timestamp-end "2025-01-02T06:00:00" \
+  --top-k 10
 ```
+
+For RTSP camera streams, set `--source-type rtsp`.
 
 ## High-precision search — raise the similarity bar
 
-When false positives are very costly (e.g., compliance audits, PPE verification) and there must be very low tolerance.
-Low result count, high similarity threshold (e.g. 0.5+) plus critic gives the tightest filter.
+When false positives are costly, use a lower result count and higher similarity threshold.
 
 ```bash
-curl -s -X POST http://${HOST_IP}:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"input_message": "find person wearing high-visibility vest, top 5 results, minimum similarity 0.5"}' | jq .
+--query "person wearing high-visibility vest" \
+  --source-type video_file \
+  --top-k 5 \
+  --min-cosine-similarity 0.5
+```
+
+## Attribute and fusion search — make decomposition explicit
+
+`vss search run` does not call NAT query decomposition. If the user request has appearance attributes and actions, pass them explicitly.
+
+```bash
+--query "person in a red jacket running" \
+  --source-type video_file \
+  --search-mode fusion \
+  --attribute "red jacket" \
+  --top-k 10
+```
+
+For attribute-only searches:
+
+```bash
+--query "person wearing a red jacket" \
+  --source-type video_file \
+  --search-mode attribute \
+  --attribute "red jacket" \
+  --top-k 10
 ```
 
 ## Metadata-based filtering — filter by camera tags
 
-Only useful when cameras are tagged with location or category metadata (e.g., "parking lot", "warehouse", "lobby"). Reduce pollution of the semantic search.
-
-When considering this mode, first check if cameras have metadata or tags set using the `vss-manage-video-io-storage` skill to list sensors and show their descriptions. If no tags exist, offer the user the option to add metadata tags via the `vss-manage-video-io-storage` skill before relying on this type of filtering.
-
-Mention the camera metadata tag (location, category) explicitly in the query. Can add other filters (camera names, time-ranges for further scoping etc.)
+Only useful when cameras are tagged with location or category metadata. First check whether cameras have metadata or tags using the `vss-manage-video-io-storage` skill. If no tags exist, offer to add metadata tags before relying on this filter.
 
 ```bash
-curl -s -X POST http://${HOST_IP}:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"input_message": "find person running, only from cameras tagged as parking lot, top 10 results"}' | jq .
+--query "person running" \
+  --source-type video_file \
+  --description "parking lot" \
+  --top-k 10
 ```

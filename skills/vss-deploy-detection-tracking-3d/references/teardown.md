@@ -50,7 +50,7 @@ docker system prune -f
 
 The shipped cleanup script drops data dirs the warehouse stack writes to (Elasticsearch indexes, Kafka logs, VST sensor state, etc.).
 
-**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from `.env`, so reverting them isn't needed; leaving the flag off can cause the script to revert generated/configured values, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
+**Pass `--skip-revert-from-oldest-backup`** so the script does not roll your `.env` and other configs back to their packaged backup snapshots. The configurator re-renders those files at next deploy from the stable `.env` plus active `generated.env`, so reverting them isn't needed; leaving the flag off can cause the script to revert generated/configured values, lose `VSS_DATA_DIR`, and then no-op the data_log deletes without any error.
 
 ```bash
 bash "${VSS_APPS_DIR}/scripts/cleanup_all_datalog.sh" \
@@ -74,16 +74,16 @@ If you see multi-GB sizes after Step 3, the deletes did not take effect. Confirm
 
 ## Step 4 — Tear down AMC (only if you deployed it standalone)
 
-If [`calibration-workflow.md`](calibration-workflow.md) deployed `auto_calib` separately and you didn't tear it down already, do it now:
+If [`calibration-workflow.md`](calibration-workflow.md) deployed the standalone AMC service list separately and you didn't tear it down already, do it now:
 
 ```bash
 cd "${VSS_APPS_DIR}"
-COMPOSE_PROFILES=auto_calib docker compose \
+COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose \
   --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env \
   down
 ```
 
-Normal MV3DT profiles (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`) do not include AMC. Auto-calibration warehouse profiles use `bp_wh_auto_calib_*`; if AMC is still running after the MV3DT teardown, use the command above.
+Normal MV3DT variants (`BP_PROFILE=bp_wh_kafka` / `bp_wh_redis`, `MODE=mv3dt`) do not include AMC. Warehouse auto-calibration (`BP_PROFILE=bp_wh_auto_calib`) does; if AMC is still running after the MV3DT teardown, use the command above.
 
 ## What is preserved across teardown
 
@@ -95,7 +95,7 @@ These are intentionally not deleted:
 
 What is **not** preserved (be aware):
 
-- **Configurator-rendered configs** under `warehouse-mv3dt-app/{vst,nvstreamer,deepstream,vss-behavior-analytics}/configs/` and `services/analytics/video-analytics-api/configs/` — these are re-rendered on next deploy from `.env`, so this is normally fine, but any hand-edits you made between deploys will be overwritten.
+- **Configurator-rendered configs** under `warehouse-mv3dt-app/{vst,nvstreamer,deepstream,vss-behavior-analytics}/configs/` and `services/analytics/video-analytics-api/configs/` — these are re-rendered on next deploy from `.env` plus `generated.env`, so this is normally fine, but any hand-edits you made between deploys will be overwritten.
 - **`.env` if you omit `--skip-revert-from-oldest-backup` in Step 3** — the cleanup script will roll `.env` back to its packaged snapshot (placeholders for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, `NGC_CLI_API_KEY`). With the flag set as shown above, `.env` is untouched.
 
 ## Nuke option (you're really sure)
@@ -139,6 +139,6 @@ Don't run this if you have AMC project state or custom calibration you want to k
 
 ## After teardown — common next steps
 
-- Edit `.env` and redeploy: [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
+- Edit the active `generated.env` and redeploy: [`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md).
 - Re-calibrate from scratch: walk [`calibration-workflow.md`](calibration-workflow.md) again.
 - Switch to the full warehouse blueprint (with agents / ELK): [`../../vss-deploy-profile/references/warehouse.md`](../../vss-deploy-profile/references/warehouse.md).

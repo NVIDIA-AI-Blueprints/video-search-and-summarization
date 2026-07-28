@@ -134,6 +134,33 @@ jobs:
             -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}" \
             $YAML_FILES
 
+  codec-installer-test:
+    name: Validate codec artifacts
+    needs: prepare-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Validate codec installers
+        run: |
+          EMBED_INSTALLER=services/rtvi/rt-embed/src/scripts/install_codecs_nonroot.sh
+          VLM_INSTALLER=services/rtvi/rt-vlm/src/scripts/install_codecs_nonroot.sh
+          bash -n "$EMBED_INSTALLER"
+          bash -n "$VLM_INSTALLER"
+          cmp "$EMBED_INSTALLER" "$VLM_INSTALLER"
+          CODEC_VALIDATE_ONLY=true bash "$EMBED_INSTALLER"
+          CODEC_VALIDATE_ONLY=true CODEC_DEB_ARCH=arm64 bash "$EMBED_INSTALLER"
+
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)
   # ---------------------------------------------------------------------------
@@ -176,10 +203,10 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: mypy
-        run: uv run mypy src/vss_agents/
+        run: uv run mypy packages/vss_agents/src/vss_agents
 
   # ---------------------------------------------------------------------------
   # Job 3: Python tests (pytest + coverage)
@@ -223,16 +250,26 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: pytest
         timeout-minutes: 10
         run: |
           uv run pytest \
-            --cov=src/vss_agents \
+            --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"
+
+      - name: Video summarization contracts
+        working-directory: ${{ github.workspace }}
+        run: |
+          uv run --project services/agent pytest \
+            .github/skill-eval/tests/test_generic_judge_trajectory_guidance.py \
+            .github/skill-eval/tests/test_lvs_deployment_config.py \
+            .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
+            .github/skill-eval/tests/test_vss_summarize_model_selection.py \
+            -q
 
       - name: Upload coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -242,7 +279,105 @@ jobs:
           path: services/agent/coverage.xml
 
   # ---------------------------------------------------------------------------
-  # Job 4: Security scanning (detect-secrets)
+  # Job 4: NAT-free base distribution (lib + vss CLI) build and tests.
+  # Installs only the base `nvidia-vss` dependencies + the cli-dev tool group, so this
+  # lane proves the host CLI surface never grows a NAT/torch dependency.
+  # ---------------------------------------------------------------------------
+  vss-cli-test:
+    name: Test (vss-cli)
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/agent
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.6.2"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Build and test NAT-free base distribution
+        run: |
+          uv sync --frozen --no-dev --group cli-dev --extra cli
+          uv run --no-sync mypy \
+            packages/vss_core/src/vss_core/_foundation \
+            packages/vss_core/src/vss_core/critic \
+            packages/vss_core/src/vss_core/search_core \
+            packages/vss_core/src/vss_core/vlm \
+            packages/vss_core/src/vss_core/vst \
+            packages/vss_cli/src/vss_cli
+          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv run --no-sync python ../../.github/scripts/test_license_diff_csv.py
+          rm -rf dist
+          uv build --package nvidia-vss-core
+          uv build --package nvidia-vss-cli
+
+      - name: Smoke-test built wheel in a clean environment
+        run: |
+          rm -rf .wheel-smoke
+          uv venv --python 3.13 .wheel-smoke
+          set -- dist/nvidia_vss_core-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          core_whl="$1"
+          set -- dist/nvidia_vss_cli-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          cli_whl="$1"
+          uv pip install --python .wheel-smoke/bin/python --no-cache "$core_whl" "$cli_whl"
+          uv pip check --python .wheel-smoke/bin/python
+          .wheel-smoke/bin/python - <<'PY'
+          import importlib.util
+          from importlib import metadata
+
+          import vss_core
+          import vss_cli
+          import vss_core.critic
+          import vss_core.search_core
+          import vss_core.vlm
+          import vss_core.vst
+
+          installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
+          assert "nvidia-vss-core" in installed
+          assert "nvidia-vss-cli" in installed
+          assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
+          # The base (core + cli) install must never pull the NAT/torch stack
+          # nor the agent distribution.
+          assert installed.isdisjoint({"nvidia-nat", "nvidia-nat-core", "torch", "langchain-core", "nvidia-vss-agents"})
+          assert importlib.util.find_spec("nat") is None
+          assert importlib.util.find_spec("torch") is None
+          assert importlib.util.find_spec("vss_agents") is None
+          assert vss_core.critic is not None and vss_core.search_core is not None
+          assert vss_core.vlm is not None and vss_core.vst is not None
+          PY
+          .wheel-smoke/bin/vss --help >/dev/null
+
+      - name: Upload lib coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: vss-cli-coverage-report
+          path: services/agent/coverage-lib.xml
+
+  # ---------------------------------------------------------------------------
+  # Job 5: Security scanning (detect-secrets)
   # ---------------------------------------------------------------------------
   security:
     name: Security Scan (detect-secrets)
@@ -660,6 +795,9 @@ jobs:
     needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
     env:
       NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
     steps:
@@ -684,6 +822,14 @@ jobs:
             || fail "build-time codec guard missing"
           echo "OK: Dockerfile removes bundled codecs and enforces the build-time guard."
 
+      # The committed deploy coordinate may target GHCR or NGC.
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # NGC_CLI_API_KEY lets us pull the published agent image from nvcr.io.
       - name: Log in to NGC
         if: ${{ env.NGC_CLI_API_KEY != '' }}
@@ -698,12 +844,106 @@ jobs:
       # the docker pull would fail. The always-on unit test + Dockerfile assertion
       # above, plus the Dockerfile build-time guard in the gated publish build,
       # keep enforcing the policy when this scan is skipped.
+      # PR mirrors publish only pr-<N>-* candidates; develop-latest is created
+      # after merge, so the committed deploy coordinate is not pullable yet.
       - name: Scan the deployed agent image for patent-encumbered codecs
-        if: ${{ env.NGC_CLI_API_KEY != '' }}
+        if: ${{ env.NGC_CLI_API_KEY != '' && !startsWith(github.ref_name, 'pull-request/') }}
         run: python3 .github/scripts/check_no_patented_codecs.py --from-deploy vss-agent
 
   # ---------------------------------------------------------------------------
-  # Job 12: Trigger downstream pipeline and poll it to completion
+  # Job 11c: Container coordinates golden test (containers.env SSOT)
+  # Guards the single source of truth for first-party image coordinates:
+  # (1) unit-test the resolver, (2) prove every resolved compose image ref
+  # matches the checked-in golden file, and (3) prove containers.env cannot
+  # drift from the inline compose defaults. Pure Python, no registry access.
+  # ---------------------------------------------------------------------------
+  compose-golden:
+    name: Container Coordinates Golden
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Unit-test static CI and deployment guards
+        run: |
+          python3 .github/scripts/test_agent_config_defaults.py
+          python3 .github/scripts/test_compose_image_golden.py
+          python3 .github/scripts/test_helm_release_channel_policy.py
+          python3 .github/scripts/test_diagnose_sonarqube_failure.py
+
+      - name: Unit-test the release-set tooling
+        run: python3 .github/scripts/test_release_set.py
+
+      - name: Unit-test the build change detection
+        run: |
+          python3 .github/scripts/test_detect_changed_images.py
+          python3 .github/scripts/test_container_build_plan.py
+
+      - name: Unit-test the downstream GHCR candidate reporter
+        run: |
+          python3 .github/scripts/test_update_pr_ghcr_candidates.py
+          python3 .github/scripts/test_prepare_downstream_release_set.py
+          python3 .github/scripts/test_prepare_nightly_promotion.py
+          python3 .github/scripts/test_prepare_promotion_trigger.py
+          python3 .github/scripts/test_trigger_downstream_pipeline.py
+          python3 .github/scripts/test_advance_ghcr_alias.py
+
+      - name: Unit-test the GHCR immutability/provenance guard
+        run: python3 .github/scripts/test_ghcr_image_guard.py
+
+      - name: Unit-test the last-green channel controller
+        run: python3 .github/scripts/test_last_green.py
+
+      - name: Verify resolved image refs match the golden file
+        run: python3 .github/scripts/compose_image_golden.py
+
+      - name: Verify profile dependency closure over the container inventory
+        run: python3 .github/scripts/release_set.py closure
+
+  # ---------------------------------------------------------------------------
+  # Job 12: Wait for this commit's separate Build Dev Images workflow
+  # ---------------------------------------------------------------------------
+  # GitHub Actions cannot express `needs` across workflow files. Treat the
+  # successful release-set artifact as the completion signal, then pass that
+  # exact artifact to the downstream trigger job.
+  wait-for-build-dev-images:
+    name: Wait for Build Dev Images
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    outputs:
+      has-ghcr-build-entries: ${{ steps.release-set.outputs.has_ghcr_build_entries }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Wait for successful GHCR release set
+        id: release-set
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/prepare_downstream_release_set.py \
+            --attempts 520 \
+            --interval-seconds 15 \
+            --release-set-output downstream-release-set.json
+
+      - name: Upload downstream release-set handoff
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: downstream-release-set
+          path: downstream-release-set.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Job 13: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
@@ -715,6 +955,7 @@ jobs:
     needs:
       - prepare-source
       - lint
+      - codec-installer-test
       - typecheck
       - security
       - frontend-lint
@@ -723,18 +964,24 @@ jobs:
       - license-check-python
       - license-check-ui
       - folder-structure
+      - wait-for-build-dev-images
+    if: >-
+      success() &&
+      needs.wait-for-build-dev-images.outputs.has-ghcr-build-entries == 'true'
     runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
     # (+ a small safety buffer).
-    timeout-minutes: 245
+    timeout-minutes: 310
     permissions:
+      actions: read
       contents: read
-      # Needed so the trigger script can call the GitHub REST API to
-      # resolve the PR's base branch (only present on `pull_request`
-      # events, not on the `push` event used for `pull-request/<N>`
-      # synthetic refs created by copy-pr-bot).
-      pull-requests: read
+      # Needed so the trigger script can resolve the PR's base branch and
+      # the candidate reporter can update the validated-image PR comment.
+      # The workflow runs on `pull-request/<N>` synthetic push refs created
+      # by copy-pr-bot rather than on a `pull_request` event.
+      pull-requests: write
+      issues: write
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
@@ -755,11 +1002,24 @@ jobs:
           mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
           rm -rf .source-artifact
 
+      - name: Download completed GHCR release set
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: downstream-release-set
+          path: .downstream-release-set
+
+      - name: Prepare GHCR release-set handoff
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python3 .github/scripts/prepare_downstream_release_set.py
+          --release-set .downstream-release-set/downstream-release-set.json
+
       - name: Trigger pipeline
         id: trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+        run: python3 .github/scripts/trigger_downstream_pipeline.py
 
       - name: Poll pipeline
         env:
@@ -768,3 +1028,9 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+      - name: Update PR with downstream-validated GHCR candidates
+        if: startsWith(github.ref_name, 'pull-request/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/update_pr_ghcr_candidates.py

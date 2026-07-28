@@ -91,6 +91,7 @@ int getPrefixLength(const string& netmask);
 string getNetmaskFromPrefixLen(const int& prefixLength);
 Json::Value loadVmsConfig();
 Json::Value loadStorageConfig(const string& storage_config_file_path);
+Json::Value loadNotificationConfig(const string& notification_config_file_path);
 Json::Value scanCameraBackList();
 Json::Value  getAdaptorInfo();
 string getMediaAdaptorLibPath();

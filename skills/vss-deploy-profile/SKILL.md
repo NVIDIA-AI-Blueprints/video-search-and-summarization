@@ -228,44 +228,11 @@ Unexpanded `${VAR}` tokens in `resolved.yml` mean compose did not see those env 
 
 ### Step 3c — Verify access to selected NGC artifacts
 
-Do this after `resolved.yml` exists and before `docker compose up`. The NGC
-token probe in Step 0a proves only that the key authenticates; it does not
-prove the key's org/team can access the selected image or model repositories.
-
-Build the artifact list from the actual selected deployment:
-
-- `resolved.yml`: every `image:` under `nvcr.io/...` that Compose will pull.
-- `$ENV_GEN`: NGC-backed model/resource paths such as
-  `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`. Skip
-  `none`, `git:...`, local paths, and remote endpoint URLs.
-- Profile staging steps: any NGC model/resource downloads documented in the
-  profile reference, such as alerts/search perception model staging.
-
-Probe each selected artifact with the normalized NGC key before continuing:
-
-- Container images: `docker manifest inspect <nvcr.io/...>` after `docker
-  login nvcr.io` — for gated `nvcr.io` repos a `401`/`403` here is a definitive
-  no-entitlement signal (manifest read requires the same org/team grant as the
-  layer pull); or the matching `ngc registry image info ...` when the artifact
-  maps cleanly to an NGC image path.
-- NGC model/resource paths (e.g. the Cosmos checkpoint RT-VLM downloads at
-  runtime): run the matching `ngc registry model info ...` or `ngc registry
-  resource info ...` for the exact repo/tag the profile will load or download;
-  these use NGC's scoped auth. Do NOT probe a model with `docker manifest
-  inspect` (returns "no such manifest" because a model is not an OCI image) or a
-  raw `Authorization: Bearer <key>` REST call (returns `403` because that is not
-  NGC's auth flow); both are expected false negatives, not entitlement failures.
-  If the `ngc` CLI is unavailable, treat the container-image probe above as the
-  entitlement signal, since NGC grants org/team access across images and models
-  together.
-- Profile-staged TAO/perception models: run the corresponding `ngc registry
-  model info ...` / `resource info ...` for each repo/tag before the staging
-  block downloads files.
-
-If any probe returns `401`, `403`, `permission`, `not being a member of the
-organization that owns the repo`, missing org/repo, or a similar access error,
-stop and prompt the user for an NGC key from an org/team entitled to those
-artifacts. Do not start Compose and discover the failure during NIM cold start.
+After `resolved.yml` exists and before Compose starts, follow
+[`references/credentials.md` § Artifact Entitlement Probes](references/credentials.md#artifact-entitlement-probes).
+Verify every selected container image, NGC model/resource path, and
+profile-staged artifact. Authentication alone does not prove repository
+entitlement. Any access failure is a blocker; do not start Compose.
 
 ### Step 3d — Strip dangling optional `depends_on` from resolved.yml
 

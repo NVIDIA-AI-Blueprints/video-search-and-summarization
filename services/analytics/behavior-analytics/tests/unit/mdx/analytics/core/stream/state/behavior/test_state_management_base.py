@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtEWithTripwire
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import (
+    Bbox,
     Behavior,
     Coordinate,
     Message,
@@ -78,6 +79,8 @@ class TestStateMgmtBaseLogic:
                 type="vehicle",
                 confidence=0.9,
                 coordinate=Coordinate(x=x, y=y),
+                # Encode x/y into the bbox so per-frame bbox alignment with points is assertable.
+                bbox=Bbox(leftX=x, topY=y, rightX=x + 1.0, bottomY=y + 1.0),
             ),
             place=Place(id="place1", name="test_place"),
         )
@@ -346,6 +349,67 @@ class TestStateMgmtBaseLogic:
         assert behavior.end == base + timedelta(seconds=1)
         assert len(behavior.locations.coordinates) >= 1
         assert len(trip_behavior.locations.coordinates) >= 1
+
+    # --- Per-frame bbox storage (aligned 1:1 with points) ---
+    def test_bboxes_align_with_points_and_trip_carries_them(self, state_mgmt):
+        """New state stores a bbox per point; the trip behavior carries them as locationsBboxes."""
+        message_key = "sensor1_obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+        messages = [
+            self._make_message(f"m{i}", "sensor1", base + timedelta(seconds=i), float(i), float(i))
+            for i in range(4)
+        ]
+        _, trip_behavior = state_mgmt.update_behavior(message_key, messages)
+
+        state = state_mgmt.state[message_key]
+        # bboxes stay 1:1 with points (leftX encodes each point's x).
+        assert len(state.bboxes) == len(state.points)
+        assert [b.leftX for b in state.bboxes] == [p.x for p in state.points]
+        assert len(state.lastXbboxes) == len(state.lastXpoints)
+        # The trip behavior carries per-frame bboxes aligned with its locations (internal-only field).
+        assert len(trip_behavior.locationsBboxes) == len(trip_behavior.locations.coordinates)
+        assert [b.leftX for b in trip_behavior.locationsBboxes] == [
+            c.point[0] for c in trip_behavior.locations.coordinates
+        ]
+
+    def test_bboxes_stay_aligned_through_halving(self, state_mgmt, full_config):
+        """Halving decimates bboxes with the same [::2] stride as points, preserving alignment."""
+        full_config.behavior_max_points = 5
+        message_key = "sensor1_obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        state_mgmt.update_behavior(message_key, [
+            self._make_message(f"m{i}", "sensor1", base + timedelta(seconds=i), float(i), 0.0)
+            for i in range(6)
+        ])
+        state = state_mgmt.state[message_key]
+        # One more in-order msg → points=7, triggers halving → sampling=2.
+        state_mgmt.update_behavior(message_key, [
+            self._make_message("m6", "sensor1", base + timedelta(seconds=6), 6.0, 0.0)
+        ])
+        assert state.sampling == 2
+        assert len(state.bboxes) == len(state.points)
+        assert [b.leftX for b in state.bboxes] == [p.x for p in state.points]
+
+    def test_bboxes_stay_aligned_through_tolerance_insert(self, state_mgmt, full_config):
+        """A tolerance-window bbox is inserted at the same index as its point, preserving order."""
+        full_config.behavior_state_end_tolerance_sec = 2.0
+        message_key = "sensor1_obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        state_mgmt.update_behavior(message_key, [
+            self._make_message("m1", "sensor1", base, 0.0, 0.0),
+            self._make_message("m2", "sensor1", base + timedelta(seconds=1), 10.0, 0.0),
+            self._make_message("m3", "sensor1", base + timedelta(seconds=2), 20.0, 0.0),
+        ])
+        state = state_mgmt.state[message_key]
+        state_mgmt.update_behavior(message_key, [
+            self._make_message("m_late", "sensor1", base + timedelta(seconds=1, milliseconds=500), 15.0, 0.0),
+            self._make_message("m_new", "sensor1", base + timedelta(seconds=3), 30.0, 0.0),
+        ])
+        # Points are chronologically ordered; bboxes follow the same order (leftX encodes x).
+        assert [p.x for p in state.points] == [0.0, 10.0, 15.0, 20.0, 30.0]
+        assert [b.leftX for b in state.bboxes] == [0.0, 10.0, 15.0, 20.0, 30.0]
 
     # --- Cross-batch 1-in-N sampling (sample_phase persists across batches) ---
     def test_sample_phase_persists_across_batches(self, state_mgmt):

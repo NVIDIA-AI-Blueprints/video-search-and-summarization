@@ -28,17 +28,17 @@ PROFILE2=${2:-kafka}  # Use second argument or default to kafka
 MODE=${3:-dev}  # Use third argument or default to dev
 
 # Validate profile1, profile2 and mode
-if [ "$PROFILE1" != "warehouse_2d" ] && [ "$PROFILE1" != "warehouse_3d" ] && [ "$PROFILE1" != "smart_city" ]; then
+if [[ "$PROFILE1" != "warehouse_2d" ]] && [[ "$PROFILE1" != "warehouse_3d" ]] && [[ "$PROFILE1" != "smart_city" ]]; then
     echo "Invalid profile1: $PROFILE1. Must be 'warehouse_2d', 'warehouse_3d', or 'smart_city'"
     exit 1
 fi
 
-if [ "$PROFILE2" != "kafka" ] && [ "$PROFILE2" != "redis" ] && [ "$PROFILE2" != "mqtt" ]; then
+if [[ "$PROFILE2" != "kafka" ]] && [[ "$PROFILE2" != "redis" ]] && [[ "$PROFILE2" != "mqtt" ]]; then
     echo "Invalid profile2: $PROFILE2. Must be 'kafka', 'redis' or 'mqtt'"
     exit 1
 fi
 
-if [ "$MODE" != "dev" ] && [ "$MODE" != "prod" ]; then
+if [[ "$MODE" != "dev" ]] && [[ "$MODE" != "prod" ]]; then
     echo "Invalid mode: $MODE. Must be 'dev' or 'prod'"
     exit 1
 fi
@@ -59,17 +59,27 @@ echo "Building Docker image..."
 # Set timeout for docker build (10 minutes)
 BUILD_TIMEOUT=900
 
-if timeout $BUILD_TIMEOUT docker build -t py-behavior-analytics -f docker/Dockerfile . > /dev/null 2>&1; then
+# In network-restricted CI environments github.com is unreachable, so the
+# opencv-source-build stage (which clones from GitHub) cannot run.  When the
+# standard CI=true variable is present, switch to the PyPI-based provider
+# which downloads the pre-built wheel from PyPI instead.
+OPENCV_BUILD_ARG=""
+if [[ -n "${CI:-}" ]]; then
+    OPENCV_BUILD_ARG="--build-arg OPENCV_PROVIDER=opencv-pypi-build"
+    echo "CI environment detected: using PyPI opencv wheel (OPENCV_PROVIDER=opencv-pypi-build)"
+fi
+
+if timeout $BUILD_TIMEOUT docker build $OPENCV_BUILD_ARG -t py-behavior-analytics -f docker/Dockerfile . > /dev/null 2>&1; then
     echo "✓ Docker build completed successfully"
 else
     EXIT_CODE=$?
-    if [ $EXIT_CODE -eq 124 ]; then
+    if [[ $EXIT_CODE -eq 124 ]]; then
         echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
     else
         echo "✗ Docker build failed"
     fi
     # Show the error by running the command again without suppressing output (with shorter timeout)
-    timeout $BUILD_TIMEOUT docker build -t py-behavior-analytics -f docker/Dockerfile .
+    timeout $BUILD_TIMEOUT docker build $OPENCV_BUILD_ARG -t py-behavior-analytics -f docker/Dockerfile .
     exit 1
 fi
 
@@ -78,17 +88,9 @@ echo "Starting Docker Compose services..."
 
 # Compose command base (same for build and up)
 COMPOSE_BASE="docker compose -f infra/compose.yml -f apps/mdx-apps.yml"
-if [ "$STREAMING_SERVICE" != "kafka" ]; then
+if [[ "$STREAMING_SERVICE" != "kafka" ]]; then
     COMPOSE_BASE="$COMPOSE_BASE --profile $STREAMING_SERVICE"
 fi
-
-# Pre-build elasticsearch-init so it does not block compose up (often slow/hanging in CI)
-echo "Pre-building elasticsearch-init-container (timeout 600s)..."
-if ! timeout 600 $COMPOSE_BASE build elasticsearch-init-container; then
-    echo "✗ Pre-build of elasticsearch-init-container failed or timed out"
-    exit 1
-fi
-echo "✓ elasticsearch-init-container image ready"
 
 COMPOSE_CMD="$COMPOSE_BASE up -d --build --force-recreate"
 
@@ -119,18 +121,18 @@ if kill -0 $COMPOSE_PID 2>/dev/null; then
     wait $COMPOSE_PID 2>/dev/null
     COMPOSE_EXIT=1
 fi
-if [ $COMPOSE_EXIT -eq 0 ]; then
+if [[ $COMPOSE_EXIT -eq 0 ]]; then
     echo "✓ Docker Compose started successfully"
 else
-    if [ $TIMED_OUT -eq 1 ]; then
+    if [[ $TIMED_OUT -eq 1 ]]; then
         echo "✗ Docker Compose timed out after $COMPOSE_TIMEOUT seconds"
     else
         echo "✗ Docker Compose failed to start (exit $COMPOSE_EXIT)"
     fi
     # Call the cleanup function based on mode
-    if [ "$MODE" = "prod" ]; then
+    if [[ "$MODE" = "prod" ]]; then
         cleanup_docker_environment
-        if [ $? -ne 0 ]; then
+        if [[ $? -ne 0 ]]; then
             echo "✗ Docker cleanup failed"
         fi
     else
@@ -174,11 +176,11 @@ case $PROFILE1 in
 esac
 
 # Determine expected process count based on profiles
-if [ "$PROFILE1" = "warehouse_2d" ] && [ "$PROFILE2" = "kafka" ]; then
+if [[ "$PROFILE1" = "warehouse_2d" ]] && [[ "$PROFILE2" = "kafka" ]]; then
     EXPECTED_COUNT=5  # Main process + 4 workers
-elif [ "$PROFILE1" = "smart_city" ] && ( [ "$PROFILE2" = "redis" ] || [ "$PROFILE2" = "mqtt" ] ); then
+elif [[ "$PROFILE1" = "smart_city" ]] && ( [[ "$PROFILE2" = "redis" ]] || [[ "$PROFILE2" = "mqtt" ]] ); then
     EXPECTED_COUNT=2
-elif [ "$PROFILE1" = "warehouse_3d" ]; then
+elif [[ "$PROFILE1" = "warehouse_3d" ]]; then
     EXPECTED_COUNT=4  # Main process + 3 workers
 else
     EXPECTED_COUNT=3  # Main process + 2 workers
@@ -186,11 +188,11 @@ fi
 
 echo "Expected $EXPECTED_COUNT processes for $PROFILE1 with $PROFILE2"
 
-if [ "$WORKER_COUNT" -ne "$EXPECTED_COUNT" ]; then
+if [[ "$WORKER_COUNT" -ne "$EXPECTED_COUNT" ]]; then
     echo "✗ Process count mismatch: expected $EXPECTED_COUNT but found $WORKER_COUNT"
-    if [ "$MODE" = "prod" ]; then
+    if [[ "$MODE" = "prod" ]]; then
         cleanup_docker_environment
-        if [ $? -ne 0 ]; then
+        if [[ $? -ne 0 ]]; then
             echo "✗ Docker cleanup failed"
         fi
     else
@@ -211,13 +213,13 @@ PLAYBACK_GRACE_SEC=60
 deadline=$(( $(date +%s) + PLAYBACK_WAIT_DEADLINE_SEC ))
 while true; do
     status=$(docker inspect --format '{{.State.Status}}' mdx-analytics-playback 2>/dev/null || echo "missing")
-    if [ "$status" = "exited" ]; then
+    if [[ "$status" = "exited" ]]; then
         echo "✓ mdx-analytics-playback exited"
         break
     fi
-    if [ "$(date +%s)" -ge "$deadline" ]; then
+    if [[ "$(date +%s)" -ge "$deadline" ]]; then
         echo "✗ mdx-analytics-playback did not exit within ${PLAYBACK_WAIT_DEADLINE_SEC}s (last status: $status)"
-        if [ "$MODE" = "prod" ]; then
+        if [[ "$MODE" = "prod" ]]; then
             cleanup_docker_environment
         fi
         exit 1
@@ -254,59 +256,57 @@ get_data_types_for_profile() {
 extract_data_type() {
     local data_type=$1
     local elasticsearch_index=""
-    local limit_params=""
-    
+    local dump_args=()
+
     case $data_type in
         "mdx-raw-data.json")
             elasticsearch_index="mdx-raw*"
-            limit_params="--limit=1000 --scrollTime=10m"
+            dump_args=(--scroll 10m)
             ;;
         "mdx-frames-data.json")
             elasticsearch_index="mdx-frames*"
-            limit_params="--limit=1000 --scrollTime=10m"
+            dump_args=(--scroll 10m)
             ;;
         "mdx-behavior-data.json")
             elasticsearch_index="mdx-behavior*"
-            limit_params=""
             ;;
         "mdx-events-data.json")
             elasticsearch_index="mdx-events*"
-            limit_params=""
             ;;
         "mdx-alerts-data.json")
             elasticsearch_index="mdx-alerts*"
-            limit_params=""
             ;;
         "mdx-incidents-data.json")
             elasticsearch_index="mdx-incidents*"
-            limit_params=""
             ;;
         "mdx-space-utilization-data.json")
             elasticsearch_index="mdx-space-utilization*"
-            limit_params=""
             ;;
         *)
             echo "Unknown data type: $data_type"
             return 1
             ;;
     esac
-    
+
     echo "Extracting $data_type from $elasticsearch_index..."
-    # Set timeout for elasticdump (3 minutes)
     ELASTICDUMP_TIMEOUT=180
-    # Use npx to run elasticdump without requiring global installation
-    ELASTICDUM_OUTPUT=$(timeout $ELASTICDUMP_TIMEOUT npx --yes elasticdump --input=http://localhost:9200/$elasticsearch_index --output=tests/integration/docker_compose/apps_data/data_log/tmp/$data_type --type=data $limit_params 2>&1)
+    ELASTICDUMP_OUTPUT=$(
+        timeout "$ELASTICDUMP_TIMEOUT" python3 tests/integration/dump_es_data.py \
+            --index "$elasticsearch_index" \
+            --output "tests/integration/docker_compose/apps_data/data_log/tmp/$data_type" \
+            "${dump_args[@]}" 2>&1
+    )
     EXIT_CODE=$?
-    
-    if [ $EXIT_CODE -eq 0 ]; then
+
+    if [[ $EXIT_CODE -eq 0 ]]; then
         echo "✓ $data_type extraction complete"
         return 0
-    elif [ $EXIT_CODE -eq 124 ]; then
+    elif [[ $EXIT_CODE -eq 124 ]]; then
         echo "✗ $data_type extraction timed out after $ELASTICDUMP_TIMEOUT seconds"
         return 1
     else
         echo "✗ $data_type extraction failed:"
-        echo "$ELASTICDUM_OUTPUT"
+        echo "$ELASTICDUMP_OUTPUT"
         return 1
     fi
 }
@@ -323,11 +323,11 @@ for data_type in $DATA_TYPES_TO_DUMP; do
     fi
 done
 
-if [ "$EXTRACTION_FAILED" = true ]; then
+if [[ "$EXTRACTION_FAILED" = true ]]; then
     echo "✗ Some data extractions failed"
-    if [ "$MODE" = "prod" ]; then
+    if [[ "$MODE" = "prod" ]]; then
         cleanup_docker_environment
-        if [ $? -ne 0 ]; then
+        if [[ $? -ne 0 ]]; then
             echo "✗ Docker cleanup failed"
         fi
     else
@@ -345,9 +345,35 @@ COMPARISON_OUTPUTS=()
 COMPARISON_RESULTS=()
 for data_type in $DATA_TYPES; do
     echo "Comparing $data_type..."
-    COMPARISON_OUTPUT=$(python3 tests/integration/docker_compose/infra/scripts/compare_mdx_data.py tests/integration/expected_output/$APP_NAME$APP_MODE/$data_type tests/integration/docker_compose/apps_data/data_log/tmp/$data_type 2>&1)
+    BASELINE_FILE="tests/integration/expected_output/$APP_NAME$APP_MODE/$data_type"
+    EXTRACTED_FILE="tests/integration/docker_compose/apps_data/data_log/tmp/$data_type"
+
+    if [[ ! -f "$BASELINE_FILE" ]]; then
+        echo "✗ $data_type comparison failed: missing baseline $BASELINE_FILE"
+        COMPARISON_OUTPUTS+=("Missing baseline file: $BASELINE_FILE")
+        COMPARISON_RESULTS+=("fail")
+        continue
+    fi
+
+    if [[ ! -f "$EXTRACTED_FILE" ]]; then
+        echo "✗ $data_type comparison failed: missing extracted data $EXTRACTED_FILE"
+        COMPARISON_OUTPUTS+=("Missing extracted file: $EXTRACTED_FILE")
+        COMPARISON_RESULTS+=("fail")
+        continue
+    fi
+
+    BASELINE_LINES=$(wc -l < "$BASELINE_FILE")
+    EXTRACTED_LINES=$(wc -l < "$EXTRACTED_FILE")
+    if [[ "$EXTRACTED_LINES" -lt "$BASELINE_LINES" ]]; then
+        echo "✗ $data_type comparison failed: extracted has $EXTRACTED_LINES records, baseline has $BASELINE_LINES"
+        COMPARISON_OUTPUTS+=("Record count mismatch: extracted=$EXTRACTED_LINES baseline=$BASELINE_LINES")
+        COMPARISON_RESULTS+=("fail")
+        continue
+    fi
+
+    COMPARISON_OUTPUT=$(python3 tests/integration/docker_compose/infra/scripts/compare_mdx_data.py "$BASELINE_FILE" "$EXTRACTED_FILE" 2>&1)
     COMPARISON_OUTPUTS+=("$COMPARISON_OUTPUT")
-    
+
     if echo "$COMPARISON_OUTPUT" | tail -1 | grep -q "pass"; then
         echo "✓ $data_type comparison passed"
         COMPARISON_RESULTS+=("pass")
@@ -360,13 +386,13 @@ done
 # Check overall test result
 ALL_PASSED=true
 for result in "${COMPARISON_RESULTS[@]}"; do
-    if [ "$result" = "fail" ]; then
+    if [[ "$result" = "fail" ]]; then
         ALL_PASSED=false
         break
     fi
 done
 
-if [ "$ALL_PASSED" = true ]; then
+if [[ "$ALL_PASSED" = true ]]; then
     COMPARISON_RESULT="pass"
 else
     COMPARISON_RESULT="fail"
@@ -378,11 +404,11 @@ else
 fi
 
 # Exit with appropriate code based on test result
-if [ "$COMPARISON_RESULT" = "fail" ]; then
+if [[ "$COMPARISON_RESULT" = "fail" ]]; then
     echo "❌ Test FAILED for $PROFILE1 $PROFILE2"
-    if [ "$MODE" = "prod" ]; then
+    if [[ "$MODE" = "prod" ]]; then
         cleanup_docker_environment
-        if [ $? -ne 0 ]; then
+        if [[ $? -ne 0 ]]; then
             echo "Docker cleanup failed"
         fi
     else
@@ -392,7 +418,7 @@ if [ "$COMPARISON_RESULT" = "fail" ]; then
 else
     echo "✅ Test PASSED for $PROFILE1 $PROFILE2"
     cleanup_docker_environment
-    if [ $? -ne 0 ]; then
+    if [[ $? -ne 0 ]]; then
         echo "Docker cleanup failed"
         exit 1
     fi

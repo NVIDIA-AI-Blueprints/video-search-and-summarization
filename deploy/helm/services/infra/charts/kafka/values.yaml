@@ -16,7 +16,7 @@
 replicas: 1
 image:
   repository: confluentinc/cp-kafka
-  tag: "8.2.0"
+  tag: "8.3.0"
   pullPolicy: IfNotPresent
 nodeId: "1"
 brokerId: "1"
@@ -80,7 +80,7 @@ podSecurityContext:
 
 topicJob:
   enabled: true
-  ttlSecondsAfterFinished: 300
+  ttlSecondsAfterFinished: null
   backoffLimit: 10
   # Empty: inherits kafka.nodeSelector from the Job template coalesce.
   nodeSelector: {}

@@ -54,7 +54,7 @@ for a detailed layout + data-flow diagram).
 | `src/vlm/` | VLM client (OpenAI-compatible) and warmup |
 | `src/schemas/` | NvSchema request/response entities, VLM response model, and pluggable response parsers |
 | `src/realtime/` | Realtime + always-on alert rules and the RTVI VLM client |
-| `src/web/` | REST + WebSocket API and on-demand verification service |
+| `src/web/` | REST API and on-demand verification service |
 | `src/vst/` | VST video-clip resolution (sensor ID + timestamps) |
 | `src/clients/` | Elasticsearch client + in-process dedup/verdict-protection state handler |
 | `src/persistence/` | Elasticsearch persistence store |
@@ -100,13 +100,27 @@ Or build/run with Docker (see Quick Start).
    - Health: `http://localhost:9080/health`
    - API docs (Swagger): `http://localhost:9080/docs`
    - OpenAPI spec: `http://localhost:9080/openapi.json`
-   - WebSocket: `ws://localhost:9080/ws`
 
 To run the verification pipeline directly (without Docker):
 
 ```bash
 python enhance_alert_with_vlm.py --config config.yaml
 ```
+
+## Observability
+
+Set `PROMETHEUS_METRICS_ENABLED=true` before starting the service to expose
+Prometheus metrics at `http://localhost:9081/metrics`. Kafka pipeline metrics
+use the existing `alert_bridge_*` event and latency series. Requests accepted
+through `POST /api/v1/verification/ondemand` use a separate
+`alert_bridge_ondemand_*` family for request outcomes, completed-event verdicts,
+VLM/background/request-to-publish latency, and verification failures.
+
+The scrape endpoint is not a Prometheus query server: configure Prometheus to
+scrape port 9081, then use the reporting tool documented in
+[`test/latency/README.md`](test/latency/README.md). On-demand metrics are
+aggregate-only; `alert_agent.metrics.per_sensor_labels` applies to Kafka
+pipeline metrics.
 
 ## Configuration
 
@@ -125,6 +139,60 @@ is read-through by default), so updates apply without a restart. Set
 `persistence.cache_ttl_seconds > 0` to cache config reads at the cost of
 bounded cross-process staleness.
 
+## Pipeline modes & concurrency sizing
+
+`alert_agent.pipeline_mode` selects how per-message processing is dispatched
+(invalid values fail startup; unset derives from the legacy
+`async_io.enabled` flag):
+
+| Mode | Dispatch | VLM concurrency ceiling | Use |
+|---|---|---|---|
+| `sync` | inline in the batch worker | `num_workers` | default / rollback |
+| `thread_bridge` | dispatch thread pool, blocking wait | `async_dispatch_workers` | legacy async mode, rollback |
+| `event_loop` | coroutine-per-message on one persistent loop; async clients per stage (VLM `AsyncOpenAI`, VST `httpx`, sink/verdict `AsyncElasticsearch`) | `async_io.max_vlm_concurrent` | non-blocking mode: Kafka consumption decoupled from VLM latency |
+
+Knob meaning per mode:
+
+- `async_dispatch_workers` — thread_bridge: dispatch-pool thread count (the
+  throughput lever). event_loop: no pool is created; the value only serves as
+  the default for the per-service caps.
+- `async_dispatch_max_in_flight` — both async modes: global in-flight bound;
+  when full, hand-off pauses and backpressure reaches the Kafka consume loop.
+  It bounds memory, it does not raise the throughput ceiling.
+- `async_io.max_vlm_concurrent` / `max_vst_concurrent` — event_loop only:
+  per-service concurrency caps (asyncio semaphores).
+
+Sizing rule (event_loop): size against the **survivor rate** (events that
+pass dedup and reach the VLM — `rate(alert_bridge_events_after_dedup_total)`,
+peak value), not raw ingest:
+
+```
+max_vlm_concurrent ≈ peak_survivor_rate × VLM_latency_p95 × 1.4 (headroom)
+async_dispatch_max_in_flight ≈ 2–4 × max_vlm_concurrent
+```
+
+The sustainable rate ("knee") is `max_vlm_concurrent ÷ VLM_latency`; below it
+consumer lag stays flat, above it lag grows by design (bounded backpressure).
+
+### VLM concurrency ceiling benchmark (run before raising `max_vlm_concurrent`)
+
+`max_vlm_concurrent` must never exceed what the VLM backend actually serves
+concurrently — beyond that point requests queue inside the backend and its
+latency balloons instead of throughput improving. To find the ceiling:
+
+1. Deploy the VLM backend as in production (same GPU, memory-utilization and
+   batching settings).
+2. Ramp offered concurrency stepwise (e.g. 2 → 4 → 8 → 16 …), ≥60 s per step,
+   using representative clips.
+3. At each step record wait-excluded per-call latency
+   (`alert_bridge_vlm_duration_seconds`, with capacity-wait tracked
+   separately in `alert_bridge_capacity_wait_seconds`).
+4. The ceiling is the last step where per-call latency stays within ~120% of
+   the low-concurrency baseline; the next step marks saturation.
+5. Set `max_vlm_concurrent` at or below the ceiling. Watch
+   `alert_bridge_event_loop_vlm_in_flight` (never exceeds the cap) and
+   capacity-wait growth (backpressure building) in production.
+
 ## Usage
 
 Submit an alert over the REST API:
@@ -135,7 +203,10 @@ curl -X POST http://localhost:9080/api/v1/alerts \
   -d @test/protobuf/test_data/sample_alert.json
 ```
 
-Enriched results are persisted and broadcast over the WebSocket endpoint.
+Enriched results are persisted to Elasticsearch and published to the Kafka
+sink (`event_bridge.sinkType: kafka`). Consumers receive alerts by subscribing
+to the configured sink topic, and can also query stored alerts/incidents over
+the REST API (e.g. `GET /api/v1/realtime`, `GET /api/v1/realtime/incidents`).
 
 ## Testing
 

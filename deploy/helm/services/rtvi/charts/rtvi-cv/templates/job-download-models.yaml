@@ -23,7 +23,9 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   backoffLimit: 3
-  ttlSecondsAfterFinished: 300
+  {{- with .Values.downloadModelsJob.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
   template:
     spec:
       restartPolicy: OnFailure

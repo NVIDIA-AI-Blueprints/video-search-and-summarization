@@ -206,7 +206,7 @@ elif [ "$port_status" = "2" ]; then
 fi
 
 # If Docker Hub rate-limits apache/kafka with HTTP 429, set:
-#   KAFKA_IMAGE=confluentinc/cp-kafka:8.2.0
+#   KAFKA_IMAGE=confluentinc/cp-kafka:8.3.0
 case "$KAFKA_IMAGE" in
   apache/kafka:*)
     docker run -d --name "$KAFKA_CONTAINER" \
@@ -245,7 +245,7 @@ case "$KAFKA_IMAGE" in
       "$KAFKA_IMAGE"
     ;;
   *)
-    echo "Unsupported KAFKA_IMAGE=$KAFKA_IMAGE; use apache/kafka:4.1.1 or confluentinc/cp-kafka:8.2.0"
+    echo "Unsupported KAFKA_IMAGE=$KAFKA_IMAGE; use apache/kafka:4.1.1 or confluentinc/cp-kafka:8.3.0"
     exit 1
     ;;
 esac
@@ -304,7 +304,7 @@ broker advertised listener, restart/recreate RT-VLM before checking offsets:
 
 ```bash
 docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile bp_developer_alerts_2d_vlm up -d --force-recreate rtvi-vlm
+  --profile rtvi-vlm up -d --force-recreate rtvi-vlm
 ```
 
 Then consume bounded, metadata-only samples from all three topics. `--timeout-ms`

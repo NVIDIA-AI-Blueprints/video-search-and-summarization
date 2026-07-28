@@ -15,6 +15,7 @@
 
 import unittest
 from datetime import datetime
+import matplotlib.path as mplPath
 import numpy as np
 from unittest.mock import MagicMock, patch
 
@@ -90,6 +91,59 @@ class TestCalibrationBase(unittest.TestCase):
             # Test point outside ROI
             mock_polygon.contains_point.return_value = False
             self.assertFalse(self.calibration.point_in_polygon(point, sensor_id, roi_id))
+
+    def _sensor_with_square_roi(self, sensor_id, roi_id):
+        """Build a mock sensor whose ``roi_id`` polygon is the unit-ish square (0,0)-(100,100)."""
+        mock_sensor = MagicMock(spec=SensorInfo)
+        mock_sensor.id = sensor_id
+        mock_sensor.type = SENSOR_TYPE_CAMERA
+        mock_sensor.homography = None
+        mock_sensor.imageCoordinates = []
+        mock_sensor.globalCoordinates = []
+        mock_sensor.roiPolygons = {roi_id: mplPath.Path([(0, 0), (100, 0), (100, 100), (0, 100)])}
+        return mock_sensor
+
+    def test_bbox_overlaps_polygon_overlap(self):
+        """bbox-overlap is True when the object's bbox crosses into the ROI (uses the bbox directly)."""
+        sensor_id, roi_id = "test_sensor", "test_roi"
+        mock_sensor = self._sensor_with_square_roi(sensor_id, roi_id)  # ROI square (0,0)-(100,100)
+        # bbox spans x/y in [50, 150] -> overlaps the ROI in [50, 100] x [50, 100].
+        bbox = Bbox(leftX=50.0, topY=50.0, rightX=150.0, bottomY=150.0)
+        with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
+            self.assertTrue(self.calibration.bbox_overlaps_polygon(bbox, sensor_id, roi_id))
+
+    def test_bbox_overlaps_polygon_no_overlap(self):
+        """bbox-overlap is False when the object's bbox is entirely outside the ROI."""
+        sensor_id, roi_id = "test_sensor", "test_roi"
+        mock_sensor = self._sensor_with_square_roi(sensor_id, roi_id)
+        bbox = Bbox(leftX=200.0, topY=200.0, rightX=300.0, bottomY=300.0)  # far from the (0,0)-(100,100) ROI
+        with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
+            self.assertFalse(self.calibration.bbox_overlaps_polygon(bbox, sensor_id, roi_id))
+
+    def test_bbox_overlaps_polygon_missing_roi(self):
+        """bbox-overlap returns False when the ROI polygon is absent for the sensor."""
+        sensor_id, roi_id = "test_sensor", "missing_roi"
+        mock_sensor = self._sensor_with_square_roi(sensor_id, "some_other_roi")
+        bbox = Bbox(leftX=0.0, topY=0.0, rightX=100.0, bottomY=100.0)
+        with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
+            self.assertFalse(self.calibration.bbox_overlaps_polygon(bbox, sensor_id, roi_id))
+
+    def test_bbox_overlaps_polygon_degenerate_bbox_falls_back_to_point(self):
+        """A degenerate (zero-extent) bbox falls back to the coordinate-inside check on point."""
+        sensor_id, roi_id = "test_sensor", "test_roi"
+        mock_sensor = self._sensor_with_square_roi(sensor_id, roi_id)  # ROI square (0,0)-(100,100)
+        degenerate = Bbox(leftX=0.0, topY=0.0, rightX=0.0, bottomY=0.0)
+        with patch.object(self.calibration, 'sensor_map', {sensor_id: mock_sensor}):
+            # Point inside the ROI -> True via point_in_polygon fallback.
+            self.assertTrue(
+                self.calibration.bbox_overlaps_polygon(degenerate, sensor_id, roi_id, Point2D(x=50.0, y=50.0))
+            )
+            # Point outside the ROI -> False.
+            self.assertFalse(
+                self.calibration.bbox_overlaps_polygon(degenerate, sensor_id, roi_id, Point2D(x=300.0, y=300.0))
+            )
+            # No point supplied -> False (nothing to fall back to).
+            self.assertFalse(self.calibration.bbox_overlaps_polygon(degenerate, sensor_id, roi_id))
 
     def test_get_roi_metrics(self):
         """Test get_roi_metrics method."""
@@ -366,7 +420,7 @@ class TestCalibrationBase(unittest.TestCase):
         Uses a ``delete-calibration-`` filename so the action parses to
         ``delete`` (the schema validator gates per-action; the mocked payload
         below has only ``sensors[*].id``, which is what the delete schema
-        requires and what web-api actually emits for deletes).
+        requires and what video-analytics-api actually emits for deletes).
         """
         mock_load_json.return_value = {"sensors": [{"id": "new_sensor", "type": "camera"}]}
 
@@ -617,6 +671,87 @@ class TestCalibrationBase(unittest.TestCase):
         result = self.calibration._get_roi_objects_by_type(roi_metrics, "person", roi_confined_types)
         self.assertEqual(result, {"obj1", "obj2"})
 
+    def test_get_roi_objects_by_type_excludes_non_confining_roi(self):
+        """Objects of a type inside a ROI that does NOT confine that type are not counted as safe."""
+        roi_metrics = [
+            nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"]),  # roiA confines person
+            nvSchema.TypeMetrics(id="roiB", type="person", objectIds=["p2"]),  # roiB does not confine person
+        ]
+        roi_confined_types = {"roiA": ["person"], "roiB": []}
+
+        result = self.calibration._get_roi_objects_by_type(roi_metrics, "person", roi_confined_types)
+
+        self.assertEqual(result, {"p1"})  # p2 excluded -> it will be reported as outside its confined area
+
+    def test_get_confined_area_violation_info_object_in_non_confining_roi_flagged(self):
+        """A confined-type object sitting in a ROI that does not confine it is flagged as a violation."""
+        sensor_id = "test_sensor"
+        # person is confined to roiA. p1 is safely inside roiA; p2 sits in roiB, which does not confine person.
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1", "p2"])]
+        rois = [
+            nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"]),
+            nvSchema.TypeMetrics(id="roiB", type="person", objectIds=["p2"]),
+        ]
+
+        with patch.object(self.calibration, '_roi_confined_types') as mock_confined:
+            mock_confined.return_value = {"roiA": ["person"], "roiB": []}
+
+            types, groups = self.calibration.get_confined_area_violation_info(fov, rois, sensor_id)
+
+        self.assertEqual(types, ["person"])
+        self.assertEqual([sorted(g) for g in groups], [["p2"]])  # p1 safe in roiA, p2 escaped
+
+    def test_get_confined_area_violation_info_ignores_empty_roi_placeholder(self):
+        """The typeless empty-ROI placeholder added by update_roi_info is inert for confined-area detection."""
+        sensor_id = "test_sensor"
+        # p1 safely confined in roiA; p2 is in the FOV but inside no confining ROI (must stay flagged).
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1", "p2"])]
+        rois = [
+            nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"]),
+            nvSchema.TypeMetrics(id="roiR", type="", count=0),  # update_roi_info empty-restricted-ROI placeholder
+        ]
+
+        with patch.object(self.calibration, '_roi_confined_types') as mock_confined:
+            mock_confined.return_value = {"roiA": ["person"], "roiR": ["person"]}
+
+            types, groups = self.calibration.get_confined_area_violation_info(fov, rois, sensor_id)
+
+        # placeholder neither absorbs p2 nor makes anything safe: p1 safe, p2 still flagged
+        self.assertEqual(types, ["person"])
+        self.assertEqual([sorted(g) for g in groups], [["p2"]])
+
+    def test_confined_area_info_not_configured_emits_nothing(self):
+        """No ROI defines confinedObjectTypes -> emit neither confinedAreaViolation "true" nor "false"."""
+        with patch.object(self.calibration, '_roi_confined_types', return_value={"roi1": [], "roi2": []}):
+            info, groups = self.calibration._confined_area_info([], [], "test_sensor")
+
+        self.assertEqual(info, {})
+        self.assertEqual(groups, [])
+
+    def test_confined_area_info_configured_no_violation(self):
+        """A configured confined area with everyone inside emits confinedAreaViolation="false"."""
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1"])]
+        rois = [nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"])]
+
+        with patch.object(self.calibration, '_roi_confined_types', return_value={"roiA": ["person"]}):
+            info, groups = self.calibration._confined_area_info(fov, rois, "test_sensor")
+
+        self.assertEqual(info, {"confinedAreaViolation": "false"})
+        self.assertEqual(groups, [])
+
+    def test_confined_area_info_configured_with_violation(self):
+        """A configured confined area with an escaped object emits confinedAreaViolation="true" + details."""
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p1", "p2"])]
+        rois = [nvSchema.TypeMetrics(id="roiA", type="person", objectIds=["p1"])]  # p2 is outside roiA
+
+        with patch.object(self.calibration, '_roi_confined_types', return_value={"roiA": ["person"]}):
+            info, groups = self.calibration._confined_area_info(fov, rois, "test_sensor")
+
+        self.assertEqual(info["confinedAreaViolation"], "true")
+        self.assertEqual(info["confinedAreaTypes"], "person")
+        self.assertEqual(info["confinedAreaViolationObjects"], "p2")
+        self.assertEqual(groups, [["p2"]])
+
     def test_get_group_place(self):
         """Test get_group_place method."""
         group_id = "test_group"
@@ -644,20 +779,149 @@ class TestCalibrationBase(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_update_roi_info(self):
-        """Test update_roi_info method."""
+        """A present restricted type is flagged true; a configured restricted type with nothing
+        present gets a count=0 placeholder flagged false."""
         sensor_id = "test_sensor"
-        
-        roi_metric1 = nvSchema.TypeMetrics(id="roi1", type="person")
-        roi_metric2 = nvSchema.TypeMetrics(id="roi2", type="car")
+
+        # roi1 has a person present (restricted -> violation). roi2 has a car present, but car is
+        # not restricted for roi2 (truck is) -> the car bucket gets no flag.
+        roi_metric1 = nvSchema.TypeMetrics(id="roi1", type="person", count=1)
+        roi_metric2 = nvSchema.TypeMetrics(id="roi2", type="car", count=1)
         rois = [roi_metric1, roi_metric2]
-        
+
         with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
             mock_restricted.return_value = {"roi1": ["person"], "roi2": ["truck"]}
-            
+
             self.calibration.update_roi_info(rois, sensor_id)
-            
-            self.assertEqual(roi_metric1.info["restrictedAreaViolation"], "true")
-            self.assertEqual(roi_metric2.info["restrictedAreaViolation"], "false")
+
+        # roi1/person present -> true; roi2/car is not a restricted type -> no flag.
+        self.assertEqual(roi_metric1.info["restrictedAreaViolation"], "true")
+        self.assertNotIn("restrictedAreaViolation", dict(roi_metric2.info))
+        # roi2's restricted type (truck) was absent -> a count=0 truck placeholder flagged false.
+        truck = next(r for r in rois if r.id == "roi2" and r.type == "truck")
+        self.assertEqual(truck.count, 0)
+        self.assertEqual(truck.info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_empty_restricted_roi_emits_clear(self):
+        """An empty configured restricted ROI gets a per-type count=0 placeholder flagged false."""
+        sensor_id = "test_sensor"
+        rois = []  # no objects inside any ROI this frame
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            # roi1 is restricted; roi2 has no restricted types (must NOT get a placeholder)
+            mock_restricted.return_value = {"roi1": ["person"], "roi2": []}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        # one placeholder, typed with the restricted type (not "")
+        self.assertEqual(len(rois), 1)
+        self.assertEqual(rois[0].id, "roi1")
+        self.assertEqual(rois[0].type, "person")
+        self.assertEqual(rois[0].count, 0)
+        self.assertEqual(rois[0].info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_present_restricted_roi_gets_placeholder_for_absent_type(self):
+        """A restricted ROI occupied only by a non-restricted type still gets a placeholder for
+        its (absent) restricted type; the non-restricted bucket itself gets no flag."""
+        sensor_id = "test_sensor"
+        roi_metric = nvSchema.TypeMetrics(id="roi1", type="car", count=1)  # non-restricted type present
+        rois = [roi_metric]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        # car bucket is not a restricted type -> no flag
+        self.assertNotIn("restrictedAreaViolation", dict(roi_metric.info))
+        # person (restricted, absent) -> count=0 placeholder flagged false
+        person = next(r for r in rois if r.type == "person")
+        self.assertEqual(person.count, 0)
+        self.assertEqual(person.info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_present_restricted_type_no_duplicate_placeholder(self):
+        """A restricted type already present (count>0) is flagged true and gets no duplicate placeholder."""
+        sensor_id = "test_sensor"
+        roi_metric = nvSchema.TypeMetrics(id="roi1", type="person", count=2)
+        rois = [roi_metric]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(len(rois), 1)  # no duplicate person placeholder
+        self.assertEqual(rois[0].info["restrictedAreaViolation"], "true")
+
+    def test_update_roi_info_mixed_types(self):
+        """Person present (true) + absent restricted forklift (false placeholder) + present
+        non-restricted cat (no flag) in the same ROI."""
+        sensor_id = "test_sensor"
+        person = nvSchema.TypeMetrics(id="roi1", type="person", count=1)
+        cat = nvSchema.TypeMetrics(id="roi1", type="cat", count=2)
+        rois = [person, cat]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person", "forklift"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(person.info["restrictedAreaViolation"], "true")
+        self.assertNotIn("restrictedAreaViolation", dict(cat.info))
+        forklift = next(r for r in rois if r.type == "forklift")
+        self.assertEqual(forklift.count, 0)
+        self.assertEqual(forklift.info["restrictedAreaViolation"], "false")
+
+    def test_restricted_placeholder_inert_for_confined_area_detection(self):
+        """update_roi_info runs before confined-area detection in transform_frame and mutates the
+        shared rois list. Its count=0 placeholders have empty objectIds, so they must not affect
+        confined-area detection even when the placeholder's type is also a confined type."""
+        sensor_id = "test_sensor"
+        # roi1 both restricts and confines "person". A person p2 is in the FOV but inside no ROI.
+        fov = [nvSchema.TypeMetrics(type="person", objectIds=["p2"])]
+        rois = []  # no person inside roi1 this frame -> get_roi_metrics emitted no entry
+
+        with patch.object(self.calibration, 'roi_restricted_types', return_value={"roi1": ["person"]}), \
+             patch.object(self.calibration, '_roi_confined_types', return_value={"roi1": ["person"]}):
+            # mirrors transform_frame order: update_roi_info first (adds placeholder), then confined
+            self.calibration.update_roi_info(rois, sensor_id)
+            types, groups = self.calibration.get_confined_area_violation_info(fov, rois, sensor_id)
+
+        # the (roi1, person) count=0 placeholder was added...
+        self.assertIn(("roi1", "person"), {(r.id, r.type) for r in rois})
+        placeholder = next(r for r in rois if r.id == "roi1" and r.type == "person")
+        self.assertEqual(list(placeholder.objectIds), [])
+        # ...but confined detection is unaffected: p2 is still flagged (identical to no-placeholder)
+        self.assertEqual(types, ["person"])
+        self.assertEqual([sorted(g) for g in groups], [["p2"]])
+
+    def test_update_roi_info_duplicate_restricted_type_single_placeholder(self):
+        """A restricted type listed more than once for a ROI yields at most one placeholder."""
+        sensor_id = "test_sensor"
+        rois = []
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": ["person", "person"]}
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        person_placeholders = [r for r in rois if r.id == "roi1" and r.type == "person"]
+        self.assertEqual(len(person_placeholders), 1)
+        self.assertEqual(person_placeholders[0].info["restrictedAreaViolation"], "false")
+
+    def test_update_roi_info_no_restricted_types_omits_flag(self):
+        """A ROI with no restricted types defined gets no flag and no placeholder."""
+        sensor_id = "test_sensor"
+        occupied = nvSchema.TypeMetrics(id="roi1", type="person", count=1)  # roi1 defines no restricted types
+        rois = [occupied]
+
+        with patch.object(self.calibration, 'roi_restricted_types') as mock_restricted:
+            mock_restricted.return_value = {"roi1": [], "roi2": []}  # neither ROI restricts anything
+
+            self.calibration.update_roi_info(rois, sensor_id)
+
+        self.assertEqual(len(rois), 1)  # no placeholder for roi2 (no restricted types defined)
+        self.assertNotIn("restrictedAreaViolation", dict(occupied.info))
 
     @patch('cv2.solvePnP')
     def test_get_cam_params_success(self, mock_solve_pnp):
@@ -858,18 +1122,26 @@ class TestCalibrationBase(unittest.TestCase):
         mock_load.assert_called_once_with("test_path.json")
 
     def test_update_roi_info_no_violation(self):
-        """Test update_roi_info method with no violations."""
+        """A non-restricted type present (Dog) gets no flag; the absent restricted types get
+        count=0 placeholders flagged false."""
         roi1 = nvSchema.TypeMetrics(id="roi1", type="Dog", count=1)
         rois = [roi1]
-        
+
         restricted_types = {
             "roi1": ["Person", "Vehicle"]  # Dog is not restricted
         }
-        
+
         with patch.object(self.calibration, 'roi_restricted_types', return_value=restricted_types):
             self.calibration.update_roi_info(rois, "sensor1")
-            
-            self.assertEqual(roi1.info["restrictedAreaViolation"], "false")
+
+        # Dog bucket is not a restricted type -> no flag
+        self.assertNotIn("restrictedAreaViolation", dict(roi1.info))
+        # Person and Vehicle absent -> count=0 placeholders flagged false
+        placeholders = {r.type: r for r in rois if r.type in ("Person", "Vehicle")}
+        self.assertEqual(set(placeholders), {"Person", "Vehicle"})
+        for r in placeholders.values():
+            self.assertEqual(r.count, 0)
+            self.assertEqual(r.info["restrictedAreaViolation"], "false")
 
     def test_filter_messages_by_roi_no_sensor(self):
         """Test filter_messages_by_roi with sensor not in calibration."""

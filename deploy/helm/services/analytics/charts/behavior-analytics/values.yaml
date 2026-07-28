@@ -23,7 +23,7 @@ replicas: 1
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-behavior-analytics
-  tag: "3.2.1-26.07.2"
+  tag: "3.3.0-26.07.4"
   pullPolicy: IfNotPresent
 
 port: 8080
@@ -48,6 +48,8 @@ resourceFiles:
 
 downloadResourcesFromNgc: false
 downloadResourcesFromNgcWaitSeconds: 300
+downloadResourcesJob:
+  ttlSecondsAfterFinished: null
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
 ngcOrg: "nvidia"

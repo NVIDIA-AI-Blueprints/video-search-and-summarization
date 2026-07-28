@@ -33,6 +33,8 @@ def _build_dispatch_stub(async_io_enabled: bool = True):
     stub._message_dispatch_executor = Mock() if async_io_enabled else None
     stub._process_single_message = Mock()
     stub._on_dispatched_message_done = Mock()
+    stub._acquire_dispatch_slot = AnomalyEnhancer._acquire_dispatch_slot.__get__(stub)
+    stub._track_dispatched_future = AnomalyEnhancer._track_dispatched_future.__get__(stub)
     return stub
 
 

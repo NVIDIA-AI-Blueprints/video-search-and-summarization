@@ -57,6 +57,7 @@ _stub_modules = [
     'handlers', 'handlers.enrichment', 'handlers.direct_media',
     'handlers.prompt_handler', 'handlers.prompt_handler.alert_type_config_loader',
     'handlers.async_dispatch_mixin',
+    'handlers.event_loop_pipeline_mixin',
     'handlers.async_external_io_mixin',
     'handlers.async_vlm_mode_mixin',
     'utils.logging_config',
@@ -97,6 +98,16 @@ class _AsyncVLMModeMixinStub:
 
 
 sys.modules['handlers.async_dispatch_mixin'].AsyncDispatchMixin = _AsyncDispatchMixinStub
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_SYNC = 'sync'
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_THREAD_BRIDGE = 'thread_bridge'
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_EVENT_LOOP = 'event_loop'
+sys.modules['handlers.async_dispatch_mixin'].resolve_pipeline_mode = lambda raw, legacy: (
+    str(raw).strip().lower()
+    if raw is not None and str(raw).strip().lower() in ('sync', 'thread_bridge', 'event_loop')
+    else ('thread_bridge' if legacy else 'sync')
+)
+sys.modules['handlers.event_loop_pipeline_mixin'].EventLoopPipelineMixin = type(
+    'EventLoopPipelineMixinStub', (), {})
 sys.modules['handlers.async_external_io_mixin'].AsyncExternalIOMixin = _AsyncExternalIOMixinStub
 sys.modules['handlers.async_vlm_mode_mixin'].AsyncVLMModeMixin = _AsyncVLMModeMixinStub
 

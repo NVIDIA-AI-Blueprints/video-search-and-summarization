@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/elasticsearch/elasticsearch
-  tag: "9.3.3"
+  tag: "9.4.3"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -40,15 +40,23 @@ resources: {}
 nodeSelector: {}
 tolerations: []
 
+startupProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 60
+
 init:
   enabled: false
   # Empty: inherits elasticsearch.nodeSelector from the Job template coalesce.
   nodeSelector: {}
   image:
     repository: alpine
-    tag: "3.23.4"
+    tag: "3.24.1"
     pullPolicy: IfNotPresent
   backoffLimit: 10
+  ttlSecondsAfterFinished: null
   elasticsearchUrl: ""
   env:
     ELASTICSEARCH_ILM_MIN_AGE: "4h"

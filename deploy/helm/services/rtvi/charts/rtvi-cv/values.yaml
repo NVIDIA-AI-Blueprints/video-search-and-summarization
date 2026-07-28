@@ -14,7 +14,7 @@
 # limitations under the License.
 
 enabled: false
-# alerts | search | standalone-2d | standalone-3d
+# alerts | search | standalone-2d | standalone-3d | standalone-mv3dt
 profileMode: alerts
 
 global: {}
@@ -87,6 +87,8 @@ forceModelsStorageFromValues: false
 modelsVolume: {}
 downloadModelsFromNgc: true
 downloadModelsFromNgcWaitSeconds: 900
+downloadModelsJob:
+  ttlSecondsAfterFinished: null
 # Opaque secret for NGC CLI (download Jobs). Not the docker-registry pull secret.
 ngcApiKeySecretName: "ngc-api"
 ngcApiKeySecretKey: "NGC_CLI_API_KEY"
@@ -99,18 +101,22 @@ ngcDownload:
 ngcModelsToDownload:
   []
 
-# NGC *resource* bundle (videos + warehouse models) for profileMode standalone-2d / standalone-3d.
+# NGC *resource* bundle (videos + warehouse models) for warehouse standalone profile modes.
 # Download Job unpacks the .tar.gz onto the shared -models PVC under vss-warehouse-app-data/.
 downloadNgcAppData: false
 ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
 # Required with NGC_CLI_API_KEY: registry org for the resource (e.g. nvidia for vss-warehouse).
 ngcAppDataOrg: "nvidia"
 downloadNgcAppDataWaitSeconds: 3600
+downloadNgcAppDataJob:
+  ttlSecondsAfterFinished: null
 
-# Used when profileMode is standalone-2d or standalone-3d (metropolis warehouse ds-start.sh paths).
+# Used by warehouse standalone profile modes (metropolis warehouse ds-start.sh paths).
 standaloneWarehouse:
-  # No Kafka/Redis in standalone; ds-main uses FakeSink (sink0). Valid values depend on app; default avoids kafka client paths.
+  # Valid values depend on app profile; warehouse app profiles set kafka.
   streamType: "none"
+  kafka:
+    rawTopic: mdx-raw
   dsModeFlag2d: "1"
   dsModeFlag3d: "5"
   dsMessageRate: "1"
@@ -125,6 +131,31 @@ standaloneWarehouse:
   sparse4dNpyFile: _ov_kmeans900_v2.2.npy
   pvcOnnxSubPath: vss-warehouse-app-data/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx
   pvcNpySubPath: vss-warehouse-app-data/models/sparse4d/ov/_ov_kmeans900_v2.2.npy
+  mv3dt:
+    instanceId: "0"
+    batchSize: "4"
+    maxBatchSize: "4"
+    mqttHost: ""
+    mqttServiceName: ""
+    mqttPort: "1883"
+    redisHost: ""
+    redisPort: "6379"
+    deepstreamEnableSensorIdExtraction: "0"
+    rtdetrOnnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
+    rtdetrPvcSubPath: vss-warehouse-app-data/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx
+    bodyPosePvcSubPath: vss-warehouse-app-data/models/mv3dt/BodyPose3DNet
+    fusion:
+      enabled: true
+      image:
+        repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
+        tag: "3.2.0"
+        pullPolicy: IfNotPresent
+      rawTopic: mdx-raw
+      fusedTopic: mdx-bev
+      sensorTimeoutMs: "100"
+      maxExpectedSensors: "4"
+      bufferDurationS: "2.0"
+      resources: {}
 
 modelsPvc:
   create: false

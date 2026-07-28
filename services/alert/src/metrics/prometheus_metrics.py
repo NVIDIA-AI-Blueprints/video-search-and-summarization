@@ -24,6 +24,7 @@ from prometheus_client import Counter, Gauge, Histogram
 UPSTREAM_DURATION_BUCKETS = [0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 30.0, 60.0]
 KAFKA_LAG_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
 WORKER_QUEUE_WAIT_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+WORKER_START_WAIT_BUCKETS = [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
 VST_DURATION_BUCKETS = [0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
 VIDEO_LENGTH_BUCKETS = [1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 30.0, 60.0]
 VLM_DURATION_BUCKETS = [0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 30.0]
@@ -53,6 +54,14 @@ WORKER_QUEUE_WAIT_DURATION = Histogram(
     buckets=WORKER_QUEUE_WAIT_BUCKETS,
 )
 
+# Worker start wait: time after scheduler assignment until per-event processing starts.
+# Includes sub-batch head-of-line blocking, pre-processing, and async dispatch backlog.
+WORKER_START_WAIT_DURATION = Histogram(
+    'alert_bridge_worker_start_wait_duration_seconds',
+    'Time from worker assignment to per-event processing start',
+    buckets=WORKER_START_WAIT_BUCKETS,
+)
+
 # VST video fetch latency
 VST_DURATION = Histogram(
     'alert_bridge_vst_duration_seconds',
@@ -75,10 +84,10 @@ VLM_DURATION = Histogram(
     buckets=VLM_DURATION_BUCKETS,
 )
 
-# Total worker processing time (worker_assigned to elastic_ready)
+# Total worker processing time (per-event processing start to elastic_ready)
 WORKER_PROCESSING_DURATION = Histogram(
     'alert_bridge_worker_processing_seconds',
-    'Total time worker spent processing an event (worker_assigned → elastic_ready)',
+    'Total time spent processing an event (processing start → elastic_ready)',
     buckets=WORKER_PROCESSING_BUCKETS,
 )
 
@@ -88,6 +97,28 @@ WORKER_PROCESSING_DURATION = Histogram(
 E2E_DURATION = Histogram(
     'alert_bridge_e2e_duration_seconds',
     'End-to-end latency from event end to elastic_ready (full pipeline as seen by Alert Agent)',
+    buckets=E2E_DURATION_BUCKETS,
+)
+
+# On-demand API metrics intentionally use a separate namespace from the Kafka
+# pipeline metrics above.  Mixing HTTP requests into EVENTS_AFTER_DEDUP /
+# EVENTS_TOTAL would invalidate the Kafka reconciliation invariants documented
+# below.
+ONDEMAND_VLM_DURATION = Histogram(
+    'alert_bridge_ondemand_vlm_duration_seconds',
+    'Duration of a VLM inference attempt initiated by the on-demand API',
+    buckets=VLM_DURATION_BUCKETS,
+)
+
+ONDEMAND_PROCESSING_DURATION = Histogram(
+    'alert_bridge_ondemand_processing_seconds',
+    'Time spent processing and publishing an accepted on-demand request',
+    buckets=WORKER_PROCESSING_BUCKETS,
+)
+
+ONDEMAND_E2E_DURATION = Histogram(
+    'alert_bridge_ondemand_e2e_duration_seconds',
+    'Time from on-demand HTTP request entry to background publish completion',
     buckets=E2E_DURATION_BUCKETS,
 )
 
@@ -114,6 +145,13 @@ WORKER_QUEUE_WAIT_DURATION_BY_SENSOR = Histogram(
     'Time from Kafka consume to worker assignment, broken down by sensor',
     ['sensorId'],
     buckets=WORKER_QUEUE_WAIT_BUCKETS,
+)
+
+WORKER_START_WAIT_DURATION_BY_SENSOR = Histogram(
+    'alert_bridge_worker_start_wait_duration_by_sensor_seconds',
+    'Time from worker assignment to per-event processing start, broken down by sensor',
+    ['sensorId'],
+    buckets=WORKER_START_WAIT_BUCKETS,
 )
 
 VST_DURATION_BY_SENSOR = Histogram(
@@ -278,6 +316,26 @@ EVENTS_TOTAL = Counter(
     ['verdict']
 )
 
+# On-demand request accounting is separate from Kafka event accounting.  The
+# outcome and reason labels are constrained by metrics.recorder allowlists.
+ONDEMAND_REQUESTS_TOTAL = Counter(
+    'alert_bridge_ondemand_requests_total',
+    'On-demand HTTP requests by synchronous acceptance outcome',
+    ['outcome'],
+)
+
+ONDEMAND_EVENTS_TOTAL = Counter(
+    'alert_bridge_ondemand_events_total',
+    'Accepted on-demand events that completed background processing',
+    ['verdict'],
+)
+
+ONDEMAND_VERIFICATION_FAILURES = Counter(
+    'alert_bridge_ondemand_verification_failures_total',
+    'On-demand background verification failures by stable reason',
+    ['reason'],
+)
+
 # Async external operation latency (VST/Elastic/in-process dedup state)
 ASYNC_EXTERNAL_IO_DURATION = Histogram(
     'alert_bridge_async_external_io_duration_seconds',
@@ -303,6 +361,45 @@ ASYNC_EXTERNAL_IO_FALLBACK_TOTAL = Counter(
 ASYNC_SINK_IN_FLIGHT = Gauge(
     'alert_bridge_async_sink_in_flight',
     'Current number of in-flight async sink operations',
+    multiprocess_mode='livesum',
+)
+
+# In-flight dispatched messages (thread_bridge executor tasks or event_loop
+# coroutines), i.e. the live occupancy of the backpressure semaphore.
+DISPATCH_IN_FLIGHT = Gauge(
+    'alert_bridge_dispatch_in_flight',
+    'Current number of in-flight dispatched messages',
+    multiprocess_mode='livesum',
+)
+
+# Time a message spent between dispatch submission and the moment its task
+# started executing (event_loop mode: taskDispatchedAt -> taskStartedAt).
+DISPATCH_WAIT_DURATION = Histogram(
+    'alert_bridge_dispatch_wait_seconds',
+    'Wait between dispatch submission and task execution start',
+    buckets=WORKER_QUEUE_WAIT_BUCKETS,
+)
+
+# Time a task spent waiting on a per-service concurrency capacity slot
+# (event_loop mode semaphores), kept separate from processing duration.
+CAPACITY_WAIT_DURATION = Histogram(
+    'alert_bridge_capacity_wait_seconds',
+    'Wait for a per-service concurrency slot before issuing the call',
+    ['service'],
+    buckets=WORKER_QUEUE_WAIT_BUCKETS,
+)
+
+# Live per-service concurrency in event_loop mode (calls currently holding a
+# capacity slot). Bounded by max_vlm_concurrent / max_vst_concurrent.
+EVENT_LOOP_VLM_IN_FLIGHT = Gauge(
+    'alert_bridge_event_loop_vlm_in_flight',
+    'Concurrent VLM calls holding a capacity slot in event_loop mode',
+    multiprocess_mode='livesum',
+)
+
+EVENT_LOOP_VST_IN_FLIGHT = Gauge(
+    'alert_bridge_event_loop_vst_in_flight',
+    'Concurrent VST calls holding a capacity slot in event_loop mode',
     multiprocess_mode='livesum',
 )
 

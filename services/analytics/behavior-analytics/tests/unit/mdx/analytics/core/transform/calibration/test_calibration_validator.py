@@ -93,7 +93,7 @@ class TestValidateUpsertAll(unittest.TestCase):
 
 
 class TestValidateUpsert(unittest.TestCase):
-    """upsert uses the same full schema as upsert-all (web-api parity)."""
+    """upsert uses the same full schema as upsert-all (video-analytics-api parity)."""
 
     def test_passes_when_full_schema_satisfied(self) -> None:
         validate(_good_full_calibration(), CALIBRATION_ACTION_UPSERT)  # no raise

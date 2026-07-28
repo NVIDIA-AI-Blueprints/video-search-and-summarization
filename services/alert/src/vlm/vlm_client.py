@@ -735,8 +735,9 @@ class AsyncVLMRuntime:
     so async OpenAI client usage stays on a consistent loop/thread lifecycle.
     """
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, io_workers: Optional[int] = None) -> None:
         self._config = config
+        self._io_workers = io_workers
         self._lock = threading.Lock()
         self._started_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -775,6 +776,16 @@ class AsyncVLMRuntime:
             self._loop = loop
         asyncio.set_event_loop(loop)
         try:
+            # Bound the pool that serves asyncio.to_thread so short blocking
+            # calls (VST/sink/state) cannot exhaust unbounded threads.
+            if self._io_workers:
+                from concurrent.futures import ThreadPoolExecutor
+                loop.set_default_executor(
+                    ThreadPoolExecutor(
+                        max_workers=self._io_workers,
+                        thread_name_prefix="ab-vlm-io",
+                    )
+                )
             client = AsyncVLMClient(self._config)
             with self._lock:
                 self._client = client
@@ -792,6 +803,10 @@ class AsyncVLMRuntime:
                     loop.run_until_complete(client.aclose())
                 except Exception:
                     logger.exception("Failed closing AsyncVLMClient during runtime shutdown")
+            try:
+                loop.run_until_complete(loop.shutdown_default_executor())
+            except Exception:
+                logger.exception("Failed shutting down runtime io executor")
             loop.close()
             with self._lock:
                 self._loop = None
@@ -912,6 +927,19 @@ class AsyncVLMRuntime:
         """Run non-blocking sleep on runtime loop (for async retry path)."""
         self.run_coroutine(asyncio.sleep(duration_seconds))
 
+    async def _drain_and_stop(self) -> None:
+        """Cancel outstanding tasks, await their teardown, then stop the loop."""
+        pending = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        asyncio.get_running_loop().stop()
+
     def stop(self, timeout: float = 10.0) -> None:
         """Stop the runtime loop and wait for thread shutdown."""
         with self._lock:
@@ -925,10 +953,18 @@ class AsyncVLMRuntime:
             return
 
         if loop.is_running():
-            loop.call_soon_threadsafe(loop.stop)
+            try:
+                asyncio.run_coroutine_threadsafe(self._drain_and_stop(), loop)
+            except RuntimeError:
+                loop.call_soon_threadsafe(loop.stop)
 
         if thread.is_alive():
             thread.join(timeout=timeout)
+            if thread.is_alive():
+                # Escalate: force a bare loop.stop in case the drain hung.
+                if loop.is_running():
+                    loop.call_soon_threadsafe(loop.stop)
+                thread.join(timeout=5)
             if thread.is_alive():
                 logger.warning(
                     "Async VLM runtime thread did not stop within %.1fs",

@@ -3,7 +3,8 @@ ARG GROUP_ID=65532
 ARG BUILD_TYPE=prod
 
 
-# Builder phase
+# Builder phase. This remains target-platform-specific because the dependency
+# graph includes native SWC/Sharp/Turbo packages.
 FROM node:22.22.3 AS builder
 ARG USER_ID
 ARG GROUP_ID
@@ -13,8 +14,8 @@ WORKDIR /repo
 # Copy source files
 COPY services/ui/ services/ui/
 
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV NEXT_BUILD_TRACES false
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_BUILD_TRACES=false
 
 # `npm ci` and the subsequent `turbo` invocation must run from the UI workspace root,
 # which is where `package.json` and `package-lock.json` live after the COPY above.
@@ -75,10 +76,10 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui
 COPY --from=builder --chown=root:root --chmod=0444 /repo/services/ui/NVIDIA-Software-License-Agreement.pdf ./
 
 # Set environment variables
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV PORT 3000
-ENV HOST 0.0.0.0
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOST=0.0.0.0
 
 
 # Create separate stages for prod and dev commands

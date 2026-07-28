@@ -1,63 +1,21 @@
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
- * All rights reserved.
- *
- * This package is an SSL implementation written
- * by Eric Young (eay@cryptsoft.com).
- * The implementation was written so as to conform with Netscapes SSL.
- *
- * This library is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution, be it the RC4, RSA,
- * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
- * included with this distribution is covered by the same copyright terms
- * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- *
- * Copyright remains Eric Young's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Eric Young should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes cryptographic software written by
- *     Eric Young (eay@cryptsoft.com)"
- *    The word 'cryptographic' can be left out if the rouines from the library
- *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from
- *    the apps directory (application code) you must include an acknowledgement:
- *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- *
- * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.] */
+// Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #ifndef OPENSSL_HEADER_STACK_H
 #define OPENSSL_HEADER_STACK_H
 
-#include <openssl/base.h>
+#include <openssl/base.h>   // IWYU pragma: export
 
 #if defined(__cplusplus)
 extern "C" {
@@ -89,6 +47,8 @@ extern "C" {
 // are |type| *. This macro makes the |sk_name_*| functions available.
 //
 // It is not necessary to use |DECLARE_STACK_OF| in files which use this macro.
+//
+// Must be used from the global namespace.
 #define DEFINE_NAMED_STACK_OF(name, type)                    \
   BORINGSSL_DEFINE_STACK_OF_IMPL(name, type *, const type *) \
   BORINGSSL_DEFINE_STACK_TRAITS(name, type, false)
@@ -97,15 +57,31 @@ extern "C" {
 // |type| *. This macro makes the |sk_type_*| functions available.
 //
 // It is not necessary to use |DECLARE_STACK_OF| in files which use this macro.
+//
+// Must be used from the global namespace.
 #define DEFINE_STACK_OF(type) DEFINE_NAMED_STACK_OF(type, type)
 
 // DEFINE_CONST_STACK_OF defines |STACK_OF(type)| to be a stack whose elements
 // are const |type| *. This macro makes the |sk_type_*| functions available.
 //
 // It is not necessary to use |DECLARE_STACK_OF| in files which use this macro.
+//
+// Must be used from the global namespace.
 #define DEFINE_CONST_STACK_OF(type)                                \
   BORINGSSL_DEFINE_STACK_OF_IMPL(type, const type *, const type *) \
   BORINGSSL_DEFINE_STACK_TRAITS(type, const type, true)
+
+// DEFINE_NAMESPACED_STACK_OF is same as |DEFINE_STACK_OF| but to be used for
+// internal stacks from within the bssl namespace.
+//
+// Such stacks then can only be accessed using |STACK_OF| if in the |bssl|
+// namespace or if the |bssl| namespace has been imported with a
+// using-directive.
+#define DEFINE_NAMESPACED_STACK_OF(type)                     \
+  BORINGSSL_DEFINE_STACK_OF_IMPL(type, type *, const type *) \
+  BSSL_NAMESPACE_END                                         \
+  BORINGSSL_DEFINE_STACK_TRAITS(type, type, false)           \
+  BSSL_NAMESPACE_BEGIN
 
 
 // Using stacks.
@@ -139,7 +115,8 @@ STACK_OF(SAMPLE) *sk_SAMPLE_new(sk_SAMPLE_cmp_func comp);
 STACK_OF(SAMPLE) *sk_SAMPLE_new_null(void);
 
 // sk_SAMPLE_num returns the number of elements in |sk|. It is safe to cast this
-// value to |int|. |sk| is guaranteed to have at most |INT_MAX| elements.
+// value to |int|. |sk| is guaranteed to have at most |INT_MAX| elements. If
+// |sk| is NULL, it is treated as the empty list and this function returns zero.
 size_t sk_SAMPLE_num(const STACK_OF(SAMPLE) *sk);
 
 // sk_SAMPLE_zero resets |sk| to the empty state but does nothing to free the
@@ -147,7 +124,8 @@ size_t sk_SAMPLE_num(const STACK_OF(SAMPLE) *sk);
 void sk_SAMPLE_zero(STACK_OF(SAMPLE) *sk);
 
 // sk_SAMPLE_value returns the |i|th pointer in |sk|, or NULL if |i| is out of
-// range.
+// range. If |sk| is NULL, it is treated as an empty list and the function
+// returns NULL.
 SAMPLE *sk_SAMPLE_value(const STACK_OF(SAMPLE) *sk, size_t i);
 
 // sk_SAMPLE_set sets the |i|th pointer in |sk| to |p| and returns |p|. If |i|
@@ -195,7 +173,8 @@ void sk_SAMPLE_delete_if(STACK_OF(SAMPLE) *sk, sk_SAMPLE_delete_if_func func,
 // If the stack is sorted (see |sk_SAMPLE_sort|), this function uses a binary
 // search. Otherwise it performs a linear search. If it finds a matching
 // element, it writes the index to |*out_index| (if |out_index| is not NULL) and
-// returns one. Otherwise, it returns zero.
+// returns one. Otherwise, it returns zero. If |sk| is NULL, it is treated as
+// the empty list and the function returns zero.
 //
 // Note this differs from OpenSSL. The type signature is slightly different, and
 // OpenSSL's version will implicitly sort |sk| if it has a comparison function
@@ -221,8 +200,15 @@ STACK_OF(SAMPLE) *sk_SAMPLE_dup(const STACK_OF(SAMPLE) *sk);
 
 // sk_SAMPLE_sort sorts the elements of |sk| into ascending order based on the
 // comparison function. The stack maintains a "sorted" flag and sorting an
-// already sorted stack is a no-op.
+// already sorted stack is a no-op. Sorting preserves the relative order of
+// elements that are equivalent under the comparison function.
 void sk_SAMPLE_sort(STACK_OF(SAMPLE) *sk);
+
+// sk_SAMPLE_sort_and_dedup sorts the elements of |sk| based on the comparison
+// function and removes duplicates. If |free_func| is not NULL, it is called on
+// every removed element.
+void sk_SAMPLE_sort_and_dedup(STACK_OF(SAMPLE) *sk,
+                              sk_SAMPLE_free_func free_func);
 
 // sk_SAMPLE_is_sorted returns one if |sk| is known to be sorted and zero
 // otherwise.
@@ -317,6 +303,9 @@ OPENSSL_EXPORT void *OPENSSL_sk_pop(OPENSSL_STACK *sk);
 OPENSSL_EXPORT OPENSSL_STACK *OPENSSL_sk_dup(const OPENSSL_STACK *sk);
 OPENSSL_EXPORT void OPENSSL_sk_sort(OPENSSL_STACK *sk,
                                     OPENSSL_sk_call_cmp_func call_cmp_func);
+OPENSSL_EXPORT void OPENSSL_sk_sort_and_dedup(
+    OPENSSL_STACK *sk, OPENSSL_sk_call_cmp_func call_cmp_func,
+    OPENSSL_sk_call_free_func call_free_func, OPENSSL_sk_free_func free_func);
 OPENSSL_EXPORT int OPENSSL_sk_is_sorted(const OPENSSL_STACK *sk);
 OPENSSL_EXPORT OPENSSL_sk_cmp_func
 OPENSSL_sk_set_cmp_func(OPENSSL_STACK *sk, OPENSSL_sk_cmp_func comp);
@@ -330,36 +319,35 @@ OPENSSL_EXPORT OPENSSL_STACK *OPENSSL_sk_deep_copy(
 //
 // TODO(crbug.com/boringssl/499): Migrate callers to the typed wrappers, or at
 // least the new names and remove the old ones.
+//
+// TODO(b/290792019, b/290785937): Ideally these would at least be inline
+// functions, so we do not squat the symbols.
 
 typedef OPENSSL_STACK _STACK;
 
-OPENSSL_INLINE OPENSSL_STACK *sk_new_null(void) {
-  return OPENSSL_sk_new_null();
-}
+// The following functions call the corresponding |OPENSSL_sk_*| function.
+OPENSSL_EXPORT OPENSSL_DEPRECATED OPENSSL_STACK *sk_new_null(void);
+OPENSSL_EXPORT OPENSSL_DEPRECATED size_t sk_num(const OPENSSL_STACK *sk);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void *sk_value(const OPENSSL_STACK *sk,
+                                                 size_t i);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void sk_free(OPENSSL_STACK *sk);
+OPENSSL_EXPORT OPENSSL_DEPRECATED size_t sk_push(OPENSSL_STACK *sk, void *p);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void *sk_pop(OPENSSL_STACK *sk);
 
-OPENSSL_INLINE size_t sk_num(const OPENSSL_STACK *sk) {
-  return OPENSSL_sk_num(sk);
-}
+// sk_pop_free_ex calls |OPENSSL_sk_pop_free_ex|.
+//
+// TODO(b/291994116): Remove this.
+OPENSSL_EXPORT OPENSSL_DEPRECATED void sk_pop_free_ex(
+    OPENSSL_STACK *sk, OPENSSL_sk_call_free_func call_free_func,
+    OPENSSL_sk_free_func free_func);
 
-OPENSSL_INLINE void *sk_value(const OPENSSL_STACK *sk, size_t i) {
-  return OPENSSL_sk_value(sk, i);
-}
-
-OPENSSL_INLINE void sk_free(OPENSSL_STACK *sk) { OPENSSL_sk_free(sk); }
-
-OPENSSL_INLINE size_t sk_push(OPENSSL_STACK *sk, void *p) {
-  return OPENSSL_sk_push(sk, p);
-}
-
-OPENSSL_INLINE void *sk_pop(OPENSSL_STACK *sk) { return OPENSSL_sk_pop(sk); }
-
-// sk_pop_free behaves like |sk_pop_free_ex| but performs an invalid function
-// pointer cast. It exists because some existing callers called |sk_pop_free|
-// directly.
+// sk_pop_free behaves like |OPENSSL_sk_pop_free_ex| but performs an invalid
+// function pointer cast. It exists because some existing callers called
+// |sk_pop_free| directly.
 //
 // TODO(davidben): Migrate callers to bssl::UniquePtr and remove this.
-OPENSSL_EXPORT void sk_pop_free(OPENSSL_STACK *sk,
-                                OPENSSL_sk_free_func free_func);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void sk_pop_free(
+    OPENSSL_STACK *sk, OPENSSL_sk_free_func free_func);
 
 
 #if !defined(BORINGSSL_NO_CXX)
@@ -400,6 +388,15 @@ BSSL_NAMESPACE_END
    * positive warning. */                                                      \
   OPENSSL_MSVC_PRAGMA(warning(push))                                           \
   OPENSSL_MSVC_PRAGMA(warning(disable : 4191))                                 \
+  OPENSSL_GNUC_CLANG_PRAGMA("GCC diagnostic push")                             \
+  OPENSSL_CLANG_PRAGMA(                                                        \
+      "clang diagnostic ignored \"-Wunknown-warning-option\"")                 \
+  OPENSSL_CLANG_PRAGMA(                                                        \
+      "clang diagnostic ignored \"-Wcast-function-type-strict\"")              \
+  /* We also disable -Wcast-qual. As part of this C-based type erasure setup,  \
+   * the wrapper macros need to cast away const in places. In C++, const_cast  \
+   * suppresses the warning, but it seemingly cannot be suppressed in C. */    \
+  OPENSSL_GNUC_CLANG_PRAGMA("GCC diagnostic ignored \"-Wcast-qual\"")          \
                                                                                \
   DECLARE_STACK_OF(name)                                                       \
                                                                                \
@@ -516,6 +513,13 @@ BSSL_NAMESPACE_END
     OPENSSL_sk_sort((OPENSSL_STACK *)sk, sk_##name##_call_cmp_func);           \
   }                                                                            \
                                                                                \
+  OPENSSL_INLINE void sk_##name##_sort_and_dedup(                              \
+      STACK_OF(name) *sk, sk_##name##_free_func free_func) {                   \
+    OPENSSL_sk_sort_and_dedup((OPENSSL_STACK *)sk, sk_##name##_call_cmp_func,  \
+                              sk_##name##_call_free_func,                      \
+                              (OPENSSL_sk_free_func)free_func);                \
+  }                                                                            \
+                                                                               \
   OPENSSL_INLINE int sk_##name##_is_sorted(const STACK_OF(name) *sk) {         \
     return OPENSSL_sk_is_sorted((const OPENSSL_STACK *)sk);                    \
   }                                                                            \
@@ -535,6 +539,7 @@ BSSL_NAMESPACE_END
         (OPENSSL_sk_free_func)free_func);                                      \
   }                                                                            \
                                                                                \
+  OPENSSL_GNUC_CLANG_PRAGMA("GCC diagnostic pop")                              \
   OPENSSL_MSVC_PRAGMA(warning(pop))
 
 
@@ -551,6 +556,7 @@ DEFINE_NAMED_STACK_OF(OPENSSL_STRING, char)
 #endif
 
 #if !defined(BORINGSSL_NO_CXX)
+// Work around consumers including our headers under extern "C".
 extern "C++" {
 
 #include <type_traits>
@@ -638,6 +644,20 @@ PushToStack(Stack *sk,
   // OPENSSL_sk_push takes ownership on success.
   elem.release();
   return true;
+}
+
+// Define begin() and end() for stack types so C++ range for loops work.
+// This pair of functions is for DEFINE_NAMESPACED_STACK_OF stacks, unlike
+// the other pair, which is for DEFINE_STACK_OF ones.
+template <typename Stack>
+inline bssl::internal::StackIterator<Stack> begin(const Stack *sk) {
+  return bssl::internal::StackIterator<Stack>(sk, 0);
+}
+
+template <typename Stack>
+inline bssl::internal::StackIterator<Stack> end(const Stack *sk) {
+  return bssl::internal::StackIterator<Stack>(
+      sk, OPENSSL_sk_num(reinterpret_cast<const OPENSSL_STACK *>(sk)));
 }
 
 BSSL_NAMESPACE_END

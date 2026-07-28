@@ -51,7 +51,7 @@ PLATFORMS: dict[str, dict] = {
 
 DEFAULT_PLATFORM = "L40S"
 DEFAULT_SPEC = "standalone_api.json"
-COMPOSE_PROFILE = "bp_developer_alerts_2d_vlm"
+COMPOSE_PROFILE = "rtvi-vlm"
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 PREAMBLE = (

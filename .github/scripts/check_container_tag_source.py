@@ -61,7 +61,7 @@ class ImageConfig:
     # (image_name,). The alert service is published/promoted as ``vss-alert-ms``
     # but the deploy stack still pins the released basename
     # ``vss-alert-verification``, so both must be recognized when scanning
-    # compose refs (see check-alert-ms-container-source.yml: "recognizes both").
+    # compose refs. Still consumed by release_set.py and compose_image_golden.py.
     deploy_image_names: tuple[str, ...] = ()
 
     def compose_names(self) -> tuple[str, ...]:
@@ -162,7 +162,15 @@ def image_refs_in_text(text: str, expected_image_name: str | Iterable[str]) -> l
     """Extract ``image:`` refs matching ``expected_image_name`` from compose
     content. ``expected_image_name`` may be a single basename or an iterable of
     accepted basenames (for images whose deploy basename differs from the
-    published name). Shared with the gate helper (see ``parse_env_text``)."""
+    published name). Shared with the gate helper (see ``parse_env_text``).
+
+    The registry+name portion may itself be parameterized via the
+    ``deploy/docker/containers.env`` single source of truth, e.g.
+    ``image: ${VSS_AGENT_IMAGE:-nvcr.io/nvstaging/vss-core/vss-agent}:${VSS_AGENT_VERSION}``.
+    We therefore expand inline ``${VAR:-default}`` fallbacks (with an empty env,
+    so only the literal defaults are applied) purely to compute the image name
+    for matching. The RAW ref is still returned so the caller resolves the tag
+    against the real ``.env`` values exactly as before."""
     accepted = (
         {expected_image_name}
         if isinstance(expected_image_name, str)
@@ -174,7 +182,8 @@ def image_refs_in_text(text: str, expected_image_name: str | Iterable[str]) -> l
         if not match:
             continue
         ref = strip_quotes(match.group("ref"))
-        if image_name(ref) in accepted and ref not in refs:
+        name_probe, _ = resolve_compose_vars(ref, {})
+        if image_name(name_probe) in accepted and ref not in refs:
             refs.append(ref)
     return refs
 
@@ -184,30 +193,70 @@ def find_image_refs(compose_file: Path, expected_image_name: str | Iterable[str]
 
 
 def resolve_compose_vars(text: str, env: dict[str, str]) -> tuple[str, tuple[str, ...]]:
-    missing: list[str] = []
+    """Resolve Compose substitutions, including nested default expressions."""
+    missing: set[str] = set()
 
-    def replace(match: re.Match[str]) -> str:
-        name = match.group("name")
-        op = match.group("op")
-        fallback = match.group("value") or ""
-        value = env.get(name)
+    def resolve(value: str) -> str:
+        result: list[str] = []
+        index = 0
+        while index < len(value):
+            match = re.match(
+                r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<op>:?[-?])?",
+                value[index:],
+            )
+            if not match:
+                result.append(value[index])
+                index += 1
+                continue
 
-        if op == ":-":
-            return value if value else fallback
-        if op == "-":
-            return value if value is not None else fallback
-        if op in (":?", "?"):
-            if value:
-                return value
-            missing.append(name)
-            return match.group(0)
-        if value is None:
-            missing.append(name)
-            return match.group(0)
-        return value
+            start = index
+            name = match.group("name")
+            op = match.group("op")
+            cursor = index + match.end()
+            if op is None:
+                if cursor < len(value) and value[cursor] == "}":
+                    env_value = env.get(name)
+                    if env_value is None:
+                        missing.add(name)
+                        result.append(value[start : cursor + 1])
+                    else:
+                        result.append(env_value)
+                    index = cursor + 1
+                    continue
+                result.append(value[index])
+                index += 1
+                continue
 
-    resolved = COMPOSE_VAR_RE.sub(replace, text)
-    return resolved, tuple(sorted(set(missing)))
+            depth = 1
+            end = cursor
+            while end < len(value) and depth:
+                if value.startswith("${", end):
+                    depth += 1
+                    end += 2
+                elif value[end] == "}":
+                    depth -= 1
+                    end += 1
+                else:
+                    end += 1
+            if depth:
+                result.append(value[index])
+                index += 1
+                continue
+
+            fallback = value[cursor : end - 1]
+            env_value = env.get(name)
+            use_fallback = env_value is None or (op.startswith(":") and env_value == "")
+            if op.endswith("?") and use_fallback:
+                missing.add(name)
+                result.append(value[start:end])
+            elif use_fallback:
+                result.append(resolve(fallback))
+            else:
+                result.append(env_value)
+            index = end
+        return "".join(result)
+
+    return resolve(text), tuple(sorted(missing))
 
 
 def resolve_commit(repo: Path, prefix: str) -> str | None:
@@ -417,13 +466,18 @@ def _parse_image_ref(image_ref: str) -> tuple[str, str, str] | None:
 
 
 def _fetch_bearer_token(
-    registry: str, name: str, ngc_key: str | None
+    registry: str,
+    name: str,
+    ngc_key: str | None,
+    registry_username: str | None = None,
+    registry_password: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Resolve a registry pull token via the ``WWW-Authenticate`` challenge flow.
 
     Some registries (Docker Hub, GHCR) accept anonymous tokens for public
-    repos; nvcr.io requires Basic-auth with ``$oauthtoken`` + the NGC API key.
-    Returns ``(token, None)`` or ``(None, error_message)``.
+    repos. Private GHCR packages require the workflow actor and GitHub token;
+    nvcr.io requires ``$oauthtoken`` plus the NGC API key. Returns
+    ``(token, None)`` or ``(None, error_message)``.
     """
     import base64
     import urllib.error
@@ -463,6 +517,11 @@ def _fetch_bearer_token(
     req = urllib.request.Request(token_url)
     if ngc_key:
         basic = base64.b64encode(f"$oauthtoken:{ngc_key}".encode()).decode()
+        req.add_header("Authorization", f"Basic {basic}")
+    elif registry_username and registry_password:
+        basic = base64.b64encode(
+            f"{registry_username}:{registry_password}".encode()
+        ).decode()
         req.add_header("Authorization", f"Basic {basic}")
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
@@ -574,7 +633,15 @@ def read_image_manifest_labels(
     registry, name, reference = parsed
 
     ngc_key = os.environ.get("NGC_CLI_API_KEY") or os.environ.get("NGC_API_KEY")
-    token, token_err = _fetch_bearer_token(registry, name, ngc_key)
+    ghcr_username = os.environ.get("GHCR_USERNAME") if registry == "ghcr.io" else None
+    ghcr_token = os.environ.get("GHCR_TOKEN") if registry == "ghcr.io" else None
+    token, token_err = _fetch_bearer_token(
+        registry,
+        name,
+        ngc_key,
+        registry_username=ghcr_username,
+        registry_password=ghcr_token,
+    )
     if token_err:
         return None, token_err, False
 

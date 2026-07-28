@@ -20,7 +20,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["vss-behavior-analytics-mv3dt"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
@@ -38,7 +38,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["playback_kafka_mv3dt", "playback_redis_mv3dt"]
+    profiles: ["vss-behavior-analytics-playback-mv3dt"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_DATA_DIR/playback/warehouse_20x20_playback.txt:/opt/mdx/playback/warehouse_20x20_playback.txt
@@ -51,10 +51,10 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
+    profiles: ["nvstreamer-mv3dt"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -75,6 +75,7 @@ services:
             - "${RT_CV_DEVICE_ID:-0}"
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -87,7 +88,7 @@ services:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
       network: host
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
+    profiles: ["bp-configurator-mv3dt-init"]
     container_name: vss-configurator-mv3dt-init
     environment:
       BP_PROFILE: $BP_PROFILE
@@ -128,13 +129,13 @@ services:
         fi
 
   bp-configurator-mv3dt:
-    image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
+    image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.2.1}
     container_name: vss-configurator-mv3dt
     networks:
       default:
         aliases:
           - vss-configurator
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
+    profiles: ["bp-configurator-mv3dt"]
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
@@ -213,7 +214,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app
       dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
-    profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
+    profiles: ["kibana-init-container-mv3dt"]
     container_name: vss-kibana-init-mv3dt
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/kibana-dashboard/warehouse-mv3dt-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
@@ -226,7 +227,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
+    profiles: ["vss-video-analytics-api-mv3dt"]
     container_name: vss-video-analytics-api-mv3dt
     networks:
       default:
@@ -242,7 +243,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app
       dockerfile: Dockerfiles/import-calibration.Dockerfile
-    profiles: ["bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"]
+    profiles: ["import-calibration-output-container-mv3dt"]
     container_name: vss-import-calibration-output-mv3dt
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
@@ -256,7 +257,7 @@ services:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: measurement-fusion
     image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0}
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["vss-rtvi-cv-bev-fusion"]
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -266,7 +267,7 @@ services:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: perception
     image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.1}
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["vss-rtvi-cv-mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
 
     volumes:
@@ -290,6 +291,7 @@ services:
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libgomp.so.1:/usr/lib/x86_64-linux-gnu/libGLdispatch.so.0"
     command: ["./ds-start-mv3dt.sh"]
     depends_on:
       sensor-ms-mv3dt:

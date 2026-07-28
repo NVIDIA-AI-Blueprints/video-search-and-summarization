@@ -32,6 +32,10 @@ FROM ${BASE_IMAGE}
 COPY --chown=1001:1001 src/ /opt/nvidia/rtvi/rtvi/
 COPY --chown=1001:1001 src/ /opt/nvidia/rtvi/src/
 
+# Replace the base image's mutable, hard-coded codec downloader with the
+# signed-metadata HTTPS installer maintained alongside the open-source service.
+COPY --chmod=0755 --chown=1001:1001 src/scripts/install_codecs_nonroot.sh /opt/nvidia/rtvi/install_codecs_nonroot.sh
+
 USER vss:1001
 WORKDIR /opt/nvidia/rtvi/
 

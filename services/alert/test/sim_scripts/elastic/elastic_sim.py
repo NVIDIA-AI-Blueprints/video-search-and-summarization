@@ -196,6 +196,13 @@ def create_app(state: Optional[ElasticSimState] = None) -> Flask:
     app = Flask(__name__)
     sim_state = state or ElasticSimState()
 
+    # Real Elasticsearch stamps this on every response; elasticsearch-py
+    # (sync and async) refuses the server without it.
+    @app.after_request
+    def _stamp_product_header(response):
+        response.headers.setdefault("X-Elastic-Product", "Elasticsearch")
+        return response
+
     @app.route("/", methods=["GET", "HEAD"])
     def root() -> Any:
         return (

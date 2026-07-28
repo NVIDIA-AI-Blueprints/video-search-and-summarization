@@ -16,7 +16,7 @@
 services:
   streamprocessing-ms:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["streamprocessing-ms"]
     container_name: vss-vios-streamprocessing
     ports:
       - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -72,7 +72,7 @@ services:
 
   streamprocessing-ms-2d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_auto_calib_2d"]
+    profiles: ["streamprocessing-ms-2d"]
     container_name: vss-vios-streamprocessing
     ports:
       - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -106,6 +106,7 @@ services:
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
@@ -138,7 +139,7 @@ services:
 
   streamprocessing-ms-3d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
+    profiles: ["streamprocessing-ms-3d"]
     container_name: vss-vios-streamprocessing
     ports:
       - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -172,6 +173,7 @@ services:
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/home/vst/vst_release/configs/labels.txt
@@ -206,7 +208,7 @@ services:
 
   streamprocessing-ms-mv3dt:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_mv3dt"]
+    profiles: ["streamprocessing-ms-mv3dt"]
     container_name: vss-vios-streamprocessing
     ports:
       - ${STREAM_PROCESSOR_HTTP_HOST_PORT:-30001}:${STREAM_PROCESSOR_HTTP_PORT:-30001}
@@ -240,6 +242,7 @@ services:
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt

@@ -1092,7 +1092,7 @@ wheels = [
 ]
 
 [[package]]
-name = "wdm"
+name = "sdrc"
 version = "3.0.0"
 source = { editable = "." }
 dependencies = [

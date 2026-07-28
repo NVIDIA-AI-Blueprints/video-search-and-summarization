@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.enabled }}
+{{- $service := .Values.service | default dict }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-configurator.fullname" . }}
+  labels:
+    {{- include "bp-configurator.labels" . | nindent 4 }}
+spec:
+  type: {{ $service.type | default .Values.serviceType | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ .Values.port | default 5001 }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "bp-configurator.selectorLabels" . | nindent 4 }}
+{{- end }}

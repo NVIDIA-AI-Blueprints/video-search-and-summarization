@@ -57,6 +57,11 @@ if PROMETHEUS_ENABLED:
         DEDUP_CACHE_OCCUPANCY,
         E2E_DURATION,
         E2E_DURATION_BY_SENSOR,
+        CAPACITY_WAIT_DURATION,
+        DISPATCH_IN_FLIGHT,
+        DISPATCH_WAIT_DURATION,
+        EVENT_LOOP_VLM_IN_FLIGHT,
+        EVENT_LOOP_VST_IN_FLIGHT,
         EVENTS_AFTER_DEDUP,
         EVENTS_AFTER_DEDUP_BY_SENSOR,
         EVENTS_DROPPED,
@@ -72,6 +77,12 @@ if PROMETHEUS_ENABLED:
         VERDICT_RETENTION_DELETED,
         VERDICT_RETENTION_LAST_RUN,
         VERDICT_RETENTION_RUNS,
+        ONDEMAND_E2E_DURATION,
+        ONDEMAND_EVENTS_TOTAL,
+        ONDEMAND_PROCESSING_DURATION,
+        ONDEMAND_REQUESTS_TOTAL,
+        ONDEMAND_VERIFICATION_FAILURES,
+        ONDEMAND_VLM_DURATION,
         UPSTREAM_DURATION,
         UPSTREAM_DURATION_BY_SENSOR,
         VERDICT_ES_GET_DURATION,
@@ -88,6 +99,8 @@ if PROMETHEUS_ENABLED:
         WORKER_PROCESSING_DURATION_BY_SENSOR,
         WORKER_QUEUE_WAIT_DURATION,
         WORKER_QUEUE_WAIT_DURATION_BY_SENSOR,
+        WORKER_START_WAIT_DURATION,
+        WORKER_START_WAIT_DURATION_BY_SENSOR,
     )
 
 
@@ -95,8 +108,9 @@ if PROMETHEUS_ENABLED:
 # Opt-in, set at startup by ``AnomalyEnhancer.__init__`` based on the
 # ``alert_agent.metrics.per_sensor_labels`` config key. When off the
 # ``*_BY_SENSOR`` counters stay absent from the scrape (zero
-# cardinality cost); when on, every event-accounting counter above
-# also increments its per-sensor variant.
+# cardinality cost); when on, every Kafka event-accounting counter also
+# increments its per-sensor variant. The on-demand metric family is aggregate
+# only because its sensor ID comes from arbitrary HTTP input.
 _per_sensor_labels_enabled = False
 
 
@@ -126,8 +140,8 @@ def per_sensor_labels_enabled() -> bool:
 _SENSOR_ID_MAX_LEN = 128
 
 # Hard cap on the number of distinct sensorId label values this process
-# will ever mint. Each new distinct ID adds ~80 Prometheus series
-# (8 histograms × ~10 buckets each); at the default cap of 128 sensors
+# will ever mint. Each new distinct ID adds ~90 Prometheus series
+# (9 histograms × ~10 buckets each); at the default cap of 128 sensors
 # the per-sensor surface is ~10k series — right at the guideline budget.
 # Once the cap is reached every new unseen ID folds to "unknown_overflow"
 # so excess traffic remains visible without growing the registry further.
@@ -196,6 +210,22 @@ EVENTS_DROPPED_REASONS = ("end_time_delta", "dedup", "rate_limit")
 # here and route anything else into ``unknown`` (with a once-per-value
 # WARNING so drift stays discoverable in logs).
 EVENTS_VERDICTS = ("confirmed", "rejected", "verification-failed", "unknown")
+
+ONDEMAND_REQUEST_OUTCOMES = (
+    "accepted",
+    "unknown_category",
+    "invalid_request",
+    "unknown",
+)
+
+ONDEMAND_FAILURE_REASONS = (
+    "media_download",
+    "vlm_api",
+    "vlm_schema",
+    "pluggable_parser",
+    "background_exception",
+    "unknown",
+)
 
 # Tracks verdict values we've already warned about, so a badly-behaving
 # upstream producer cannot spam the log at every event. We intentionally
@@ -282,6 +312,16 @@ def observe_vlm_duration(duration: float, sensor_id: Any = None) -> None:
     )
 
 
+def observe_ondemand_vlm_duration(duration: float, sensor_id: Any = None) -> None:
+    """Record one VLM inference attempt initiated by the on-demand API.
+
+    ``sensor_id`` is accepted so this helper has the same callback signature
+    as ``observe_vlm_duration``. The aggregate API metric deliberately has no
+    sensor label, keeping arbitrary HTTP input out of Prometheus labels.
+    """
+    _observe(ONDEMAND_VLM_DURATION if PROMETHEUS_ENABLED else None, duration)
+
+
 def observe_video_length(clip_seconds: Optional[float], sensor_id: Any = None) -> None:
     """Record the effective video-clip length returned by VST.
 
@@ -294,6 +334,71 @@ def observe_video_length(clip_seconds: Optional[float], sensor_id: Any = None) -
         clip_seconds,
         sensor_id,
     )
+
+
+# ── On-demand API helpers ─────────────────────────────────────────────────
+
+
+def inc_ondemand_request(outcome: str) -> None:
+    """Count one HTTP request using a bounded synchronous outcome label."""
+    if not PROMETHEUS_ENABLED:
+        return
+    normalized = (
+        outcome if outcome in ONDEMAND_REQUEST_OUTCOMES else "unknown"
+    )
+    ONDEMAND_REQUESTS_TOTAL.labels(outcome=normalized).inc()
+
+
+def classify_ondemand_failure(message: Dict[str, Any]) -> Optional[str]:
+    """Return a stable failure reason for a completed on-demand event."""
+    info = message.get("info") or {}
+    response_code = info.get("verificationResponseCode")
+    verdict = info.get("verdict")
+    if response_code in (None, 200, "200") and verdict != "verification-failed":
+        return None
+
+    error_source = info.get("errorSource")
+    if error_source in ONDEMAND_FAILURE_REASONS:
+        return error_source
+    return "unknown"
+
+
+def record_ondemand_event_complete(
+    request_start_time: Optional[float],
+    processing_start_time: float,
+    message: Dict[str, Any],
+    failure_reason: Optional[str] = None,
+) -> None:
+    """Record an accepted API event once background processing finishes.
+
+    Start times are monotonic-clock values captured by the route and service.
+    A missing request start only suppresses the request-to-publish histogram;
+    completion counters and background processing duration still update.
+    """
+    if not PROMETHEUS_ENABLED:
+        return
+
+    completed_at = time.monotonic()
+    _observe(
+        ONDEMAND_PROCESSING_DURATION,
+        max(0.0, completed_at - processing_start_time),
+    )
+    if request_start_time is not None:
+        _observe(
+            ONDEMAND_E2E_DURATION,
+            max(0.0, completed_at - request_start_time),
+        )
+
+    verdict = _normalize_verdict((message.get("info") or {}).get("verdict"))
+    ONDEMAND_EVENTS_TOTAL.labels(verdict=verdict).inc()
+
+    normalized_failure = failure_reason or classify_ondemand_failure(message)
+    if normalized_failure:
+        if normalized_failure not in ONDEMAND_FAILURE_REASONS:
+            normalized_failure = "unknown"
+        ONDEMAND_VERIFICATION_FAILURES.labels(
+            reason=normalized_failure
+        ).inc()
 
 
 # ── Batch-level event-count helpers ───────────────────────────────────────
@@ -402,12 +507,15 @@ def observe_pipeline_latency(
     kafka_con     = timestamps.get("kafkaConsumedAt")  or timestamps.get("kafka_consumed_at")
     worker_asgn   = timestamps.get("workerAssignedAt") or timestamps.get("worker_assigned_at")
     elastic_ready = timestamps.get("elasticReadyAt")   or timestamps.get("elastic_ready_at")
+    task_disp     = timestamps.get("taskDispatchedAt") or timestamps.get("task_dispatched_at")
+    task_start    = timestamps.get("taskStartedAt")    or timestamps.get("task_started_at")
     event_end = message.get("end")
     sensor_id = message.get("sensorId")
 
     upstream = iso_delta_seconds(event_end, kafka_pub)
     kafka_lag = iso_delta_seconds(kafka_pub, kafka_con)
     queue_wait = iso_delta_seconds(kafka_con, worker_asgn)
+    dispatch_wait = iso_delta_seconds(task_disp, task_start)
     e2e = iso_delta_seconds(event_end, elastic_ready)
 
     _observe(UPSTREAM_DURATION, upstream)
@@ -416,6 +524,7 @@ def observe_pipeline_latency(
     _observe_by_sensor(KAFKA_LAG_DURATION_BY_SENSOR, kafka_lag, sensor_id)
     _observe(WORKER_QUEUE_WAIT_DURATION, queue_wait)
     _observe_by_sensor(WORKER_QUEUE_WAIT_DURATION_BY_SENSOR, queue_wait, sensor_id)
+    _observe(DISPATCH_WAIT_DURATION, dispatch_wait)
     _observe(E2E_DURATION, e2e)
     _observe_by_sensor(E2E_DURATION_BY_SENSOR, e2e, sensor_id)
 
@@ -456,6 +565,22 @@ def record_event_complete(
     }
 
     observe_pipeline_latency(message, latency_for_obs)
+    worker_assigned_at = (
+        existing_timestamps.get("workerAssignedAt")
+        or existing_timestamps.get("worker_assigned_at")
+    )
+    worker_started_at = datetime.fromtimestamp(
+        worker_start_time, tz=timezone.utc
+    ).isoformat()
+    worker_start_wait_duration = iso_delta_seconds(
+        worker_assigned_at, worker_started_at
+    )
+    _observe(WORKER_START_WAIT_DURATION, worker_start_wait_duration)
+    _observe_by_sensor(
+        WORKER_START_WAIT_DURATION_BY_SENSOR,
+        worker_start_wait_duration,
+        message.get("sensorId"),
+    )
     worker_processing_duration = time.time() - worker_start_time
     _observe(WORKER_PROCESSING_DURATION, worker_processing_duration)
     _observe_by_sensor(
@@ -509,6 +634,40 @@ def inc_async_dispatch_fallback(reason: str) -> None:
         operation="dispatch_message",
         reason=reason,
     ).inc()
+
+
+def set_dispatch_in_flight(count: int) -> None:
+    """Set the live count of in-flight dispatched messages."""
+    if not PROMETHEUS_ENABLED:
+        return
+    DISPATCH_IN_FLIGHT.set(max(0, count))
+
+
+def observe_capacity_wait(service: str, seconds: float) -> None:
+    """Record time spent waiting for a per-service concurrency slot."""
+    if not PROMETHEUS_ENABLED:
+        return
+    CAPACITY_WAIT_DURATION.labels(service=service).observe(max(0.0, seconds))
+
+
+def inc_capacity_in_flight(service: str) -> None:
+    """Increment the per-service in-flight gauge (capacity slot acquired)."""
+    if not PROMETHEUS_ENABLED:
+        return
+    if service == "vlm":
+        EVENT_LOOP_VLM_IN_FLIGHT.inc()
+    elif service == "vst":
+        EVENT_LOOP_VST_IN_FLIGHT.inc()
+
+
+def dec_capacity_in_flight(service: str) -> None:
+    """Decrement the per-service in-flight gauge (capacity slot released)."""
+    if not PROMETHEUS_ENABLED:
+        return
+    if service == "vlm":
+        EVENT_LOOP_VLM_IN_FLIGHT.dec()
+    elif service == "vst":
+        EVENT_LOOP_VST_IN_FLIGHT.dec()
 
 
 def inc_events_skipped_confirmed(message=None) -> None:
@@ -624,6 +783,15 @@ def warm_startup_labels() -> None:
     for store in DEDUP_CACHE_STORES:
         for mode in DEDUP_CACHE_EVICTION_MODES:
             DEDUP_CACHE_EVICTIONS.labels(store=store, mode=mode).inc(0)
+
+    for outcome in ONDEMAND_REQUEST_OUTCOMES:
+        ONDEMAND_REQUESTS_TOTAL.labels(outcome=outcome).inc(0)
+
+    for verdict in _WARMUP_VERDICTS:
+        ONDEMAND_EVENTS_TOTAL.labels(verdict=verdict).inc(0)
+
+    for reason in ONDEMAND_FAILURE_REASONS:
+        ONDEMAND_VERIFICATION_FAILURES.labels(reason=reason).inc(0)
 
 
 # ── In-process store + verdict-protection observability ────────────────────

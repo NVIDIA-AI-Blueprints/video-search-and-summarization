@@ -31,7 +31,7 @@ NvGstVideoSource::~NvGstVideoSource()
 }
 
 // WebRTC VideoSourceInterface implementation
-void NvGstVideoSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const rtc::VideoSinkWants &wants)
+void NvGstVideoSource::AddOrUpdateSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink, const webrtc::VideoSinkWants &wants)
 {
     LOG(info) << __METHOD_NAME__ << endl;
     
@@ -62,7 +62,7 @@ void NvGstVideoSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFram
     OnSinkWantsChanged(wants);
 }
 
-void NvGstVideoSource::RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
+void NvGstVideoSource::RemoveSink(webrtc::VideoSinkInterface<webrtc::VideoFrame> *sink)
 {
     LOG(info) << __METHOD_NAME__ << endl;
     
@@ -106,7 +106,7 @@ void NvGstVideoSource::RequestRefreshFrame()
     }
 }
 
-void NvGstVideoSource::OnSinkWantsChanged(const rtc::VideoSinkWants& wants)
+void NvGstVideoSource::OnSinkWantsChanged(const webrtc::VideoSinkWants& wants)
 {
     // Handle sink wants changes for adaptive streaming
     if (!m_commonVideoSource.isPassThrough()) {

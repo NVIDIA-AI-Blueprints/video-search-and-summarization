@@ -450,6 +450,11 @@ int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_
                     {
                         frameId = jsonValue["frame_id"].asInt64();
                     }
+                    else if (jsonValue.isMember("frame_num") && jsonValue["frame_num"].isInt64())
+                    {
+                        frameId = jsonValue["frame_num"].asInt64();
+                    }
+
                     if (jsonValue.isMember("timestamp") && jsonValue["timestamp"].isInt64())
                     {
                         pts_from_server = jsonValue["timestamp"].asInt64() / 1000;

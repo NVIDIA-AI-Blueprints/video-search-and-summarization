@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from '../../../utils/misc/Logger';
 import React, { useState, useEffect } from 'react';
 import {
     Paper,
@@ -183,7 +184,7 @@ const Validation: React.FC<ValidationProps> = ({ projectId, onProjectUpdated }) 
             }
 
             const sensorData: SensorData = await response.json();
-            console.log('Sensor data for validation:', sensorData);
+            LOG.info('Sensor data for validation:', sensorData);
 
             // Clear any previous errors when successfully fetching sensor data
             setError(null);
@@ -245,7 +246,7 @@ const Validation: React.FC<ValidationProps> = ({ projectId, onProjectUpdated }) 
                 id: isUnfinished ? figure.id : `projected-${figure.id}`,
             };
         } catch (error) {
-            console.error('Error applying homography transformation:', error);
+            LOG.error('Error applying homography transformation:', error);
             // Fallback to identity transformation if homography fails
             const projectedPoints = figure.points.map(point => ({
                 lat: point.lat,

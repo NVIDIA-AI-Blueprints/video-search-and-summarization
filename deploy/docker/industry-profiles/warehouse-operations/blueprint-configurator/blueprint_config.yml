@@ -130,22 +130,21 @@ commons:
         # required: false
         allowed_values: ["none", "local", "local_shared", "remote"]
 
-      # Conditional validation - if STREAM_TYPE=redis, validate COMPOSE_PROFILES
-      - variable: COMPOSE_PROFILES
+      # STREAM_TYPE is derived from BP_PROFILE; keep the pair consistent.
+      - variable: BP_PROFILE
         condition:
           variable: STREAM_TYPE
           equals: "redis"
-        allowed_patterns:
-          - "*redis*"
+        allowed_values: ["bp_wh_redis"]
+        error_message: "STREAM_TYPE=redis requires BP_PROFILE=bp_wh_redis"
 
-      # Conditional validation - if STREAM_TYPE=kafka, validate COMPOSE_PROFILES
-      - variable: COMPOSE_PROFILES
+      - variable: BP_PROFILE
         # required: false
         condition:
           variable: STREAM_TYPE
           equals: "kafka"
-        disallowed_patterns:
-          - "*redis*"
+        disallowed_values: ["bp_wh_redis"]
+        error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
       - variable: PERCEPTION_TAG
@@ -164,8 +163,8 @@ commons:
               equals: "2d"
             - variable: NUM_STREAMS
               equals: "4"
-            - variable: COMPOSE_PROFILES
-              matches: "bp_wh_2d,*"
+            - variable: BP_PROFILE
+              equals: "bp_wh"
 
       - variable: SAMPLE_VIDEO_DATASET
         when_equals: "warehouse-loading-dock-3cams-synthetic"
@@ -176,12 +175,12 @@ commons:
             - variable: NUM_STREAMS
               equals: "3"
             - or:
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_kafka_2d,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_redis_2d,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_auto_calib_2d,*"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_kafka"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_redis"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_auto_calib"
 
     3d:
       # VSS path variables must be set to real paths, not placeholders or empty
@@ -220,23 +219,22 @@ commons:
         # required: false
         allowed_values: ["none"]
 
-      # Conditional validation - if STREAM_TYPE=redis, validate COMPOSE_PROFILES
-      - variable: COMPOSE_PROFILES
+      # STREAM_TYPE is derived from BP_PROFILE; keep the pair consistent.
+      - variable: BP_PROFILE
         # required: false
         condition:
           variable: STREAM_TYPE
           equals: "redis"
-        allowed_patterns:
-          - "*redis*"
+        allowed_values: ["bp_wh_redis"]
+        error_message: "STREAM_TYPE=redis requires BP_PROFILE=bp_wh_redis"
 
-      # Conditional validation - if STREAM_TYPE=kafka, validate COMPOSE_PROFILES
-      - variable: COMPOSE_PROFILES
+      - variable: BP_PROFILE
         # required: false
         condition:
           variable: STREAM_TYPE
           equals: "kafka"
-        disallowed_patterns:
-          - "*redis*"
+        disallowed_values: ["bp_wh_redis"]
+        error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
       - variable: PERCEPTION_TAG
@@ -256,12 +254,12 @@ commons:
             - variable: NUM_STREAMS
               equals: "4"
             - or:
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_kafka_3d,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_redis_3d,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_auto_calib_3d,*"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_kafka"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_redis"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_auto_calib"
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
@@ -298,21 +296,20 @@ commons:
       - variable: VLM_MODE
         allowed_values: ["none"]
 
-      # Conditional validation - if STREAM_TYPE=redis, validate COMPOSE_PROFILES
-      - variable: COMPOSE_PROFILES
+      # STREAM_TYPE is derived from BP_PROFILE; keep the pair consistent.
+      - variable: BP_PROFILE
         condition:
           variable: STREAM_TYPE
           equals: "redis"
-        allowed_patterns:
-          - "*redis*"
+        allowed_values: ["bp_wh_redis"]
+        error_message: "STREAM_TYPE=redis requires BP_PROFILE=bp_wh_redis"
 
-      # Conditional validation - if STREAM_TYPE=kafka, validate COMPOSE_PROFILES
-      - variable: COMPOSE_PROFILES
+      - variable: BP_PROFILE
         condition:
           variable: STREAM_TYPE
           equals: "kafka"
-        disallowed_patterns:
-          - "*redis*"
+        disallowed_values: ["bp_wh_redis"]
+        error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
       - variable: PERCEPTION_TAG
@@ -332,12 +329,12 @@ commons:
             - variable: NUM_STREAMS
               equals: "4"
             - or:
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_kafka_mv3dt,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_redis_mv3dt,*"
-                - variable: COMPOSE_PROFILES
-                  matches: "bp_wh_auto_calib_mv3dt,*"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_kafka"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_redis"
+                - variable: BP_PROFILE
+                  equals: "bp_wh_auto_calib"
 
   variables:
     2d:
@@ -402,9 +399,14 @@ commons:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"      
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
       # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
@@ -489,9 +491,14 @@ commons:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
       # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
@@ -555,9 +562,14 @@ commons:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
       # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
@@ -685,9 +697,14 @@ IGX-THOR:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
   mv3dt:
     max_streams_supported: 7
     file_operations:
@@ -703,9 +720,14 @@ IGX-THOR:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
 DGX-SPARK:
   2d:
@@ -737,9 +759,14 @@ DGX-SPARK:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
   mv3dt:
     max_streams_supported: 7
     file_operations:
@@ -754,6 +781,11 @@ DGX-SPARK:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"

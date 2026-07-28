@@ -24,7 +24,13 @@ data:
 {{ .Files.Get "configs/objects/search.ndjson" | indent 4 }}
 {{- else if eq $b "lvs" }}
 {{ .Files.Get "configs/objects/lvs.ndjson" | indent 4 }}
+{{- else if eq $b "warehouse-2d" }}
+{{ .Files.Get "configs/objects/warehouse-2d.ndjson" | indent 4 }}
+{{- else if eq $b "warehouse-3d" }}
+{{ .Files.Get "configs/objects/warehouse-3d.ndjson" | indent 4 }}
+{{- else if eq $b "warehouse-mv3dt" }}
+{{ .Files.Get "configs/objects/warehouse-mv3dt.ndjson" | indent 4 }}
 {{- else }}
-{{- fail (printf "kibana.init.objectsBundle must be alerts, search, or lvs (got %q)" $b) }}
+{{- fail (printf "kibana.init.objectsBundle must be alerts, search, lvs, warehouse-2d, warehouse-3d, or warehouse-mv3dt (got %q)" $b) }}
 {{- end }}
 {{- end }}

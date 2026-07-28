@@ -32,6 +32,7 @@
 constexpr int DEFAULT_EACH_FILE_SIZE_MB = 100;
 constexpr int MAX_FRAME_COUNT_LIMIT = 500;
 constexpr int MAX_TOLERABLE_IDR_FRAME_SIZE = 600000;
+constexpr int DEFAULT_STREAM_DETAILS_TIMEOUT_SEC = 10;
 
 using namespace std;
 
@@ -2126,7 +2127,8 @@ static GstPadProbeReturn pad_cb(GstPad *pad, GstPadProbeInfo *info, gpointer use
     return GST_PAD_PROBE_OK;
 }
 
-Json::Value getRTSPStreamDetails (const string &url, std::string& codec, std::vector<std::vector<uint8_t>> sps_pps_idr_frames)
+Json::Value getRTSPStreamDetails (const string &url, std::string& codec, std::vector<std::vector<uint8_t>> sps_pps_idr_frames,
+                                  int timeoutSec)
 {
     LOG(info) << "Entry getRTSPStreamDetails for url = " << secureUrlForLogging(url) << endl;
 
@@ -2243,7 +2245,8 @@ Json::Value getRTSPStreamDetails (const string &url, std::string& codec, std::ve
 
     /* Listen to the bus */
     bus = gst_element_get_bus (elements.m_pipeline);
-    msg = gst_bus_timed_pop_filtered (bus, 10 * GST_SECOND,
+    msg = gst_bus_timed_pop_filtered (bus,
+        (timeoutSec > 0 ? timeoutSec : DEFAULT_STREAM_DETAILS_TIMEOUT_SEC) * GST_SECOND,
         (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
 
     /* Parse message */

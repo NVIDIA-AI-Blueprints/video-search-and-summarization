@@ -19,7 +19,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["vss-behavior-analytics-alerts"]
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-kafka-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/calibration/sample-data/calibration.json:/resources/calibration.json
@@ -27,9 +27,9 @@ services:
     command: python3 apps/smart_city/main_smart_city_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
 
   nvstreamer-alerts:
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["nvstreamer-alerts"]
     entrypoint: [ '/bin/bash', '-c', 'if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst' ]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -43,6 +43,7 @@ services:
     container_name: vss-vios-nvstreamer
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $NVSTREAMER_VIDEO_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
@@ -56,7 +57,7 @@ services:
   #   extends:
   #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
   #     service: perception-sdr
-  #   profiles: ["bp_smartcities_2d_cv"]
+  #   profiles: ["perception-sdr-alerts"]
   #   container_name: vss-rtvi-cv-sdr
   #   volumes:
   #     - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
@@ -75,7 +76,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["perception-alerts"]
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
@@ -103,7 +104,7 @@ services:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
     network_mode: "host"
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["kibana-init-container-alerts"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     depends_on:
@@ -114,7 +115,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["vss-video-analytics-api-alerts"]
     container_name: vss-video-analytics-api
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-api:/opt/mdx/vss-video-analytics-api
@@ -125,15 +126,15 @@ services:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/Dockerfiles/import-calibration.Dockerfile
     network_mode: "host"
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["import-calibration-output-container-smartcities"]
     container_name: mdx-import-calibration-output-smc
     command: bash /opt/mdx/init-scripts/calibration-import.sh
     depends_on:
       - vss-video-analytics-api-alerts
 
   calibration-toolkit-smartcities:
-    image: nvcr.io/nvidia/vss-core/calibration:${CALIBRATION_TOOLKIT_IMAGE_TAG}
-    profiles: ["bp_developer_alerts_2d_cv"]
+    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-nvcr.io/nvidia/vss-core/calibration}:${CALIBRATION_TOOLKIT_IMAGE_TAG}
+    profiles: ["calibration-toolkit-smartcities"]
     network_mode: "host"
     volumes:
       - mdx-calibration-toolkit-alerts:/calibration/server/data:rw
@@ -141,8 +142,8 @@ services:
     command: "deploy.sh 8003"
 
   vss-video-analytics-ui-smartcities:
-    image: nvcr.io/nvidia/vss-core/vss-video-analytics-ui:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
-    profiles: ["bp_developer_alerts_2d_cv"]
+    image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
+    profiles: ["vss-video-analytics-ui-smartcities"]
     network_mode: "host"
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-ui/config/vss-video-analytics-ui-config.json:/config/${VIDEO_ANALYTICS_UI_APP_NAME}/default-ui-config.json

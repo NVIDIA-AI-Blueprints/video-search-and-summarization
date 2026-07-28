@@ -18,7 +18,7 @@ Key service signals in the current develop branch:
 
 | Item | Value |
 |---|---|
-| Compose profile | `bp_developer_lvs_2d` |
+| Compose profile | `lvs-server` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
 | video summarization image | `${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.1}` (use `LVS_TAG=3.2.1-sbsa` on SBSA / DGX Spark / Grace) |
@@ -55,8 +55,8 @@ If you are already operating the resolved Docker Compose stack, include the
 profile that owns the video summarization service:
 
 ```bash
-docker compose --profile bp_developer_lvs_2d ps lvs-server
-docker compose --profile bp_developer_lvs_2d logs -f lvs-server
+docker compose --profile lvs-server ps lvs-server
+docker compose --profile lvs-server logs -f lvs-server
 ```
 
 ## Required Inputs
@@ -262,21 +262,14 @@ RT-VLM values:
 
 ## Model Id Rule
 
-For the default integrated RT-VLM path:
-
-```bash
-VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final
-RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-```
-
-`VLM_NAME` must match the id returned by:
+`VLM_NAME`, when configured, must match the id returned by:
 
 ```bash
 curl -sf "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'
 ```
 
-Do not replace it with the friendly model name unless the endpoint advertises
-that exact id.
+Use the endpoint response as authoritative; do not assume an image tag, NIM
+profile name, or friendly name is also the serving id.
 
 ## Helm Notes
 

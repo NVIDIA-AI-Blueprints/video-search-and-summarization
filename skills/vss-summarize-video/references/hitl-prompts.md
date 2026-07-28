@@ -64,9 +64,23 @@ canonical defaults rather than guessing.
 **Request:**
 
 ```bash
+LVS_REQUEST=/tmp/vss-summarize-video-request.json
+LVS_RESPONSE=/tmp/vss-summarize-video-response.json
+LVS_BASE=${LVS_BACKEND_URL:-http://localhost:38111}
+LVS_OPENAPI=/tmp/vss-lvs-openapi.json
+curl -fsS "$LVS_BASE/openapi.json" > "$LVS_OPENAPI"
+jq -e '.paths["/v1/summarize"].post.requestBody.content["application/json"].schema' \
+  "$LVS_OPENAPI" >/dev/null
+LVS_MODEL=$(curl -fsS "$LVS_BASE/models" | jq -er --arg preferred "${VLM_NAME:-}" '
+  [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
+  | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
+    elif ($ids | length) == 1 then $ids[0]
+    else empty end
+') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
+
 jq -n \
-  --arg url "<clip_url_from_vss_manage_video_io_storage>" \
-  --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
+  --arg url "<fresh_vios_clip_url_from_stage_2>" \
+  --arg model "$LVS_MODEL" \
   --arg scenario "<scenario>" \
   --argjson events '["<event1>", "<event2>"]' \
   '{
@@ -75,22 +89,35 @@ jq -n \
     scenario: $scenario,
     events: $events,
     chunk_duration: 10,
-    num_frames_per_second_or_fixed_frames_chunk: 20,
-    use_fps_for_chunking: false,
     seed: 1
-  }' | curl -s -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/v1/summarize" \
+  }' > "$LVS_REQUEST"
+
+# Execute exactly once; retain the complete response for parsing or diagnosis.
+LVS_HTTP_CODE=$(curl -sS --max-time 300 -o "$LVS_RESPONSE" -w '%{http_code}' \
+  -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/v1/summarize" \
   -H "Content-Type: application/json" \
-  -d @- | jq .
+  --data-binary "@$LVS_REQUEST")
 ```
 
+Do not repeat this POST when `$LVS_HTTP_CODE` is non-2xx or the body is empty.
+Inspect `$LVS_RESPONSE` and service logs instead.
+
 Omit `objects_of_interest` if the user did not provide any. Include it as a
-JSON array otherwise. `num_frames_per_chunk` still exists in the OpenAPI schema
-for compatibility, but it is deprecated in 3.2.0; prefer
-`num_frames_per_second_or_fixed_frames_chunk` with `use_fps_for_chunking`.
+JSON array otherwise. Also omit the frame sampling fields in the standard
+workflow so RT-VLM uses the model-specific deployment default. The deprecated
+`num_frames_per_chunk` field must not be used.
 
 **Response shape:** OpenAI-style envelope. `choices[0].message.content` is a
 **JSON string** — parse it to get the actual summary and event list.
 
 ```bash
-jq -r '.choices[0].message.content' response.json | jq '{video_summary, events}'
+jq '{
+  usage: (.usage // {}),
+  result: (.choices[0].message.content | fromjson | {video_summary, events})
+}' "$LVS_RESPONSE"
 ```
+
+When both result fields are empty, report whether
+`usage.total_chunks_processed` is positive. Zero or missing usage does not
+prove that LVS processed the media; do not describe that case as "no events
+detected."

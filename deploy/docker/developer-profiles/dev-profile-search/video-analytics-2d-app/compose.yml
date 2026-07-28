@@ -19,7 +19,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["vss-search-analytics-2d-fusion"]
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
     container_name: vss-behavior-analytics
@@ -36,7 +36,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["vss-video-analytics-api-fusion"]
     container_name: vss-video-analytics-api
     networks:
       default:
@@ -55,10 +55,10 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["nvstreamer-2d-fusion"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -77,6 +77,7 @@ services:
             device_ids: ["0"]
     volumes:    
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
     depends_on:
@@ -85,7 +86,7 @@ services:
 
   perception-2d-init:
     image: debian:12-slim
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["perception-2d-init"]
     container_name: vss-rtvi-cv-init
     deploy:
       restart_policy:
@@ -115,7 +116,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["perception-2d-fusion"]
     container_name: vss-rtvi-cv
     volumes:
         # Config file mounts (read-only staging; ds-search-start.sh copies to the writable app dir)

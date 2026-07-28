@@ -45,10 +45,7 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/field_trial_units.h"
 #include "rtc_base/trace_event.h"
-#include "system_wrappers/include/field_trial.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
-
-#include "modules/video_capture/linux/video_capture_linux.h"
 
 #include <errno.h>
 #include <fcntl.h>

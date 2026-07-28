@@ -14,13 +14,15 @@
 #if defined(WEBRTC_POSIX)
 
 #include <pthread.h>
+
+#include "absl/base/attributes.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/system/no_unique_address.h"
+#include "rtc_base/thread_annotations.h"
+
 #if defined(WEBRTC_MAC)
 #include <pthread_spis.h>
 #endif
-
-#include "absl/base/attributes.h"
-#include "rtc_base/system/no_unique_address.h"
-#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -76,8 +78,8 @@ class RTC_LOCKABLE MutexImpl final {
     }
 
    private:
-    // Use two separate primitive types, rather than absl::optional, since the
-    // data race described below might invalidate absl::optional invariants.
+    // Use two separate primitive types, rather than std::optional, since the
+    // data race described below might invalidate std::optional invariants.
     bool is_owned_ = false;
     pthread_t latest_owner_ = pthread_self();
 #endif

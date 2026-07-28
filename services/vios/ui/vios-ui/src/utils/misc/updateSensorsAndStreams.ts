@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LOG from './Logger';
 import nvAxios from '../../services/Axios';
 import config from '../../config';
 import useVSTUIStore from '../../services/StateManagement';
@@ -108,11 +109,11 @@ const createSensorFromStream = (
 export const updateSensorsAndStreams = async () => {
     try {
         const vstAdaptorType = useVSTUIStore.getState().vstAdaptorType;
-        console.log('vstAdaptorType', vstAdaptorType);
+        LOG.info('vstAdaptorType', vstAdaptorType);
 
         // Check all services availability
         const serviceAvailability = await useVSTUIStore.getState().checkAllServicesAvailability();
-        console.log('Services Available:', serviceAvailability);
+        LOG.info('Services Available:', serviceAvailability);
 
         // Set loading state for MMS timeline fetch
         if (vstAdaptorType === 'mms') {

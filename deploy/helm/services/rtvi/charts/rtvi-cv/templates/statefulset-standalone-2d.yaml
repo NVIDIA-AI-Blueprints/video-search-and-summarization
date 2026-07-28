@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Warehouse 2D standalone: metropolis_perception_app + bundled configs + NGC file sources.
+# Warehouse 2D standalone: metropolis_perception_app + bundled configs + SDRC-provisioned live sources.
 
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-2d") }}
 apiVersion: apps/v1
@@ -132,6 +132,27 @@ spec:
           volumeMounts:
             - name: models
               mountPath: /models-data
+        {{- end }}
+        {{- if eq (.Values.standaloneWarehouse.streamType | default "none") "kafka" }}
+        - name: wait-for-kafka
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              kafka_bootstrap={{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+              kafka_bootstrap="${kafka_bootstrap%%,*}"
+              kafka_host="${kafka_bootstrap%%:*}"
+              kafka_port="${kafka_bootstrap##*:}"
+              if [ "${kafka_host}" = "${kafka_port}" ]; then
+                kafka_port=9092
+              fi
+              echo "Waiting for Kafka at ${kafka_host}:${kafka_port}..."
+              until nc -z "${kafka_host}" "${kafka_port}"; do
+                echo "Kafka not ready yet, waiting..."
+                sleep 5
+              done
+              echo "Kafka is ready."
         {{- end }}
         - name: ensure-trt-cache
           image: busybox:1.37.0

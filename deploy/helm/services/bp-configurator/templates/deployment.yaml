@@ -1,0 +1,200 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.enabled }}
+{{- $image := .Values.image | default dict }}
+{{- $data := .Values.data | default dict }}
+{{- $init := .Values.init | default dict }}
+{{- $initImage := $init.image | default dict }}
+{{- $dataEnabled := or ($data.enabled | default false) ($data.existingClaim | default "") ($data.seedConfigMapName | default "") }}
+{{- $seedConfigMapName := $data.seedConfigMapName | default "" }}
+{{- $seedEnabled := and $dataEnabled $seedConfigMapName }}
+{{- $initEnabled := true }}
+{{- if hasKey $init "enabled" }}
+{{- $initEnabled = $init.enabled }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-configurator.fullname" . }}
+  labels:
+    {{- include "bp-configurator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "bp-configurator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-configurator.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or $dataEnabled $initEnabled }}
+      initContainers:
+        {{- if $dataEnabled }}
+        - name: prepare-data
+          image: "{{ $initImage.repository | default "busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
+          imagePullPolicy: {{ $initImage.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              data_dir={{ $data.mountPath | default "/opt/data" | quote }}
+              mkdir -p "${data_dir}"
+              {{- if $seedEnabled }}
+              cp -a /seed-data/. "${data_dir}/"
+              chmod -R a+rwX "${data_dir}" || true
+              {{- else }}
+              chmod a+rwx "${data_dir}" || true
+              {{- end }}
+          volumeMounts:
+            - name: warehouse-data
+              mountPath: {{ $data.mountPath | default "/opt/data" }}
+            {{- if $seedEnabled }}
+            - name: seed-data
+              mountPath: /seed-data
+              readOnly: true
+            {{- end }}
+        {{- end }}
+        {{- if $initEnabled }}
+        - name: wait-for-broker
+          image: "{{ $initImage.repository | default "busybox" }}:{{ $initImage.tag | default "1.37.0" }}"
+          imagePullPolicy: {{ $initImage.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              stream_type={{ $init.streamType | default "kafka" | quote }}
+              max_retries={{ $init.maxRetries | default 60 }}
+              retry_interval={{ $init.retryIntervalSeconds | default 2 }}
+              if [ "${stream_type}" = "redis" ]; then
+                host={{ $init.redisHost | default "redis" | quote }}
+                port={{ $init.redisPort | default "6379" | quote }}
+              else
+                host={{ $init.kafkaHost | default "kafka-kafka" | quote }}
+                port={{ $init.kafkaPort | default "9092" | quote }}
+              fi
+              i=0
+              until nc -z "${host}" "${port}"; do
+                i=$((i + 1))
+                if [ "${i}" -ge "${max_retries}" ]; then
+                  echo "Timed out waiting for ${stream_type} at ${host}:${port}"
+                  exit 1
+                fi
+                sleep "${retry_interval}"
+              done
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: bp-configurator
+          image: "{{ required "bp-configurator.image.repository is required" $image.repository }}:{{ required "bp-configurator.image.tag is required" $image.tag }}"
+          imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port | default 5001 }}
+              protocol: TCP
+          {{- with .Values.env }}
+          env:
+            {{- range . }}
+            - name: {{ required "bp-configurator.env[].name is required" .name }}
+              {{- if .valueFrom }}
+              valueFrom:
+                {{- toYaml .valueFrom | nindent 16 }}
+              {{- else }}
+              value: {{ .value | quote }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessPath | default "/readyz" }}
+              port: http
+            initialDelaySeconds: {{ .Values.readinessInitialDelaySeconds | default 20 }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or (.Values.configMounts | default list) $dataEnabled }}
+          volumeMounts:
+            {{- range (.Values.configMounts | default list) }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              {{- with .subPath }}
+              subPath: {{ . }}
+              {{- end }}
+              readOnly: true
+            {{- end }}
+            {{- if $dataEnabled }}
+            - name: warehouse-data
+              mountPath: {{ $data.mountPath | default "/opt/data" }}
+            {{- end }}
+          {{- end }}
+      {{- if or (.Values.configMounts | default list) $dataEnabled }}
+      volumes:
+        {{- range (.Values.configMounts | default list) }}
+        - name: {{ .name }}
+          configMap:
+            name: {{ .configMapName }}
+            optional: {{ .optional | default false }}
+        {{- end }}
+        {{- if $dataEnabled }}
+        - name: warehouse-data
+          {{- if ($data.existingClaim | default "") }}
+          persistentVolumeClaim:
+            claimName: {{ $data.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if $seedEnabled }}
+        - name: seed-data
+          configMap:
+            name: {{ $seedConfigMapName }}
+            optional: {{ $data.seedOptional | default false }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -51,8 +51,8 @@ class TestTripwireEventFunctionality:
         assert tripwire_event.event_name == "tripwire"
         assert tripwire_event.event_type == "TripEvent"
 
-    def test_check_point_delegates_to_calibration(self):
-        """Test _check_point method delegates to calibration correctly."""
+    def test_is_inside_delegates_to_calibration(self):
+        """Test _is_inside method delegates to calibration correctly."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=10.0, y=20.0)
         sensor_id = "sensor1"
@@ -61,13 +61,13 @@ class TestTripwireEventFunctionality:
         # Mock calibration response
         self.calibration.point_in_tripwire.return_value = True
         
-        result = tripwire_event._check_point(point, sensor_id, obj_id)
+        result = tripwire_event._is_inside(point, sensor_id, obj_id)
         
         assert result is True
         self.calibration.point_in_tripwire.assert_called_once_with(point, sensor_id, obj_id)
 
-    def test_check_point_returns_false_when_not_in_tripwire(self):
-        """Test _check_point returns False when point is not in tripwire."""
+    def test_is_inside_returns_false_when_not_in_tripwire(self):
+        """Test _is_inside returns False when point is not in tripwire."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=10.0, y=20.0)
         sensor_id = "sensor1"
@@ -76,7 +76,7 @@ class TestTripwireEventFunctionality:
         # Mock calibration response
         self.calibration.point_in_tripwire.return_value = False
         
-        result = tripwire_event._check_point(point, sensor_id, obj_id)
+        result = tripwire_event._is_inside(point, sensor_id, obj_id)
         
         assert result is False
         self.calibration.point_in_tripwire.assert_called_once_with(point, sensor_id, obj_id)
@@ -116,7 +116,7 @@ class TestTripwireEventFunctionality:
 
     @patch('mdx.analytics.core.transform.event.tripwire_event.intersect')
     def test_intersect_with_trajectory_intersection(self, mock_intersect):
-        """Test _intersect method when trajectory intersects with tripwire."""
+        """Test _crosses method when trajectory intersects with tripwire."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         
         # Create trajectory
@@ -134,7 +134,7 @@ class TestTripwireEventFunctionality:
         # Mock intersect function to return True
         mock_intersect.return_value = True
         
-        result = tripwire_event._intersect(trip, sensor_id, obj_id)
+        result = tripwire_event._crosses(trip, sensor_id, obj_id)
         
         assert result is True
         mock_intersect.assert_called_once()
@@ -146,7 +146,7 @@ class TestTripwireEventFunctionality:
 
     @patch('mdx.analytics.core.transform.event.tripwire_event.intersect')
     def test_intersect_with_no_trajectory_intersection(self, mock_intersect):
-        """Test _intersect method when trajectory does not intersect with tripwire."""
+        """Test _crosses method when trajectory does not intersect with tripwire."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         
         # Create trajectory
@@ -164,14 +164,14 @@ class TestTripwireEventFunctionality:
         # Mock intersect function to return False
         mock_intersect.return_value = False
         
-        result = tripwire_event._intersect(trip, sensor_id, obj_id)
+        result = tripwire_event._crosses(trip, sensor_id, obj_id)
         
         assert result is False
         mock_intersect.assert_called_once()
 
     @patch('mdx.analytics.core.transform.event.tripwire_event.intersect')
     def test_intersect_with_single_point_trajectory(self, mock_intersect):
-        """Test _intersect method with single point trajectory (start == end)."""
+        """Test _crosses method with single point trajectory (start == end)."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         
         # Create trajectory with single point (first and last are same)
@@ -189,7 +189,7 @@ class TestTripwireEventFunctionality:
         # Mock intersect function
         mock_intersect.return_value = False
         
-        result = tripwire_event._intersect(trip, sensor_id, obj_id)
+        result = tripwire_event._crosses(trip, sensor_id, obj_id)
         
         assert result is False
         mock_intersect.assert_called_once()
@@ -199,7 +199,7 @@ class TestTripwireEventFunctionality:
         assert call_args[1].p2 == trip[-1]  # Same as trip[0]
 
     def test_intersect_with_multiple_point_trajectory(self):
-        """Test _intersect method uses first and last points of multi-point trajectory."""
+        """Test _crosses method uses first and last points of multi-point trajectory."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         
         # Create trajectory with multiple points
@@ -222,7 +222,7 @@ class TestTripwireEventFunctionality:
         with patch('mdx.analytics.core.transform.event.tripwire_event.intersect') as mock_intersect:
             mock_intersect.return_value = True
             
-            result = tripwire_event._intersect(trip, sensor_id, obj_id)
+            result = tripwire_event._crosses(trip, sensor_id, obj_id)
             
             assert result is True
             mock_intersect.assert_called_once()
@@ -248,50 +248,50 @@ class TestTripwireEventEdgeCases:
         # Setup config mock
         self.config.sensor_tripwire_min_points.return_value = 2
 
-    def test_check_point_with_zero_coordinates(self):
-        """Test _check_point with zero coordinates."""
+    def test_is_inside_with_zero_coordinates(self):
+        """Test _is_inside with zero coordinates."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=0.0, y=0.0)
         
         self.calibration.point_in_tripwire.return_value = True
         
-        result = tripwire_event._check_point(point, "sensor1", "tripwire1")
+        result = tripwire_event._is_inside(point, "sensor1", "tripwire1")
         
         assert result is True
         self.calibration.point_in_tripwire.assert_called_once_with(point, "sensor1", "tripwire1")
 
-    def test_check_point_with_negative_coordinates(self):
-        """Test _check_point with negative coordinates."""
+    def test_is_inside_with_negative_coordinates(self):
+        """Test _is_inside with negative coordinates."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=-10.5, y=-20.3)
         
         self.calibration.point_in_tripwire.return_value = False
         
-        result = tripwire_event._check_point(point, "sensor1", "tripwire1")
+        result = tripwire_event._is_inside(point, "sensor1", "tripwire1")
         
         assert result is False
         self.calibration.point_in_tripwire.assert_called_once_with(point, "sensor1", "tripwire1")
 
-    def test_check_point_with_very_large_coordinates(self):
-        """Test _check_point with very large coordinates."""
+    def test_is_inside_with_very_large_coordinates(self):
+        """Test _is_inside with very large coordinates."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=999999.999, y=888888.888)
         
         self.calibration.point_in_tripwire.return_value = True
         
-        result = tripwire_event._check_point(point, "sensor1", "tripwire1")
+        result = tripwire_event._is_inside(point, "sensor1", "tripwire1")
         
         assert result is True
         self.calibration.point_in_tripwire.assert_called_once_with(point, "sensor1", "tripwire1")
 
-    def test_check_point_with_very_small_coordinates(self):
-        """Test _check_point with very small floating point coordinates."""
+    def test_is_inside_with_very_small_coordinates(self):
+        """Test _is_inside with very small floating point coordinates."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=0.000001, y=0.000002)
         
         self.calibration.point_in_tripwire.return_value = False
         
-        result = tripwire_event._check_point(point, "sensor1", "tripwire1")
+        result = tripwire_event._is_inside(point, "sensor1", "tripwire1")
         
         assert result is False
         self.calibration.point_in_tripwire.assert_called_once_with(point, "sensor1", "tripwire1")
@@ -364,7 +364,7 @@ class TestTripwireEventEdgeCases:
         
         mock_intersect.return_value = False
         
-        result = tripwire_event._intersect(trip, sensor_id, obj_id)
+        result = tripwire_event._crosses(trip, sensor_id, obj_id)
         
         assert result is False
         # Verify line created with same start and end points
@@ -388,7 +388,7 @@ class TestTripwireEventEdgeCases:
         
         mock_intersect.return_value = False
         
-        result = tripwire_event._intersect(trip, sensor_id, obj_id)
+        result = tripwire_event._crosses(trip, sensor_id, obj_id)
         
         assert result is False
         mock_intersect.assert_called_once()
@@ -407,8 +407,8 @@ class TestTripwireEventErrorHandling:
         self.mock_sensor.tripwires = {}
         self.calibration.sensor_map = {"sensor1": self.mock_sensor}
 
-    def test_check_point_when_calibration_raises_exception(self):
-        """Test _check_point when calibration.point_in_tripwire raises exception."""
+    def test_is_inside_when_calibration_raises_exception(self):
+        """Test _is_inside when calibration.point_in_tripwire raises exception."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=10.0, y=20.0)
         
@@ -416,10 +416,10 @@ class TestTripwireEventErrorHandling:
         self.calibration.point_in_tripwire.side_effect = KeyError("Tripwire not found")
         
         with pytest.raises(KeyError, match="Tripwire not found"):
-            tripwire_event._check_point(point, "sensor1", "tripwire1")
+            tripwire_event._is_inside(point, "sensor1", "tripwire1")
 
-    def test_check_point_when_calibration_raises_attribute_error(self):
-        """Test _check_point when calibration raises AttributeError."""
+    def test_is_inside_when_calibration_raises_attribute_error(self):
+        """Test _is_inside when calibration raises AttributeError."""
         tripwire_event = TripwireEvent(self.config, self.calibration)
         point = Point2D(x=10.0, y=20.0)
         
@@ -427,7 +427,7 @@ class TestTripwireEventErrorHandling:
         self.calibration.point_in_tripwire.side_effect = AttributeError("Method not available")
         
         with pytest.raises(AttributeError, match="Method not available"):
-            tripwire_event._check_point(point, "sensor1", "tripwire1")
+            tripwire_event._is_inside(point, "sensor1", "tripwire1")
 
     def test_get_objects_when_sensor_not_in_map(self):
         """Test _get_objects when sensor ID is not in sensor map."""
@@ -466,7 +466,7 @@ class TestTripwireEventErrorHandling:
         self.mock_sensor.tripwires = {}
         
         with pytest.raises(KeyError):
-            tripwire_event._intersect(trip, "sensor1", "nonexistent_tripwire")
+            tripwire_event._crosses(trip, "sensor1", "nonexistent_tripwire")
 
     def test_intersect_when_tripwire_has_no_wire(self):
         """Test _intersect when tripwire has no wires attribute."""
@@ -480,7 +480,7 @@ class TestTripwireEventErrorHandling:
         self.mock_sensor.tripwires = {"tripwire1": broken_tripwire}
         
         with pytest.raises(AttributeError):
-            tripwire_event._intersect(trip, "sensor1", "tripwire1")
+            tripwire_event._crosses(trip, "sensor1", "tripwire1")
 
     def test_intersect_when_trip_is_empty(self):
         """Test _intersect when trip list is empty."""
@@ -494,7 +494,7 @@ class TestTripwireEventErrorHandling:
         self.mock_sensor.tripwires = {"tripwire1": mock_tripwire}
         
         with pytest.raises(IndexError):
-            tripwire_event._intersect(trip, "sensor1", "tripwire1")
+            tripwire_event._crosses(trip, "sensor1", "tripwire1")
 
     @patch('mdx.analytics.core.transform.event.tripwire_event.intersect')
     def test_intersect_when_intersect_function_raises_exception(self, mock_intersect):
@@ -512,7 +512,7 @@ class TestTripwireEventErrorHandling:
         mock_intersect.side_effect = ValueError("Invalid line geometry")
         
         with pytest.raises(ValueError, match="Invalid line geometry"):
-            tripwire_event._intersect(trip, "sensor1", "tripwire1")
+            tripwire_event._crosses(trip, "sensor1", "tripwire1")
 
     def test_initialization_with_none_config(self):
         """Test initialization with None config should not raise during init."""
@@ -571,7 +571,7 @@ class TestTripwireEventIntegration:
         
         # Test point inside tripwire area
         point_inside = Point2D(x=200.0, y=150.0)  # Above the tripwire line
-        result = tripwire_event._check_point(point_inside, "camera1", "entry_gate")
+        result = tripwire_event._is_inside(point_inside, "camera1", "entry_gate")
         assert result is True
         
         # Test getting tripwires for the sensor
@@ -592,7 +592,7 @@ class TestTripwireEventIntegration:
         
         mock_intersect.return_value = True
         
-        result = tripwire_event._intersect(trajectory, "camera1", "entry_gate")
+        result = tripwire_event._crosses(trajectory, "camera1", "entry_gate")
         
         assert result is True
         mock_intersect.assert_called_once()
@@ -618,7 +618,7 @@ class TestTripwireEventIntegration:
         
         mock_intersect.return_value = False
         
-        result = tripwire_event._intersect(trajectory, "camera1", "entry_gate")
+        result = tripwire_event._crosses(trajectory, "camera1", "entry_gate")
         
         assert result is False
         mock_intersect.assert_called_once()
@@ -667,7 +667,7 @@ class TestTripwireEventIntegration:
         # Mock calibration to return False for point on line (as per spec)
         self.calibration.point_in_tripwire.return_value = False
         
-        result = tripwire_event._check_point(point_on_line, "camera1", "entry_gate")
+        result = tripwire_event._is_inside(point_on_line, "camera1", "entry_gate")
         
         assert result is False
         self.calibration.point_in_tripwire.assert_called_once_with(

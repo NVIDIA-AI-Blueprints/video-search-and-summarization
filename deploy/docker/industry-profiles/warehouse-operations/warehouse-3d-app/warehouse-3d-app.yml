@@ -21,7 +21,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d","playback_kafka_3d","playback_redis_3d"]
+    profiles: ["vss-behavior-analytics-3d"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
@@ -39,7 +39,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["playback_kafka_3d","playback_redis_3d"]
+    profiles: ["vss-behavior-analytics-playback-3d"]
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_DATA_DIR/playback/warehouse_20x20_playback.txt:/opt/mdx/playback/warehouse_20x20_playback.txt
@@ -52,10 +52,10 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_auto_calib_3d"]
+    profiles: ["nvstreamer-3d"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -76,6 +76,7 @@ services:
             - "${RT_CV_DEVICE_ID:-0}"
     volumes:    
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -87,7 +88,7 @@ services:
   #   extends:
   #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
   #     service: perception-sdr
-  #   profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+  #   profiles: ["perception-sdr-3d"]
   #   container_name: vss-rtvi-cv-sdr
   #   volumes:
   #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/sdr:/wdm-configs
@@ -110,7 +111,7 @@ services:
       context: $VSS_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
       network: host
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
+    profiles: ["bp-configurator-3d-init"]
     container_name: vss-configurator-3d-init
     environment:
       BP_PROFILE: $BP_PROFILE
@@ -151,13 +152,13 @@ services:
         fi
 
   bp-configurator-3d:
-    image: nvcr.io/nvidia/vss-core/vss-configurator:3.2.1
+    image: ${VSS_CONFIGURATOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-configurator}:${VSS_CONFIGURATOR_TAG:-3.2.1}
     container_name: vss-configurator
     networks:
       default:
         aliases:
           - vss-configurator
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
+    profiles: ["bp-configurator-3d"]
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
@@ -233,8 +234,8 @@ services:
       start_period: 60s
 
   ds-configurator-3d:
-    image: nvcr.io/nvidia/vss-core/vss-rt-config-adaptor:3.2.0
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-3.2.0}
+    profiles: ["ds-configurator-3d"]
     container_name: vss-rtvi-cv-config-adaptor
     user: "0:0"
     network_mode: "service:perception-3d"
@@ -272,7 +273,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["perception-3d"]
     container_name: vss-rtvi-cv
     volumes:
       # General mountings
@@ -317,7 +318,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app
       dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
-    profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
+    profiles: ["kibana-init-container-3d"]
     container_name: vss-kibana-init
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/kibana-dashboard/warehouse-3d-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
@@ -330,7 +331,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
+    profiles: ["vss-video-analytics-api-3d"]
     container_name: vss-video-analytics-api
     networks:
       default:
@@ -346,7 +347,7 @@ services:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app
       dockerfile: Dockerfiles/import-calibration.Dockerfile
-    profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
+    profiles: ["import-calibration-output-container-3d"]
     container_name: vss-import-calibration-output
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json

@@ -1,0 +1,187 @@
+{
+  "_comment": [
+    "Machine-readable inventory of every first-party container image referenced",
+    "from deploy/docker. Companion of containers.env (the value SSOT) and input",
+    "to .github/scripts/release_set.py (closure validation + release-set",
+    "assembly). Keep the three in sync: a new first-party compose reference",
+    "must be classified here or `release_set.py closure` (CI job",
+    "'Container Coordinates Golden') fails.",
+    "",
+    "strategy:",
+    "  build          - source lives in this repository; candidate for a native",
+    "                   GHCR build (ghcr_build: true marks the images the",
+    "                   build-dev-images workflow builds today).",
+    "  mirror         - first-party, but built outside this repository; joins a",
+    "                   GHCR release set only through the approved NGC->GHCR",
+    "                   mirror program (requires distribution approval).",
+    "  external-pin   - first-party ecosystem image pinned via its own",
+    "                   override variables; out of GHCR release-set scope,",
+    "                   classified here so it is not silently omitted."
+  ],
+  "schema_version": 1,
+  "first_party_registry_roots": [
+    "nvcr.io/nvidia/vss-core",
+    "nvcr.io/nvstaging/vss-core",
+    "nvcr.io/nv-metropolis-dev/met-moe-agents",
+    "ghcr.io/nvidia-ai-blueprints/vss"
+  ],
+  "images": [
+    {
+      "name": "vss-agent",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/agent",
+      "context": "services",
+      "dockerfile": "services/agent/docker/Dockerfile",
+      "lfs_include": "services/agent/3rdparty/ffmpeg/*",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-agent"],
+      "tag_variables": ["VSS_AGENT_VERSION"]
+    },
+    {
+      "name": "vss-agent-ui",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/ui",
+      "context": ".",
+      "dockerfile": "services/ui/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-agent-ui"],
+      "tag_variables": ["VSS_AGENT_UI_TAG"]
+    },
+    {
+      "name": "vss-alert-ms",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/alert",
+      "context": "services/alert",
+      "dockerfile": "services/alert/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-alert-ms", "vss-alert-verification"],
+      "tag_variables": ["VSS_ALERT_TAG"],
+      "notes": "Built by GitHub with agent/UI; GitLab consumes the exact GHCR digest."
+    },
+    {
+      "name": "vss-video-analytics-api",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/analytics/video-analytics-api",
+      "dockerfile": "services/analytics/video-analytics-api/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-video-analytics-api"],
+      "tag_variables": ["VSS_VIDEO_ANALYTICS_API_TAG"],
+      "notes": "Multiarch build exists in ci-vss-oss MR !204; coordinate, do not duplicate."
+    },
+    {
+      "name": "vss-behavior-analytics",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/analytics/behavior-analytics",
+      "dockerfile": "services/analytics/behavior-analytics/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-behavior-analytics"],
+      "tag_variables": ["VSS_BEHAVIOR_ANALYTICS_TAG"],
+      "notes": "Multiarch build exists in ci-vss-oss MR !204; coordinate, do not duplicate."
+    },
+    {
+      "name": "vss-video-summarization",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/video-summarization",
+      "dockerfile": "services/video-summarization/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-video-summarization"],
+      "tag_variables": ["CONTAINER_IMAGE"]
+    },
+    {
+      "name": "vss-rt-vlm",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/rtvi/rt-vlm",
+      "dockerfile": "services/rtvi/rt-vlm/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-rt-vlm"],
+      "tag_variables": ["RTVI_VLM_IMAGE_TAG"]
+    },
+    {
+      "name": "vss-rt-embed",
+      "strategy": "build",
+      "ghcr_build": false,
+      "source_path": "services/rtvi/rt-embed",
+      "dockerfile": "services/rtvi/rt-embed/docker/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-rt-embed"],
+      "tag_variables": ["RTVI_EMBED_TAG"]
+    },
+    {
+      "name": "vss-vios-nvstreamer",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-vios-nvstreamer"],
+      "tag_variables": ["NVSTREAMER_IMAGE_TAG"]
+    },
+    {
+      "name": "vss-configurator",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["vss-configurator"],
+      "tag_variables": ["VSS_CONFIGURATOR_TAG"]
+    },
+    {
+      "name": "vss-rt-config-adaptor",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["vss-rt-config-adaptor"],
+      "tag_variables": ["VSS_RT_CONFIG_ADAPTOR_TAG"]
+    },
+    {
+      "name": "vss-auto-calibration",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["vss-auto-calibration"],
+      "tag_variables": ["VSS_AUTO_CALIBRATION_TAG"]
+    },
+    {
+      "name": "vss-auto-calibration-ui",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["vss-auto-calibration-ui"],
+      "tag_variables": ["VSS_AUTO_CALIBRATION_UI_TAG"]
+    },
+    {
+      "name": "calibration",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["calibration"],
+      "tag_variables": ["CALIBRATION_TOOLKIT_IMAGE_TAG"]
+    },
+    {
+      "name": "vss-video-analytics-ui",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["vss-video-analytics-ui"],
+      "tag_variables": ["VIDEO_ANALYTICS_UI_IMAGE_TAG"]
+    },
+    {
+      "name": "vss-rt-cv",
+      "strategy": "external-pin",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["vss-rt-cv"],
+      "tag_variables": ["PERCEPTION_TAG"]
+    },
+    {
+      "name": "vss-rt-cv-mv3dt-bev-fusion",
+      "strategy": "external-pin",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["vss-rt-cv-mv3dt-bev-fusion"],
+      "tag_variables": ["BEV_FUSION_MV3DT_TAG"]
+    },
+    {
+      "name": "sdr-mw-l",
+      "strategy": "external-pin",
+      "platforms": ["linux/amd64"],
+      "compose_image_names": ["sdr-mw-l"],
+      "tag_variables": ["SDR_MW_L_IMAGE"]
+    }
+  ]
+}

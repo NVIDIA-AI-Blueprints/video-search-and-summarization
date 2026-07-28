@@ -917,6 +917,30 @@ function state_up() {
     fi
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
+
+    # Select explicit service-list variable for the active warehouse variant.
+    local _minimal_profile _cp_var
+    _minimal_profile="$(get_env_value_from_files "MINIMAL_PROFILE" "${_source_env}" "${_overrides_env}")"
+    case "${bp_profile}_${mode}" in
+      bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
+      bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
+      bp_wh_redis_2d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_2D" ;;
+      bp_wh_auto_calib_2d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_2D" ;;
+      bp_wh_kafka_3d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
+      bp_wh_redis_3d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
+      bp_wh_auto_calib_3d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_3D" ;;
+      bp_wh_kafka_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_KAFKA_MV3DT" ;;
+      bp_wh_redis_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_REDIS_MV3DT" ;;
+      bp_wh_auto_calib_mv3dt) _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT" ;;
+      *)
+        echo "[ERROR] Unknown warehouse bp-profile/mode combination: ${bp_profile}/${mode}"
+        return 1
+        ;;
+    esac
+    if [[ -n "${_minimal_profile}" ]] && ([[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]); then
+      _cp_var="${_cp_var}_MINIMAL"
+    fi
+    set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
   fi
 
   if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
@@ -955,6 +979,28 @@ function state_up() {
   echo "[INFO] Setting permissions on data_log directory..."
   chmod -R 777 "${data_directory}/data_log" 2>/dev/null || true
 
+  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
+  local _compose_file_args_text=" ${_compose_file_args[*]}"
+  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
+
+  # Resolve and display the managed container channel before deployment.
+  set -a
+  # shellcheck disable=SC1091
+  source "${deployment_directory}/containers.env"
+  set +a
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
+  echo "[INFO] Resolved compose images:"
+  (
+    cd "${deployment_directory}"
+    docker compose \
+      "${_compose_file_args[@]}" \
+      --env-file containers.env \
+      --env-file "${_deploy_rel}/.env" \
+      --env-file "${_deploy_rel}/generated.env" \
+      config --images | sort -u
+  )
+
   echo "[INFO] Logging into nvcr.io..."
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] docker login --username '\$oauthtoken' --password <ngc-cli-api-key> nvcr.io"
@@ -965,22 +1011,24 @@ function state_up() {
       nvcr.io 2>/dev/null || echo "[WARN] Docker login to nvcr.io may have failed (required for pulling images)"
   fi
 
-  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
-  local _compose_file_args_text=" ${_compose_file_args[*]}"
-  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
-
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose${_compose_file_args_text} --env-file containers.env --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/generated.env up --detach --force-recreate --build"
   else
-    cd "${deployment_directory}" && docker compose \
-      "${_compose_file_args[@]}" \
-      --env-file "${_deploy_rel}/.env" \
-      --env-file "${_deploy_rel}/generated.env" \
-      up \
-      --detach \
-      --force-recreate \
-      --build
+    if ! (
+      cd "${deployment_directory}" && docker compose \
+        "${_compose_file_args[@]}" \
+        --env-file containers.env \
+        --env-file "${_deploy_rel}/.env" \
+        --env-file "${_deploy_rel}/generated.env" \
+        up \
+        --detach \
+        --force-recreate \
+        --build
+    ); then
+      echo "[ERROR] docker compose up failed for deployment '${deployment}'"
+      return 1
+    fi
   fi
 
   echo "[INFO] State up completed"

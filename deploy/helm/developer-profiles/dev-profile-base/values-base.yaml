@@ -21,8 +21,8 @@
 profile: base
 mode: ""
 llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
-vlmNameSlug: nvidia-cosmos3-reasoner # e.g. nvidia-cosmos3-reasoner, nvidia-cosmos-reason2-8b
-vlmName: "nvidia/cosmos3-nano-reasoner"
+vlmNameSlug: none
+vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 # NGC: set apiKey (createSecrets=true lets the chart create pull secrets from it). Do not commit the key.
 ngc:
   createSecrets: true
@@ -37,7 +37,7 @@ global:
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nvidia/cosmos3-nano-reasoner"
+  vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 # Shared NIM umbrella: helm/services/nims. Set nims.global.ngcApiKey to the same value as ngc.apiKey so NIMCache/NIMService can pull models (or rely on pre-created ngc-secret / ngc-api).
 nims:
@@ -50,7 +50,7 @@ nims:
   cosmos:
     enabled: false
   cosmos3:
-    enabled: true
+    enabled: false
 
 # VIOS umbrella (helm/services/vios): parent Chart.yaml uses condition: vios.enabled — that key must stay true here or in values.yaml or the whole VST stack is skipped (no postgres/sensor/ingress/…).
 vios:
@@ -69,5 +69,11 @@ vssIngress:
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
+  # Exposes RT-VLM at /v1 for external report clients. Defaults to the
+  # rtvi.vss-rtvi-vlm Service (vlmNameSlug=none does not deploy a VLM NIM).
+  vlm:
+    enabled: true
+    serviceName: "vss-rtvi-vlm"
+    servicePort: 8000
   phoenixHost: ""
   phoenixPort: 6006

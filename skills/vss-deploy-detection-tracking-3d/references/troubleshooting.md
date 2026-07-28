@@ -124,7 +124,7 @@ jq '.sensors[0] | {group, region, place}' "${CAL_DIR}/calibration.json"
 
 ### `vss-import-calibration-output-mv3dt` exits 1 with `imageMetadata.json not found`
 
-**Symptom:** Under extended profile (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` runs once and exits 1. Logs show:
+**Symptom:** Under the extended deployment (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` runs once and exits 1. Logs show:
 
 ```
 importing calibration ...
@@ -135,7 +135,7 @@ Exiting Script.
 
 Stack otherwise runs; VST video wall renders raw video without overlays because the import didn't populate the metadata index in Elasticsearch.
 
-**Cause:** AMC's MV3DT export doesn't produce `images/Top.png` + `images/imageMetadata.json`; the importer expects both at the bind-mounted path. Only relevant under extended profile — minimal mode doesn't deploy this container at all.
+**Cause:** AMC's MV3DT export doesn't produce `images/Top.png` + `images/imageMetadata.json`; the importer expects both at the bind-mounted path. This only applies to the extended service list; the corresponding `_MINIMAL` list does not deploy this container.
 
 **Diagnose:**
 ```bash
@@ -154,7 +154,7 @@ docker compose -f compose.yml \
 
 ### `vss-import-calibration-output-mv3dt` exits 0 but overlays are missing
 
-**Symptom:** Under extended profile (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` shows `Exited (0)`, but VST overlays are missing. Importer logs include `{"error":"Something broke!"}` or video-analytics API logs show `EACCES: permission denied, open '/web-api-app/files/...'`.
+**Symptom:** Under the extended deployment (`MINIMAL_PROFILE=""`), `vss-import-calibration-output-mv3dt` shows `Exited (0)`, but VST overlays are missing. Importer logs include `{"error":"Something broke!"}` or video-analytics API logs show `EACCES: permission denied, open '/web-api-app/files/...'`.
 
 **Cause:** The video-analytics API upload bind (`${VSS_DATA_DIR}/data_log/vss_video_analytics_api:/web-api-app/files`) is not writable by the API container. The importer uses `curl` without failing on HTTP error responses, so the one-shot can exit 0 even when the API rejected the calibration/image upload.
 
@@ -188,7 +188,7 @@ Re-run [`verify-and-view.md`](verify-and-view.md) Step 4b. Do not report success
 **Cause(s):**
 - Broker not ready — `broker-health-check` hasn't completed yet, so `mdx-raw` topic doesn't exist.
 - `MAX_EXPECTED_SENSORS` (= `NUM_STREAMS`) higher than actual streams — fusion buffers and waits.
-- `STREAM_TYPE` in `.env` doesn't match the broker that's actually up (e.g. `.env` says `kafka` but `redis` is deployed because user set `BP_PROFILE=bp_wh_redis`).
+- `STREAM_TYPE` in `generated.env` doesn't match the broker selected by `BP_PROFILE` (for example, `STREAM_TYPE=kafka` with `BP_PROFILE=bp_wh_redis`).
 
 **Diagnose:**
 ```bash
@@ -226,17 +226,21 @@ docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | tail -60
 ### `mosquitto` unhealthy
 
 **Cause(s):**
-- `MQTT_HOST` / `MQTT_PORT` in `.env` don't match the mosquitto container's actual host/port.
+- The effective `MQTT_HOST` / `MQTT_PORT` values from `.env` plus `generated.env` don't match the mosquitto container's actual host/port.
 - Mosquitto's bind port (`1883` by default) already in use on the host.
 
 **Diagnose:**
 ```bash
-grep -E '^MQTT_(HOST|PORT)=' "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+set -a
+. "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env"
+. "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/generated.env"
+set +a
+printf 'MQTT_HOST=%s\nMQTT_PORT=%s\n' "${MQTT_HOST}" "${MQTT_PORT}"
 ss -tlnp | grep ':1883'                         # port collision check
 docker logs --tail 50 mosquitto 2>&1 | tail
 ```
 
-**Fix:** Set `MQTT_HOST=localhost`, `MQTT_PORT=1883` (mosquitto uses `network_mode: host`). If another process has 1883, stop it (or pick a different `MQTT_PORT` and redeploy).
+**Fix:** Override `MQTT_HOST=localhost` and `MQTT_PORT=1883` in `generated.env` (mosquitto uses `network_mode: host`). If another process has 1883, stop it or choose a different `MQTT_PORT` in `generated.env`, then redeploy.
 
 ### BEV out of sync — frames look stale or duplicated
 
@@ -245,7 +249,7 @@ docker logs --tail 50 mosquitto 2>&1 | tail
 - `BUFFER_DURATION_S` too short for the actual end-to-end latency.
 
 **Diagnose:**
-Watch `mdx-bev` rate vs `mdx-raw` rate over a minute. The shipped Kafka image is `confluentinc/cp-kafka:8.2.0` which uses `kafka-get-offsets` (not the older `kafka-run-class kafka.tools.GetOffsetShell` — that class is gone):
+Watch `mdx-bev` rate vs `mdx-raw` rate over a minute. The shipped Kafka image is `confluentinc/cp-kafka:8.3.0` which uses `kafka-get-offsets` (not the older `kafka-run-class kafka.tools.GetOffsetShell` — that class is gone):
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-raw
 docker exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic mdx-bev
@@ -273,7 +277,7 @@ Then `docker compose ... up -d` to apply. Tune upward incrementally.
 docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | grep -iE 'cuda|out of memory|killed|error' | tail -20
 nvidia-smi
 ```
-If GPU OOM appears, perception is competing with another workload on `RT_CV_DEVICE_ID`. Free the GPU (or change `RT_CV_DEVICE_ID` in `.env`) and redeploy.
+If GPU OOM appears, perception is competing with another workload on `RT_CV_DEVICE_ID`. Free the GPU (or change `RT_CV_DEVICE_ID` in the active `generated.env`) and redeploy.
 
 ### AMC MV3DT export ZIP missing `transforms.yml` / `camInfo/*.yaml`
 
@@ -304,7 +308,7 @@ ss -tlnp | grep ':30888'
 curl -sf "http://localhost:30888/vst/api/v1/sensor/list"   # from the host itself
 ```
 
-**Fix:** If VST containers are missing, the profile gating didn't activate them — confirm `COMPOSE_PROFILES` resolves to `bp_wh_kafka_mv3dt` (or `_redis_`). If `HOST_IP=localhost` in `.env`, change it to the actual reachable IP and redeploy (compose substitutes at start time). For firewall, port-forward via SSH (`ssh -L 30888:localhost:30888`) or open the port on the host.
+**Fix:** If VST containers are missing, the selected service list did not activate them — confirm `COMPOSE_PROFILES` resolves from `COMPOSE_PROFILES_WH_KAFKA_MV3DT` or `COMPOSE_PROFILES_WH_REDIS_MV3DT`. If `HOST_IP=localhost` in `generated.env`, change it to the actual reachable IP and redeploy (Compose substitutes at start time). For firewall, port-forward via SSH (`ssh -L 30888:localhost:30888`) or open the port on the host.
 
 ### VST video wall: "Failed to create Video Source" despite a healthy pipeline
 
@@ -355,15 +359,15 @@ docker inspect vss-vios-streamprocessing \
 
 ### No bounding-box overlays in VST video wall
 
-**Expected behavior under `MINIMAL_PROFILE="true"`.** Overlays require Elasticsearch + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt`, all gated under `_extended`. None of them deploy in minimal mode. See [`verify-and-view.md`](verify-and-view.md) Step 5.
+**Expected behavior under `MINIMAL_PROFILE="true"`.** Overlays require Elasticsearch + `vss-video-analytics-api-mv3dt` + `vss-import-calibration-output-mv3dt`. These services are present in the extended `COMPOSE_PROFILES_WH_*_MV3DT` lists and absent from the corresponding `_MINIMAL` lists. See [`verify-and-view.md`](verify-and-view.md) Step 5.
 
-**Fix:** Tear down ([`teardown.md`](teardown.md)), set `MINIMAL_PROFILE=""` in `.env`, redeploy ([`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md)). There is no "minimal + just ELK" middle path in the current compose — the `_extended` services share a single gating suffix and come up together.
+**Fix:** Tear down ([`teardown.md`](teardown.md)), set `MINIMAL_PROFILE=""` in `generated.env`, select the non-`_MINIMAL` MV3DT service list, and redeploy ([`deploy-rtvi-cv-3d-stack.md`](deploy-rtvi-cv-3d-stack.md)). There is no "minimal + just ELK" middle path; the extended services are selected as a complete list.
 
 In the VST UI itself, overlays are off by default per stream — enable via the video player's options menu.
 
 ### `error from registry: Incorrect Repository Format` during compose pull
 
-**Symptom:** `docker compose up --pull always --build` aborts mid-pull with `error from registry: Incorrect Repository Format`. No containers are created. Failure is non-deterministic across Docker / Compose versions — what works on one host fails on another with the same `.env`.
+**Symptom:** `docker compose up --pull always --build` aborts mid-pull with `error from registry: Incorrect Repository Format`. No containers are created. Failure is non-deterministic across Docker / Compose versions — what works on one host fails on another with the same env inputs.
 
 **Cause:** A handful of services in `services/infra/compose.yml` are locally built but declared with bare-tag `image:` fields (e.g. `image: elasticsearch` — no registry, no version). With `--pull always`, compose tries to resolve those references against the default registry (Docker Hub) before considering the build context. Some Docker / Compose versions reject the resolution outright and abort the whole `up`; others fall through to the build and succeed. The repo-side fix is to scope these references (e.g. `image: <project>-elasticsearch:local`); until that lands, work around it from the deploy side.
 

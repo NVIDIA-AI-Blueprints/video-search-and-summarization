@@ -71,6 +71,7 @@ _stub_modules = [
     'handlers', 'handlers.enrichment', 'handlers.direct_media',
     'handlers.prompt_handler', 'handlers.prompt_handler.alert_type_config_loader',
     'handlers.async_dispatch_mixin',
+    'handlers.event_loop_pipeline_mixin',
     'handlers.async_external_io_mixin',
     'handlers.async_vlm_mode_mixin',
     'utils.logging_config',
@@ -111,12 +112,38 @@ class _VLMStub: pass
 
 
 sys.modules['handlers.async_dispatch_mixin'].AsyncDispatchMixin = _DispatchStub
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_SYNC = 'sync'
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_THREAD_BRIDGE = 'thread_bridge'
+sys.modules['handlers.async_dispatch_mixin'].PIPELINE_MODE_EVENT_LOOP = 'event_loop'
+sys.modules['handlers.async_dispatch_mixin'].resolve_pipeline_mode = lambda raw, legacy: (
+    str(raw).strip().lower()
+    if raw is not None and str(raw).strip().lower() in ('sync', 'thread_bridge', 'event_loop')
+    else ('thread_bridge' if legacy else 'sync')
+)
+sys.modules['handlers.event_loop_pipeline_mixin'].EventLoopPipelineMixin = type(
+    'EventLoopPipelineMixinStub', (), {})
 sys.modules['handlers.async_external_io_mixin'].AsyncExternalIOMixin = _IOStub
 sys.modules['handlers.async_vlm_mode_mixin'].AsyncVLMModeMixin = _VLMStub
 sys.modules['vlm.vlm_client'].VLMClient = Mock
 sys.modules['vlm.vlm_client'].AsyncVLMRuntime = Mock
 
 from enhance_alert_with_vlm import AnomalyEnhancer  # noqa: E402
+
+def _bind_real_stage_helpers(stub):
+    for _name in (
+        '_prepare_message_context', '_resolve_video_url', '_transform_video_urls',
+        '_handle_media_collection_failure', '_handle_url_validation_failure',
+        '_apply_vlm_response', '_apply_vlm_parse_failure',
+        '_publish_outcome_and_complete', '_handle_vlm_exception',
+        '_apply_vlm_exception', '_log_vlm_exception',
+    ):
+        setattr(stub, _name, getattr(AnomalyEnhancer, _name).__get__(stub))
+    for _name in (
+        '_classify_vst_failure', '_classify_vst_failure_reason',
+        '_classify_pre_processing_failure', '_extract_root_cause',
+    ):
+        setattr(stub, _name, getattr(AnomalyEnhancer, _name))
+
 from schemas.pluggable_parser_runtime import (  # noqa: E402
     ERROR_SOURCE_MEDIA_DOWNLOAD,
     ERROR_SOURCE_PLUGGABLE_PARSER,
@@ -134,6 +161,8 @@ def _make_enhancer_stub() -> Mock:
     import threading
 
     stub = Mock(spec=AnomalyEnhancer)
+
+    _bind_real_stage_helpers(stub)
     stub.config = {
         'vst_config': {'retry_without_overlay': False},
         'vlm': {'max_retries': 0, 'model': 'test', 'dynamic_frame_count': False},
@@ -371,13 +400,16 @@ def _mode3_msg():
     }
 
 
-def _make_mode3_handler(parser=None):
+def _make_mode3_handler(parser=None, use_base64=False):
     return DirectMediaHandler(
         vlm_client=Mock(),
         vlm_enhanced_event_sink=Mock(),
         config={
             "alert_agent": {"media_download": {"enabled": True, "use_verdict": False}},
-            "vlm": {"model": "m"},
+            "vlm": {
+                "model": "m",
+                "vlm_media_source_using_base64": use_base64,
+            },
         },
         pluggable_parser=parser,
     )
@@ -433,6 +465,37 @@ class TestMode3DownloadFailureSetsMediaDownload:
             system_prompt='s',
         )
 
+        assert msg['info']['errorSource'] == ERROR_SOURCE_MEDIA_DOWNLOAD
+
+    @pytest.mark.parametrize(
+        ("media_type", "media_url"),
+        [
+            ("video", "https://cdn/video.mp4"),
+            ("image", "https://cdn/image.jpg"),
+        ],
+    )
+    def test_download_failure_sets_media_download(
+        self, media_type, media_url
+    ):
+        handler = _make_mode3_handler(use_base64=True)
+        handler.downloader.validate_url = Mock(return_value=(True, None))
+        handler.downloader.download = Mock(return_value=None)
+        msg = _mode3_msg()
+        msg['info']['media_urls'] = [media_url]
+
+        handler.evaluate(
+            worker_id=0,
+            message=msg,
+            info_block={
+                'media_type': media_type,
+                'media_urls': [media_url],
+            },
+            user_prompt='u',
+            system_prompt='s',
+        )
+
+        assert msg['info']['verificationResponseCode'] == '502'
+        assert msg['info']['verdict'] == 'verification-failed'
         assert msg['info']['errorSource'] == ERROR_SOURCE_MEDIA_DOWNLOAD
 
     def test_vlm_api_error_sets_vlm_api(self):

@@ -207,18 +207,43 @@ alert_agent:
 
   metrics:
     # Requires PROMETHEUS_METRICS_ENABLED=true (env var) to have any effect.
+    # On-demand HTTP metrics use the separate alert_bridge_ondemand_* namespace
+    # and are aggregate-only; per_sensor_labels applies to Kafka metrics.
     # When false (default), the *_BY_SENSOR metric variants are never observed
     # (zero cardinality cost). When true, each distinct sensor ID mints ~12
     # additional Prometheus series per histogram — only enable for deployments
     # with a bounded sensor fleet and a known series budget (~10k per target).
     per_sensor_labels: false
+  # Pipeline execution mode: sync | thread_bridge | event_loop.
+  # Unset -> derived from async_io.enabled (false=sync, true=thread_bridge).
+  # An invalid value fails startup. Also accepted at async_io.pipeline_mode.
+  # event_loop runs one coroutine per message on a persistent event loop with
+  # async clients per stage (VLM: AsyncOpenAI, VST: httpx, sink/verdict:
+  # AsyncElasticsearch): concurrency is bounded by async_dispatch_max_in_flight
+  # plus the per-service caps below instead of by thread count, so Kafka
+  # consumption stays decoupled from VLM latency.
+  # Per-mode meaning of the two dispatch knobs (see README "Pipeline modes"):
+  #   async_dispatch_workers      thread_bridge: dispatch-pool thread count =
+  #                               VLM concurrency ceiling. event_loop: no pool
+  #                               is created; only the default for the caps.
+  #   async_dispatch_max_in_flight  both async modes: global in-flight bound
+  #                               (backpressure to the Kafka consume loop).
+  # pipeline_mode: event_loop
   async_io:
     enabled: false                               # guardrail: keep sync behavior by default
-    vst_enabled: false                           # Guardrail: async-submit VST lookup path
-    elastic_enabled: false                       # Guardrail: async-submit Elastic sink publishing path
-    dedup_enabled: false                         # Guardrail: async-submit in-process dedup/state operations
+    vst_enabled: false                           # Guardrail: async-submit VST lookup path (thread_bridge only)
+    elastic_enabled: false                       # Guardrail: async-submit Elastic sink publishing path (thread_bridge only)
+    dedup_enabled: false                         # Guardrail: async-submit in-process dedup/state operations (thread_bridge only)
     external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
     sink_warn_in_flight: 20                      # Warning threshold for in-flight async sink operations
+    # event_loop per-service concurrency caps (default: async_dispatch_workers,
+    # which keeps downstream pressure identical to the thread_bridge profile).
+    # max_vlm_concurrent MUST stay at or below the benchmarked concurrency
+    # ceiling of the VLM backend (see README "VLM concurrency ceiling
+    # benchmark") — above it, requests pile onto the backend and its latency
+    # balloons instead of throughput improving.
+    # max_vlm_concurrent: 8
+    # max_vst_concurrent: 8
 
   # URL Transformation - transforms internal IPs to external for VLM/UI access
   url_transform:

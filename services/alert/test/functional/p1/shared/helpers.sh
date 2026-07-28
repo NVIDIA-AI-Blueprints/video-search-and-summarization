@@ -163,6 +163,82 @@ with open(dst, "w", encoding="utf-8") as f:
 PY
 }
 
+# Build event_loop-mode config from a source config
+# Usage: build_event_loop_config SRC_CONFIG DST_CONFIG [MAX_IN_FLIGHT] [MAX_VLM] [MAX_VST]
+build_event_loop_config() {
+    local src_config="$1" dst_config="$2"
+    local max_in_flight="${3:-20}" max_vlm="${4:-20}" max_vst="${5:-20}"
+    python3 - "$src_config" "$dst_config" "$max_in_flight" "$max_vlm" "$max_vst" <<'PY'
+import sys
+import yaml
+
+src, dst = sys.argv[1], sys.argv[2]
+max_in_flight, max_vlm, max_vst = int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+with open(src, "r", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
+
+alert_agent = cfg.setdefault("alert_agent", {})
+alert_agent["pipeline_mode"] = "event_loop"
+alert_agent["async_dispatch_max_in_flight"] = max_in_flight
+async_io = alert_agent.setdefault("async_io", {})
+async_io["max_vlm_concurrent"] = max_vlm
+async_io["max_vst_concurrent"] = max_vst
+
+# Gated/held stub responses must not trip the VLM client timeout.
+vlm = cfg.setdefault("vlm", {})
+vlm["request_timeout"] = max(int(vlm.get("request_timeout", 0) or 0), 150)
+
+with open(dst, "w", encoding="utf-8") as f:
+    yaml.safe_dump(cfg, f, sort_keys=False)
+PY
+}
+
+# ─── NIM stub control (concurrency stats + response gate) ───────────────────
+NIM_STUB_URL="${NIM_STUB_URL:-http://127.0.0.1:18081}"
+
+nim_stub_stats() {
+    curl -sf "$NIM_STUB_URL/stub/stats" 2>/dev/null || echo "{}"
+}
+
+nim_stub_stat() {
+    local field="$1"
+    nim_stub_stats | python3 -c "import sys, json; print(json.load(sys.stdin).get('$field', 0))" 2>/dev/null || echo 0
+}
+
+nim_stub_gate() {
+    curl -sf -X POST "$NIM_STUB_URL/stub/gate/$1" >/dev/null
+}
+
+nim_stub_reset() {
+    curl -sf -X POST "$NIM_STUB_URL/stub/reset" >/dev/null
+}
+
+# Poll until the stub reports the expected number of in-flight VLM requests.
+# Usage: nim_stub_wait_in_flight EXPECTED [TIMEOUT_SECONDS]
+nim_stub_wait_in_flight() {
+    local expected="$1" timeout="${2:-60}"
+    local elapsed=0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local current
+        current=$(nim_stub_stat in_flight)
+        if [ "$current" -ge "$expected" ]; then
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    return 1
+}
+
+# Total consumer-group lag across partitions (requires the p1 Kafka container).
+# Usage: kafka_consumer_lag GROUP_ID
+kafka_consumer_lag() {
+    local group_id="$1"
+    docker exec alert-agent-kafka-test kafka-consumer-groups \
+        --bootstrap-server localhost:9092 --describe --group "$group_id" 2>/dev/null \
+        | awk 'NR>1 && $6 ~ /^[0-9]+$/ {sum += $6} END {print sum + 0}'
+}
+
 # Stop Alert Bridge process managed by PID file
 # Usage: stop_alert_bridge_local PID_DIR
 stop_alert_bridge_local() {

@@ -13,9 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# DeepStream configs for profileMode standalone-3d (warehouse 3D + file sources).
+# DeepStream configs for profileMode standalone-3d (warehouse 3D + SDRC-provisioned live sources).
 
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-3d") }}
+{{- $bundle := "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs" }}
+{{- $warehouse := .Values.standaloneWarehouse | default dict }}
+{{- $kafka := $warehouse.kafka | default dict }}
+{{- $rawTopic := $kafka.rawTopic | default "mdx-raw" }}
+{{- $kafkaBootstrap := include "vss-rtvi-cv.kafkaBootstrap" . }}
+{{- $kafkaParts := splitList ":" $kafkaBootstrap }}
+{{- $kafkaHost := first $kafkaParts }}
+{{- $kafkaPort := "9092" }}
+{{- if gt (len $kafkaParts) 1 }}
+{{- $kafkaPort = last $kafkaParts }}
+{{- end }}
+{{- $kafkaConn := printf "%s;%s;%s" $kafkaHost $kafkaPort $rawTopic }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -28,6 +40,15 @@ data:
 {{- $base := base $path }}
 {{- $content := $.Files.Get $path }}
   {{ $base }}: |
+{{- if eq $base "config.yaml" }}
+{{ tpl $content $ | nindent 4 }}
+{{- else if eq $base "ds-main-config.txt" }}
+{{- $c := replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) $content }}
+{{- $c = replace "msg-broker-conn-str=localhost;9092;mdx-bev" (printf "msg-broker-conn-str=%s" $kafkaConn) $c }}
+{{- $c = replace "topic=mdx-bev" (printf "topic=%s" $rawTopic) $c }}
+{{ $c | nindent 4 }}
+{{- else }}
 {{ $content | nindent 4 }}
+{{- end }}
 {{- end }}
 {{- end }}

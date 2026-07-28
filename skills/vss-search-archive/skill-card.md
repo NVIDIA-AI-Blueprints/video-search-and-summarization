@@ -9,14 +9,14 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 OR MIT <br>
 ## Use Case: <br>
-Developers and engineers performing natural-language search across archived video content, ingesting video files or RTSP streams for vector-based search and retrieval. <br>
+Developers and engineers who need to search archived video content using natural-language queries, ingest video files or RTSP streams for search indexing, and manage search-ingested video sources. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
 
 ## Requirements / Dependencies: <br>
-**Requires API Key or External Credential:** [Yes] <br>
-**Credential Type(s):** [API key] <br>
+**Requires API Key or External Credential:** [Environment-dependent; No for ordinary local search] <br>
+**Credential Type(s):** [Deployment/operator credential when required] <br>
 
 Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
@@ -74,7 +74,8 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 1 | 71% (+48%) | 83% (+47%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+Current skill: 3.4.0. Published benchmark below: 3.3.0; it must not be treated
+as validation of the current operational workflow until rerun. <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

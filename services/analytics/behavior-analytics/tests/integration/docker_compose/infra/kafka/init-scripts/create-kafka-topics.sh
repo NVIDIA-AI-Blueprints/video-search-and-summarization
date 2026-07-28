@@ -18,9 +18,9 @@
 ARCH=$(uname -m)
 JQ_URL=""
 
-if [ "$ARCH" = "x86_64" ]; then
+if [[ "$ARCH" = "x86_64" ]]; then
     JQ_URL="https://github.com/stedolan/jq/releases/download/jq-1.7.1/jq-linux64"
-elif [ "$ARCH" = "aarch64" ]; then
+elif [[ "$ARCH" = "aarch64" ]]; then
     JQ_URL="https://github.com/stedolan/jq/releases/download/jq-1.7.1/jq-linux-arm64"
 else
     echo "Unsupported architecture: $ARCH"

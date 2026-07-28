@@ -18,7 +18,7 @@ services:
     image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1}
     container_name: vss-lvs
 
-    profiles: ["bp_developer_lvs_2d"]
+    profiles: ["lvs-server"]
 
     ports:
       - ${BACKEND_HOST_PORT:-38111}:${BACKEND_PORT:-38111}

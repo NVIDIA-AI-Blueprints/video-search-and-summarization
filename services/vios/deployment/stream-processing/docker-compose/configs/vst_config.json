@@ -161,24 +161,11 @@
 		"mega_simulation_delay_max_ms": 5000,
 		"mega_simulation_base_time": "2024-09-27T10:00:00.123456Z",
 		"default_file_expiry_minutes": 10080,
+		"disable_url_caching": false,
 		"download_files_timeout_secs": 300,
 		"picture_api_timeout_secs": 20,
 		"max_network_db_connections": 10,
 		"restore_rtsp_streams_on_startup": true
-	},
-	"notifications":
-	{
-		"enable_notification": true,
-		"enable_notification_consumer": false,
-		"use_message_broker" : "redis",
-		"use_message_broker_consumer" : "kafka",
-		"message_broker_topic": "vst_events",
-		"message_broker_topic_consumer": "",
-		"message_broker_payload_key": "sensor.id",
-		"message_broker_metadata_topic": "test",
-		"redis_server_env_var": "localhost:6379",
-		"kafka_server_address": "",
-		"mqtt_broker_address": "tcp://172.17.0.1:1883"
 	},
 	"debug":
 	{
