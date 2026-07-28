@@ -65,7 +65,7 @@ services:
       - ${VIDEO_DIR:-.}:/videos:ro
       # Saved perception videos for SAVE_VIDEO=1 (grid-view + per-camera mp4s).
       - ../video-output:/video-output
-    command: ["bash", "-c", "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh"]
+    command: ["./ds-start-mv3dt.sh"]
     # Wait for the bundled brokers when their profiles are enabled (the MV3DT
     # tracker fails at startup if MQTT is unreachable; the kafka sink needs the
     # broker). `required: false` skips the dependency when the profile is off
@@ -77,6 +77,9 @@ services:
       kafka:
         condition: service_healthy
         required: false
+    # Uncomment the following 2 lines docker logs shows "libEGL warning: egl: failed to create dri2 screen" 
+    # devices:
+    #   - /dev/dri
 
   bev-fusion:
     image: ${BEV_FUSION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_TAG:-3.2.0}

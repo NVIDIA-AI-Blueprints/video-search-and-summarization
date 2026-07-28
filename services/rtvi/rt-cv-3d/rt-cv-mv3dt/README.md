@@ -27,6 +27,9 @@ streams**, which you register after launch (see
 [§4](#4-add-streams-dynamically-rtsp)). The rest of the setup is identical either way, so it is
 best to validate on recordings first and move to live RTSP once the results look good.
 
+If you don't have your own footage yet, the package in [§1.1](#11-download-the-assets-package)
+includes a 4-camera warehouse **sample dataset** you can run end-to-end.
+
 
 
 ## Table of Contents
@@ -75,6 +78,24 @@ Then point **`MODELS_DIR`** in [docker/.env](docker/.env) at the extracted
 $MODELS_DIR/mtmc/                  RT-DETR onnx (+ TensorRT engines, built on first run)
 $MODELS_DIR/mv3dt/BodyPose3DNet/   3D pose model
 ```
+
+**Sample dataset (optional).** The same package also ships a 4-camera warehouse sample you
+can try RT-CV-3D on without your own footage. It consists of:
+
+- **Per-camera videos** (in the app-data package) — point `VIDEO_DIR` at this directory:
+  ```text
+  $WAREHOUSE_APP_DATA_DIR/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/
+      Camera.mp4  Camera_01.mp4  Camera_02.mp4  Camera_03.mp4
+  ```
+- **`calibration.json`** and the **BEV map `Top.png`** (in this repo, under
+  `deploy/.../warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`):
+  - [`calibration.json`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json)
+  - [`images/Top.png`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png)
+
+To test with the sample dataset, set **`VIDEO_DIR`** to the absolute path of the sample videos
+directory and **`NUM_CAMS=4`** in [docker/.env](docker/.env), then continue with
+[§2.2](#22-generate-caminfo-and-mqtt-pubsub-configs) using its `calibration.json`, and
+[§2.3](#23-stage-the-deepstream-configs) with `INPUT_MODE=file`.
 
 ### 1.2 Optional: use a different RT-DETR model
 
@@ -306,6 +327,29 @@ boxes, rendered by the perception container on your display:
 OSD=1 ./scripts/stage-configs.sh
 ```
 
+<details>
+<summary><b>Troubleshooting: OSD window does not appear</b></summary>
+
+Work through the following checks in order:
+
+1. **`$DISPLAY` is set on the host** — run `echo $DISPLAY`; it should print a non-empty value matching your active display session (e.g. `:0`). If it is empty, find the correct value for your session and export it: `export DISPLAY=<value>`.
+2. **X11 access is granted** — run `xhost +` on the host to allow the container to open the display.
+3. **Configs were staged with `OSD=1`** — If you didn't already, re-run `OSD=1 ./scripts/stage-configs.sh` and relaunch.
+4. **Check the perception container logs**
+   ```bash
+   docker logs vss-rtvi-cv-mv3dt
+   ```
+   If it shows this line: `libEGL warning: egl: failed to create dri2 screen`, it often indicates the container cannot access the host DRI device (`/dev/dri`). In most cases the fix is to pass the host DRI device into the container by adding the following to the `perception` service in [docker/compose.yml](docker/compose.yml):
+   ```yaml
+   services:
+     perception:
+       devices:
+         - /dev/dri
+   ```
+   Then relaunch the container.
+
+</details>
+
 ### 6.2 Perception camera view — save as video
 
 Save the perception app's own annotated camera view (the same 3D-box view as the
@@ -350,47 +394,56 @@ ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
 
 ### 6.3 BEV visualizer — live window
 
-**Requires a display on the host** (without one, use
-[§6.4](#64-bev-visualizer--save-as-video)). Object tracks consumed live from Kafka
-and drawn on a top-down, bird's-eye-view map. Launch it after the Kafka brokers are running:
+**Requires a display on the host** (without one, use [§6.4](#64-bev-visualizer--save-as-video)).
+Reads object tracks from Kafka and renders them on a top-down BEV map.
+
+**Step 1 — prepare `BEV_DATASET_PATH`.** This must be a directory containing:
+
+- `map.png` — the BEV floor-plan image
+- `transforms.yml` — 3×3 `T_ov2px` matrix mapping world ground plane (meters) → map pixels
+
+If you don't have `transforms.yml`, generate it from your `calibration.json`:
 
 ```bash
-# per-camera tracks with cross-camera consistent IDs (mdx-raw): one point per camera view of each object
-BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
-
-# fused BEV tracks (mdx-bev): one merged point per object, as output by BEV Fusion
-BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
-```
-
-`BEV_DATASET_PATH` must contain `map.png` (BEV map image) and `transforms.yml`
-(3×3 `T_ov2px` world ground plane (in meters) → BEV map (in pixels) matrix). In the live window: `q` to quit, `r` to start/stop recording the window to an mp4. See the header of
-[scripts/bev-visualizer.sh](scripts/bev-visualizer.sh) for tuning knobs
-(ID labels, timestamp bucketing).
-
-**Generating `transforms.yml`** — if you don't already have one,
-`generate-transforms.sh` derives it from your `calibration.json`:
-
-```bash
-# with the map image (reads its size; writes transforms.yml next to it):
+# with a map image (reads its size; writes transforms.yml next to it):
 ./scripts/generate-transforms.sh /path/to/calibration.json /path/to/map.png
 
-# without a map image (assumes 1920x1080; writes ./transforms.yml):
+# without a map image (assumes 1920×1080; writes ./transforms.yml):
 ./scripts/generate-transforms.sh /path/to/calibration.json
 ```
 
-The result is exact only when `map.png` is the same floor-plan image used during
-calibration. To catch a mismatch, the script projects the calibration's own
-reference points and warns if they don't land on the map.
+The script warns if the projected reference points don't land on the map, which indicates a mismatch between `map.png` and the floor-plan used during calibration.
+
+> **Sample dataset.** Build the `BEV_DATASET_PATH` directory from the files shipped in this repo:
+> ```bash
+> SAMPLE_DATA=../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic
+> mkdir -p bev-dataset
+> cp "$SAMPLE_DATA/images/Top.png" bev-dataset/map.png
+> ./scripts/generate-transforms.sh "$SAMPLE_DATA/calibration.json" bev-dataset/map.png
+> # BEV_DATASET_PATH=bev-dataset
+> ```
+
+**Step 2 — launch** after the Kafka brokers are running:
+
+```bash
+# per-camera tracks (mdx-raw) — one point per camera view of each object:
+BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
+
+# fused BEV tracks (mdx-bev) — one merged point per object:
+BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
+```
+
+In the live window: press `q` to quit. See [scripts/bev-visualizer.sh](scripts/bev-visualizer.sh) for tuning knobs (ID labels, timestamp bucketing).
 
 ### 6.4 BEV visualizer — save as video
 
-Set `BEV_SAVE_VIDEO=1` (also the automatic behavior when no display is
-available):
+Same `BEV_DATASET_PATH` and `BEV_SOURCE` as [§6.3](#63-bev-visualizer--live-window). Add
+`BEV_SAVE_VIDEO=1` environment variable to save the video to file:
 
 ```bash
 BEV_SAVE_VIDEO=1 BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 
-# same for the fused-track view:
+# fused-track view:
 BEV_SAVE_VIDEO=1 BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 ```
 
@@ -412,7 +465,3 @@ runs until you stop it with Ctrl-C. Either way the mp4 is saved to `./bev-output
 | `generated/` | generated + staged per-run files: `camInfo/`, `pub_sub_info_config.yml`, `configs/` (the staged dir the container mounts, incl. the rewritten tracker config) |
 | `video-output/` | saved perception video from `SAVE_VIDEO=1` (`grid-view.mkv`, the tiled camera grid) |
 | `bev-output/` | saved BEV visualizer videos from `BEV_SAVE_VIDEO=1` ([§6.4](#64-bev-visualizer--save-as-video)) — top-down `trajectory_video_*.mp4` |
-
-Config generation wraps this repo's
-[`tools/rtvi-cv-mv3dt-utils`](../../../../tools/rtvi-cv-mv3dt-utils) generators;
-the BEV fusion service source lives at [`../rt-cv-bev-fusion`](../rt-cv-bev-fusion).
