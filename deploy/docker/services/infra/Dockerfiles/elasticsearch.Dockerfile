@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM docker.elastic.co/elasticsearch/elasticsearch:9.4.3
+FROM docker.elastic.co/elasticsearch/elasticsearch:9.4.4
 
 ENV ES_HOME=/usr/share/elasticsearch
 USER 1000:1000
