@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-video-summarization
-  tag: "3.2.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization
+  tag: develop-latest
   pullPolicy: IfNotPresent
 replicas: 1
 # Backend (API), MCP ports — match Compose
