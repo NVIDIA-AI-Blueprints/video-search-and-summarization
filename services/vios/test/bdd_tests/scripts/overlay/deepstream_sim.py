@@ -219,7 +219,7 @@ def _handle_event(raw, on_camera):
         # Only real RTSP sensors -- camera_streaming also fires for file sensors; ignore those.
         if ev.get("change") == "camera_streaming" and url.startswith("rtsp://"):
             codec = (ev.get("metadata", {}) or {}).get("codec", "H264")
-            on_camera(url, ev.get("camera_id") or ev.get("camera_name"), codec)
+            on_camera(url, ev.get("camera_name") or ev.get("camera_id"), codec)
     except Exception:  # noqa: BLE001
         pass
 

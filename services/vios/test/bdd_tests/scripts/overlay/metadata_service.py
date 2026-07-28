@@ -257,7 +257,9 @@ def _discover_sensors(base_url):
             except Exception:  # noqa: BLE001
                 pass
         codec = "H265" if "h265" in nm.lower() or "hevc" in res else "H264"
-        out.append((s.get("sensorId") or nm, url, codec, w, h))
+        # Overlay metadata is keyed by the stable camera name. The generated sensor UUID
+        # remains the identifier for VIOS storage, timeline, and media APIs.
+        out.append((nm, url, codec, w, h))
     return out
 
 
