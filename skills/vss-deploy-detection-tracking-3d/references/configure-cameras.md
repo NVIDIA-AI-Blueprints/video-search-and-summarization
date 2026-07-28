@@ -2,6 +2,19 @@
 
 Load this reference after the input source is known and before launching or redeploying standalone RT-CV-3D MV3DT.
 
+## Contents
+
+- [Inputs To Resolve](#inputs-to-resolve)
+- [Validate Calibration](#validate-calibration)
+- [Broker Mode](#broker-mode)
+- [Generate Runtime Camera Configs](#generate-runtime-camera-configs)
+- [Resolve BEV Assets](#resolve-bev-assets)
+- [Configure `docker/.env`](#configure-dockerenv)
+- [File Input Checks](#file-input-checks)
+- [Display And Save-Video Decision](#display-and-save-video-decision)
+- [Stage Configs](#stage-configs)
+- [RTSP Stream Registration](#rtsp-stream-registration)
+
 ## Inputs To Resolve
 
 - `RTCV3D_APP`: `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
@@ -24,7 +37,9 @@ cd "${RTCV3D_APP:?set RTCV3D_APP}"
 CALIBRATION_JSON="${CALIBRATION_JSON:?set path to calibration.json}"
 test -f "${CALIBRATION_JSON}" || { echo "ERROR: calibration.json not found: ${CALIBRATION_JSON}"; exit 1; }
 
-CALIBRATION_JSON="${CALIBRATION_JSON}" python3 - <<'PY'
+mkdir -p generated/run-state
+CAMERA_ENV="generated/run-state/cameras.env"
+CALIBRATION_JSON="${CALIBRATION_JSON}" python3 - <<'PY' > "${CAMERA_ENV}.tmp"
 import json, os, re
 path = os.environ['CALIBRATION_JSON']
 with open(path, encoding='utf-8') as f:
@@ -55,9 +70,21 @@ if len(ids) != len(set(ids)):
 print("NUM_CAMS=" + str(len(ids)))
 print("CAMERA_IDS=" + ",".join(ids))
 PY
+mv "${CAMERA_ENV}.tmp" "${CAMERA_ENV}"
+NUM_CAMS="$(awk -F= '$1 == "NUM_CAMS" {print $2}' "${CAMERA_ENV}")"
+CAMERA_IDS="$(awk -F= '$1 == "CAMERA_IDS" {print $2}' "${CAMERA_ENV}")"
+test -n "${NUM_CAMS}" && test -n "${CAMERA_IDS}" || { echo "ERROR: failed to derive NUM_CAMS/CAMERA_IDS" >&2; exit 1; }
+export NUM_CAMS CAMERA_IDS
+set_env_value() {
+  key="$1"; value="$2"; file="${RTCV3D_APP}/docker/.env"; tmp="${file}.tmp"
+  awk -v key="${key}" -v value="${value}" 'BEGIN{done=0} $0 ~ "^" key "=" {$0=key "=" value; done=1} {print} END{if(!done) print key "=" value}' "${file}" > "${tmp}"
+  mv "${tmp}" "${file}"
+}
+set_env_value NUM_CAMS "${NUM_CAMS}"
+printf 'NUM_CAMS=%s\nCAMERA_IDS=%s\n' "${NUM_CAMS}" "${CAMERA_IDS}"
 ```
 
-Use the printed `NUM_CAMS` for `docker/.env`. File-mode MP4 basenames and RTSP registration keys must match `CAMERA_IDS` exactly.
+Use the exported `NUM_CAMS` and `CAMERA_IDS` from `generated/run-state/cameras.env`. File-mode MP4 basenames and RTSP registration keys must match `CAMERA_IDS` exactly.
 
 ## Broker Mode
 
@@ -68,7 +95,8 @@ cd "${RTCV3D_APP:?set RTCV3D_APP}"
 read_env() {
   awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
 }
-REQUEST_EXTERNAL_BROKERS="${REQUEST_EXTERNAL_BROKERS:-${USE_EXTERNAL_BROKERS:-0}}"
+USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-$(read_env USE_EXTERNAL_BROKERS)}"; USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-0}"
+REQUEST_EXTERNAL_BROKERS="${REQUEST_EXTERNAL_BROKERS:-${USE_EXTERNAL_BROKERS}}"
 RAW_TOPIC="${RAW_TOPIC:-$(read_env RAW_TOPIC)}"; RAW_TOPIC="${RAW_TOPIC:-mdx-raw}"
 FUSED_TOPIC="${FUSED_TOPIC:-$(read_env FUSED_TOPIC)}"; FUSED_TOPIC="${FUSED_TOPIC:-mdx-bev}"
 KAFKA_PORT="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"
@@ -101,7 +129,9 @@ export USE_EXTERNAL_BROKERS
 ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
 ```
 
-Launch later with:
+Do not launch file-mode perception from this section. After camera configuration, use `deploy-rtvi-cv-3d-stack.md` for the actual launch so file-mode Kafka baselines and optional BEV assignment are established before `perception` starts.
+
+For stream mode only, when no BEV prestart is required, launch later with:
 
 ```bash
 cd "${RTCV3D_APP}/docker"
@@ -167,7 +197,9 @@ print(f"pub/sub config uses {endpoint}")
 PY
 ```
 
-Launch later without bundled broker profiles:
+Do not launch file-mode perception from this section. After camera configuration, use `deploy-rtvi-cv-3d-stack.md` so file-mode Kafka baselines and optional BEV assignment are established before `perception` starts.
+
+For stream mode only, when no BEV prestart is required, launch later without bundled broker profiles:
 
 ```bash
 cd "${RTCV3D_APP}/docker"
@@ -208,7 +240,7 @@ Resolve assets in this order:
 3. If the user supplied `MAP_PNG` and `TRANSFORMS_YML`, stage them into `generated/bev-dataset/` with stable names and use that directory.
 4. If the user supplied `MAP_PNG` but not `TRANSFORMS_YML`, look for `transforms.yml` near `calibration.json` and AMC output directories before generating it.
 5. If the correct calibration map image is available but no transform file exists, generate transforms with `scripts/generate-transforms.sh` and write the result under `generated/bev-dataset/`.
-6. If neither path works, ask for the map image used during calibration or a directory containing both files. Do not run BEV visualization, and do not claim saved BEV output, until both files exist.
+6. If neither path works, request the map image used during calibration or a directory containing both files. Do not run BEV visualization, and do not claim saved BEV output, until both files exist.
 
 ```bash
 cd "${RTCV3D_APP}"
@@ -327,7 +359,7 @@ Selection rules:
 - If the user asked to save video or save output, set `SAVE_VIDEO=1` regardless of display availability and save fused BEV by default after `BEV_DATASET_PATH` resolves with both required files.
 - If the user asked for both live and saved output, set `OSD=1 SAVE_VIDEO=1` when display is available and start saved fused BEV in parallel.
 - If display is available and the user did not ask to save, set `OSD=1 SAVE_VIDEO=0`.
-- If display is not available, tell the user no working display was detected and ask before using saved output. If approved, save both perception grid and fused BEV by default after BEV assets resolve.
+- If display is not available, tell the user no working display was detected and use saved output as the fallback: set `SAVE_VIDEO=1` and save both perception grid and fused BEV after BEV assets resolve.
 - Do not run broad `xhost +`. Ask before changing X11 access and prefer scoped access.
 
 `SAVE_VIDEO=1` only controls the perception camera-grid sink. Saved BEV is a separate `scripts/bev-visualizer.sh` process with `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`; start it before data flows.
@@ -360,7 +392,7 @@ test -f "${BEV_DATASET_PATH:?set BEV_DATASET_PATH}/map.png" || { echo "ERROR: BE
 test -f "${BEV_DATASET_PATH}/transforms.yml" || { echo "ERROR: BEV transforms.yml missing"; exit 1; }
 ```
 
-If these assets are missing, return to `Resolve BEV Assets`. Continue with perception-grid-only output only if the user explicitly accepts that reduced output.
+If these assets are missing, return to `Resolve BEV Assets`. Continue with perception-grid-only output only when BEV output was not requested or after reporting that saved/live BEV is blocked until the assets are provided.
 
 ## RTSP Stream Registration
 
@@ -380,6 +412,7 @@ Validate exact stream count and camera IDs after registration:
 
 ```bash
 cd "${RTCV3D_APP}"
+mkdir -p generated/run-state
 EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f
 ' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
 ./scripts/add-streams.sh --list > generated/run-state/stream-info.txt

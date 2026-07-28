@@ -2,6 +2,25 @@
 
 Load this reference when setup, staging, launch, RTSP registration, Kafka flow, OSD, saved video, or BEV visualization fails.
 
+## Contents
+
+- [Wrong Deployment Path](#wrong-deployment-path)
+- [Runtime Image Confusion](#runtime-image-confusion)
+- [Missing Models](#missing-models)
+- [Sample Dataset Assets Missing](#sample-dataset-assets-missing)
+- [No `camInfo` Or Wrong Camera Count](#no-caminfo-or-wrong-camera-count)
+- [Unsafe Or Mismatched Camera IDs](#unsafe-or-mismatched-camera-ids)
+- [RTSP Streams Do Not Start](#rtsp-streams-do-not-start)
+- [Bundled Kafka Port Conflict](#bundled-kafka-port-conflict)
+- [Bundled Or External Broker Problems](#bundled-or-external-broker-problems)
+- [Host Tool Or Python Prerequisite Missing](#host-tool-or-python-prerequisite-missing)
+- [`mdx-raw` Grows But `mdx-bev` Does Not](#mdx-raw-grows-but-mdx-bev-does-not)
+- [OSD Window Missing](#osd-window-missing)
+- [File-Input Completion Versus Crash](#file-input-completion-versus-crash)
+- [Kafka Verification Hangs](#kafka-verification-hangs)
+- [Saved Video Missing Or Stale](#saved-video-missing-or-stale)
+- [BEV Visualizer Fails Or Saves Old Output](#bev-visualizer-fails-or-saves-old-output)
+
 ## Wrong Deployment Path
 
 Symptom: commands mention `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, VST, ELK, Kibana, Logstash, or `deploy/docker/industry-profiles/warehouse-operations`.
@@ -31,6 +50,12 @@ ls "${MODELS_DIR}/mv3dt/BodyPose3DNet"
 ```
 
 Fix: download/extract app-data, set `MODELS_DIR` to its `models` directory in standalone `docker/.env`, then restage/redeploy.
+
+## Sample Dataset Assets Missing
+
+Symptom: a sample-dataset run cannot find `warehouse-4cams-20mx20m-synthetic`, `Camera.mp4`, `Camera_01.mp4`, `Camera_02.mp4`, `Camera_03.mp4`, sample `calibration.json`, or `Top.png`.
+
+Fix: load `sample-dataset.md`. Use an existing extracted `WAREHOUSE_APP_DATA_DIR` if available; otherwise obtain the NGC warehouse app-data resource from the user/environment/public docs and download it with the NGC CLI without printing credentials. The sample calibration and `Top.png` come from the repo sample-data path, then `transforms.yml` is generated into `generated/bev-dataset/`.
 
 ## No `camInfo` Or Wrong Camera Count
 
@@ -67,6 +92,12 @@ Fixes:
 - Confirm streams are synchronized and close to 30 FPS.
 - After `add-streams.sh`, validate exact stream count and camera IDs with `configure-cameras.md`.
 
+## Bundled Kafka Port Conflict
+
+Symptom: bundled Kafka fails to start, or logs/compose output show bind failures on `9092` or `9093`.
+
+Fix: run the bundled Kafka port preflight in `deploy-rtvi-cv-3d-stack.md` before launch. It checks the configured `KAFKA_PORT` and `KAFKA_CONTROLLER_PORT`, selects a free pair such as `19092/19093` when needed, and persists `KAFKA_BOOTSTRAP=localhost:${KAFKA_PORT}` in standalone `docker/.env`.
+
 ## Bundled Or External Broker Problems
 
 Symptom: perception fails at MQTT init, Kafka dump cannot connect, BEV Fusion remains unhealthy, or `mdx-bev` does not grow.
@@ -88,6 +119,30 @@ timeout 20s ./scripts/kafka-dump.sh --bootstrap "${KAFKA_BOOTSTRAP:-localhost:${
 ```
 
 If advanced Kafka/MQTT TLS/auth is required, use the standalone README custom-broker section.
+
+## Host Tool Or Python Prerequisite Missing
+
+Symptom: saved-output verification cannot parse videos because `ffprobe` is missing, `scripts/ensure-venv.sh` fails while creating `utils/venv`, or the BEV visualizer exits with `No module named '_tkinter'` / Tkinter import errors even in offline mode.
+
+Checks:
+
+```bash
+command -v ffprobe || echo 'missing ffprobe; install/provide ffmpeg tools before saved-output verification'
+cd "${RTCV3D_APP}"
+python3 -m venv --help >/dev/null || echo 'python3 venv/ensurepip support is missing'
+python3 - <<'PY'
+try:
+    import tkinter
+except Exception as exc:
+    raise SystemExit(f"missing Tkinter support for BEV visualizer: {exc}")
+PY
+```
+
+Fixes:
+
+- Install or provide `ffprobe` before saved-output runs; saved grid/BEV success requires parseable videos.
+- Install the platform Python venv/ensurepip package, then rerun `scripts/ensure-venv.sh`; if the distribution disables ensurepip, bootstrap pip according to the OS Python packaging guidance before running the BEV helper.
+- Install the platform Tkinter package for the Python used by `scripts/ensure-venv.sh` before BEV visualization/recording.
 
 ## `mdx-raw` Grows But `mdx-bev` Does Not
 
@@ -120,11 +175,11 @@ Fixes:
 - Restage with `OSD=1` only after a working display is detected.
 - Ask before modifying X11 access.
 - Do not use broad `xhost +`.
-- If no display is available, ask before switching to `SAVE_VIDEO=1` and saved BEV output.
+- If no display is available, restage with `SAVE_VIDEO=1` and saved BEV output when BEV assets are present.
 
 ## File-Input Completion Versus Crash
 
-For `INPUT_MODE=file`, `vss-rtvi-cv-mv3dt` exits after EOS by design. `Exited (0)` with `App run successful` in logs is success, not a failed deployment.
+For `INPUT_MODE=file`, `vss-rtvi-cv-mv3dt` exits after EOS by design. It may never emit `ds-ready: YES`. `Pipeline running` is useful startup evidence when present, but `Exited (0)` with `App run successful` in current-run logs is success, not a failed deployment.
 
 ```bash
 status="$(docker inspect --format '{{.State.Status}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"

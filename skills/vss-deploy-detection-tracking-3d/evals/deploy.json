@@ -5,7 +5,7 @@
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
-        "gpu_count": 1,
+        "gpu_count": 0,
         "modes": [
           "standalone"
         ]
@@ -14,52 +14,34 @@
   },
   "expects": [
     {
-      "query": "Deploy rtvi-cv-3d using CALIBRATION_JSON=/data/mv3dt/calibration.json, MODELS_DIR=/data/vss-app-data/models, BEV_DATASET_PATH=/data/mv3dt/bev-dataset, and these MP4s: Camera_01=/data/mv3dt/videos/front.mp4 Camera_02=/data/mv3dt/videos/left.mp4 Camera_03=/data/mv3dt/videos/right.mp4 Camera_04=/data/mv3dt/videos/back.mp4. Save output.",
+      "query": "Plan only; do not run commands, start containers, pull images, download data, contact brokers, or modify files. Deploy rtvi-cv-3d using CALIBRATION_JSON=/data/mv3dt/calibration.json, MODELS_DIR=/data/vss-app-data/models, BEV_DATASET_PATH=/data/mv3dt/bev-dataset, and these MP4s: Camera_01=/data/mv3dt/videos/front.mp4 Camera_02=/data/mv3dt/videos/left.mp4 Camera_03=/data/mv3dt/videos/right.mp4 Camera_04=/data/mv3dt/videos/back.mp4. Save output.",
       "checks": [
-        "The deployment path is services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
-        "The agent validates calibration camera sensors using type == camera, safe unique IDs, and NUM_CAMS=4.",
-        "The agent creates generated symlinks named <sensor_id>.mp4 for the supplied MP4 mapping without mutating source videos.",
-        "docker/.env has MODELS_DIR, NUM_CAMS=4, INPUT_MODE=file, and VIDEO_DIR set for the standalone package.",
-        "The agent reports runtime images only from docker compose config --images and does not hardcode image tags.",
-        "The agent starts bundled brokers and bev-fusion first, verifies health/topic init, records a run id/start timestamp, then captures Kafka offset baselines before starting perception.",
-        "The agent starts the BEV recorder after file-mode Kafka baselines, waits for Kafka consumer group assignment evidence, then starts perception.",
-        "For file input, the agent treats Exited (0) with App run successful as EOS success and requires mdx-raw and mdx-bev offsets to exceed baselines.",
-        "The agent reports only current-run video-output/grid-view.mkv and current-run BEV output after timestamp/size/ffprobe checks and BEV log Video saved positive-frame evidence.",
-        "The agent stops remaining standalone support services for completed file-input runs unless the user asked to keep them running."
+        "The plan uses deployment path services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
+        "The plan validates calibration camera sensors using type == camera, safe unique IDs, and NUM_CAMS=4.",
+        "The plan creates generated symlinks named <sensor_id>.mp4 for the supplied MP4 mapping without mutating source videos.",
+        "The plan writes standalone docker/.env with MODELS_DIR, NUM_CAMS=4, INPUT_MODE=file, and VIDEO_DIR set for the standalone package.",
+        "The plan reports runtime images only from docker compose config --images and does not hardcode image tags.",
+        "The plan preflights bundled Kafka data/controller ports and, if 9092/9093 are occupied, persists a free pair such as 19092/19093 plus matching KAFKA_BOOTSTRAP before launch.",
+        "The plan checks ffprobe before saved-output verification and checks BEV visualizer Python/Tkinter prerequisites before starting saved BEV.",
+        "The plan includes starting bundled brokers and bev-fusion first, verifies health/topic init, records a run id/start timestamp, then captures Kafka offset baselines before starting perception.",
+        "The plan includes starting the BEV recorder after file-mode Kafka baselines, waits for Kafka consumer group assignment evidence, then starts perception with docker compose up -d --no-deps --force-recreate perception so Kafka/Mosquitto are not recreated.",
+        "For file input, the agent does not require ds-ready: YES; it treats Exited (0) with App run successful as EOS success and requires mdx-raw and mdx-bev offsets to exceed baselines.",
+        "The plan waits for the tracked saved-BEV recorder to exit/finalize, safely SIGTERMs the validated recorder if needed, then reports only current-run video-output/grid-view.mkv and current-run BEV output after timestamp/size/ffprobe checks and BEV log Video saved positive-frame evidence.",
+        "The plan stops remaining standalone support services for completed file-input runs unless the user asked to keep them running.",
+        "The agent does not actually run docker compose, docker pull, docker run, ngc download, curl against services, or modify runtime files for this planning eval."
       ]
     },
     {
-      "query": "Deploy RTVI-CV-3D on four calibrated RTSP streams Camera_01=rtsp://cam1/live Camera_02=rtsp://cam2/live Camera_03=rtsp://cam3/live Camera_04=rtsp://cam4/live using /data/mv3dt/calibration.json and /data/vss-app-data/models.",
+      "query": "Plan only; do not run commands, start containers, pull images, download data, contact brokers, or modify files. Deploy RTVI-CV-3D with external MQTT broker broker.example.com:1883 and external Kafka kafka.example.com:19092. Do not use bundled brokers. Use CALIBRATION_JSON=/data/mv3dt/calibration.json, MODELS_DIR=/data/vss-app-data/models, BEV_DATASET_PATH=/data/mv3dt/bev-dataset, and these MP4s: Camera_01=/data/mv3dt/videos/front.mp4 Camera_02=/data/mv3dt/videos/left.mp4 Camera_03=/data/mv3dt/videos/right.mp4 Camera_04=/data/mv3dt/videos/back.mp4. Save output.",
       "checks": [
-        "The agent stages INPUT_MODE=stream and launches the standalone compose stack, not warehouse compose.",
-        "After ds-ready: YES, the agent runs scripts/add-streams.sh with the supplied NAME=rtsp:// mappings.",
-        "The agent validates registered stream count equals NUM_CAMS and registered IDs exactly match generated camInfo IDs with no unexpected or duplicate sensors.",
-        "The agent requires every expected source to show recent non-zero FPS before reporting success.",
-        "The agent requires mdx-raw and mdx-bev offsets to grow while streams are active and BEV Fusion to be healthy.",
-        "Verification uses the configured KAFKA_BOOTSTRAP through Kafka CLI offset checks, not hardcoded Kafka endpoints."
-      ]
-    },
-    {
-      "query": "Deploy RTVI-CV-3D with external MQTT broker broker.example.com:1883 and external Kafka kafka.example.com:19092. Do not use bundled brokers. Use CALIBRATION_JSON=/data/mv3dt/calibration.json, MODELS_DIR=/data/vss-app-data/models, BEV_DATASET_PATH=/data/mv3dt/bev-dataset, and these MP4s: Camera_01=/data/mv3dt/videos/front.mp4 Camera_02=/data/mv3dt/videos/left.mp4 Camera_03=/data/mv3dt/videos/right.mp4 Camera_04=/data/mv3dt/videos/back.mp4. Save output.",
-      "checks": [
-        "The agent collects/validates MQTT_HOST=broker.example.com, MQTT_PORT=1883, and KAFKA_BOOTSTRAP=kafka.example.com:19092 before deployment.",
-        "The agent sets USE_EXTERNAL_BROKERS=1 and exports MQTT_HOST, MQTT_PORT, and KAFKA_BOOTSTRAP for child Python/config-generation processes.",
-        "The agent runs MQTT_BROKERS=broker.example.com:1883 ./scripts/generate-configs.sh and verifies generated/pub_sub_info_config.yml contains broker.example.com:1883 using the utility venv Python.",
-        "The agent launches docker compose up -d without COMPOSE_PROFILES=mosquitto,kafka.",
-        "The agent verifies mdx-raw and mdx-bev against the external KAFKA_BOOTSTRAP with Kafka CLI offset checks.",
+        "The plan collects/validates MQTT_HOST=broker.example.com, MQTT_PORT=1883, and KAFKA_BOOTSTRAP=kafka.example.com:19092 before deployment.",
+        "The plan sets USE_EXTERNAL_BROKERS=1 and exports MQTT_HOST, MQTT_PORT, and KAFKA_BOOTSTRAP for child Python/config-generation processes.",
+        "The plan includes running MQTT_BROKERS=broker.example.com:1883 ./scripts/generate-configs.sh and verifies generated/pub_sub_info_config.yml contains broker.example.com:1883 using the utility venv Python.",
+        "The plan uses external-broker Compose mode without COMPOSE_PROFILES=mosquitto,kafka and, because this is file mode, starts perception only after baselines and BEV assignment using docker compose up -d --no-deps --force-recreate perception.",
+        "The plan verifies mdx-raw and mdx-bev against the external KAFKA_BOOTSTRAP with Kafka CLI offset checks.",
         "The generated runtime pub/sub endpoint is broker.example.com:1883; the agent does not claim the existing startup sed rewrite supports hostnames.",
-        "Advanced TLS/auth is delegated to the standalone README custom-broker section."
-      ]
-    },
-    {
-      "query": "Tear down everything for the standalone MV3DT deployment.",
-      "checks": [
-        "The agent loads references/teardown.md.",
-        "The agent validates any tracked BEV PID is numeric, active, command/cwd-matched to this app, and start-time matched when metadata exists before SIGTERM.",
-        "The agent never uses broad pkill patterns.",
-        "The agent runs docker compose --profile \"*\" down from services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker.",
-        "The agent asks before deleting generated, video-output, bev-output, or utils/venv unless explicitly requested.",
-        "The agent preserves MODELS_DIR contents, user videos, calibration/map assets, credentials, unrelated Docker images/volumes, AMC, VIOS, and warehouse services unless explicitly named."
+        "Advanced TLS/auth is delegated to the standalone README custom-broker section.",
+        "The agent does not actually run docker compose, docker pull, docker run, ngc download, curl against services, or modify runtime files for this planning eval."
       ]
     }
   ]
