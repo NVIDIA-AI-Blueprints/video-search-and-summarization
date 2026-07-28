@@ -98,6 +98,11 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         self.assertIn("global.container_prefix", prompt)
         self.assertIn("global.container_tag", prompt)
         self.assertIn(GHCR_ROOT, prompt)
+        self.assertIn("shared_tag_set", prompt)
+        self.assertIn("container-inventory.json", prompt)
+        # Inventory-only ghcr_build flips must not be treated as chart drift.
+        self.assertIn("must never alone trigger a helm sync", prompt)
+        self.assertIn("Do not** propose helm helper changes", prompt)
 
 
 if __name__ == "__main__":
