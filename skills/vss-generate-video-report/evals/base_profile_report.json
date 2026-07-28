@@ -6,7 +6,7 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
+      "RTXPRO6000BW": {
         "gpu_count": 1
       }
     }
@@ -15,7 +15,7 @@
     {
       "query": "Deploy the necessary prerequisites for report generation on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** Need a **locally deployed** CR3 VLM NIM (nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner on localhost:30082; VLM_MODE=local or local_shared — do NOT use remote VLM) and the full VIOS stack reachable at http://localhost:30888/vst/api/v1 so `/vss-generate-video-report` can upload clips and call the VLM.",
       "checks": [
-        "`curl -sf --max-time 10 http://localhost:30082/v1/models` returns HTTP 200 and `.data[].id` includes nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner",
+        "`curl -sf --max-time 10 http://localhost:30082/v1/models` returns HTTP 200 and at least one `.data[].id` identifies a CR3 reasoner — i.e. the id contains `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` as a substring. Any vendor prefix, separator style, or build/quantization suffix the NIM advertises satisfies this (e.g. `nvidia/cosmos3-nano-reasoner` and `nim_nvidia_cosmos3-nano-reasoner_bf16-final` both pass); only the model-family substring is required",
         "`curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VST ingress + sensor-ms reachable on port 30888)",
         "`docker ps --format '{{.Names}}'` includes vss-vios-ingress, vss-vios-sensor, vss-vios-streamprocessing, and vss-vios-postgres (full VIOS group for upload + clip materialization)",
         "`docker ps --filter name=vss-vios-streamprocessing --format '{{.Status}}'` reports Up (and healthy if a healthcheck is defined)"
@@ -35,14 +35,14 @@
         "`curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams` returns HTTP 200 and a non-empty JSON body",
         "The run resolved the streamId/sensorId for warehouse_safety_0001 from GET /vst/api/v1/sensor/list (matching name=warehouse_safety_0001) and used that exact id verbatim — whatever its shape (a UUID on a warm VST registry, or the sensor name such as warehouse_safety_0001 on a fresh/host-purged registry) — then a GET to a VST timelines endpoint for that id returned a non-empty {startTime, endTime} range anchored near 2025-01-01T00:00:00.000Z before constructing any clip URL.",
         "A GET to the VST clip-URL endpoint storage/file/<sensorId>/url (with startTime, endTime, container=mp4, disableAudio=true), using the sensorId resolved for warehouse_safety_0001, returns HTTP 200 with a non-empty videoUrl",
-        "Local CR3 VLM is ready: `docker ps` includes nvidia-cosmos3-reasoner, and `curl -sf --max-time 10 http://localhost:30082/v1/models` returns HTTP 200 with nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner in `.data[].id`. Remote VLM (VLM_MODE=remote / integrate.api.nvidia.com) does NOT satisfy this check."
+        "Local CR3 VLM is ready: `docker ps` includes nvidia-cosmos3-reasoner, and `curl -sf --max-time 10 http://localhost:30082/v1/models` returns HTTP 200 with at least one `.data[].id` containing `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` as a substring — any vendor prefix, separator style, or build/quantization suffix is fine (e.g. `nim_nvidia_cosmos3-nano-reasoner_bf16-final` passes). Remote VLM (VLM_MODE=remote / integrate.api.nvidia.com) does NOT satisfy this check."
       ]
     },
     {
       "query": "Give me a report for warehouse_safety_0001.",
       "checks": [
         "The run sourced the clip via Mode A path A1 (VST clip URL) rather than an A2 base64 data URL or POST /generate. It is sufficient that the run obtained a clip URL of the form http://localhost:30888/vst/api/v1/storage/file/<streamId>/url with startTime/endTime query params plus container=mp4&disableAudio=true and a JSON body containing videoUrl — this MAY reuse a clip URL already materialized in step 3",
-        "The run performed at least one successful POST to http://localhost:30082/v1/chat/completions with Content-Type application/json, model set to a CR3 id (nvidia/cosmos3-nano-reasoner or nvidia/cosmos3-super-reasoner), and a messages array whose first user content list contains both a text block and a video_url block referencing the clip URL; HTTP 2xx. A fallback to a non-CR3 model (e.g. cosmos-reason2, meta/llama-3.2-90b-vision-instruct) does NOT satisfy this check",
+        "The run performed at least one successful POST to http://localhost:30082/v1/chat/completions with Content-Type application/json, model set to a CR3 id — i.e. the value contains `cosmos3-nano-reasoner` or `cosmos3-super-reasoner` as a substring, with any vendor prefix, separator style, or build/quantization suffix (e.g. `nim_nvidia_cosmos3-nano-reasoner_bf16-final` passes), and matching an id advertised by GET /v1/models on that endpoint — and a messages array whose first user content list contains both a text block and a video_url block referencing the clip URL; HTTP 2xx. A fallback to a non-CR3 model (e.g. cosmos-reason2, meta/llama-3.2-90b-vision-instruct) does NOT satisfy this check",
         "The run did NOT POST to http://localhost:8000/generate",
         "The user-facing markdown has a single top-level title line matching # Video Analysis Report (allows leading whitespace after #)",
         "The markdown contains ## Basic Information followed by a pipe-table (Field | Value) including every row header from the skill template: Report Identifier; Date of Analysis; Time of Analysis; Video Source; Clip Range; Clip URL; VLM; Analysis Request — each paired cell filled with concrete text (no raw placeholders like literal <sensor_id>, <YYYY-MM-DD>, or duplicate Field names without values)",

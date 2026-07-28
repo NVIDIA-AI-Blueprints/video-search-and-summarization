@@ -13,7 +13,7 @@ before these checks.
 
 Because the vss-generate-video-report skill is a thin wrapper around POST /generate — purely
 HTTP, GPU-independent at the harness level — the spec targets **ONE platform**
-by default (L40S — cheapest available host).  Override with ``--platform``.
+by default (RTXPRO6000BW).  Override with ``--platform``.
 
 ## Directory layout
 
@@ -60,7 +60,7 @@ PLATFORMS: dict[str, dict] = {
     "IGX-THOR":     {"short_name": "thor",         "gpu_type": "Thor",         "min_vram_per_gpu": 64, "brev_search": "Thor"},
 }
 
-DEFAULT_PLATFORM = "L40S"
+DEFAULT_PLATFORM = "RTXPRO6000BW"
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
 # fires.  Skills default to "ask the user" before /vss-deploy-profile; in CI there is no
