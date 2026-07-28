@@ -7,6 +7,13 @@ Jenkins*
 tests/
 data/
 
+# Documentation and example-only configuration
+docs/
+configs/
+README.md
+AGENTS.md
+CLAUDE.md
+
 # Editor/IDE
 .idea/
 .vscode/
