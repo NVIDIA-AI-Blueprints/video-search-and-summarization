@@ -135,21 +135,23 @@ curl -fsSL --max-time 60 $REPO/$BASE/configs/va_mcp_server_config.yml -o /tmp/so
 the image's other `video_analytics` tools and targets the old package layout):
 
 1. **Resolve which package holds `video_analytics` + the site-packages path** on the image —
-   on `develop` the package is `vss_agents` (`services/agent/packages/vss_agents`), but a published
-   image may install it differently, so **probe for the `video_analytics` submodule, not the bare
-   package**:
+   **probe the filesystem, NOT `import`.** `import agent.video_analytics` succeeds even where no
+   `agent/` directory exists, because `vss_agents/__init__.py` registers `agent` as a runtime
+   alias; mounting under that name makes Docker create an empty `agent/` that shadows the real
+   package, and `vss-va-mcp` crash-loops with `Unknown included functions`. Pick the real on-disk
+   directory (has `video_analytics/`, not a symlink) instead:
    ```bash
    docker run --rm --entrypoint /vss-agent/.venv/bin/python3 \
      ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest -c '
-   import importlib, os
+   import os, sysconfig
+   sp = sysconfig.get_paths()["purelib"]
    for pkg in ("vss_agents", "agent"):
-       try:
-           importlib.import_module(pkg + ".video_analytics")   # the pkg that ACTUALLY holds video_analytics
-           m = importlib.import_module(pkg)
-           print(pkg, os.path.dirname(os.path.dirname(m.__file__))); break
-       except ImportError: pass'
+       d = os.path.join(sp, pkg)
+       if os.path.isdir(os.path.join(d, "video_analytics")) and not os.path.islink(d):
+           print(pkg, sp); break'
    ```
-   Set `VSS_AGENT_PKG` (`vss_agents` on `develop`) and `VSS_AGENT_SITE_PACKAGES` from the output.
+   Set `VSS_AGENT_PKG` (`vss_agents` on `develop-latest` — `agent` is only the alias, no on-disk
+   dir) and `VSS_AGENT_SITE_PACKAGES` from the output.
 2. **Locate the SOP additions** in the downloaded `tools.py` — a self-contained block of the
    four SOP tool implementations plus their four include-gated registrations. Diffing it
    against the image's own `<pkg>/video_analytics/tools.py` makes them obvious.
