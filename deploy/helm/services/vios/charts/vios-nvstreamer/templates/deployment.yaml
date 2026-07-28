@@ -32,6 +32,8 @@ spec:
       labels:
         app.kubernetes.io/name: vss-vios-nvstreamer
         app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ list (.Files.Get "configs/vst-config.json") (.Files.Get "configs/notification-config.json") (.Files.Get "configs/vst-storage.json") | join "" | sha256sum }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -56,6 +58,9 @@ spec:
             - name: config
               mountPath: /home/vst/vst_release/configs/vst_config.json
               subPath: vst_config.json
+            - name: config
+              mountPath: /home/vst/vst_release/configs/notification_config.json
+              subPath: notification_config.json
             - name: config
               mountPath: /home/vst/vst_release/configs/vst_storage.json
               subPath: vst_storage.json

@@ -40,14 +40,19 @@ mkdir -p "$PID_DIR"
 BEFORE=$(count_es_docs "$ES_HOST")
 print_status "info" "Docs in ES before test: $BEFORE"
 
-# 2. Patch timestamps + produce SAME incident TWICE with SAME id-suffix
+# 2. Patch timestamps ONCE, then produce that SAME payload TWICE with --no-patch.
+# CRITICAL: pass --no-patch so both sends keep the identical pre-patched
+# timestamp. Without it, produce_incident re-patches to now() on each call; if
+# the two calls straddle a 1-second boundary the timestamps differ, the dedup
+# fingerprint (sensorId:timestamp:...) differs, and dedup never fires — a race
+# that intermittently indexes 2 docs.
 PATCHED="$PID_DIR/patched_${TEST_NAME}.json"
 patch_timestamps "$PAYLOAD" "$PATCHED"
 
-produce_incident "$REPO_ROOT" "$BOOTSTRAP" "$TOPIC" "$PATCHED" "$ID_SUFFIX"
+produce_incident "$REPO_ROOT" "$BOOTSTRAP" "$TOPIC" "$PATCHED" "$ID_SUFFIX" --no-patch
 print_status "info" "Sent incident #1 (id-suffix: $ID_SUFFIX)"
 
-produce_incident "$REPO_ROOT" "$BOOTSTRAP" "$TOPIC" "$PATCHED" "$ID_SUFFIX"
+produce_incident "$REPO_ROOT" "$BOOTSTRAP" "$TOPIC" "$PATCHED" "$ID_SUFFIX" --no-patch
 print_status "info" "Sent incident #2 (same id-suffix: $ID_SUFFIX)"
 
 # 3. Wait for processing

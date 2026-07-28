@@ -714,12 +714,18 @@ set +e
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_compose_env_order}" 2> "${_err_compose_env_order}"
 _compose_env_order_exit=$?
 set -e
-if [[ ${_compose_env_order_exit} -eq 0 ]] && grep -Fq "docker compose --env-file containers.env --env-file developer-profiles/dev-profile-base/.env --env-file developer-profiles/dev-profile-base/generated.env up" "${_out_compose_env_order}"; then
-  echo "PASS: dry-run compose command passes container defaults, .env, then generated.env"
-  ((TESTS_PASSED++)) || true
-else
+if [[ ${_compose_env_order_exit} -ne 0 ]]; then
+  echo "FAIL: dry-run compose command exited with ${_compose_env_order_exit}"
+  ((TESTS_FAILED++)) || true
+elif ! grep -Fq "docker compose --env-file containers.env --env-file developer-profiles/dev-profile-base/.env --env-file developer-profiles/dev-profile-base/generated.env up" "${_out_compose_env_order}"; then
   echo "FAIL: dry-run compose command should preserve container, profile, override precedence"
   ((TESTS_FAILED++)) || true
+elif ! grep -Fq "up --detach --pull always --force-recreate --build" "${_out_compose_env_order}"; then
+  echo "FAIL: dry-run compose command should refresh moving image tags"
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: dry-run compose command preserves env precedence and refreshes images"
+  ((TESTS_PASSED++)) || true
 fi
 rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 

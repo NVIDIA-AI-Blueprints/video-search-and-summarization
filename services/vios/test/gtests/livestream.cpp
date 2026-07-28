@@ -39,7 +39,7 @@ class LiveStreamTest : public ::testing::Test
 {
 protected:
     static IVstModule* s_module;
-    static std::map<std::string, HttpServerRequestHandler::httpFunction> s_handlers;
+    static std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>> s_handlers;
     static bool s_initialized;
 
     static void SetUpTestSuite()
@@ -100,7 +100,7 @@ protected:
 };
 
 IVstModule* LiveStreamTest::s_module = nullptr;
-std::map<std::string, HttpServerRequestHandler::httpFunction> LiveStreamTest::s_handlers;
+std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>> LiveStreamTest::s_handlers;
 bool LiveStreamTest::s_initialized = false;
 
 TEST_F(LiveStreamTest, GetVersion)
