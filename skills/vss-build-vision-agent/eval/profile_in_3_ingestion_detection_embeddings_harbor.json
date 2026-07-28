@@ -36,7 +36,7 @@
     {
       "query": "Deploy the validated `_builds/in-3/resolved.yml`, wait for selected services to become ready, and leave the deployment running for runtime validation.",
       "checks": [
-        "Deployment uses exactly `docker compose -f _builds/in-3/resolved.yml up -d`; it does not re-read Foundation env files, supply a profile flag, use an invented Compose profile, or deploy a copied Compose project.",
+        "Deployment uses the validated `_builds/in-3/resolved.yml` as the only Compose file and starts it with `docker compose ... up -d`; harmless deployment options such as `-p <project>` or `--build` are allowed, but it must not re-read Foundation env files, supply `--profile`, use an invented Compose profile, or deploy a copied Compose project.",
         "All selected long-running containers are running or healthy, all selected one-shot containers exit 0, and excluded services are not running.",
         "`curl -sf http://localhost:${RTVI_CV_HOST_PORT:-9000}/ready` returns HTTP 200, and RT-Embed readiness responds successfully.",
         "Elasticsearch cluster health, Kafka broker/topic readiness, and VIOS APIs become reachable."
