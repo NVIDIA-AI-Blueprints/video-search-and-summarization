@@ -32,10 +32,8 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 
 `redis` is a shared peer used by this profile graph.
 
-Nothing under `deploy/docker/` declares a `depends_on` for `vss-agent`, and
-haproxy's backends use `init-addr none`, so dropping the Agent layer orphans
-nothing and leaves ingress healthy. When a request is ambiguous about whether
-the VSS web experience is wanted, ask rather than silently retaining it.
+When a request is ambiguous about whether the VSS web experience is wanted, ask
+rather than silently retaining it.
 
 ## Profile-specific environment knobs
 
