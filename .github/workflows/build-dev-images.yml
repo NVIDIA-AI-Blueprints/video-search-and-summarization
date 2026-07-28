@@ -307,11 +307,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Advance develop-latest after complete post-merge build
+      # Publishes BOTH aliases for every GHCR image in the set:
+      #   develop-latest      — moving developer convenience alias
+      #   develop-<sha12>     — immutable per-commit tag
+      # The per-commit tag is the point: with it published for every image at
+      # every develop push tip, a consumer derives the whole coordinate set from
+      # the commit SHA alone and never needs the release-set manifest. The
+      # tree-SHA gate makes that derivation trustworthy — it refuses to publish
+      # a tag for an image that was not built from this commit's source.
+      #
+      # Only the pushed tip is tagged, which is sufficient: the repo allows only
+      # squash and rebase merges (no merge commits), so develop is linear, and
+      # every consumer resolves from the tip, never from an interior commit.
+      - name: Retag develop-latest and develop-<sha> after complete post-merge build
         if: >-
           github.ref_name == 'develop' &&
           fromJSON(needs.changes.outputs.count) > 0
         run: |
+          short="$(printf '%s' "${GITHUB_SHA}" | cut -c1-12)"
           python3 .github/scripts/advance_ghcr_alias.py \
             --release-set release-set.json \
-            --alias develop-latest
+            --alias develop-latest \
+            --alias "develop-${short}" \
+            --verify-tree-sha \
+            --repo-root . \
+            --commit "${GITHUB_SHA}"
