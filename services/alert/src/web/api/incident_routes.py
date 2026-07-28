@@ -25,10 +25,12 @@ from datetime import datetime
 from typing import Union
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from ..schemas.alert_schemas import (
     AlertSubmissionResponse as IncidentSubmissionResponse,  # reuse envelope shape
     ErrorResponse,
+    IncidentSubmissionRequest,
 )
 from ..core.alert_service import AlertSubmissionService
 
@@ -73,10 +75,13 @@ def get_incident_service() -> AlertSubmissionService:
                             "end": {"type": "string", "format": "date-time"},
                             "sensorId": {"type": "string"},
                             "category": {"type": "string"},
-                            "info": {"type": "object"},
+                            "info": {
+                                "type": "object",
+                                "additionalProperties": {"type": "string"},
+                            },
                             "event": {"type": "object"},
                         },
-                        "required": ["id", "timestamp", "sensorId"],
+                        "required": ["sensorId", "timestamp", "end", "category"],
                     },
                     "example": {
                         "id": "incident-67890",
@@ -85,10 +90,8 @@ def get_incident_service() -> AlertSubmissionService:
                         "sensorId": "cam_warehouse_02",
                         "category": "collision",
                         "info": {
-                            "media_urls": [
-                                "http://localhost:30888/vst/sim/media/incident.mp4"
-                            ],
-                            "media_type": "video",
+                            "location": "warehouse-loading-dock",
+                            "primaryObjectId": "worker-04",
                         },
                         "event": {
                             "id": "incident-67890",
@@ -131,6 +134,32 @@ async def submit_incident(
                 "status": "error",
                 "error": "validation_failed",
                 "message": "Request body must be valid JSON",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            },
+        )
+
+    try:
+        IncidentSubmissionRequest.model_validate(incoming_json)
+    except ValidationError as exc:
+        details = [
+            {
+                "field": ".".join(str(part) for part in error["loc"]),
+                "type": error["type"],
+                "message": error["msg"],
+            }
+            for error in exc.errors()
+        ]
+        logger.error(
+            "Incident request schema validation failed",
+            extra={"validation_errors": details},
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "error",
+                "error": "validation_failed",
+                "message": f"Request validation failed with {len(details)} error(s)",
+                "details": details,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
             },
         )
