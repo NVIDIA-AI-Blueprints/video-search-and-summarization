@@ -1,10 +1,15 @@
 # Examples of discovery modes
 
-Run host-side
+For Docker Compose, run host-side
 `uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev vss search run`
-with one of the deployment selectors from the main `SKILL.md`. Resolve and
-validate `VSS_REPO_ROOT` first. Do not invoke it in a container or pod. The
-snippets below are query/control flags to append after the deployment options.
+with `--deployment docker --profile search`. Resolve and validate
+`VSS_REPO_ROOT` first. Do not invoke it in a container or pod.
+
+For Kubernetes, translate the same controls into explicit natural-language
+constraints in `SEARCH_PROMPT` and send that prompt to
+`${VSS_PUBLIC_URL%/}/generate`. Do not invoke the Kubernetes CLI selector or
+start a port-forward. The snippets below show the controls that must be
+preserved on either path.
 
 The search command is retrieval-only. Inspect returned screenshots separately
 when the user requests or pre-authorizes visual verification.
