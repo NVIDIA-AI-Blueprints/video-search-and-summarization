@@ -182,4 +182,3 @@ done
 
 rm -f "$archive"
 echo "Configured ${runner_count} dormant runners on ${coordinator_id}; none activated."
-

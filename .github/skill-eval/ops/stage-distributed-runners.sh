@@ -152,4 +152,3 @@ if missing or unsafe:
     raise SystemExit(1)
 print(f"Verified {len(expected)} runners: offline, standby-labeled, production label absent.")
 PY
-

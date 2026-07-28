@@ -72,4 +72,3 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now telegraf.service
 sudo systemctl is-active --quiet telegraf.service
 echo "Monitoring active: ${coordinator_id}"
-

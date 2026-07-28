@@ -180,4 +180,3 @@ The worker revalidates every five seconds and keeps a deadline 30 seconds
 inside PostgreSQL expiry. A separate local watchdog enforces that deadline
 even if a database read stalls. The persisted generation high-water mark
 rejects older claims after service restart.
-

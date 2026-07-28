@@ -112,4 +112,3 @@ journalctl -u telegraf.service --since '10 minutes ago'
 In InfluxDB, confirm exactly eight `coordinator_id` tag values. In Grafana,
 select `All` and verify that CPU, RAM, and root-disk panels contain one series
 per coordinator.
-

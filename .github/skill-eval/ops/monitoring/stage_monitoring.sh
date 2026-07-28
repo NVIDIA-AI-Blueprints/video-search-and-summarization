@@ -47,4 +47,3 @@ for host in "${hosts[@]}"; do
     brev exec "$host" "systemctl is-active --quiet telegraf.service"
 done
 echo "Telegraf is active on all eight coordinators. Runner services were not changed."
-
