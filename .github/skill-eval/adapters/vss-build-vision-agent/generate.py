@@ -487,6 +487,12 @@ def main() -> None:
     if rtvi_skill_dir is None:
         candidate = repo_root / "skills" / "vss-deploy-dense-captioning"
         rtvi_skill_dir = candidate if candidate.exists() else None
+    if rtcv_skill_dir is None:
+        candidate = repo_root / "skills" / "vss-deploy-detection-tracking-2d"
+        rtcv_skill_dir = candidate if candidate.exists() else None
+    if rtembed_skill_dir is None:
+        candidate = repo_root / "skills" / "vss-deploy-video-embedding"
+        rtembed_skill_dir = candidate if candidate.exists() else None
     if summarize_skill_dir is None:
         candidate = repo_root / "skills" / "vss-summarize-video"
         summarize_skill_dir = candidate if candidate.exists() else None
