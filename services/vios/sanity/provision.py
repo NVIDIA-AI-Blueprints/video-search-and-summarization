@@ -165,7 +165,7 @@ def configure_overlay_webhooks(enabled: bool, host: str = "127.0.0.1",
         for request in item.get("request", []):
             request["url"] = f"http://{host}:{port}{paths[change]}"
             request["method"] = methods[change]
-            request["camera_type"] = ["rtsp"]
+            request["camera_type"] = ["rtsp", "file"]
     missing = set(methods) - found if enabled else set()
     if missing:
         raise ValueError(f"notification_config.json missing webhook item(s): {sorted(missing)}")

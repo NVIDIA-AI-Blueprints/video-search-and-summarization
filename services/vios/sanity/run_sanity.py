@@ -507,7 +507,7 @@ def _start_metadata_service(ctx, wait_s: int = 12):
     if retention_hours <= 0:
         raise ValueError("VIOS_SANITY_ES_RETENTION_HOURS must be greater than zero")
     event_transport = getattr(ctx, "event_transport", "redis")
-    cmd = ["python3", str(svc), "--broker", ctx.broker, "--base-url", ctx.base_url,
+    cmd = [sys.executable, str(svc), "--broker", ctx.broker, "--base-url", ctx.base_url,
            "--nvstreamer-url", ctx.nvstreamer_url, "--es-port", "19200",
            "--es-retention-hours", f"{retention_hours:g}",
            "--event-transport", event_transport]
@@ -670,13 +670,14 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
                            _wait_recording_current, verify_nvstreamer_stream_count)
     import requests as _rq
     video_path = plan.get("video_path") or plan.get("input_mp4")
+    direct_mode = setup.get("deployment_mode") == "direct"
     # Point VIOS's download/replay overlay at the plugin's fake-ES (host bridge :19200).
     # Without this VIOS never queries it, so replay/download of recorded windows draw no box
     # (the live/recent path goes through the broker and is unaffected).
     vst_over = {"video_metadata_server": _FAKE_ES}
     notification_over = {
-        "enable_notification": ctx.event_transport != "webhook",
-        "use_message_broker": "redis",
+        "enable_notification": True if direct_mode else ctx.event_transport != "webhook",
+        "use_message_broker": "kafka" if direct_mode else "redis",
         "message_broker_topic": "vst_events",
     }
     if setup.get("consumer"):
@@ -705,6 +706,36 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
     wipe_nvstreamer_videos(video_path)
     deploy_target("nvstreamer")
     _wait_ready(f"{ctx.nvstreamer_url}/vst/api/v1/sensor/list", 120)
+
+    if direct_mode:
+        # Validate the live sensor-ms to streamprocessing-ms proxy-add flow. VIOS must be
+        # healthy while NVStreamer is still empty so a failed initial proxy-add cannot be
+        # hidden by streamprocessing database recovery.
+        _start_metadata_service(ctx, wait_s=0)
+        deploy_target("vst")
+
+        service_deadline = time.time() + 180
+        for service_name, ready_url in (
+            ("sensor-ms", "http://127.0.0.1:30000/v1/ready"),
+            ("streamprocessing-ms", "http://127.0.0.1:30001/v1/ready"),
+        ):
+            while time.time() < service_deadline:
+                try:
+                    ready = _rq.get(ready_url, timeout=10)
+                    if ready.status_code == 200:
+                        log.info("Plan-3 pre-provision gate: %s %s -> 200", service_name,
+                                 ready_url)
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(2)
+            else:
+                raise RuntimeError(
+                    f"Plan-3 pre-provision gate failed: {service_name} not ready at {ready_url}"
+                )
+        _health(ctx.base_url, timeout=180)
+        _verify_direct_mode_runtime()
+
     if not (video_path and setup.get("nvstreamer")):
         return
 
@@ -712,6 +743,9 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
         if sync_wall:
             recreate_service("nvstreamer")
             _wait_ready(f"{ctx.nvstreamer_url}/vst/api/v1/sensor/list", 90)
+        if direct_mode:
+            verify_nvstreamer_stream_count(ctx.nvstreamer_url, len(copy_names) or 1)
+            return
         verify_nvstreamer_stream_count(ctx.nvstreamer_url, len(copy_names) or 4)
         # event-driven overlay plugin subscribes BEFORE VIOS fires camera_streaming.
         _start_metadata_service(ctx, wait_s=0)

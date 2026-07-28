@@ -666,6 +666,7 @@ def webrtc_replay(ctx: SanityContext, target="rtsp", overlay=True, seek=0,
     sensor = _resolve_sensor(ctx, target, variant, sensor)
     if not sensor:
         r.status = "SKIP"; r.detail = f"no {target} sensor (run with --input-mp4)"; return r
+    ui_sensor = getattr(ctx, "stream_names", {}).get(sensor, sensor)
     file_timeline_count = None
     file_timeline_request = None
     if target == "file":
@@ -719,7 +720,7 @@ def webrtc_replay(ctx: SanityContext, target="rtsp", overlay=True, seek=0,
     panel = ctx.out_dir / f"{slug}_panel.png"
     cap = BDD_ROOT / "scripts/overlay/ui_capture.py"
     cmd = ["python3", str(cap), "--mode", "replay", "--base-url", ctx.base_url,
-           "--stream-id", sensor, "--seconds", "12", "--seek", str(seek),
+           "--stream-id", ui_sensor, "--seconds", "12", "--seek", str(seek),
            "--out", str(out), "--panel-out", str(panel)]
     if not overlay:
         cmd.append("--no-overlay")
@@ -727,7 +728,8 @@ def webrtc_replay(ctx: SanityContext, target="rtsp", overlay=True, seek=0,
         "type": "browser_ui",
         "method": "PLAYWRIGHT",
         "url": ctx.base_url.rstrip("/") + "/vst/",
-        "params": {"sensor": sensor, "target": target, "overlay": bool(overlay),
+        "params": {"sensor_id": sensor, "sensor_name": ui_sensor, "target": target,
+                   "overlay": bool(overlay),
                    "mode": "replay", "seconds": 12, "seek_count": seek},
         "command": cmd,
     }

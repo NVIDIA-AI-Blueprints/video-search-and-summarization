@@ -17,6 +17,7 @@ from run_sanity import _cleanup_transient_artifacts, _run_plans, _start_metadata
 _OVERLAY = Path(__file__).resolve().parents[1] / "test/bdd_tests/scripts/overlay"
 sys.path.insert(0, str(_OVERLAY))
 from fake_es_server import FakeESStore
+from metadata_service import _metadata_fps
 
 
 class LifecycleTest(unittest.TestCase):
@@ -80,6 +81,12 @@ class LifecycleTest(unittest.TestCase):
             self.assertTrue(items["camera_remove"]["enabled"])
             self.assertEqual(items["camera_streaming"]["request"][0]["method"], "PUT")
             self.assertEqual(items["camera_remove"]["request"][0]["method"], "DELETE")
+            self.assertEqual(
+                items["camera_streaming"]["request"][0]["camera_type"], ["rtsp", "file"]
+            )
+            self.assertEqual(
+                items["camera_remove"]["request"][0]["camera_type"], ["rtsp", "file"]
+            )
             self.assertNotIn("auth", items["camera_streaming"])
 
     def test_deployment_mode_toggle_is_reversible(self):
@@ -188,6 +195,10 @@ VALUE=kept
         retained = {(hit["_source"]["sensorId"], hit["_id"]) for hit in hits}
         self.assertEqual(retained, {("a", "a-new"), ("b", "b-only")})
 
+    def test_metadata_fps_uses_media_info_instead_of_requested_clip_length(self):
+        self.assertEqual(_metadata_fps({"fps": 30.0, "dur": 359.8}, 10794, 30), 30.0)
+        self.assertAlmostEqual(_metadata_fps({"dur": 359.8}, 10794, 30), 30.0, places=2)
+
     def test_metadata_service_receives_requested_retention(self):
         ctx = SimpleNamespace(
             broker="redis",
@@ -200,6 +211,7 @@ VALUE=kept
                 _start_metadata_service(ctx, wait_s=0)
 
         command = popen.call_args.args[0]
+        self.assertEqual(command[0], sys.executable)
         flag_index = command.index("--es-retention-hours")
         self.assertEqual(command[flag_index + 1], "10")
 

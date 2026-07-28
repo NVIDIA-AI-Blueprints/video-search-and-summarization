@@ -93,13 +93,17 @@ class _OverlayWebhookHandler(BaseHTTPRequestHandler):
         try:
             if expected_change == "camera_streaming":
                 url = str(event.get("camera_url") or "")
-                sensor_id = event.get("camera_id") or event.get("camera_name")
-                if not sensor_id or not url.startswith("rtsp://"):
-                    raise ValueError("camera_streaming requires camera_id and RTSP camera_url")
+                sensor_id = event.get("camera_name") or event.get("camera_id")
+                is_file = event.get("camera_type") == "file"
+                if not sensor_id or (not is_file and not url.startswith("rtsp://")):
+                    raise ValueError(
+                        "camera_streaming requires a camera name and an RTSP URL unless file-backed"
+                    )
                 codec = (event.get("metadata") or {}).get("codec", "H264")
-                server.on_streaming(url, str(sensor_id), str(codec))
+                if not is_file:
+                    server.on_streaming(str(sensor_id), url, str(codec))
             else:
-                sensor_id = event.get("camera_id") or event.get("camera_name")
+                sensor_id = event.get("camera_name") or event.get("camera_id")
                 if not sensor_id:
                     raise ValueError("camera_remove requires camera_id")
                 server.on_remove(str(sensor_id))
@@ -301,6 +305,15 @@ def _media_info(nvs_url):
     return out
 
 
+def _metadata_fps(media_info, loop_frames, clip_seconds):
+    """Use authoritative media FPS, or derive it from the actual media duration."""
+    media_duration = float(media_info.get("dur") or clip_seconds or 0.0)
+    return float(
+        media_info.get("fps")
+        or (loop_frames / media_duration if media_duration else 0.0)
+    )
+
+
 def _loop_frames(sensor_id, videos_dir, clip_seconds):
     """Frames per playback loop for a sensor's variant. Prefer the file's *real* frame
     count (ffprobe) -- ffmpeg's -r resample yields e.g. 302 (not 300) for a 30s 10fps
@@ -488,7 +501,7 @@ def main():
         mw, mh = (mi.get("w") or w or 1920), (mi.get("h") or h or 1080)
         source_frames = (int(round(a.source_fps * a.clip_seconds))
                          if a.source_fps > 0 else loop_frames)
-        fps = (loop_frames / a.clip_seconds) if a.clip_seconds else 0.0
+        fps = _metadata_fps(mi, loop_frames, a.clip_seconds)
         worker_stop = threading.Event()
         th = threading.Thread(target=run_sensor, daemon=True, args=(
             sid, url, codec, mw, mh, a.broker, a.meta_topic, es,
