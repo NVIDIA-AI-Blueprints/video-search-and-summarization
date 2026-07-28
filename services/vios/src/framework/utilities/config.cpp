@@ -717,7 +717,9 @@ VmsConfigManager::VmsConfigManager()
         g_gpuIndex = m_vmsConfig.gpu_indices[0];  // Currenlty only first gpu index is supported
     }
 
-    Json::Value notifications = config.get("notifications", Json::nullValue);
+    // message_broker config now lives in the dedicated notification_config.json.
+    Json::Value notificationConfig = loadNotificationConfig(NOTIFICATION_CONFIG_FILE);
+    Json::Value notifications = notificationConfig.get("message_broker", Json::nullValue);
     if (notifications != Json::nullValue)
     {
         m_vmsConfig.enable_notification = notifications.get("enable_notification", true).asBool();

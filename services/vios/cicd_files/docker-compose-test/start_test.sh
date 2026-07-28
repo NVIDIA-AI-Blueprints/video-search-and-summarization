@@ -287,7 +287,7 @@ update_vst_config() {
         error "Failed to create backup of VST config"
     fi
 
-    local vst_jq_filter='.network.enable_grpc = true | .notifications.redis_server_env_var = "'$CURRENT_IP':6379"'
+    local vst_jq_filter='.network.enable_grpc = true'
 
     if ! jq "$vst_jq_filter" "$VST_CONFIG_JSON" >"$temp_vst_file"; then
         rm -f "$temp_vst_file"
@@ -306,6 +306,39 @@ update_vst_config() {
 
     info "Successfully updated $VST_CONFIG_JSON"
     info "Backup saved as ${VST_CONFIG_JSON}.bak"
+}
+
+# Function to update notification config
+update_notification_config() {
+    local temp_notification_file
+    temp_notification_file=$(mktemp) || error "Failed to create temporary file for notification config"
+
+    if ! cp "$NOTIFICATION_CONFIG_JSON" "${NOTIFICATION_CONFIG_JSON}.bak"; then
+        rm -f "$temp_notification_file"
+        error "Failed to create backup of notification config"
+    fi
+
+    local redis_address="${CURRENT_IP}:6379"
+
+    if ! jq --arg redis_address "$redis_address" \
+        '.message_broker.redis_server_env_var = $redis_address' \
+        "$NOTIFICATION_CONFIG_JSON" >"$temp_notification_file"; then
+        rm -f "$temp_notification_file"
+        error "Failed to update notification config file"
+    fi
+
+    if ! jq empty "$temp_notification_file" 2>/dev/null; then
+        rm -f "$temp_notification_file"
+        error "Generated invalid notification config JSON"
+    fi
+
+    if ! mv "$temp_notification_file" "$NOTIFICATION_CONFIG_JSON"; then
+        rm -f "$temp_notification_file"
+        error "Failed to save notification config changes"
+    fi
+
+    info "Successfully updated $NOTIFICATION_CONFIG_JSON"
+    info "Backup saved as ${NOTIFICATION_CONFIG_JSON}.bak"
 }
 
 # Function to update nginx configuration
@@ -1188,6 +1221,7 @@ main() {
     NVSTREAMER_BASE_PATH="$(cd "$SCRIPT_DIR/../../deployment/stream-processing/docker-compose/nvstreamer" && pwd)"
     RTSP_STREAMS_JSON="$VST_BASE_PATH/configs/rtsp_streams.json"
     VST_CONFIG_JSON="$VST_BASE_PATH/configs/vst_config.json"
+    NOTIFICATION_CONFIG_JSON="$VST_BASE_PATH/configs/notification_config.json"
     
     # Set VST_CONFIG_PATH and VST_VOLUME
     VST_CONFIG_PATH="$VST_BASE_PATH/configs"
@@ -1228,6 +1262,7 @@ main() {
     fi
     validate_path "$RTSP_STREAMS_JSON" "RTSP_STREAMS_JSON"
     validate_path "$VST_CONFIG_JSON" "VST_CONFIG_JSON"
+    validate_path "$NOTIFICATION_CONFIG_JSON" "NOTIFICATION_CONFIG_JSON"
 
     # Check if JSON file exists and is valid
     [[ -f "$RTSP_STREAMS_JSON" ]] || error "JSON file not found: $RTSP_STREAMS_JSON"
@@ -1237,6 +1272,7 @@ main() {
     info "Starting configuration updates..."
     update_rtsp_streams_json || error "Failed to update RTSP streams JSON"
     update_vst_config || error "Failed to update VST config"
+    update_notification_config || error "Failed to update notification config"
     # update_nginx_config || error "Failed to update nginx config"
     update_compose_env || error "Failed to update compose.env"
     update_docker_compose || error "Failed to update docker-compose.yaml"

@@ -41,6 +41,7 @@ services:
     volumes:
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${NVSTREAMER_VIDEO_1}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-1:/home/vst/vst_release/vst_data
       - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -64,6 +65,7 @@ services:
     volumes:
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${NVSTREAMER_VIDEO_2}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-2:/home/vst/vst_release/vst_data
       - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -87,6 +89,7 @@ services:
     volumes:
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${NVSTREAMER_VIDEO_3}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-3:/home/vst/vst_release/vst_data
       - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -110,6 +113,7 @@ services:
     volumes:
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${NVSTREAMER_VIDEO_4}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-4:/home/vst/vst_release/vst_data
       - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
@@ -133,6 +137,7 @@ services:
     volumes:
       - ${NVSTREAMER_CONFIG}/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${NVSTREAMER_CONFIG}/vst_storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - ${NVSTREAMER_CONFIG}/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${NVSTREAMER_VIDEO_5}:/home/vst/vst_release/streamer_videos
       - ${NVSTREAMER_CONFIG}/../vst_data/nvstreamer-5:/home/vst/vst_release/vst_data
       - ../scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
