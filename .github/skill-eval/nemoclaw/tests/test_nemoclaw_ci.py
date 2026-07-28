@@ -12,6 +12,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -386,8 +387,41 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         keys_block = source.split("_keys = [", 1)[1].split("]", 1)[0]
 
         self.assertNotIn("OPENCLAW_HOOKS_TOKEN", keys_block)
+        self.assertNotIn("RTSP_SAMPLE_URL", keys_block)
         self.assertIn("NEMOCLAW_HOOKS_TOKEN_FILE", source)
         self.assertIn("chmod(0o600)", source)
+
+    def test_rtsp_runtime_value_is_redacted_and_not_persisted(self):
+        with tempfile.TemporaryDirectory() as td:
+            env_path = Path(td) / "nemoclaw.env"
+            token_path = Path(td) / "hooks_token"
+            rtsp_url = "rtsp://user:password@sample.example.test:8554/eval"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "RTSP_SAMPLE_URL": rtsp_url,
+                    "NEMOCLAW_CI_ENV_OUT": str(env_path),
+                    "NEMOCLAW_HOOKS_TOKEN_FILE": str(token_path),
+                },
+                clear=True,
+            ):
+                namespace: dict[str, object] = {}
+                exec(notebook_adapter.PARAMETER_SOURCE, namespace)
+                exec(notebook_adapter.PERSIST_SOURCE, namespace)
+                redacted = notebook_adapter._redact(
+                    {"output": f"configured {rtsp_url}"},
+                    notebook_adapter._redaction_values(),
+                )
+
+            persisted = env_path.read_text(encoding="utf-8")
+
+        self.assertEqual(namespace["RTSP_SAMPLE_URL"], rtsp_url)
+        self.assertNotIn("RTSP_SAMPLE_URL", persisted)
+        self.assertNotIn(rtsp_url, persisted)
+        self.assertEqual(
+            redacted["output"],
+            "configured <redacted:RTSP_SAMPLE_URL>",
+        )
 
     def test_gateway_binding_round_trips_to_headless_env_file(self):
         with tempfile.TemporaryDirectory() as td:
@@ -835,6 +869,24 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             sources["20b35654"],
         )
         self.assertIn("ssrf_denied|policy_denied", sources["df8210f5"])
+        self.assertIn(
+            'config_sets.append(("env.vars.RTSP_SAMPLE_URL", RTSP_SAMPLE_URL))',
+            sources["s37-code"],
+        )
+        self.assertLess(
+            sources["s37-code"].index("env.vars.RTSP_SAMPLE_URL"),
+            sources["s37-code"].index("if not config_sets"),
+        )
+
+    def test_rtsp_config_patch_fails_closed_without_anchor(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing the expected config_sets declaration",
+        ):
+            notebook_adapter._patch_ci_cell(
+                "s37-code",
+                {"cell_type": "code", "source": "print('changed upstream')\n"},
+            )
 
     def test_policy_allows_supported_private_host_gateway_ranges(self):
         policy = (
@@ -1142,6 +1194,25 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertFalse(headless_runner._response_ok({"status": 200, "body": "ok"}))
         self.assertTrue(headless_runner._response_ok({"status": 200, "body": {"ok": True}}))
 
+    def test_openclaw_cli_uses_a_fresh_session_id_per_invocation(self):
+        with mock.patch.dict(
+            os.environ,
+            {"GITHUB_RUN_ID": "30311388211"},
+            clear=False,
+        ):
+            first = headless_runner._openclaw_cli_command("prompt", 60)
+            second = headless_runner._openclaw_cli_command("prompt", 60)
+
+        first_args = shlex.split(first)
+        second_args = shlex.split(second)
+        first_session = first_args[first_args.index("--session-id") + 1]
+        second_session = second_args[second_args.index("--session-id") + 1]
+        self.assertRegex(
+            first_session,
+            r"^30311388211-[0-9a-f]{32}$",
+        )
+        self.assertNotEqual(first_session, second_session)
+
     def test_healthy_dashboard_forward_is_kept_even_if_registry_is_empty(self):
         calls: list[tuple[str, ...]] = []
         previous = {
@@ -1325,6 +1396,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertIn("openclaw-agent.rc.tmp", script)
         self.assertIn("mv /tmp/vss-skill-eval-openclaw/openclaw-agent.rc.tmp", script)
         self.assertNotIn("while kill -0", script)
+        self.assertIn("TERM INT HUP", script)
+        self.assertIn("while :; do sleep 60; done", script)
+        self.assertNotIn('exit "$rc"', script)
         self.assertIn("--message", script)
         self.assertNotIn("--local", script)
         self.assertIn("--json", script)
@@ -1509,6 +1583,395 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 (log_dir / "openclaw-agent.log").write_text(fixture, encoding="utf-8")
                 self.assertFalse(headless_runner._openclaw_log_completed(log_dir))
 
+    def test_snapshot_treats_rc_file_as_complete_before_sentinel_exit(self):
+        scripts: list[str] = []
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            scripts.append(script)
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout=(
+                    f"{headless_runner.OPENCLAW_STATE_PREFIX}stopped\n"
+                    f"{headless_runner.OPENCLAW_RC_PREFIX}0\n"
+                    f"{headless_runner.OPENCLAW_LOG_BEGIN}\n"
+                    '{"result":{"payloads":[{"text":"done"}]}}'
+                ),
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(
+            headless_runner,
+            "_sandbox_exec",
+            side_effect=fake_sandbox_exec,
+        ):
+            state, returncode = headless_runner._openclaw_cli_snapshot(
+                "demo",
+                Path(td),
+            )
+
+        self.assertEqual((state, returncode), ("stopped", 0))
+        self.assertEqual(len(scripts), 1)
+        self.assertLess(
+            scripts[0].index("[ -f /tmp/vss-skill-eval-openclaw/openclaw-agent.rc ]"),
+            scripts[0].index('kill -0 "$pid"'),
+        )
+
+    def test_openclaw_session_file_accepts_nested_and_direct_envelopes(self):
+        session_file = (
+            "/sandbox/.openclaw/agents/main/sessions/current-session.jsonl"
+        )
+        nested = (
+            "node warning\n"
+            + json.dumps(
+                {
+                    "status": "ok",
+                    "result": {
+                        "payloads": [{"text": "done"}],
+                        "meta": {
+                            "agentMeta": {
+                                "sessionId": "run-123",
+                                "sessionFile": session_file,
+                            }
+                        },
+                    },
+                }
+            )
+        )
+        direct = json.dumps(
+            {
+                "payloads": [{"text": "done"}],
+                "meta": {"agentMeta": {"sessionFile": session_file}},
+            }
+        )
+
+        nested_envelope, nested_path = headless_runner._openclaw_session_file(
+            nested
+        )
+        direct_envelope, direct_path = headless_runner._openclaw_session_file(
+            direct
+        )
+
+        self.assertEqual(nested_path, session_file)
+        self.assertEqual(direct_path, session_file)
+        self.assertEqual(nested_envelope["payloads"][0]["text"], "done")
+        self.assertEqual(direct_envelope["payloads"][0]["text"], "done")
+
+    def test_openclaw_session_file_rejects_untrusted_or_stale_paths(self):
+        def output(path):
+            return json.dumps(
+                {
+                    "meta": {
+                        "agentMeta": {
+                            "sessionFile": path,
+                        }
+                    }
+                }
+            )
+
+        for path in (
+            "relative.jsonl",
+            "/sandbox/.openclaw/agents/main/sessions/../secret.jsonl",
+            "/sandbox/.openclaw/agents/main/sessions/nested/current.jsonl",
+            "/sandbox/.openclaw/agents/other/sessions/current.jsonl",
+            "/sandbox/.openclaw/agents/main/sessions/current.txt",
+            "/sandbox/.openclaw/agents/main/sessions/current.jsonl\nother",
+        ):
+            with self.subTest(path=path):
+                with self.assertRaises(RuntimeError):
+                    headless_runner._openclaw_session_file(output(path))
+
+        valid = output(
+            "/sandbox/.openclaw/agents/main/sessions/current.jsonl"
+        )
+        final_failed_document = valid + '\n{"status":"error","error":"boom"}'
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "did not provide meta.agentMeta.sessionFile",
+        ):
+            headless_runner._openclaw_session_file(final_failed_document)
+
+    def test_openclaw_session_jsonl_maps_current_tool_calls_to_atif(self):
+        session_jsonl = "\n".join(
+            json.dumps(row)
+            for row in (
+                {
+                    "type": "message",
+                    "timestamp": "2026-07-27T23:00:00Z",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "stale prompt"}],
+                    },
+                },
+                {
+                    "type": "message",
+                    "timestamp": "2026-07-27T23:00:01Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "Checking prerequisite."},
+                            {
+                                "type": "toolCall",
+                                "id": "call-1",
+                                "name": "exec",
+                                "arguments": {
+                                    "command": (
+                                        'test -n "${RTSP_SAMPLE_URL:-}" && '
+                                        "printf 'RTSP_SAMPLE_URL is set\\n'"
+                                    )
+                                },
+                            },
+                        ],
+                        "usage": {
+                            "input": 10,
+                            "output": 4,
+                            "cacheRead": 20,
+                            "cacheWrite": 3,
+                        },
+                    },
+                },
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "toolResult",
+                        "toolCallId": "call-1",
+                        "details": {
+                            "aggregated": "RTSP_SAMPLE_URL is set\n"
+                        },
+                    },
+                },
+                {
+                    "type": "message",
+                    "timestamp": "2026-07-27T23:00:02Z",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Deployment completed.",
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+        envelope = {
+            "meta": {
+                "agentMeta": {
+                    "sessionId": "run-123",
+                    "model": "aws/anthropic/test-model",
+                    "usage": {
+                        "input": 100,
+                        "output": 25,
+                        "cacheRead": 200,
+                    },
+                }
+            }
+        }
+
+        trajectory = headless_runner._openclaw_session_jsonl_to_atif(
+            session_jsonl,
+            instruction="current eval prompt",
+            envelope=envelope,
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        self.assertEqual(trajectory["schema_version"], "ATIF-v1.7")
+        self.assertEqual(trajectory["session_id"], "run-123")
+        self.assertEqual(trajectory["steps"][0]["message"], "current eval prompt")
+        tool_step = trajectory["steps"][1]
+        self.assertEqual(tool_step["source"], "agent")
+        self.assertEqual(tool_step["tool_calls"][0]["tool_call_id"], "call-1")
+        self.assertEqual(tool_step["tool_calls"][0]["function_name"], "exec")
+        self.assertIn(
+            "RTSP_SAMPLE_URL",
+            tool_step["tool_calls"][0]["arguments"]["command"],
+        )
+        self.assertEqual(
+            tool_step["observation"]["results"][0]["content"],
+            "RTSP_SAMPLE_URL is set\n",
+        )
+        self.assertEqual(tool_step["metrics"]["prompt_tokens"], 30)
+        self.assertEqual(
+            trajectory["steps"][-1]["message"],
+            "Deployment completed.",
+        )
+        self.assertEqual(
+            trajectory["final_metrics"],
+            {
+                "total_prompt_tokens": 300,
+                "total_completion_tokens": 25,
+                "total_cached_tokens": 200,
+                "total_steps": 3,
+            },
+        )
+
+    def test_openclaw_trajectory_uses_unique_ids_for_missing_tool_ids(self):
+        session_jsonl = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {"role": "user", "content": "prompt"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "toolCall",
+                                    "name": "exec",
+                                    "arguments": '{"command":"one"}',
+                                },
+                                {
+                                    "type": "toolCall",
+                                    "name": "exec",
+                                    "arguments": "not-json",
+                                },
+                            ],
+                        },
+                    }
+                ),
+            ]
+        )
+        trajectory = headless_runner._openclaw_session_jsonl_to_atif(
+            session_jsonl,
+            instruction="prompt",
+            envelope={"meta": {"agentMeta": {}}},
+        )
+
+        self.assertIsNotNone(trajectory)
+        assert trajectory is not None
+        calls = trajectory["steps"][1]["tool_calls"]
+        self.assertEqual(
+            [call["tool_call_id"] for call in calls],
+            ["openclaw-tool-000001", "openclaw-tool-000002"],
+        )
+        self.assertEqual(calls[0]["arguments"], {"command": "one"})
+        self.assertEqual(calls[1]["arguments"], {"raw": "not-json"})
+
+    def test_publish_openclaw_trajectory_writes_current_agent_and_artifacts(self):
+        rtsp_url = "rtsp://user:password@sample.example.test:8554/eval"
+        session_file = (
+            "/sandbox/.openclaw/agents/main/sessions/current-session.jsonl"
+        )
+        envelope = {
+            "status": "ok",
+            "result": {
+                "payloads": [{"text": f"done with {rtsp_url}"}],
+                "meta": {
+                    "agentMeta": {
+                        "sessionId": "current-session",
+                        "sessionFile": session_file,
+                        "model": "aws/anthropic/test-model",
+                    }
+                },
+            },
+        }
+        session_jsonl = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {"role": "user", "content": "prompt"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"current answer for {rtsp_url}",
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ]
+        )
+        scripts: list[str] = []
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            scripts.append(script)
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout=session_jsonl,
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            artifact_dir = root / "artifacts"
+            agent_dir = root / "agent"
+            artifact_dir.mkdir()
+            (artifact_dir / "openclaw-agent.log").write_text(
+                "node warning\n" + json.dumps(envelope),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                headless_runner,
+                "_sandbox_exec",
+                side_effect=fake_sandbox_exec,
+            ), mock.patch.dict(
+                os.environ,
+                {"RTSP_SAMPLE_URL": rtsp_url},
+                clear=False,
+            ):
+                report = (
+                    headless_runner.collect_and_publish_openclaw_trajectory(
+                        "demo",
+                        artifact_dir,
+                        agent_dir,
+                        "current prompt",
+                    )
+                )
+
+            agent_trajectory = json.loads(
+                (agent_dir / "trajectory.json").read_text(encoding="utf-8")
+            )
+            artifact_trajectory = json.loads(
+                (artifact_dir / "trajectory.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            published_text = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (
+                    agent_dir / "openclaw.session.jsonl",
+                    agent_dir / "trajectory.json",
+                    artifact_dir / "openclaw-agent.log",
+                    artifact_dir / "openclaw.session.jsonl",
+                    artifact_dir / "trajectory.json",
+                )
+            )
+
+        self.assertEqual(report["trajectory_steps"], 2)
+        self.assertEqual(
+            agent_trajectory["steps"][-1]["message"],
+            (
+                "current answer for "
+                "<redacted:RTSP_SAMPLE_URL;match=exact-runtime-value>"
+            ),
+        )
+        self.assertEqual(agent_trajectory, artifact_trajectory)
+        self.assertNotIn(rtsp_url, published_text)
+        self.assertIn(
+            "<redacted:RTSP_SAMPLE_URL;match=exact-runtime-value>",
+            published_text,
+        )
+        self.assertEqual(len(scripts), 1)
+        self.assertIn(session_file, scripts[0])
+        self.assertIn("readlink -f", scripts[0])
+        self.assertIn(str(headless_runner.OPENCLAW_SESSION_MAX_BYTES), scripts[0])
+
     def test_collect_openclaw_cli_log_copies_sandbox_output(self):
         calls: list[tuple[str, ...]] = []
         previous = headless_runner._run
@@ -1533,7 +1996,36 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         script = base64.b64decode(encoded).decode("utf-8")
         self.assertIn("openclaw-agent.log", script)
 
-    def test_stop_openclaw_cli_allows_log_flush_before_force_kill(self):
+    def test_collect_openclaw_cli_log_preserves_snapshot_on_transport_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td)
+            log_path = log_dir / "openclaw-agent.log"
+            log_path.write_text("valid snapshot", encoding="utf-8")
+            with mock.patch.object(
+                headless_runner,
+                "_sandbox_exec",
+                return_value=subprocess.CompletedProcess(
+                    ["sandbox", "demo"],
+                    7,
+                    stdout="",
+                    stderr="transport failed",
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "transport failed",
+                ):
+                    headless_runner.collect_openclaw_cli_log(
+                        "demo",
+                        log_dir,
+                    )
+
+            self.assertEqual(
+                log_path.read_text(encoding="utf-8"),
+                "valid snapshot",
+            )
+
+    def test_stop_openclaw_cli_validates_and_kills_private_process_group(self):
         calls: list[tuple[str, ...]] = []
         previous = headless_runner._run
 
@@ -1550,26 +2042,226 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
         encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
         script = base64.b64decode(encoded).decode("utf-8")
-        self.assertIn("sleep 5", script)
-        self.assertIn("kill -9", script)
+        self.assertIn("openclaw-agent.pgid", script)
+        self.assertIn('actual_pgid=$(ps -o pgid=', script)
+        self.assertIn('cmdline=$(tr "\\000" " "', script)
+        self.assertIn('kill -TERM -"$pgid"', script)
+        self.assertIn('kill -KILL -"$pgid"', script)
 
-    def test_cli_launch_returns_after_start_when_waiting_for_profile(self):
-        calls: list[tuple[str, ...]] = []
+    def test_cleanup_stops_only_the_recorded_openclaw_process_group(self):
+        with tempfile.TemporaryDirectory() as td:
+            run_dir = Path(td)
+            marker = run_dir / "openclaw-agent.rc.tmp"
+            process = subprocess.Popen(
+                [
+                    "setsid",
+                    "sh",
+                    "-lc",
+                    f"sleep 30; : > {shlex.quote(str(marker))}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                for _ in range(100):
+                    if process.poll() is not None:
+                        self.fail("test OpenClaw process exited before cleanup")
+                    if os.getpgid(process.pid) == process.pid:
+                        break
+                    time.sleep(0.01)
+                else:
+                    self.fail("test OpenClaw process did not create a process group")
+                (run_dir / "openclaw-agent.pid").write_text(
+                    f"{process.pid}\n",
+                    encoding="utf-8",
+                )
+                (run_dir / "openclaw-agent.pgid").write_text(
+                    f"{process.pid}\n",
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [
+                        "sh",
+                        "-lc",
+                        headless_runner._openclaw_process_cleanup_script(
+                            str(run_dir)
+                        ),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                process.wait(timeout=5)
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, 9)
+                    process.wait(timeout=5)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_cleanup_kills_group_when_leader_exits_but_child_ignores_term(self):
+        with tempfile.TemporaryDirectory() as td:
+            run_dir = Path(td)
+            marker = run_dir / "openclaw-agent.rc.tmp"
+            child_file = run_dir / "term-ignoring-child.pid"
+            worker = (
+                "trap 'exit 0' TERM; "
+                "sh -c 'trap \"\" TERM; while :; do sleep 1; done' & "
+                "child=$!; "
+                f"printf '%s\\n' \"$child\" > {shlex.quote(str(child_file))}; "
+                'wait "$child"; '
+                f": > {shlex.quote(str(marker))}"
+            )
+            process = subprocess.Popen(
+                ["setsid", "sh", "-lc", worker],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            child_pid = 0
+            try:
+                for _ in range(100):
+                    if process.poll() is not None:
+                        self.fail("test OpenClaw leader exited before cleanup")
+                    if (
+                        child_file.exists()
+                        and os.getpgid(process.pid) == process.pid
+                    ):
+                        child_pid = int(child_file.read_text().strip())
+                        break
+                    time.sleep(0.01)
+                else:
+                    self.fail("test OpenClaw child was not launched")
+                (run_dir / "openclaw-agent.pid").write_text(
+                    f"{process.pid}\n",
+                    encoding="utf-8",
+                )
+                (run_dir / "openclaw-agent.pgid").write_text(
+                    f"{process.pid}\n",
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [
+                        "sh",
+                        "-lc",
+                        headless_runner._openclaw_process_cleanup_script(
+                            str(run_dir)
+                        ),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=15,
+                )
+                process.wait(timeout=5)
+                members = subprocess.run(
+                    ["ps", "-eo", "pid=,pgid=,stat="],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.splitlines()
+            finally:
+                try:
+                    os.killpg(process.pid, 9)
+                except ProcessLookupError:
+                    pass
+                if process.poll() is None:
+                    process.wait(timeout=5)
+
+        self.assertGreater(child_pid, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(
+            any(
+                int(fields[1]) == process.pid
+                and not fields[2].startswith("Z")
+                for line in members
+                if len(fields := line.split()) >= 3
+            )
+        )
+
+    def test_cleanup_fails_closed_if_leader_was_already_gone(self):
+        with tempfile.TemporaryDirectory() as td:
+            run_dir = Path(td)
+            marker = run_dir / "openclaw-agent.rc.tmp"
+            child_file = run_dir / "orphaned-child.pid"
+            worker = (
+                "sh -c 'trap \"\" TERM; while :; do sleep 1; done' & "
+                "child=$!; "
+                f"printf '%s\\n' \"$child\" > {shlex.quote(str(child_file))}; "
+                f": > {shlex.quote(str(marker))}"
+            )
+            process = subprocess.Popen(
+                ["setsid", "sh", "-lc", worker],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                process.wait(timeout=5)
+                child_pid = int(child_file.read_text().strip())
+                self.assertEqual(os.getpgid(child_pid), process.pid)
+                (run_dir / "openclaw-agent.pid").write_text(
+                    f"{process.pid}\n",
+                    encoding="utf-8",
+                )
+                (run_dir / "openclaw-agent.pgid").write_text(
+                    f"{process.pid}\n",
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [
+                        "sh",
+                        "-lc",
+                        headless_runner._openclaw_process_cleanup_script(
+                            str(run_dir)
+                        ),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+            finally:
+                try:
+                    os.killpg(process.pid, 9)
+                except ProcessLookupError:
+                    pass
+
+        self.assertEqual(result.returncode, 70)
+        self.assertIn(
+            "leader exited with live group members",
+            result.stderr,
+        )
+
+    def test_cli_waits_for_completion_when_legacy_fast_mode_is_set(self):
+        calls: list[str] = []
         previous = {
-            "_run": headless_runner._run,
-            "_gateway_reachable": headless_runner._gateway_reachable,
-            "NEMOCLAW_FAST_READINESS_MODE": os.environ.get("NEMOCLAW_FAST_READINESS_MODE"),
+            "_start_openclaw_cli_async": (
+                headless_runner._start_openclaw_cli_async
+            ),
+            "_openclaw_cli_snapshot": headless_runner._openclaw_cli_snapshot,
+            "_openclaw_log_completed": headless_runner._openclaw_log_completed,
+            "NEMOCLAW_FAST_READINESS_MODE": os.environ.get(
+                "NEMOCLAW_FAST_READINESS_MODE"
+            ),
         }
-
-        def fake_run(cmd, *, timeout=30):
-            calls.append(tuple(cmd))
-            return subprocess.CompletedProcess(cmd, 0, stdout="started", stderr="")
 
         with tempfile.TemporaryDirectory() as td:
             log_dir = Path(td)
-            headless_runner._run = fake_run
-            headless_runner._gateway_reachable = (
-                lambda sandbox, deadline=None: True
+            headless_runner._start_openclaw_cli_async = (
+                lambda sandbox, prompt, timeout, logs, deadline=None: {
+                    "status": 200,
+                    "body": {"ok": True},
+                    "stdout_tail": "",
+                    "stderr_tail": "",
+                }
+            )
+            headless_runner._openclaw_cli_snapshot = (
+                lambda sandbox, logs, deadline=None: (
+                    calls.append("snapshot") or ("stopped", 0)
+                )
+            )
+            headless_runner._openclaw_log_completed = (
+                lambda logs: True
             )
             os.environ["NEMOCLAW_FAST_READINESS_MODE"] = "1"
             try:
@@ -1581,23 +2273,23 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                     wait_profile="base",
                 )
             finally:
-                headless_runner._run = previous["_run"]
-                headless_runner._gateway_reachable = previous["_gateway_reachable"]
+                headless_runner._start_openclaw_cli_async = previous[
+                    "_start_openclaw_cli_async"
+                ]
+                headless_runner._openclaw_cli_snapshot = previous[
+                    "_openclaw_cli_snapshot"
+                ]
+                headless_runner._openclaw_log_completed = previous[
+                    "_openclaw_log_completed"
+                ]
                 if previous["NEMOCLAW_FAST_READINESS_MODE"] is None:
                     os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
                 else:
                     os.environ["NEMOCLAW_FAST_READINESS_MODE"] = previous["NEMOCLAW_FAST_READINESS_MODE"]
 
-            launch_log = (log_dir / "openclaw-launch.log").read_text(encoding="utf-8")
-
         self.assertEqual(response["status"], 200)
-        self.assertEqual(response["body"]["mode"], "cli-async")
-        self.assertIn("mode=async", launch_log)
-        wrapper = next(call[-1] for call in calls if "base64 -d" in " ".join(call))
-        encoded = wrapper.split("printf %s ", 1)[1].split(" | base64 -d", 1)[0].strip("'")
-        script = base64.b64decode(encoded).decode("utf-8")
-        self.assertIn("echo started", script)
-        self.assertNotIn("while kill -0", script)
+        self.assertEqual(response["body"]["mode"], "cli")
+        self.assertEqual(calls, ["snapshot"])
 
     def test_wait_for_lvs_profile_requires_lvs_ready_endpoint(self):
         previous = {
@@ -1708,6 +2400,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             "run_openclaw_cli": headless_runner.run_openclaw_cli,
             "wait_for_profile": headless_runner.wait_for_profile,
             "collect_openclaw_cli_log": headless_runner.collect_openclaw_cli_log,
+            "collect_and_publish_openclaw_trajectory": (
+                headless_runner.collect_and_publish_openclaw_trajectory
+            ),
             "stop_openclaw_cli": headless_runner.stop_openclaw_cli,
         }
 
@@ -1733,6 +2428,11 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             headless_runner.collect_openclaw_cli_log = (
                 lambda sandbox, logs, deadline=None: calls.append("collect")
             )
+            headless_runner.collect_and_publish_openclaw_trajectory = (
+                lambda sandbox, logs, agent_logs, prompt, deadline=None: (
+                    calls.append("trajectory")
+                )
+            )
             headless_runner.stop_openclaw_cli = (
                 lambda sandbox, deadline=None: calls.append("stop")
             )
@@ -1751,10 +2451,145 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 headless_runner.run_openclaw_cli = previous["run_openclaw_cli"]
                 headless_runner.wait_for_profile = previous["wait_for_profile"]
                 headless_runner.collect_openclaw_cli_log = previous["collect_openclaw_cli_log"]
+                headless_runner.collect_and_publish_openclaw_trajectory = previous[
+                    "collect_and_publish_openclaw_trajectory"
+                ]
                 headless_runner.stop_openclaw_cli = previous["stop_openclaw_cli"]
 
         self.assertEqual(rc, 1)
-        self.assertEqual(calls, ["stop", "collect"])
+        self.assertEqual(calls, ["stop", "collect", "trajectory"])
+
+    def test_cli_launch_cleans_up_when_blocking_runner_raises(self):
+        calls: list[str] = []
+        previous = {
+            "run_openclaw_cli": headless_runner.run_openclaw_cli,
+            "collect_openclaw_cli_log": headless_runner.collect_openclaw_cli_log,
+            "collect_and_publish_openclaw_trajectory": (
+                headless_runner.collect_and_publish_openclaw_trajectory
+            ),
+            "stop_openclaw_cli": headless_runner.stop_openclaw_cli,
+        }
+
+        def raise_after_launch(*args, **kwargs):
+            raise subprocess.TimeoutExpired("sandbox launcher", 30)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text("Deploy base", encoding="utf-8")
+            log_dir = root / "logs"
+            headless_runner.run_openclaw_cli = raise_after_launch
+            headless_runner.stop_openclaw_cli = (
+                lambda sandbox, deadline=None: calls.append("stop")
+            )
+            headless_runner.collect_openclaw_cli_log = (
+                lambda sandbox, logs, deadline=None: calls.append("collect")
+            )
+            headless_runner.collect_and_publish_openclaw_trajectory = (
+                lambda sandbox, logs, agent_logs, prompt, deadline=None: (
+                    calls.append("trajectory")
+                )
+            )
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = headless_runner.main(
+                        [
+                            "--prompt-file",
+                            str(prompt),
+                            "--log-dir",
+                            str(log_dir),
+                            "--launch-mode",
+                            "cli",
+                        ]
+                    )
+            finally:
+                headless_runner.run_openclaw_cli = previous["run_openclaw_cli"]
+                headless_runner.stop_openclaw_cli = previous["stop_openclaw_cli"]
+                headless_runner.collect_openclaw_cli_log = previous[
+                    "collect_openclaw_cli_log"
+                ]
+                headless_runner.collect_and_publish_openclaw_trajectory = previous[
+                    "collect_and_publish_openclaw_trajectory"
+                ]
+
+            report = json.loads(
+                (log_dir / "nemoclaw_hooks_response.json").read_text()
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(calls, ["stop", "collect", "trajectory"])
+        self.assertEqual(
+            report["response"]["error_type"],
+            "TimeoutExpired",
+        )
+
+    def test_cli_launch_collects_evidence_after_cleanup_validation_error(self):
+        calls: list[str] = []
+        previous = {
+            "run_openclaw_cli": headless_runner.run_openclaw_cli,
+            "collect_openclaw_cli_log": headless_runner.collect_openclaw_cli_log,
+            "collect_and_publish_openclaw_trajectory": (
+                headless_runner.collect_and_publish_openclaw_trajectory
+            ),
+            "stop_openclaw_cli": headless_runner.stop_openclaw_cli,
+        }
+
+        def fail_stop(*args, **kwargs):
+            calls.append("stop")
+            raise RuntimeError("ownership validation failed")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text("Deploy base", encoding="utf-8")
+            log_dir = root / "logs"
+            headless_runner.run_openclaw_cli = (
+                lambda *args, **kwargs: {
+                    "status": 200,
+                    "body": {"ok": True},
+                }
+            )
+            headless_runner.stop_openclaw_cli = fail_stop
+            headless_runner.collect_openclaw_cli_log = (
+                lambda sandbox, logs, deadline=None: calls.append("collect")
+            )
+            headless_runner.collect_and_publish_openclaw_trajectory = (
+                lambda sandbox, logs, agent_logs, prompt, deadline=None: (
+                    calls.append("trajectory")
+                )
+            )
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = headless_runner.main(
+                        [
+                            "--prompt-file",
+                            str(prompt),
+                            "--log-dir",
+                            str(log_dir),
+                            "--launch-mode",
+                            "cli",
+                        ]
+                    )
+            finally:
+                headless_runner.run_openclaw_cli = previous["run_openclaw_cli"]
+                headless_runner.stop_openclaw_cli = previous["stop_openclaw_cli"]
+                headless_runner.collect_openclaw_cli_log = previous[
+                    "collect_openclaw_cli_log"
+                ]
+                headless_runner.collect_and_publish_openclaw_trajectory = previous[
+                    "collect_and_publish_openclaw_trajectory"
+                ]
+
+            report = json.loads(
+                (log_dir / "nemoclaw_hooks_response.json").read_text()
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(calls, ["stop", "collect", "trajectory"])
+        self.assertEqual(
+            report["response"]["error_type"],
+            "OpenClawCleanupError",
+        )
 
     def test_cli_launch_shares_timeout_with_profile_readiness(self):
         calls: list[tuple[str, float | int]] = []
@@ -1762,6 +2597,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             "run_openclaw_cli": headless_runner.run_openclaw_cli,
             "wait_for_profile": headless_runner.wait_for_profile,
             "collect_openclaw_cli_log": headless_runner.collect_openclaw_cli_log,
+            "collect_and_publish_openclaw_trajectory": (
+                headless_runner.collect_and_publish_openclaw_trajectory
+            ),
             "stop_openclaw_cli": headless_runner.stop_openclaw_cli,
             "monotonic": headless_runner.time.monotonic,
         }
@@ -1795,6 +2633,11 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             headless_runner.collect_openclaw_cli_log = (
                 lambda sandbox, logs, deadline=None: None
             )
+            headless_runner.collect_and_publish_openclaw_trajectory = (
+                lambda sandbox, logs, agent_logs, prompt, deadline=None: {
+                    "trajectory_steps": 2
+                }
+            )
             headless_runner.stop_openclaw_cli = (
                 lambda sandbox, deadline=None: None
             )
@@ -1818,6 +2661,9 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 headless_runner.collect_openclaw_cli_log = previous[
                     "collect_openclaw_cli_log"
                 ]
+                headless_runner.collect_and_publish_openclaw_trajectory = previous[
+                    "collect_and_publish_openclaw_trajectory"
+                ]
                 headless_runner.stop_openclaw_cli = previous["stop_openclaw_cli"]
                 headless_runner.time.monotonic = previous["monotonic"]
 
@@ -1830,6 +2676,87 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
                 ("readiness_timeout", 60),
                 ("readiness_deadline", 154.0),
             ],
+        )
+
+    def test_cli_success_fails_closed_when_current_trajectory_is_missing(self):
+        previous = {
+            "run_openclaw_cli": headless_runner.run_openclaw_cli,
+            "collect_openclaw_cli_log": (
+                headless_runner.collect_openclaw_cli_log
+            ),
+            "collect_and_publish_openclaw_trajectory": (
+                headless_runner.collect_and_publish_openclaw_trajectory
+            ),
+            "stop_openclaw_cli": headless_runner.stop_openclaw_cli,
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prompt = root / "prompt.md"
+            prompt.write_text("Deploy base", encoding="utf-8")
+            log_dir = root / "artifacts"
+            agent_dir = root / "agent"
+            headless_runner.run_openclaw_cli = (
+                lambda sandbox, message, timeout, logs, wait_profile="", deadline=None: {
+                    "status": 200,
+                    "body": {"ok": True},
+                }
+            )
+            headless_runner.collect_openclaw_cli_log = (
+                lambda sandbox, logs, deadline=None: None
+            )
+            headless_runner.collect_and_publish_openclaw_trajectory = (
+                lambda sandbox, logs, agent_logs, message, deadline=None: (
+                    (_ for _ in ()).throw(
+                        RuntimeError("session transcript unavailable")
+                    )
+                )
+            )
+            headless_runner.stop_openclaw_cli = (
+                lambda sandbox, deadline=None: None
+            )
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = headless_runner.main(
+                        [
+                            "--prompt-file",
+                            str(prompt),
+                            "--log-dir",
+                            str(log_dir),
+                            "--agent-log-dir",
+                            str(agent_dir),
+                            "--launch-mode",
+                            "cli",
+                        ]
+                    )
+            finally:
+                headless_runner.run_openclaw_cli = previous[
+                    "run_openclaw_cli"
+                ]
+                headless_runner.collect_openclaw_cli_log = previous[
+                    "collect_openclaw_cli_log"
+                ]
+                headless_runner.collect_and_publish_openclaw_trajectory = (
+                    previous["collect_and_publish_openclaw_trajectory"]
+                )
+                headless_runner.stop_openclaw_cli = previous[
+                    "stop_openclaw_cli"
+                ]
+
+            report = json.loads(
+                (log_dir / "nemoclaw_hooks_response.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(
+            report["response"]["error_type"],
+            "OpenClawTrajectoryError",
+        )
+        self.assertIn(
+            "session transcript unavailable",
+            report["response"]["error"],
         )
 
     def test_cli_cleanup_makes_no_remote_call_after_overall_deadline(self):

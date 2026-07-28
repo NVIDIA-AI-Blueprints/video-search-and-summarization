@@ -96,6 +96,7 @@ OPENSHELL_DOCKER_NETWORK_NAME = (
 os.environ["OPENSHELL_DOCKER_NETWORK_NAME"] = OPENSHELL_DOCKER_NETWORK_NAME
 NEMOCLAW_RECREATE_SANDBOX = os.environ.get("NEMOCLAW_RECREATE_SANDBOX", "1").strip() or "1"
 os.environ["NEMOCLAW_RECREATE_SANDBOX"] = NEMOCLAW_RECREATE_SANDBOX
+RTSP_SAMPLE_URL = os.environ.get("RTSP_SAMPLE_URL", "").strip()
 OPENCLAW_HOOKS_ENABLED = os.environ.get(
     "OPENCLAW_HOOKS_ENABLED",
     os.environ.get("AGENT_HOOKS_ENABLED", "1"),
@@ -275,6 +276,28 @@ def _patch_ci_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
             "--agent {AGENT_RUNTIME}",
         )
         return patched
+    if cell_id == "s37-code":
+        config_marker = "config_sets = []\n"
+        if config_marker not in source:
+            raise ValueError(
+                "NemoClaw config cell is missing the expected config_sets declaration"
+            )
+        patched = deepcopy(cell)
+        patched["source"] = source.replace(
+            config_marker,
+            "\n".join(
+                [
+                    "config_sets = []",
+                    "# Make the eval's runtime RTSP input available to OpenClaw exec tools.",
+                    "# Keep it out of the persisted launcher env and redact notebook artifacts.",
+                    "if RTSP_SAMPLE_URL:",
+                    '    config_sets.append(("env.vars.RTSP_SAMPLE_URL", RTSP_SAMPLE_URL))',
+                    "",
+                ]
+            ),
+            1,
+        )
+        return patched
     if cell_id != "run-code":
         return cell
     optional_forward = "ensure_openshell_forward(9090, NEMOCLAW_SANDBOX_NAME)"
@@ -386,6 +409,7 @@ def _redaction_values() -> dict[str, str]:
         "ANTHROPIC_API_KEY",
         "VSS_OPENAI_API_KEY",
         "OPENCLAW_HOOKS_TOKEN",
+        "RTSP_SAMPLE_URL",
     )
     return {key: value for key in keys if (value := os.environ.get(key))}
 

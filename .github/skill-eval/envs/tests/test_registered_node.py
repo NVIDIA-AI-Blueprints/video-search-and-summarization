@@ -218,6 +218,99 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
+    async def test_stray_reap_covers_direct_nemoclaw_launcher_exactly(self):
+        command = brev_env._stray_agent_reap_command()
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        self.assertIn(
+            "\\.github/skill-eval/nemoclaw/headless_runne[r]\\.py",
+            command,
+        )
+        self.assertIn(
+            "claude --verbose --output-format=stream-jso[n]",
+            command,
+        )
+        self.assertIn('sort -u', command)
+        self.assertIn('kill -9 -- "-$PGID"', command)
+        self.assertIn("pid_is_live()", command)
+        self.assertIn("group_has_live_members()", command)
+        self.assertIn('FAILED="$FAILED $pid"', command)
+        self.assertIn("exit 1", command)
+
+    async def test_stray_reap_kills_full_direct_launcher_process_group(self):
+        with tempfile.TemporaryDirectory() as td:
+            child_file = Path(td) / "child.pid"
+            worker = (
+                "sleep 30 & child=$!; "
+                f"printf '%s\\n' \"$child\" > {shlex.quote(str(child_file))}; "
+                "exec -a "
+                "'python3 .github/skill-eval/nemoclaw/headless_runner.py' "
+                "sleep 30"
+            )
+            process = subprocess.Popen(
+                ["setsid", "bash", "-c", worker],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            child_pid = 0
+            try:
+                for _ in range(100):
+                    if process.poll() is not None:
+                        self.fail("test direct launcher exited before reap")
+                    if (
+                        child_file.exists()
+                        and os.getpgid(process.pid) == process.pid
+                    ):
+                        child_pid = int(child_file.read_text().strip())
+                        break
+                    time.sleep(0.01)
+                else:
+                    self.fail("test direct launcher child was not started")
+
+                result = subprocess.run(
+                    ["bash", "-lc", brev_env._stray_agent_reap_command()],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=15,
+                )
+                process.wait(timeout=5)
+                members = subprocess.run(
+                    ["ps", "-eo", "pid=,pgid=,stat="],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.splitlines()
+            finally:
+                try:
+                    os.killpg(process.pid, 9)
+                except ProcessLookupError:
+                    pass
+                if process.poll() is None:
+                    process.wait(timeout=5)
+
+        self.assertGreater(child_pid, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"[stray-agent-reap] killed pids: {process.pid}",
+            result.stdout,
+        )
+        self.assertFalse(
+            any(
+                int(fields[1]) == process.pid
+                and not fields[2].startswith("Z")
+                for line in members
+                if len(fields := line.split()) >= 3
+            )
+        )
+
     async def test_docker_reset_preserves_only_openshell_bridge(self):
         calls = []
 
@@ -516,11 +609,34 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         reset = reset_commands[0]
         self.assertIn("/logs/artifacts", reset)
         self.assertIn("/logs/verifier", reset)
+        for stale_agent_output in (
+            "/logs/agent/trajectory.json",
+            "/logs/agent/trajectory.jsonl",
+            "/logs/agent/openclaw.session.jsonl",
+            "/logs/agent/openclaw.txt",
+            "/logs/agent/agent.log",
+            "/logs/agent/claude-code.txt",
+            "/logs/agent/nemoclaw-headless-runner.stdout",
+        ):
+            self.assertIn(stale_agent_output, reset)
+        self.assertIn("Refusing to reset symlinked /logs/agent", reset)
+        self.assertNotIn("rm -rf /logs/agent", reset)
+        self.assertNotIn("rm -rf /logs/agent/sessions", reset)
         self.assertNotIn("rm -rf /tests", reset)
         self.assertNotIn("rm -rf /solution", reset)
         self.assertNotIn("rm -rf /skills", reset)
         self.assertIn("mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills", reset)
         self.assertLess(reset.index("sudo rm -rf"), reset.index("sudo mkdir -p"))
+        archive_commands = [
+            command
+            for _, command, _ in calls
+            if 'PROJ=/logs/agent/sessions/projects' in command
+        ]
+        self.assertEqual(len(archive_commands), 1)
+        self.assertIn(
+            'mv "$PROJ"/* "$ARCHIVE/"',
+            archive_commands[0],
+        )
 
     async def test_upload_dir_replaces_trial_input_dirs(self):
         calls = []
@@ -1274,6 +1390,8 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         original = brev_env._run_brev_exec
         brev_env._run_brev_exec = fake_run_brev_exec
         previous_fast = os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
+        previous_timeout = os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC")
+        os.environ["NEMOCLAW_AGENT_TIMEOUT_SEC"] = "2400"
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 task_dir = Path(tmp) / "rtxpro6000bw"
@@ -1310,12 +1428,17 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             brev_env._run_brev_exec = original
             if previous_fast is not None:
                 os.environ["NEMOCLAW_FAST_READINESS_MODE"] = previous_fast
+            if previous_timeout is None:
+                os.environ.pop("NEMOCLAW_AGENT_TIMEOUT_SEC", None)
+            else:
+                os.environ["NEMOCLAW_AGENT_TIMEOUT_SEC"] = previous_timeout
 
         self.assertEqual(len(calls), 1)
         command = calls[0][1]
         self.assertIn("NemoClaw direct Harbor launcher", command)
         self.assertIn("python3 .github/skill-eval/nemoclaw/headless_runner.py", command)
         self.assertIn("--launch-mode cli", command)
+        self.assertIn("--agent-log-dir /logs/agent", command)
         self.assertIn("--wait-profile base", command)
         self.assertIn("--expected-skill vss-ask-video", command)
         self.assertIn(
@@ -1328,6 +1451,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("| claude --verbose --print", command)
         self.assertNotIn("--prompt-file /tests/nemoclaw_prompt.md", command)
+        self.assertEqual(calls[0][2], 2520)
 
     async def test_nemoclaw_launcher_can_opt_into_fast_readiness_mode(self):
         calls = []
@@ -1517,6 +1641,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(calls), 1)
         self.assertIn("echo no launcher here", calls[0][1])
+        self.assertEqual(calls[0][2], 123)
 
     async def test_repo_sync_injects_pr_head_from_coordinator_env(self):
         calls = []
