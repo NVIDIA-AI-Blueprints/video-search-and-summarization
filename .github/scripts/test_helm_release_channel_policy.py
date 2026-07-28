@@ -50,14 +50,14 @@ def image_coordinates(path: Path) -> tuple[str, str]:
 
 
 class HelmReleaseChannelPolicyTest(unittest.TestCase):
-    def test_policy_covers_every_github_built_image(self):
+    def test_policy_covers_every_shared_tag_set_image(self):
         inventory = json.loads(
             (REPO_ROOT / "deploy/docker/container-inventory.json").read_text()
         )
         managed = {
             image["name"]
             for image in inventory["images"]
-            if image.get("ghcr_build") is True
+            if image.get("ghcr_build") is True and image.get("shared_tag_set") is True
         }
         self.assertEqual(managed, set(HELM_VALUES))
 

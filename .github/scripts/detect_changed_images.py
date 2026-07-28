@@ -7,6 +7,10 @@ Emits a GitHub Actions matrix (JSON on stdout) with one entry per
 ``ghcr_build: true`` image from deploy/docker/container-inventory.json whose
 source folder changed in the pushed range.
 
+Images marked ``shared_tag_set: true`` (agent/UI/alert) share one
+``VSS_CONTAINER_TAG``: a change to any member rebuilds the whole set.
+Other ``ghcr_build`` images build only when their own ``source_path`` changes.
+
 Diff-range rules (the subtle part — get the PUSH event right):
 
 * ``push`` to ``develop``          → diff ``<event.before>..HEAD``. The naive
@@ -95,13 +99,54 @@ def changed_paths(repo: Path, base: str) -> list[str] | None:
     return [line for line in result.stdout.splitlines() if line]
 
 
-def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict], str]:
-    """Matrix entries for the buildable images that need a build."""
-    buildable = [
+def ghcr_buildable(inventory: dict) -> list[dict]:
+    return [
         entry
         for entry in inventory["images"]
         if entry.get("strategy") == "build" and entry.get("ghcr_build")
     ]
+
+
+def expand_shared_tag_set(
+    buildable: list[dict], changed_images: list[dict]
+) -> tuple[list[dict], str]:
+    """Expand selection for the managed shared-tag set; leave independents alone.
+
+    Images with ``shared_tag_set: true`` (agent/UI/alert) share one
+    ``VSS_CONTAINER_TAG``. If any of them changed, publish the whole set.
+    Other ``ghcr_build`` images (e.g. video-summarization) build only when
+    their own ``source_path`` changed.
+    """
+    shared = [entry for entry in buildable if entry.get("shared_tag_set")]
+    shared_names = {entry["name"] for entry in shared}
+    selected_names: set[str] = set()
+    reasons: list[str] = []
+    for entry in changed_images:
+        if entry.get("shared_tag_set"):
+            selected_names.update(shared_names)
+            reasons.append(entry["name"])
+        else:
+            selected_names.add(entry["name"])
+    selected = [entry for entry in buildable if entry["name"] in selected_names]
+    if reasons and selected_names & shared_names:
+        shared_reason = (
+            f"managed image(s) changed ({', '.join(reasons)}); "
+            "building complete shared-tag set"
+        )
+        independent = sorted(selected_names - shared_names)
+        if independent:
+            return (
+                selected,
+                f"{shared_reason}; also building {', '.join(independent)}",
+            )
+        return selected, shared_reason
+    names = ", ".join(entry["name"] for entry in selected)
+    return selected, f"changed image(s): {names}"
+
+
+def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict], str]:
+    """Matrix entries for the buildable images that need a build."""
+    buildable = ghcr_buildable(inventory)
     if changed is None:
         return buildable, "building all GHCR images"
     if any(
@@ -115,16 +160,9 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
         for entry in buildable
         if any(path.startswith(entry["source_path"] + "/") for path in changed)
     ]
-    if changed_images:
-        # The managed agent/UI/alert set shares one VSS_CONTAINER_TAG. Publish
-        # every member under that tag so the shared develop/QA coordinate can
-        # switch the managed set with one environment variable.
-        names = ", ".join(entry["name"] for entry in changed_images)
-        return (
-            buildable,
-            f"managed image(s) changed ({names}); building complete shared-tag set",
-        )
-    return [], f"0 of {len(buildable)} images changed"
+    if not changed_images:
+        return [], f"0 of {len(buildable)} images changed"
+    return expand_shared_tag_set(buildable, changed_images)
 
 
 def to_matrix(entries: list[dict]) -> dict:

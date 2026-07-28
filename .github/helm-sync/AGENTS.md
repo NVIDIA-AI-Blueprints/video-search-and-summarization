@@ -138,9 +138,11 @@ repo evolves.
    | new Dockerfile (new service) | new `templates/<svc>-deployment.yaml` + values entry |
    | NIM / GPU resource hints | `resources.limits.nvidia.com/gpu` + tolerations / nodeSelector |
 
-   **Shared managed-image channel.** Images classified with `"ghcr_build": true`
-   in `deploy/docker/container-inventory.json` use the same defaults in Docker
-   Compose and Helm:
+   **Shared managed-image channel.** Images classified with
+   `"ghcr_build": true` and `"shared_tag_set": true` in
+   `deploy/docker/container-inventory.json` (agent/UI/alert) use the same
+   defaults in Docker Compose and Helm. Independent `ghcr_build` images
+   (e.g. video-summarization) are out of this shared channel:
 
    - Both deployment paths default to
      `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
