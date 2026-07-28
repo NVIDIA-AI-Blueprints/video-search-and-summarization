@@ -275,6 +275,60 @@ class SelectImagesTest(unittest.TestCase):
             },
         )
 
+    def test_native_analytics_matrix_uses_arch_specific_runners(self):
+        entries = [
+            {
+                "name": "vss-behavior-analytics",
+                "context": "services/analytics/behavior-analytics",
+                "dockerfile": "services/analytics/behavior-analytics/docker/Dockerfile",
+                "platforms": ["linux/amd64", "linux/arm64"],
+                "source_path": "services/analytics/behavior-analytics",
+            },
+            INVENTORY["images"][0],
+        ]
+
+        matrices = dci.split_build_matrices(entries)
+
+        self.assertEqual(
+            [entry["name"] for entry in matrices["standard_matrix"]["include"]],
+            ["vss-agent"],
+        )
+        self.assertEqual(
+            [entry["name"] for entry in matrices["native_matrix"]["include"]],
+            ["vss-behavior-analytics"],
+        )
+        self.assertEqual(
+            [
+                (
+                    entry["platform"],
+                    entry["arch"],
+                    entry["runner"],
+                    entry["runner_arch"],
+                    entry["kernel_arch"],
+                )
+                for entry in matrices["native_platform_matrix"]["include"]
+            ],
+            [
+                ("linux/amd64", "amd64", "ubuntu-24.04", "X64", "x86_64"),
+                ("linux/arm64", "arm64", "ubuntu-24.04-arm", "ARM64", "aarch64"),
+            ],
+        )
+
+    def test_native_matrix_rejects_platform_without_runner(self):
+        entries = [
+            {
+                "name": "vss-video-analytics-api",
+                "context": "services/analytics/video-analytics-api",
+                "dockerfile": (
+                    "services/analytics/video-analytics-api/docker/Dockerfile"
+                ),
+                "platforms": ["linux/s390x"],
+                "source_path": "services/analytics/video-analytics-api",
+            }
+        ]
+        with self.assertRaisesRegex(ValueError, "no native runner configured"):
+            dci.split_build_matrices(entries)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
