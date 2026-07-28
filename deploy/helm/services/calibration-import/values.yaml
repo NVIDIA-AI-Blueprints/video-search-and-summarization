@@ -43,13 +43,20 @@ ngcTeam: ""
 ngcApiKeySecretName: ""
 ngcApiKeySecretKey: NGC_CLI_API_KEY
 
+# Set *SecretName to read creds from a Secret instead of the plaintext value.
 awsAccessKeyID: ""
+awsAccessKeyIDSecretName: ""
+awsAccessKeyIDSecretKey: AWS_ACCESS_KEY_ID
 awsSecretAccessKey: ""
+awsSecretAccessKeySecretName: ""
+awsSecretAccessKeySecretKey: AWS_SECRET_ACCESS_KEY
 awsRegion: ""
 awsEndpointUrl: ""
 
 storageRestUrl: ""
 storageAuthorization: ""
+storageAuthorizationSecretName: ""
+storageAuthorizationSecretKey: STORAGE_AUTHORIZATION
 
 extraEnv: []
 

@@ -134,3 +134,40 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/* Init container that downloads calibration.json into the shared /calibration volume. */}}
+{{- define "vss-rtvi-cv.mv3dtCalibrationDelivery" -}}
+{{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
+- name: mv3dt-calibration-delivery
+  image: {{ include "vss-rtvi-cv.image" . }}
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  command:
+    - python3
+    - -c
+    - |
+      import json, sys, time, urllib.request
+      url = {{ $mv3dt.dynamicCameraConfig.calibrationApiUrl | quote }}
+      out = "/calibration/calibration.json"
+      deadline = time.time() + {{ $mv3dt.dynamicCameraConfig.waitTimeoutSeconds | default 3600 }}
+      delay = {{ $mv3dt.dynamicCameraConfig.delaySeconds | default 10 }}
+      # endpoint returns an empty 200 when unconfigured; validate before writing
+      while True:
+          try:
+              with urllib.request.urlopen(url, timeout=15) as resp:
+                  data = json.loads(resp.read().decode())
+              if data.get("sensors") and data.get("calibrationType"):
+                  with open(out, "w") as fh:
+                      json.dump(data, fh)
+                  print("[calibration-delivery] wrote " + out, flush=True)
+                  break
+              print("[calibration-delivery] calibration empty/unconfigured; retrying", flush=True)
+          except Exception as exc:
+              print("[calibration-delivery] fetch error: " + str(exc), flush=True)
+          if time.time() >= deadline:
+              sys.stderr.write("[calibration-delivery][ERROR] timed out waiting for calibration\n")
+              sys.exit(1)
+          time.sleep(delay)
+  volumeMounts:
+    - name: calibration
+      mountPath: /calibration
+{{- end -}}

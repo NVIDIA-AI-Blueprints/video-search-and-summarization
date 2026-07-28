@@ -17,5 +17,11 @@ dependencies:
 - name: analytics
   repository: file://../../../services/analytics
   version: 3.2.0
-digest: sha256:6d75a378067e89eba14805e698f9b63e4e89590e6f083d68c8888e3e89146677
-generated: "2026-06-22T13:11:07.670389684-07:00"
+- name: vss-alert-bridge
+  repository: file://../../../services/alert
+  version: 3.2.0
+- name: agent
+  repository: file://../../../services/agent
+  version: 3.2.0
+digest: sha256:7da2694c24341b06247eb93cbd623fceb786e7a800a5664372f556ac98fac06a
+generated: "2026-07-22T16:39:25.357456313-07:00"

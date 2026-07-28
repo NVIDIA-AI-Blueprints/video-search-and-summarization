@@ -350,6 +350,14 @@ rtvi:
         maxBatchSize: "4"
         mqttPort: "1883"
         redisPort: "6379"
+        dynamicCameraConfig:
+          enabled: true
+          calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
+          configInit:
+            image:
+              repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-config-init
+              tag: "3.2.0"
+              pullPolicy: IfNotPresent
         fusion:
           enabled: true
           image:

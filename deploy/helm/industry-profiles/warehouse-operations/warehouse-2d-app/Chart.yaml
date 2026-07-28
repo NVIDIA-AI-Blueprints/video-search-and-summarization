@@ -39,3 +39,11 @@ dependencies:
   version: 3.2.0
   repository: file://../../../services/analytics
   condition: analytics.enabled
+- name: vss-alert-bridge
+  version: 3.2.0
+  repository: file://../../../services/alert
+  condition: vss-alert-bridge.enabled
+- name: agent
+  version: 3.2.0
+  repository: file://../../../services/agent
+  condition: agent.enabled

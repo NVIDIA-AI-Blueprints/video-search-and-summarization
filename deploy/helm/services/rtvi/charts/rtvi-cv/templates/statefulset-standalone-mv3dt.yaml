@@ -134,6 +134,33 @@ spec:
               done
               echo "Kafka is ready."
         {{- end }}
+        {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
+        {{- include "vss-rtvi-cv.mv3dtCalibrationDelivery" . | nindent 8 }}
+        - name: mv3dt-config-init
+          image: "{{ $mv3dt.dynamicCameraConfig.configInit.image.repository }}:{{ $mv3dt.dynamicCameraConfig.configInit.image.tag }}"
+          imagePullPolicy: {{ $mv3dt.dynamicCameraConfig.configInit.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CALIBRATION_JSON_PATH
+              value: /calibration/calibration.json
+            - name: CAM_INFO_OUTPUT_DIR
+              value: /tmp/camInfo
+            - name: PUB_SUB_OUTPUT_DIR
+              value: /tmp/generated
+            - name: CALIBRATION_WAIT_TIMEOUT
+              value: {{ $mv3dt.dynamicCameraConfig.waitTimeoutSeconds | default 3600 | quote }}
+            - name: MQTT_HOST
+              value: {{ include "vss-rtvi-cv.mv3dtMqttHost" . | quote }}
+            - name: MQTT_PORT
+              value: {{ $mv3dt.mqttPort | default "1883" | quote }}
+          volumeMounts:
+            - name: calibration
+              mountPath: /calibration
+              readOnly: true
+            - name: mv3dt-caminfo
+              mountPath: /tmp/camInfo
+            - name: generated
+              mountPath: /tmp/generated
+        {{- end }}
       containers:
         - name: vss-rtvi-cv
           image: {{ include "vss-rtvi-cv.image" . }}
@@ -192,6 +219,8 @@ spec:
               value: {{ $mv3dt.redisPort | default "6379" | quote }}
             - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
               value: {{ $mv3dt.deepstreamEnableSensorIdExtraction | default "0" | quote }}
+            - name: MV3DT_DYNAMIC_CAMERA_CONFIG
+              value: {{ ($mv3dt.dynamicCameraConfig | default dict).enabled | default false | quote }}
             - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
               value: {{ .Values.gstEnableCustomParserModifications | quote }}
             - name: OTEL_SDK_DISABLED
@@ -254,8 +283,15 @@ spec:
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt
             defaultMode: 420
+        {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
+        - name: mv3dt-caminfo
+          emptyDir: {}
+        - name: calibration
+          emptyDir: {}
+        {{- else }}
         - name: mv3dt-caminfo
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-caminfo
             defaultMode: 420
+        {{- end }}
 {{- end }}
