@@ -24,44 +24,18 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 
 | Owner | Service profile keys | Required in a delta? |
 |---|---|---|
-| Agent | `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix` | **Optional** — only when the user wants to chat through the VSS UI or needs Agent orchestration |
-| VIOS | `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` | Required for video ingest, storage, and retrieval |
-| LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` | **Optional** — consumed by `vss-agent`; drop it whenever the Agent is dropped |
-| RT-VLM | `rtvi-vlm` | Required for captioning and VLM inference |
+| Ingress | `vss-haproxy-ingress` | **Required** — the central place ports and service discovery are documented; fronts VIOS/VST and every other HTTP backend, not just the Agent |
+| VIOS | `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` | **Required** — video ingest, storage, and retrieval |
+| RT-VLM | `rtvi-vlm` | **Required** — captioning and VLM inference. Serves VLM Q&A directly on `POST /v1/chat/completions` (port 8018) |
+| Agent | `vss-agent`, `vss-ui`, `phoenix` | **Optional** — only when the user wants to chat through VSS-UI or needs Agent orchestration. A request for "VLM Q&A" alone does not require it |
+| LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` | **Optional** — `vss-agent` is its only consumer here; drop it whenever the Agent is dropped |
 
 `redis` is a shared peer used by this profile graph.
 
-## Optional Agent/UI layer
-
-`vss-agent`, `vss-ui`, `vss-haproxy-ingress`, and `phoenix` exist to provide the
-**VSS web experience**: a browser UI for uploading and streaming video, and an
-Agent that orchestrates multi-step reasoning across the LLM, RT-VLM, and VIOS.
-Keep them only when the request actually asks for that experience.
-
-Do **not** assume a request for "VLM Q&A" or "ask questions about video" needs
-them. RT-VLM serves the full capability surface itself on `RTVI_VLM_PORT`
-(default 8018):
-
-| Capability | RT-VLM endpoint |
-|---|---|
-| VLM Q&A | `POST /v1/chat/completions` |
-| Dense captioning (VOD) | `POST /v1/files` then `POST /v1/generate_captions` |
-| Dense captioning (stream) | `POST /v1/streams/add` then `POST /v1/generate_captions` |
-
-Nothing in `deploy/docker/` declares a `depends_on` for `vss-agent`, so removing
-the Agent layer does not orphan VIOS, RT-VLM, or any broker/ELK service.
-
-**Keep the Agent layer when** the user asks for the VSS UI, a browser/chat
-experience, Agent-orchestrated reasoning that spans several services, or
-Phoenix tracing of Agent calls.
-
-**Drop all four when** the deployment is API-only — a microservice or pipeline
-delta driven by direct REST calls to RT-VLM and VIOS. Drop the LLM NIM at the
-same time: `vss-agent` is its only consumer in this profile, so retaining it
-reserves a GPU for a service nothing calls.
-
-When the request is ambiguous between the two, ask which the user wants rather
-than silently retaining the heavier set.
+Nothing under `deploy/docker/` declares a `depends_on` for `vss-agent`, and
+haproxy's backends use `init-addr none`, so dropping the Agent layer orphans
+nothing and leaves ingress healthy. When a request is ambiguous about whether
+the VSS web experience is wanted, ask rather than silently retaining it.
 
 ## Profile-specific environment knobs
 

@@ -20,8 +20,8 @@
         "The proposal treats `in-1` only as a filesystem label and does not invent a Compose profile name.",
         "The proposal adds exactly `kafka`, `kafka-topic-init-container`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, and `logstash`.",
         "`logstash` is present in the added set and is justified as the only path from Kafka to Elasticsearch: RT-VLM has no Elasticsearch configuration and only produces to Kafka, and `pipelines/kafka/mdx-lvs-logstash.conf` is the sole consumer of `mdx-vlm-captions` that writes to the Elasticsearch output. Selecting `elasticsearch` without `logstash` leaves the requested Elasticsearch storage permanently empty.",
-        "The proposal removes the unrequested `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, and LLM NIM keys from the `base` Foundation, and correctly states that VLM Q&A is served directly by RT-VLM's `/v1/chat/completions` on port 8018 rather than through the Agent.",
-        "The proposal retains the `base` Foundation's `rtvi-vlm`, `redis`, and the four VIOS keys.",
+        "The proposal removes the unrequested `vss-agent`, `vss-ui`, `phoenix`, and LLM NIM keys from the `base` Foundation, and correctly states that VLM Q&A is served directly by RT-VLM's `/v1/chat/completions` on port 8018 rather than through the Agent.",
+        "The proposal retains the `base` Foundation's `rtvi-vlm`, `redis`, `vss-haproxy-ingress`, and the four VIOS keys. `vss-haproxy-ingress` is retained even though the Agent and UI are dropped: it is the central ingress documenting ports and service discovery, it fronts VIOS/VST and ten other non-Agent backends, and its `init-addr none` backends let it start healthy with the Agent backends absent.",
         "The proposal does not add `kibana` or `kibana-init-container-lvs`: Kibana is an unrequested visualization UI that no selected service depends on, and `kibana-init-container-lvs` is defined only in the `lvs` Foundation's Compose project and is therefore not a valid profile key under `base`.",
         "The proposal sets `RTVI_VLM_KAFKA_ENABLED=true` (the `base` Foundation ships `false`) and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` (RT-VLM otherwise defaults to `vision-llm-messages`).",
         "The proposal does not re-declare `STREAM_TYPE`, which the `base` Foundation `.env` already sets to `kafka` — the value Logstash's config/pipeline bind mounts and `broker-health-check`'s Dockerfile selection both interpolate.",
@@ -34,8 +34,8 @@
       "query": "Build the proposed delta under `_builds/in-1/` and run the Compose validation. Stop after validation; do not deploy.",
       "checks": [
         "`{{repo_root}}/_builds/in-1/override.env` exists with `FOUNDATION=base`, a full effective `COMPOSE_PROFILES`, and only customized environment values that differ from the `base` Foundation.",
-        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `redis,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,kafka,kafka-topic-init-container,broker-health-check,elasticsearch,elasticsearch-init-container,logstash`.",
-        "Relative to the `base` Foundation the delta adds exactly six keys (`kafka`, `kafka-topic-init-container`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `logstash`) and removes exactly five (`phoenix`, `vss-haproxy-ingress`, `vss-ui`, `vss-agent`, and the `llm_${LLM_MODE}_${LLM_NAME_SLUG}` expansion).",
+        "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `redis,vss-haproxy-ingress,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,kafka,kafka-topic-init-container,broker-health-check,elasticsearch,elasticsearch-init-container,logstash`.",
+        "Relative to the `base` Foundation the delta adds exactly six keys (`kafka`, `kafka-topic-init-container`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `logstash`) and removes exactly four (`phoenix`, `vss-ui`, `vss-agent`, and the `llm_${LLM_MODE}_${LLM_NAME_SLUG}` expansion). `vss-haproxy-ingress` is retained.",
         "`logstash` is present. A set that is otherwise correct but omits `logstash` fails this step, because no other selected service moves messages from `mdx-vlm-captions` into Elasticsearch.",
         "The set excludes `kibana`, `kibana-init-container-lvs`, `lvs-server`, `nvstreamer-lvs`, `sdr-controller`, and the `init-dirs` / `render-config` / `wdm-env-from-config` / `wait-for-redis` / `wait-for-docker-workloads` orchestration keys, none of which the `base` Foundation activates or the requested capabilities require.",
         "`COMPOSE_PROFILES` contains no `in-1`, aggregate, `bp_developer_*`, or other invented profile key.",
@@ -55,7 +55,7 @@
         "All selected long-running services are running or healthy and selected one-shot initialization containers (`kafka-topic-init-container`, `elasticsearch-init-container`, `broker-health-check`) exit 0.",
         "RT-VLM readiness succeeds on port 8018, Elasticsearch cluster health succeeds, Kafka topics initialize, and VIOS APIs become reachable.",
         "`logstash` is running and its log shows the `mdx-lvs` pipeline started and connected to both Kafka and Elasticsearch.",
-        "No excluded service is running for this delta — specifically no `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, LLM NIM, `lvs-server`, `nvstreamer-lvs`, or `kibana` container."
+        "No excluded service is running for this delta — specifically no `vss-agent`, `vss-ui`, `phoenix`, LLM NIM, `lvs-server`, `nvstreamer-lvs`, or `kibana` container. `vss-haproxy-ingress` IS running and healthy."
       ]
     },
     {
@@ -66,7 +66,7 @@
         "Kafka topic `mdx-vlm-captions` exists and its end offset advances after streamed processing.",
         "Elasticsearch contains a caption document attributable to the processed sensor or video, indexed by Logstash's `mdx-lvs` pipeline.",
         "A VLM Q&A request issued directly to RT-VLM's `/v1/chat/completions` on port 8018 returns a non-empty, on-topic answer about the processed video, with no VSS Agent in the request path.",
-        "The final response reports `base` as the Foundation, the six added and five removed service keys, the changed environment knobs, readiness evidence, Kafka before/after offsets, and Elasticsearch evidence."
+        "The final response reports `base` as the Foundation, the six added and four removed service keys, the changed environment knobs, readiness evidence, Kafka before/after offsets, and Elasticsearch evidence."
       ]
     }
   ]
