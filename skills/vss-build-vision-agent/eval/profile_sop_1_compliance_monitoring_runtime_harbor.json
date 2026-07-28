@@ -6,7 +6,7 @@
   "profile": "sop-1-runtime",
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": { "gpu_count": 2 }
+      "RTXPRO6000BW": { "gpu_count": 1 }
     }
   },
   "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. PREREQUISITE (provisioned host): the locally-built `ds-sop:1.0.0` image is already present -- it is LOCAL-BUILD-ONLY (no registry to pull; ~50 GB, built + smoke-tested per `references/services/sop/build-ds-sop.md`) -- and the SOP models (NGC nv-metropolis-dev/vss-industrial/sop-data:1.0, ~14.7 GB) plus the test video (NGC nvidia/tao/sop-server-fan-installation-data:1.0-260213) are staged. This runtime eval builds, deploys, and runtime-verifies the SOP compliance-monitoring delta off the `alerts` (2d_vlm) Foundation: DS-SOP step detection -> Kafka -> ELK, plus the skill-driven SOP compliance report (vss-va-mcp + the downloaded/adapted get_sop_* patch, rendered by vss-generate-video-report Mode C). No RT-VLM, no runtime VSS agent/UI, no LLM-NIM report path. Use `_builds/sop-1-runtime/` only as a filesystem label; the get_sop_* patch + Logstash overlay stage BUILD-LOCAL under `_builds/`, so `deploy/docker/` remains unmodified.",
