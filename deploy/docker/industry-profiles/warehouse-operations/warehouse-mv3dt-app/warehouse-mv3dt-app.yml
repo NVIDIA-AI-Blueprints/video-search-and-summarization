@@ -51,7 +51,7 @@ services:
       default:
         aliases:
           - vss-vios-nvstreamer
-    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvidia/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
+    image: ${VSS_NVSTREAMER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer}:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
     profiles: ["nvstreamer-mv3dt"]
@@ -75,6 +75,7 @@ services:
             - "${RT_CV_DEVICE_ID:-0}"
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/notification-config.json:/home/vst/vst_release/configs/notification_config.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh

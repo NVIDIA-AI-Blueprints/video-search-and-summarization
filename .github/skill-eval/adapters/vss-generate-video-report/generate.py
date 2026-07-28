@@ -13,7 +13,7 @@ before these checks.
 
 Because the vss-generate-video-report skill is a thin wrapper around POST /generate — purely
 HTTP, GPU-independent at the harness level — the spec targets **ONE platform**
-by default (L40S — cheapest available host).  Override with ``--platform``.
+by default (RTXPRO6000BW).  Override with ``--platform``.
 
 ## Directory layout
 
@@ -60,7 +60,7 @@ PLATFORMS: dict[str, dict] = {
     "IGX-THOR":     {"short_name": "thor",         "gpu_type": "Thor",         "min_vram_per_gpu": 64, "brev_search": "Thor"},
 }
 
-DEFAULT_PLATFORM = "L40S"
+DEFAULT_PLATFORM = "RTXPRO6000BW"
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
 # fires.  Skills default to "ask the user" before /vss-deploy-profile; in CI there is no
@@ -139,6 +139,7 @@ def generate_task(
     skill_dir: Path,
     deploy_skill_dir: Path | None,
     video_io_skill_dir: Path | None,
+    query_analytics_skill_dir: Path | None = None,
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'] — i.e.
     step-<k>/ subdirs under ``<profile>/<platform_short>/`` per AGENTS.md § 4.
@@ -238,6 +239,7 @@ def generate_task(
             (skill_dir,        "vss-generate-video-report"),
             (deploy_skill_dir, "vss-deploy-profile"),
             (video_io_skill_dir,   "vss-manage-video-io-storage"),
+            (query_analytics_skill_dir, "vss-query-analytics"),
         ]
         for src, name in copies:
             if src and src.exists():
@@ -276,6 +278,10 @@ def main() -> None:
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument(
+        "--query-analytics-skill-dir", default=None,
+        help="Path to skills/vss-query-analytics (optional — spec steps 5-7 use /vss-query-analytics)",
+    )
+    parser.add_argument(
         "--spec", default=None,
         help="Path to spec JSON (default: <skill-dir>/evals/base_profile_report.json)",
     )
@@ -290,6 +296,7 @@ def main() -> None:
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
+    query_analytics_skill_dir = Path(args.query_analytics_skill_dir) if args.query_analytics_skill_dir else None
     spec_path = (
         Path(args.spec)
         if args.spec
@@ -319,7 +326,7 @@ def main() -> None:
         print(f"  GEN  vss-generate-video-report/{profile}/{task_id}")
         generate_task(
             platform, profile, spec, output_root, skill_dir,
-            deploy_skill_dir, video_io_skill_dir,
+            deploy_skill_dir, video_io_skill_dir, query_analytics_skill_dir,
         )
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")

@@ -15,6 +15,9 @@ from vss_cli.search import _parse_args
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[7]
 SKILL_ROOT = REPOSITORY_ROOT / "skills" / "vss-search-archive"
+DEPLOYMENT_RESOLUTION_PATH = (
+    REPOSITORY_ROOT / "skills" / "vss-build-vision-agent" / "references" / "deployment_resolution.md"
+)
 ADAPTER_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "adapters" / "vss-search-archive" / "generate.py"
 GENERIC_JUDGE_PATH = REPOSITORY_ROOT / ".github" / "skill-eval" / "verifiers" / "generic_judge.py"
 REMOVED_FLAGS = (
@@ -39,14 +42,15 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     skill_text = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
     assert "critic frame fetches" not in skill_text
     assert "Critic needs authentication" not in skill_text
-    assert all(
-        re.search(r"/generate(?:[`\"'\s]|$)", path.read_text(encoding="utf-8")) is None
-        for path in visible_contract_files
-    )
+    assert "${AGENT_URL}/generate" in skill_text
+    assert "${VSS_PUBLIC_URL%/}/generate" in skill_text
+    assert "VSS_PUBLIC_URL" in skill_text
+    assert "VSS_VIOS_URL" in skill_text
+    assert "never starts a `kubectl port-forward`" in skill_text
     assert "${AGENT_URL}/health" in skill_text
     assert "${AGENT_URL}/docs" not in skill_text
     assert "vss search run --help" in skill_text
-    assert "Do not substitute an agent" in skill_text
+    assert "The public Agent endpoint is the supported search interface" in skill_text
     assert 'UPLOAD_FILENAME="${UPLOAD_FILENAME:-${SOURCE_FILENAME}}"' in skill_text
     assert "use that same value" in skill_text
     assert 'VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"' in skill_text
@@ -58,7 +62,7 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "do not construct a Brev hostname" in skill_text
     assert "## Video Search Results" in skill_text
     assert "## Verification Step" in skill_text
-    assert "never paste it into the final reply" in skill_text
+    assert "Never paste raw JSON wrappers" in skill_text
     assert '"streamId: ${STREAM_ID}"' not in skill_text
     assert "without adding routing headers" in skill_text
     assert 'curl -sfS --connect-timeout 10 --max-time 300 -X POST "${UPLOAD_URL}"' in skill_text
@@ -72,11 +76,18 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "Do not assume" in skill_text
     assert "is exported in the operation shell" in skill_text
     assert "discover_docker" in skill_text
-    assert "discover_kubernetes" in skill_text
+    assert "discover_kubernetes" not in skill_text
     assert "SEARCH_COMMAND=(" in skill_text
     assert '--deployment docker --profile "${PROFILE}"' in skill_text
     assert 'SEARCH_JSON=$("${SEARCH_COMMAND[@]}")' in skill_text
+    assert "SEARCH_JSON=$(curl -sfS --connect-timeout 10 --max-time 3600" in skill_text
+    assert '-X POST "${AGENT_URL}/generate"' in skill_text
+    assert "host CLI's Kubernetes deployment selector" in skill_text
     assert 'jq -e \'type == "object"' in skill_text
+    assert "Do **not** run the Docker CLI" in skill_text
+    assert "Require a nonempty `SEARCH_TEXT`" in skill_text
+    assert "Do not call `jq` on `.data`" in skill_text
+    assert "present `SEARCH_TEXT` under `## Video Search Results`" in skill_text
     assert 'if [ "${HIT_COUNT}" -gt 0 ]; then' in skill_text
     assert "A zero-length `data` array has zero media URLs to validate" in skill_text
     assert '"${VALIDATED_COUNT}" -eq "${HIT_COUNT}"' in skill_text
@@ -97,6 +108,14 @@ def test_skill_and_eval_do_not_require_removed_cli_contract() -> None:
     assert "`RAW_INDEX`, `sensorId.keyword`, canonical source name" in skill_text
     decomposition_text = (SKILL_ROOT / "references/query_decomposition.md").read_text(encoding="utf-8")
     cli_usage_text = (SKILL_ROOT / "references/cli_usage.md").read_text(encoding="utf-8")
+    deployment_resolution_text = DEPLOYMENT_RESOLUTION_PATH.read_text(encoding="utf-8")
+    assert "deployment_resolution.md" in skill_text
+    assert "VSS_PUBLIC_URL" in deployment_resolution_text
+    assert "Do not require a second operate variable named" in deployment_resolution_text
+    assert 'VST_EXTERNAL_URL="${VST_EXTERNAL_URL:-${VSS_PUBLIC_URL}}"' not in deployment_resolution_text
+    assert "VST_API_BASE" in deployment_resolution_text
+    assert "openapi.json" in deployment_resolution_text
+    assert "VSS_STREAMER_URL" in deployment_resolution_text
     assert '"video_sources": ["warehouse-ladder"]' in decomposition_text
     assert '"video_sources": ["sample-warehouse-ladder"]' not in decomposition_text
     assert "names only the video embedding index" in cli_usage_text
@@ -111,10 +130,10 @@ def test_eval_is_valid_json() -> None:
 def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     spec = json.loads((SKILL_ROOT / "evals/search.json").read_text(encoding="utf-8"))
     expects = spec["expects"]
-    assert len(expects) == 6
+    assert len(expects) == 7
     assert spec["profile"] == "search"
     assert spec["deploy_mode"] == "remote-all"
-    assert [len(expect["checks"]) for expect in expects] == [7, 3, 6, 7, 5, 5]
+    assert [len(expect["checks"]) for expect in expects] == [7, 3, 6, 7, 5, 5, 4]
 
     contract = json.dumps(spec)
     operation_contract = json.dumps(expects[1:])
@@ -218,6 +237,16 @@ def test_harbor_eval_matches_the_retrieval_cli_contract() -> None:
     assert "mdx-embed-filtered-2025-01-01" in deletion_checks
     assert "mdx-behavior-2025-01-01" in deletion_checks
     assert "mdx-raw-2025-01-01" in deletion_checks
+
+    kubernetes_contract = expects[6]
+    assert kubernetes_contract["scenario"] == "kubernetes-ingress-contract"
+    assert "VSS_PUBLIC_URL=https://vss-search.example.com" in kubernetes_contract["query"]
+    kubernetes_checks = " ".join(kubernetes_contract["checks"])
+    assert "/vst/api/v1/sensor/list" in kubernetes_checks
+    assert "POST https://vss-search.example.com/generate" in kubernetes_checks
+    assert "input_message" in kubernetes_checks
+    assert "port-forward" in kubernetes_checks
+    assert "direct `:9200`" in kubernetes_checks
 
 
 def test_documented_run_flags_are_accepted_by_run_parser() -> None:
@@ -362,6 +391,10 @@ def test_harbor_adapter_generation_is_deterministic(tmp_path: Path) -> None:
     first_files = {path.relative_to(first): path.read_bytes() for path in first.rglob("*") if path.is_file()}
     second_files = {path.relative_to(second): path.read_bytes() for path in second.rglob("*") if path.is_file()}
     assert first_files == second_files
+    kubernetes_instruction = (first / "search" / "rtxpro6000bw" / "step-7" / "instruction.md").read_text()
+    assert "read-only Kubernetes Ingress contract check" in kubernetes_instruction
+    assert "public Agent /generate route" in kubernetes_instruction
+    assert "Do not deploy, redeploy, execute the example commands" in kubernetes_instruction
 
 
 @pytest.mark.parametrize(

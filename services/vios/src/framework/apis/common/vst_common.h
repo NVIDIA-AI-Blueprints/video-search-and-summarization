@@ -38,6 +38,12 @@ using namespace nv_vms;
 namespace vst_common
 {
     string sensorStatusEventToString(SensorStatusEvent event);
+    // Maps a stored sensor type such as sensor_rtsp to the notification
+    // camera_type value rtsp; values without the sensor_ prefix pass through.
+    string sensorTypeToCameraType(const string& sensorType);
+    // Resolves the camera_type notification value for a sensor id, falling
+    // back to the parent sensor when given a stream id. Empty when unknown.
+    string cameraTypeForSensor(const string& sensorOrStreamId);
     VmsErrorCode getSensorStreamList(shared_ptr<DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response);
     VmsErrorCode getSensorStreamList(shared_ptr<DeviceManager> deviceManager, const Json::Value& req_info, Json::Value &response);
     VmsErrorCode getSensorStreamListFromDB(shared_ptr<DeviceManager> deviceManager, Json::Value &response, bool fetchFromDB = false);
@@ -81,9 +87,13 @@ namespace vst_common
     void addSensorToRemoteDevice(shared_ptr<SensorInfo>& sensor, std::shared_ptr<DeviceManager> deviceManager);
     void removeSensorFromRemoteDevice(const string& sensor_id);
     void notifySensorStatusEvent(SensorStatusEvent statusEvent, shared_ptr<SensorInfo> sensor,
-                                 string httpFileUrl = EMPTY_STRING);
+                                 string httpFileUrl = EMPTY_STRING, int64_t fileStartTimeMs = 0);
     void notifyStreamStatusEvent(SensorStatusEvent statusEvent, shared_ptr<StreamInfo> stream);
-    void notifyEvent(const SensorStatus& status, const string& sensor_url, const SensorVideoEncoderSettingsValues* encoder_values = nullptr);
+    // fileStartTimeMs is the first frame's epoch time; 0 omits the field.
+    void notifyEvent(const SensorStatus& status, const string& sensor_url,
+                     const SensorVideoEncoderSettingsValues* encoder_values = nullptr,
+                     int64_t fileStartTimeMs = 0);
+    void addStreamMetadata(Json::Value& metadata, const SensorVideoEncoderSettingsValues& encoder_values);
     int addSensorManually(shared_ptr<SensorInfo>& sensor, string& response, std::shared_ptr<DeviceManager> deviceManager);
     VmsErrorCode getCameraPicture(shared_ptr<DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response, bool isURLRequested = false, const string& configHash = "");
     std::vector <VideoFileInfo> getStreamerFileName(std::string url);

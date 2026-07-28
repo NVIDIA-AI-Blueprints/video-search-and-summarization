@@ -1,0 +1,9 @@
+{
+  "message_broker": {
+    "enable_notification": false,
+    "use_message_broker": "kafka",
+    "message_broker_topic": "vst.event",
+    "redis_server_env_var": "REDIS_SVC_SERVICE_HOST:6379",
+    "kafka_server_address": "kafka:29092"
+  }
+}

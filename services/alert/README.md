@@ -54,7 +54,7 @@ for a detailed layout + data-flow diagram).
 | `src/vlm/` | VLM client (OpenAI-compatible) and warmup |
 | `src/schemas/` | NvSchema request/response entities, VLM response model, and pluggable response parsers |
 | `src/realtime/` | Realtime + always-on alert rules and the RTVI VLM client |
-| `src/web/` | REST + WebSocket API and on-demand verification service |
+| `src/web/` | REST API and on-demand verification service |
 | `src/vst/` | VST video-clip resolution (sensor ID + timestamps) |
 | `src/clients/` | Elasticsearch client + in-process dedup/verdict-protection state handler |
 | `src/persistence/` | Elasticsearch persistence store |
@@ -100,7 +100,6 @@ Or build/run with Docker (see Quick Start).
    - Health: `http://localhost:9080/health`
    - API docs (Swagger): `http://localhost:9080/docs`
    - OpenAPI spec: `http://localhost:9080/openapi.json`
-   - WebSocket: `ws://localhost:9080/ws`
 
 To run the verification pipeline directly (without Docker):
 
@@ -204,7 +203,10 @@ curl -X POST http://localhost:9080/api/v1/alerts \
   -d @test/protobuf/test_data/sample_alert.json
 ```
 
-Enriched results are persisted and broadcast over the WebSocket endpoint.
+Enriched results are persisted to Elasticsearch and published to the Kafka
+sink (`event_bridge.sinkType: kafka`). Consumers receive alerts by subscribing
+to the configured sink topic, and can also query stored alerts/incidents over
+the REST API (e.g. `GET /api/v1/realtime`, `GET /api/v1/realtime/incidents`).
 
 ## Testing
 

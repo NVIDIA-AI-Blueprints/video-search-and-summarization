@@ -51,9 +51,9 @@ TEST_TARGET := vst_test
 
 # Version for projects
 # Applicable for Rosie, VST, Tokkio
-VST_VERSION = 2.1.0-26.05.4
-MMS_VERSION = 2.1.0-26.05.4
-STREAMER_VERSION = 2.1.0-26.05.4
+VST_VERSION = 2.1.0-26.07.1
+MMS_VERSION = 2.1.0-26.07.1
+STREAMER_VERSION = 2.1.0-26.07.1
 
 SRCS := \
 	src/app/Main.cpp \
@@ -93,6 +93,8 @@ SRCS := \
 	src/framework/notification/kafka/kafka_consumer.cpp \
 	src/framework/notification/mqtt/mqtt_publisher.cpp \
 	src/framework/notification/mqtt/mqtt_subscriber.cpp \
+	src/framework/notification/webhook/webhook_notifier.cpp \
+	src/framework/notification/composite_notifier.cpp \
 	src/framework/notification/ds_proto_parser.cpp \
 	src/framework/protocols/prometheus_client/prometheus_client.cpp
 
@@ -616,7 +618,9 @@ TEST_SRCS := test/gtests/test_main.cpp \
              test/gtests/recorder.cpp \
              test/gtests/rtspserver.cpp \
              test/gtests/replaystream.cpp \
-             test/gtests/livestream.cpp
+             test/gtests/livestream.cpp \
+             test/gtests/async_http_client.cpp \
+             test/gtests/webhook_notifier.cpp
 
 TEST_OBJS := $(TEST_SRCS:.cpp=.o)
 

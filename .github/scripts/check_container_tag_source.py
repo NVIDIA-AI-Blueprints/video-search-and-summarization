@@ -61,7 +61,7 @@ class ImageConfig:
     # (image_name,). The alert service is published/promoted as ``vss-alert-ms``
     # but the deploy stack still pins the released basename
     # ``vss-alert-verification``, so both must be recognized when scanning
-    # compose refs (see check-alert-ms-container-source.yml: "recognizes both").
+    # compose refs. Still consumed by release_set.py and compose_image_golden.py.
     deploy_image_names: tuple[str, ...] = ()
 
     def compose_names(self) -> tuple[str, ...]:

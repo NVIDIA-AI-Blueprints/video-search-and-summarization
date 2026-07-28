@@ -399,9 +399,14 @@ commons:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"      
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
       # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
@@ -486,9 +491,14 @@ commons:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
       # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
@@ -552,9 +562,14 @@ commons:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
       # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
@@ -682,9 +697,14 @@ IGX-THOR:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
   mv3dt:
     max_streams_supported: 7
     file_operations:
@@ -700,9 +720,14 @@ IGX-THOR:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
 
 DGX-SPARK:
   2d:
@@ -734,9 +759,14 @@ DGX-SPARK:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
   mv3dt:
     max_streams_supported: 7
     file_operations:
@@ -751,6 +781,11 @@ DGX-SPARK:
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
-          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/notification_config.json"
+        backup: true
+        updates:
+          message_broker.use_message_broker_consumer: "${STREAM_TYPE}"
