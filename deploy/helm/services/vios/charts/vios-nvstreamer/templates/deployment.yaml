@@ -43,12 +43,14 @@ spec:
         - name: vss-vios-nvstreamer
           image: {{ include "vss-vios-nvstreamer.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+          command: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]
           env:
             - name: ADAPTOR
               value: {{ .Values.env.ADAPTOR | quote }}
             - name: HTTP_PORT
               value: {{ .Values.env.HTTP_PORT | quote }}
+            - name: NVSTREAMER_UI_BASE_PATH
+              value: {{ .Values.env.NVSTREAMER_UI_BASE_PATH | quote }}
             - name: NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES
               value: {{ .Values.env.NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES | quote }}
           ports:

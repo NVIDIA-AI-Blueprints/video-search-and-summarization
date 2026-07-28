@@ -31,11 +31,13 @@ services:
       - "-c"
       - >-
         if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
-        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/tools/user_additional_install.sh; fi &&
+        /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec
         /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_1}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_1}
     volumes:
@@ -55,11 +57,13 @@ services:
       - "-c"
       - >-
         if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
-        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/tools/user_additional_install.sh; fi &&
+        /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec
         /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_2}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_2}
     volumes:
@@ -79,11 +83,13 @@ services:
       - "-c"
       - >-
         if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
-        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/tools/user_additional_install.sh; fi &&
+        /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec
         /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_3}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_3}
     volumes:
@@ -103,11 +109,13 @@ services:
       - "-c"
       - >-
         if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
-        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/tools/user_additional_install.sh; fi &&
+        /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec
         /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_4}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_4}
     volumes:
@@ -127,11 +135,13 @@ services:
       - "-c"
       - >-
         if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then
-        /home/vst/vst_release/tools/user_additional_install.sh; fi && exec
+        /home/vst/vst_release/tools/user_additional_install.sh; fi &&
+        /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec
         /home/vst/vst_release/launch_vst
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
       - ADAPTOR=streamer
+      - NVSTREAMER_UI_BASE_PATH=${NVSTREAMER_UI_BASE_PATH:-}
       - HTTP_PORT=${NVSTREAMER_HTTP_PORT_5}
       - RTSP_SERVER_PORT=${NVSTREAMER_RTSP_PORT_5}
     volumes:

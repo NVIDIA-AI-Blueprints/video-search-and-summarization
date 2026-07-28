@@ -33,6 +33,7 @@ import useVSTUIStore from '../../../services/StateManagement';
 import { Sensor } from '../../../interfaces/interfaces';
 import StreamManager, { StreamConfig, StreamType, ErrorType } from 'vst-streaming-lib';
 import config from '../../../config';
+import { toWebSocketUrl } from '../../../utils/runtimeConfig';
 
 interface StreamResult {
     sensorId: string;
@@ -186,19 +187,8 @@ export const StreamAutomation: React.FC = () => {
                     streamConfig.startTime = '2020-12-01T12:00:20.000Z';
                 }
 
-                let wsEndpoint = (streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint).startsWith(
-                    'https'
-                )
-                    ? (streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint).replace('https', 'wss')
-                    : (streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint).replace('http', 'ws');
-
-                let proxy = window.location.pathname;
-                if (proxy !== '/' && proxy.length > 0) {
-                    if (proxy[proxy.length - 1] === '/') {
-                        proxy = proxy.slice(0, -1);
-                    }
-                    wsEndpoint = `${wsEndpoint}${wsEndpoint.endsWith('/') ? '' : '/'}${proxy}`;
-                }
+                const endpoint = streamType === StreamType.Live ? config.liveStreamEndpoint : config.replayStreamEndpoint;
+                const wsEndpoint = toWebSocketUrl(endpoint);
 
                 streamManagerRef.current.updateConfig({
                     inboundStreamVideoElementId: videoElementId,

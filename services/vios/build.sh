@@ -720,7 +720,8 @@ build_vios_ui_webroot() {
 
     echo "Staging vios-ui dist into $webroot_dir ..."
     # Remove only the VST UI static files; leave other webroot files intact.
-    rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html"
+    rm -rf "$webroot_dir/assets" "$webroot_dir/favicon" "$webroot_dir/index.html" \
+        "$webroot_dir/runtime-config.js"
     cp -rf "$ui_dir/dist/." "$webroot_dir/" || { echo "[ERROR] Failed to copy vios-ui dist to $webroot_dir"; exit 1; }
 }
 
@@ -808,10 +809,11 @@ clean_generated_artifacts() {
     # Staged vios-ui assets (build_vios_ui_webroot). Never committed — only the
     # .gitkeep placeholders are tracked — so these are safe to drop and are
     # regenerated on the next container build. rm -rf is a no-op if absent.
-    rm -rf webroot/assets webroot/favicon webroot/index.html
+    rm -rf webroot/assets webroot/favicon webroot/index.html webroot/runtime-config.js
     rm -rf deployment/scaling/ingress/vst-ui/assets \
            deployment/scaling/ingress/vst-ui/favicon \
-           deployment/scaling/ingress/vst-ui/index.html
+           deployment/scaling/ingress/vst-ui/index.html \
+           deployment/scaling/ingress/vst-ui/runtime-config.js
 
     # Compiled release output (out/$ARCH/vst_release.tbz2, ...). The container
     # package step may write this as root, so a user-run rm can hit "Permission
