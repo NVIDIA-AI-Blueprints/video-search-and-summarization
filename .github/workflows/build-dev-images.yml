@@ -33,8 +33,6 @@ on:
     branches:
       - develop
       - "pull-request/[0-9]+"
-      # Temporary direct trigger for the stacked native-runner test PR.
-      - codex/test-native-arm64
 
 concurrency:
   group: build-dev-images-${{ github.ref }}
