@@ -12,13 +12,25 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Config for test_multi_consumer_dedup: two Alert MS instances in ONE consumer
+# group consume a MULTI-PARTITION incident topic. Validates the post-Redis
+# assumption that in-process dedup stays correct across a multi-container fleet
+# because the producer keys records by sensorId (the partition-key contract).
+#
+# Differences from shared/config_base.yaml:
+#   - kafka_source.topics.incident -> mdx-incidents-mc (2 partitions, created in
+#     run_p1.sh Phase 1)
+#   - kafka_source.group_id       -> dedicated group so both instances co-consume
+#   - event_filters.dedup_ttl_seconds -> 60 (long enough that duplicates sent
+#     within the test window are caught in-process; base is 3s)
 
 ALERT_REVIEW_MEDIA_BASE_DIR: ""
 
 vst_config:
   base_url: "http://127.0.0.1:30888"
   sensor_list_endpoint: "/vst/api/v1/live/streams"
-  segment_anchor: "start"
+  segment_anchor: "end"
   segment_duration_seconds: 10
   add_overlay: false
   storage:
@@ -28,7 +40,7 @@ vst_config:
 kafka:
   bootstrap_servers: "127.0.0.1:9092"
   group_id: "kafka-p1-functional"
-  anomalyTopic: "mdx-incidents"
+  anomalyTopic: "mdx-incidents-mc"
   enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"
   incidents_topic: "alert-bridge-incidents"
   max_poll_records: 1
@@ -55,41 +67,15 @@ event_bridge:
   sinkType: "kafka"
 
   kafka_source:
-    group_id: "alert-bridge-vlm-group-p1"
+    group_id: "alert-bridge-mc-group"
     topics:
-      incident: "mdx-incidents"
+      incident: "mdx-incidents-mc"
       alert: "mdx-alerts"
 
   kafka_sink:
     topics:
       enhanced_anomaly: "alert-bridge-enhanced-alerts"
       incidents: "alert-bridge-incidents"
-
-  redis_source:
-    host: "localhost"
-    port: 6379
-    db: 0
-    dedup_ttl_seconds: 3
-    end_time_in_dedup_key_categories: []
-    protect_confirmed_verdicts:
-      enabled: false
-      ttl_seconds: 600
-    streams:
-      anomaly_stream: "alert-bridge-input-stream"
-      heartbeat_stream: "alert-bridge-heartbeats-stream"
-    consumer_group: "vlm_agents_group"
-    consumer_config:
-      block_time: 10
-      count: 1
-      batch_size: 1
-
-  redis_sink:
-    host: "localhost"
-    port: 6379
-    db: 0
-    streams:
-      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
-      incidents_stream: "alert-bridge-incidents-stream"
 
 prompt:
   prefer_payload_prompt: true
@@ -103,6 +89,12 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   chunk_size: 1
+  event_filters:
+    dedup_ttl_seconds: 60
+    end_time_in_dedup_key_categories: []
+    protect_confirmed_verdicts:
+      enabled: false
+      ttl_seconds: 600
 
 elastic:
   enabled: true
