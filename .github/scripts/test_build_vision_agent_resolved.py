@@ -141,6 +141,50 @@ class ValidateResolvedYmlTest(unittest.TestCase):
 
             self.assertEqual(errors, [])
 
+    def test_rejects_generated_bind_sources_under_deploy_docker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            deploy_docker = repo_root / "deploy" / "docker"
+            sdrc_dir = deploy_docker / "services" / "infra" / "sdrc"
+            rendered_config = sdrc_dir / "configs" / "config.yml"
+            rendered_config.parent.mkdir(parents=True)
+            rendered_config.with_name("config.yml.tmpl").write_text("key: ${VALUE}\n")
+            document = {
+                "services": {
+                    "sdrc": {
+                        "volumes": [
+                            {
+                                "type": "bind",
+                                "source": str(sdrc_dir / ".wdm-env"),
+                                "target": "/env",
+                            },
+                            {
+                                "type": "bind",
+                                "source": str(sdrc_dir / "log"),
+                                "target": "/logs",
+                            },
+                            {
+                                "type": "bind",
+                                "source": str(deploy_docker / "data-dir" / "data_log"),
+                                "target": "/data",
+                            },
+                            {
+                                "type": "bind",
+                                "source": str(rendered_config),
+                                "target": "/config.yml",
+                                "read_only": True,
+                            },
+                        ]
+                    }
+                }
+            }
+
+            errors = validate_document(document, repo_root)
+
+            self.assertEqual(len(errors), 4)
+            for error in errors:
+                self.assertIn("under deploy/docker", error)
+
     def test_rejects_missing_checked_in_bind_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo_root = Path(directory)

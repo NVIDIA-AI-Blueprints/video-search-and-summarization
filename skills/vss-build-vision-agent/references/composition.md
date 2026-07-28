@@ -34,13 +34,7 @@ this workflow.
 3. Prefer an exact capability match and use stock mode.
 4. Otherwise minimize service-set additions, removals, and definition changes,
    in that order.
-5. Prefer the profile that already owns the requested integrated data path over
-   a smaller-looking service count that would require rebuilding that path from
-   unrelated pieces. For VLM dense captioning with VIOS playback, NvStreamer
-   stream source, SDRC, Kafka, Logstash, and Elasticsearch, use `lvs` as the
-   Foundation and remove unrequested LVS summarization, Agent/UI, ingress,
-   Phoenix, and LLM keys.
-6. Ask the user when two profiles have an equally small delta.
+5. Ask the user when two profiles have an equally small delta.
 
 The selected profile's checked-in `overrides.env` is authoritative for its
 Profile Service Set. The copied list in `profiles/` is a routing aid and must be
@@ -134,6 +128,16 @@ canonical service key. Do not copy unchanged services, volumes, networks, or
 profile files. Add multiple patch paths after the root file when multiple
 service definitions change.
 
+Generated runtime path redirection is a valid service-definition change. If a
+selected upstream service uses relative writable bind mounts that would create
+generated files or directories under `deploy/docker/` (for example SDRC
+`./log`, `./.wdm-env`, or rendered `config.yml` outputs), create a minimal patch
+that changes only those bind sources to `_builds/<name>/generated/...` or to a
+`VSS_DATA_DIR` path. Copy only the needed template/config inputs into the build
+generated directory when the service must render them. Never create `.wdm-env`,
+rendered config files, logs, model engines, sample videos, or data directories
+under `deploy/docker/`.
+
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the
 effective service set and its dependencies are serialized. Normalization then
@@ -178,10 +182,12 @@ later values override earlier values. Regenerate `resolved.yml` whenever
 Normalization removes only optional dependency references to services omitted
 by profile filtering, then removes service profile gates from the already
 filtered model. It fails rather than remove a missing required dependency.
-If validation reports real unresolved `${...}` interpolation, do not deploy the
-raw output. Add only the missing concrete value or derived value to
+If validation reports real unresolved `${...}` Compose interpolation, do not
+deploy the raw output. Add only the missing concrete value or derived value to
 `override.env`, regenerate `resolved.yml` from the same ordered env layers, and
-rerun normalization and validation.
+rerun normalization and validation. Escaped container-shell variables such as
+`$${HOST_IP}`, `$${NUM_STREAMS}`, or `$${VAR:-default}` are valid in
+`resolved.yml` and must not be counted as unresolved Compose interpolation.
 
 ## Validate
 
@@ -202,12 +208,17 @@ Then verify:
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
 - No unrequested service definition is present in a patch.
-- `resolved.yml` contains no unresolved `${...}` interpolation and every
-  selected service's environment is filled in.
+- Any patch contains only changed or new service entries; generated path
+  redirection patches change only the affected bind sources or derived config
+  paths.
+- `resolved.yml` contains no real unresolved `${...}` Compose interpolation and
+  every selected service's environment is filled in. Escaped `$${...}` variables
+  are container-shell expressions, not Compose interpolation failures.
 - `resolved.yml` contains no stock sentinels such as
   `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
   directory.
+- No generated file or directory is created under `deploy/docker/`.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
 
