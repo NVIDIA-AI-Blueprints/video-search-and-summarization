@@ -46,6 +46,7 @@ DEFAULT_INSTANCE = os.environ.get("BREV_INSTANCE")
 
 # Timeout for brev exec commands (seconds).  Set high for long deploys.
 BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
+NEMOCLAW_TRANSPORT_CLEANUP_MARGIN_SEC = 120
 
 # Timeout for brev copy commands.
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
@@ -296,17 +297,28 @@ class BrevEnvironment(BaseEnvironment):
         # and nothing on a warm-pool box ever clears that dir, so a prior
         # trial's arbitrarily-named files get collected as THIS trial's
         # artifacts (observed: 3-day-old `nemoclaw/` base-deploy logs surfacing
-        # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
-        # left intact here — its prior-trial session JSONLs are handled by the
-        # archive step just below (move-not-delete, for forensic SSH access).
+        # in an unrelated profile_in_1 trial's artifact tarball). Preserve
+        # /logs/agent/sessions for the forensic archive below, but remove its
+        # derived top-level outputs. Otherwise a direct NemoClaw launch can
+        # leave Harbor's generic judge reading a prior trial's trajectory.
         #
         # Do NOT wipe /tests, /solution, or /skills here: Harbor may already
         # have staged the current trial inputs by the time start() runs.
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
+            "if [ -L /logs/agent ]; then "
+            "echo 'Refusing to reset symlinked /logs/agent' >&2; exit 1; fi && "
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
+            "sudo rm -f "
+            "/logs/agent/trajectory.json "
+            "/logs/agent/trajectory.jsonl "
+            "/logs/agent/openclaw.session.jsonl "
+            "/logs/agent/openclaw.txt "
+            "/logs/agent/agent.log "
+            "/logs/agent/claude-code.txt "
+            "/logs/agent/nemoclaw-headless-runner.stdout && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
             "sudo chown -RL $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
@@ -456,7 +468,21 @@ class BrevEnvironment(BaseEnvironment):
             )
             logger.info("Writing %d forwarded env vars to ~/.eval_env on instance",
                         len(forwarded))
-            await _run_brev_exec(self._instance_name, bootstrap, timeout=30)
+            bootstrap_result = await _run_brev_exec(
+                self._instance_name,
+                bootstrap,
+                timeout=30,
+            )
+            if bootstrap_result.return_code != 0:
+                tail = (
+                    bootstrap_result.stderr
+                    or bootstrap_result.stdout
+                    or ""
+                )[-500:]
+                raise RuntimeError(
+                    f"forwarded env setup failed on {self._instance_name}: "
+                    f"exit {bootstrap_result.return_code}; tail:\n{tail}"
+                )
 
         # Upload the task's skills/ directory to /skills on the instance
         # so Claude Code can register them via task.toml:
@@ -1719,6 +1745,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         assert self._instance_name
         original_command = command
         command = self._replace_nemoclaw_launcher_command(command, env)
+        replaced_nemoclaw_launcher = command != original_command
         if env and command != original_command:
             env = {
                 key: value
@@ -1729,6 +1756,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         is_trial_agent = (
             "claude --verbose --output-format=stream-json" in command
             or "codex exec " in command
+            or replaced_nemoclaw_launcher
         )
         agent_run_marker = (
             f"{REMOTE_AGENT_RUN_PREFIX}{uuid.uuid4().hex}"
@@ -1789,11 +1817,23 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         else:
             full_cmd = inner_cmd
 
+        exec_timeout = timeout_sec or BREV_EXEC_TIMEOUT
+        if replaced_nemoclaw_launcher:
+            # The direct launcher owns an inner NemoClaw deadline. Keep the
+            # transport alive through trajectory collection and cleanup.
+            nemoclaw_timeout = int(
+                os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "1800")
+            )
+            exec_timeout = max(
+                exec_timeout,
+                nemoclaw_timeout + NEMOCLAW_TRANSPORT_CLEANUP_MARGIN_SEC,
+            )
+
         try:
             result = await _run_brev_exec(
                 self._instance_name,
                 full_cmd,
-                timeout=timeout_sec or BREV_EXEC_TIMEOUT,
+                timeout=exec_timeout,
             )
             if agent_run_marker is not None:
                 await self._reap_remote_agent_after_interrupt(
@@ -1909,6 +1949,7 @@ set +e
 python3 .github/skill-eval/nemoclaw/headless_runner.py \
   --prompt-file {shlex.quote(prompt_arg)} \
   --log-dir /logs/artifacts/nemoclaw \
+  --agent-log-dir /logs/agent \
   --launch-mode cli \
   --timeout {timeout_s}{wait_arg}{expected_arg} \
   > /logs/agent/nemoclaw-headless-runner.stdout 2>&1
@@ -1962,13 +2003,10 @@ def _stray_agent_reap_command(agent_run_marker: str | None = None) -> str:
     """SIGKILL on-box agent trees, including detached background workers.
 
     New agent commands export a unique marker inherited by every descendant.
-    An exact marker scopes immediate post-agent cleanup; ``None`` matches all
-    skill-eval markers during warm-box startup recovery. That startup mode also
-    retains legacy Claude and Codex argv matches for agents started before the
-    marker existed; exact immediate cleanup never broadens beyond its marker.
-    Every matching PID's process group is snapshotted
-    before any signal is sent, so killing the main agent group cannot hide a
-    child that called ``setsid()``. The reaper's own group is always excluded.
+    An exact marker scopes immediate cleanup; ``None`` matches every eval
+    marker during warm-box recovery and also includes legacy Claude, Codex,
+    and direct NemoClaw argv patterns. Every signal is verified; a surviving
+    non-zombie process or group makes the caller fail loud.
     """
     if agent_run_marker is not None and not agent_run_marker.startswith(
         REMOTE_AGENT_RUN_PREFIX
@@ -1976,59 +2014,132 @@ def _stray_agent_reap_command(agent_run_marker: str | None = None) -> str:
         raise ValueError("invalid remote agent run marker")
 
     if agent_run_marker is None:
-        marker_probe = (
+        marker_setup = [
             f'MARKER_RE="^{REMOTE_AGENT_RUN_ENV}='
-            f'{REMOTE_AGENT_RUN_PREFIX}[0-9a-f]+$"; '
-            "MATCH_EXACT=0; INCLUDE_LEGACY=1; "
-        )
+            f'{REMOTE_AGENT_RUN_PREFIX}[0-9a-f]+$"',
+            "MATCH_EXACT=0",
+            "INCLUDE_LEGACY=1",
+        ]
     else:
-        marker_probe = (
-            f"MARKER={shlex.quote(f'{REMOTE_AGENT_RUN_ENV}={agent_run_marker}')}; "
-            "MATCH_EXACT=1; INCLUDE_LEGACY=0; "
-        )
+        marker_setup = [
+            f"MARKER={shlex.quote(f'{REMOTE_AGENT_RUN_ENV}={agent_run_marker}')}",
+            "MATCH_EXACT=1",
+            "INCLUDE_LEGACY=0",
+        ]
 
-    return (
-        marker_probe
-        + "CLAUDE_PAT='claude --verbose --output-format=stream-jso[n]'; "
-        "CODEX_PAT='codex exe[c]'; "
-        'SELF_PGID=$(ps -o pgid= -p $$ | tr -d " "); '
-        "PIDS=''; PGIDS=''; "
-        "for env_file in /proc/[0-9]*/environ; do "
-        '  [ -r "$env_file" ] || continue; '
-        '  pid=${env_file#/proc/}; pid=${pid%/environ}; '
-        '  [ "$pid" = "$$" ] && continue; '
-        '  if [ "$MATCH_EXACT" -eq 1 ]; then '
-        '    tr "\\0" "\\n" < "$env_file" 2>/dev/null '
-        '      | grep -Fqx -- "$MARKER" || continue; '
-        "  else "
-        '    tr "\\0" "\\n" < "$env_file" 2>/dev/null '
-        '      | grep -Eq -- "$MARKER_RE" || continue; '
-        "  fi; "
-        '  PIDS="$PIDS $pid"; '
-        "done; "
-        'if [ "$INCLUDE_LEGACY" -eq 1 ]; then '
-        '  PIDS="$PIDS $(pgrep -f "$CLAUDE_PAT" || true) '
-        '$(pgrep -f "$CODEX_PAT" || true)"; '
-        "fi; "
-        "for pid in $PIDS; do "
-        '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d " " || true); '
-        '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then continue; fi; '
-        '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then '
-        '      PGIDS="$PGIDS $PGID"; '
-        "    fi; "
-        "done; "
-        "UNIQUE_PGIDS=''; "
-        "for pgid in $(printf '%s\\n' $PGIDS | sort -un); do "
-        '  [ -n "$pgid" ] || continue; '
-        '  kill -9 -- "-$pgid" 2>/dev/null || true; '
-        '  UNIQUE_PGIDS="$UNIQUE_PGIDS $pgid"; '
-        "done; "
-        "for pid in $PIDS; do kill -9 \"$pid\" 2>/dev/null || true; done; "
-        'if [ -n "$UNIQUE_PGIDS" ]; then '
-        '  echo "[stray-agent-reap] killed pgids:$UNIQUE_PGIDS"; '
-        "else "
-        '  echo "[stray-agent-reap] none"; '
-        "fi"
+    return "\n".join(
+        [
+            *marker_setup,
+            "CLAUDE_PAT='claude --verbose --output-format=stream-jso[n]'",
+            "CODEX_PAT='codex exe[c]'",
+            "NEMOCLAW_PAT='python3 "
+            "\\.github/skill-eval/nemoclaw/headless_runne[r]\\.py'",
+            "for tool in pgrep ps awk sort grep tr; do",
+            '  command -v "$tool" >/dev/null 2>&1 || {',
+            '    echo "[stray-agent-reap] missing required tool: $tool" >&2',
+            "    exit 1",
+            "  }",
+            "done",
+            'SELF_PGID=$(ps -o pgid= -p $$ | tr -d "[:space:]") || {',
+            '  echo "[stray-agent-reap] could not inspect own process group" >&2',
+            "  exit 1",
+            "}",
+            "PIDS=$( {",
+            "  for env_file in /proc/[0-9]*/environ; do",
+            '    [ -r "$env_file" ] || continue',
+            '    pid=${env_file#/proc/}; pid=${pid%/environ}',
+            '    [ "$pid" = "$$" ] && continue',
+            '    if [ "$MATCH_EXACT" -eq 1 ]; then',
+            '      tr "\\0" "\\n" < "$env_file" 2>/dev/null '
+            '| grep -Fqx -- "$MARKER" || continue',
+            "    else",
+            '      tr "\\0" "\\n" < "$env_file" 2>/dev/null '
+            '| grep -Eq -- "$MARKER_RE" || continue',
+            "    fi",
+            '    printf "%s\\n" "$pid"',
+            "  done",
+            '  if [ "$INCLUDE_LEGACY" -eq 1 ]; then',
+            '    pgrep -f "$CLAUDE_PAT" || true',
+            '    pgrep -f "$CODEX_PAT" || true',
+            '    pgrep -f "$NEMOCLAW_PAT" || true',
+            "  fi",
+            "} | sort -u)",
+            "KILLED=''",
+            "FAILED=''",
+            "pid_is_live() {",
+            '  kill -0 "$1" 2>/dev/null || return 1',
+            '  state=$(ps -o stat= -p "$1" 2>/dev/null '
+            '| tr -d "[:space:]")',
+            '  case "$state" in Z*) return 1 ;; *) return 0 ;; esac',
+            "}",
+            "group_has_live_members() {",
+            "  members=$(ps -eo pgid=,stat=) || return 2",
+            '  printf "%s\\n" "$members" | awk -v target="$1" '
+            "'$1 == target && $2 !~ /^Z/ { found=1 } "
+            "END { exit !found }'",
+            "}",
+            'if [ -n "$PIDS" ]; then',
+            "  for pid in $PIDS; do",
+            '    PGID=$(ps -o pgid= -p "$pid" 2>/dev/null '
+            '| tr -d "[:space:]" || true)',
+            '    if [ -n "$PGID" ] && [ "$PGID" = "$SELF_PGID" ]; then',
+            "      continue",
+            "    fi",
+            '    if [ -z "$PGID" ]; then',
+            '      if pid_is_live "$pid"; then',
+            '        FAILED="$FAILED $pid"',
+            "      else",
+            '        KILLED="$KILLED $pid"',
+            "      fi",
+            "      continue",
+            "    fi",
+            '    if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then',
+            '      kill -9 -- "-$PGID" 2>/dev/null || true',
+            "    fi",
+            '    kill -9 "$pid" 2>/dev/null || true',
+            "    group_live=0",
+            "    for _attempt in 1 2 3 4 5; do",
+            "      group_live=0",
+            '      if [ "$PGID" != "0" ]; then',
+            '        if group_has_live_members "$PGID"; then',
+            "          group_live=1",
+            "        else",
+            "          group_rc=$?",
+            '          [ "$group_rc" = 1 ] || group_live=2',
+            "        fi",
+            "      fi",
+            '      if ! pid_is_live "$pid" && [ "$group_live" = 0 ]; then',
+            "        break",
+            "      fi",
+            '      [ "$group_live" = 2 ] && break',
+            "      sleep 1",
+            "    done",
+            "    group_live=0",
+            '    if [ "$PGID" != "0" ]; then',
+            '      if group_has_live_members "$PGID"; then',
+            "        group_live=1",
+            "      else",
+            "        group_rc=$?",
+            '        [ "$group_rc" = 1 ] || group_live=2',
+            "      fi",
+            "    fi",
+            '    if pid_is_live "$pid" || [ "$group_live" != 0 ]; then',
+            '      FAILED="$FAILED $pid"',
+            "    else",
+            '      KILLED="$KILLED $pid"',
+            "    fi",
+            "  done",
+            "fi",
+            'if [ -n "$FAILED" ]; then',
+            '  echo "[stray-agent-reap] failed to kill pids:$FAILED" >&2',
+            "  exit 1",
+            "fi",
+            'if [ -n "$KILLED" ]; then',
+            '  echo "[stray-agent-reap] killed pids:$KILLED"',
+            "else",
+            '  echo "[stray-agent-reap] none"',
+            "fi",
+        ]
     )
 
 

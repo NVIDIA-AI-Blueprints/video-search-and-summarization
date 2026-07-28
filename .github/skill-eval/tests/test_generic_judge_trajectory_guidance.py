@@ -14,9 +14,9 @@ NORMALIZED_CALLS_FILTER = """
 [.steps[]
  | select(.source == "agent")
  | (.tool_calls // [])[]
- | select(.function_name == "Bash")
+ | select(.function_name == "Bash" or .function_name == "exec")
  | select((.arguments.command // "") | contains($url))
- | {tool_call_id, command: .arguments.command}]
+ | {tool_call_id, function_name, command: .arguments.command}]
 | unique_by(.tool_call_id)
 """
 LEGACY_COMMANDS_FILTER = """
@@ -45,6 +45,7 @@ def test_judge_counts_normalized_tool_calls_without_metadata_duplicates() -> Non
     assert "unique_by(.tool_call_id)" in prompt
     assert "never count this copy" in prompt
     assert "never count raw string occurrences" in prompt
+    assert '.function_name=="Bash" or .function_name=="exec"' in prompt
     assert "grep -oF 'POST <URL>'" not in prompt
 
 
@@ -56,6 +57,15 @@ def test_judge_retains_legacy_encoded_message_guidance() -> None:
     assert ".message | fromjson?" in prompt
     assert "Show legacy Bash commands" in prompt
     assert "Get legacy final assistant text" in prompt
+
+
+def test_judge_understands_rtsp_exact_match_redaction_marker() -> None:
+    """Retain equality evidence while keeping the configured RTSP URL secret."""
+    prompt = _load_generic_judge()._JUDGE_SYSTEM_PROMPT
+
+    assert "<redacted:RTSP_SAMPLE_URL;match=exact-runtime-value>" in prompt
+    assert "complete `liveStreamUrl` field value" in prompt
+    assert "secret itself must not be recovered or printed" in prompt
 
 
 def test_normalized_recipe_ignores_duplicated_raw_arguments(tmp_path: Path) -> None:
@@ -94,7 +104,56 @@ def test_normalized_recipe_ignores_duplicated_raw_arguments(tmp_path: Path) -> N
     )
 
     calls = json.loads(result.stdout)
-    assert calls == [{"tool_call_id": "toolu_1", "command": command}]
+    assert calls == [
+        {
+            "tool_call_id": "toolu_1",
+            "function_name": "Bash",
+            "command": command,
+        }
+    ]
+
+
+def test_normalized_recipe_reads_openclaw_exec_calls(tmp_path: Path) -> None:
+    """Treat OpenClaw's native exec tool as a canonical shell call."""
+    command = 'curl -X POST "http://localhost:38111/v1/summarize"'
+    trajectory = {
+        "steps": [
+            {
+                "source": "agent",
+                "tool_calls": [
+                    {
+                        "tool_call_id": "openclaw-1",
+                        "function_name": "exec",
+                        "arguments": {"command": command},
+                    }
+                ],
+            }
+        ]
+    }
+    path = tmp_path / "trajectory.json"
+    path.write_text(json.dumps(trajectory))
+
+    result = subprocess.run(
+        [
+            "jq",
+            "--arg",
+            "url",
+            "http://localhost:38111/v1/summarize",
+            NORMALIZED_CALLS_FILTER,
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == [
+        {
+            "tool_call_id": "openclaw-1",
+            "function_name": "exec",
+            "command": command,
+        }
+    ]
 
 
 def test_legacy_recipe_reads_encoded_message(tmp_path: Path) -> None:

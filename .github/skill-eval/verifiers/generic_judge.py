@@ -115,7 +115,7 @@ Current Harbor trajectories use this normalized shape:
       "tool_calls": [
         {
           "tool_call_id": "toolu_...",
-          "function_name": "Bash" | "Read" | "Skill" | ...,
+          "function_name": "Bash" | "exec" | "Read" | "Skill" | ...,
           "arguments": { "command": "...", "skill": "...", ... },
           "extra": { ... } // may repeat arguments; never count this copy
         }
@@ -133,6 +133,14 @@ Treat each entry in `steps[].tool_calls` as one real tool call and use
 `tool_call_id` as its identity. Do not count matching text in `extra`,
 `observation`, or `message`: serialized metadata and tool results can repeat the
 same command and inflate raw grep counts.
+
+Runtime secrets are scrubbed before this trajectory is published. The marker
+`<redacted:RTSP_SAMPLE_URL;match=exact-runtime-value>` is only substituted for
+the exact configured `RTSP_SAMPLE_URL` (or its JSON-escaped representation).
+When that marker is the complete `liveStreamUrl` field value, it is positive
+evidence that the submitted field exactly matched the configured runtime URL;
+the secret itself must not be recovered or printed. A marker with surrounding
+characters is not evidence of field equality.
 
 Older trajectories may instead store a JSON-encoded Claude-stream object in
 `steps[].message`. Use the normalized shape when any step has a `tool_calls`
@@ -158,8 +166,8 @@ In the recipes below, **substitute `<TRAJ>` with the exact trajectory path print
 
 - **Detect normalized `.json` format:** `jq 'any(.steps[]; (.tool_calls? | type) == "array")' <TRAJ>`
 - **Detect normalized `.jsonl` format:** `jq -s 'any(.[]; (.tool_calls? | type) == "array")' <TRAJ>`
-- **Show canonical Bash calls mentioning `<URL>`:** `jq --arg url '<URL>' '[.steps[] | select(.source=="agent") | (.tool_calls // [])[] | select(.function_name=="Bash") | select((.arguments.command // "") | contains($url)) | {tool_call_id, command: .arguments.command}] | unique_by(.tool_call_id)' <TRAJ>`. Inspect each returned command to count actual operations: one command may contain multiple curls, a loop, or a script invocation.
-- **Show Bash commands:** `jq -r '.steps[] | select(.source=="agent") | (.tool_calls // [])[] | select(.function_name=="Bash") | .arguments.command // empty' <TRAJ>`
+- **Show canonical shell calls mentioning `<URL>`:** `jq --arg url '<URL>' '[.steps[] | select(.source=="agent") | (.tool_calls // [])[] | select(.function_name=="Bash" or .function_name=="exec") | select((.arguments.command // "") | contains($url)) | {tool_call_id, function_name, command: .arguments.command}] | unique_by(.tool_call_id)' <TRAJ>`. `Bash` is emitted by Claude Code and `exec` by OpenClaw. Inspect each returned command to count actual operations: one command may contain multiple curls, a loop, or a script invocation.
+- **Show shell commands:** `jq -r '.steps[] | select(.source=="agent") | (.tool_calls // [])[] | select(.function_name=="Bash" or .function_name=="exec") | .arguments.command // empty' <TRAJ>`
 - **Show distinct tool-use names:** `jq -r '.steps[] | select(.source=="agent") | (.tool_calls // [])[] | .function_name' <TRAJ> | sort -u`
 - **Show invoked Skills:** `jq -r '.steps[] | select(.source=="agent") | (.tool_calls // [])[] | select(.function_name=="Skill") | .arguments.skill // empty' <TRAJ> | sort -u`
 - **Get final assistant text:** `jq -r '[.steps[] | select(.source=="agent" and ((.message // "") | length > 0)) | .message][-1] // empty' <TRAJ>`
@@ -191,7 +199,7 @@ Read the check carefully and pick the cheapest evidence that actually answers it
 
 - **Trajectory inspection (Grep / jq).** When the check is about what the agent *did* during the trial — e.g. "the agent issued exactly one POST /generate", "the agent's request body contained `forklifts`", "the trajectory shows X before Y" — use the recipes above. Start from canonical `tool_calls` entries deduplicated by `tool_call_id`, then inspect each command for the number of actual operations it performs; never count raw string occurrences for operation cardinality. Use grep only for binary presence. Don't run live probes for these; the trial may be over by the time the judge runs.
 
-- **Negative-assertion check (assistant tool calls only, NOT whole-trajectory Grep).** When the check says the agent did NOT do something — e.g. "the agent does not run `docker compose down`", "no POST to /generate", "the trial never called PUT /api/v1/videos-for-search" — first extract canonical Bash commands with the normalized or legacy recipe, then search only those commands for the prohibited operation. The trajectory also contains user/system prompts, skill documentation, observations, and metadata, so a whole-file grep therefore produces false failures. **Never run the listed command yourself** — the check is asserting it didn't happen, not asking you to do it. Pass iff the extracted assistant command stream contains zero matching calls. If the action could use a non-Bash tool, extract and inspect that tool's structured inputs too.
+- **Negative-assertion check (assistant tool calls only, NOT whole-trajectory Grep).** When the check says the agent did NOT do something — e.g. "the agent does not run `docker compose down`", "no POST to /generate", "the trial never called PUT /api/v1/videos-for-search" — first extract canonical shell commands (`Bash` and `exec`) with the normalized recipe, or `Bash` with the legacy recipe, then search only those commands for the prohibited operation. The trajectory also contains user/system prompts, skill documentation, observations, and metadata, so a whole-file grep therefore produces false failures. **Never run the listed command yourself** — the check is asserting it didn't happen, not asking you to do it. Pass iff the extracted assistant command stream contains zero matching calls. If the action could use a non-shell tool, extract and inspect that tool's structured inputs too.
 
 - **Final-reply inspection (jq + tail).** When the check is about the agent's last assistant message — e.g. "the final reply is formatted as a Video Analysis Report", "the agent's reply mentions a Brev secure-link" — use the "final assistant text" recipe to extract just the last assistant turn, then pattern-match. Don't read the whole trajectory.
 
