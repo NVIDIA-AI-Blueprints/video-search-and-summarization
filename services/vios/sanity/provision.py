@@ -705,12 +705,26 @@ def _has_ffmpeg() -> bool:
 
 def _nvenc_available() -> bool:
     import subprocess
-    try:
-        enc = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
-                             capture_output=True, text=True, timeout=15).stdout
-        return "h264_nvenc" in enc and "hevc_nvenc" in enc
-    except Exception:  # noqa: BLE001
-        return False
+    for encoder in ("h264_nvenc", "hevc_nvenc"):
+        try:
+            probe = subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                    "-f", "lavfi", "-i", "color=c=black:s=640x480:r=1",
+                    "-frames:v", "1", "-an", "-c:v", encoder, "-preset", "p1",
+                    "-f", "null", "-",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info("NVENC probe failed for %s: %s", encoder, exc)
+            return False
+        if probe.returncode != 0:
+            logger.info("NVENC probe failed for %s: %s", encoder, probe.stderr[:160])
+            return False
+    return True
 
 
 def _make_variant(src: Path, dst: Path, codec: str, w: int, h: int, fps: int,
@@ -843,8 +857,9 @@ def provision(ctx: SanityContext, video_path: Path, n_copies: int = 4,
 
     Modes (first match wins):
       * variants=True + a single file + ffmpeg present -> generate a diverse set
-        (6 RTSP + 2 file sensors, `variant_dur`s, codec/res/fps matrix). Falls back
-        to identical copies if ffmpeg/NVENC is unavailable.
+        (6 RTSP + 2 file sensors, `variant_dur`s, codec/res/fps matrix). Uses CPU
+        encoding when NVENC is unavailable, and falls back to identical copies only
+        when ffmpeg is unavailable.
       * sync_wall=True OR a single file -> N identical copies <stem>_1..N (uniform
         durations, needed for a synchronized wall).
       * directory with >=2 videos -> the first `max_streams` used as-is (no convert).
