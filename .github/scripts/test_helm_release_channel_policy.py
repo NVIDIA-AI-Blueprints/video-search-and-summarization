@@ -34,6 +34,10 @@ COMPOSE_FILES = {
     "vss-agent-ui": "deploy/docker/services/ui/compose.yml",
     "vss-alert-ms": "deploy/docker/services/alert/compose.yml",
 }
+# Built and published to GHCR by GitHub, but deliberately still pinned to its
+# NGC release coordinate in compose/Helm. Moving it onto the develop-latest
+# channel is a separate, intentional decision.
+UNMANAGED_GHCR_IMAGES = {"vss-video-summarization"}
 
 
 def image_coordinates(path: Path) -> tuple[str, str]:
@@ -58,7 +62,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             image["name"]
             for image in inventory["images"]
             if image.get("ghcr_build") is True
-        }
+        } - UNMANAGED_GHCR_IMAGES
         self.assertEqual(managed, set(HELM_VALUES))
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
