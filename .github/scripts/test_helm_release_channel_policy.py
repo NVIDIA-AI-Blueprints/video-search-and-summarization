@@ -20,6 +20,9 @@ HELM_VALUES = {
     ],
     "vss-agent-ui": ["deploy/helm/services/ui/values.yaml"],
     "vss-alert-ms": ["deploy/helm/services/alert/values.yaml"],
+    "vss-video-summarization": [
+        "deploy/helm/services/video-summarization/values.yaml"
+    ],
 }
 HELM_HELPERS = {
     "vss-agent": [
@@ -28,16 +31,18 @@ HELM_HELPERS = {
     ],
     "vss-agent-ui": ["deploy/helm/services/ui/templates/_helpers.tpl"],
     "vss-alert-ms": ["deploy/helm/services/alert/templates/_helpers.tpl"],
+    "vss-video-summarization": [
+        "deploy/helm/services/video-summarization/templates/_helpers.tpl"
+    ],
 }
 COMPOSE_FILES = {
     "vss-agent": "deploy/docker/services/agent/compose.yml",
     "vss-agent-ui": "deploy/docker/services/ui/compose.yml",
     "vss-alert-ms": "deploy/docker/services/alert/compose.yml",
+    "vss-video-summarization": (
+        "deploy/docker/services/video-summarization/compose.yml"
+    ),
 }
-# Built and published to GHCR by GitHub, but deliberately still pinned to its
-# NGC release coordinate in compose/Helm. Moving it onto the develop-latest
-# channel is a separate, intentional decision.
-UNMANAGED_GHCR_IMAGES = {"vss-video-summarization"}
 
 
 def image_coordinates(path: Path) -> tuple[str, str]:
@@ -62,7 +67,7 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             image["name"]
             for image in inventory["images"]
             if image.get("ghcr_build") is True
-        } - UNMANAGED_GHCR_IMAGES
+        }
         self.assertEqual(managed, set(HELM_VALUES))
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
