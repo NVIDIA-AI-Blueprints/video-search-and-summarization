@@ -184,13 +184,25 @@ lets only one thread execute bytecode at a time. A single instance therefore
 uses at most ~1 core no matter how many `num_workers` threads are configured
 or how many cores the host has, and two ceilings follow from that:
 
-- **Kafka ingest** — one scheduling loop does poll → decode → dedup → commit.
-  Extra worker threads share the same GIL, so they do not raise it.
-- **VLM dispatch** — in `event_loop` mode a single loop thread drives every
-  VST / VLM / Elasticsearch call. Once that thread saturates, raising
-  `max_vlm_concurrent` adds latency instead of throughput: the backend's
-  service time is unchanged, but the coroutine cannot be resumed promptly
-  after its response arrives.
+- **Kafka ingest ≈ 2,400 msg/s per instance** — one scheduling loop does
+  poll → decode → dedup → commit. Extra worker threads share the same GIL, so
+  they do not raise it.
+- **VLM dispatch ≈ 30 req/s per instance** — in `event_loop` mode a single
+  loop thread drives every VST / VLM / Elasticsearch call. Once that thread
+  saturates, raising `max_vlm_concurrent` adds latency instead of throughput:
+  the backend's service time is unchanged, but the coroutine cannot be resumed
+  promptly after its response arrives.
+
+**Check that you are actually near a ceiling before raising `processes`.**
+Below them the GIL is not the binding constraint and extra processes buy
+nothing but memory and consumer-group churn — a deployment sitting at 0.2 core
+is limited by offered load or by `max_vlm_concurrent / VLM_latency`, not by
+the GIL. The signal to look for is a *single* process pinned near 100% CPU
+(`~1 core`) with `alert_bridge_vlm_duration_seconds` inflating above the VLM
+backend's true service time while its concurrency cap is nowhere near
+saturated. Both figures above are per-instance and workload-dependent;
+re-measure against your own dependencies rather than treating them as
+constants.
 
 `alert_agent.processes` (integer, or `"auto"` for one per available CPU;
 default `1`) forks that many independent pipeline processes. Each child owns a
@@ -204,7 +216,15 @@ alert_agent:
 
 - **Effective parallelism is `min(processes, partition_count)`.** Children
   beyond the partition count join the consumer group and idle. Raise the
-  partition count on `mdx-incidents` alongside `processes`.
+  partition count on `mdx-incidents` alongside `processes`. Startup reads the
+  partition count from the broker and logs a warning naming how many children
+  will idle; `"auto"` is clamped to it, because one process per core on a
+  256-core host with 8 partitions would otherwise start 248 children that
+  never receive a partition and still cost ~140 MiB each.
+- **Across replicas the constraint is `replicas × processes ≤ partitions`.**
+  Consumer-group members are pods *and* processes: 2 replicas × 4 processes
+  needs 8 partitions, and 3 × 4 on 8 partitions leaves 4 members idle. Scale
+  partitions before scaling either dimension.
 - **No shared state is needed.** `mdx-incidents` is partitioned by `sensorId`
   and every dedup cohort key is prefixed with it, so Kafka routes a whole
   cohort to one partition and therefore to exactly one child; confirmed-verdict
@@ -215,7 +235,13 @@ alert_agent:
   `async_dispatch_max_in_flight` and `num_workers` are unchanged in meaning,
   but the instance-wide ceiling becomes `processes × cap`. Size the VLM cap
   against `peak_survivor_rate / processes` so the backend does not see
-  `processes ×` its benchmarked concurrency.
+  `processes ×` its benchmarked concurrency. This is the most common way to
+  break a working deployment by enabling `processes`: leaving
+  `max_vlm_concurrent: 8` and setting `processes: 4` offers the VLM backend 32
+  concurrent requests, well past the ceiling the
+  [benchmark below](#vlm-concurrency-ceiling-benchmark-run-before-raising-max_vlm_concurrent)
+  establishes. Startup logs the resulting instance totals at WARNING for
+  exactly this reason — every other concurrency log line is per-process.
 - **The parent runs no pipeline.** It performs the VLM warmup once, serves the
   Prometheus scrape endpoint, owns the FastAPI child, and supervises. It never
   joins the consumer group — a member that stopped polling would stall the
@@ -246,6 +272,13 @@ partition and commits once per poll batch, removing one commit call per
 message from the GIL-bound consume thread. Committing the highest offset is
 equivalent to committing each in turn — offsets are monotonic within a
 partition and every intermediate message is already in the returned batch.
+
+Size the expected win honestly: `Consumer.commit()` defaults to
+`asynchronous=True` and the call site does not override it, so the per-message
+commit was never a blocking broker round-trip. What batching removes is the
+per-message Python call and the offset-commit request volume to the broker,
+not a stall. Treat it as a per-core efficiency change to be measured on the
+deployment, not an assumed throughput multiplier.
 
 **It does not make the pipeline at-least-once.** The batch is flushed inside
 `get_consumed_messages`, before `read_data()` returns and therefore before any

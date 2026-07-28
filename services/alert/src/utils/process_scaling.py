@@ -16,7 +16,11 @@
 """Resolution of the pipeline process count from ``alert_agent.processes``."""
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 PROCESSES_AUTO = "auto"
 DEFAULT_PROCESS_COUNT = 1
@@ -38,8 +42,61 @@ def available_cpus() -> int:
         return os.cpu_count() or 1
 
 
-def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
-    """Return the number of pipeline processes to run (>= 1)."""
+def source_topics(config: Optional[Dict[str, Any]]) -> List[str]:
+    """Non-heartbeat Kafka source topics, empty when the source is not Kafka."""
+    bridge = (config or {}).get("event_bridge", {}) or {}
+    if str(bridge.get("sourceType", "")).lower() != "kafka":
+        return []
+    topics = (bridge.get("kafka_source", {}) or {}).get("topics") or {}
+    return [topic for name, topic in topics.items() if name != "heartbeat" and topic]
+
+
+def source_partition_count(config: Optional[Dict[str, Any]], timeout: float = 10.0) -> Optional[int]:
+    """Smallest partition count across the source topics, or None if unknown.
+
+    Read through an admin client, which fetches metadata without joining the
+    consumer group — a member that joined and then stopped polling would stall
+    the partitions assigned to it. Best effort: an unreachable broker or a
+    missing topic returns None and startup continues.
+    """
+    topics = source_topics(config)
+    if not topics:
+        return None
+
+    bootstrap = ((config or {}).get("kafka", {}) or {}).get("bootstrap_servers")
+    if not bootstrap:
+        return None
+
+    try:
+        from confluent_kafka.admin import AdminClient
+
+        metadata = AdminClient({"bootstrap.servers": bootstrap}).list_topics(timeout=timeout)
+    except Exception:
+        logger.debug("Could not read Kafka topic metadata for partition sizing", exc_info=True)
+        return None
+
+    counts = []
+    for topic in topics:
+        topic_metadata = getattr(metadata, "topics", {}).get(topic)
+        if topic_metadata is None or getattr(topic_metadata, "error", None) is not None:
+            continue
+        if topic_metadata.partitions:
+            counts.append(len(topic_metadata.partitions))
+    return min(counts) if counts else None
+
+
+def resolve_process_count(
+    config: Optional[Dict[str, Any]],
+    partition_count: Optional[int] = None,
+) -> int:
+    """Return the number of pipeline processes to run (>= 1).
+
+    ``partition_count`` only bounds ``"auto"``. Effective parallelism is
+    ``min(processes, partitions)``, so on a 256-core host with 8 partitions
+    ``auto`` would otherwise start 248 processes that consume memory and never
+    receive a partition. An explicit integer is an operator instruction and is
+    left alone; the caller warns instead.
+    """
     raw = (config or {}).get("alert_agent", {}).get("processes", DEFAULT_PROCESS_COUNT)
 
     if raw is None:
@@ -48,7 +105,10 @@ def resolve_process_count(config: Optional[Dict[str, Any]]) -> int:
     if isinstance(raw, str):
         normalized = raw.strip().lower()
         if normalized == PROCESSES_AUTO:
-            return max(1, available_cpus())
+            count = max(1, available_cpus())
+            if partition_count and partition_count > 0:
+                count = min(count, partition_count)
+            return count
         try:
             raw = int(normalized)
         except ValueError:

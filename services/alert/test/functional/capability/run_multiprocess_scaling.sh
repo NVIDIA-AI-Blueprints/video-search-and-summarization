@@ -229,17 +229,29 @@ stop_ab() {
     done
 }
 
+# The parent logs the readiness line *before* forking, and children can spend
+# tens of seconds contending on Elasticsearch inside their constructor. Gating
+# on the parent alone starts the injector before the consumers have joined,
+# and with auto_offset_reset=latest those messages are simply never seen.
 start_ab() {
-    local config="$1"
+    local config="$1" expected_children="${2:-1}"
     local config_dir; config_dir="$(cd "$(dirname "$config")" && pwd)"
     ALERT_AGENT_CONFIG_DIR="$config_dir" PROMETHEUS_METRICS_ENABLED=true \
         python3 "$REPO_ROOT/enhance_alert_with_vlm.py" --config "$config" > "$PID_DIR/alert_bridge.log" 2>&1 &
     echo $! > "$PID_DIR/alert_bridge.pid"
-    local waited=0
-    while [ $waited -lt 120 ]; do
+    local waited=0 ready
+    while [ $waited -lt 240 ]; do
         if grep -q "Starting anomaly processing loop" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
-            sleep 8   # consumer group join + partition assignment settle
-            return 0
+            if [ "$expected_children" -le 1 ]; then
+                sleep 8   # consumer group join + partition assignment settle
+                return 0
+            fi
+            ready=$(grep -c "Pipeline process .* ready" "$PID_DIR/alert_bridge.log" 2>/dev/null)
+            if [ "${ready:-0}" -ge "$expected_children" ]; then
+                print_status "ok" "$ready/$expected_children pipeline children ready after ${waited}s"
+                sleep 8
+                return 0
+            fi
         fi
         if ! kill -0 "$(cat "$PID_DIR/alert_bridge.pid")" 2>/dev/null; then
             print_status "fail" "Alert Bridge exited during startup"
@@ -248,7 +260,7 @@ start_ab() {
         fi
         sleep 1; waited=$((waited+1))
     done
-    print_status "fail" "Alert Bridge did not reach processing loop"
+    print_status "fail" "Alert Bridge did not reach processing loop with $expected_children children ready"
     return 1
 }
 
@@ -264,15 +276,16 @@ pipeline_child_pids() {
 }
 
 prepare_run() {
-    # prepare_run PROCESSES BATCH_COMMIT NIM_DELAY
+    # prepare_run PROCESSES BATCH_COMMIT NIM_DELAY [VLM_CAP]
+    local cap="${4:-$VLM_CAP}"
     local cfg="$PID_DIR/scaling_config.yaml"
     stop_ab
     docker exec "$KAFKA_CONTAINER" kafka-consumer-groups --bootstrap-server localhost:9092 \
         --group "$CONSUMER_GROUP" --reset-offsets --to-latest --all-topics --execute >/dev/null 2>&1 || true
     start_nim_stub "$3" || return 1
     reset_es
-    build_config "$cfg" "$1" "$VLM_CAP" "$2"
-    start_ab "$cfg" || return 1
+    build_config "$cfg" "$1" "$cap" "$2"
+    start_ab "$cfg" "$1" || return 1
     local waited=0
     while [ $waited -lt 20 ]; do
         local infl; infl=$(nim_stub_stat in_flight)
@@ -280,7 +293,7 @@ prepare_run() {
         sleep 1; waited=$((waited+1))
     done
     nim_stub_reset
-    print_status "info" "AB up — processes=$1 batch_commit=$2 stub_delay=$3"
+    print_status "info" "AB up — processes=$1 batch_commit=$2 stub_delay=$3 max_vlm_concurrent=$cap"
 }
 
 reset_es() {
@@ -312,6 +325,29 @@ vlm_mean_over() {
     c1=$(prom_value alert_bridge_vlm_duration_seconds_count)
     cpu=$(cut -d' ' -f1,2 "$RESULTS_DIR/cpu_$prefix.txt" 2>/dev/null || echo "0 0")
     echo "$(python3 -c "s=$s1-$s0;c=$c1-$c0;print(f'{s/c:.3f}' if c>0 else '0')") $cpu"
+}
+
+sample_gauge_max() {
+    # sample_gauge_max METRIC SECONDS INTERVAL OUTFILE
+    local metric="$1" seconds="$2" interval="$3" out="$4"
+    local end=$(( $(date +%s) + seconds ))
+    : > "$out"
+    while [ "$(date +%s)" -lt "$end" ]; do
+        prom_value "$metric" >> "$out"
+        sleep "$interval"
+    done
+}
+
+gauge_max_from() {
+    python3 -c "
+import sys
+values = []
+for line in open('$1'):
+    try:
+        values.append(float(line.strip()))
+    except ValueError:
+        pass
+print(f'{max(values):.1f}' if values else '0.0')"
 }
 
 assert_stub_delay() {
@@ -441,13 +477,29 @@ ts_031() {
 ts_032() {
     echo ""; echo "=== TS-032: no loss under overload (batch_commit off then on) ==="
     local detail="" failed=0
+    # A deliberately small per-process cap: the offered load then saturates the
+    # aggregate rather than a single process, which is what makes the
+    # processes x cap composition observable at all.
+    local per_process_cap="${TS032_VLM_CAP:-5}"
     for batch in false true; do
-        prepare_run "$PROCESSES" "$batch" 1 || { failed=1; detail="$detail batch_commit=$batch: startup;"; break; }
+        prepare_run "$PROCESSES" "$batch" 1 "$per_process_cap" || { failed=1; detail="$detail batch_commit=$batch: startup;"; break; }
 
+        local gauge_samples="$RESULTS_DIR/ts032_vlm_inflight_$batch.txt"
+        sample_gauge_max alert_bridge_event_loop_vlm_in_flight 70 1 "$gauge_samples" &
+        local sampler=$!
         python3 "$INJECTOR" --bootstrap "$BOOTSTRAP" --topic "$TOPIC" \
             --num-sensors "$PARTITIONS" --rate 60 --duration 60 --unique \
             --sensor-prefix "TS032B${batch}" > "$RESULTS_DIR/injector_TS032_$batch.log" 2>&1
+        wait $sampler || true
         local produced; produced=$(grep -o "DONE sent=[0-9]*" "$RESULTS_DIR/injector_TS032_$batch.log" | grep -o "[0-9]*")
+
+        # The gauge is livesum, so it reports the instance-wide total. This is
+        # the number the VLM backend actually sees, and the one that silently
+        # becomes processes x cap when an operator enables multi-process
+        # without resizing the cap.
+        local vlm_max aggregate_cap
+        vlm_max=$(gauge_max_from "$gauge_samples")
+        aggregate_cap=$(( PROCESSES * per_process_cap ))
 
         print_status "wait" "Draining backlog (produced=$produced)..."
         local waited=0
@@ -465,15 +517,21 @@ ts_032() {
         local after_dedup docs
         after_dedup=$(prom_value alert_bridge_events_after_dedup_total)
         docs=$(count_es_docs "$ES_HOST")
-        detail="$detail batch_commit=$batch produced=$produced after_dedup=$after_dedup es_docs=$docs;"
+        detail="$detail batch_commit=$batch produced=$produced after_dedup=$after_dedup es_docs=$docs vlm_in_flight_max=$vlm_max/$aggregate_cap;"
 
         # --unique means survivor rate == injection rate, so a shortfall is
         # loss. Batched commit may replay, so duplicates are allowed above the
-        # produced count while a shortfall is not.
+        # produced count while a shortfall is not. The aggregate gauge must
+        # respect processes x cap and must exceed a single process's cap,
+        # otherwise the caps are not composing the way the docs claim.
         if ! python3 -c "
 import sys
 produced, after_dedup, docs = $produced, float('$after_dedup'), int('$docs')
-sys.exit(0 if produced > 0 and after_dedup >= produced and docs >= produced else 1)"; then
+vlm_max, cap, processes = float('$vlm_max'), $per_process_cap, $PROCESSES
+ok = (produced > 0 and after_dedup >= produced and docs >= produced
+      and vlm_max <= processes * cap
+      and (processes == 1 or vlm_max > cap))
+sys.exit(0 if ok else 1)"; then
             failed=1
         fi
     done

@@ -99,7 +99,7 @@ from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
 from utils.event_utils import normalize_alert_message, is_alert
-from utils.process_scaling import resolve_process_count
+from utils.process_scaling import resolve_process_count, source_partition_count
 from utils.process_supervisor import ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
 from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
@@ -2437,7 +2437,30 @@ def _exit_when_parent_dies(parent_pid: int) -> None:
         os._exit(0)
 
 
-def _run_pipeline_process(config_path: str, index: int, parent_pid: int) -> None:
+def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -> None:
+    """Log what the *backend* sees, which is per-process caps times processes.
+
+    Every other concurrency log line is written from inside a child and shows
+    per-process values, so an operator reading ``max_vlm_concurrent=2`` four
+    times has no way to see that the VLM endpoint is being offered 8. Emitted
+    from one child rather than the parent so the numbers are the resolved
+    ones, defaults included, instead of a second copy of that resolution.
+    """
+    logger.warning(
+        "Effective instance concurrency across %d processes: vlm=%d (%d x %d), "
+        "vst=%d (%d x %d), dispatch_in_flight=%d (%d x %d), worker_threads=%d (%d x %d). "
+        "Downstream services see these totals, not the per-process caps below. "
+        "max_vlm_concurrent must be sized against peak_survivor_rate / processes.",
+        process_count,
+        process_count * enhancer.max_vlm_concurrent, process_count, enhancer.max_vlm_concurrent,
+        process_count * enhancer.max_vst_concurrent, process_count, enhancer.max_vst_concurrent,
+        process_count * enhancer.async_dispatch_max_in_flight,
+        process_count, enhancer.async_dispatch_max_in_flight,
+        process_count * enhancer.num_workers, process_count, enhancer.num_workers,
+    )
+
+
+def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process_count: int = 1) -> None:
     """Child entry point: one independent consume + dispatch stack."""
     _exit_when_parent_dies(parent_pid)
 
@@ -2449,7 +2472,15 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int) -> None
 
     logger.info("Pipeline process %d starting (pid=%d)", index, os.getpid())
     try:
-        AnomalyEnhancer(config_path).process_anomalies()
+        enhancer = AnomalyEnhancer(config_path)
+        # Construction is where children contend on Elasticsearch, and it can
+        # take tens of seconds with several of them. The parent's readiness
+        # line is printed before the fork, so anything gating on readiness has
+        # to count these instead.
+        logger.info("Pipeline process %d ready (pid=%d)", index, os.getpid())
+        if index == 0:
+            _log_instance_concurrency(enhancer, process_count)
+        enhancer.process_anomalies()
     except SystemExit:
         pass
     except Exception:
@@ -2458,10 +2489,10 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int) -> None
     logger.info("Pipeline process %d stopped", index)
 
 
-def _start_pipeline_process(config_path: str, index: int) -> Process:
+def _start_pipeline_process(config_path: str, index: int, process_count: int) -> Process:
     process = Process(
         target=_run_pipeline_process,
-        args=(config_path, index, os.getpid()),
+        args=(config_path, index, os.getpid(), process_count),
         name=f"ab-pipeline-{index}",
     )
     process.start()
@@ -2474,7 +2505,7 @@ def run_multi_process_pipeline(config_path: str, process_count: int) -> None:
 
     _pipeline_supervisor = ProcessSupervisor(
         count=process_count,
-        spawn=lambda index: _start_pipeline_process(config_path, index),
+        spawn=lambda index: _start_pipeline_process(config_path, index, process_count),
         on_exit=_mark_prometheus_process_dead,
     )
     try:
@@ -2573,6 +2604,12 @@ if __name__ == "__main__":
         # then stopped polling would stall the partitions assigned to it.
         pipeline_config = AnomalyEnhancer.load_config(args.config)
         process_count = resolve_process_count(pipeline_config)
+        source_partitions = None
+        if process_count > 1:
+            # Only worth a broker round-trip once more than one process is on
+            # the table; "auto" is clamped to it, an explicit count is not.
+            source_partitions = source_partition_count(pipeline_config)
+            process_count = resolve_process_count(pipeline_config, source_partitions)
         multi_process = process_count > 1
 
         if multi_process and not EventBridgeFactory.validate_configuration(pipeline_config):
@@ -2632,11 +2669,30 @@ if __name__ == "__main__":
         logger.info("Starting anomaly processing loop...")
 
         if multi_process:
-            logger.info(
-                "Pipeline running across %d processes; effective parallelism is "
-                "min(processes, kafka partition count)",
-                process_count,
-            )
+            if source_partitions is None:
+                logger.info(
+                    "Pipeline running across %d processes; partition count unknown, "
+                    "effective parallelism is min(processes, kafka partition count)",
+                    process_count,
+                )
+            elif process_count > source_partitions:
+                logger.warning(
+                    "alert_agent.processes=%d exceeds the %d source partitions: %d "
+                    "processes will join the consumer group, receive nothing and idle. "
+                    "Effective parallelism is %d. Raise the partition count or lower "
+                    "processes; with N replicas the constraint is "
+                    "replicas x processes <= partitions.",
+                    process_count,
+                    source_partitions,
+                    process_count - source_partitions,
+                    source_partitions,
+                )
+            else:
+                logger.info(
+                    "Pipeline running across %d processes over %d partitions",
+                    process_count,
+                    source_partitions,
+                )
             run_multi_process_pipeline(os.environ["CONFIG_PATH"], process_count)
         else:
             enhancer.process_anomalies()

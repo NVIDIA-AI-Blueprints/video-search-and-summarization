@@ -68,6 +68,13 @@ Sizing the run matters more than in the suite above:
   `pgrep -f`: `fork` leaves `argv` unchanged, so the parent and the FastAPI
   child match the same pattern, and picking a victim by position could kill
   FastAPI instead of a pipeline child.
+- **Readiness counts `Pipeline process N ready`, one per child.** The parent
+  prints `Starting anomaly processing loop...` before it forks, and children
+  contend on Elasticsearch inside their constructor — measured at 20–40 s for
+  three children against the sim. Gating on the parent alone starts the
+  injector before the consumers have joined, and with
+  `auto_offset_reset=latest` those messages are never seen, which shows up as
+  a bogus message-loss failure rather than a timing bug.
 - **The NIM stub is killed by pattern and its port verified.** A stub left
   from an earlier run keeps port 18081, the replacement dies with
   `EADDRINUSE`, and every request is silently served at the *old* delay.

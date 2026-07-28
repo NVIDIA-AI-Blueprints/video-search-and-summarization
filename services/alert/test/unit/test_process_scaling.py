@@ -50,5 +50,60 @@ class TestResolveProcessCount:
             resolve_process_count({"alert_agent": {"processes": value}})
 
 
+class TestAutoClampedToPartitions:
+    """Processes beyond the partition count idle, so auto must not create them."""
+
+    def test_auto_clamps_to_partition_count(self, monkeypatch):
+        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 256)
+        cfg = {"alert_agent": {"processes": "auto"}}
+        assert resolve_process_count(cfg, partition_count=8) == 8
+
+    def test_auto_keeps_cpu_count_when_partitions_are_plentiful(self, monkeypatch):
+        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 4)
+        cfg = {"alert_agent": {"processes": "auto"}}
+        assert resolve_process_count(cfg, partition_count=64) == 4
+
+    @pytest.mark.parametrize("partitions", [None, 0])
+    def test_auto_unclamped_when_partition_count_is_unknown(self, monkeypatch, partitions):
+        monkeypatch.setattr(process_scaling, "available_cpus", lambda: 6)
+        cfg = {"alert_agent": {"processes": "auto"}}
+        assert resolve_process_count(cfg, partition_count=partitions) == 6
+
+    def test_explicit_count_is_an_instruction_and_is_not_clamped(self):
+        cfg = {"alert_agent": {"processes": 16}}
+        assert resolve_process_count(cfg, partition_count=2) == 16
+
+
+class TestSourceTopics:
+    def test_reads_non_heartbeat_kafka_topics(self):
+        cfg = {"event_bridge": {"sourceType": "kafka", "kafka_source": {"topics": {
+            "incident": "mdx-incidents", "alert": "mdx-alerts", "heartbeat": "hb"}}}}
+        assert sorted(process_scaling.source_topics(cfg)) == ["mdx-alerts", "mdx-incidents"]
+
+    def test_non_kafka_source_has_no_topics(self):
+        cfg = {"event_bridge": {"sourceType": "elasticsearch", "kafka_source": {"topics": {"incident": "x"}}}}
+        assert process_scaling.source_topics(cfg) == []
+
+    def test_missing_sections_are_tolerated(self):
+        assert process_scaling.source_topics({}) == []
+        assert process_scaling.source_topics(None) == []
+
+
+class TestSourcePartitionCount:
+    def test_returns_none_for_non_kafka_source(self):
+        assert process_scaling.source_partition_count({"event_bridge": {"sourceType": "redis_stream"}}) is None
+
+    def test_returns_none_without_bootstrap_servers(self):
+        cfg = {"event_bridge": {"sourceType": "kafka", "kafka_source": {"topics": {"incident": "t"}}}}
+        assert process_scaling.source_partition_count(cfg) is None
+
+    def test_unreachable_broker_does_not_raise(self):
+        cfg = {
+            "event_bridge": {"sourceType": "kafka", "kafka_source": {"topics": {"incident": "t"}}},
+            "kafka": {"bootstrap_servers": "127.0.0.1:1"},
+        }
+        assert process_scaling.source_partition_count(cfg, timeout=0.2) is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
