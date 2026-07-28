@@ -1,0 +1,3 @@
+# libs/nvschema/.gitattributes
+*.mp4 !filter !diff !merge text
+*.gem !filter !diff !merge text
