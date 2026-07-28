@@ -20,8 +20,9 @@
 # build-vision-agent's deploy flow stages the ADAPTED patch files (produced by DOWNLOADING
 # the SOP release patch from NVIDIA's public repo and adapting per ../../sop.md § Patch
 # specifics — NOT shipped in this repo, the release tools.py is NOT copied verbatim) to
-#   ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/{tools,sop_tools}.py
-# (${VSS_APPS_DIR} == the deploy/docker dir bind-mounted read-only into the container).
+#   ${SOP_STAGE_DIR}/video_analytics/{tools,sop_tools}.py
+# (${SOP_STAGE_DIR} == an absolute path under _builds/<name>/sop-report — BUILD-LOCAL; never
+#  under the tracked deploy/docker/ tree).
 #
 # ${VSS_AGENT_SITE_PACKAGES} defaults to /vss-agent/.venv/lib/python3.13/site-packages and
 # ${VSS_AGENT_PKG} to the image's video-analytics package (vss_agents on develop; a published
@@ -30,5 +31,5 @@
 services:
   vss-va-mcp:
     volumes:
-    - ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/tools.py:ro
-    - ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/sop_tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/sop_tools.py:ro
+    - ${SOP_STAGE_DIR}/video_analytics/tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/tools.py:ro
+    - ${SOP_STAGE_DIR}/video_analytics/sop_tools.py:${VSS_AGENT_SITE_PACKAGES}/${VSS_AGENT_PKG}/video_analytics/sop_tools.py:ro

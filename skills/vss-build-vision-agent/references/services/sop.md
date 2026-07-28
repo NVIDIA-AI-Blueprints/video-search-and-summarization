@@ -81,9 +81,10 @@ SW_ENCODER=true
 VLLM_GPU_MEMORY_UTILIZATION=0.6            # 0.3 is fine on ≥80 GB GPUs
 
 # --- SOP report tools (vss-va-mcp patch, see § Patch specifics) ---
-# VSS_VA_MCP_CONFIG_FILE → the SOP va_mcp config staged into the container (selects
-#   get_sop_*). VSS_AGENT_SITE_PACKAGES → mount root; verify vs the ghcr.io image.
-VSS_VA_MCP_CONFIG_FILE=<staged: adapted from the downloaded SOP release VA-MCP config — see § Patch specifics>
+# SOP_STAGE_DIR → absolute BUILD-LOCAL dir the adapted get_sop_* patch + VA-MCP config stage into
+#   (_builds/<name>/sop-report) — NEVER deploy/docker. VSS_AGENT_SITE_PACKAGES/PKG → mount root.
+SOP_STAGE_DIR=<abs repo path>/_builds/sop-1/sop-report
+VSS_VA_MCP_CONFIG_FILE=${SOP_STAGE_DIR}/configs/va_mcp_server_config.yml
 VSS_AGENT_SITE_PACKAGES=/vss-agent/.venv/lib/python3.13/site-packages
 VSS_AGENT_PKG=vss_agents            # develop ships video_analytics under vss_agents; resolve from the image — see § Patch specifics
 ```
@@ -100,7 +101,8 @@ Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
 | `ENABLE_MESSAGING`, `DEFAULT_TOPIC`, `SOP_MESSAGING_SCHEMA` | Kafka publication (`1` / `mdx-vlm-captions` / `JSON`). |
 | `ENABLE_RTSP_OUTPUT`, `RTSP_PORT`, `SW_ENCODER` | Annotated RTSP output that VIOS records. |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.6` on ≤48 GB GPUs (the `0.3` default is H100-tuned). |
-| `VSS_VA_MCP_CONFIG_FILE` | SOP VA-MCP config (adapted from the downloaded SOP release config — see § Patch specifics; selects the `get_sop_*` tools). |
+| `SOP_STAGE_DIR` | Absolute **build-local** dir (`_builds/<name>/sop-report`) the adapted `get_sop_*` patch + VA-MCP config stage into — never `deploy/docker/`. |
+| `VSS_VA_MCP_CONFIG_FILE` | SOP VA-MCP config (`${SOP_STAGE_DIR}/configs/va_mcp_server_config.yml`; adapted from the downloaded SOP release config; selects the `get_sop_*` tools). |
 | `VSS_AGENT_SITE_PACKAGES` | In-container site-packages root the SOP patch mounts over. |
 | `VSS_AGENT_PKG` | Package that holds `video_analytics` — on `develop` it is `vss_agents` (`services/agent/packages/vss_agents`). Resolve it from the running image by probing `<pkg>.video_analytics` (§ Patch specifics); never hardcode (a published image may differ). |
 
@@ -155,15 +157,16 @@ the image's other `video_analytics` tools and targets the old package layout):
 2. **Locate the SOP additions** in the downloaded `tools.py` — a self-contained block of the
    four SOP tool implementations plus their four include-gated registrations. Diffing it
    against the image's own `<pkg>/video_analytics/tools.py` makes them obvious.
-3. **Produce two files** into `${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/` (the
-   exact path `sop-report-override.yml` binds from), keeping the diff to the product file minimal:
+3. **Produce two files** into `${SOP_STAGE_DIR}/video_analytics/` — an absolute path under
+   `_builds/<name>/sop-report/` (**build-local**; never under `deploy/docker/`; the exact path
+   `sop-report-override.yml` binds from), keeping the diff to the product file minimal:
    - `tools.py` = the image's own `video_analytics/tools.py` with **only** the four SOP tool
      registrations grafted in (imported from the sibling module below).
    - `sop_tools.py` = the SOP tool implementations lifted into a self-contained sibling module;
      its relative imports resolve against the image's `video_analytics` package.
 4. **Adapt the downloaded VA-MCP config** and stage it at
-   `${VSS_APPS_DIR}/services/agent/sop-report/configs/va_mcp_server_config.yml` (where
-   `VSS_VA_MCP_CONFIG_FILE` points): repoint endpoints from the release's `localhost` to compose
+   `${SOP_STAGE_DIR}/configs/va_mcp_server_config.yml` (where `VSS_VA_MCP_CONFIG_FILE` points;
+   build-local under `_builds/<name>/`): repoint endpoints from the release's `localhost` to compose
    service names (`elasticsearch:9200`, `vst-ingress:30888`), and keep the `video_analytics`
    group with the four `get_sop_*` tools in its `include` list.
 5. **Mount** the adapted `{tools,sop_tools}.py` over
@@ -203,8 +206,10 @@ need handling:
   `sop/sop-vlm-captions-json-logstash.conf`. The `get_sop_*` patch + VA-MCP config are
   **downloaded at build time** from the public SOP repo (see § Patch specifics) — **not shipped
   in this repo**.
-- **Profile eval**: `eval/profile_sop_1_compliance_monitoring.json` (build-vision-agent family:
-  propose → build + validate → deploy → runtime detection + report).
+- **Profile evals** (split per build-vision-agent convention): `eval/profile_sop_1_compliance_monitoring.json`
+  (build + Compose validate — no deploy, no ds-sop image needed) and
+  `eval/profile_sop_1_compliance_monitoring_runtime_harbor.json` (build + deploy + runtime detection/report —
+  requires a provisioned host with `ds-sop:1.0.0` built + SOP models staged).
 - **Report rendering**: `skills/vss-generate-video-report/` (Mode C; `assets/sop-compliance-report.md`).
 - **Upstream**: `deploy/docker/services/agent/compose.yml` (`vss-va-mcp`), ELK / Kafka / VIOS Compose.
 - **SOP source**: `NVIDIA/sop-monitoring-blueprints` (public, branch `main`, `0dd472f`) —

@@ -1,0 +1,35 @@
+{
+  "skills": [
+    "vss-build-vision-agent",
+    "vss-generate-video-report"
+  ],
+  "profile": "sop-1-runtime",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": { "gpu_count": 2 }
+    }
+  },
+  "env": "A Harbor-hosted 2x RTX PRO 6000 Blackwell environment (`{{platform}}`) with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. PREREQUISITE (provisioned host): the locally-built `ds-sop:1.0.0` image is already present -- it is LOCAL-BUILD-ONLY (no registry to pull; ~50 GB, built + smoke-tested per `references/services/sop/build-ds-sop.md`) -- and the SOP models (NGC nv-metropolis-dev/vss-industrial/sop-data:1.0, ~14.7 GB) plus the test video (NGC nvidia/tao/sop-server-fan-installation-data:1.0-260213) are staged. This runtime eval builds, deploys, and runtime-verifies the SOP compliance-monitoring delta off the `alerts` (2d_vlm) Foundation: DS-SOP step detection -> Kafka -> ELK, plus the skill-driven SOP compliance report (vss-va-mcp + the downloaded/adapted get_sop_* patch, rendered by vss-generate-video-report Mode C). No RT-VLM, no runtime VSS agent/UI, no LLM-NIM report path. Use `_builds/sop-1-runtime/` only as a filesystem label; the get_sop_* patch + Logstash overlay stage BUILD-LOCAL under `_builds/`, so `deploy/docker/` remains unmodified.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-agent` to build and deploy under `_builds/sop-1-runtime/`: \"Compose and deploy an SOP compliance-monitoring application with SOP compliance reports.\" `ds-sop:1.0.0` is already built. Bring the stack up end-to-end, feed DS-SOP the staged video DIRECTLY (on-demand `POST http://localhost:8300/v1/chat/completions`, max_length_sec=10), then verify SOP detection in Elasticsearch and the skill-driven Mode C compliance report. Leave the stack running.",
+      "checks": [
+        "Deployment uses exactly `docker compose -f _builds/sop-1-runtime/resolved.yml up -d`; it does not re-read Foundation env files, use an invented Compose profile, or deploy a copied Compose project. No file under `{{repo_root}}/deploy/docker/` is modified (patch + Logstash overlay are build-local under `_builds/`).",
+        "All selected long-running services are running or healthy and the one-shot init containers (elasticsearch-init, kafka-topic-init, sop-kibana-init, and the VIOS init helpers) exit 0.",
+        "ds-sop API readiness succeeds (`curl -sf http://localhost:8300/v1/ready` -> 200 and `/v1/models` contains `ds_sop_model`); Elasticsearch cluster health is green or yellow; Kafka topic `mdx-vlm-captions` exists.",
+        "vss-va-mcp is Up (mcp serve on :9901); `docker inspect vss-va-mcp` shows the two adapted get_sop_* bind mounts (sourced from `${SOP_STAGE_DIR}` under `_builds/`), and logstash loaded the SOP JSON pipeline.id from the build-local overlay.",
+        "No excluded RT-VLM, vss-agent, vss-ui, alert-bridge, or LLM-NIM service is running for this delta.",
+        "`curl -sf 'http://localhost:9200/mdx-vlm-captions-*/_count'` returns `.count > 0`.",
+        "Sampled docs from mdx-vlm-captions-* carry FLAT fields (chunk_idx, response, sensor_id, cv_boundary_score, pipeline_chunk_end_timestamp, req_id, checker_result) -- NOT protobuf-nested fields.",
+        "The `response` field shows REAL SOP steps in sequence (e.g. '(1) installing the first fan...' -> power supplies -> cover), NOT every doc being '(10) ... not belong'.",
+        "cv_boundary_score across docs is a healthy mix (at least some >= 0.5), not all approximately 0.",
+        "doc _id equals req_id (idempotent upsert) and @timestamp derives from the wall-clock pipeline_chunk_end_timestamp (docs land on the real date, NOT all on 1970-01-01).",
+        "DS-SOP -> VIOS wiring is verified: with `ENABLE_RTSP_OUTPUT=true` and a looping source, `ffprobe rtsp://localhost:8554/ds-out/<stream-name>` returns a valid H.264 stream and the sensor/add + camera_streaming + record/start sequence executes (continuous annotated recording requires a live/looping source -- an inherent constraint of the on-demand path, not a deploy defect).",
+        "`docker exec vss-va-mcp /vss-agent/.venv/bin/python3 -c \"import <pkg>.video_analytics.sop_tools\"` exits 0, where <pkg> is the video-analytics package resolved from the image (vss_agents on develop; a published image may differ) -- the adapted patch mounted correctly.",
+        "MCP tools/list on :9901 (two-step JSON-RPC: initialize -> tools/list) includes video_analytics__get_sop_status, __get_sop_report, __get_sop_as_incidents, and __get_sop_as_incident.",
+        "video_analytics__get_sop_report for the tested sensor returns report_summary / sop_violations / actions_observed / formatted_report (NOT an error), with REAL numbered SOP steps consistent with the mdx-vlm-captions-* docs (missing steps correctly flagged, not fabricated).",
+        "Running vss-generate-video-report Mode C for that sensor and range returns markdown titled '# SOP Compliance Report' that fills assets/sop-compliance-report.md with the real get_sop_report data (message count, compliance status, missing / mis-ordered step tables, actions observed) -- using no VSS agent, no POST /generate, and no LLM NIM / NVIDIA_API_KEY."
+      ]
+    }
+  ]
+}

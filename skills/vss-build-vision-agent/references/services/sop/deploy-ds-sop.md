@@ -146,13 +146,17 @@ Logstash pipeline or the detection input is wrong — see § Known Deployment Is
 
 ## Testing
 
-- **Profile eval:** `skills/vss-build-vision-agent/eval/profile_sop_1_compliance_monitoring.json` —
-  a build-vision-agent family eval (`{skills, profile, resources, env, expects}`) running the full
-  lifecycle: propose the SOP delta → build + validate `_builds/sop-1/` → deploy → runtime-verify
-  SOP detection in ELK (REAL step responses, not all `(10)`, JSON Logstash pipeline registered) →
-  runtime-verify the skill-driven SOP compliance report (get_sop_* + vss-generate-video-report
-  Mode C). Only the legacy VSS-Agent / `/generate` report path stays out of scope (see
-  `integrate-ds-sop.md` § Scope notes).
+- **Profile evals** (split per build-vision-agent convention, both on `RTXPRO6000BW`):
+  - `eval/profile_sop_1_compliance_monitoring.json` — **build + Compose validate only** (no deploy):
+    Foundation/delta correctness, exact `COMPOSE_PROFILES`, build-local staging of the get_sop_*
+    patch + Logstash overlay under `_builds/sop-1/`, `docker compose config`, and **no file under
+    `deploy/docker/` modified**. `ds-sop:1.0.0` is validated as an image reference — not built or run,
+    so this runs anywhere without the ~50 GB image or SOP models.
+  - `eval/profile_sop_1_compliance_monitoring_runtime_harbor.json` — **build + deploy + runtime-verify**:
+    SOP detection in ELK (REAL step responses, not all `(10)`) + the skill-driven Mode C report
+    (get_sop_* + vss-generate-video-report). **Prerequisite:** a provisioned host with `ds-sop:1.0.0`
+    already built (local-build-only, no registry) + SOP models staged. Only the legacy VSS-Agent /
+    `/generate` report path stays out of scope (see `integrate-ds-sop.md` § Scope notes).
 - **Blueprint full suite (reference):** `vss-sop-skills/vss-sop-test` (`scripts/vss_sop_test.py`)
   runs 4 phases — service health, ELK pipeline, VIOS recording/livestream, and VSS-Agent end-to-end
   (incl. report generation). Phases 1–3 overlap this eval; Phase 4 (agent/report) only applies once
