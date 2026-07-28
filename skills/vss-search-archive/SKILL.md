@@ -117,9 +117,12 @@ Before an agent-backed source mutation:
        && curl -sfS --max-time 5 "${RTVI_VLM_URL}/v1/models" >/dev/null
    fi
    ```
-   Direct Elasticsearch and RT-VLM probes are Docker-only. On Kubernetes the
-   public Agent owns those private dependencies; do not expose or forward them
-   merely to satisfy a host-side readiness check.
+   Elasticsearch is unique to the search profile. RT-VLM is also required: it
+   serves the critic and `video_understanding`, including when the underlying
+   VLM model is remote and RT-VLM remains as a local media proxy. These direct
+   probes are Docker-only because on Kubernetes the public Agent owns those
+   private dependencies; do not expose or forward them merely to satisfy a
+   host-side readiness check.
 
 2. **If the probe fails**, ask the user:
    > *"The selected VSS `search` profile endpoints are not reachable. Shall I deploy or reconnect it using the `/vss-deploy-profile` skill with `-p search`?"*
@@ -424,15 +427,21 @@ verification. Never port-forward Elasticsearch for this check.
      echo "Kubernetes search through ${AGENT_URL}/generate failed" >&2
      exit 1
    fi
-   printf '%s' "${SEARCH_JSON}" |
-     jq -e 'if type == "string" then length > 0 else type == "object" or type == "array" end' \
-     >/dev/null || {
-       echo "Kubernetes search returned an empty or malformed response" >&2
-       exit 1
-     }
-   SEARCH_TEXT=$(printf '%s' "${SEARCH_JSON}" |
-     jq -r 'if type == "string" then . else (.output // .value // .response // .) end')
+   SEARCH_TEXT=$(printf '%s' "${SEARCH_JSON}" | jq -r '
+     if type == "string" then .
+     elif type == "object" then (.output // .value // .response // empty)
+     else empty
+     end' 2>/dev/null)
+   if [ -z "$(printf '%s' "${SEARCH_TEXT}" | tr -d '[:space:]')" ]; then
+     echo "Kubernetes search returned an empty or malformed response" >&2
+     exit 1
+   fi
    ```
+
+   Validate the extracted `SEARCH_TEXT`, not the response envelope: `{}`, `[]`,
+   `{"output": null}`, and `{"output": ""}` are all failures, not results. Never
+   fall back to the whole response body when no known text field is present —
+   that presents a raw JSON wrapper as if it were the Agent's answer.
 
    Treat the Agent response as authoritative. Do not replace a failed public
    request with private service access or a port-forward.
@@ -548,7 +557,8 @@ verification. Never port-forward Elasticsearch for this check.
    not permission to rewrite the URL.
 
    **Kubernetes / Helm only:** skip the Docker CLI media-validation block above.
-   Require a nonempty `SEARCH_TEXT`. Do not call `jq` on `.data`, `.data[]`, or
+   Require a nonempty `SEARCH_TEXT`, already gated in step 4; never present a
+   result that did not clear that gate. Do not call `jq` on `.data`, `.data[]`, or
    `.screenshot_url`. If the Agent reply embeds concrete public media URLs, you
    may optionally GET those exact URLs (no `streamId` header, no URL rewrite)
    against `${VSS_PUBLIC_URL}` origins; never invent structured hit fields from
