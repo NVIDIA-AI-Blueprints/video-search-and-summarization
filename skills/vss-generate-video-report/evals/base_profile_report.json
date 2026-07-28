@@ -54,7 +54,7 @@
         "The run inserted exactly one incident document into Elasticsearch index mdx-vlm-incidents (PUT/POST to http://localhost:9200/mdx-vlm-incidents/_doc/...), not mdx-incidents",
         "The inserted document contained at least these fields: Id, id, timestamp, end, sensorId, category, type, objectIds, info.verdict",
         "The run initialized a VA-MCP session against http://localhost:9901/mcp with POST method=initialize and extracted mcp-session-id from the response header",
-        "The run issued at least one tools/call POST to http://localhost:9901/mcp with the mcp-session-id header set, calling video_analytics__get_incidents with arguments including max_count=1",
+        "The run issued at least one tools/call POST to http://localhost:9901/mcp with the mcp-session-id header set, calling video_analytics__get_incidents. Any max_count is acceptable — the check is that the inserted incident came back through VA-MCP, not which page size was requested",
         "The run did NOT redeploy alerts profile and did NOT insert only into mdx-incidents",
         "The run did NOT claim success based only on the Elasticsearch insert; success required the VA-MCP get_incidents lookup to return the incident"
       ]
@@ -63,7 +63,7 @@
       "query": "Give me a report on the last incident.",
       "checks": [
         "The run initialized a VA-MCP session against http://localhost:9901/mcp (POST with method=initialize) and extracted mcp-session-id from the response header",
-        "The run issued at least one tools/call POST to http://localhost:9901/mcp with the mcp-session-id header set, calling video_analytics__get_incidents with max_count=1, or calling video_analytics__get_incident if an incident ID was already known",
+        "The run issued at least one tools/call POST to http://localhost:9901/mcp with the mcp-session-id header set, retrieving the most recent incident through VA-MCP — either video_analytics__get_incidents (any max_count; asking for several and reporting the newest is fine) or video_analytics__get_incident when an incident ID was already known",
         "The run did NOT POST to http://localhost:8000/generate and did NOT POST to a VLM /v1/chat/completions endpoint for this incident-range query (Mode B routes through analytics, not the VLM)",
         "If get_incidents returned zero results, the user-facing response clearly states that no incidents were found and does NOT silently fall back to calling the VLM or generating a fabricated report",
         "If get_incidents returned one or more incidents, the run generated a user-facing incident report for the most recent incident returned by VA-MCP",
