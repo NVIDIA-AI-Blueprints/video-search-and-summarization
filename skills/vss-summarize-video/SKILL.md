@@ -255,8 +255,10 @@ re-voice either backend's content.
 | VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
 
 Use the debugging reference for deeper diagnostics and the deployment
-reference for logs or configuration. Match image tags to the host: `3.2.1` on
-x86/Jetson Thor and `3.2.1-sbsa` on SBSA/DGX Spark/Grace.
+reference for logs or configuration. The LVS image is a multi-arch manifest, so
+`LVS_TAG=develop-latest` is correct everywhere; NGC-hosted companions such as
+RT-VLM still need a host-matched tag (`3.2.1` on x86/Jetson Thor, `3.2.1-sbsa`
+on SBSA/DGX Spark/Grace).
 
 ## Direct API and Service Operations
 
