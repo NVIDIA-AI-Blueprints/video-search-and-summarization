@@ -20,11 +20,48 @@ Alert Agent HTTP Schemas
 Response schemas for alert submission endpoints.
 """
 
-from typing import Optional, Dict
-from pydantic import BaseModel, Field, constr
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 
-# Import existing entity management models
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, constr
+
+class IncidentSubmissionRequest(BaseModel):
+    """NvSchema incident accepted by the HTTP JSON endpoint."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[StrictStr] = Field(
+        default=None,
+        max_length=256,
+        description="Optional incident identifier",
+    )
+    sensorId: StrictStr = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Camera or sensor identifier",
+    )
+    timestamp: StrictStr = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Event start time in ISO 8601 format",
+    )
+    end: StrictStr = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Event end time in ISO 8601 format",
+    )
+    category: StrictStr = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Incident category used for prompt matching",
+    )
+    info: Dict[StrictStr, StrictStr] = Field(
+        default_factory=dict,
+        description="Additional metadata as string key-value pairs",
+    )
 
 
 class AlertSubmissionResponse(BaseModel):
@@ -55,6 +92,10 @@ class ErrorResponse(BaseModel):
     status: str = Field(..., max_length=32, description="Error status")
     error: str = Field(..., max_length=64, description="Error type")
     message: str = Field(..., max_length=2000, description="Error message")
+    details: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Field-level validation errors",
+    )
     timestamp: str = Field(..., max_length=64, description="Error timestamp (ISO 8601)")
 
     class Config:
