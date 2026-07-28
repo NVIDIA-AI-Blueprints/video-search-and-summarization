@@ -7,10 +7,25 @@
     "expected_behavior": [
       "Loads vss-deploy-detection-tracking-3d for generic MV3DT intent.",
       "Identifies the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
-      "Uses COMPOSE_PROFILES=mosquitto,kafka docker compose up -d as the default bundled-broker launch path.",
+      "Uses bundled broker mode, but for file input starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
       "Reports resolved runtime images only from docker compose config --images and does not hardcode a runtime image version.",
       "Does not mention warehouse compose as the deployment path.",
       "Does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "mv3dt-sample-dataset-standalone",
+    "question": "Run MV3DT on the sample dataset / 4-cam example dataset. Which workflow should be used? Do not run anything.",
+    "expected_skill": "vss-deploy-detection-tracking-3d",
+    "ground_truth": "Sample MV3DT requests route to the standalone RT-CV-3D skill. The workflow uses NGC warehouse app-data for models/videos, repo sample calibration.json and Top.png for calibration and BEV map, generated transforms.yml, INPUT_MODE=file, NUM_CAMS=4, bundled brokers, saved grid video, and saved fused BEV output. It does not use warehouse blueprint compose unless the user explicitly asks for the full warehouse stack.",
+    "expected_behavior": [
+      "Loads vss-deploy-detection-tracking-3d and the sample-dataset reference.",
+      "Uses the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
+      "Resolves existing app-data or asks for/downloads the NGC warehouse app-data resource without printing NGC keys.",
+      "Uses sample videos from warehouse-4cams-20mx20m-synthetic and sample camera ids Camera, Camera_01, Camera_02, Camera_03.",
+      "Uses the repo sample calibration.json and Top.png, then generates transforms.yml for BEV_DATASET_PATH.",
+      "Plans saved perception grid and saved fused BEV by default for the finite file run.",
+      "Does not route to vss-deploy-profile or use warehouse compose commands."
     ]
   },
   {
@@ -34,7 +49,7 @@
       "Collects and validates MQTT_HOST, MQTT_PORT, and KAFKA_BOOTSTRAP.",
       "Runs MQTT_BROKERS=broker.example.com:1883 ./scripts/generate-configs.sh.",
       "Verifies generated pub_sub_info_config.yml contains broker.example.com:1883.",
-      "Launches without COMPOSE_PROFILES=mosquitto,kafka for the external-broker path.",
+      "Uses external-broker Compose mode without COMPOSE_PROFILES=mosquitto,kafka, while preserving file-mode baseline and BEV-prestart ordering when the input is file.",
       "Uses configured KAFKA_BOOTSTRAP for mdx-raw/mdx-bev verification.",
       "Does not print plaintext API tokens."
     ]
@@ -43,7 +58,7 @@
     "id": "mv3dt-missing-calibration-handoff",
     "question": "Run rtvi-cv-3d on my synchronized cam_*.mp4 files, but I do not have calibration yet. Walk me through the order without running anything.",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "The skill identifies missing calibration, hands off to vss-generate-video-calibration first, requires successful AMC export, validates camera-only calibration sensors, returns to standalone config generation, staging, bundled broker compose launch, and verification.",
+    "ground_truth": "The skill identifies missing calibration, hands off to vss-generate-video-calibration first, requires successful AMC export, validates camera-only calibration sensors, returns to standalone config generation, staging, bundled broker mode, file-mode support-service/baseline ordering, and verification.",
     "expected_behavior": [
       "Chains to vss-generate-video-calibration because calibration is missing.",
       "Does not ignore a failed AMC export_calibration POST or silently reuse an old calibration.json.",

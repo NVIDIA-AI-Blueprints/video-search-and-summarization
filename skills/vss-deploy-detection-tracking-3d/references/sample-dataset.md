@@ -1,0 +1,166 @@
+# Sample 4-Camera Dataset
+
+Load this reference when the user asks to deploy MV3DT / RTVI-CV-3D on the sample dataset, the 4-cam example dataset, or the warehouse 4-camera synthetic dataset.
+
+This is still the standalone RT-CV-3D path. Do not switch to warehouse compose files or `vss-deploy-profile` unless the user explicitly asks for the full warehouse blueprint.
+
+## Contents
+
+- [What The Sample Uses](#what-the-sample-uses)
+- [Resolve App Data](#resolve-app-data)
+- [Stage Sample Calibration And BEV Assets](#stage-sample-calibration-and-bev-assets)
+- [Env Values For The Sample](#env-values-for-the-sample)
+- [Verify Sample Run](#verify-sample-run)
+
+## What The Sample Uses
+
+| Input | Source |
+|---|---|
+| Models | Extracted `vss-warehouse-app-data/models` from the NGC warehouse app-data resource |
+| Videos | Extracted `vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/` |
+| Calibration | Repo sample `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json` |
+| BEV map | Repo sample `.../warehouse-4cams-20mx20m-synthetic/images/Top.png` |
+| BEV transforms | Generate with `scripts/generate-transforms.sh` into `generated/bev-dataset/transforms.yml` |
+
+For this checked-in sample dataset only, the expected camera IDs are `Camera`, `Camera_01`, `Camera_02`, and `Camera_03`; the sample video directory should contain matching `.mp4` names.
+
+## Resolve App Data
+
+Use an existing extracted app-data directory if the user already has one. Otherwise download the NGC warehouse app-data resource named by the user, environment, release notes, or public VSS docs. The expected resource shape is `nvidia/vss-warehouse/vss-warehouse-app-data:<version>`; do not infer the version from this skill.
+
+Do not print NGC keys. Prefer existing `~/.ngc/config`; only ask for an NGC API key when no usable config or current-session `NGC_CLI_API_KEY` exists.
+
+```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+APP_DATA_ROOT="${APP_DATA_ROOT:-${REPO_ROOT}/data/ngc}"
+mkdir -p "${APP_DATA_ROOT}"
+
+find_app_data() {
+  root="$1"
+  find "${root}" -type d -path '*/vss-warehouse-app-data/models/mtmc' -print 2>/dev/null \
+    | sed 's#/models/mtmc$##' \
+    | sort -u
+}
+
+if [ -n "${WAREHOUSE_APP_DATA_DIR:-}" ]; then
+  APP_DATA_DIR="$(readlink -f "${WAREHOUSE_APP_DATA_DIR}")"
+else
+  matches="$(find_app_data "${APP_DATA_ROOT}" || true)"
+  count="$(printf '%s\n' "${matches}" | sed '/^$/d' | wc -l | tr -d ' ')"
+  if [ "${count}" = 1 ]; then
+    APP_DATA_DIR="$(printf '%s\n' "${matches}" | sed '/^$/d')"
+  elif [ "${count}" -gt 1 ]; then
+    printf '%s\n' "${matches}" >&2
+    echo "ERROR: multiple vss-warehouse-app-data directories found; set WAREHOUSE_APP_DATA_DIR explicitly." >&2
+    exit 1
+  fi
+fi
+
+if [ -z "${APP_DATA_DIR:-}" ]; then
+  WAREHOUSE_APP_DATA_NGC="${WAREHOUSE_APP_DATA_NGC:?set NGC resource, for example nvidia/vss-warehouse/vss-warehouse-app-data:<version>}"
+  command -v ngc >/dev/null || { echo "ERROR: ngc CLI is required to download sample app-data. Install/configure NGC CLI or set WAREHOUSE_APP_DATA_DIR to an existing extract." >&2; exit 1; }
+  if ! ngc config current >/dev/null 2>&1; then
+    if [ -z "${NGC_CLI_API_KEY:-}" ]; then
+      echo "ERROR: NGC CLI is not configured. Ask the user for an NGC API key via masked input, then export NGC_CLI_API_KEY for this session. Persist ~/.ngc/config only after explicit user approval." >&2
+      exit 1
+    fi
+    export NGC_CLI_API_KEY
+    echo "Using current-session NGC_CLI_API_KEY for this download; not writing ~/.ngc/config."
+    if [ "${PERSIST_NGC_CONFIG:-0}" = 1 ]; then
+      mkdir -p "${HOME}/.ngc"
+      chmod 700 "${HOME}/.ngc"
+      {
+        printf '[CURRENT]\n'
+        printf 'apikey = %s\n' "${NGC_CLI_API_KEY}"
+        printf 'format_type = ascii\n'
+        printf 'org = %s\n' "${NGC_CLI_ORG:?set NGC_CLI_ORG when explicitly persisting ~/.ngc/config}"
+        printf 'team = %s\n' "${NGC_CLI_TEAM:-}"
+      } > "${HOME}/.ngc/config"
+      chmod 600 "${HOME}/.ngc/config"
+      ngc config current >/dev/null
+    fi
+  fi
+  (cd "${APP_DATA_ROOT}" && ngc registry resource download-version "${WAREHOUSE_APP_DATA_NGC}")
+  downloaded="$(find "${APP_DATA_ROOT}" -maxdepth 1 -type d -name 'vss-warehouse-app-data_v*' -printf '%T@ %p\n' | sort -nr | awk 'NR==1 {print $2}')"
+  test -n "${downloaded}" || { echo "ERROR: could not find downloaded vss-warehouse-app-data_v* directory under ${APP_DATA_ROOT}" >&2; exit 1; }
+  tarball="$(find "${downloaded}" -maxdepth 1 -type f -name '*.tar.gz' | head -1)"
+  if [ -n "${tarball}" ] && [ ! -d "${downloaded}/vss-warehouse-app-data" ]; then
+    (cd "${downloaded}" && tar -xvf "${tarball}")
+  fi
+  APP_DATA_DIR="${downloaded}/vss-warehouse-app-data"
+fi
+
+test -d "${APP_DATA_DIR}/models/mtmc" || { echo "ERROR: missing sample models under ${APP_DATA_DIR}/models/mtmc" >&2; exit 1; }
+test -d "${APP_DATA_DIR}/models/mv3dt/BodyPose3DNet" || { echo "ERROR: missing BodyPose3DNet under ${APP_DATA_DIR}/models/mv3dt" >&2; exit 1; }
+test -d "${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic" || { echo "ERROR: missing sample videos under ${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic" >&2; exit 1; }
+
+export MODELS_DIR="${APP_DATA_DIR}/models"
+export VIDEO_DIR="${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic"
+```
+
+For registry-image access, also log in to `nvcr.io` if needed before Compose pulls the RT-CV-3D images:
+
+```bash
+if [ -n "${NGC_CLI_API_KEY:-}" ]; then
+  printf '%s' "${NGC_CLI_API_KEY}" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+fi
+```
+
+## Stage Sample Calibration And BEV Assets
+
+The repo sample calibration path is used only as an input artifact; the runtime camInfo files must still be generated by standalone `scripts/generate-configs.sh`.
+
+```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SAMPLE_DATA="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic"
+CALIBRATION_JSON="${SAMPLE_DATA}/calibration.json"
+MAP_PNG="${SAMPLE_DATA}/images/Top.png"
+
+test -f "${CALIBRATION_JSON}" || { echo "ERROR: sample calibration missing: ${CALIBRATION_JSON}" >&2; exit 1; }
+test -f "${MAP_PNG}" || { echo "ERROR: sample BEV map missing: ${MAP_PNG}" >&2; exit 1; }
+
+BEV_DATASET_PATH="${RTCV3D_APP}/generated/bev-dataset"
+mkdir -p "${BEV_DATASET_PATH}"
+ln -sfn "${MAP_PNG}" "${BEV_DATASET_PATH}/map.png"
+./scripts/generate-transforms.sh "${CALIBRATION_JSON}" "${BEV_DATASET_PATH}/map.png" -o "${BEV_DATASET_PATH}/transforms.yml" --force
+
+export CALIBRATION_JSON MAP_PNG BEV_DATASET_PATH NUM_CAMS=4 INPUT_MODE=file SAVE_VIDEO=1 BEV_SAVE_VIDEO=1 BEV_SOURCE=fused
+```
+
+Then load `configure-cameras.md` and continue from `Validate Calibration`. The file-input checks should pass because the sample videos match the sample camera IDs exactly.
+
+## Env Values For The Sample
+
+Set these in standalone `docker/.env` before staging and launch. Preserve image tag values already present in the checked-out package.
+
+```text
+MODELS_DIR=<APP_DATA_DIR>/models
+NUM_CAMS=4
+INPUT_MODE=file
+VIDEO_DIR=<APP_DATA_DIR>/videos/warehouse-4cams-20mx20m-synthetic
+SAVE_VIDEO=1
+USE_EXTERNAL_BROKERS=0
+RAW_TOPIC=mdx-raw
+FUSED_TOPIC=mdx-bev
+```
+
+Use bundled brokers unless the user explicitly asks for external brokers:
+
+```bash
+cd "${RTCV3D_APP}"
+./scripts/generate-configs.sh "${CALIBRATION_JSON}"
+INPUT_MODE=file OSD=0 SAVE_VIDEO=1 ./scripts/stage-configs.sh
+```
+
+Because the sample is finite MP4 input with saved output, use the two-phase BEV launch from `deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the fused BEV recorder and wait for its Kafka consumer group assignment, then start `perception`.
+
+## Verify Sample Run
+
+Use the file-input success criteria in `verify-and-view.md`:
+
+- `vss-rtvi-cv-mv3dt` exits with code `0` after EOS and logs `App run successful`.
+- `mdx-raw` and `mdx-bev` offsets exceed pre-run baselines.
+- `video-output/grid-view.mkv` is from the current run, non-empty, and `ffprobe` can parse it.
+- Current-run fused BEV video is from `bev-output/`, non-empty, `ffprobe` can parse it, and the current BEV recorder log contains `Video saved` with a positive frame count.

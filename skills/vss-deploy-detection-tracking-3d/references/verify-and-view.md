@@ -2,6 +2,16 @@
 
 Load this reference after compose launch, when checking health, Kafka data flow, OSD, saved perception video, or BEV visualization.
 
+## Contents
+
+- [Container Health](#container-health)
+- [Perception Readiness](#perception-readiness)
+- [Kafka Offsets](#kafka-offsets)
+- [RTSP Stream Set And FPS](#rtsp-stream-set-and-fps)
+- [Saved Perception Video](#saved-perception-video)
+- [BEV Visualization And Saved BEV](#bev-visualization-and-saved-bev)
+- [Success Report](#success-report)
+
 ## Container Health
 
 ```bash
@@ -30,28 +40,87 @@ Expected: `healthy`.
 
 ## Perception Readiness
 
-Use bounded log checks; do not wait forever:
+Use current-run bounded log checks; do not wait forever. File-input verification must use the container started for this run, not historical retained logs.
 
 ```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+mkdir -p generated/run-state
+RUN_STATE_DIR="${RTCV3D_APP}/generated/run-state"
+RUN_ID="${RUN_ID:-$(cat generated/run-state/run-id 2>/dev/null || date +%Y%m%d_%H%M%S)}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+INPUT_MODE="${INPUT_MODE:-$(read_env INPUT_MODE)}"
+PERCEPTION_ID_EXPECTED="$(cat "${RUN_STATE_DIR}/perception-container-id" 2>/dev/null || true)"
+PERCEPTION_STARTED_AT="$(cat "${RUN_STATE_DIR}/perception-started-at" 2>/dev/null || true)"
+if [ -z "${PERCEPTION_STARTED_AT}" ]; then
+  PERCEPTION_STARTED_AT="$(docker inspect --format '{{.State.StartedAt}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+fi
+current_logs() {
+  if [ -n "${PERCEPTION_STARTED_AT}" ]; then
+    docker logs --since "${PERCEPTION_STARTED_AT}" vss-rtvi-cv-mv3dt 2>&1
+  else
+    docker logs vss-rtvi-cv-mv3dt 2>&1
+  fi
+}
+
 docker logs --tail 200 vss-rtvi-cv-mv3dt 2>&1 | tail -80
 
-deadline=$((SECONDS + 120))
-until docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -q 'ds-ready: YES'; do
-  [ "${SECONDS}" -lt "${deadline}" ] || { echo "ERROR: ds-ready: YES not observed before timeout"; exit 1; }
-  sleep 2
-done
-echo 'perception reached ds-ready: YES'
+if [ "${INPUT_MODE:-}" = file ]; then
+  current_id="$(docker inspect --format '{{.Id}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+  if [ -n "${PERCEPTION_ID_EXPECTED}" ] && [ "${current_id}" != "${PERCEPTION_ID_EXPECTED}" ]; then
+    echo "ERROR: perception container ID changed after launch; expected ${PERCEPTION_ID_EXPECTED}, got ${current_id}" >&2
+    exit 1
+  fi
 
-PERCEPTION_STATUS="$(docker inspect --format '{{.State.Status}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
-PERCEPTION_EXIT="$(docker inspect --format '{{.State.ExitCode}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
-if [ "${INPUT_MODE:-}" = file ] && [ "${PERCEPTION_STATUS}" = exited ] && [ "${PERCEPTION_EXIT}" = 0 ]    && docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -q 'App run successful'; then
-  echo 'perception completed finite file input successfully'
+  # File input may not emit ds-ready. Treat Pipeline running or ds-ready as useful
+  # startup evidence when present, but do not fail file mode solely because the
+  # service-ready marker is absent; EOS success and Kafka/artifact evidence are
+  # the deterministic success criteria.
+  ready_deadline=$((SECONDS + ${PERCEPTION_READY_TIMEOUT:-120}))
+  startup_seen=0
+  while [ "${SECONDS}" -lt "${ready_deadline}" ]; do
+    logs="$(current_logs || true)"
+    if printf '%s\n' "${logs}" | grep -qE 'Pipeline running|ds-ready: YES'; then
+      startup_seen=1
+      break
+    fi
+    PERCEPTION_STATUS="$(docker inspect --format '{{.State.Status}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+    [ "${PERCEPTION_STATUS}" = exited ] && break
+    sleep 2
+  done
+  if [ "${startup_seen}" = 1 ]; then
+    echo 'current file-input run reached startup log evidence'
+  else
+    echo 'WARN: file-input run did not emit Pipeline running or ds-ready before EOS/timeout; continuing to EOS success checks'
+  fi
+
+  eos_deadline=$((SECONDS + ${FILE_EOS_TIMEOUT:-900}))
+  while :; do
+    PERCEPTION_STATUS="$(docker inspect --format '{{.State.Status}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+    [ "${PERCEPTION_STATUS}" = exited ] && break
+    [ "${SECONDS}" -lt "${eos_deadline}" ] || { echo "ERROR: file-input perception did not reach EOS before timeout; status=${PERCEPTION_STATUS:-missing}" >&2; exit 1; }
+    sleep 5
+  done
+  PERCEPTION_EXIT="$(docker inspect --format '{{.State.ExitCode}}' vss-rtvi-cv-mv3dt 2>/dev/null || true)"
+  test "${PERCEPTION_EXIT}" = 0 || { echo "ERROR: file-input perception exited non-zero: ${PERCEPTION_EXIT}" >&2; exit 1; }
+  CURRENT_LOG="generated/run-state/perception-logs-${RUN_ID}.txt"
+  current_logs > "${CURRENT_LOG}"
+  grep -q 'App run successful' "${CURRENT_LOG}" || { echo "ERROR: current file run lacks App run successful after ${PERCEPTION_STARTED_AT}" >&2; exit 1; }
+  echo 'current file-input run completed successfully after EOS'
+else
+  deadline=$((SECONDS + ${PERCEPTION_READY_TIMEOUT:-120}))
+  until current_logs | grep -q 'ds-ready: YES'; do
+    [ "${SECONDS}" -lt "${deadline}" ] || { echo "ERROR: ds-ready: YES not observed before timeout"; exit 1; }
+    sleep 2
+  done
+  echo 'perception reached ds-ready: YES'
 fi
 ```
 
 For `INPUT_MODE=stream`, 0 FPS before RTSP registration is normal. After streams are registered, the perception container should remain running until stopped; an unexpected exit is a failure.
 
-For `INPUT_MODE=file`, clips start immediately and the perception container exits when all files finish. `Exited (0)` plus `App run successful` is expected. Verify Kafka offsets and saved artifacts instead of restarting perception.
+For `INPUT_MODE=file`, clips start immediately and the perception container exits when all files finish. Do not require `ds-ready: YES` in file mode; `Pipeline running` is useful startup evidence when present, but `Exited (0)` plus `App run successful`, Kafka offset deltas, and saved artifact checks determine success. Verify Kafka offsets and saved artifacts instead of restarting perception.
 
 ## Kafka Offsets
 
@@ -190,6 +259,7 @@ For live RTSP deployment, success requires exact stream registration and recent 
 
 ```bash
 cd "${RTCV3D_APP}"
+mkdir -p generated/run-state
 EXPECTED_IDS="$(find generated/camInfo -maxdepth 1 -type f -name '*.yml' -printf '%f
 ' | sed 's/\.yml$//' | LC_ALL=C sort | paste -sd, -)"
 ./scripts/add-streams.sh --list > generated/run-state/stream-info-verify.txt
@@ -214,51 +284,78 @@ Check recent FPS from logs and require every expected camera to have a fresh pos
 
 ```bash
 cd "${RTCV3D_APP}"
-docker logs --since 90s vss-rtvi-cv-mv3dt 2>&1 > generated/run-state/fps.log
+mkdir -p generated/run-state
+docker logs --since 90s vss-rtvi-cv-mv3dt > generated/run-state/fps.log 2>&1
 EXPECTED_IDS="${EXPECTED_IDS}" python3 - <<'PY'
-import os, re, sys
+import os, re
 expected = sorted([x for x in os.environ['EXPECTED_IDS'].split(',') if x])
 if not expected:
     raise SystemExit('ERROR: EXPECTED_IDS is empty')
 stream_text = open('generated/run-state/stream-info-verify.txt', encoding='utf-8').read()
-pairs = [(int(src), cam) for src, cam in re.findall(r'source_id=(\d+)\s+camera_id=([^\s]+)', stream_text)]
+pairs = []
+for src, cam in re.findall(r'source_id[=: ]+(\d+).*?camera_id[=: ]+([^\s,;]+)', stream_text):
+    pairs.append((int(src), cam))
+for cam, src in re.findall(r'camera_id[=: ]+([^\s,;]+).*?source_id[=: ]+(\d+)', stream_text):
+    pairs.append((int(src), cam))
+pairs = sorted(set(pairs))
 if len(pairs) != len(expected):
     raise SystemExit(f'ERROR: stream-info source count {len(pairs)} != expected {len(expected)}')
 if sorted(cam for _, cam in pairs) != expected:
     raise SystemExit(f'ERROR: stream-info cameras do not match expected: {pairs} vs {expected}')
 if len({src for src, _ in pairs}) != len(pairs) or len({cam for _, cam in pairs}) != len(pairs):
     raise SystemExit(f'ERROR: duplicate source/camera entries in stream-info: {pairs}')
+source_to_camera = dict(pairs)
 ordered_cameras = [cam for _, cam in sorted(pairs)]
-log_text = open('generated/run-state/fps.log', encoding='utf-8', errors='replace').read()
-if not log_text.strip():
+log_lines = open('generated/run-state/fps.log', encoding='utf-8', errors='replace').read().splitlines()
+if not any(line.strip() for line in log_lines):
     raise SystemExit('ERROR: no recent perception logs available for FPS check')
 
-fps = {}
-for line in log_text.splitlines():
-    # Structured/keyed variants, when present.
-    for cam, val in re.findall(r'(?:camera_id|camera|sensorId|sensor_id)[=: ]+([^\s,;]+).*?(?:FPS|fps)[=: ]+([0-9]+(?:\.[0-9]+)?)', line):
-        if cam in expected:
-            fps[cam] = float(val)
-    for src, val in re.findall(r'source_id[=: ]+(\d+).*?(?:FPS|fps)[=: ]+([0-9]+(?:\.[0-9]+)?)', line):
-        src_i = int(src)
-        for known_src, cam in pairs:
-            if known_src == src_i:
+def parse_keyed(lines):
+    fps = {}
+    for line in lines:
+        for cam, val in re.findall(r'(?:camera_id|camera|sensorId|sensor_id)[=: ]+([^\s,;]+).*?(?:FPS|fps)[=: ]+([0-9]+(?:\.[0-9]+)?)', line):
+            if cam in expected:
                 fps[cam] = float(val)
+        for src, val in re.findall(r'source_id[=: ]+(\d+).*?(?:FPS|fps)[=: ]+([0-9]+(?:\.[0-9]+)?)', line):
+            cam = source_to_camera.get(int(src))
+            if cam:
+                fps[cam] = float(val)
+        for val, src in re.findall(r'([0-9]+(?:\.[0-9]+)?)\s*\([0-9]+(?:\.[0-9]+)?\).*?source_id\s*:\s*(\d+)', line):
+            cam = source_to_camera.get(int(src))
+            if cam:
+                fps[cam] = float(val)
+    return fps
 
+def parse_perf_block(start_idx):
+    block = []
+    for line in log_lines[start_idx:start_idx + 2 * len(expected) + 12]:
+        if block and 'Active sources :' in line:
+            break
+        block.append(line)
+    fps = parse_keyed(block)
+    if sorted(fps) == expected:
+        return fps
+
+    # Non-dynamic file-source format can print all FPS numbers on the **PERF row.
+    perf_rows = [line for line in block if '**PERF' in line or 'PERF(' in line]
+    for row in reversed(perf_rows):
+        if 'FPS ' in row and '(Avg)' in row:
+            continue
+        vals = [float(x) for x in re.findall(r'(?<![A-Za-z0-9_])-?\d+(?:\.\d+)?', row)]
+        n = len(ordered_cameras)
+        if len(vals) == n:
+            return dict(zip(ordered_cameras, vals))
+        if len(vals) == 2 * n and '(' in row and ')' in row:
+            return dict(zip(ordered_cameras, vals[0::2]))
+    return {}
+
+fps = parse_keyed(log_lines)
 if sorted(fps) != expected:
-    perf_lines = [line for line in log_text.splitlines() if '**PERF' in line]
-    if not perf_lines:
-        raise SystemExit('ERROR: no recent **PERF block found and no keyed FPS lines found')
-    latest = perf_lines[-1]
-    values = [float(x) for x in re.findall(r'(?<![A-Za-z0-9_])-?\d+(?:\.\d+)?', latest)]
-    n = len(ordered_cameras)
-    if len(values) == n:
-        mapped = values
-    elif len(values) == 2 * n and '(' in latest and ')' in latest:
-        mapped = values[0::2]
-    else:
-        raise SystemExit(f'ERROR: ambiguous **PERF format for {n} cameras: {latest!r}')
-    fps = dict(zip(ordered_cameras, mapped))
+    perf_starts = [i for i, line in enumerate(log_lines) if '**PERF' in line or 'PERF(' in line]
+    for idx in reversed(perf_starts):
+        fps = parse_perf_block(idx)
+        if sorted(fps) == expected:
+            break
 
 missing = sorted(set(expected) - set(fps))
 extras = sorted(set(fps) - set(expected))
@@ -301,6 +398,69 @@ ${RTCV3D_APP}/bev-output/fused_trajectory_video_<stamp>.mp4   # default fused BE
 ${RTCV3D_APP}/bev-output/trajectory_video_<stamp>.mp4         # raw/per-camera BEV when requested
 ```
 
+Finalize the current saved-BEV recorder before parsing its log. For file input, run this after EOS and Kafka offset checks; the offline recorder normally writes `Video saved` only after `BEV_EXIT_ON_IDLE` seconds without messages. For saved RTSP output, first end the requested capture window by removing/stopping streams or stopping perception, then run the same finalization before verifying the artifact.
+
+```bash
+cd "${RTCV3D_APP}"
+mkdir -p generated/run-state
+RUN_STATE_DIR="${RTCV3D_APP}/generated/run-state"
+PID_FILE="${RUN_STATE_DIR}/bev-visualizer.pid"
+BEV_EXIT_ON_IDLE="${BEV_EXIT_ON_IDLE:-15}"
+BEV_FINALIZE_MARGIN="${BEV_FINALIZE_MARGIN:-10}"
+
+safe_stop_bev_recorder() {
+  pid="$1"
+  current_cwd="$(readlink -f /proc/"${pid}"/cwd 2>/dev/null || true)"
+  expected_cwd="$(cat "${RUN_STATE_DIR}/bev-visualizer.cwd" 2>/dev/null || true)"
+  current_cmd="$(tr '\0' ' ' < /proc/"${pid}"/cmdline 2>/dev/null || true)"
+  current_start="$(awk '{print $22}' /proc/"${pid}"/stat 2>/dev/null || true)"
+  expected_start="$(cat "${RUN_STATE_DIR}/bev-visualizer.start_ticks" 2>/dev/null || true)"
+
+  case "${current_cmd}" in
+    *kafka_bev_visualizer.py*|*kafka_fused_bev_visualizer.py*|*bev-visualizer.sh*) cmd_ok=1 ;;
+    *) cmd_ok=0 ;;
+  esac
+  cwd_ok=0
+  if [ -n "${current_cwd}" ] && [ "${current_cwd}" = "${RTCV3D_APP}" ]; then cwd_ok=1; fi
+  if [ -n "${expected_cwd}" ] && [ "${current_cwd}" = "${expected_cwd}" ]; then cwd_ok=1; fi
+  start_ok=1
+  if [ -n "${expected_start}" ] && [ -n "${current_start}" ] && [ "${current_start}" != "${expected_start}" ]; then start_ok=0; fi
+
+  if [ "${cmd_ok}" = 1 ] && [ "${cwd_ok}" = 1 ] && [ "${start_ok}" = 1 ]; then
+    kill -TERM "${pid}" 2>/dev/null || true
+  else
+    echo "ERROR: refusing to stop BEV PID ${pid}; identity check failed (cmd_ok=${cmd_ok} cwd_ok=${cwd_ok} start_ok=${start_ok})" >&2
+    return 1
+  fi
+}
+
+if [ -f "${PID_FILE}" ]; then
+  pid="$(cat "${PID_FILE}")"
+  if ! printf '%s' "${pid}" | grep -Eq '^[0-9]+$'; then
+    echo "ERROR: invalid BEV recorder PID: ${pid}" >&2
+    exit 1
+  fi
+  if kill -0 "${pid}" 2>/dev/null; then
+    deadline=$((SECONDS + BEV_EXIT_ON_IDLE + BEV_FINALIZE_MARGIN))
+    while kill -0 "${pid}" 2>/dev/null && [ "${SECONDS}" -lt "${deadline}" ]; do
+      sleep 1
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+      echo "BEV recorder still active after idle wait; sending safe SIGTERM"
+      safe_stop_bev_recorder "${pid}"
+      deadline=$((SECONDS + 20))
+      while kill -0 "${pid}" 2>/dev/null && [ "${SECONDS}" -lt "${deadline}" ]; do
+        sleep 1
+      done
+    fi
+    if kill -0 "${pid}" 2>/dev/null; then
+      echo "ERROR: BEV recorder did not exit/finalize: pid=${pid}" >&2
+      exit 1
+    fi
+  fi
+fi
+```
+
 Select the artifact from the current recorder log, not by globbing the newest historical file:
 
 ```bash
@@ -333,7 +493,7 @@ cat "${BEV_PROBE}"
 echo "BEV frames=${BEV_FRAMES} path=${BEV_VIDEO}"
 ```
 
-If BEV assets are missing, say saved BEV cannot be produced yet and ask for the map/transforms source before continuing with reduced output.
+If BEV assets are missing, report that saved BEV cannot be produced until `map.png` and `transforms.yml` are provided; do not claim a BEV artifact from a reduced output run.
 
 ## Success Report
 

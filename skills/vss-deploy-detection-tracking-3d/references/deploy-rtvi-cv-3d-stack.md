@@ -2,6 +2,21 @@
 
 Load this reference for setup, environment preparation, compose launch, or redeploy of the standalone RT-CV-3D MV3DT stack.
 
+## Contents
+
+- [Resolve The App Directory](#resolve-the-app-directory)
+- [What Compose Starts](#what-compose-starts)
+- [Prerequisites](#prerequisites)
+- [Preflight Config](#preflight-config)
+- [NGC Login And Image Access](#ngc-login-and-image-access)
+- [Bundled Kafka Port Preflight](#bundled-kafka-port-preflight)
+- [Selected Output Tool Preflight](#selected-output-tool-preflight)
+- [Current-Run State](#current-run-state)
+- [Support Service Helpers](#support-service-helpers)
+- [Launch Without BEV Prestart](#launch-without-bev-prestart)
+- [Two-Phase Launch For BEV](#two-phase-launch-for-bev)
+- [Redeploy](#redeploy)
+
 ## Resolve The App Directory
 
 ```bash
@@ -87,6 +102,7 @@ INPUT_MODE="${INPUT_MODE:-$(read_env INPUT_MODE)}"
 RAW_TOPIC="${RAW_TOPIC:-$(read_env RAW_TOPIC)}"; RAW_TOPIC="${RAW_TOPIC:-mdx-raw}"
 FUSED_TOPIC="${FUSED_TOPIC:-$(read_env FUSED_TOPIC)}"; FUSED_TOPIC="${FUSED_TOPIC:-mdx-bev}"
 KAFKA_PORT="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"
+KAFKA_CONTROLLER_PORT="${KAFKA_CONTROLLER_PORT:-$(read_env KAFKA_CONTROLLER_PORT)}"
 USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-$(read_env USE_EXTERNAL_BROKERS)}"; USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-0}"
 if [ "${USE_EXTERNAL_BROKERS}" = 1 ]; then
   MQTT_HOST="${MQTT_HOST:-$(read_env MQTT_HOST)}"; MQTT_HOST="${MQTT_HOST:?set external MQTT_HOST}"
@@ -97,10 +113,12 @@ else
   MQTT_PORT="${MQTT_PORT:-$(read_env MQTT_PORT)}"; MQTT_PORT="${MQTT_PORT:-1883}"
   KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-$(read_env KAFKA_BOOTSTRAP)}"; KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}"
 fi
-export INPUT_MODE RAW_TOPIC FUSED_TOPIC KAFKA_PORT USE_EXTERNAL_BROKERS MQTT_HOST MQTT_PORT KAFKA_BOOTSTRAP
+export INPUT_MODE RAW_TOPIC FUSED_TOPIC KAFKA_PORT KAFKA_CONTROLLER_PORT USE_EXTERNAL_BROKERS MQTT_HOST MQTT_PORT KAFKA_BOOTSTRAP
 ```
 
 ## NGC Login And Image Access
+
+Use current-session or existing NGC credentials without printing keys. Do not write credentials into the repo, command arguments, logs, or final answer.
 
 ```bash
 cd "${RTCV3D_APP}/docker"
@@ -113,10 +131,108 @@ if [ -n "${NGC_CLI_API_KEY:-}" ]; then
 else
   echo "WARN: NGC_CLI_API_KEY is not set; image pulls may fail if nvcr.io is not already logged in."
 fi
-docker compose config --images | sort -u
+
+IMAGES="$(docker compose config --images | sort -u)"
+test -n "${IMAGES}" || { echo "ERROR: no images resolved from compose" >&2; exit 1; }
+printf '%s\n' "${IMAGES}"
 ```
 
-If the user asks you to pull/check images before launching, use only the images reported by `docker compose config --images`.
+If the user asks you to pull/check images before launching, use only the images reported by `docker compose config --images`. Before pulling or starting the stack, fail fast on inaccessible images without downloading layers:
+
+```bash
+cd "${RTCV3D_APP}/docker"
+IMAGES="$(docker compose config --images | sort -u)"
+test -n "${IMAGES}" || { echo "ERROR: no images resolved from compose" >&2; exit 1; }
+for img in ${IMAGES}; do
+  echo "Checking image access: ${img}"
+  if ! docker manifest inspect "${img}" >/dev/null 2>&1; then
+    echo "ERROR: cannot access image ${img}. Log in to the required registry, confirm NGC Catalog access for nvcr.io images, then retry." >&2
+    exit 1
+  fi
+done
+```
+
+## Bundled Kafka Port Preflight
+
+Run this before bundled-broker launch. Because the standalone services use host networking, `KAFKA_PORT` and `KAFKA_CONTROLLER_PORT` must be free on the host. If the configured/default `9092/9093` pair is occupied, select and persist a free pair such as `19092/19093`; keep `KAFKA_BOOTSTRAP=localhost:${KAFKA_PORT}` in sync. Skip this section for explicit external-broker mode.
+
+```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+write_env() {
+  key="$1"; value="$2"; file="${RTCV3D_APP}/docker/.env"; tmp="${file}.tmp"
+  awk -F= -v key="${key}" -v value="${value}" '
+    BEGIN {done=0}
+    $1 == key {print key "=" value; done=1; next}
+    {print}
+    END {if (!done) print key "=" value}
+  ' "${file}" > "${tmp}"
+  mv "${tmp}" "${file}"
+}
+port_free() {
+  python3 - "$1" <<'PY'
+import socket, sys
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    try:
+        s.bind(("0.0.0.0", port))
+    except OSError:
+        raise SystemExit(1)
+PY
+}
+USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-$(read_env USE_EXTERNAL_BROKERS)}"; USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-0}"
+if [ "${USE_EXTERNAL_BROKERS}" != 1 ]; then
+  current_data="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"; current_data="${current_data:-9092}"
+  current_ctrl="${KAFKA_CONTROLLER_PORT:-$(read_env KAFKA_CONTROLLER_PORT)}"; current_ctrl="${current_ctrl:-9093}"
+  selected=""
+  for pair in "${current_data}:${current_ctrl}" "19092:19093" "29092:29093" "39092:39093"; do
+    data_port="${pair%%:*}"; ctrl_port="${pair##*:}"
+    if port_free "${data_port}" && port_free "${ctrl_port}"; then
+      selected="${pair}"
+      break
+    fi
+  done
+  test -n "${selected}" || { echo "ERROR: no free bundled Kafka port pair found; set KAFKA_PORT and KAFKA_CONTROLLER_PORT or use external Kafka" >&2; exit 1; }
+  KAFKA_PORT="${selected%%:*}"
+  KAFKA_CONTROLLER_PORT="${selected##*:}"
+  KAFKA_BOOTSTRAP="localhost:${KAFKA_PORT}"
+  if [ "${KAFKA_PORT}:${KAFKA_CONTROLLER_PORT}" != "${current_data}:${current_ctrl}" ]; then
+    echo "Bundled Kafka ports ${current_data}/${current_ctrl} are unavailable; using ${KAFKA_PORT}/${KAFKA_CONTROLLER_PORT}."
+  fi
+  write_env KAFKA_PORT "${KAFKA_PORT}"
+  write_env KAFKA_CONTROLLER_PORT "${KAFKA_CONTROLLER_PORT}"
+  write_env KAFKA_BOOTSTRAP "${KAFKA_BOOTSTRAP}"
+  export KAFKA_PORT KAFKA_CONTROLLER_PORT KAFKA_BOOTSTRAP
+fi
+```
+
+## Selected Output Tool Preflight
+
+Run this before launching a saved-output or BEV visualization/recording workflow. Saved artifacts are part of the success criteria, so verify the host can parse outputs before starting the finite run.
+
+```bash
+cd "${RTCV3D_APP:?set RTCV3D_APP}"
+read_env() {
+  awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
+}
+SAVE_VIDEO="${SAVE_VIDEO:-$(read_env SAVE_VIDEO)}"; SAVE_VIDEO="${SAVE_VIDEO:-0}"
+if [ "${SAVE_VIDEO}" = 1 ] || [ "${BEV_SAVE_VIDEO:-0}" = 1 ] || [ -n "${BEV_DATASET_PATH:-}" ]; then
+  command -v ffprobe >/dev/null 2>&1 || { echo "ERROR: ffprobe is required to verify saved grid/BEV videos; install ffmpeg or provide ffprobe on PATH before launch" >&2; exit 1; }
+fi
+if [ "${BEV_SAVE_VIDEO:-0}" = 1 ] || [ -n "${BEV_DATASET_PATH:-}" ]; then
+  # shellcheck disable=SC1091
+  source "${RTCV3D_APP}/scripts/ensure-venv.sh"
+  ensure_venv || { echo "ERROR: BEV visualizer Python environment could not be created; see troubleshooting for python3-venv/ensurepip/pip bootstrap" >&2; exit 1; }
+  "${VENV_PY}" - <<'PY'
+try:
+    import tkinter  # noqa: F401
+except Exception as exc:
+    raise SystemExit(f"ERROR: Python Tkinter is required by the BEV visualizer even for offline recording: {exc}")
+PY
+fi
+```
 
 ## Current-Run State
 
@@ -231,10 +347,24 @@ capture_file_kafka_baseline() {
 }
 start_perception() {
   cd "${RTCV3D_APP}/docker"
-  if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-    docker compose up -d perception
+  if [ "${INPUT_MODE:-}" = file ]; then
+    if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
+      docker compose up -d --no-deps --force-recreate perception
+    else
+      COMPOSE_PROFILES=mosquitto,kafka docker compose up -d --no-deps --force-recreate perception
+    fi
   else
-    COMPOSE_PROFILES=mosquitto,kafka docker compose up -d perception
+    if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
+      docker compose up -d perception
+    else
+      COMPOSE_PROFILES=mosquitto,kafka docker compose up -d perception
+    fi
+  fi
+  if docker inspect vss-rtvi-cv-mv3dt >/dev/null 2>&1; then
+    state_dir="${RUN_STATE_DIR:-${RTCV3D_APP}/generated/run-state}"
+    mkdir -p "${state_dir}"
+    docker inspect --format '{{.Id}}' vss-rtvi-cv-mv3dt > "${state_dir}/perception-container-id"
+    docker inspect --format '{{.State.StartedAt}}' vss-rtvi-cv-mv3dt > "${state_dir}/perception-started-at"
   fi
 }
 ```
@@ -344,12 +474,7 @@ wait_bev_assignment "${BEV_GROUP}" "${BEV_KAFKA_TOPIC}"
 Start perception only after the BEV Kafka consumer group assignment is confirmed:
 
 ```bash
-cd "${RTCV3D_APP}/docker"
-if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
-  docker compose up -d perception
-else
-  COMPOSE_PROFILES=mosquitto,kafka docker compose up -d perception
-fi
+start_perception
 ```
 
 For RTSP, start the BEV recorder/visualizer before `scripts/add-streams.sh`; no video data flows until streams are registered. For file input, always use this sequence when BEV is enabled because clips play once immediately.
@@ -364,8 +489,24 @@ When config, calibration, input mode, `NUM_CAMS`, broker mode, or visualization 
 
 1. Stop the previously tracked BEV recorder with the safe PID flow in `references/teardown.md` if BEV was running.
 2. Restage configs.
-3. If BEV recording/viewing is enabled, run the two-phase launch above again.
-4. Otherwise recreate the standalone compose services with the selected broker mode.
+3. Branch on `INPUT_MODE` before restarting anything.
+
+For `INPUT_MODE=file`, never use full-stack `docker compose up -d` or `docker compose up -d --force-recreate`. Preserve the prestarted broker/topic/group state by reusing the same ordering as a fresh file run:
+
+```bash
+cd "${RTCV3D_APP}"
+./scripts/stage-configs.sh
+start_support_services
+capture_file_kafka_baseline
+```
+
+If BEV recording/viewing is enabled, run the `Two-Phase Launch For BEV` recorder block above through `wait_bev_assignment`, then start perception. If BEV is not enabled, start perception directly:
+
+```bash
+start_perception
+```
+
+For `INPUT_MODE=stream` when no BEV prestart is required, a full Compose recreate is acceptable because streams are registered only after `ds-ready: YES`:
 
 ```bash
 cd "${RTCV3D_APP}"
@@ -377,3 +518,5 @@ else
   COMPOSE_PROFILES=mosquitto,kafka docker compose up -d --force-recreate
 fi
 ```
+
+For stream redeploy with saved/live BEV prestart, start the BEV recorder/visualizer first with the two-phase BEV block, then register streams with `scripts/add-streams.sh` only after `ds-ready: YES`.

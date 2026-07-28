@@ -1,0 +1,34 @@
+{
+  "skills": [
+    "vss-deploy-detection-tracking-3d"
+  ],
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1,
+        "modes": [
+          "standalone"
+        ]
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Deploy RTVI-CV-3D / MV3DT on the 4-camera sample dataset end-to-end on {{platform}}. Run autonomously. Save the perception grid video and the fused BEV video, verify the outputs, then stop remaining standalone support services after the finite file run completes.\n\nEnvironment and prerequisites: this is a real deployment eval on a GPU host with Docker, NVIDIA Container Toolkit, ffprobe, and Python venv/Tkinter support available or installable by the host image. NGC_CLI_API_KEY is provided by the harness for nvcr.io image access and NGC resource access; never print the key. The harness must provide either WAREHOUSE_APP_DATA_DIR pointing at an extracted vss-warehouse-app-data directory, or WAREHOUSE_APP_DATA_NGC naming the NGC vss-warehouse-app-data resource to download. Use the standalone app at {{repo_root}}/services/rtvi/rt-cv-3d/rt-cv-mv3dt and the standalone compose file only. Use bundled Mosquitto and Kafka brokers. If bundled Kafka defaults 9092/9093 are occupied, select and persist a free pair such as 19092/19093 with matching KAFKA_BOOTSTRAP. Do not use warehouse compose, vss-deploy-profile, VST, or external brokers. Do not modify generated skill metadata files or machine-specific user assets.",
+      "checks": [
+        "The agent performs a real deployment rather than a plan-only response, including allowed docker compose/image access commands on the GPU host.",
+        "The agent uses only the standalone RT-CV-3D path services/rtvi/rt-cv-3d/rt-cv-mv3dt and its docker/compose.yml; it does not use warehouse compose, vss-deploy-profile, or VST.",
+        "The agent resolves the sample app-data from WAREHOUSE_APP_DATA_DIR or downloads the harness-provided WAREHOUSE_APP_DATA_NGC resource without printing NGC_CLI_API_KEY.",
+        "The agent reports resolved runtime images only from docker compose config --images and validates image access before or during launch without hardcoding runtime tags.",
+        "The agent stages the repo sample calibration.json and Top.png, generates transforms.yml, generates camInfo/pub-sub configs, sets NUM_CAMS=4, INPUT_MODE=file, SAVE_VIDEO=1, and BEV_SOURCE=fused.",
+        "The agent preflights bundled Kafka data/controller ports, ffprobe, and BEV visualizer Python/Tkinter prerequisites before launch.",
+        "The agent starts bundled Mosquitto, Kafka, kafka-topic-init, and BEV Fusion before perception; kafka-topic-init exits 0 and BEV Fusion becomes healthy.",
+        "The agent captures mdx-raw and mdx-bev Kafka offset baselines before perception, starts the saved fused BEV recorder, waits for Kafka consumer group assignment evidence, then starts perception with --no-deps --force-recreate so brokers are not recreated.",
+        "For file input, the agent does not require ds-ready: YES; it waits for EOS and treats Exited (0) plus App run successful in current-run logs as success.",
+        "The agent verifies mdx-raw and mdx-bev offsets exceed their pre-run baselines after EOS.",
+        "The agent verifies current-run video-output/grid-view.mkv and current-run fused BEV video using run-start timestamp, nonzero size, ffprobe success, and BEV log Video saved with a positive frame count.",
+        "The final report includes exact current-run artifact paths and supporting evidence, then stops remaining standalone support services without deleting models, videos, calibration/map assets, or saved outputs."
+      ]
+    }
+  ]
+}

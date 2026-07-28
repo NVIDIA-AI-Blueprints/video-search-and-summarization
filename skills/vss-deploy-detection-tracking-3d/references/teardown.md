@@ -2,6 +2,17 @@
 
 Load this reference when the user asks to stop, tear down, clean, reset, or tear down everything for the standalone RT-CV-3D MV3DT deployment.
 
+## Contents
+
+- [File-Input Post-Run Cleanup](#file-input-post-run-cleanup)
+- [Teardown Scope](#teardown-scope)
+- [Stop Host-Side BEV Visualizer](#stop-host-side-bev-visualizer)
+- [Stop The Stack](#stop-the-stack)
+- [Verify Stop](#verify-stop)
+- [Clean Generated Runtime State](#clean-generated-runtime-state)
+- [Reset Bundled Broker Data](#reset-bundled-broker-data)
+- [AMC And VIOS](#amc-and-vios)
+
 ## File-Input Post-Run Cleanup
 
 For `INPUT_MODE=file`, `vss-rtvi-cv-mv3dt` exits after EOS by design. Before cleanup, classify the run:
@@ -47,7 +58,6 @@ if [ -f "${PID_FILE}" ]; then
     current_cwd="$(readlink -f /proc/"${pid}"/cwd 2>/dev/null || true)"
     expected_cwd="$(cat "${RUN_STATE_DIR}/bev-visualizer.cwd" 2>/dev/null || true)"
     current_cmd="$(tr '\0' ' ' < /proc/"${pid}"/cmdline 2>/dev/null || true)"
-    expected_cmd="$(cat "${RUN_STATE_DIR}/bev-visualizer.cmdline" 2>/dev/null || true)"
     current_start="$(awk '{print $22}' /proc/"${pid}"/stat 2>/dev/null || true)"
     expected_start="$(cat "${RUN_STATE_DIR}/bev-visualizer.start_ticks" 2>/dev/null || true)"
 
@@ -55,7 +65,6 @@ if [ -f "${PID_FILE}" ]; then
       *kafka_bev_visualizer.py*|*kafka_fused_bev_visualizer.py*|*bev-visualizer.sh*) cmd_ok=1 ;;
       *) cmd_ok=0 ;;
     esac
-    if [ -n "${expected_cmd}" ] && [ "${current_cmd}" != "${expected_cmd}" ]; then cmd_ok=0; fi
     cwd_ok=0
     if [ -n "${current_cwd}" ] && [ "${current_cwd}" = "${RTCV3D_APP}" ]; then cwd_ok=1; fi
     if [ -n "${expected_cwd}" ] && [ "${current_cwd}" = "${expected_cwd}" ]; then cwd_ok=1; fi
