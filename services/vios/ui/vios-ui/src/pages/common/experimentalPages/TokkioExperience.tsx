@@ -34,6 +34,7 @@ import StreamManager, { ErrorType } from 'vst-streaming-lib';
 import React from 'react';
 import { StreamType } from 'vst-streaming-lib';
 import appConfig from '../../../config';
+import { toWebSocketUrl } from '../../../utils/runtimeConfig';
 
 // Updated styled components
 const VideoContainer = styled(Box)(({ theme }) => ({
@@ -101,17 +102,7 @@ const Webrtc: FC = () => {
         streamManager.current = new StreamManager();
         if (streamManager.current) {
             const streambridgeEndpoint = appConfig.streambridgeEndpoint;
-            let wsEndpoint = streambridgeEndpoint.startsWith('https')
-                ? streambridgeEndpoint.replace('https', 'wss')
-                : streambridgeEndpoint.replace('http', 'ws');
-
-            let proxy = window.location.pathname;
-            if (proxy !== '/' && proxy.length > 0) {
-                if (proxy[proxy.length - 1] === '/') {
-                    proxy = proxy.slice(0, -1);
-                }
-                wsEndpoint = `${wsEndpoint}${wsEndpoint.endsWith('/') ? '' : '/'}${proxy}`;
-            }
+            const wsEndpoint = toWebSocketUrl(streambridgeEndpoint);
 
             streamManager.current.updateConfig({
                 inboundStreamVideoElementId: 'tokkio-avatar-stream',
