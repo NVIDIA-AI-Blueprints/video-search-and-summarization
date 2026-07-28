@@ -18,6 +18,8 @@ def promotion_variables(
     *,
     agent_ui_config: str = "",
     alert_config: str = "",
+    video_analytics_api_config: str = "",
+    behavior_analytics_config: str = "",
 ) -> dict[str, str]:
     required = {"VSS_RELEASE_SET_B64", "VSS_RELEASE_SET_ID", "VSS_PROMOTION_TAG"}
     missing = required - set(test_variables)
@@ -40,6 +42,17 @@ def promotion_variables(
         raise ValueError("agent/UI artifacts-promotion config path is required")
     if "vss-alert-ms" in built_names and not alert_config:
         raise ValueError("alert artifacts-promotion config path is required")
+    if (
+        "vss-video-analytics-api" in built_names
+        and not video_analytics_api_config
+    ):
+        raise ValueError(
+            "video analytics API artifacts-promotion config path is required"
+        )
+    if "vss-behavior-analytics" in built_names and not behavior_analytics_config:
+        raise ValueError(
+            "behavior analytics artifacts-promotion config path is required"
+        )
     variables = dict(test_variables)
     variables["BUILD_TYPE"] = "ghcr-promotion"
     variables["VSS_TEST_PIPELINE_ID"] = test_pipeline_id
@@ -47,6 +60,14 @@ def promotion_variables(
         variables["AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH"] = agent_ui_config
     if alert_config:
         variables["ALERT_ARTIFACTS_PROMOTION_CONFIG_PATH"] = alert_config
+    if video_analytics_api_config:
+        variables["VIDEO_ANALYTICS_API_ARTIFACTS_PROMOTION_CONFIG_PATH"] = (
+            video_analytics_api_config
+        )
+    if behavior_analytics_config:
+        variables["BEHAVIOR_ANALYTICS_ARTIFACTS_PROMOTION_CONFIG_PATH"] = (
+            behavior_analytics_config
+        )
     return variables
 
 
@@ -55,6 +76,8 @@ def main() -> int:
     parser.add_argument("--test-pipeline-id", required=True)
     parser.add_argument("--agent-ui-config", default="")
     parser.add_argument("--alert-config", default="")
+    parser.add_argument("--video-analytics-api-config", default="")
+    parser.add_argument("--behavior-analytics-config", default="")
     args = parser.parse_args()
     raw = os.environ.get("DOWNSTREAM_EXTRA_VARIABLES_JSON", "").strip()
     github_env = os.environ.get("GITHUB_ENV", "").strip()
@@ -67,6 +90,8 @@ def main() -> int:
         args.test_pipeline_id,
         agent_ui_config=args.agent_ui_config,
         alert_config=args.alert_config,
+        video_analytics_api_config=args.video_analytics_api_config,
+        behavior_analytics_config=args.behavior_analytics_config,
     )
     with Path(github_env).open("a") as output:
         output.write("DOWNSTREAM_EXTRA_VARIABLES_JSON<<EOF\n")
