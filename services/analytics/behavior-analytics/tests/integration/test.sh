@@ -54,6 +54,12 @@ source "$SCRIPT_DIR/generate_env.sh"
 # Source the cleanup script
 source "$SCRIPT_DIR/cleanup.sh"
 
+# Containers run as non-root users and write integration artifacts through this
+# bind mount. Keep the permission contract with the test harness instead of
+# requiring CI-specific chmod setup.
+mkdir -p "$MDX_DATA_DIR"
+chmod -R a+rwX "$MDX_DATA_DIR"
+
 cd "$PROJ_ROOT_DIR"
 # Build the checked-out service only when its build inputs changed. Otherwise,
 # exercise the currently deployed image while still running the full integration
