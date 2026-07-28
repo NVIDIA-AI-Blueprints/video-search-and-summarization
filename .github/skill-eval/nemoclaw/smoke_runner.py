@@ -22,6 +22,7 @@ import selectors
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -53,6 +54,10 @@ DEFAULT_PROFILE = "base"
 DEFAULT_PLATFORM = "RTXPRO6000BW"
 SCRATCH_ROOT = Path("/tmp/skill-eval")
 KNOWN_VSS_PROFILES = {"base", "alerts", "search", "lvs"}
+ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
+ATTEMPT_OWNER_FILE = "nemoclaw-attempt-owner"
+ATTEMPT_OWNER_PROBE_ATTEMPTS = 3
+ATTEMPT_OWNER_PROBE_RETRY_DELAY_S = 3
 
 PLATFORM_TASK = {
     "RTXPRO6000BW": "rtxpro6000bw",
@@ -108,6 +113,11 @@ class RemoteLockHeartbeat(NamedTuple):
     stop_event: threading.Event
     lost_event: threading.Event
     thread: threading.Thread
+
+
+class AttemptOwnerStatus(NamedTuple):
+    status: str
+    reason: str
 
 
 class WorkerLock(NamedTuple):
@@ -1729,8 +1739,8 @@ def _select_and_lock_instance(
             inventory = _summarize_instances(instances)
             if all_candidates and not candidates:
                 raise InfrastructureBlocked(
-                    "all pool candidates were excluded after pre-agent "
-                    f"setup failures for {platform}: {', '.join(sorted(excluded))}"
+                    "all pool candidates were excluded after prior worker "
+                    f"failures for {platform}: {', '.join(sorted(excluded))}"
                 )
         print(
             "[nemoclaw-ci] candidate workers:",
@@ -1895,9 +1905,12 @@ def _latest_reward(results_root: Path, run_id: str, *, since: float = 0.0) -> tu
         return None, None
     path = rewards[-1]
     try:
-        return float(path.read_text(encoding="utf-8").strip()), path
-    except ValueError:
+        reward = float(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
         return None, path
+    if not math.isfinite(reward) or not 0.0 <= reward <= 1.0:
+        return None, path
+    return reward, path
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -1924,6 +1937,278 @@ def _latest_trial(results_root: Path, run_id: str, *, since: float = 0.0) -> tup
         return None, {}
     result_path = results[-1]
     return result_path.parent, _read_json(result_path)
+
+
+def _attempt_owner_status(
+    results_root: Path,
+    run_id: str,
+    *,
+    since: float,
+    expected_token: str,
+) -> AttemptOwnerStatus:
+    """Detect a post-start replacement of this attempt's artifact epoch.
+
+    A legacy eval running from an older PR head may ignore the remote worker
+    lease and wipe ``/logs/artifacts`` while this trial is active. Harbor's
+    successful blanket artifact manifest plus a missing or changed owner file
+    proves that post-start contamination. Incomplete collection remains
+    unavailable rather than being guessed as contamination. A matching marker
+    does not prove exclusive worker use: an uncoordinated legacy setup that
+    wiped the directory before this marker was written can still overlap.
+    """
+
+    if re.fullmatch(r"[0-9a-f]{32}", expected_token) is None:
+        return AttemptOwnerStatus("unavailable", "invalid expected owner token")
+
+    trial_dir, result = _latest_trial(results_root, run_id, since=since)
+    if trial_dir is None or not result:
+        return AttemptOwnerStatus("unavailable", "no current trial result")
+    environment_setup = result.get("environment_setup")
+    if (
+        not isinstance(environment_setup, dict)
+        or not environment_setup.get("finished_at")
+    ):
+        return AttemptOwnerStatus(
+            "unavailable",
+            "trial environment setup did not finish",
+        )
+
+    artifacts_root = trial_dir / "artifacts"
+    manifest_path = artifacts_root / "manifest.json"
+    try:
+        if artifacts_root.is_symlink():
+            return AttemptOwnerStatus(
+                "unavailable",
+                "artifact root is a symlink",
+            )
+        manifest_stat = manifest_path.lstat()
+        if not stat.S_ISREG(manifest_stat.st_mode):
+            return AttemptOwnerStatus(
+                "unavailable",
+                "artifact manifest is not a regular file",
+            )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return AttemptOwnerStatus("unavailable", "artifact manifest is missing")
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return AttemptOwnerStatus(
+            "unavailable",
+            f"artifact manifest could not be read: {exc}",
+        )
+    if not isinstance(manifest, list):
+        return AttemptOwnerStatus("unavailable", "artifact manifest is not a list")
+    matches = [
+        item
+        for item in manifest
+        if isinstance(item, dict) and item.get("source") == "/logs/artifacts"
+    ]
+    if len(matches) != 1:
+        return AttemptOwnerStatus(
+            "unavailable",
+            "artifact manifest does not contain one /logs/artifacts entry",
+        )
+    entry = matches[0]
+    if entry.get("status") != "ok" or entry.get("type") != "directory":
+        return AttemptOwnerStatus(
+            "unavailable",
+            "/logs/artifacts collection was not successful",
+        )
+    destination_text = entry.get("destination")
+    if not isinstance(destination_text, str) or not destination_text:
+        return AttemptOwnerStatus(
+            "unavailable",
+            "artifact manifest destination is missing",
+        )
+    destination = Path(destination_text)
+    if (
+        destination.is_absolute()
+        or any(part in {"", ".", ".."} for part in destination.parts)
+    ):
+        return AttemptOwnerStatus(
+            "unavailable",
+            "artifact manifest destination is unsafe",
+        )
+
+    cursor = trial_dir
+    try:
+        for part in destination.parts:
+            cursor /= part
+            if cursor.is_symlink():
+                return AttemptOwnerStatus(
+                    "unavailable",
+                    "artifact manifest destination traverses a symlink",
+                )
+        marker_path = cursor / ATTEMPT_OWNER_FILE
+        marker_stat = marker_path.lstat()
+    except FileNotFoundError:
+        return AttemptOwnerStatus(
+            "contaminated",
+            "attempt owner marker disappeared after successful artifact collection",
+        )
+    except OSError as exc:
+        return AttemptOwnerStatus(
+            "unavailable",
+            f"attempt owner marker could not be inspected: {exc}",
+        )
+    if not stat.S_ISREG(marker_stat.st_mode) or marker_stat.st_size > 64:
+        return AttemptOwnerStatus(
+            "contaminated",
+            "attempt owner marker was replaced with malformed content",
+        )
+    try:
+        content = marker_path.read_bytes()
+    except OSError as exc:
+        return AttemptOwnerStatus(
+            "unavailable",
+            f"attempt owner marker could not be read: {exc}",
+        )
+    if content != f"{expected_token}\n".encode():
+        return AttemptOwnerStatus(
+            "contaminated",
+            "attempt owner marker belongs to another worker consumer",
+        )
+    return AttemptOwnerStatus("verified", "attempt owner marker verified")
+
+
+def _live_attempt_owner_status(
+    remote_target: str,
+    expected_token: str,
+) -> AttemptOwnerStatus:
+    """Verify the owner marker on the worker after Harbor and its verifier."""
+
+    if re.fullmatch(r"[0-9a-f]{32}", expected_token) is None:
+        return AttemptOwnerStatus("unavailable", "invalid expected owner token")
+    marker = shlex.quote(f"/logs/artifacts/{ATTEMPT_OWNER_FILE}")
+    expected = shlex.quote(expected_token)
+    verified_marker = "__NEMOCLAW_ATTEMPT_OWNER_VERIFIED__"
+    command = (
+        f"owner={marker}; expected={expected}; "
+        'if [ -L "$owner" ] || [ ! -f "$owner" ]; then exit 44; fi; '
+        'size=$(stat -c %s "$owner" 2>/dev/null) || exit 45; '
+        '[ "$size" -eq 33 ] || exit 45; '
+        'IFS= read -r actual < "$owner" || exit 45; '
+        '[ "$actual" = "$expected" ] || exit 46; '
+        f"printf '{verified_marker}\\n'"
+    )
+    last_failure = "live attempt owner probe did not run"
+    for attempt in range(1, ATTEMPT_OWNER_PROBE_ATTEMPTS + 1):
+        try:
+            result = _run(
+                ["brev", "exec", remote_target, command],
+                timeout=45,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            last_failure = (
+                f"live attempt owner probe raised {type(exc).__name__}: {exc}"
+            )
+        else:
+            if result.returncode in {44, 45}:
+                return AttemptOwnerStatus(
+                    "contaminated",
+                    "live attempt owner marker disappeared or was malformed",
+                )
+            if result.returncode == 46:
+                return AttemptOwnerStatus(
+                    "contaminated",
+                    "live attempt owner marker belongs to another worker consumer",
+                )
+            if result.returncode == 0 and verified_marker in (
+                result.stdout or ""
+            ).splitlines():
+                return AttemptOwnerStatus(
+                    "verified",
+                    "live attempt owner marker verified",
+                )
+            if result.returncode == 0:
+                last_failure = (
+                    "live attempt owner probe returned no verification marker"
+                )
+            else:
+                tail = _reachability_failure_text(result)[-240:] or "<no output>"
+                last_failure = (
+                    "live attempt owner probe failed "
+                    f"rc={result.returncode}: {tail}"
+                )
+        if attempt < ATTEMPT_OWNER_PROBE_ATTEMPTS:
+            print(
+                "[nemoclaw-ci] WARN: "
+                f"{last_failure}; retrying ({attempt}/"
+                f"{ATTEMPT_OWNER_PROBE_ATTEMPTS})",
+                flush=True,
+            )
+            time.sleep(ATTEMPT_OWNER_PROBE_RETRY_DELAY_S)
+    return AttemptOwnerStatus(
+        "unavailable",
+        f"{last_failure} after {ATTEMPT_OWNER_PROBE_ATTEMPTS} attempts",
+    )
+
+
+def _attempt_evidence_owner_status(
+    results_root: Path,
+    run_id: str,
+    *,
+    since: float,
+    remote_target: str,
+    expected_token: str,
+) -> AttemptOwnerStatus:
+    """Require an unchanged artifact epoch at collection and after verifier."""
+
+    collected = _attempt_owner_status(
+        results_root,
+        run_id,
+        since=since,
+        expected_token=expected_token,
+    )
+    if collected.status == "contaminated":
+        return collected
+    live = _live_attempt_owner_status(remote_target, expected_token)
+    if live.status == "contaminated":
+        return live
+    if collected.status == "verified" and live.status == "verified":
+        return AttemptOwnerStatus(
+            "verified",
+            "collected and live attempt owner markers verified",
+        )
+    unavailable = "; ".join(
+        status.reason
+        for status in (collected, live)
+        if status.status != "verified"
+    )
+    return AttemptOwnerStatus("unavailable", unavailable)
+
+
+def _discard_contaminated_attempt(
+    results_root: Path,
+    run_id: str,
+    *,
+    since: float,
+) -> tuple[bool, str]:
+    """Remove untrusted Harbor result evidence before results publication.
+
+    The runner's plain-text scratch log is intentionally retained for
+    diagnosing the contamination and is never promoted as a skill verdict.
+    """
+
+    trial_dir, _result = _latest_trial(results_root, run_id, since=since)
+    if trial_dir is None:
+        return True, "no local contaminated result tree was produced"
+    run_root = results_root / run_id
+    source = trial_dir.parent if trial_dir.parent != run_root else trial_dir
+    try:
+        if run_root.is_symlink() or source.is_symlink():
+            return False, "contaminated trial path is symlinked"
+        run_root_resolved = run_root.resolve(strict=True)
+        source_resolved = source.resolve(strict=True)
+        source_resolved.relative_to(run_root_resolved)
+    except (FileNotFoundError, OSError, ValueError):
+        return False, "contaminated trial path is outside the current run"
+    if source_resolved == run_root_resolved:
+        return False, "refusing to remove the current run root"
+    try:
+        shutil.rmtree(source_resolved)
+    except OSError as exc:
+        return False, f"could not remove contaminated trial: {exc}"
+    return True, f"removed untrusted trial tree {source_resolved.name}"
 
 
 _RETRYABLE_WORKER_SETUP_MESSAGES = (
@@ -2758,6 +3043,10 @@ def main(argv: list[str] | None = None) -> int:
             0,
             int(os.environ.get("NEMOCLAW_WORKER_FAILOVER_WINDOW_SEC", "1200")),
         )
+        max_contamination_failovers = max(
+            0,
+            int(os.environ.get("NEMOCLAW_MAX_CONTAMINATION_FAILOVERS", "1")),
+        )
         for group_index, group in enumerate(groups, start=1):
             first = group[0]
             gpu_count = (
@@ -2776,14 +3065,23 @@ def main(argv: list[str] | None = None) -> int:
             )
             excluded_instances: set[str] = set()
             worker_failovers = 0
+            contamination_failovers = 0
             worker_failover_deadline = (
                 time.monotonic() + worker_failover_window_s
             )
+            reserved_retry_harbor_budget_s = 0.0
             while True:
+                selection_deadline = (
+                    run_deadline - reserved_retry_harbor_budget_s
+                )
                 selection_timeout_s = _remaining_run_timeout(
-                    run_deadline,
+                    selection_deadline,
                     args.lock_timeout,
-                    "worker selection",
+                    (
+                        "replacement worker selection"
+                        if reserved_retry_harbor_budget_s
+                        else "worker selection"
+                    ),
                 )
                 instance, worker_lock = _select_and_lock_instance(
                     first.platform,
@@ -2792,6 +3090,10 @@ def main(argv: list[str] | None = None) -> int:
                     selection_timeout_s,
                     excluded=excluded_instances,
                 )
+                required_retry_harbor_budget_s = (
+                    reserved_retry_harbor_budget_s
+                )
+                reserved_retry_harbor_budget_s = 0.0
                 print(f"[nemoclaw-ci] selected worker: {instance}", flush=True)
                 # Use the human-readable Brev name for Harbor itself. Instance
                 # IDs are useful for lock/reachability checks on some runners,
@@ -2800,6 +3102,15 @@ def main(argv: list[str] | None = None) -> int:
                 brev_instance = instance
                 retry_group = False
                 try:
+                    if (
+                        required_retry_harbor_budget_s
+                        and run_deadline - time.monotonic()
+                        < required_retry_harbor_budget_s
+                    ):
+                        raise InfrastructureBlocked(
+                            "replacement worker selection consumed the "
+                            "Harbor retry budget"
+                        )
                     os.environ["BREV_INSTANCE"] = brev_instance
                     for group_scenario_index, scenario in enumerate(group):
                         print(
@@ -2810,6 +3121,7 @@ def main(argv: list[str] | None = None) -> int:
                             flush=True,
                         )
                         scenario_started = time.time()
+                        scenario_started_monotonic = time.monotonic()
                         log_path = (
                             SCRATCH_ROOT
                             / run_id
@@ -2821,6 +3133,8 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         harbor_env = os.environ.copy()
                         harbor_env["BREV_INSTANCE"] = brev_instance
+                        attempt_owner_token = uuid.uuid4().hex
+                        harbor_env[ATTEMPT_OWNER_ENV] = attempt_owner_token
                         cmd = _harbor_command(scenario, results_root, run_id)
                         print("[nemoclaw-ci] running Harbor:", " ".join(cmd), flush=True)
                         heartbeat_lost_event = (
@@ -2833,6 +3147,17 @@ def main(argv: list[str] | None = None) -> int:
                             args.harbor_timeout,
                             "Harbor execution",
                         )
+                        if (
+                            required_retry_harbor_budget_s
+                            and harbor_timeout_s
+                            < math.ceil(required_retry_harbor_budget_s)
+                        ):
+                            raise InfrastructureBlocked(
+                                "replacement worker selection left "
+                                f"{harbor_timeout_s}s for Harbor; required "
+                                f"{math.ceil(required_retry_harbor_budget_s)}s"
+                            )
+                        required_retry_harbor_budget_s = 0.0
                         harbor_rc = _stream_command(
                             cmd,
                             timeout_s=harbor_timeout_s,
@@ -2898,6 +3223,135 @@ def main(argv: list[str] | None = None) -> int:
                                 f"not failing over ({stop_reason})",
                                 flush=True,
                             )
+
+                        owner_status = _attempt_evidence_owner_status(
+                            results_root,
+                            run_id,
+                            since=scenario_started,
+                            remote_target=(
+                                worker_lock.remote_target or instance
+                            ),
+                            expected_token=attempt_owner_token,
+                        )
+                        if owner_status.status == "contaminated":
+                            contamination_now = time.monotonic()
+                            attempt_elapsed = max(
+                                0.0,
+                                contamination_now - scenario_started_monotonic,
+                            )
+                            minimum_retry_budget = min(
+                                float(args.harbor_timeout),
+                                max(
+                                    900.0,
+                                    math.ceil(1.25 * attempt_elapsed) + 300.0,
+                                ),
+                            )
+                            remaining_budget = max(
+                                0.0,
+                                run_deadline - contamination_now,
+                            )
+                            replacement_selection_budget = max(
+                                0.0,
+                                min(
+                                    float(args.lock_timeout),
+                                    remaining_budget - minimum_retry_budget,
+                                ),
+                            )
+                            can_retry_contamination = (
+                                group_scenario_index == 0
+                                and not args.instance
+                                and worker_failovers < max_worker_failovers
+                                and contamination_failovers
+                                < max_contamination_failovers
+                                and replacement_selection_budget >= 1.0
+                            )
+                            discarded, discard_reason = (
+                                _discard_contaminated_attempt(
+                                    results_root,
+                                    run_id,
+                                    since=scenario_started,
+                                )
+                            )
+                            can_retry_contamination = (
+                                can_retry_contamination and discarded
+                            )
+                            if can_retry_contamination:
+                                worker_failovers += 1
+                                contamination_failovers += 1
+                                excluded_instances.add(instance)
+                                reserved_retry_harbor_budget_s = (
+                                    minimum_retry_budget
+                                )
+                                retry_group = True
+                                print(
+                                    "[nemoclaw-ci] worker evidence was replaced "
+                                    f"on {instance}: {owner_status.reason}; "
+                                    f"{discard_reason}; "
+                                    "failing over "
+                                    f"({worker_failovers}/{max_worker_failovers}, "
+                                    f"contamination "
+                                    f"{contamination_failovers}/"
+                                    f"{max_contamination_failovers})",
+                                    flush=True,
+                                )
+                                break
+
+                            reason = (
+                                f"worker evidence integrity failed on {instance}: "
+                                f"{owner_status.reason}; {discard_reason}; "
+                                "retry unavailable "
+                                f"(step={group_scenario_index + 1}, "
+                                f"explicit_worker={bool(args.instance)}, "
+                                f"worker_failovers={worker_failovers}/"
+                                f"{max_worker_failovers}, "
+                                f"contamination_failovers="
+                                f"{contamination_failovers}/"
+                                f"{max_contamination_failovers}, "
+                                f"remaining_budget={int(remaining_budget)}s, "
+                                f"required_harbor_budget="
+                                f"{int(minimum_retry_budget)}s, "
+                                f"replacement_selection_budget="
+                                f"{int(replacement_selection_budget)}s)"
+                            )
+                            print(f"BLOCKED: {reason}", file=sys.stderr, flush=True)
+                            _append_blocked_summary(
+                                reason=reason,
+                                scenario=(
+                                    f"{scenario.skill}/{scenario.spec_name}/"
+                                    f"{scenario.platform}/{scenario.task_name}"
+                                ),
+                                scenario_id=(
+                                    f"{_scenario_id(scenario)}-"
+                                    "evidence-contaminated"
+                                ),
+                            )
+                            executed += 1
+                            scenario_index += 1
+                            failures.append(reason)
+                            break
+
+                        if owner_status.status != "verified" and reward is not None:
+                            reason = (
+                                f"worker evidence ownership unavailable on {instance}: "
+                                f"{owner_status.reason}; refusing to accept "
+                                f"reward={reward}"
+                            )
+                            print(f"BLOCKED: {reason}", file=sys.stderr, flush=True)
+                            _append_blocked_summary(
+                                reason=reason,
+                                scenario=(
+                                    f"{scenario.skill}/{scenario.spec_name}/"
+                                    f"{scenario.platform}/{scenario.task_name}"
+                                ),
+                                scenario_id=(
+                                    f"{_scenario_id(scenario)}-"
+                                    "evidence-unavailable"
+                                ),
+                            )
+                            executed += 1
+                            scenario_index += 1
+                            failures.append(reason)
+                            break
 
                         _append_harbor_report(
                             scenario=scenario,

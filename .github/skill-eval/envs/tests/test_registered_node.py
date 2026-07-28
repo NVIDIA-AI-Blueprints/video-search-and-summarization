@@ -218,6 +218,51 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
 
 class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
+    def test_attempt_owner_marker_is_optional_and_ci_scoped(self):
+        with mock.patch.dict(
+            os.environ,
+            {"NEMOCLAW_ATTEMPT_OWNER_TOKEN": "not-a-token"},
+        ):
+            os.environ.pop("SKILLS_EVAL_RUNNER", None)
+            self.assertEqual(
+                brev_env._nemoclaw_attempt_owner_setup_command(),
+                "",
+            )
+
+        with mock.patch.dict(
+            os.environ,
+            {"SKILLS_EVAL_RUNNER": "nemoclaw"},
+        ):
+            os.environ.pop("NEMOCLAW_ATTEMPT_OWNER_TOKEN", None)
+            self.assertEqual(
+                brev_env._nemoclaw_attempt_owner_setup_command(),
+                "",
+            )
+
+    def test_attempt_owner_marker_rejects_invalid_ci_tokens(self):
+        invalid_tokens = (
+            "a" * 31,
+            "A" * 32,
+            "g" * 32,
+            ("a" * 31) + "\n",
+        )
+        for token in invalid_tokens:
+            with (
+                self.subTest(token=repr(token)),
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "SKILLS_EVAL_RUNNER": "nemoclaw",
+                        "NEMOCLAW_ATTEMPT_OWNER_TOKEN": token,
+                    },
+                ),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "must be exactly 32 lowercase hexadecimal characters",
+                ),
+            ):
+                brev_env._nemoclaw_attempt_owner_setup_command()
+
     async def test_stray_reap_covers_direct_nemoclaw_launcher_exactly(self):
         command = brev_env._stray_agent_reap_command()
         syntax = subprocess.run(
@@ -545,6 +590,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
     async def test_start_wipes_stale_artifacts_without_deleting_trial_inputs(self):
         calls = []
         reset_kwargs = []
+        attempt_owner_token = "0123456789abcdef0123456789abcdef"
 
         async def fake_find_brev_instance(name):
             return {"name": name, "gpu": "RTX PRO SERVER 6000", "instance_type": "rtx-1g"}
@@ -592,7 +638,14 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 env._reset_docker_runtime = types.MethodType(reset_noop, env)
                 env._sync_repo_to_pr_head = types.MethodType(noop, env)
                 env._ensure_nemoclaw_ready = types.MethodType(noop, env)
-                await env.start(force_build=False)
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "SKILLS_EVAL_RUNNER": "nemoclaw",
+                        "NEMOCLAW_ATTEMPT_OWNER_TOKEN": attempt_owner_token,
+                    },
+                ):
+                    await env.start(force_build=False)
         finally:
             brev_env._find_brev_instance = original_find
             brev_env._check_instance_matches = original_match
@@ -627,6 +680,40 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("rm -rf /skills", reset)
         self.assertIn("mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills", reset)
         self.assertLess(reset.index("sudo rm -rf"), reset.index("sudo mkdir -p"))
+        self.assertIn(
+            "attempt_owner_tmp=/logs/artifacts/.nemoclaw-attempt-owner.$$",
+            reset,
+        )
+        self.assertIn("umask 077", reset)
+        self.assertIn(
+            f"printf '%s\\n' {attempt_owner_token} > \"$attempt_owner_tmp\"",
+            reset,
+        )
+        self.assertIn('chmod 600 "$attempt_owner_tmp"', reset)
+        self.assertIn(
+            'mv -f "$attempt_owner_tmp" /logs/artifacts/nemoclaw-attempt-owner',
+            reset,
+        )
+        self.assertLess(
+            reset.index("sudo chown -R"),
+            reset.index("attempt_owner_tmp="),
+        )
+        self.assertLess(
+            reset.index("sudo chown -R"),
+            reset.index("umask 077"),
+        )
+        self.assertLess(
+            reset.index("umask 077"),
+            reset.index("attempt_owner_tmp="),
+        )
+        self.assertLess(
+            reset.index("attempt_owner_tmp="),
+            reset.index('chmod 600 "$attempt_owner_tmp"'),
+        )
+        self.assertLess(
+            reset.index('chmod 600 "$attempt_owner_tmp"'),
+            reset.index('mv -f "$attempt_owner_tmp"'),
+        )
         archive_commands = [
             command
             for _, command, _ in calls
@@ -736,6 +823,15 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("NEMOCLAW_PRESTAGE_ALERTS_MODELS", command)
         self.assertIn("models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx", command)
         self.assertIn("models/rtdetr-its/model_epoch_035.fp16.onnx", command)
+        self.assertIn(
+            "rm -rf /tmp/skill-eval/nemoclaw "
+            "/logs/artifacts/nemoclaw",
+            command,
+        )
+        self.assertNotRegex(
+            command,
+            r"rm -rf[^\n]*(?:^|\s)/logs/artifacts(?:\s|$)",
+        )
         repair_index = command.index(
             'default_gateway_state_dir="$HOME/.local/state/nemoclaw/'
         )
