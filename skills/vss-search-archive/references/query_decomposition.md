@@ -1,6 +1,15 @@
-# Query Decomposition for `vss search run`
+# Query decomposition and control preservation
 
-Use this reference before every `vss search run` call that is more complex than a plain object/action query. The CLI and `lib.search_core` do not run NAT query decomposition; the host agent must produce the structured fields explicitly.
+For Docker, use this reference before every `vss search run` call that is more
+complex than a plain object/action query. The CLI and `lib.search_core` do not
+run NAT query decomposition; the host agent must produce the structured fields
+explicitly.
+
+For Kubernetes, the VSS Agent performs decomposition behind the public
+`${VSS_PUBLIC_URL}/generate` route. Preserve the same fields as explicit prose
+in `SEARCH_PROMPT`—especially the resolved source, mode, attributes, time
+bounds, and result limit—rather than using the Kubernetes CLI selector or
+private backend access.
 
 ## Output Contract
 

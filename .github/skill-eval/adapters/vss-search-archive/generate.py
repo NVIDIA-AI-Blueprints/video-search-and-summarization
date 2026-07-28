@@ -173,6 +173,16 @@ OPERATION_PREAMBLE = (
     "fails, report its error and stop instead of substituting another search interface."
 )
 
+KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
+    PREAMBLE
+    + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
+    "redeploy, execute the example commands, inspect a cluster, or reuse the Docker "
+    "deployment from earlier steps. Follow the skill's VSS_PUBLIC_URL branch: source "
+    "listing uses the public /vst route and search uses the public Agent /generate "
+    "route. Do not use kubectl, port-forward, Service DNS, NodePorts, localhost ports, "
+    "direct Elasticsearch/RTVI access, or the host CLI Kubernetes selector."
+)
+
 
 # ---------------------------------------------------------------------------
 # Generation
@@ -330,8 +340,12 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         step_dir.mkdir(parents=True, exist_ok=True)
 
         # instruction.md — query + env notes only. Never leak checks[].
+        if expect.get("scenario") == "kubernetes-ingress-contract":
+            preamble = KUBERNETES_INGRESS_CONTRACT_PREAMBLE
+        else:
+            preamble = SETUP_PREAMBLE if idx == 1 else OPERATION_PREAMBLE
         lines = [
-            SETUP_PREAMBLE if idx == 1 else OPERATION_PREAMBLE,
+            preamble,
             "",
             "",
             f"## Query {idx} of {len(expects)}",
