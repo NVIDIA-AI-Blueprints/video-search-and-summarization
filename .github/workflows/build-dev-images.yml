@@ -153,9 +153,15 @@ jobs:
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}"
 
+      # Pin binfmt away from tonistiigi/binfmt:latest (QEMU 10.x). Newer
+      # emulators segfault jammy's ldconfig during apt (exit 139 / SIGSEGV) —
+      # Launchpad #2072564 — which breaks every multiarch build that runs
+      # apt-get under linux/arm64 emulation (e.g. vss-video-summarization).
       - name: Set up QEMU (arm64 emulation)
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392  # v3.6.0
+        with:
+          image: tonistiigi/binfmt:qemu-v8.1.5
 
       - name: Set up Buildx
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
