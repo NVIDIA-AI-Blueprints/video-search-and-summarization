@@ -74,7 +74,7 @@ Recommended pairings (entrypoint → existing config):
 | `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_search_and_alerts_app.py` (search + alerts) | No single profile ships this — **build it by merging** the two single-mode configs below: union their `kafka.topics` so all of `raw` / `frames` / `incidents` / `behavior` / `embed` / `embedFiltered` are mapped, union their `app[]` params (behavior + embed knobs from the search config, incident toggles from the alerts config), and set all three `numWorkersFor*` non-zero so every processor runs. Mount the merged file the same way as any custom config (Option B). |
+| `main_search_and_alerts_app.py` (search + alerts) | `../../services/analytics/behavior-analytics/configs/search_and_alerts_config.json` relative to `$VSS_APPS_DIR`. This is the repo-owned combined config: it maps the search and incident topics and sets `numWorkersForIncidentGeneration`, `numWorkersForBehaviorCreation`, and `numWorkersForEmbedFiltering` all non-zero. **Use this file directly; do not synthesize or merge a replacement at runtime.** |
 | `main_search_and_alerts_app.py` (alerts only) | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` (behavior + embed workers set to `0`) |
 | `main_search_and_alerts_app.py` (search only) | `developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-<stream>-config.json` (incident-generation workers set to `0`) |
 | `main_smart_city_app.py` | No profile ships one. Start from the service's own `configs/smart_city_config.json` (geo calibration) or `configs/smart_city_config_image.json` (image calibration) and mount it as a custom config (Option B). |
@@ -99,6 +99,34 @@ volumes:
   - /abs/path/to/my-config.json:/resources/vss-behavior-analytics-config.json
 command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json
 ```
+
+### NemoClaw / VSS Orchestrator path for combined search + alerts
+
+The NemoClaw sandbox intentionally cannot write arbitrary host files or patch
+Compose YAML. For a combined search + alerts deployment, use the existing
+search profile and select the repo-owned config through the narrow
+`VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH` override:
+
+1. Call `vss_orchestrator__docker_generate` with `profile: "search"` and:
+
+   ```json
+   {
+     "env_overrides": [
+       "VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH=${VSS_APPS_DIR}/../../services/analytics/behavior-analytics/configs/search_and_alerts_config.json"
+     ]
+   }
+   ```
+
+2. Call `vss_orchestrator__docker_up` with the returned
+   `docker_compose_id`; set `force_recreate: true` so an existing
+   search-only `vss-behavior-analytics` container cannot retain its old mount.
+3. Poll `vss_orchestrator__docker_status` to completion, then verify the
+   `vss-behavior-analytics` command and mounted config.
+
+The search Compose service mounts this path at
+`/resources/vss-search-analytics-config.json` and already uses
+`main_search_and_alerts_app.py`. Do not attempt to create a merged config from
+inside the sandbox: the canonical file above is the source of truth.
 
 ### Config — what's in it
 
