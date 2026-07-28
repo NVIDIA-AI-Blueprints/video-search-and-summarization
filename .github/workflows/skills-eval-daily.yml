@@ -70,7 +70,7 @@ jobs:
   # ---------------------------------------------------------------------
   plan:
     name: Plan eval matrix
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: [self-hosted, vss-skill-eval-postgres]
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -99,7 +99,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: [self-hosted, vss-skill-eval-postgres]
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
@@ -146,6 +146,8 @@ jobs:
           # below, then this value is restored so it cannot overwrite the
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # One managed lease service shared by every distributed runner.
+          CI_GPU_LEASE_DATABASE_URL: ${{ secrets.GPU_LEASE_DATABASE_URL }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -164,6 +166,7 @@ jobs:
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           assigned_runner_name="${RUNNER_NAME:-}"
+          managed_lease_database_url="${CI_GPU_LEASE_DATABASE_URL:-}"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -171,14 +174,20 @@ jobs:
           # loading and prevent distributed coordinators from using local
           # flock mode.
           export RUNNER_NAME="$assigned_runner_name"
+          export CI_GPU_LEASE_DATABASE_URL="$managed_lease_database_url"
           case "$assigned_runner_name" in
             vss-skill-validator-distributed-[1-8]-runner-[1-4])
               export COORDINATOR_ID="$assigned_runner_name"
               export GPU_LEASE_MODE=postgres
-              if [ -z "${GPU_LEASE_DATABASE_URL:-}" ]; then
-                echo "FATAL: distributed runner requires GPU_LEASE_DATABASE_URL" >&2
+              if [ -z "${CI_GPU_LEASE_DATABASE_URL:-}" ]; then
+                echo "FATAL: distributed runner requires repository secret GPU_LEASE_DATABASE_URL" >&2
                 exit 1
               fi
+              export GPU_LEASE_DATABASE_URL="$CI_GPU_LEASE_DATABASE_URL"
+              ;;
+            *)
+              echo "FATAL: PostgreSQL skill-eval pool requires a registered distributed runner identity" >&2
+              exit 1
               ;;
           esac
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use

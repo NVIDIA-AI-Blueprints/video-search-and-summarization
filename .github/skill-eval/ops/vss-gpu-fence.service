@@ -1,0 +1,26 @@
+[Unit]
+Description=VSS skill-eval GPU lease fence
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/vss-gpu-fence.env
+ExecStart=/opt/vss-gpu-fence/venv/bin/python /opt/vss-gpu-fence/gpu_fence.py daemon
+Restart=always
+RestartSec=5
+User=root
+Group=root
+UMask=0077
+RuntimeDirectory=vss-gpu-fence
+RuntimeDirectoryMode=0700
+StateDirectory=vss-gpu-fence
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/run/vss-gpu-fence /var/lib/vss-gpu-fence
+
+[Install]
+WantedBy=multi-user.target

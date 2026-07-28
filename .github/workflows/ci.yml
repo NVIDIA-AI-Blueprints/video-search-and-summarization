@@ -174,10 +174,13 @@ jobs:
           TEST_POSTGRES_DSN: postgresql://postgres:test@127.0.0.1:5432/leases
         run: |
           python3 .github/skill-eval/tests/test_distributed_lock.py
+          python3 .github/skill-eval/tests/test_gpu_fence.py
           python3 .github/skill-eval/tests/test_plan_matrix.py
+          python3 .github/skill-eval/envs/tests/test_gpu_fence.py
           python3 .github/skill-eval/tests/test_run_leg.py \
             HoldDistributedPoolLock RunCommandLeaseHealth HoldPoolLock \
-            DistributedRunnerConfiguration WorkflowDistributedRunnerEnvironment
+            DistributedRunnerConfiguration HarborFenceEnvironment \
+            WorkflowDistributedRunnerEnvironment
           uv run --with 'psycopg[binary]>=3.2,<4' \
             python3 .github/skill-eval/tests/test_distributed_lock_postgres.py
 

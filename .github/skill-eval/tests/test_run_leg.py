@@ -603,9 +603,16 @@ class RunCommandLeaseHealth(unittest.TestCase):
 
 class DistributedRunnerConfiguration(unittest.TestCase):
     RUNNER = "vss-skill-validator-distributed-3-runner-2"
+    DATABASE_URL = (
+        "postgresql://lease@db.example.test/eval?sslmode=verify-full"
+    )
 
     def test_distributed_runner_rejects_local_lock_mode(self):
-        args = mock.Mock(lock_mode="local", coordinator_id=self.RUNNER)
+        args = mock.Mock(
+            lock_mode="local",
+            coordinator_id=self.RUNNER,
+            lease_database_url=self.DATABASE_URL,
+        )
         with (
             mock.patch.dict(run_leg.os.environ, {"RUNNER_NAME": self.RUNNER}),
             self.assertRaisesRegex(run_leg.LeaseError, "requires GPU_LEASE_MODE"),
@@ -616,6 +623,7 @@ class DistributedRunnerConfiguration(unittest.TestCase):
         args = mock.Mock(
             lock_mode="postgres",
             coordinator_id="vss-skill-validator-distributed-3",
+            lease_database_url=self.DATABASE_URL,
         )
         with (
             mock.patch.dict(run_leg.os.environ, {"RUNNER_NAME": self.RUNNER}),
@@ -624,16 +632,77 @@ class DistributedRunnerConfiguration(unittest.TestCase):
             run_leg.validate_coordinator_lock_config(args)
 
     def test_distributed_runner_accepts_unique_postgres_identity(self):
-        args = mock.Mock(lock_mode="postgres", coordinator_id=self.RUNNER)
+        args = mock.Mock(
+            lock_mode="postgres",
+            coordinator_id=self.RUNNER,
+            lease_database_url=self.DATABASE_URL,
+        )
         with mock.patch.dict(run_leg.os.environ, {"RUNNER_NAME": self.RUNNER}):
             run_leg.validate_coordinator_lock_config(args)
 
+    def test_distributed_runner_requires_verified_managed_database(self):
+        args = mock.Mock(
+            lock_mode="postgres",
+            coordinator_id=self.RUNNER,
+            lease_database_url=(
+                "postgresql://lease@db.example.test/eval?sslmode=require"
+            ),
+        )
+        with (
+            mock.patch.dict(run_leg.os.environ, {"RUNNER_NAME": self.RUNNER}),
+            self.assertRaisesRegex(run_leg.LeaseError, "sslmode=verify-full"),
+        ):
+            run_leg.validate_coordinator_lock_config(args)
+
     def test_legacy_runner_can_retain_local_mode_during_drain(self):
-        args = mock.Mock(lock_mode="local", coordinator_id="vss-skill-validator-v2")
+        args = mock.Mock(
+            lock_mode="local",
+            coordinator_id="vss-skill-validator-v2",
+            lease_database_url="",
+        )
         with mock.patch.dict(
             run_leg.os.environ, {"RUNNER_NAME": "vss-skill-validator-v2-1"}
         ):
             run_leg.validate_coordinator_lock_config(args)
+
+
+class HarborFenceEnvironment(unittest.TestCase):
+    def test_only_short_lived_worker_capability_reaches_harbor(self):
+        token = "d651da06-66f1-4497-859f-92f617a56b3a"
+        lease = mock.Mock(
+            gpu_id="gpu-a",
+            token=token,
+            generation=9,
+        )
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {
+                "GPU_LEASE_DATABASE_URL": "postgresql://coordinator-secret",
+                "GPU_FENCE_DATABASE_URL": "postgresql://worker-secret",
+                "GPU_LEASE_ADMIN_DATABASE_URL": "postgresql://admin-secret",
+                "CI_GPU_LEASE_DATABASE_URL": "postgresql://ci-alias-secret",
+                "GPU_LEASE_TOKEN": "stale-token",
+            },
+        ):
+            env = run_leg.harbor_env("gpu-a", lease)
+
+        self.assertEqual(env["GPU_LEASE_GPU_ID"], "gpu-a")
+        self.assertEqual(env["GPU_LEASE_TOKEN"], token)
+        self.assertEqual(env["GPU_LEASE_GENERATION"], "9")
+        self.assertEqual(env["GPU_WORKER_FENCE_REQUIRED"], "1")
+        self.assertNotIn("GPU_LEASE_DATABASE_URL", env)
+        self.assertNotIn("GPU_FENCE_DATABASE_URL", env)
+        self.assertNotIn("GPU_LEASE_ADMIN_DATABASE_URL", env)
+        self.assertNotIn("CI_GPU_LEASE_DATABASE_URL", env)
+
+    def test_mismatched_worker_and_lease_are_rejected(self):
+        lease = mock.Mock(
+            gpu_id="gpu-b",
+            token="d651da06-66f1-4497-859f-92f617a56b3a",
+            generation=9,
+        )
+        with self.assertRaisesRegex(run_leg.LeaseError, "does not match"):
+            run_leg.harbor_env("gpu-a", lease)
 
 
 class WorkflowDistributedRunnerEnvironment(unittest.TestCase):
@@ -653,6 +722,15 @@ class WorkflowDistributedRunnerEnvironment(unittest.TestCase):
             self.assertIn("export GPU_LEASE_MODE=postgres", workflow[restored:])
             self.assertIn(
                 'export COORDINATOR_ID="$assigned_runner_name"',
+                workflow[restored:],
+            )
+            self.assertIn(
+                "CI_GPU_LEASE_DATABASE_URL: "
+                "${{ secrets.GPU_LEASE_DATABASE_URL }}",
+                workflow,
+            )
+            self.assertIn(
+                'export GPU_LEASE_DATABASE_URL="$CI_GPU_LEASE_DATABASE_URL"',
                 workflow[restored:],
             )
 

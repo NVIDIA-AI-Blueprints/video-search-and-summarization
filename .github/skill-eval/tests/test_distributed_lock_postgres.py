@@ -10,7 +10,9 @@ Set TEST_POSTGRES_DSN to enable:
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -19,6 +21,7 @@ SKILL_EVAL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_EVAL_ROOT))
 
 from distributed_lock import PostgresLeaseClient
+from gpu_fence import FenceController, PostgresLeaseValidator, WorkerCleanup
 
 DSN = os.environ.get("TEST_POSTGRES_DSN", "")
 
@@ -44,6 +47,12 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
                     ) THEN
                         CREATE ROLE skill_eval_lease LOGIN PASSWORD 'test';
                     END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_roles
+                        WHERE rolname = 'skill_eval_fence'
+                    ) THEN
+                        CREATE ROLE skill_eval_fence LOGIN PASSWORD 'test';
+                    END IF;
                 END
                 $$;
                 """
@@ -51,6 +60,11 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
             database = conn.execute("SELECT current_database()").fetchone()[0]
             conn.execute(
                 sql.SQL("GRANT CONNECT ON DATABASE {} TO skill_eval_lease").format(
+                    sql.Identifier(database)
+                )
+            )
+            conn.execute(
+                sql.SQL("GRANT CONNECT ON DATABASE {} TO skill_eval_fence").format(
                     sql.Identifier(database)
                 )
             )
@@ -68,6 +82,9 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
         runtime_params = conninfo_to_dict(DSN)
         runtime_params.update(user="skill_eval_lease", password="test")
         cls.runtime_dsn = make_conninfo(**runtime_params)
+        fence_params = conninfo_to_dict(DSN)
+        fence_params.update(user="skill_eval_fence", password="test")
+        cls.fence_dsn = make_conninfo(**fence_params)
 
     def setUp(self):
         with self.psycopg.connect(DSN, autocommit=True) as conn:
@@ -145,6 +162,96 @@ class PostgresLeaseIntegrationTests(unittest.TestCase):
         renewed = client.renew(lease)
         self.assertGreater(renewed.expires_at, lease.expires_at)
         self.assertTrue(client.release(renewed))
+
+    def test_worker_role_can_only_validate_exact_live_generation(self):
+        client = self.runtime_client("runtime-coordinator")
+        lease = client.try_acquire(["gpu-a"])
+
+        with self.psycopg.connect(self.fence_dsn, autocommit=True) as conn:
+            valid, remaining = conn.execute(
+                "SELECT valid, remaining_seconds "
+                "FROM public.validate_gpu_lease(%s, %s, %s)",
+                (lease.gpu_id, lease.token, lease.generation),
+            ).fetchone()
+            self.assertTrue(valid)
+            self.assertGreater(remaining, 0)
+
+            valid, remaining = conn.execute(
+                "SELECT valid, remaining_seconds "
+                "FROM public.validate_gpu_lease(%s, gen_random_uuid(), %s)",
+                (lease.gpu_id, lease.generation),
+            ).fetchone()
+            self.assertFalse(valid)
+            self.assertEqual(remaining, 0)
+
+            with self.assertRaises(self.psycopg.errors.InsufficientPrivilege):
+                conn.execute("SELECT lease_token FROM public.gpu_leases")
+
+        self.assertTrue(client.release(lease))
+        with self.psycopg.connect(self.fence_dsn, autocommit=True) as conn:
+            valid, remaining = conn.execute(
+                "SELECT valid, remaining_seconds "
+                "FROM public.validate_gpu_lease(%s, %s, %s)",
+                (lease.gpu_id, lease.token, lease.generation),
+            ).fetchone()
+        self.assertFalse(valid)
+        self.assertEqual(remaining, 0)
+
+    def test_takeover_kills_stale_worker_process_before_new_session(self):
+        stale_client = self.runtime_client("stale-coordinator")
+        stale = stale_client.try_acquire(["gpu-a"])
+        cleanup_commands = []
+
+        def fake_run(command, **_kwargs):
+            cleanup_commands.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = FenceController(
+                "gpu-a",
+                PostgresLeaseValidator(self.fence_dsn),
+                state_path=Path(tmp) / "high-water.json",
+                cleanup=WorkerCleanup(
+                    termination_grace_sec=0,
+                    run=fake_run,
+                ),
+            )
+            stale_session = controller.claim(
+                str(stale.token),
+                stale.generation,
+            )
+            process = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                start_new_session=True,
+            )
+            try:
+                controller.register(stale_session.session_id, process.pid)
+                with self.psycopg.connect(DSN, autocommit=True) as conn:
+                    conn.execute(
+                        "UPDATE gpu_leases SET "
+                        "acquired_at = statement_timestamp() - interval '3 seconds', "
+                        "renewed_at = statement_timestamp() - interval '2 seconds', "
+                        "lease_expires_at = statement_timestamp() - interval '1 second' "
+                        "WHERE gpu_id = 'gpu-a'"
+                    )
+                current_client = self.runtime_client("current-coordinator")
+                current = current_client.try_acquire(["gpu-a"])
+                current_session = controller.claim(
+                    str(current.token),
+                    current.generation,
+                )
+                process.wait(timeout=5)
+
+                self.assertEqual(current.generation, stale.generation + 1)
+                self.assertEqual(current_session.generation, current.generation)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertIn(["docker", "ps", "-aq"], cleanup_commands)
+                self.assertTrue(current_client.release(current))
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                controller.shutdown()
 
     def test_concurrent_contenders_have_exactly_one_winner(self):
         barrier = threading.Barrier(16)

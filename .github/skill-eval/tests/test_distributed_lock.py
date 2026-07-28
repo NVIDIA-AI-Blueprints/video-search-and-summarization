@@ -106,9 +106,13 @@ class PostgresLeaseClientTests(unittest.TestCase):
         self.assertEqual(connect.connection_calls, [])
 
     def test_ttl_and_heartbeat_preserve_shutdown_margin(self):
-        with self.assertRaisesRegex(ValueError, "at least 60"):
+        with self.assertRaisesRegex(ValueError, "between 60 and 300"):
             distributed_lock.PostgresLeaseClient(
                 "postgresql://lease-db/eval", "owner", ttl_sec=59
+            )
+        with self.assertRaisesRegex(ValueError, "between 60 and 300"):
+            distributed_lock.PostgresLeaseClient(
+                "postgresql://lease-db/eval", "owner", ttl_sec=301
             )
 
         lease = distributed_lock.Lease(
@@ -243,6 +247,18 @@ class SqlSafetyTests(unittest.TestCase):
             "REVOKE ALL ON TABLE PUBLIC.GPU_WORKERS, PUBLIC.GPU_LEASES", schema
         )
         self.assertIn("WHERE ROLNAME = 'SKILL_EVAL_LEASE'", schema)
+
+    def test_gpu_worker_validation_role_is_read_only_and_token_checked(self):
+        schema = self.SCHEMA.upper()
+        self.assertIn(
+            "PUBLIC.VALIDATE_GPU_LEASE(TEXT, UUID, BIGINT)",
+            schema,
+        )
+        self.assertIn("L.LEASE_TOKEN = REQUESTED_TOKEN", schema)
+        self.assertIn("L.GENERATION = REQUESTED_GENERATION", schema)
+        self.assertIn("L.LEASE_EXPIRES_AT > STATEMENT_TIMESTAMP()", schema)
+        self.assertIn("WHERE ROLNAME = 'SKILL_EVAL_FENCE'", schema)
+        self.assertIn("'TO SKILL_EVAL_FENCE'", schema)
 
 
 if __name__ == "__main__":

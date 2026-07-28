@@ -22,9 +22,11 @@ Task.toml [metadata] fields consumed:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -85,6 +87,11 @@ class BrevEnvironment(BaseEnvironment):
         super().__init__(**kwargs)
         self._instance_name: str | None = DEFAULT_INSTANCE
         self._started = False
+        self._fence_required = os.environ.get("GPU_WORKER_FENCE_REQUIRED") == "1"
+        self._fence_gpu_id = os.environ.get("GPU_LEASE_GPU_ID", "")
+        self._fence_token = os.environ.get("GPU_LEASE_TOKEN", "")
+        self._fence_generation = os.environ.get("GPU_LEASE_GENERATION", "")
+        self._fence_session_id = ""
 
     @staticmethod
     def type() -> BrevEnvironmentType:
@@ -128,6 +135,107 @@ class BrevEnvironment(BaseEnvironment):
         if "brev_instance" in meta:
             return meta["brev_instance"]
         return None
+
+    async def _claim_gpu_fence(self) -> None:
+        if not self._fence_required:
+            return
+        if not (
+            self._fence_gpu_id
+            and self._fence_token
+            and self._fence_generation.isdigit()
+        ):
+            raise RuntimeError(
+                "PostgreSQL Harbor run is missing GPU worker fencing metadata"
+            )
+        if self._instance_name != self._fence_gpu_id:
+            raise RuntimeError(
+                f"GPU fence targets {self._fence_gpu_id!r}, but Harbor resolved "
+                f"{self._instance_name!r}"
+            )
+        descriptor, local_token_name = tempfile.mkstemp(
+            prefix="vss-gpu-fence-claim-"
+        )
+        local_token = Path(local_token_name)
+        remote_token = f"/tmp/.vss-gpu-fence-claim-{uuid.uuid4().hex}"
+        claim_command_finished = False
+        try:
+            os.write(descriptor, (self._fence_token + "\n").encode())
+            os.close(descriptor)
+            descriptor = -1
+            os.chmod(local_token, 0o600)
+            copied = await _run_brev_copy(
+                str(local_token),
+                f"{self._instance_name}:{remote_token}",
+            )
+            if copied.return_code != 0:
+                raise RuntimeError(
+                    f"GPU fence capability upload failed: {copied.stderr}"
+                )
+            command = (
+                f"chmod 600 {shlex.quote(remote_token)} && "
+                "sudo -n /usr/local/bin/vss-gpu-fence claim "
+                f"--gpu-id {shlex.quote(self._fence_gpu_id)} "
+                f"--token-file {shlex.quote(remote_token)} "
+                f"--generation {int(self._fence_generation)}; "
+                "status=$?; "
+                f"rm -f {shlex.quote(remote_token)}; "
+                "exit $status"
+            )
+            result = await _run_brev_exec(
+                self._instance_name,
+                command,
+                timeout=30,
+            )
+            claim_command_finished = True
+        finally:
+            if not claim_command_finished:
+                with contextlib.suppress(Exception):
+                    await _run_brev_exec(
+                        self._instance_name,
+                        f"rm -f {shlex.quote(remote_token)}",
+                        timeout=30,
+                    )
+            if descriptor >= 0:
+                os.close(descriptor)
+            local_token.unlink(missing_ok=True)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"GPU fence claim failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        prefix = "VSS_GPU_FENCE_SESSION="
+        sessions = [
+            line[len(prefix):].strip()
+            for line in (result.stdout or "").splitlines()
+            if line.startswith(prefix)
+        ]
+        if len(sessions) != 1 or not re.fullmatch(
+            r"[A-Za-z0-9_-]{20,128}", sessions[0]
+        ):
+            raise RuntimeError(
+                f"GPU fence claim returned no valid session on "
+                f"{self._instance_name}"
+            )
+        self._fence_session_id = sessions[0]
+
+    async def _run_remote(
+        self,
+        command: str,
+        timeout: int = BREV_EXEC_TIMEOUT,
+    ) -> ExecResult:
+        assert self._instance_name
+        command = f". ~/.eval_env 2>/dev/null || true; {command}"
+        if not self._fence_required:
+            return await _run_brev_exec(self._instance_name, command, timeout)
+        if not self._fence_session_id:
+            raise RuntimeError("GPU fence must be claimed before remote execution")
+        wrapped = (
+            "sudo -n /usr/local/bin/vss-gpu-fence exec "
+            f"--session-id {shlex.quote(self._fence_session_id)} -- "
+            f"bash -lc {shlex.quote(command)}"
+        )
+        return await _run_brev_exec(self._instance_name, wrapped, timeout)
 
     async def start(self, force_build: bool) -> None:
         """Validate that the resolved Brev instance is reachable and matches
@@ -192,6 +300,11 @@ class BrevEnvironment(BaseEnvironment):
         # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
+        # PostgreSQL mode is admitted by the worker before any destructive
+        # cleanup, upload, repo sync, or trial command. A newer generation
+        # synchronously fences the previous process groups and containers.
+        await self._claim_gpu_fence()
+
         # Reap stray on-box agent processes left by a previous trial whose
         # runner-side job was cancelled or SIGKILLed. Cancellation kills the
         # runner-side harbor tree (releasing the box's flock, which dies with
@@ -203,8 +316,7 @@ class BrevEnvironment(BaseEnvironment):
         # wipe (suspected in PR #1281's base/search legs losing SSH
         # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
         # legs died there). Must run before the /logs wipe and docker reset.
-        reap_result = await _run_brev_exec(
-            self._instance_name,
+        reap_result = await self._run_remote(
             _stray_agent_reap_command(),
             timeout=30,
         )
@@ -230,8 +342,7 @@ class BrevEnvironment(BaseEnvironment):
         # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
         # left intact here — its prior-trial session JSONLs are handled by the
         # archive step just below (move-not-delete, for forensic SSH access).
-        setup_dirs_result = await _run_brev_exec(
-            self._instance_name,
+        setup_dirs_result = await self._run_remote(
             "sudo rm -rf /logs/artifacts /logs/verifier && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
             "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
@@ -279,7 +390,7 @@ class BrevEnvironment(BaseEnvironment):
             '  echo "[trajectory-isolation] archived prior project dirs to $ARCHIVE"; '
             "fi"
         )
-        await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
+        await self._run_remote(archive_cmd, timeout=30)
 
         # Clear Claude Code's background-task scratch before the new
         # `claude --print` starts. Session JSONL archival above handles stale
@@ -287,8 +398,7 @@ class BrevEnvironment(BaseEnvironment):
         # can also leave markers under `/tmp/claude-<uid>/.../tasks`. Claude
         # Code may surface those as fresh `<task-notification>` messages in
         # the next session, polluting the trajectory before the eval prompt.
-        claude_task_cleanup_result = await _run_brev_exec(
-            self._instance_name,
+        claude_task_cleanup_result = await self._run_remote(
             _claude_task_scratch_cleanup_command(),
             timeout=30,
         )
@@ -365,7 +475,7 @@ class BrevEnvironment(BaseEnvironment):
             )
             logger.info("Writing %d forwarded env vars to ~/.eval_env on instance",
                         len(forwarded))
-            await _run_brev_exec(self._instance_name, bootstrap, timeout=30)
+            await self._run_remote(bootstrap, timeout=30)
 
         # Upload the task's skills/ directory to /skills on the instance
         # so Claude Code can register them via task.toml:
@@ -559,7 +669,7 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
             self._instance_name,
         )
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        result = await self._run_remote(cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
@@ -630,7 +740,7 @@ echo "host data purge OK:${purged:- nothing to purge}"
             "Purging host bind-mount data dirs (data_log, nvstreamer state) on %s",
             self._instance_name,
         )
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        result = await self._run_remote(cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
@@ -712,7 +822,7 @@ git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        result = await self._run_remote(cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
@@ -738,8 +848,8 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 from envs import mount_probe  # normal harbor import path
             except ImportError:
                 import mount_probe  # PYTHONPATH=.github/skill-eval fallback
-            result = await _run_brev_exec(
-                self._instance_name, mount_probe.build_probe_command(label),
+            result = await self._run_remote(
+                mount_probe.build_probe_command(label),
                 timeout=90,
             )
             lines = mount_probe.parse_probe_lines(result.stdout or "")
@@ -767,11 +877,39 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         assert self._instance_name
+        if self._fence_required:
+            remote_stage_dir = (
+                f"/tmp/vss-gpu-fence/uploads/{self._fence_session_id}/"
+                f"{uuid.uuid4().hex}"
+            )
+            remote_stage = f"{remote_stage_dir}/payload"
+            prepared = await self._run_remote(
+                f"mkdir -p {shlex.quote(remote_stage_dir)}",
+                timeout=30,
+            )
+            if prepared.return_code != 0:
+                raise RuntimeError(f"Upload staging failed: {prepared.stderr}")
+            copied = await _run_brev_copy(
+                str(source_path), f"{self._instance_name}:{remote_stage}",
+            )
+            if copied.return_code != 0:
+                raise RuntimeError(f"Upload failed: {copied.stderr}")
+            parent = str(Path(target_path).parent)
+            committed = await self._run_remote(
+                f"sudo mkdir -p {shlex.quote(parent)} && "
+                f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)} && "
+                f"mv {shlex.quote(remote_stage)} {shlex.quote(target_path)} && "
+                f"rmdir {shlex.quote(remote_stage_dir)}",
+                timeout=30,
+            )
+            if committed.return_code != 0:
+                raise RuntimeError(f"Fenced upload commit failed: {committed.stderr}")
+            return
+
         # Ensure parent directory exists with correct ownership
         parent = str(Path(target_path).parent)
         if parent and parent != ".":
-            await _run_brev_exec(
-                self._instance_name,
+            await self._run_remote(
                 f"sudo mkdir -p {shlex.quote(parent)} && "
                 f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)}",
                 timeout=30,
@@ -803,8 +941,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 timeout=60,
             )
 
-            result = await _run_brev_exec(
-                self._instance_name,
+            result = await self._run_remote(
                 f"mkdir -p {shlex.quote(remote_upload_dir)}",
                 timeout=30,
             )
@@ -820,8 +957,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             target = shlex.quote(target_dir)
             remote_archive = shlex.quote(remote_tar)
             remote_dir = shlex.quote(remote_upload_dir)
-            result = await _run_brev_exec(
-                self._instance_name,
+            result = await self._run_remote(
                 f"sudo mkdir -p {target} && "
                 f"sudo chown $(whoami):$(id -gn) {target}; "
                 "status=$?; "
@@ -894,8 +1030,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         # near-certain above ~8MB), and a fresh session JSONL alone can be
         # >10MB, so streaming in one exec is structurally unreliable.
         remote_b64 = f"/tmp/.harbor_dl_{uuid.uuid4().hex[:8]}.b64"
-        result = await _run_brev_exec(
-            self._instance_name,
+        result = await self._run_remote(
             # Exclude bulky non-essential payloads (archived prior sessions,
             # the tee'd raw stream) — harbor only needs the fresh session
             # JSONLs + trajectory.
@@ -932,8 +1067,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         while offset < total:
             piece = None
             for attempt in range(4):
-                res = await _run_brev_exec(
-                    self._instance_name,
+                res = await self._run_remote(
                     f"echo '{marker}START'; "
                     f"dd if={remote_b64} bs=64K skip={offset // 65536} "
                     f"count={chunk // 65536} 2>/dev/null; "
@@ -956,16 +1090,14 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 )
                 await asyncio.sleep(5)
             if piece is None:
-                await _run_brev_exec(self._instance_name,
-                                     f"rm -f {remote_b64}", timeout=30)
+                await self._run_remote(f"rm -f {remote_b64}", timeout=30)
                 raise RuntimeError(
                     f"Download dir failed: slice at offset {offset} "
                     f"unrecoverable after retries"
                 )
             parts.append(piece)
             offset += chunk
-        await _run_brev_exec(self._instance_name, f"rm -f {remote_b64}",
-                             timeout=30)
+        await self._run_remote(f"rm -f {remote_b64}", timeout=30)
 
         # Reassemble the slices behind a regex-Match-shaped shim so the
         # base64-cleanup + decode + extraction pipeline below stays byte-for-
@@ -1033,8 +1165,8 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         else:
             full_cmd = inner_cmd
 
-        return await _run_brev_exec(
-            self._instance_name, full_cmd,
+        return await self._run_remote(
+            full_cmd,
             timeout=timeout_sec or BREV_EXEC_TIMEOUT,
         )
 
@@ -1182,6 +1314,15 @@ def _ssh_alias_for(name: str) -> str:
     return name.lower()
 
 
+def _redact_remote_command(command: str) -> str:
+    """Keep the short-lived lease capability out of debug logs."""
+    return re.sub(
+        r"(--token\s+)(?:'[^']*'|\"[^\"]*\"|\S+)",
+        r"\1[REDACTED]",
+        command,
+    )
+
+
 async def _run_ssh_exec(
     alias: str,
     command: str,
@@ -1196,7 +1337,7 @@ async def _run_ssh_exec(
         "-o", "StrictHostKeyChecking=no",
         alias, command,
     ]
-    logger.debug("ssh %s: %s", alias, command[:200])
+    logger.debug("ssh %s: %s", alias, _redact_remote_command(command)[:200])
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdin=asyncio.subprocess.PIPE,
@@ -1277,23 +1418,15 @@ async def _run_brev_exec(
     For registered external nodes (e.g. DGX-Spark / IGX-Thor), transparently
     falls back to direct ``ssh <alias>`` since brev exec can't reach them.
 
-    Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
-    a single command string.  Stdin is piped with empty input so the
-    brev CLI doesn't enter interactive mode.
+    Callers decide whether to source worker environment. In particular, no
+    worker-controlled profile is evaluated before a PostgreSQL fence claim.
+    The command is passed as one argument and stdin is non-interactive.
     """
     if await _is_registered_node(instance):
-        # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
-        # forwarded ~/.eval_env) is never sourced, silently dropping
-        # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
-        command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
-    # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
-    # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
-    # are invisible to every command. Source it inline, same as SSH nodes.
-    command = f". ~/.eval_env 2>/dev/null || true; {command}"
     # brev exec <instance> <command> — brev handles SSH transparently
     cmd = ["brev", "exec", instance, command]
-    logger.debug("brev exec: %s", command[:200])
+    logger.debug("brev exec: %s", _redact_remote_command(command)[:200])
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,

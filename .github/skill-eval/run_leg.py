@@ -35,9 +35,11 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 from distributed_lock import (
+    Lease,
     LeaseError,
     LeaseGuard,
     LeaseLostError,
@@ -218,8 +220,15 @@ def build_harbor_command(
     ]
 
 
-def harbor_env(instance: str) -> dict[str, str]:
+def harbor_env(instance: str, lease: Lease | None = None) -> dict[str, str]:
     env = os.environ.copy()
+    # Harbor and its on-box agent never need database credentials.  The only
+    # cross-boundary capability is the short-lived lease token for the exact
+    # worker/generation selected by this wrapper.
+    env.pop("GPU_LEASE_DATABASE_URL", None)
+    env.pop("GPU_FENCE_DATABASE_URL", None)
+    env.pop("GPU_LEASE_ADMIN_DATABASE_URL", None)
+    env.pop("CI_GPU_LEASE_DATABASE_URL", None)
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
     pythonpath = env.get("PYTHONPATH", "")
@@ -229,6 +238,23 @@ def harbor_env(instance: str) -> dict[str, str]:
     env["PATH"] = f"{Path.home() / '.local' / 'bin'}:{env.get('PATH', '')}"
     env["BREV_INSTANCE"] = instance
     env["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+    for key in (
+        "GPU_LEASE_GPU_ID",
+        "GPU_LEASE_TOKEN",
+        "GPU_LEASE_GENERATION",
+        "GPU_WORKER_FENCE_REQUIRED",
+    ):
+        env.pop(key, None)
+    if lease is not None:
+        if lease.gpu_id != instance:
+            raise LeaseError(
+                f"lease worker {lease.gpu_id!r} does not match Harbor "
+                f"instance {instance!r}"
+            )
+        env["GPU_LEASE_GPU_ID"] = lease.gpu_id
+        env["GPU_LEASE_TOKEN"] = str(lease.token)
+        env["GPU_LEASE_GENERATION"] = str(lease.generation)
+        env["GPU_WORKER_FENCE_REQUIRED"] = "1"
     return env
 
 
@@ -779,8 +805,9 @@ def run_invocations(
     platform: str,
     harbor_timeout_sec: int,
     health_check=None,
+    lease: Lease | None = None,
 ) -> int:
-    env = harbor_env(instance)
+    env = harbor_env(instance, lease)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
     # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
     # silently fall through to the claude-code path and be indistinguishable
@@ -911,6 +938,18 @@ def validate_coordinator_lock_config(args: argparse.Namespace) -> None:
             f"distributed runner identity mismatch: COORDINATOR_ID="
             f"{args.coordinator_id!r}, expected {runner_name!r}"
         )
+    parsed = urllib.parse.urlsplit(args.lease_database_url)
+    sslmode = urllib.parse.parse_qs(parsed.query).get("sslmode", [""])[0]
+    if (
+        parsed.scheme not in {"postgres", "postgresql"}
+        or not parsed.hostname
+        or not parsed.path.strip("/")
+        or sslmode != "verify-full"
+    ):
+        raise LeaseError(
+            "distributed runners require a managed PostgreSQL DSN with "
+            "host, database, and sslmode=verify-full"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -977,7 +1016,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.spec_stem,
                 args.platform,
                 args.harbor_timeout_sec,
-                guard.raise_if_lost,
+                health_check=guard.raise_if_lost,
+                lease=guard.lease,
             )
     except LockTimeoutError:
         target = args.instance or f"pool ({args.platform or 'platform'})"

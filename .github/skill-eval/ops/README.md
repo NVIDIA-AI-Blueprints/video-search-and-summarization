@@ -5,7 +5,7 @@ Staging is intentionally inert:
 
 - every runner service is disabled and stopped;
 - runners receive `vss-skill-eval-standby`, not
-  `vss-skill-eval-runner`;
+  `vss-skill-eval-postgres`;
 - runner environments select PostgreSQL mode, but no database secret is
   copied by these scripts.
 
@@ -22,7 +22,9 @@ psql "$GPU_LEASE_ADMIN_DATABASE_URL" \
   -f .github/skill-eval/postgres-gpu-leases.sql
 ```
 
-Create a non-owner runtime role and grant only:
+Create two non-owner login roles before applying the schema: one coordinator
+role and one validation-only GPU role. Use independently managed passwords.
+After applying the schema, grant only:
 
 ```sql
 GRANT CONNECT ON DATABASE eval TO skill_eval_lease;
@@ -36,12 +38,20 @@ ON FUNCTION public.acquire_gpu_lease(text[], text, uuid, integer),
             public.renew_gpu_lease(text, text, uuid, bigint, integer),
             public.release_gpu_lease(text, text, uuid, bigint)
 TO skill_eval_lease;
+
+GRANT CONNECT ON DATABASE eval TO skill_eval_fence;
+REVOKE ALL ON public.gpu_workers, public.gpu_leases, public.gpu_lease_status
+FROM skill_eval_fence;
+REVOKE CREATE ON SCHEMA public FROM skill_eval_fence;
+GRANT USAGE ON SCHEMA public TO skill_eval_fence;
+GRANT EXECUTE
+ON FUNCTION public.validate_gpu_lease(text, uuid, bigint)
+TO skill_eval_fence;
 ```
 
-The `SECURITY DEFINER` functions have a fixed `pg_catalog` search path and
-enforce owner, token, generation, expiry, and inventory checks. The runtime
-role must not receive direct `INSERT`, `UPDATE`, or `DELETE` privileges on
-lease state.
+The `SECURITY DEFINER` functions have a fixed `pg_catalog` search path. The
+coordinator role must not receive direct lease-table DML. The GPU role must
+not receive any table/view read or lease acquire/renew/release capability.
 
 Add the operator-managed GPU inventory explicitly. New workers default to
 disabled:
@@ -77,16 +87,39 @@ each host and sends it through a mode-0600 temporary file. It registers
 GitHub that all 32 are offline, standby-labeled, and lack the production
 label.
 
-Place the TLS-enforced runtime DSN in
-`/home/ubuntu/eval-coordinator/.env` on each coordinator:
+Store the coordinator DSN in the repository Actions secret
+`GPU_LEASE_DATABASE_URL`:
 
 ```bash
-GPU_LEASE_DATABASE_URL='postgresql://skill_eval_lease:...@db.example/eval?sslmode=verify-full'
-GPU_LEASE_MODE=postgres
+postgresql://skill_eval_lease:...@db.example/eval?sslmode=verify-full
 ```
 
-Do not put the DSN in a runner label, command line, repository secret file,
-or the staging script.
+The workflow restores that secret after loading each host `.env`; distributed
+runners reject a box-local DSN and any mode other than PostgreSQL. Do not put
+either DSN in a runner label, command line, source file, or runner `.env`.
+
+## Deploy worker-side fencing
+
+First drain legacy coordinators and confirm `gpu_lease_status` has no live
+lease. Service startup deliberately removes all containers and stale trial
+processes on each dedicated worker.
+
+Write the validation-only DSN to a mode-0600 local file, review the exact
+enabled-worker inventory, then preflight and deploy:
+
+```bash
+chmod 600 /secure/path/gpu-fence-dsn
+export GPU_FENCE_DATABASE_URL_FILE=/secure/path/gpu-fence-dsn
+export GPU_WORKERS='vss-eval-l40s vss-eval-rtx-1g-2'
+.github/skill-eval/ops/deploy-gpu-fence-workers.sh
+.github/skill-eval/ops/deploy-gpu-fence-workers.sh \
+  --apply --confirm-drained
+```
+
+For registered external nodes, also set `REGISTERED_GPU_WORKERS` to the names
+that use direct SSH aliases. The installer requires `sslmode=verify-full`,
+stores the validation DSN root-only, probes the database function, restarts
+the service, and verifies the expected worker ID and service version.
 
 ## Cutover (separate, explicit operation)
 
@@ -94,32 +127,33 @@ Never mix active flock-only coordinators with active PostgreSQL coordinators.
 
 1. Verify all configured GPU workers and an empty/expired `gpu_leases` view.
 2. Drain every runner using local-only `flock` and remove its
-   `vss-skill-eval-runner` label before adding any distributed production
-   label.
-3. Start one staged runner service while it still has only the standby label;
-   run a local lease smoke test.
-4. Add `vss-skill-eval-runner` to that runner and observe one real leg,
-   including several renewals and an owner-checked release.
-5. Activate additional services gradually.
+   `vss-skill-eval-runner` label.
+3. Deploy and verify the GPU fence on every enabled worker.
+4. Start one staged runner with only `vss-skill-eval-canary`; run one normal
+   Harbor leg and observe renewals plus owner-checked release.
+5. Force-kill a canary coordinator after it launches a long worker process.
+   After lease expiry, require the next generation to kill the stale process
+   and containers before its first command.
+6. Remove the canary label, add `vss-skill-eval-postgres`, and activate
+   additional runner services gradually. The production workflows never
+   select the legacy label.
 
 Activation is deliberately not automated here. It changes scheduling state
 and must be a separately reviewed operator action.
 
-### Required worker-fencing decision
+### Worker-fencing boundary
 
-The PostgreSQL generation fences lease database operations; it is not yet
-enforced by a service on the GPU worker. Version 1 therefore assumes trusted
-CPU coordinators and passive GPU workers. An abrupt coordinator death could
-leave stale remote work after its row lease expires.
+`vss-gpu-fence` validates the exact `(gpu_id, token, generation)` through the
+validation-only role. Every Harbor mutation and trial command uses its local
+Unix-socket session. A newer generation, invalid lease, database outage past
+the local safety deadline, daemon restart, or shutdown terminates registered
+process groups and all dedicated-worker containers. Admission stays blocked
+unless cleanup postconditions pass.
 
-Production activation is blocked until the team either:
-
-1. deploys GPU-side session fencing that accepts `(gpu_id, token, generation)`
-   and rejects/terminates stale generations; or
-2. formally accepts the trusted-controller risk and documents the stale-work
-   detection and cleanup procedure.
-
-The successful normal-path canary does not validate this failure mode.
+This is an operational safety boundary for trusted coordinators and dedicated
+workers, not a hostile multi-tenant sandbox. Administrators with unrestricted
+root/SSH access can bypass it and must not mutate an enabled worker during an
+evaluation.
 
 ## Runtime behavior
 
@@ -134,4 +168,9 @@ process group, and fails the leg closed. Release requires the exact worker,
 owner, token, and generation; an unreachable database is left to TTL expiry.
 GitHub cancellation (`SIGTERM`) is converted into normal exception unwinding,
 so the same Harbor termination and owner-checked lease cleanup run.
+
+The worker revalidates every five seconds and keeps a deadline 30 seconds
+inside PostgreSQL expiry. A separate local watchdog enforces that deadline
+even if a database read stalls. The persisted generation high-water mark
+rejects older claims after service restart.
 

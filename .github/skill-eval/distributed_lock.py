@@ -88,8 +88,8 @@ class PostgresLeaseClient:
             raise ValueError("database_url must not be empty")
         if not owner_id:
             raise ValueError("owner_id must not be empty")
-        if ttl_sec < 60:
-            raise ValueError("ttl_sec must be at least 60 seconds")
+        if not 60 <= ttl_sec <= 300:
+            raise ValueError("ttl_sec must be between 60 and 300 seconds")
         self.database_url = database_url
         self.owner_id = owner_id
         self.ttl_sec = ttl_sec

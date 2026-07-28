@@ -108,7 +108,7 @@ AS $$
           AND w.enabled
           AND requested_owner_id <> ''
           AND requested_token IS NOT NULL
-          AND ttl_seconds >= 60
+          AND ttl_seconds BETWEEN 60 AND 300
           AND (
               l.owner_id IS NULL
               OR l.lease_expires_at <= statement_timestamp()
@@ -149,7 +149,7 @@ AS $$
       AND l.lease_token = requested_token
       AND l.generation = requested_generation
       AND l.lease_expires_at > statement_timestamp()
-      AND ttl_seconds >= 60
+      AND ttl_seconds BETWEEN 60 AND 300
     RETURNING l.lease_expires_at
 $$;
 
@@ -176,6 +176,50 @@ AS $$
     RETURNING l.gpu_id
 $$;
 
+CREATE OR REPLACE FUNCTION public.validate_gpu_lease(
+    requested_gpu_id text,
+    requested_token uuid,
+    requested_generation bigint
+)
+RETURNS TABLE (
+    valid boolean,
+    remaining_seconds double precision
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+    SELECT
+        COALESCE(
+            bool_or(
+                w.enabled
+                AND l.lease_token = requested_token
+                AND l.generation = requested_generation
+                AND l.lease_expires_at > statement_timestamp()
+            ),
+            false
+        ) AS valid,
+        COALESCE(
+            max(
+                CASE
+                    WHEN w.enabled
+                     AND l.lease_token = requested_token
+                     AND l.generation = requested_generation
+                     AND l.lease_expires_at > statement_timestamp()
+                    THEN extract(
+                        epoch FROM l.lease_expires_at - statement_timestamp()
+                    )
+                    ELSE 0
+                END
+            ),
+            0
+        )::double precision AS remaining_seconds
+    FROM public.gpu_workers AS w
+    JOIN public.gpu_leases AS l USING (gpu_id)
+    WHERE w.gpu_id = requested_gpu_id
+$$;
+
 REVOKE ALL ON FUNCTION
     public.acquire_gpu_lease(text[], text, uuid, integer)
 FROM PUBLIC;
@@ -184,6 +228,9 @@ REVOKE ALL ON FUNCTION
 FROM PUBLIC;
 REVOKE ALL ON FUNCTION
     public.release_gpu_lease(text, text, uuid, bigint)
+FROM PUBLIC;
+REVOKE ALL ON FUNCTION
+    public.validate_gpu_lease(text, uuid, bigint)
 FROM PUBLIC;
 
 -- Upgrade the documented runtime role from the earlier direct-DML grants when
@@ -210,6 +257,21 @@ BEGIN
             'public.renew_gpu_lease(text, text, uuid, bigint, integer), '
             'public.release_gpu_lease(text, text, uuid, bigint) '
             'TO skill_eval_lease';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_roles
+        WHERE rolname = 'skill_eval_fence'
+    ) THEN
+        EXECUTE
+            'REVOKE ALL ON TABLE public.gpu_workers, public.gpu_leases, '
+            'public.gpu_lease_status FROM skill_eval_fence';
+        EXECUTE 'REVOKE CREATE ON SCHEMA public FROM skill_eval_fence';
+        EXECUTE 'GRANT USAGE ON SCHEMA public TO skill_eval_fence';
+        EXECUTE
+            'GRANT EXECUTE ON FUNCTION '
+            'public.validate_gpu_lease(text, uuid, bigint) '
+            'TO skill_eval_fence';
     END IF;
 END;
 $$;

@@ -51,7 +51,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
 | `GPU_LEASE_MODE` | `local` (legacy single-coordinator only) or `postgres`. Registered distributed runners reject local mode. All active coordinators sharing a GPU pool must use the same mode. |
-| `GPU_LEASE_DATABASE_URL` | TLS PostgreSQL DSN required when `GPU_LEASE_MODE=postgres`. |
+| `GPU_LEASE_DATABASE_URL` | Managed PostgreSQL DSN supplied by the Actions secret; distributed runners require `sslmode=verify-full`. It is removed before Harbor starts. |
 | `COORDINATOR_ID` | Stable unique runner ID; distributed workflows derive it from GitHub's `RUNNER_NAME`. `run_leg.py` appends the GitHub run ID and PID for each lease owner. |
 
 ## Layout
@@ -63,6 +63,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 ├── skills_eval_agent.py   ← the CI entrypoint (spawns the agent)
 ├── run_leg.py             ← structural per-box lock + Harbor launcher
 ├── distributed_lock.py    ← PostgreSQL lease client and heartbeat
+├── gpu_fence.py           ← GPU-side generation watchdog and fenced exec
 ├── postgres-gpu-leases.sql ← operator-owned worker/lease schema
 ├── ops/                   ← dormant multi-coordinator staging runbook/scripts
 ├── adapters/              ← per-skill dataset generators

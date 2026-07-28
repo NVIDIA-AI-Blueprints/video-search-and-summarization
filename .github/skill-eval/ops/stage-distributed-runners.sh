@@ -100,8 +100,8 @@ for name in sorted(expected & runners.keys()):
         unsafe.append(f"{name}: status={runner.get('status')}")
     if "vss-skill-eval-standby" not in labels:
         unsafe.append(f"{name}: standby label missing")
-    if "vss-skill-eval-runner" in labels:
-        unsafe.append(f"{name}: production label present")
+    if {"vss-skill-eval-runner", "vss-skill-eval-postgres"} & labels:
+        unsafe.append(f"{name}: legacy or PostgreSQL production label present")
 if missing or unsafe:
     for item in missing:
         print(f"MISSING: {item}", file=sys.stderr)
