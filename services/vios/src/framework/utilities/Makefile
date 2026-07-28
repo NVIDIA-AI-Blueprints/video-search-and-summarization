@@ -41,7 +41,8 @@ SRCS_LOGGER := logger.cpp
 OBJS_LOGGER := $(SRCS_LOGGER:.cpp=.o)
 
 TARGET_NW_UTILS := $(PREBUILT)libnvnetworkutils.so
-SRCS_NW_UTILS := network_utils.cpp
+SRCS_NW_UTILS := network_utils.cpp \
+                 async_http_client.cpp
 OBJS_NW_UTILS := $(SRCS_NW_UTILS:.cpp=.o)
 
 TARGET_STATS := $(PREBUILT)libnvstatistics.so

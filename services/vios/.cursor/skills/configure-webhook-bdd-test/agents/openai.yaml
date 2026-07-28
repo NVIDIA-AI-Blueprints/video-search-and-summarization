@@ -1,0 +1,4 @@
+interface:
+  display_name: "Configure Webhook BDD Test"
+  short_description: "Prepare deployment config for webhook BDD tests"
+  default_prompt: "Use $configure-webhook-bdd-test to add the BDD webhook receivers and show the focused pytest command."

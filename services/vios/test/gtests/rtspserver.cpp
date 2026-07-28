@@ -46,7 +46,7 @@ class RtspServerManagerTest : public ::testing::Test
 {
 protected:
     static RtspServerManager* s_rtspMgr;
-    static std::map<std::string, HttpServerRequestHandler::httpFunction> s_handlers;
+    static std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>> s_handlers;
     static bool s_initialized;
 
     static void SetUpTestSuite()
@@ -125,7 +125,7 @@ protected:
 };
 
 RtspServerManager* RtspServerManagerTest::s_rtspMgr = nullptr;
-std::map<std::string, HttpServerRequestHandler::httpFunction> RtspServerManagerTest::s_handlers;
+std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>> RtspServerManagerTest::s_handlers;
 bool RtspServerManagerTest::s_initialized = false;
 
 TEST_F(RtspServerManagerTest, GetStreamList)

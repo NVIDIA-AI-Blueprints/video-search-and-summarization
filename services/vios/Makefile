@@ -93,6 +93,8 @@ SRCS := \
 	src/framework/notification/kafka/kafka_consumer.cpp \
 	src/framework/notification/mqtt/mqtt_publisher.cpp \
 	src/framework/notification/mqtt/mqtt_subscriber.cpp \
+	src/framework/notification/webhook/webhook_notifier.cpp \
+	src/framework/notification/composite_notifier.cpp \
 	src/framework/notification/ds_proto_parser.cpp \
 	src/framework/protocols/prometheus_client/prometheus_client.cpp
 
@@ -616,7 +618,9 @@ TEST_SRCS := test/gtests/test_main.cpp \
              test/gtests/recorder.cpp \
              test/gtests/rtspserver.cpp \
              test/gtests/replaystream.cpp \
-             test/gtests/livestream.cpp
+             test/gtests/livestream.cpp \
+             test/gtests/async_http_client.cpp \
+             test/gtests/webhook_notifier.cpp
 
 TEST_OBJS := $(TEST_SRCS:.cpp=.o)
 

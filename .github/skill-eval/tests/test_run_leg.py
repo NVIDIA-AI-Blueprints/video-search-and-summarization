@@ -9,6 +9,8 @@ Run:
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 import tempfile
 import time
@@ -170,6 +172,139 @@ class SkipMarkers(unittest.TestCase):
                 step3.read_text().strip(),
                 "skipped (prior-step fail, step=2 reward=0.2)",
             )
+
+
+class TraceUrls(unittest.TestCase):
+    """Regression cover for the blank-Harbor-page bug.
+
+    PR #1254 / run 30284131217 shipped seven trace links whose final
+    segment was the `--include-task-name` filter (`step-7`) instead of
+    Harbor's `task_name`. The viewer is a client-side SPA, so every one
+    of them opened as an empty page instead of erroring.
+    """
+
+    # Shape mirrors a real trial's result.json.
+    RESULT = {
+        "task_name": "nvidia-vss/vss-generate-video-report-base-l40s-step-7",
+        "trial_name": "step-7__E6dBECL",
+        "source": "l40s",
+        "agent_info": {
+            "name": "claude-code",
+            "model_info": {
+                "name": "anthropic/bedrock-claude-opus-4-6",
+                "provider": "aws",
+            },
+        },
+    }
+    JOB = (
+        "vss-generate-video-report__base_profile_report__L40S"
+        "__30284131217__2026-07-27__17-16-47"
+    )
+
+    def setUp(self):
+        self._orig_env = os.environ.get("BREV_ENV_ID")
+        os.environ["BREV_ENV_ID"] = "13xh5gpe7"
+
+    def tearDown(self):
+        if self._orig_env is None:
+            os.environ.pop("BREV_ENV_ID", None)
+        else:
+            os.environ["BREV_ENV_ID"] = self._orig_env
+
+    def _write_result(self, directory: Path, payload=None) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        result = directory / "result.json"
+        result.write_text(json.dumps(payload if payload is not None else self.RESULT))
+        return result
+
+    def test_trace_url_matches_the_viewer_route(self):
+        with tempfile.TemporaryDirectory() as td:
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            url = run_leg.trace_url(result, self.JOB)
+
+        self.assertEqual(
+            url,
+            "https://harbor-13xh5gpe7.brevlab.com/jobs/"
+            + self.JOB
+            + "/tasks/l40s/claude-code/aws"
+            + "/anthropic%2Fbedrock-claude-opus-4-6"
+            + "/nvidia-vss%2Fvss-generate-video-report-base-l40s-step-7",
+        )
+
+    def test_trace_url_never_ends_in_the_include_task_filter(self):
+        """The exact regression: a bare `step-7` tail renders a blank page."""
+        with tempfile.TemporaryDirectory() as td:
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            url = run_leg.trace_url(result, self.JOB)
+
+        self.assertFalse(url.endswith("/step-7"))
+        self.assertTrue(url.endswith("-step-7"))
+        # Slashes inside <model>/<task> must be segments, not path levels.
+        self.assertEqual(url.count("%2F"), 2)
+
+    def test_trace_url_none_on_incomplete_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            partial = dict(self.RESULT)
+            partial.pop("task_name")
+            result = self._write_result(Path(td) / "step-7__X", partial)
+
+            self.assertIsNone(run_leg.trace_url(result, self.JOB))
+            self.assertIsNone(run_leg.trace_url(Path(td) / "missing.json", self.JOB))
+
+    def test_publish_trace_flattens_into_viewer_and_records_url(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-7",
+            chain_key="base_l40s",
+            step_index=7,
+            step_count=8,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results_root = root / "results" / "leg" / "30284131217"
+            trial = results_root / "2026-07-27__17-16-47" / "step-7__E6dBECL"
+            self._write_result(trial)
+            viewer_root = root / "_viewer"
+            orig_viewer = run_leg.VIEWER_ROOT
+            run_leg.VIEWER_ROOT = viewer_root
+            try:
+                url = run_leg.publish_trace(
+                    results_root, invocation, 0.0, "leg", "30284131217"
+                )
+            finally:
+                run_leg.VIEWER_ROOT = orig_viewer
+
+            job_dir = viewer_root / "leg__30284131217__2026-07-27__17-16-47"
+            # Flattened: the trial sits at the job's top level, with no
+            # intervening <date>/ level for the viewer to miss.
+            self.assertTrue((job_dir / "step-7__E6dBECL" / "result.json").is_file())
+            self.assertFalse((job_dir / "2026-07-27__17-16-47").exists())
+            # Copy, not move — the workflow collector still tars results_root.
+            self.assertTrue((trial / "result.json").is_file())
+
+            row = (results_root / "trace-urls.tsv").read_text().strip().split("\t")
+
+        self.assertEqual(row[0], "step-7")
+        self.assertEqual(row[1], "step-7__E6dBECL")
+        self.assertEqual(row[2], url)
+        self.assertIn("/jobs/leg__30284131217__2026-07-27__17-16-47/tasks/", url)
+
+    def test_publish_trace_returns_none_when_trial_produced_no_result(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-1",
+            chain_key="base_l40s",
+            step_index=1,
+            step_count=8,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            results_root = Path(td) / "results"
+            results_root.mkdir(parents=True)
+
+            self.assertIsNone(
+                run_leg.publish_trace(results_root, invocation, 0.0, "leg", "1")
+            )
+            self.assertFalse((results_root / "trace-urls.tsv").exists())
 
 
 class PoolCandidates(unittest.TestCase):
