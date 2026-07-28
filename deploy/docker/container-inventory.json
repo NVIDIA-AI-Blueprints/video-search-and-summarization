@@ -11,9 +11,6 @@
     "  build          - source lives in this repository; candidate for a native",
     "                   GHCR build (ghcr_build: true marks the images the",
     "                   build-dev-images workflow builds today).",
-    "                   shared_tag_set: true groups agent/UI/alert so a change",
-    "                   to any member rebuilds the whole set under one tag;",
-    "                   omit it for independent per-source_path builds.",
     "  mirror         - first-party, but built outside this repository; joins a",
     "                   GHCR release set only through the approved NGC->GHCR",
     "                   mirror program (requires distribution approval).",
@@ -33,7 +30,6 @@
       "name": "vss-agent",
       "strategy": "build",
       "ghcr_build": true,
-      "shared_tag_set": true,
       "source_path": "services/agent",
       "context": "services",
       "dockerfile": "services/agent/docker/Dockerfile",
@@ -46,7 +42,6 @@
       "name": "vss-agent-ui",
       "strategy": "build",
       "ghcr_build": true,
-      "shared_tag_set": true,
       "source_path": "services/ui",
       "context": ".",
       "dockerfile": "services/ui/Dockerfile",
@@ -58,7 +53,6 @@
       "name": "vss-alert-ms",
       "strategy": "build",
       "ghcr_build": true,
-      "shared_tag_set": true,
       "source_path": "services/alert",
       "context": "services/alert",
       "dockerfile": "services/alert/Dockerfile",
@@ -98,8 +92,7 @@
       "dockerfile": "services/video-summarization/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-video-summarization"],
-      "tag_variables": ["CONTAINER_IMAGE"],
-      "notes": "Independent GHCR build (not part of the agent/UI/alert shared-tag set). Builds only when services/video-summarization/ changes."
+      "tag_variables": ["CONTAINER_IMAGE"]
     },
     {
       "name": "vss-rt-vlm",

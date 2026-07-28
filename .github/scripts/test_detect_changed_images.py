@@ -30,7 +30,6 @@ INVENTORY = {
             "name": "vss-agent",
             "strategy": "build",
             "ghcr_build": True,
-            "shared_tag_set": True,
             "source_path": "services/agent",
             "context": "services",
             "dockerfile": "services/agent/docker/Dockerfile",
@@ -42,7 +41,6 @@ INVENTORY = {
             "name": "vss-agent-ui",
             "strategy": "build",
             "ghcr_build": True,
-            "shared_tag_set": True,
             "source_path": "services/ui",
             "context": ".",
             "dockerfile": "services/ui/Dockerfile",
@@ -52,23 +50,12 @@ INVENTORY = {
         {
             "name": "vss-alert-ms",
             "strategy": "build",
-            "ghcr_build": True,
-            "shared_tag_set": True,
+            "ghcr_build": False,
             "source_path": "services/alert",
             "context": "services/alert",
             "dockerfile": "services/alert/Dockerfile",
             "platforms": ["linux/amd64"],
             "compose_image_names": ["vss-alert-ms"],
-        },
-        {
-            "name": "vss-video-summarization",
-            "strategy": "build",
-            "ghcr_build": True,
-            "source_path": "services/video-summarization",
-            "context": "services/video-summarization",
-            "dockerfile": "services/video-summarization/docker/Dockerfile",
-            "platforms": ["linux/amd64", "linux/arm64"],
-            "compose_image_names": ["vss-video-summarization"],
         },
         {
             "name": "vss-configurator",
@@ -96,13 +83,7 @@ def make_repo(tmp: str) -> Path:
     git(repo, "init", "-q", "-b", "develop")
     git(repo, "config", "user.email", "test@test")
     git(repo, "config", "user.name", "test")
-    for rel in (
-        "services/agent/app.py",
-        "services/ui/app.js",
-        "services/alert/app.py",
-        "services/video-summarization/app.py",
-        "docs/readme.md",
-    ):
+    for rel in ("services/agent/app.py", "services/ui/app.js", "docs/readme.md"):
         path = repo / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("v1\n")
@@ -141,8 +122,7 @@ class ResolveDiffBaseTest(unittest.TestCase):
             self.assertEqual(base, before)
             self.assertIn("push range", reason)
             self.assertEqual(
-                selected_names(repo, base),
-                ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
+                selected_names(repo, base), ["vss-agent", "vss-agent-ui"]
             )
 
     def test_initial_push_zero_sha_builds_everything(self):
@@ -153,15 +133,7 @@ class ResolveDiffBaseTest(unittest.TestCase):
             )
             self.assertIsNone(base)
             self.assertIn("initial push", reason)
-            self.assertEqual(
-                selected_names(repo, base),
-                [
-                    "vss-agent",
-                    "vss-agent-ui",
-                    "vss-alert-ms",
-                    "vss-video-summarization",
-                ],
-            )
+            self.assertEqual(selected_names(repo, base), ["vss-agent", "vss-agent-ui"])
 
     def test_orphaned_before_sha_builds_everything(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,8 +157,7 @@ class ResolveDiffBaseTest(unittest.TestCase):
             self.assertEqual(base, fork_point)
             self.assertIn("merge-base", reason)
             self.assertEqual(
-                selected_names(repo, base),
-                ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
+                selected_names(repo, base), ["vss-agent", "vss-agent-ui"]
             )
 
     def test_non_push_event_builds_everything(self):
@@ -207,33 +178,12 @@ class SelectImagesTest(unittest.TestCase):
             commit_change(repo, "docs/readme.md", "v2\n", "docs")
             self.assertEqual(selected_names(repo, before), [])
 
-    def test_untracked_source_path_is_never_selected(self):
+    def test_non_ghcr_build_image_is_never_selected(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(tmp)
             before = git(repo, "rev-parse", "HEAD")
-            commit_change(repo, "services/rtvi/app.py", "v2\n", "rtvi")
+            commit_change(repo, "services/alert/app.py", "v2\n", "alert")
             self.assertEqual(selected_names(repo, before), [])
-
-    def test_video_summarization_builds_only_itself(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = make_repo(tmp)
-            before = git(repo, "rev-parse", "HEAD")
-            commit_change(
-                repo, "services/video-summarization/app.py", "v2\n", "lvs"
-            )
-            self.assertEqual(
-                selected_names(repo, before), ["vss-video-summarization"]
-            )
-
-    def test_shared_tag_set_change_does_not_build_independent_images(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = make_repo(tmp)
-            before = git(repo, "rev-parse", "HEAD")
-            commit_change(repo, "services/agent/app.py", "v2\n", "agent")
-            self.assertEqual(
-                selected_names(repo, before),
-                ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
-            )
 
     def test_build_contract_change_builds_everything(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,13 +193,7 @@ class SelectImagesTest(unittest.TestCase):
                 repo, ".github/workflows/build-dev-images.yml", "on: push\n", "wf"
             )
             self.assertEqual(
-                selected_names(repo, before),
-                [
-                    "vss-agent",
-                    "vss-agent-ui",
-                    "vss-alert-ms",
-                    "vss-video-summarization",
-                ],
+                selected_names(repo, before), ["vss-agent", "vss-agent-ui"]
             )
 
     def test_prefix_is_directory_anchored(self):
@@ -283,14 +227,6 @@ class SelectImagesTest(unittest.TestCase):
                         "lfs_include": "",
                         "platforms": "linux/amd64,linux/arm64",
                         "source_path": "services/ui",
-                    },
-                    {
-                        "name": "vss-alert-ms",
-                        "context": "services/alert",
-                        "dockerfile": "services/alert/Dockerfile",
-                        "lfs_include": "",
-                        "platforms": "linux/amd64",
-                        "source_path": "services/alert",
                     },
                 ]
             },

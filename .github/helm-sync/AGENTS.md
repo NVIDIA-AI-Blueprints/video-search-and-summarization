@@ -100,14 +100,10 @@ repo evolves.
      `templates/**`, `configs/**`, `charts/**` (subcharts), `Chart.lock`.
    - **skip entirely** — `deploy/docker/industry-profiles/**`,
      `deploy/docker/scripts/**`, `deploy/docker/container-inventory.json`,
-     `deploy/docker/containers.env`, `deploy/docker/*.schema.json`,
-     `deploy/docker/*.golden`, `deploy/docker/last-green.lock.json`,
      and any `deploy/*.md` / README / non-deployment file. Don't
      drift-flag, don't comment, don't bot-PR; treat them as out of
-     scope for this workflow. Inventory / build-classification metadata
-     (`ghcr_build`, `shared_tag_set`, `context`, `dockerfile` paths in
-     `container-inventory.json`) is **not** a runtime compose change
-     and must never alone trigger a helm sync.
+     scope for this workflow. Inventory build classification
+     (`ghcr_build` flips) is not a runtime compose change.
 
    For docker-side paths, derive the `<group>` (the relative path
    under `deploy/docker/`) and the candidate helm dir at
@@ -144,17 +140,13 @@ repo evolves.
    | new Dockerfile (new service) | new `templates/<svc>-deployment.yaml` + values entry |
    | NIM / GPU resource hints | `resources.limits.nvidia.com/gpu` + tolerations / nodeSelector |
 
-   **Shared managed-image channel.** Only images with **both**
-   `"ghcr_build": true` **and** `"shared_tag_set": true` in
-   `deploy/docker/container-inventory.json` (today: agent / UI / alert)
-   participate in the shared Compose/Helm channel. An image that is
-   merely `"ghcr_build": true` (e.g. video-summarization) is an
-   independent GHCR build — it does **not** join this channel and its
-   chart must **not** be rewritten to honor `global.container_prefix` /
-   `global.container_tag` solely because `ghcr_build` flipped.
-
-   Channel membership requires a real docker-side default migration,
-   not inventory metadata:
+   **Shared managed-image channel.** The agent / UI / alert images
+   (`vss-agent`, `vss-agent-ui`, `vss-alert-ms`) use the same defaults in
+   Docker Compose and Helm. Other images may be `"ghcr_build": true` for
+   GitHub publication without joining this channel — do not rewrite their
+   charts to honor `global.container_prefix` / `global.container_tag`
+   unless their compose default itself migrates to
+   `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`:
 
    - Both deployment paths default to
      `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
@@ -164,15 +156,8 @@ repo evolves.
      individual subcharts.
    - Treat a Helm chart that retains an immutable
      `nvcr.io/nvstaging/vss-core/*` default, ignores either global override, or
-     hard-codes a managed image in an umbrella profile as drift — **but
-     only for `shared_tag_set: true` images whose compose default already
-     uses the GHCR channel**.
-   - **Do not** propose helm helper changes when the only docker-side
-     signal is `container-inventory.json` flipping `ghcr_build` (with or
-     without `shared_tag_set`). That is build metadata. Emit
-     `DONE: in sync` (or `DONE: no deploy/ changes` if nothing else is
-     in scope) and exit. A maintainer migrates compose + helm defaults
-     to the GHCR channel in a deliberate follow-up.
+     hard-codes a managed image in an umbrella profile as drift — only for
+     images already on the managed compose channel above.
    - Continue to flag every other semantic difference, including container
      env, ports, mounts, commands, probes, resources, and topology.
 
