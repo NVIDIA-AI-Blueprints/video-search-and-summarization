@@ -60,12 +60,15 @@ capability checks. Run the mandatory check/create gate in
 [`data-directory.md`](data-directory.md), then deploy that exact file:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" up -d --pull always
+docker compose -f "$BUILD_DIR/resolved.yml" up -d --build --pull-always
 ```
 
-`COMPOSE_PROFILES` has already filtered the source graph during resolution.
-Normalization removes the remaining service profile gates, so no Foundation
-env file or profile flag is needed at deployment time.
+`COMPOSE_PROFILES` has already filtered the source graph during resolution, and
+`docker compose config` baked the project `name`, each service `env_file`, and
+all interpolation into the file. Normalization removes the remaining service
+profile gates, so no Foundation env file or profile flag is needed at deployment
+time. Add `--build` so the build-backed services build from their local `build:`
+rather than the bare `image:` tag they also carry.
 
 ## Readiness
 
