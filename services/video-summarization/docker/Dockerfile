@@ -18,7 +18,19 @@
 
 FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.8 AS runtime-base-python
 
-FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS runtime-base-builder
+# Shared jammy builder base. ldconfig is diverted to a no-op because it
+# segfaults under QEMU arm64 emulation (Launchpad #2072564), and libc-bin's
+# post-install trigger runs it on every apt transaction — failing the emulated
+# leg of the multiarch build with exit 139. A dpkg-divert (rather than
+# overwriting the binary) keeps the stub in place even when apt upgrades
+# libc-bin itself. Only the discarded builder stages inherit this; the shipped
+# image is distroless and never carries the diversion.
+FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS jammy-builder-base
+
+RUN dpkg-divert --local --rename --add /sbin/ldconfig \
+    && ln -sf /bin/true /sbin/ldconfig
+
+FROM jammy-builder-base AS runtime-base-builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -41,7 +53,7 @@ COPY --from=runtime-base-builder /opt/nvidia/via /opt/nvidia/via
 ENV HF_HOME=/tmp/huggingface
 
 # Package installer: ubuntu base for shell + uv (uv is discarded; only site-packages reach final image)
-FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS pkg-installer
+FROM jammy-builder-base AS pkg-installer
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -58,7 +70,7 @@ RUN uv pip install \
     --python-version 3.13 --target /tmp/packages
 
 # Ubuntu builder: shell-based operations only — user creation, config/source copy scripts
-FROM nvcr.io/nvidia/base/ubuntu:jammy-20250415.1 AS app-builder
+FROM jammy-builder-base AS app-builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
