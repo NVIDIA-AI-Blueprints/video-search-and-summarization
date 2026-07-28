@@ -88,6 +88,7 @@ def _start_file_server(host_ip=""):
     """
     import hashlib
     import os
+    import shutil
     import socket
     import subprocess
     import time
@@ -104,7 +105,10 @@ def _start_file_server(host_ip=""):
         try:
             expected = hashlib.sha256(str(share).encode("utf-8")).hexdigest()
             with urlopen(f"http://127.0.0.1:{port}/.vios-sanity-server.json", timeout=1) as r:
-                return json.loads(r.read()).get("share_id") == expected
+                payload = json.loads(r.read())
+                return (payload.get("share_id") == expected
+                        and payload.get("protocol_version", 0) >= 2
+                        and "byte_ranges" in payload.get("capabilities", []))
         except Exception:  # noqa: BLE001
             return False
 
@@ -126,19 +130,51 @@ def _start_file_server(host_ip=""):
         if not port_available(port):
             continue
         log_path = share / "artifact_server.log"
-        log_stream = log_path.open("ab")
-        proc = subprocess.Popen(
-            [sys.executable, str(Path(__file__).with_name("artifact_server.py")),
-             "--directory", str(share), "--bind", bind, "--port", str(port)],
-            stdout=log_stream, stderr=subprocess.STDOUT, start_new_session=True,
-        )
-        log_stream.close()
+        server_cmd = [
+            sys.executable, str(Path(__file__).with_name("artifact_server.py")),
+            "--directory", str(share), "--bind", bind, "--port", str(port),
+        ]
+        proc = None
+        unit = ""
+        systemd_ready = bool(shutil.which("systemd-run") and shutil.which("systemctl"))
+        if systemd_ready:
+            probe = subprocess.run(
+                ["systemctl", "--user", "show-environment"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+            )
+            systemd_ready = probe.returncode == 0
+        if systemd_ready:
+            unit = f"vios-sanity-artifacts-{hashlib.sha256(str(share).encode()).hexdigest()[:10]}-{port}-{os.getpid()}"
+            launch = subprocess.run(
+                ["systemd-run", "--user", "--collect", f"--unit={unit}",
+                 "--property=Restart=on-failure", "--property=RestartSec=2",
+                 f"--property=StandardOutput=append:{log_path}",
+                 f"--property=StandardError=append:{log_path}", *server_cmd],
+                capture_output=True, text=True, check=False,
+            )
+            if launch.returncode != 0:
+                log.warning("systemd artifact server launch failed; using detached fallback: %s",
+                            (launch.stderr or launch.stdout).strip())
+                unit = ""
+        if not unit:
+            log_stream = log_path.open("ab")
+            proc = subprocess.Popen(
+                server_cmd, stdout=log_stream, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            log_stream.close()
         for _ in range(20):
             if matching_server(port):
                 chosen = port
-                (share / "artifact_server.pid").write_text(f"{proc.pid}\n")
+                if unit:
+                    (share / "artifact_server.unit").write_text(f"{unit}\n")
+                    log.info("artifact server supervised by user systemd unit %s", unit)
+                else:
+                    (share / "artifact_server.pid").write_text(f"{proc.pid}\n")
+                    log.warning("artifact server uses a detached-process fallback; configure "
+                                "user systemd or VIOS_SANITY_FILE_SERVER for durable links")
                 break
-            if proc.poll() is not None:
+            if proc is not None and proc.poll() is not None:
                 break
             time.sleep(0.1)
         if chosen is not None:
@@ -154,6 +190,68 @@ def _start_file_server(host_ip=""):
     os.environ["VIOS_SANITY_FILE_SERVER_PORT"] = str(chosen)
     log.info("serving evidence persistently: %s -> %s/ (bind=%s)", share, base, bind)
     return base
+
+
+def _configure_artifact_namespace(out_path: str) -> str:
+    """Assign one stable, URL-safe namespace for this report invocation."""
+    import re
+
+    existing = os.environ.get("VIOS_SANITY_ARTIFACT_NAMESPACE", "").strip("/")
+    if existing:
+        return existing
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", Path(out_path).stem).strip("-_") or "report"
+    namespace = f"{stamp}-{stem}"
+    os.environ["VIOS_SANITY_ARTIFACT_NAMESPACE"] = namespace
+    return namespace
+
+
+def _verify_delivery(pdf_link: str, results) -> None:
+    """Fail the run unless the PDF and every published evidence link are browser-ready."""
+    from urllib.parse import urlparse
+    from urllib.request import Request, urlopen
+
+    urls = [pdf_link]
+    urls.extend(link for result in results for link in (result.links or []))
+    failures = []
+    checked = set()
+    for url in urls:
+        if not url.startswith(("http://", "https://")) or url in checked:
+            continue
+        checked.add(url)
+        path = urlparse(url).path.lower()
+        try:
+            if path.endswith((".mp4", ".webm")):
+                request = Request(url, headers={"Range": "bytes=0-1023"})
+                with urlopen(request, timeout=20) as response:
+                    content_type = response.headers.get_content_type()
+                    if response.status != 206 or not content_type.startswith("video/"):
+                        failures.append(
+                            f"{url}: expected ranged video response, got "
+                            f"HTTP {response.status} {content_type}"
+                        )
+            else:
+                request = Request(url, method="HEAD")
+                with urlopen(request, timeout=20) as response:
+                    if response.status != 200:
+                        failures.append(f"{url}: HTTP {response.status}")
+        except Exception as exc:  # noqa: BLE001 - aggregate every broken report link
+            failures.append(f"{url}: {exc}")
+
+    download_url = f"{pdf_link}?download=1"
+    try:
+        with urlopen(Request(download_url, method="HEAD"), timeout=20) as response:
+            disposition = response.headers.get("Content-Disposition", "")
+            if response.status != 200 or "attachment" not in disposition.lower():
+                failures.append(f"{download_url}: missing downloadable PDF response")
+    except Exception as exc:  # noqa: BLE001
+        failures.append(f"{download_url}: {exc}")
+
+    if failures:
+        preview = "\n  - ".join(failures[:12])
+        suffix = f"\n  - ... {len(failures) - 12} more" if len(failures) > 12 else ""
+        raise RuntimeError(f"artifact delivery verification failed:\n  - {preview}{suffix}")
+    log.info("DELIVERY READY: PDF download + %d unique evidence link(s) verified", len(checked) - 1)
 
 
 def _install_deps():
@@ -639,9 +737,12 @@ def _run_plan_on_system(plan, base_name, sysname, system, deploy_only,
                         leave_deployment=False):
     setup = plan.get("setup", {}) or {}
     name = base_name if sysname in ("local", "default") else f"{base_name} @ {sysname}"
+    run_namespace = os.environ.get("VIOS_SANITY_ARTIFACT_NAMESPACE", "").strip("/")
+    plan_namespace = "/".join(filter(None, (run_namespace, _plan_tag(name))))
     ctx = SanityContext(base_url=system.get("base_url", "http://localhost:30888"),
                         broker=setup.get("consumer", "redis"),
-                        stream_id=plan.get("stream_id", "warehouse_sample"))
+                        stream_id=plan.get("stream_id", "warehouse_sample"),
+                        artifact_namespace=plan_namespace)
     if setup.get("broker_addr"):
         ctx.kafka_brokers = setup["broker_addr"]
     target = system.get("target", "local")
@@ -757,6 +858,7 @@ def main() -> int:
     if a.es_retention_hours <= 0:
         ap.error("--es-retention-hours must be greater than zero")
     os.environ["VIOS_SANITY_ES_RETENTION_HOURS"] = f"{a.es_retention_hours:g}"
+    _configure_artifact_namespace(a.out)
 
     if a.install_deps:
         return _install_deps()
@@ -775,7 +877,12 @@ def main() -> int:
         out = Path(a.out); out.parent.mkdir(parents=True, exist_ok=True)
         fails_info = _dump_failures(results, ctx, out.with_name("failed_cases.json"))
         build_pdf(results, ctx, when, out, plan_meta, failures=fails_info)
-        link = ctx.publish(out, "vios_sanity_report.pdf")
+        link = ctx.publish(out, out.name)
+        try:
+            _verify_delivery(link, results)
+        except RuntimeError as exc:
+            log.error("%s", exc)
+            return 2
         print(f"\nPDF report: {out}\nOpen in browser: {link}\nDownload PDF:   {link}?download=1")
         return 0
 
@@ -817,7 +924,12 @@ def main() -> int:
     _dump_results(results, plan_meta, ctx, when, out.with_suffix(".results.json"))
     fails_info = _dump_failures(results, ctx, out.with_name("failed_cases.json"))
     build_pdf(results, ctx, when, out, plan_meta, failures=fails_info)
-    pdf_link = ctx.publish(out, "vios_sanity_report.pdf")
+    pdf_link = ctx.publish(out, out.name)
+    try:
+        _verify_delivery(pdf_link, results)
+    except RuntimeError as exc:
+        log.error("%s", exc)
+        return 2
     if not a.keep_transients:
         _cleanup_transient_artifacts(out.parent,
                                      Path(os.environ.get("VIOS_SANITY_OUT_DIR", "/tmp/vios_sanity")))

@@ -28,12 +28,14 @@ import logging
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional
+from urllib.parse import quote
 
 logger = logging.getLogger("sanity")
 
@@ -85,6 +87,8 @@ class SanityContext:
     # VIOS_SANITY_FILE_SERVER_PORT; file_server_base defaults to http://<host_ip>:18080.
     share_dir: Path = field(default_factory=lambda: Path(
         os.environ.get("VIOS_SANITY_SHARE_DIR", "/tmp/vios_sanity/share")))
+    artifact_namespace: str = field(default_factory=lambda:
+        os.environ.get("VIOS_SANITY_ARTIFACT_NAMESPACE", "").strip("/"))
     file_server_base: str = ""
     out_dir: Path = field(default_factory=lambda: Path(
         os.environ.get("VIOS_SANITY_OUT_DIR", "/tmp/vios_sanity")))
@@ -105,15 +109,57 @@ class SanityContext:
             port = os.environ.get("VIOS_SANITY_FILE_SERVER_PORT", "18080")
             self.file_server_base = (os.environ.get("VIOS_SANITY_FILE_SERVER")
                                      or f"http://{self.host_ip}:{port}")
-        self.share_dir.mkdir(parents=True, exist_ok=True)
+        self.share_dir = Path(self.share_dir)
+        self.out_dir = Path(self.out_dir)
+        self.artifact_namespace = "/".join(
+            Path(part).name for part in self.artifact_namespace.split("/") if part
+        )
+        self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self.out_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def artifact_dir(self) -> Path:
+        return self.share_dir / self.artifact_namespace if self.artifact_namespace else self.share_dir
 
     def publish(self, local_path: Path, name: Optional[str] = None) -> str:
         """Copy an artifact into the served share dir; return its http link."""
-        name = name or local_path.name
-        dst = self.share_dir / name
-        shutil.copy(local_path, dst)
-        return f"{self.file_server_base}/{name}"
+        local_path = Path(local_path)
+        name = Path(name or local_path.name).name
+        dst = self.artifact_dir / name
+        if dst.suffix.lower() == ".mp4" and shutil.which("ffprobe") and shutil.which("ffmpeg"):
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(local_path)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            if probe.stdout.strip().lower() in {"hevc", "h265"}:
+                original = dst.with_name(f"{dst.stem}.original-hevc{dst.suffix}")
+                preview = dst.with_name(f".{dst.stem}.browser-preview{dst.suffix}")
+                shutil.copy(local_path, original)
+                original.chmod(0o644)
+                transcode = subprocess.run(
+                    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                     "-i", str(local_path), "-vf", "scale=min(1920\\,iw):-2",
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                     "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+                     str(preview)],
+                    capture_output=True, text=True, timeout=600, check=False,
+                )
+                if transcode.returncode != 0 or not preview.is_file():
+                    preview.unlink(missing_ok=True)
+                    raise RuntimeError(
+                        f"failed to create browser-compatible H.264 preview for {local_path}: "
+                        f"{transcode.stderr.strip()[-500:]}"
+                    )
+                preview.replace(dst)
+                logger.info("published H.264 browser preview for HEVC evidence %s", local_path)
+            else:
+                shutil.copy(local_path, dst)
+        else:
+            shutil.copy(local_path, dst)
+        dst.chmod(0o644)
+        relative = dst.relative_to(self.share_dir).as_posix()
+        return f"{self.file_server_base.rstrip('/')}/{quote(relative)}"
 
 
 @dataclass

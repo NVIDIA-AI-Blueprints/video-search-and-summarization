@@ -80,16 +80,33 @@ evidence server), `--from-json <results.json>` (re-render the PDF without re-run
 
 - **PDF** → `--out` (default `/tmp/vios_sanity/report.pdf`), rendered via headless Chromium.
 - **Evidence** (snapshots/clips) → `out_dir` (default `/tmp/vios_sanity`), and each is copied
-  into `share_dir` and linked in the PDF as `http://<host>:18080/<file>`.
+  into a unique run/plan namespace below `share_dir`. PDF links therefore do not collide when
+  Plan 1, Plan 2, and a consolidated report share the same artifact server.
 - **Failure manifest** → `failed_cases.json`, with UTC (`Z`) run/test timestamps, timezone,
   host information, summary counts, and the exact prepared HTTP request or browser invocation
   (full URL, query parameters, headers, body, and automation command) for every failed case.
-- The harness **auto-starts a persistent artifact server** over `share_dir`. It binds to
+- The harness **auto-starts a persistent artifact server** over `share_dir`. When user systemd
+  is available, the server runs as a supervised transient unit so it survives the invoking shell
+  and agent process. It binds to
   `0.0.0.0:18080` by default so the report is reachable at the host's corporate-network IP after
   the run exits. If that port is occupied by a different service, it selects the next free port.
   The final output prints an inline browser URL and an explicit download URL (`?download=1`).
   Disable the server with `--no-serve`, or point at an externally managed server with
   `VIOS_SANITY_FILE_SERVER`.
+
+- A run is not reported as complete until its browser-delivery gate verifies the PDF's forced
+  download response and every evidence URL. MP4/WebM checks require HTTP byte-range (`206`)
+  support and a `video/*` content type. Non-blocking VST URL tests publish durable copies instead
+  of leaving temporary VST storage URLs in the report. Generated HTML/PDF and published files
+  are explicitly browser-readable (`0644`).
+
+  HEVC/H.265 evidence is preserved as `*.original-hevc.mp4`; its report link points to an
+  automatically generated H.264 preview (maximum 1080p, fast-start MP4) so Chrome can play it.
+  Publication fails if the browser preview cannot be generated.
+
+  The detached-process fallback is used only when user systemd is unavailable and emits a
+  warning. For durable CI or shared-host use without user systemd, configure an externally
+  managed range-capable server with `VIOS_SANITY_FILE_SERVER`.
 
   Corporate-network reachability still requires routing to the reported host IP and an inbound
   firewall rule for the selected TCP port. Override the advertised address with
@@ -105,6 +122,7 @@ evidence server), `--from-json <results.json>` (re-render the PDF without re-run
 | `VIOS_SANITY_FILE_SERVER` | `http://<host_ip>:18080` | base URL for evidence links |
 | `VIOS_SANITY_FILE_SERVER_PORT` | `18080` | port when deriving the base URL |
 | `VIOS_SANITY_FILE_SERVER_BIND` | `0.0.0.0` | listen address for the built-in artifact server |
+| `VIOS_SANITY_ARTIFACT_NAMESPACE` | generated per invocation | stable URL namespace for one report run |
 | `VIOS_SANITY_CHROME` | system Google Chrome (auto-detected) | codec-capable browser for WebRTC capture (H.264/H.265) |
 | `VIOS_SANITY_ES_RETENTION_HOURS` | `3` | rolling fake-ES metadata history retained per sensor |
 

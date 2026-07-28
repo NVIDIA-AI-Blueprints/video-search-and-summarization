@@ -503,7 +503,9 @@ def build_pdf(results: List[UseCaseResult], ctx: SanityContext, when: str, out_p
               plan_meta: Optional[Dict[str, dict]] = None, failures=None) -> Path:
     out_path = Path(out_path)
     doc = _html(results, ctx, when, plan_meta, failures)
-    out_path.with_suffix(".html").write_text(doc)   # HTML twin (real new-tab links)
+    html_path = out_path.with_suffix(".html")
+    html_path.write_text(doc)   # HTML twin (real new-tab links)
+    html_path.chmod(0o644)
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         launch_kw = {"headless": True, "args": ["--no-sandbox"]}
@@ -515,5 +517,6 @@ def build_pdf(results: List[UseCaseResult], ctx: SanityContext, when: str, out_p
         pg.pdf(path=str(out_path), format="A4", print_background=True,
                margin={"top": "14mm", "bottom": "12mm", "left": "12mm", "right": "12mm"})
         b.close()
+    out_path.chmod(0o644)
     logger.info("rendered PDF via Chromium -> %s", out_path)
     return out_path

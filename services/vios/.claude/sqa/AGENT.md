@@ -187,3 +187,10 @@ When a deployment or an ad-hoc test needs a video source and none is available:
 - **Always stop and redeploy before running tests** — never run tests against an already-running stack. A fresh deployment avoids stale database state from previous runs.
 - Prefer targeted test runs over full suite unless full regression is requested.
 - Always generate `reports/junit.xml` and `reports/report.html` — never run tests without report flags.
+- When the requested sanity workflow uses `services/vios/sanity/run_sanity.py` and asks for a PDF,
+  the task is incomplete until the command prints `DELIVERY READY`. Return the reported HTTP
+  browser/download URLs, never only a local filesystem link. Confirm the supervised artifact
+  service remains active after the launcher exits; the PDF download must return an attachment,
+  every evidence URL must return success, videos must support byte ranges, and report-linked MP4s
+  must be H.264 browser previews (HEVC originals are retained separately). Do not report only the
+  test pass count and wait for the user to discover broken artifact delivery.

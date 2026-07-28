@@ -120,18 +120,42 @@ def run(base_url, stream_id, seconds, out_path, panel_out, mode, broker, rec_dir
             t = threading.Thread(target=pub.run, args=(seconds + 6,), daemon=True)
             t.start()
 
-        # Replay seek exercise: jump the player a few times and confirm it keeps
-        # playing (tests the VIOS replay seek path).
+        # Replay seek exercise: use the VST-UI control and require the real VIOS
+        # /replay/stream/seek request to succeed. Changing HTMLVideoElement.currentTime
+        # only seeks the browser's local MediaStream clock and does not test VST.
         if mode == "replay" and seeks > 0:
-            span = max(1.0, seconds / (seeks + 1))
+            video = pg.locator("video").first
+            video.hover()
+            seek_button = pg.locator("#seek-forward-control-btn")
+            seek_button.wait_for(state="visible", timeout=30000)
             for i in range(seeks):
-                target = round(span * (i + 1), 1)
-                moved = pg.evaluate(
-                    "(t) => { const v = document.querySelector('video');"
-                    " if (!v) return false; v.currentTime = (v.currentTime||0) + t;"
-                    " return !v.paused; }", target)
-                log.info("[replay] seek #%d +%.1fs playing=%s", i + 1, target, moved)
+                with pg.expect_response(
+                    lambda response: "/api/v1/replay/stream/seek" in response.url,
+                    timeout=30000,
+                ) as response_info:
+                    seek_button.click(timeout=30000)
+                response = response_info.value
+                if not 200 <= response.status < 300:
+                    try:
+                        body = response.text()
+                    except Exception:  # noqa: BLE001
+                        body = "<response body unavailable>"
+                    raise RuntimeError(
+                        f"replay seek #{i + 1} failed: HTTP {response.status}: {body[:300]}"
+                    )
                 pg.wait_for_timeout(1500)
+                state = video.evaluate(
+                    "(v) => ({paused: v.paused, readyState: v.readyState,"
+                    " currentTime: v.currentTime})"
+                )
+                if state["paused"] or state["readyState"] < 2:
+                    raise RuntimeError(
+                        f"replay stopped after seek #{i + 1}: {state}"
+                    )
+                log.info(
+                    "[replay] backend seek #%d HTTP %d playing=True currentTime=%.3f",
+                    i + 1, response.status, state["currentTime"],
+                )
 
         pg.wait_for_timeout(int(seconds * 1000))
         if pub is not None:

@@ -523,7 +523,7 @@ def picture(ctx: SanityContext, target="rtsp", recent=False, overlay=False,
 
 
 def download_url(ctx: SanityContext, target="rtsp") -> UseCaseResult:
-    """Non-blocking download: request a video URL, then fetch it."""
+    """Non-blocking download: request a video URL, fetch it, and publish a durable copy."""
     label = f"download_url[{target}]"
     r = UseCaseResult(name=label, group="download")
     sensor = _resolve_sensor(ctx, target)
@@ -544,11 +544,20 @@ def download_url(ctx: SanityContext, target="rtsp") -> UseCaseResult:
     video_url = _first_url(u.json())
     if not video_url:
         r.status = "FAIL"; r.detail = f"no video_url in response: {u.text[:120]}"; return r
+    r.request["returned_url"] = video_url
     g = requests.get(video_url, timeout=120, verify=ctx.verify_ssl, stream=True)
-    size = sum(len(c) for c in g.iter_content(65536)) if g.status_code == 200 else 0
+    out = ctx.out_dir / f"{_slug(label)}.mp4"
+    size = 0
+    if g.status_code == 200:
+        with out.open("wb") as stream:
+            for chunk in g.iter_content(65536):
+                if chunk:
+                    stream.write(chunk)
+                    size += len(chunk)
     r.status = "PASS" if size > 0 else "FAIL"
     r.detail = f"{target} non-blocking URL issued and fetched ({size} bytes)."
-    r.links = [video_url]
+    if size > 0:
+        r.links = [ctx.publish(out, f"sanity_{_slug(label)}.mp4")]
     return r
 
 
@@ -574,12 +583,13 @@ def picture_url(ctx: SanityContext, target="rtsp") -> UseCaseResult:
     img_url = _first_url(u.json())
     if not img_url:
         r.status = "FAIL"; r.detail = f"no picture url in response: {u.text[:120]}"; return r
+    r.request["returned_url"] = img_url
     g = requests.get(img_url, timeout=30, verify=ctx.verify_ssl)
     ok = g.status_code == 200 and len(g.content) > 1000
     if ok:
         jpg = _snap_jpg_from_bytes(ctx, g.content, f"{_slug(label)}.jpg")
         r.image = jpg
-        r.links = [ctx.publish(jpg, f"sanity_{_slug(label)}.jpg"), img_url]
+        r.links = [ctx.publish(jpg, f"sanity_{_slug(label)}.jpg")]
     r.status = "PASS" if ok else "FAIL"
     r.detail = f"{target} picture URL issued and fetched ({len(g.content)} bytes)."
     return r
@@ -648,7 +658,7 @@ def webrtc_live(ctx: SanityContext, source="vios", overlay=True, sensor=None) ->
 
 def webrtc_replay(ctx: SanityContext, target="rtsp", overlay=True, seek=0,
                   variant=None, sensor=None) -> UseCaseResult:
-    """VST-UI replay WebRTC (Recorded Streams) with optional overlay + seek test."""
+    """VST-UI replay WebRTC with optional overlay and real backend seek verification."""
     from sanity_common import BDD_ROOT
     label = (f"webrtc_replay[{target}{',' + variant if variant else ''}"
              f"{',overlay' if overlay else ''}{',seek' if seek else ''}]")
@@ -656,6 +666,48 @@ def webrtc_replay(ctx: SanityContext, target="rtsp", overlay=True, seek=0,
     sensor = _resolve_sensor(ctx, target, variant, sensor)
     if not sensor:
         r.status = "SKIP"; r.detail = f"no {target} sensor (run with --input-mp4)"; return r
+    file_timeline_count = None
+    file_timeline_request = None
+    if target == "file":
+        # Validate the exact keyed request used by clients. File sensors publish
+        # camera_proxy events and SDR must map the file stream ID to its owning
+        # stream-processing workload before timeline and replay controls run.
+        timeline_path = f"{V}/storage/size"
+        timeline_params = {"timelines": "true"}
+        timeline_headers = {"streamId": sensor}
+        timeline_response = requests.get(
+            f"{ctx.base_url}{timeline_path}",
+            params=timeline_params,
+            headers=timeline_headers,
+            timeout=30,
+            verify=ctx.verify_ssl,
+        )
+        file_timeline_request = {
+            "type": "http",
+            "method": "GET",
+            "url": timeline_response.request.url,
+            "path": timeline_path,
+            "query_params": timeline_params,
+            "headers": timeline_headers,
+            "status": timeline_response.status_code,
+        }
+        if timeline_response.status_code != 200:
+            r.status = "FAIL"
+            r.detail = (
+                f"file-sensor timeline query failed for {sensor}: "
+                f"HTTP {timeline_response.status_code}: {timeline_response.text[:200]}"
+            )
+            r.request = file_timeline_request
+            return r
+        storage = timeline_response.json() or {}
+        file_entry = storage.get(sensor) or {}
+        file_timelines = file_entry.get("timelines") or []
+        file_timeline_count = len(file_timelines)
+        if not file_timelines:
+            r.status = "FAIL"
+            r.detail = f"no file-sensor timeline in storage/size response for {sensor}"
+            r.request = file_timeline_request
+            return r
     slug = _slug(f"{label}_{sensor}")   # sensor in the slug -> unique evidence file per
                                         # stream/plan (else per-resolution + per-plan images
                                         # collide on one filename and the last write wins)
@@ -679,6 +731,8 @@ def webrtc_replay(ctx: SanityContext, target="rtsp", overlay=True, seek=0,
                    "mode": "replay", "seconds": 12, "seek_count": seek},
         "command": cmd,
     }
+    if file_timeline_request:
+        r.request["preconditions"] = [file_timeline_request]
     ctx.active_request = dict(r.request)
     subprocess.run(cmd, check=True, timeout=200)
     # Attach evidence FIRST so the captured UI frame/video shows in the PDF even if the
@@ -694,7 +748,14 @@ def webrtc_replay(ctx: SanityContext, target="rtsp", overlay=True, seek=0,
             r.status = "PASS"; r.detail = f"VST-UI replay ({target}) overlay from continuous ES; box detected; {seek} seek(s) ok."
         else:
             assert _panel_has_video(panel), "no replay video in the UI panel"
-            r.status = "PASS"; r.detail = f"VST-UI replay ({target}) no overlay; panel playing; {seek} seek(s) ok."
+            timeline_detail = (
+                f"{file_timeline_count} timeline range(s); " if file_timeline_count is not None else ""
+            )
+            r.status = "PASS"
+            r.detail = (
+                f"VST-UI replay ({target}) no overlay; {timeline_detail}"
+                f"panel playing; {seek} backend seek API call(s) succeeded."
+            )
     except AssertionError as e:
         r.status = "FAIL"
         r.detail = f"VST-UI replay ({target}) captured (see evidence), but panel check failed: {e}"
@@ -863,6 +924,8 @@ def default_suite(ctx: SanityContext, sync_wall: bool = False, nvstreamer: bool 
         add("vios_file_upload", vios_file_upload)
         add("download[file]", functools.partial(download, target="file"))
         add("picture[file]", functools.partial(picture, target="file"))
+        add("webrtc_replay[file,seek]",
+            functools.partial(webrtc_replay, target="file", overlay=False, seek=3))
     # per-RTSP-stream functional coverage -- every stream has different codec/res/fps, so
     # download + picture + webrtc-just-play are exercised on EACH provisioned stream.
     for s in ctx.provisioned_streams:
