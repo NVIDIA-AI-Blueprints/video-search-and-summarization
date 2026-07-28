@@ -1,4 +1,8 @@
-# `vss search run` reference
+# Docker `vss search run` reference
+
+This CLI reference applies to Docker Compose deployments. Kubernetes operate
+skills use `${VSS_PUBLIC_URL}/generate` as documented in `SKILL.md`; they do
+not invoke the CLI's Kubernetes selector or create port-forwards.
 
 Run the `vss` console executable from the `vss` project in the checkout
 (`--no-dev` keeps the sync runtime-only — no NAT or dev tooling):
@@ -22,30 +26,20 @@ uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev \
   vss search run --help
 ```
 
-If this preflight fails, report its error and stop. Do not substitute an agent
-runtime route or manually call Elasticsearch, embedding, or search endpoints.
+If this Docker preflight fails, report its error and stop. Do not manually call
+Elasticsearch, embedding, or search endpoints.
 
-Do not invoke it through `docker exec`, `kubectl exec`, a pod shell, or an
-agent runtime endpoint.
+Do not invoke it through `docker exec`, `kubectl exec`, or a pod shell.
 
-## Deployment selectors
+## Deployment selector
 
 ```bash
 # Docker: generated.env plus checked-out profile config
 --deployment docker --profile search
-
-# Kubernetes: live Deployment + ConfigMaps, with managed port-forwards
---deployment kubernetes --namespace <namespace> --release <release>
---kube-context <context>  # optional
 ```
 
-Kubernetes `VST_EXTERNAL_URL` must be a host-reachable ingress URL or an
-operator-managed localhost forward that stays alive while result media links
-are used. The CLI rejects an in-cluster Service URL for this field; its managed
-backend forwards close when the command exits.
-
-Explicit backend flags override values discovered through either selector. If
-no selector is used, all required backend values must be supplied explicitly
+Explicit backend flags override values discovered through the Docker selector.
+If no selector is used, all required backend values must be supplied explicitly
 or through `--config` and explicit non-secret `--config-env KEY=VALUE` pairs.
 The CLI does not read host process endpoint variables.
 
