@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Check Native ARM64 Runner
+
+"on":
+  push:
+    branches:
+      - codex/test-native-arm64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-native-arm64-runner-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Verify GitHub-hosted native ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+
+    steps:
+      - name: Report and verify runner architecture
+        run: |
+          uname -a
+          uname -m
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          docker info --format 'Docker architecture: {{.Architecture}}'
+
+          test "$(uname -m)" = "aarch64"
+          test "$RUNNER_ARCH" = "ARM64"
