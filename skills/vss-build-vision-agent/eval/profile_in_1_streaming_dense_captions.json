@@ -10,10 +10,10 @@
       }
     }
   },
-  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval composes streaming and on-demand VLM dense captioning with Kafka and Elasticsearch from one current developer profile. Use `_builds/in-1/` only as a filesystem label. The requested deployment excludes LVS summarization, the runtime VSS agent and UI, public ingress, Phoenix, and the LLM NIM. Existing files under `deploy/docker/` remain authoritative and unmodified.",
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval composes streaming and on-demand VLM dense captioning with Kafka and Elasticsearch from the current `lvs` developer profile because that Foundation already owns the integrated RT-VLM, VIOS, NvStreamer, SDRC, Kafka, Logstash, and Elasticsearch path. Use `_builds/in-1/` only as a filesystem label. The requested deployment excludes LVS summarization, the runtime VSS agent and UI, public ingress, Phoenix, and the LLM NIM. Existing files under `deploy/docker/` remain authoritative and unmodified.",
   "expects": [
     {
-      "query": "Use `/vss-build-vision-agent` to propose the architecture for: \"Provide VLM Q&A and dense captioning for streamed and uploaded video. Video must remain retrievable through VIOS. Publish streamed captions to Kafka topic `mdx-vlm-captions` and store them in Elasticsearch.\" Do not write files or deploy yet. Explain the selected current Foundation, the smallest delta, the canonical build location `_builds/in-1/`, and the validation/deployment path.",
+      "query": "Use `/vss-build-vision-agent` to propose the architecture for: \"Provide VLM Q&A and dense captioning for streamed and uploaded video. Video must remain retrievable through VIOS. Publish streamed captions to Kafka topic `mdx-vlm-captions` and store them in Elasticsearch.\" Use the current `lvs` developer profile as the single Foundation because it already owns RT-VLM, VIOS, NvStreamer, SDRC, Kafka, Logstash, and Elasticsearch. Do not use `base`. Do not write files or deploy yet. Explain the selected Foundation, the smallest delta from `lvs`, the canonical build location `_builds/in-1/`, and the validation/deployment path.",
       "artifact_expected": false,
       "checks": [
         "The proposal selects exactly one current developer Foundation and chooses `lvs` because it already owns RT-VLM, VIOS, NvStreamer, SDRC, Kafka, and Elasticsearch.",
@@ -25,16 +25,16 @@
       ]
     },
     {
-      "query": "Build the proposed delta under `_builds/in-1/` and run the Compose validation. Stop after validation; do not deploy.",
+      "query": "Build the proposed delta under `_builds/in-1/` and run the Compose validation. Use the ordered env layers from `references/composition.md` (`containers.env`, LVS `.env`, LVS `overrides.env`, then `_builds/in-1/override.env`) to generate `resolved.yml`, run the normalizer and `validate_resolved_yml.py`, and if any real `${...}` interpolation remains, add only the missing concrete values to `override.env` and regenerate until `docker compose -f _builds/in-1/resolved.yml config --quiet` succeeds directly. Stop after validation; do not deploy.",
       "checks": [
-        "`{{repo_root}}/_builds/in-1/override.env` exists with `FOUNDATION=lvs`, a full effective `COMPOSE_PROFILES`, and only customized environment values that differ from the LVS Foundation.",
+        "`{{repo_root}}/_builds/in-1/override.env` exists with `FOUNDATION=lvs`, a full effective `COMPOSE_PROFILES`, required build-local path/host values, and only customized environment values that differ from the LVS Foundation.",
         "Ignoring order, the effective `COMPOSE_PROFILES` equals exactly `kibana-init-container-lvs,nvstreamer-lvs,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.",
         "The exact set therefore excludes `lvs-server`, `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, and every LLM NIM profile key.",
         "`COMPOSE_PROFILES` contains no `in-1`, aggregate, `bp_developer_*`, or other invented profile key.",
-        "`RTVI_VLM_KAFKA_ENABLED=true` and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` are present; unchanged LVS defaults are not copied into the delta.",
+        "`RTVI_VLM_KAFKA_ENABLED=true` and `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` are present, and no copied Foundation `.env` or `overrides.env` file is used as the delta artifact.",
         "`_builds/in-1/compose.yml` includes `../../deploy/docker/compose.yml`, and `_builds/in-1/patches/` is absent because service activation and removal are expressed only through `COMPOSE_PROFILES`.",
         "The build directory contains the three required primary artifacts (`override.env`, `compose.yml`, and `resolved.yml`) and no copied Foundation `.env`, copied root Compose project, patched source tree, manifest, allow-list, or generated skill bundle.",
-        "Resolution uses `containers.env`, the LVS Foundation `.env`, the LVS Foundation `overrides.env`, and the build `override.env`, in that order, with the build `compose.yml`; it writes `_builds/in-1/resolved.yml` through `docker compose config --no-consistency` and the normalizer.",
+        "Resolution uses `containers.env`, the LVS Foundation `.env`, the LVS Foundation `overrides.env`, and the build `override.env`, in that order, with the build `compose.yml`; it writes `_builds/in-1/resolved.yml` through `docker compose config --no-consistency`, the normalizer, and `validate_resolved_yml.py`.",
         "`docker compose -f _builds/in-1/resolved.yml config --quiet`, `config --services`, and `config --images` succeed directly; every selected profile key exists in the source graph, the resolved service list is non-empty, required peers resolve, excluded services do not resolve, no service retains a `profiles:` gate, no real `${...}` interpolation remains unresolved, no `/path/to/deploy/docker` or `<HOST_IP>` sentinel remains, and every checked-in bind source exists with the expected file/directory type.",
         "No file under `{{repo_root}}/deploy/docker/` is modified."
       ]

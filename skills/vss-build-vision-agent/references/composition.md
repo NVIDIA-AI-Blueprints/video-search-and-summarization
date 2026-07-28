@@ -34,7 +34,13 @@ this workflow.
 3. Prefer an exact capability match and use stock mode.
 4. Otherwise minimize service-set additions, removals, and definition changes,
    in that order.
-5. Ask the user when two profiles have an equally small delta.
+5. Prefer the profile that already owns the requested integrated data path over
+   a smaller-looking service count that would require rebuilding that path from
+   unrelated pieces. For VLM dense captioning with VIOS playback, NvStreamer
+   stream source, SDRC, Kafka, Logstash, and Elasticsearch, use `lvs` as the
+   Foundation and remove unrequested LVS summarization, Agent/UI, ingress,
+   Phoenix, and LLM keys.
+6. Ask the user when two profiles have an equally small delta.
 
 The selected profile's checked-in `overrides.env` is authoritative for its
 Profile Service Set. The copied list in `profiles/` is a routing aid and must be
@@ -172,6 +178,10 @@ later values override earlier values. Regenerate `resolved.yml` whenever
 Normalization removes only optional dependency references to services omitted
 by profile filtering, then removes service profile gates from the already
 filtered model. It fails rather than remove a missing required dependency.
+If validation reports real unresolved `${...}` interpolation, do not deploy the
+raw output. Add only the missing concrete value or derived value to
+`override.env`, regenerate `resolved.yml` from the same ordered env layers, and
+rerun normalization and validation.
 
 ## Validate
 
