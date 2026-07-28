@@ -21,7 +21,9 @@ services:
       service: vss-behavior-analytics-base
     profiles: ["vss-search-analytics-2d-fusion"]
     volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
+      # docker_generate callers can select another repo-owned config
+      # without needing arbitrary host-file mutation from the agent sandbox.
+      - ${VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH:-${VSS_APPS_DIR}/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-${STREAM_TYPE}-config.json}:/resources/vss-search-analytics-config.json
     container_name: vss-behavior-analytics
     networks:
       default:

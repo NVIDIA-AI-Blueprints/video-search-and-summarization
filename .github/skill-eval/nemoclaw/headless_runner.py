@@ -13,11 +13,13 @@ import argparse
 import base64
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path, PurePosixPath
@@ -31,6 +33,8 @@ OPENCLAW_SESSION_DIR = PurePosixPath(
     "/sandbox/.openclaw/agents/main/sessions"
 )
 OPENCLAW_SESSION_MAX_BYTES = 50 * 1024 * 1024
+OPENCLAW_SESSION_MAX_DEPTH = 8
+OPENCLAW_LAUNCH_SESSION_METADATA = "openclaw-launch-session.json"
 RUNTIME_REDACTION_KEYS = (
     "RTSP_SAMPLE_URL",
     "NGC_CLI_API_KEY",
@@ -40,6 +44,14 @@ RUNTIME_REDACTION_KEYS = (
     "ANTHROPIC_API_KEY",
     "COMPATIBLE_API_KEY",
     "OPENAI_API_KEY",
+)
+RTSP_EXACT_REDACTION = (
+    "<redacted:RTSP_SAMPLE_URL;match=exact-runtime-value>"
+)
+RTSP_URI_REDACTION = "<redacted:RTSP_URL>"
+RTSP_URI_PATTERN = re.compile(
+    r"\brtsps?:(?:(?:\\/|/)){2}(?:(?:\\.)|[^\s\"'<>\\])+",
+    re.IGNORECASE,
 )
 
 
@@ -55,8 +67,49 @@ def _load_env_file(path: Path) -> None:
 
 
 def _redact_runtime_text(raw: str) -> str:
-    """Redact runtime credentials from logs and trajectory evidence."""
-    replacements: list[tuple[str, str]] = []
+    """Redact runtime credentials and derived RTSP endpoints."""
+    replacements: dict[str, str] = {}
+    labeled_credentials: dict[str, str] = {}
+
+    def add(value: str, placeholder: str) -> None:
+        if not value:
+            return
+        replacements.setdefault(value, placeholder)
+        escaped = json.dumps(value, ensure_ascii=False)[1:-1]
+        if escaped != value:
+            replacements.setdefault(escaped, placeholder)
+
+    def add_component(
+        component: str,
+        raw_value: str,
+        minimum_length: int,
+        *,
+        credential: bool = False,
+    ) -> None:
+        placeholder = (
+            "<redacted:RTSP_SAMPLE_URL;"
+            f"component={component}>"
+        )
+        variants = {
+            raw_value,
+            urllib.parse.unquote(raw_value),
+        }
+        for component_value in variants:
+            if not component_value:
+                continue
+            if credential:
+                labeled_credentials.setdefault(
+                    component_value,
+                    placeholder,
+                )
+                escaped = json.dumps(
+                    component_value,
+                    ensure_ascii=False,
+                )[1:-1]
+                labeled_credentials.setdefault(escaped, placeholder)
+            if len(component_value) >= minimum_length:
+                add(component_value, placeholder)
+
     for key in RUNTIME_REDACTION_KEYS:
         value = os.environ.get(key, "")
         if not value:
@@ -64,22 +117,96 @@ def _redact_runtime_text(raw: str) -> str:
         if key != "RTSP_SAMPLE_URL" and len(value) < 8:
             continue
         placeholder = (
-            "<redacted:RTSP_SAMPLE_URL;match=exact-runtime-value>"
+            RTSP_EXACT_REDACTION
             if key == "RTSP_SAMPLE_URL"
             else f"<redacted:{key}>"
         )
-        replacements.append((value, placeholder))
-        escaped = json.dumps(value, ensure_ascii=False)[1:-1]
-        if escaped != value:
-            replacements.append((escaped, placeholder))
+        add(value, placeholder)
+        if key != "RTSP_SAMPLE_URL":
+            continue
+
+        try:
+            parsed = urllib.parse.urlsplit(value)
+            hostname = parsed.hostname or ""
+            port = parsed.port
+        except ValueError:
+            continue
+        if parsed.scheme.lower() not in {"rtsp", "rtsps"}:
+            continue
+
+        add_component("authority", parsed.netloc, 4)
+        raw_userinfo = (
+            parsed.netloc.rpartition("@")[0]
+            if "@" in parsed.netloc
+            else ""
+        )
+        add_component("userinfo", raw_userinfo, 3)
+        add_component("hostname", hostname, 4)
+        add_component(
+            "host-port",
+            f"{hostname}:{port}" if hostname and port else "",
+            4,
+        )
+        add_component(
+            "username",
+            parsed.username or "",
+            12,
+            credential=True,
+        )
+        add_component(
+            "password",
+            parsed.password or "",
+            12,
+            credential=True,
+        )
+        add_component("path", parsed.path, 8)
+        add_component("query", parsed.query, 8)
+        add_component("fragment", parsed.fragment, 8)
+        for label in hostname.split("."):
+            add_component("hostname-label", label, 8)
+        for segment in parsed.path.split("/"):
+            add_component("path-segment", segment, 8)
+        for _, query_value in urllib.parse.parse_qsl(
+            parsed.query,
+            keep_blank_values=True,
+        ):
+            add_component("query-value", query_value, 8)
+        for raw_query_item in parsed.query.split("&"):
+            _, separator, raw_query_value = raw_query_item.partition("=")
+            if separator:
+                add_component("query-value", raw_query_value, 8)
+
     redacted = raw
-    for value, placeholder in sorted(
-        set(replacements),
+    if replacements:
+        ordered_values = sorted(
+            replacements,
+            key=len,
+            reverse=True,
+        )
+        pattern = re.compile("|".join(map(re.escape, ordered_values)))
+        redacted = pattern.sub(
+            lambda match: replacements[match.group(0)],
+            redacted,
+        )
+    for credential, placeholder in sorted(
+        labeled_credentials.items(),
         key=lambda item: len(item[0]),
         reverse=True,
     ):
-        redacted = redacted.replace(value, placeholder)
-    return redacted
+        labeled_pattern = re.compile(
+            (
+                r"((?i:\b(?:rtsp[\s_-]*)?"
+                r"(?:user(?:name)?|password|passwd|pass|credential)\b)"
+                r"[\"']?(?:\s+(?i:is|was)\s+|\s*[:=]\s*)[\"']?)"
+                + re.escape(credential)
+                + r"(?=$|[\s\"'`,;&)}\]])"
+            )
+        )
+        redacted = labeled_pattern.sub(
+            lambda match: match.group(1) + placeholder,
+            redacted,
+        )
+    return RTSP_URI_PATTERN.sub(RTSP_URI_REDACTION, redacted)
 
 
 def _read_hooks_token() -> str:
@@ -304,9 +431,17 @@ def ensure_openclaw_gateway(
     raise RuntimeError(f"OpenClaw gateway in sandbox {sandbox_name} is not reachable")
 
 
-def _openclaw_cli_command(prompt: str, timeout_s: int) -> str:
+def _fresh_openclaw_session_id() -> str:
     run_id = os.environ.get("GITHUB_RUN_ID", "ci").strip() or "ci"
-    session_id = f"{run_id}-{uuid.uuid4().hex}"
+    return f"{run_id}-{uuid.uuid4().hex}"
+
+
+def _openclaw_cli_command(
+    prompt: str,
+    timeout_s: int,
+    session_id: str | None = None,
+) -> str:
+    session_id = session_id or _fresh_openclaw_session_id()
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1"
     ca_path = "/etc/openshell-tls/ca-bundle.pem"
     return (
@@ -384,6 +519,30 @@ def _openclaw_result_envelope(raw: str) -> dict[str, Any] | None:
     return nested if isinstance(nested, dict) else document
 
 
+def _validate_openclaw_session_path(
+    value: Any,
+    *,
+    context: str,
+) -> str:
+    """Validate one managed main-agent session path without resolving it."""
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f"{context} did not provide an OpenClaw session path")
+    if any(char in value for char in ("\0", "\r", "\n")):
+        raise RuntimeError(f"{context} contains control characters")
+
+    candidate = PurePosixPath(value)
+    if (
+        not candidate.is_absolute()
+        or candidate.parent != OPENCLAW_SESSION_DIR
+        or candidate.suffix != ".jsonl"
+        or candidate.name in {"", ".jsonl"}
+    ):
+        raise RuntimeError(
+            f"{context} is outside the managed main-agent session directory"
+        )
+    return str(candidate)
+
+
 def _openclaw_session_file(raw: str) -> tuple[dict[str, Any], str]:
     """Return a trusted current-session path from the final CLI envelope."""
     envelope = _openclaw_result_envelope(raw)
@@ -400,20 +559,146 @@ def _openclaw_session_file(raw: str) -> tuple[dict[str, Any], str]:
         raise RuntimeError(
             "OpenClaw result envelope did not provide meta.agentMeta.sessionFile"
         )
-    if any(char in session_file for char in ("\0", "\r", "\n")):
-        raise RuntimeError("OpenClaw session path contains control characters")
+    return envelope, _validate_openclaw_session_path(
+        session_file,
+        context="OpenClaw result-envelope session path",
+    )
 
-    candidate = PurePosixPath(session_file)
-    if (
-        not candidate.is_absolute()
-        or candidate.parent != OPENCLAW_SESSION_DIR
-        or candidate.suffix != ".jsonl"
-        or candidate.name in {"", ".jsonl"}
-    ):
+
+def _openclaw_parent_session_file(session_jsonl: str) -> str | None:
+    """Return the validated parent path from one session's JSONL header."""
+    headers: list[dict[str, Any]] = []
+    for line_number, raw_line in enumerate(session_jsonl.splitlines(), 1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "OpenClaw session transcript contains malformed JSON "
+                f"at line {line_number}"
+            ) from exc
+        if not isinstance(record, dict):
+            raise RuntimeError(
+                "OpenClaw session transcript contains a non-object JSON "
+                f"record at line {line_number}"
+            )
+        if record.get("type") == "session":
+            headers.append(record)
+
+    if len(headers) != 1:
         raise RuntimeError(
-            "OpenClaw session path is outside the managed main-agent session directory"
+            "OpenClaw session transcript must contain exactly one session header"
         )
-    return envelope, str(candidate)
+    parent = headers[0].get("parentSession")
+    if parent is None:
+        return None
+    return _validate_openclaw_session_path(
+        parent,
+        context="OpenClaw parentSession path",
+    )
+
+
+def _merge_openclaw_session_chain(
+    sessions: list[tuple[str, str]],
+) -> str:
+    """Merge root-to-leaf JSONL while deduplicating retained compaction rows."""
+
+    def stable_record(record: dict[str, Any]) -> str:
+        """Remove only fields OpenClaw rewrites during compaction rotation."""
+        comparable = dict(record)
+        comparable.pop("parentId", None)
+        if comparable.get("type") == "message":
+            message = comparable.get("message")
+            if (
+                isinstance(message, dict)
+                and message.get("role") == "assistant"
+                and isinstance(message.get("content"), list)
+            ):
+                normalized_message = dict(message)
+                normalized_content: list[Any] = []
+                for raw_part in message["content"]:
+                    if (
+                        not isinstance(raw_part, dict)
+                        or raw_part.get("type")
+                        not in {"thinking", "redacted_thinking"}
+                    ):
+                        normalized_content.append(raw_part)
+                        continue
+                    part = dict(raw_part)
+                    for signature_key in (
+                        "thinkingSignature",
+                        "signature",
+                        "thought_signature",
+                    ):
+                        part.pop(signature_key, None)
+                    if part.get("type") == "redacted_thinking":
+                        part.pop("data", None)
+                    normalized_content.append(part)
+                normalized_message["content"] = normalized_content
+                comparable["message"] = normalized_message
+        return json.dumps(
+            comparable,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    seen_records: dict[tuple[str, str], str] = {}
+    merged: list[str] = []
+    multiple_sessions = len(sessions) > 1
+
+    for session_file, session_jsonl in sessions:
+        for line_number, raw_line in enumerate(session_jsonl.splitlines(), 1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "OpenClaw session transcript contains malformed JSON in "
+                    f"{session_file} at line {line_number}"
+                ) from exc
+            if not isinstance(record, dict):
+                raise RuntimeError(
+                    "OpenClaw session transcript contains a non-object JSON "
+                    f"record in {session_file} at line {line_number}"
+                )
+
+            record_id = record.get("id")
+            if (
+                multiple_sessions
+                and record.get("type") == "message"
+                and (not isinstance(record_id, str) or not record_id)
+            ):
+                raise RuntimeError(
+                    "OpenClaw compaction lineage contains a message without "
+                    "a stable record id"
+                )
+
+            normalized = stable_record(record)
+            if isinstance(record_id, str) and record_id:
+                key = (str(record.get("type") or ""), record_id)
+                prior = seen_records.get(key)
+                if prior is not None:
+                    if prior != normalized:
+                        raise RuntimeError(
+                            "OpenClaw compaction lineage reused record id "
+                            f"{record_id!r} with different content"
+                        )
+                    continue
+                seen_records[key] = normalized
+            merged.append(
+                json.dumps(
+                    record,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+
+    return "\n".join(merged) + ("\n" if merged else "")
 
 
 def _json_int(value: Any) -> int:
@@ -534,7 +819,10 @@ def _openclaw_session_jsonl_to_atif(
             continue
         if message.get("role") in {"user", "assistant", "toolResult"}:
             rows.append((record, message))
-    if not rows:
+    if not rows or not any(
+        message.get("role") == "user"
+        for _, message in rows
+    ):
         return None
 
     meta = envelope.get("meta")
@@ -641,7 +929,7 @@ def _openclaw_session_jsonl_to_atif(
 
         row_index += 1
 
-    if len(steps) < 2:
+    if len(steps) < 2 or steps[0].get("source") != "user":
         return None
 
     session_id = (
@@ -687,23 +975,52 @@ def _atomic_write_text(path: Path, value: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def collect_and_publish_openclaw_trajectory(
+def _launch_root_session_file(log_dir: Path) -> str:
+    """Load the fresh launcher root bound to this trial."""
+    metadata_path = log_dir / OPENCLAW_LAUNCH_SESSION_METADATA
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "OpenClaw launch-session metadata is missing or invalid"
+        ) from exc
+    if not isinstance(metadata, dict):
+        raise RuntimeError("OpenClaw launch-session metadata is not an object")
+
+    root_session_id = metadata.get("root_session_id")
+    if (
+        not isinstance(root_session_id, str)
+        or not root_session_id
+        or any(char in root_session_id for char in ("/", "\0", "\r", "\n"))
+    ):
+        raise RuntimeError(
+            "OpenClaw launch-session metadata has an invalid root session id"
+        )
+    expected = str(
+        OPENCLAW_SESSION_DIR / f"{root_session_id}.jsonl"
+    )
+    recorded = _validate_openclaw_session_path(
+        metadata.get("root_session_file"),
+        context="OpenClaw launch root-session path",
+    )
+    if recorded != expected:
+        raise RuntimeError(
+            "OpenClaw launch-session metadata does not match its root session id"
+        )
+    return recorded
+
+
+def _read_managed_openclaw_session(
     sandbox_name: str,
-    log_dir: Path,
-    agent_log_dir: Path,
-    instruction: str,
-    deadline: float | None = None,
-) -> dict[str, Any]:
-    """Copy the current OpenClaw session and publish its normalized trajectory."""
-    raw_log = (log_dir / "openclaw-agent.log").read_text(
-        encoding="utf-8",
-        errors="replace",
-    )
-    envelope, session_file = _openclaw_session_file(raw_log)
-    _atomic_write_text(
-        log_dir / "openclaw-agent.log",
-        _redact_runtime_text(raw_log),
-    )
+    session_file: str,
+    max_bytes: int,
+    deadline: float | None,
+) -> str:
+    """Read one exact, non-symlinked session within the managed directory."""
+    if max_bytes <= 0:
+        raise RuntimeError(
+            "OpenClaw session lineage exceeded the 50 MiB aggregate limit"
+        )
     quoted_session = shlex.quote(session_file)
     quoted_base = shlex.quote(str(OPENCLAW_SESSION_DIR))
     script = (
@@ -713,9 +1030,10 @@ def collect_and_publish_openclaw_trajectory(
         'resolved=$(readlink -f -- "$src"); '
         '[ -f "$resolved" ]; '
         '[ "$(dirname "$resolved")" = "$base_resolved" ]; '
+        '[ "$resolved" = "$base_resolved/$(basename "$src")" ]; '
         'case "$(basename "$resolved")" in *.jsonl) ;; *) exit 65 ;; esac; '
         'size=$(wc -c < "$resolved"); '
-        f'[ "$size" -le {OPENCLAW_SESSION_MAX_BYTES} ] || exit 66; '
+        f'[ "$size" -le {int(max_bytes)} ] || exit 66; '
         'cat -- "$resolved"'
     )
     result = _sandbox_exec(
@@ -737,12 +1055,87 @@ def collect_and_publish_openclaw_trajectory(
             "Could not collect the managed OpenClaw session transcript: "
             f"{_redact_runtime_text(detail)}"
         )
-    raw_session_jsonl = result.stdout or ""
-    if not raw_session_jsonl.strip():
+    session_jsonl = result.stdout or ""
+    if not session_jsonl.strip():
         raise RuntimeError("The managed OpenClaw session transcript was empty")
-    if len(raw_session_jsonl.encode("utf-8")) > OPENCLAW_SESSION_MAX_BYTES:
-        raise RuntimeError("The managed OpenClaw session transcript exceeded 50 MiB")
-    session_jsonl = _redact_runtime_text(raw_session_jsonl)
+    if len(session_jsonl.encode("utf-8")) > max_bytes:
+        raise RuntimeError(
+            "OpenClaw session lineage exceeded the 50 MiB aggregate limit"
+        )
+    return session_jsonl
+
+
+def collect_and_publish_openclaw_trajectory(
+    sandbox_name: str,
+    log_dir: Path,
+    agent_log_dir: Path,
+    instruction: str,
+    deadline: float | None = None,
+) -> dict[str, Any]:
+    """Copy the current OpenClaw lineage and publish its normalized trajectory."""
+    raw_log = (log_dir / "openclaw-agent.log").read_text(
+        encoding="utf-8",
+        errors="replace",
+    )
+    envelope, leaf_session_file = _openclaw_session_file(raw_log)
+    root_session_file = _launch_root_session_file(log_dir)
+    _atomic_write_text(
+        log_dir / "openclaw-agent.log",
+        _redact_runtime_text(raw_log),
+    )
+
+    lineage_leaf_first: list[tuple[str, str]] = []
+    seen_files: set[str] = set()
+    source_session_bytes = 0
+    current_session_file = leaf_session_file
+    for _ in range(OPENCLAW_SESSION_MAX_DEPTH):
+        if current_session_file in seen_files:
+            raise RuntimeError(
+                "OpenClaw session lineage contains a parent cycle"
+            )
+        seen_files.add(current_session_file)
+        remaining_bytes = OPENCLAW_SESSION_MAX_BYTES - source_session_bytes
+        raw_session_jsonl = _read_managed_openclaw_session(
+            sandbox_name,
+            current_session_file,
+            remaining_bytes,
+            deadline,
+        )
+        source_session_bytes += len(
+            raw_session_jsonl.encode("utf-8")
+        )
+        lineage_leaf_first.append(
+            (current_session_file, raw_session_jsonl)
+        )
+        parent_session_file = _openclaw_parent_session_file(
+            raw_session_jsonl
+        )
+
+        if current_session_file == root_session_file:
+            if parent_session_file is not None:
+                raise RuntimeError(
+                    "Fresh OpenClaw root session unexpectedly has a parent"
+                )
+            break
+        if parent_session_file is None:
+            raise RuntimeError(
+                "OpenClaw session lineage ended before the fresh launcher root"
+            )
+        current_session_file = parent_session_file
+    else:
+        raise RuntimeError(
+            "OpenClaw session lineage exceeded the maximum compaction depth"
+        )
+
+    if lineage_leaf_first[-1][0] != root_session_file:
+        raise RuntimeError(
+            "OpenClaw session lineage did not reach the fresh launcher root"
+        )
+    lineage_root_first = list(reversed(lineage_leaf_first))
+    merged_session_jsonl = _merge_openclaw_session_chain(
+        lineage_root_first
+    )
+    session_jsonl = _redact_runtime_text(merged_session_jsonl)
 
     trajectory = _openclaw_session_jsonl_to_atif(
         session_jsonl,
@@ -767,7 +1160,14 @@ def collect_and_publish_openclaw_trajectory(
     _atomic_write_text(log_dir / "openclaw.session.jsonl", session_jsonl)
     _atomic_write_text(log_dir / "trajectory.json", trajectory_json)
     report = {
-        "session_file": session_file,
+        "session_file": leaf_session_file,
+        "root_session_file": root_session_file,
+        "session_files": [
+            session_file
+            for session_file, _ in lineage_root_first
+        ],
+        "session_chain_depth": len(lineage_root_first),
+        "source_session_bytes": source_session_bytes,
         "session_bytes": len(session_jsonl.encode("utf-8")),
         "trajectory_steps": len(trajectory["steps"]),
         "agent_trajectory": str(agent_log_dir / "trajectory.json"),
@@ -1005,7 +1405,26 @@ def _start_openclaw_cli_async(
         timeout_s,
         "OpenClaw agent launch",
     )
-    inner = _openclaw_cli_command(prompt, openclaw_timeout_s)
+    root_session_id = _fresh_openclaw_session_id()
+    root_session_file = str(
+        OPENCLAW_SESSION_DIR / f"{root_session_id}.jsonl"
+    )
+    _atomic_write_text(
+        log_dir / OPENCLAW_LAUNCH_SESSION_METADATA,
+        json.dumps(
+            {
+                "root_session_id": root_session_id,
+                "root_session_file": root_session_file,
+            },
+            indent=2,
+        )
+        + "\n",
+    )
+    inner = _openclaw_cli_command(
+        prompt,
+        openclaw_timeout_s,
+        root_session_id,
+    )
     cleanup = _openclaw_process_cleanup_script()
     worker = (
         "set +e; "
@@ -1066,6 +1485,7 @@ def _start_openclaw_cli_async(
         "stderr_tail": (result.stderr or "")[-4000:],
         "error": "",
         "error_type": "",
+        "root_session_file": root_session_file,
     }
 
 
@@ -1162,6 +1582,7 @@ def run_openclaw_cli(
         "stderr_tail": stderr[-4000:],
         "error": error,
         "error_type": error_type,
+        "root_session_file": start.get("root_session_file", ""),
     }
 
 

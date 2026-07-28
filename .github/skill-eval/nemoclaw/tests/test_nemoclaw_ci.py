@@ -1190,6 +1190,94 @@ class NemoClawEnvFileTest(unittest.TestCase):
 
 
 class NemoClawHeadlessRunnerTest(unittest.TestCase):
+    def test_runtime_redaction_scrubs_derived_rtsp_endpoint_components(self):
+        rtsp_url = (
+            "rtsp://rtsp-operator-42:s3cr3t-password-99@"
+            "media.launchpad.example.test:"
+            "8554/live/camera03"
+        )
+        raw = "\n".join(
+            (
+                f"exact={rtsp_url}",
+                "host-port=media.launchpad.example.test:8554",
+                "host=media.launchpad.example.test",
+                "label=launchpad",
+                "username=rtsp-operator-42 password=s3cr3t-password-99",
+                "path=/live/camera03 segment=camera03",
+                "other=rtsp://127.0.0.1:8554/live/example",
+                r"escaped=rtsp:\/\/127.0.0.1:8554\/live\/example",
+            )
+        )
+
+        with mock.patch.dict(
+            os.environ,
+            {"RTSP_SAMPLE_URL": rtsp_url},
+            clear=False,
+        ):
+            redacted = headless_runner._redact_runtime_text(raw)
+
+        self.assertIn(headless_runner.RTSP_EXACT_REDACTION, redacted)
+        self.assertIn(headless_runner.RTSP_URI_REDACTION, redacted)
+        for sensitive_fragment in (
+            rtsp_url,
+            "media.launchpad.example.test:8554",
+            "media.launchpad.example.test",
+            "launchpad",
+            "rtsp-operator-42",
+            "s3cr3t-password-99",
+            "/live/camera03",
+            "camera03",
+            "rtsp://",
+            r"rtsp:\/\/",
+        ):
+            self.assertNotIn(sensitive_fragment, redacted)
+
+    def test_runtime_redaction_scrubs_encoded_and_short_rtsp_components(self):
+        rtsp_url = (
+            "rtsp://usr:p%40ss@media.example.test:8554/"
+            "live%2Fcamera03?token=abc%2Fdef%3D123#fragment%2Fsecret"
+        )
+        raw = "\n".join(
+            (
+                '{"type":"message","message":{"role":"user"}}',
+                f"exact={rtsp_url}",
+                "username=usr password=p%40ss",
+                "RTSP password: p@ss",
+                "auth=usr:p%40ss decoded-auth=usr:p@ss",
+                "curl -u usr:p@ss http://example.test",
+                "path=live%2Fcamera03 decoded=live/camera03",
+                "query=abc%2Fdef%3D123 decoded=abc/def=123",
+                "fragment=fragment%2Fsecret decoded=fragment/secret",
+                "port=8554 common_path=/stream",
+            )
+        )
+
+        with mock.patch.dict(
+            os.environ,
+            {"RTSP_SAMPLE_URL": rtsp_url},
+            clear=False,
+        ):
+            redacted = headless_runner._redact_runtime_text(raw)
+
+        self.assertIn(headless_runner.RTSP_EXACT_REDACTION, redacted)
+        self.assertIn('"role":"user"', redacted)
+        self.assertIn("port=8554 common_path=/stream", redacted)
+        for sensitive_fragment in (
+            rtsp_url,
+            "username=usr",
+            "password=p%40ss",
+            "password: p@ss",
+            "usr:p%40ss",
+            "usr:p@ss",
+            "live%2Fcamera03",
+            "live/camera03",
+            "abc%2Fdef%3D123",
+            "abc/def=123",
+            "fragment%2Fsecret",
+            "fragment/secret",
+        ):
+            self.assertNotIn(sensitive_fragment, redacted)
+
     def test_non_json_hook_response_is_not_treated_as_success(self):
         self.assertFalse(headless_runner._response_ok({"status": 200, "body": "ok"}))
         self.assertTrue(headless_runner._response_ok({"status": 200, "body": {"ok": True}}))
@@ -1516,7 +1604,7 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             "monotonic": headless_runner.time.monotonic,
         }
 
-        def fake_command(prompt, timeout):
+        def fake_command(prompt, timeout, session_id=None):
             calls.append(("openclaw", timeout))
             return "echo complete"
 
@@ -1812,13 +1900,22 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             [
                 json.dumps(
                     {
+                        "type": "session",
+                        "id": "current-session",
+                        "parentSession": None,
+                    }
+                ),
+                json.dumps(
+                    {
                         "type": "message",
+                        "id": "user-1",
                         "message": {"role": "user", "content": "prompt"},
                     }
                 ),
                 json.dumps(
                     {
                         "type": "message",
+                        "id": "assistant-1",
                         "message": {
                             "role": "assistant",
                             "content": [
@@ -1876,13 +1973,22 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             [
                 json.dumps(
                     {
+                        "type": "session",
+                        "id": "current-session",
+                        "parentSession": None,
+                    }
+                ),
+                json.dumps(
+                    {
                         "type": "message",
+                        "id": "user-1",
                         "message": {"role": "user", "content": "prompt"},
                     }
                 ),
                 json.dumps(
                     {
                         "type": "message",
+                        "id": "assistant-1",
                         "message": {
                             "role": "assistant",
                             "content": [
@@ -1912,6 +2018,15 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             artifact_dir = root / "artifacts"
             agent_dir = root / "agent"
             artifact_dir.mkdir()
+            (artifact_dir / headless_runner.OPENCLAW_LAUNCH_SESSION_METADATA).write_text(
+                json.dumps(
+                    {
+                        "root_session_id": "current-session",
+                        "root_session_file": session_file,
+                    }
+                ),
+                encoding="utf-8",
+            )
             (artifact_dir / "openclaw-agent.log").write_text(
                 "node warning\n" + json.dumps(envelope),
                 encoding="utf-8",
@@ -1954,6 +2069,8 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
             )
 
         self.assertEqual(report["trajectory_steps"], 2)
+        self.assertEqual(report["session_chain_depth"], 1)
+        self.assertEqual(report["session_files"], [session_file])
         self.assertEqual(
             agent_trajectory["steps"][-1]["message"],
             (
@@ -1971,6 +2088,349 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertIn(session_file, scripts[0])
         self.assertIn("readlink -f", scripts[0])
         self.assertIn(str(headless_runner.OPENCLAW_SESSION_MAX_BYTES), scripts[0])
+
+    def test_publish_openclaw_trajectory_merges_compaction_lineage(self):
+        root_session = (
+            "/sandbox/.openclaw/agents/main/sessions/run-root.jsonl"
+        )
+        leaf_session = (
+            "/sandbox/.openclaw/agents/main/sessions/run-leaf.jsonl"
+        )
+        retained = {
+            "type": "message",
+            "id": "assistant-retained",
+            "parentId": "summarized-parent",
+            "timestamp": "2026-07-28T01:10:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "retained turn"},
+                    {
+                        "type": "thinking",
+                        "thinking": "retained reasoning",
+                        "thinkingSignature": "thinking-signature",
+                        "signature": "signature",
+                        "thought_signature": "thought-signature",
+                    },
+                    {
+                        "type": "redacted_thinking",
+                        "data": "redacted-thinking-data",
+                        "signature": "redacted-signature",
+                    },
+                ],
+            },
+        }
+        retained_successor = {
+            **retained,
+            "parentId": None,
+            "message": {
+                **retained["message"],
+                "content": [
+                    {"type": "text", "text": "retained turn"},
+                    {
+                        "type": "thinking",
+                        "thinking": "retained reasoning",
+                    },
+                    {"type": "redacted_thinking"},
+                ],
+            },
+        }
+        root_jsonl = "\n".join(
+            json.dumps(record)
+            for record in (
+                {
+                    "type": "session",
+                    "id": "run-root",
+                    "parentSession": None,
+                },
+                {
+                    "type": "message",
+                    "id": "user-prompt",
+                    "message": {"role": "user", "content": "stale body"},
+                },
+                {
+                    "type": "message",
+                    "id": "assistant-guard",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "toolCall",
+                                "id": "guard-call",
+                                "name": "exec",
+                                "arguments": {
+                                    "command": (
+                                        'test -n "${RTSP_SAMPLE_URL:-}"'
+                                    )
+                                },
+                            }
+                        ],
+                    },
+                },
+                {
+                    "type": "message",
+                    "id": "guard-result",
+                    "message": {
+                        "role": "toolResult",
+                        "toolCallId": "guard-call",
+                        "details": {
+                            "aggregated": "RTSP_SAMPLE_URL is set\n"
+                        },
+                    },
+                },
+                retained,
+            )
+        )
+        leaf_jsonl = "\n".join(
+            json.dumps(record)
+            for record in (
+                {
+                    "type": "session",
+                    "id": "run-leaf",
+                    "parentSession": root_session,
+                },
+                {
+                    "type": "compaction",
+                    "id": "compaction-1",
+                    "summary": "must not become an ATIF step",
+                },
+                retained_successor,
+                {
+                    "type": "message",
+                    "id": "assistant-final",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "finished"}],
+                    },
+                },
+            )
+        )
+        envelope = {
+            "result": {
+                "payloads": [{"text": "finished"}],
+                "meta": {
+                    "agentMeta": {
+                        "sessionId": "run-leaf",
+                        "sessionFile": leaf_session,
+                    }
+                },
+            }
+        }
+        scripts: list[str] = []
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            scripts.append(script)
+            transcript = (
+                leaf_jsonl
+                if "run-leaf.jsonl" in script
+                else root_jsonl
+            )
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout=transcript,
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            artifact_dir = root / "artifacts"
+            agent_dir = root / "agent"
+            artifact_dir.mkdir()
+            (
+                artifact_dir
+                / headless_runner.OPENCLAW_LAUNCH_SESSION_METADATA
+            ).write_text(
+                json.dumps(
+                    {
+                        "root_session_id": "run-root",
+                        "root_session_file": root_session,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (artifact_dir / "openclaw-agent.log").write_text(
+                json.dumps(envelope),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                headless_runner,
+                "_sandbox_exec",
+                side_effect=fake_sandbox_exec,
+            ):
+                report = (
+                    headless_runner.collect_and_publish_openclaw_trajectory(
+                        "demo",
+                        artifact_dir,
+                        agent_dir,
+                        "current prompt",
+                    )
+                )
+            trajectory = json.loads(
+                (artifact_dir / "trajectory.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            published_session = (
+                artifact_dir / "openclaw.session.jsonl"
+            ).read_text(encoding="utf-8")
+
+        self.assertEqual(report["session_chain_depth"], 2)
+        self.assertEqual(
+            report["session_files"],
+            [root_session, leaf_session],
+        )
+        self.assertEqual(
+            trajectory["steps"][0],
+            {
+                "step_id": 1,
+                "source": "user",
+                "message": "current prompt",
+            },
+        )
+        self.assertEqual(
+            trajectory["steps"][1]["tool_calls"][0]["arguments"],
+            {"command": 'test -n "${RTSP_SAMPLE_URL:-}"'},
+        )
+        self.assertEqual(
+            [
+                step["message"]
+                for step in trajectory["steps"]
+                if step["source"] == "agent"
+            ],
+            ["(no assistant text)", "retained turn", "finished"],
+        )
+        self.assertEqual(published_session.count("assistant-retained"), 1)
+        self.assertNotIn("must not become an ATIF step", json.dumps(trajectory))
+        self.assertEqual(len(scripts), 2)
+        self.assertIn("run-leaf.jsonl", scripts[0])
+        self.assertIn("run-root.jsonl", scripts[1])
+        self.assertTrue(all("find " not in script for script in scripts))
+
+    def test_openclaw_parent_session_rejects_untrusted_paths(self):
+        for parent in (
+            "relative.jsonl",
+            "/sandbox/.openclaw/agents/main/sessions/../stale.jsonl",
+            "/sandbox/.openclaw/agents/main/sessions/nested/stale.jsonl",
+            "/sandbox/.openclaw/agents/other/sessions/stale.jsonl",
+            "/sandbox/.openclaw/agents/main/sessions/stale.txt",
+            "/sandbox/.openclaw/agents/main/sessions/stale.jsonl\nother",
+        ):
+            with self.subTest(parent=parent):
+                session_jsonl = json.dumps(
+                    {
+                        "type": "session",
+                        "id": "leaf",
+                        "parentSession": parent,
+                    }
+                )
+                with self.assertRaises(RuntimeError):
+                    headless_runner._openclaw_parent_session_file(
+                        session_jsonl
+                    )
+
+    def test_openclaw_session_merge_rejects_divergent_duplicate_ids(self):
+        first = json.dumps(
+            {
+                "type": "message",
+                "id": "same-id",
+                "message": {"role": "assistant", "content": "first"},
+            }
+        )
+        second = json.dumps(
+            {
+                "type": "message",
+                "id": "same-id",
+                "message": {"role": "assistant", "content": "changed"},
+            }
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "different content"):
+            headless_runner._merge_openclaw_session_chain(
+                [
+                    ("root.jsonl", first),
+                    ("leaf.jsonl", second),
+                ]
+            )
+
+    def test_openclaw_session_collection_rejects_parent_cycle(self):
+        session_dir = "/sandbox/.openclaw/agents/main/sessions"
+        root_session = f"{session_dir}/run-root.jsonl"
+        leaf_session = f"{session_dir}/run-leaf.jsonl"
+        middle_session = f"{session_dir}/run-middle.jsonl"
+        transcripts = {
+            "run-leaf.jsonl": json.dumps(
+                {
+                    "type": "session",
+                    "id": "leaf",
+                    "parentSession": middle_session,
+                }
+            ),
+            "run-middle.jsonl": json.dumps(
+                {
+                    "type": "session",
+                    "id": "middle",
+                    "parentSession": leaf_session,
+                }
+            ),
+        }
+        envelope = {
+            "result": {
+                "payloads": [{"text": "done"}],
+                "meta": {
+                    "agentMeta": {
+                        "sessionId": "leaf",
+                        "sessionFile": leaf_session,
+                    }
+                },
+            }
+        }
+
+        def fake_sandbox_exec(sandbox, script, *, timeout):
+            name = next(
+                name for name in transcripts if name in script
+            )
+            return subprocess.CompletedProcess(
+                ["sandbox", sandbox],
+                0,
+                stdout=transcripts[name],
+                stderr="",
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            log_dir = Path(td) / "artifacts"
+            agent_dir = Path(td) / "agent"
+            log_dir.mkdir()
+            (
+                log_dir
+                / headless_runner.OPENCLAW_LAUNCH_SESSION_METADATA
+            ).write_text(
+                json.dumps(
+                    {
+                        "root_session_id": "run-root",
+                        "root_session_file": root_session,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (log_dir / "openclaw-agent.log").write_text(
+                json.dumps(envelope),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                headless_runner,
+                "_sandbox_exec",
+                side_effect=fake_sandbox_exec,
+            ), self.assertRaisesRegex(RuntimeError, "parent cycle"):
+                headless_runner.collect_and_publish_openclaw_trajectory(
+                    "demo",
+                    log_dir,
+                    agent_dir,
+                    "prompt",
+                )
+
+            self.assertFalse((log_dir / "trajectory.json").exists())
+            self.assertFalse((agent_dir / "trajectory.json").exists())
 
     def test_collect_openclaw_cli_log_copies_sandbox_output(self):
         calls: list[tuple[str, ...]] = []
@@ -3085,6 +3545,66 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 in item
                 for item in blockers
             )
+        )
+
+    def test_combined_behavior_analytics_uses_repo_config_override(self):
+        compose = (
+            REPO_ROOT
+            / "deploy"
+            / "docker"
+            / "developer-profiles"
+            / "dev-profile-search"
+            / "video-analytics-2d-app"
+            / "compose.yml"
+        ).read_text(encoding="utf-8")
+        reference = (
+            REPO_ROOT
+            / "skills"
+            / "vss-setup-behavior-analytics"
+            / "references"
+            / "deploy-behavior-analytics-service.md"
+        ).read_text(encoding="utf-8")
+        config = json.loads(
+            (
+                REPO_ROOT
+                / "services"
+                / "analytics"
+                / "behavior-analytics"
+                / "configs"
+                / "search_and_alerts_config.json"
+            ).read_text(encoding="utf-8")
+        )
+        workers = {
+            item["name"]: int(item["value"])
+            for item in config["app"]
+            if item["name"].startswith("numWorkersFor")
+        }
+
+        self.assertIn(
+            (
+                "${VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH:-${VSS_APPS_DIR}/"
+                "developer-profiles/dev-profile-search/video-analytics-2d-app/"
+                "vss-search-analytics/configs/vss-search-analytics-"
+                "${STREAM_TYPE}-config.json}:"
+                "/resources/vss-search-analytics-config.json"
+            ),
+            compose,
+        )
+        self.assertIn(
+            (
+                "VSS_BEHAVIOR_ANALYTICS_CONFIG_PATH=${VSS_APPS_DIR}/"
+                "../../services/analytics/behavior-analytics/configs/"
+                "search_and_alerts_config.json"
+            ),
+            reference,
+        )
+        self.assertEqual(
+            workers,
+            {
+                "numWorkersForIncidentGeneration": 2,
+                "numWorkersForBehaviorCreation": 2,
+                "numWorkersForEmbedFiltering": 1,
+            },
         )
 
     def test_manual_single_skill_matrix_uses_representative_row_by_default(self):
