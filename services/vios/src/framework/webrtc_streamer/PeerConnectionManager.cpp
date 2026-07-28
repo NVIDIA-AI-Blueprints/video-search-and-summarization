@@ -2676,6 +2676,7 @@ int PeerConnectionManager::notify(const string& change, const string& deviceId, 
             event["camera_name"] = sensor->name;
             event["camera_url"] = stream->live_url; // Use original URL for payload
             event["change"] = change;
+            event["camera_type"] = vst_common::sensorTypeToCameraType(sensor->type);
             payload["created_at"] = getCurrentTime();
             payload["source"] = "vst";
             payload["alert_type"] = "camera_status_change";

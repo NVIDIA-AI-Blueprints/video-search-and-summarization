@@ -38,6 +38,12 @@ using namespace nv_vms;
 namespace vst_common
 {
     string sensorStatusEventToString(SensorStatusEvent event);
+    // Maps a stored sensor type such as sensor_rtsp to the notification
+    // camera_type value rtsp; values without the sensor_ prefix pass through.
+    string sensorTypeToCameraType(const string& sensorType);
+    // Resolves the camera_type notification value for a sensor id, falling
+    // back to the parent sensor when given a stream id. Empty when unknown.
+    string cameraTypeForSensor(const string& sensorOrStreamId);
     VmsErrorCode getSensorStreamList(shared_ptr<DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response);
     VmsErrorCode getSensorStreamList(shared_ptr<DeviceManager> deviceManager, const Json::Value& req_info, Json::Value &response);
     VmsErrorCode getSensorStreamListFromDB(shared_ptr<DeviceManager> deviceManager, Json::Value &response, bool fetchFromDB = false);
