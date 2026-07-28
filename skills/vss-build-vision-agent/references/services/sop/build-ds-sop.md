@@ -43,7 +43,9 @@ The image is **built from source** (no registry image to pull). Clone the repo o
 everything the later steps reference lives inside it:
 ```bash
 git clone https://github.com/NVIDIA/sop-monitoring-blueprints.git
-cd sop-monitoring-blueprints/microservices/sop-inference-bp     # branch: main
+cd sop-monitoring-blueprints
+git checkout 0dd472f     # pin — same commit as the VA-MCP patch / kibana dashboard (reproducible image)
+cd microservices/sop-inference-bp
 ```
 
 ## Step 1 — Build

@@ -40,7 +40,7 @@ SOP is not a Foundation; compose it as a **delta** off the closest Foundation �
 Redis, VIOS, and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
 
 - **add** `ds-sop` — a genuinely new service → emit `patches/ds-sop.yml` from the
-  DS-SOP Compose block in `sop/deploy-ds-sop.md § Example Compose Snippet`; and
+  DS-SOP Compose block in `sop/integrate-ds-sop.md § Example Compose Snippet`; and
   `sop-kibana-init` (SOP data-view + dashboard one-shot).
 - **remove** `rtvi-vlm` (DS-SOP takes the perception slot), and the parts SOP does
   not use: `vss-agent`, `vss-ui`, `alert-bridge`, `vss-video-analytics-api-alerts`,
@@ -85,7 +85,7 @@ VLLM_GPU_MEMORY_UTILIZATION=0.6            # 0.3 is fine on ≥80 GB GPUs
 #   get_sop_*). VSS_AGENT_SITE_PACKAGES → mount root; verify vs the ghcr.io image.
 VSS_VA_MCP_CONFIG_FILE=<staged: adapted from the downloaded SOP release VA-MCP config — see § Patch specifics>
 VSS_AGENT_SITE_PACKAGES=/vss-agent/.venv/lib/python3.13/site-packages
-VSS_AGENT_PKG=agent                 # resolved from the image (the pkg that holds video_analytics) — see § Patch specifics
+VSS_AGENT_PKG=vss_agents            # develop ships video_analytics under vss_agents; resolve from the image — see § Patch specifics
 ```
 
 Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
@@ -102,7 +102,7 @@ Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.6` on ≤48 GB GPUs (the `0.3` default is H100-tuned). |
 | `VSS_VA_MCP_CONFIG_FILE` | SOP VA-MCP config (adapted from the downloaded SOP release config — see § Patch specifics; selects the `get_sop_*` tools). |
 | `VSS_AGENT_SITE_PACKAGES` | In-container site-packages root the SOP patch mounts over. |
-| `VSS_AGENT_PKG` | Package in the image that holds `video_analytics` (`agent` on develop-latest; `vss_agents` ships only `api`) — resolve it by probing `<pkg>.video_analytics` (§ Patch specifics), never hardcode. |
+| `VSS_AGENT_PKG` | Package that holds `video_analytics` — on `develop` it is `vss_agents` (`services/agent/packages/vss_agents`). Resolve it from the running image by probing `<pkg>.video_analytics` (§ Patch specifics); never hardcode (a published image may differ). |
 
 ## Patch specifics — download the SOP release patch, then adapt it
 
@@ -135,21 +135,21 @@ curl -fsSL --max-time 60 $REPO/$BASE/configs/va_mcp_server_config.yml -o /tmp/so
 the image's other `video_analytics` tools and targets the old package layout):
 
 1. **Resolve which package holds `video_analytics` + the site-packages path** on the image —
-   the layout varies between builds (on `develop-latest`, `video_analytics` lives under `agent`;
-   `vss_agents` ships only `api`), so **probe for the `video_analytics` submodule, not the bare
+   on `develop` the package is `vss_agents` (`services/agent/packages/vss_agents`), but a published
+   image may install it differently, so **probe for the `video_analytics` submodule, not the bare
    package**:
    ```bash
    docker run --rm --entrypoint /vss-agent/.venv/bin/python3 \
      ghcr.io/nvidia-ai-blueprints/vss/vss-agent:develop-latest -c '
    import importlib, os
-   for pkg in ("agent", "vss_agents"):
+   for pkg in ("vss_agents", "agent"):
        try:
            importlib.import_module(pkg + ".video_analytics")   # the pkg that ACTUALLY holds video_analytics
            m = importlib.import_module(pkg)
            print(pkg, os.path.dirname(os.path.dirname(m.__file__))); break
        except ImportError: pass'
    ```
-   Set `VSS_AGENT_PKG` (e.g. `agent` on develop-latest) and `VSS_AGENT_SITE_PACKAGES` from the output.
+   Set `VSS_AGENT_PKG` (`vss_agents` on `develop`) and `VSS_AGENT_SITE_PACKAGES` from the output.
 2. **Locate the SOP additions** in the downloaded `tools.py` — a self-contained block of the
    four SOP tool implementations plus their four include-gated registrations. Diffing it
    against the image's own `<pkg>/video_analytics/tools.py` makes them obvious.

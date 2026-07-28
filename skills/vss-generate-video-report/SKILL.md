@@ -26,7 +26,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 ## Instructions
 
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts, Mode C when the request asks for an SOP / compliance report (match against *Examples*).
-2. **Verify the deployment profile** for that mode under *Deployment prerequisite*; hand off to `/vss-deploy-profile` if its probe fails.
+2. **Verify the deployment profile** for that mode under *Deployment prerequisite*; if its probe fails, hand off per that section (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-agent`).
 3. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
 4. **Rewrite every user-facing clip URL** with the `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` one-liner (*Browser-playable clip URL*) before embedding it in the report.
 5. **Return the rendered report markdown** to the user.
@@ -353,31 +353,38 @@ Use for "generate an SOP compliance report" over a sensor + time range. Data com
 ### Step 1 — Resolve the sensor + time range
 
 - Capture the named sensor as `sensor_id`. `start_time` / `end_time` are ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`); resolve relative phrases ("last hour", "today") against the host clock.
-- Confirm the SOP tools are present (once): `/vss-query-analytics` `tools/list` must include `video_analytics__get_sop_report`. If absent, the deployment lacks the SOP tools — hand off to `/vss-build-vision-agent` to compose the SOP profile.
+- Confirm the SOP tools are present (once). The four `get_sop_*` tools are added by the SOP patch and are **not** in the base `/vss-query-analytics` tool set, so call the VA-MCP endpoint directly (two-step MCP JSON-RPC: `initialize` → `tools/list`):
 
-### Step 2 — Fetch the aggregated SOP report via `/vss-query-analytics`
-
-Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "video_analytics__get_sop_report",
-    "arguments": { "sensor_id": "<sensor>", "start_time": "<ISO>", "end_time": "<ISO>" }
-  },
-  "id": 1
-}
+```bash
+MCP="http://${HOST_IP}:9901/mcp"
+HDR=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
+SID=$(curl -si --max-time 10 -X POST "$MCP" "${HDR[@]}" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
+  | grep -i '^mcp-session-id' | awk '{print $2}' | tr -d '\r')
+curl -s --max-time 10 -X POST "$MCP" "${HDR[@]}" -H "mcp-session-id: $SID" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep video_analytics__get_sop_report
 ```
 
-Returns `report_summary` (total messages, current / completed cycle, compliance status), `sop_violations` (missing / mis-ordered steps per cycle with timestamps), `actions_observed` (unique actions, latest action), and a `formatted_report` markdown string.
+If `video_analytics__get_sop_report` is absent, the deployment lacks the SOP tools — hand off to `/vss-build-vision-agent` to compose the SOP profile.
+
+### Step 2 — Fetch the aggregated SOP report from VA-MCP
+
+Call `video_analytics__get_sop_report` on the same endpoint (reuse `$MCP` / `$SID` / `$HDR` from Step 1; `tools/call` after `initialize`):
+
+```bash
+curl -s --max-time 30 -X POST "$MCP" "${HDR[@]}" -H "mcp-session-id: $SID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
+  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
+```
+
+Returns `report_summary` (total messages, current / completed cycle, compliance status), `sop_violations` (missing / mis-ordered steps per cycle with timestamps), `actions_observed` (unique actions, latest action — **no total field**; the total action count equals `report_summary` total messages, one action per chunk), and a `formatted_report` markdown string.
 
 Read-only boundary (mandatory): Mode C is strictly read-only. Never write, seed, backfill, or mutate Elasticsearch/VA data. **Reproduce the tool's numbers and action names verbatim** — DS-SOP actions are numbered classifications (e.g. "(1) first fan", "(10) not belong"); never paraphrase, rename, or invent them.
 
 ### Step 3 — Fill the SOP Compliance Report template
 
-Copy [`assets/sop-compliance-report.md`](assets/sop-compliance-report.md), fill every placeholder from the Step 2 result (message count, compliance status, cycle counts, the missing / mis-ordered step tables, actions observed), and return the rendered markdown. For placeholders `get_sop_report` does not carry: generate `{report_id}` + `{report_date}`, set `{agent_version}` to `vss-generate-video-report (Mode C)`, and set `{video_analysis_details}` / `{snapshot_image}` to `N/A` (Mode C runs no report-time VLM and fetches no media). Fill `{notes}` with the data provenance and snapshot caveats (source/scope, the bounded `end_time` used, the doc count vs the 1000-doc `get_sop_report` cap, and that a live stream never reaches EOS so `final_*` counts stay 0 and every violation is per-chunk); fill `{recommendations}` with the compliance interpretation (recurring missing / mis-ordered steps and whether they reflect the source clip rather than an operator fault). Keep the source asset unchanged; never leave a placeholder, and never include template instructions in a filled cell.
+Copy [`assets/sop-compliance-report.md`](assets/sop-compliance-report.md), fill every placeholder from the Step 2 result (message count, compliance status, cycle counts, the missing / mis-ordered step tables, actions observed), and return the rendered markdown. For placeholders `get_sop_report` does not carry: generate `{report_id}` + `{report_date}`, set `{agent_version}` to `vss-generate-video-report (Mode C)`, and set `{video_analysis_details}` / `{snapshot_image}` to `N/A` (Mode C runs no report-time VLM and fetches no media), and set `{total_actions}` to `report_summary`'s total-messages count (`get_sop_report` has no total-actions field — there is one action per chunk, so total actions = total messages; do not invent a separate number). Fill `{notes}` with the data provenance and snapshot caveats (source/scope, the bounded `end_time` used, the doc count vs the 1000-doc `get_sop_report` cap, and that a live stream never reaches EOS so `final_*` counts stay 0 and every violation is per-chunk); fill `{recommendations}` with the compliance interpretation (recurring missing / mis-ordered steps and whether they reflect the source clip rather than an operator fault). Keep the source asset unchanged; never leave a placeholder, and never include template instructions in a filled cell.
 
 If `get_sop_report` returns an error or zero messages for the range/scope, STOP and return a one-line empty-range statement naming the sensor + range. Do not render the full template, invent data, or fall back to another mode.
 

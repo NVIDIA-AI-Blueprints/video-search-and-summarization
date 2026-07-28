@@ -71,10 +71,10 @@ Models are **not** baked into the image — stage on the host before bring-up. D
   #    mdx-lvs). Guard the append so a re-run does not duplicate the entry (a duplicate pipeline.id
   #    makes Logstash refuse to start):
   PK=<BUILD_DIR>/patched/services/infra/elk/logstash/configs/pipelines-kafka.yml
-  grep -q 'sop-vlm-captions-json' "$PK" || cat >> "$PK" <<'YML'
-  - pipeline.id: sop-vlm-captions-json
-    path.config: "/usr/share/logstash/pipelines/sop-vlm-captions-json-logstash.conf"
-  YML
+  # printf (not a heredoc) so the appended YAML lands at column 0 — no indented terminator, no
+  # stray 2-space indent from the surrounding list block:
+  grep -q 'sop-vlm-captions-json' "$PK" || \
+    printf '\n- pipeline.id: sop-vlm-captions-json\n  path.config: "/usr/share/logstash/pipelines/sop-vlm-captions-json-logstash.conf"\n' >> "$PK"
   # 3. in patches/logstash.yml, repoint logstash's config + pipelines volume SOURCES to the
   #    build-local copy above; then restart and verify
   docker restart logstash
@@ -109,6 +109,40 @@ Models are **not** baked into the image — stage on the host before bring-up. D
 - **ES has docs but Kibana shows nothing** → Kibana has no Data View for `mdx-vlm-captions-*`. The `sop-kibana-init` one-shot (in the ds-sop compose) imports the SOP data view + dashboard automatically after kibana is healthy — check it exited `0` (`docker ps -a | grep sop-kibana-init`). Note the stack's Kibana is served **under base path `/kibana`** (bare `:5601/api/...` 404s — this is standard for this stack; the upstream `vss-kibana-init` and the Kibana UI both use `:5601/kibana/...`); the one-shot hits `/kibana` first and falls back to a bare base path, and `KIBANA_URL` overrides the base. If it still failed (e.g. no internet to fetch the ndjson), import manually: download `sop-kibana-objects.ndjson` from `NVIDIA/sop-monitoring-blueprints` (`agentic/vss-sop-skills/vss-sop-build/references/deployments/sop/sop-app/kibana-dashboard/`) and `curl -X POST 'http://localhost:5601/api/saved_objects/_import?overwrite=true' -H 'kbn-xsrf: true' --form file=@sop-kibana-objects.ndjson` — or just create a Data View `mdx-vlm-captions*` with time field `@timestamp` in the Kibana UI. Also widen the time range (docs carry real wall-clock timestamps).
 - **Responses come back free-form instead of `(N)` numbered SOP steps** → a custom `prompt` in the `/v1/chat/completions` request **overrides** `VLM_PROMPT_PATH` (USER_PROMPT_PRIORITY), so the VLM free-forms instead of classifying against the numbered SOP action set. For numbered SOP step classifications, send **no prompt** (let it use the configured `VLM_PROMPT_PATH` = `/opt/sop/configs/vlm_prompts.txt`) or pass that exact numbered prompt verbatim.
 
+## Post-deploy verification
+
+Run these after bring-up to confirm the deployment is healthy end-to-end (the profile eval
+automates the same checks). Stop at the first failure and see § Known Deployment Issues.
+
+```bash
+# 1. DS-SOP up
+curl -sf --max-time 10 http://localhost:8300/v1/ready                      # → 200
+curl -sf --max-time 10 http://localhost:8300/v1/models | grep -q ds_sop_model
+
+# 2. Kafka topic exists and has messages (SOP JSON is being published)
+docker exec kafka kafka-topics.sh --bootstrap-server localhost:29092 \
+  --describe --topic mdx-vlm-captions            # topic exists (data flow confirmed by ES count, step 4)
+
+# 3. ELK: SOP index EXISTS
+curl -sf --max-time 10 'http://localhost:9200/_cat/indices/mdx-vlm-captions*?v'   # ≥1 index
+
+# 4. ELK: index HAS DATA
+curl -sf --max-time 10 'http://localhost:9200/mdx-vlm-captions-*/_count'          # .count > 0
+
+# 5. DS-SOP returns COMPLETE, REAL data (not empty, not all "(10) not belong")
+curl -sf --max-time 10 'http://localhost:9200/mdx-vlm-captions-*/_search?size=5' \
+  | jq '.hits.hits[]._source | {response, sensor_id, req_id, cv_boundary_score, checker_result}'
+#   expect: real numbered steps in `response` (e.g. "(1) installing the first fan..."), a
+#   populated `checker_result`, cv_boundary_score not all ~0, and @timestamp on the real date.
+
+# 6. VA-MCP exposes the SOP tools (report layer)
+docker exec vss-va-mcp /vss-agent/.venv/bin/python3 -c "import ${VSS_AGENT_PKG:-vss_agents}.video_analytics.sop_tools"
+#   plus MCP tools/list on :9901 includes the four video_analytics__get_sop_* (sop.md § Patch specifics step 6)
+```
+
+If step 4 shows 0 docs or step 5 shows every doc as `(10) ... not belong`, the SOP JSON
+Logstash pipeline or the detection input is wrong — see § Known Deployment Issues.
+
 ## Testing
 
 - **Profile eval:** `skills/vss-build-vision-agent/eval/profile_sop_1_compliance_monitoring.json` —
@@ -117,7 +151,7 @@ Models are **not** baked into the image — stage on the host before bring-up. D
   SOP detection in ELK (REAL step responses, not all `(10)`, JSON Logstash pipeline registered) →
   runtime-verify the skill-driven SOP compliance report (get_sop_* + vss-generate-video-report
   Mode C). Only the legacy VSS-Agent / `/generate` report path stays out of scope (see
-  `integrate-ds-sop.md` § Scope & divergences).
+  `integrate-ds-sop.md` § Scope notes).
 - **Blueprint full suite (reference):** `vss-sop-skills/vss-sop-test` (`scripts/vss_sop_test.py`)
   runs 4 phases — service health, ELK pipeline, VIOS recording/livestream, and VSS-Agent end-to-end
   (incl. report generation). Phases 1–3 overlap this eval; Phase 4 (agent/report) only applies once

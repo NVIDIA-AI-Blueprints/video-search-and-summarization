@@ -15,17 +15,17 @@
 # The patch adds the SOP tools (get_sop_status / get_sop_report /
 # get_sop_as_incidents / get_sop_as_incident) to the `video_analytics` group; they
 # only register when the va_mcp config's `include:` lists them (the adapted VA-MCP
-# config, from the downloaded SOP release config — see ../sop.md § Patch specifics).
+# config, from the downloaded SOP release config — see ../../sop.md § Patch specifics).
 #
 # build-vision-agent's deploy flow stages the ADAPTED patch files (produced by DOWNLOADING
-# the SOP release patch from NVIDIA's public repo and adapting per ../sop.md § Patch
+# the SOP release patch from NVIDIA's public repo and adapting per ../../sop.md § Patch
 # specifics — NOT shipped in this repo, the release tools.py is NOT copied verbatim) to
 #   ${VSS_APPS_DIR}/services/agent/sop-report/video_analytics/{tools,sop_tools}.py
 # (${VSS_APPS_DIR} == the deploy/docker dir bind-mounted read-only into the container).
 #
 # ${VSS_AGENT_SITE_PACKAGES} defaults to /vss-agent/.venv/lib/python3.13/site-packages and
-# ${VSS_AGENT_PKG} to the image's video-analytics package (vss_agents on develop, agent on
-# some builds) — resolve both against the image (../sop.md § Patch specifics step 1).
+# ${VSS_AGENT_PKG} to the image's video-analytics package (vss_agents on develop; a published
+# image may differ) — resolve both against the image (../../sop.md § Patch specifics step 1).
 
 services:
   vss-va-mcp:

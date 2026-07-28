@@ -133,7 +133,7 @@ services:
     command:
       - |
         curl -fsSL --retry 5 --retry-delay 5 --max-time 60 -o /tmp/sop-kibana-objects.ndjson \
-          "${SOP_KIBANA_OBJECTS_URL:-https://raw.githubusercontent.com/NVIDIA/sop-monitoring-blueprints/main/agentic/vss-sop-skills/vss-sop-build/references/deployments/sop/sop-app/kibana-dashboard/sop-kibana-objects.ndjson}"
+          "${SOP_KIBANA_OBJECTS_URL:-https://raw.githubusercontent.com/NVIDIA/sop-monitoring-blueprints/0dd472f/agentic/vss-sop-skills/vss-sop-build/references/deployments/sop/sop-app/kibana-dashboard/sop-kibana-objects.ndjson}"
         # The stack's Kibana is served under base path /kibana (bare :5601 404s) — same URL the
         # upstream vss-kibana-init uses; fall back to a bare base path for non-standard setups.
         # $$ escapes the dollar so the container shell reads the KB variable (Compose would otherwise interpolate it).
