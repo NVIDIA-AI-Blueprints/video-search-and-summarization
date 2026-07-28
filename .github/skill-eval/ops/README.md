@@ -72,20 +72,27 @@ schema trigger creates the corresponding lease row.
 Prerequisites on the operator workstation:
 
 - authenticated `brev` access to all eight named machines;
-- `gh` permission to register repository runners.
+- `gh` permission to register repository runners;
+- a mode-0600 coordinator environment file containing the shared Harbor,
+  model, NGC, and Brev pool settings (but no PostgreSQL DSN).
 
 Run a read-only connectivity preflight, then explicitly stage:
 
 ```bash
 .github/skill-eval/ops/stage-distributed-runners.sh
-.github/skill-eval/ops/stage-distributed-runners.sh --apply
+COORDINATOR_ENV_FILE=/secure/path/coordinator.env \
+  .github/skill-eval/ops/stage-distributed-runners.sh --apply
 ```
 
 The apply command fetches a fresh short-lived GitHub registration token for
-each host and sends it through a mode-0600 temporary file. It registers
+each host and sends it through a mode-0600 temporary file. It also installs
+the protected coordinator environment as
+`/home/ubuntu/eval-coordinator/.env`, plus the authenticated local Brev client
+and `${BREV_CONFIG_DIR:-$HOME/.brev}` runtime used to discover and connect to
+GPU workers. Temporary credential payloads are mode 0600 and removed after
+installation. It registers
 `vss-skill-validator-distributed-{1..8}-runner-{1..4}`, then verifies through
-GitHub that all 32 are offline, standby-labeled, and lack the production
-label.
+GitHub that all 32 are offline, standby-labeled, and lack the production label.
 
 Store the coordinator DSN in the repository Actions secret
 `GPU_LEASE_DATABASE_URL`:

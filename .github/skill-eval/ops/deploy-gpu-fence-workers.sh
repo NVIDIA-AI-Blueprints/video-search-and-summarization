@@ -57,7 +57,12 @@ remote_exec() {
     local worker="$1"
     shift
     if [[ -n "${registered[${worker,,}]:-}" ]]; then
-        ssh -o BatchMode=yes -o ConnectTimeout=15 "${worker,,}" "$@"
+        ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ControlMaster=no \
+            -o ControlPath=none \
+            "${worker,,}" "$@"
     else
         brev exec "$worker" "$@"
     fi
@@ -68,7 +73,12 @@ remote_copy() {
     local worker="$2"
     local destination="$3"
     if [[ -n "${registered[${worker,,}]:-}" ]]; then
-        scp -q "$source" "${worker,,}:$destination"
+        scp \
+            -q \
+            -o BatchMode=yes \
+            -o ControlMaster=no \
+            -o ControlPath=none \
+            "$source" "${worker,,}:$destination"
     else
         brev copy "$source" "${worker}:$destination"
     fi

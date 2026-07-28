@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=VSS skill-eval highly available PostgreSQL (Patroni)
+Documentation=https://patroni.readthedocs.io/
+Wants=network-online.target
+After=network-online.target wg-quick@wg-vss.service etcd.service
+Requires=wg-quick@wg-vss.service
+
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+ExecStart=/usr/bin/patroni /etc/vss-postgres-ha/patroni.yml
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=process
+TimeoutStartSec=0
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+OOMScoreAdjust=-700
+CPUWeight=1000
+IOWeight=1000
+MemoryHigh=8G
+MemoryMax=12G
+TasksMax=4096
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/postgresql /run/postgresql
+
+[Install]
+WantedBy=multi-user.target

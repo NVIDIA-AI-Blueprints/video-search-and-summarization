@@ -10,18 +10,24 @@ set -euo pipefail
 repository="${GITHUB_REPOSITORY:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
 runner_count="${RUNNER_COUNT:-4}"
 token_file=""
+coordinator_env_file=""
+brev_binary=""
+brev_config_archive=""
 install_root="${RUNNER_INSTALL_ROOT:-/home/ubuntu/actions-runners}"
 coordinator_root="${COORDINATOR_ROOT:-/home/ubuntu/eval-coordinator}"
 standby_label="${RUNNER_STANDBY_LABEL:-vss-skill-eval-standby}"
 coordinator_id="${COORDINATOR_ID:-}"
 
 usage() {
-    echo "Usage: $0 --token-file PATH --coordinator-id NAME [--repository OWNER/REPO] [--runner-count 4]" >&2
+    echo "Usage: $0 --token-file PATH --coordinator-env-file PATH --brev-binary PATH --brev-config-archive PATH --coordinator-id NAME [--repository OWNER/REPO] [--runner-count 4]" >&2
 }
 
 while (($#)); do
     case "$1" in
         --token-file) token_file="${2:?missing token file}"; shift 2 ;;
+        --coordinator-env-file) coordinator_env_file="${2:?missing coordinator environment file}"; shift 2 ;;
+        --brev-binary) brev_binary="${2:?missing Brev binary}"; shift 2 ;;
+        --brev-config-archive) brev_config_archive="${2:?missing Brev configuration archive}"; shift 2 ;;
         --repository) repository="${2:?missing repository}"; shift 2 ;;
         --runner-count) runner_count="${2:?missing runner count}"; shift 2 ;;
         --install-root) install_root="${2:?missing install root}"; shift 2 ;;
@@ -31,6 +37,21 @@ while (($#)); do
 done
 
 [[ -n "$token_file" && -f "$token_file" ]] || { usage; exit 2; }
+[[ -n "$coordinator_env_file" && -r "$coordinator_env_file" ]] || {
+    echo "Coordinator environment file is missing or unreadable" >&2
+    usage
+    exit 2
+}
+[[ -n "$brev_binary" && -r "$brev_binary" ]] || {
+    echo "Brev binary is missing or unreadable" >&2
+    usage
+    exit 2
+}
+[[ -n "$brev_config_archive" && -r "$brev_config_archive" ]] || {
+    echo "Brev configuration archive is missing or unreadable" >&2
+    usage
+    exit 2
+}
 [[ "$runner_count" =~ ^[1-9][0-9]*$ ]] || { echo "runner count must be positive" >&2; exit 2; }
 [[ "$(id -u)" -ne 0 ]] || {
     echo "Run as the coordinator user, not root (the script uses sudo where needed)." >&2
@@ -54,7 +75,39 @@ trap 'registration_token=""; rm -f "$token_file"' EXIT
 sudo apt-get update -qq
 sudo apt-get install -y -qq curl git jq python3 python3-venv tar
 
+sudo install -m 0755 "$brev_binary" /usr/local/bin/brev
+tar -xzf "$brev_config_archive" -C "$HOME"
+[[ -d "$HOME/.brev" ]] || {
+    echo "Brev configuration archive did not contain .brev/" >&2
+    exit 1
+}
+chmod -R go-rwx "$HOME/.brev"
+timeout 30 /usr/local/bin/brev ls --json >/dev/null
+
 mkdir -p "$install_root" "$coordinator_root"
+python3 - "$coordinator_env_file" <<'PY'
+import pathlib
+import sys
+
+values = {}
+for raw_line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    name, value = line.split("=", 1)
+    values[name.strip()] = value.strip()
+
+required = {
+    "ANTHROPIC_API_KEY",
+    "NGC_CLI_API_KEY",
+}
+missing = sorted(name for name in required if not values.get(name))
+if missing:
+    raise SystemExit(
+        "coordinator environment is missing required values: " + ", ".join(missing)
+    )
+PY
+install -m 600 "$coordinator_env_file" "$coordinator_root/.env"
 python3 -m venv "$coordinator_root/venv"
 "$coordinator_root/venv/bin/python" -m pip install -q --upgrade pip
 "$coordinator_root/venv/bin/python" -m pip install -q "psycopg[binary]>=3.2,<4"

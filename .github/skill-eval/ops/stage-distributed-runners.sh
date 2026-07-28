@@ -8,8 +8,21 @@
 set -euo pipefail
 
 repository="${GITHUB_REPOSITORY:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
+coordinator_env_file="${COORDINATOR_ENV_FILE:-}"
+brev_config_dir="${BREV_CONFIG_DIR:-$HOME/.brev}"
 apply=false
-[[ "${1:-}" == "--apply" ]] && apply=true
+
+usage() {
+    echo "Usage: COORDINATOR_ENV_FILE=/secure/path/coordinator.env $0 [--apply]" >&2
+}
+
+while (($#)); do
+    case "$1" in
+        --apply) apply=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; exit 2 ;;
+    esac
+done
 
 hosts=()
 for index in $(seq 1 8); do
@@ -26,6 +39,7 @@ host_script="$script_dir/configure-dormant-runner-host.sh"
 
 command -v brev >/dev/null
 command -v gh >/dev/null
+command -v tar >/dev/null
 gh auth status >/dev/null
 
 echo "Preflighting all eight Brev coordinators before making changes..."
@@ -38,13 +52,38 @@ if [[ "$apply" != true ]]; then
     echo "Preflight only. Re-run with --apply to register 32 offline standby runners."
     exit 0
 fi
+[[ -n "$coordinator_env_file" && -r "$coordinator_env_file" ]] || {
+    echo "COORDINATOR_ENV_FILE must name a readable protected environment file" >&2
+    exit 2
+}
+brev_binary="$(command -v brev)"
+[[ "$(basename -- "$brev_config_dir")" == ".brev" ]] || {
+    echo "BREV_CONFIG_DIR must point to a directory named .brev" >&2
+    exit 2
+}
+for required in \
+    "$brev_config_dir/active_org.json" \
+    "$brev_config_dir/brev.pem" \
+    "$brev_config_dir/cloudflared" \
+    "$brev_config_dir/credentials.json"; do
+    [[ -r "$required" ]] || {
+        echo "Missing required Brev runtime file: $required" >&2
+        exit 2
+    }
+done
 
 token_file="$(mktemp)"
-chmod 600 "$token_file"
-trap 'rm -f "$token_file"' EXIT
+brev_config_archive="$(mktemp)"
+chmod 600 "$token_file" "$brev_config_archive"
+tar -C "$(dirname -- "$brev_config_dir")" \
+    -czf "$brev_config_archive" "$(basename -- "$brev_config_dir")"
+trap 'rm -f "$token_file" "$brev_config_archive"' EXIT
 
 remote_script="/tmp/configure-dormant-runner-host.sh"
 remote_token="/tmp/.actions-runner-registration-token"
+remote_env="/tmp/.eval-coordinator.env"
+remote_brev="/tmp/.brev-client"
+remote_brev_config="/tmp/.brev-config.tar.gz"
 for host in "${hosts[@]}"; do
     gh api \
         --method POST \
@@ -56,13 +95,16 @@ for host in "${hosts[@]}"; do
     }
     brev copy "$host_script" "${host}:${remote_script}"
     brev copy "$token_file" "${host}:${remote_token}"
+    brev copy "$coordinator_env_file" "${host}:${remote_env}"
+    brev copy "$brev_binary" "${host}:${remote_brev}"
+    brev copy "$brev_config_archive" "${host}:${remote_brev_config}"
     brev exec "$host" \
-        "chmod 700 '$remote_script' && chmod 600 '$remote_token' && '$remote_script' --token-file '$remote_token' --coordinator-id '$host' --repository '$repository' --runner-count 4"
+        "chmod 700 '$remote_script' '$remote_brev' && chmod 600 '$remote_token' '$remote_env' '$remote_brev_config' && trap 'rm -f \"$remote_env\" \"$remote_brev\" \"$remote_brev_config\"' EXIT && '$remote_script' --token-file '$remote_token' --coordinator-env-file '$remote_env' --brev-binary '$remote_brev' --brev-config-archive '$remote_brev_config' --coordinator-id '$host' --repository '$repository' --runner-count 4"
 done
 
 expected_file="$(mktemp)"
 runners_file="$(mktemp)"
-trap 'rm -f "$token_file" "$expected_file" "$runners_file"' EXIT
+trap 'rm -f "$token_file" "$brev_config_archive" "$expected_file" "$runners_file"' EXIT
 for host in "${hosts[@]}"; do
     for index in $(seq 1 4); do
         echo "${host}-runner-${index}" >>"$expected_file"
