@@ -210,17 +210,20 @@ python3 .github/skill-eval/run_leg.py \
     └── claude-code.txt   ← agent trace
 ```
 
-To view in the browser, **copy** (not move — the workflow's collector
-still tars the leg's results root after the agent) into the viewer dir,
-flattened with the leg slug:
+`run_leg.py` publishes each finished trial into the viewer dir itself
+(copying, not moving — the workflow's collector still tars the leg's
+results root afterwards) and appends the browsable URL to
+`<results-root>/trace-urls.tsv`:
 
-```bash
-VIEWER_JOB="/tmp/skill-eval/results/_viewer/<leg-slug>__<run_id>__<date>"
-mkdir -p "$VIEWER_JOB"
-cp -a "<leg-slug>/<run_id>/<date>/." "$VIEWER_JOB/"   # contents into a pre-made dir — idempotent
+```
+step-7	step-7__E6dBECL	https://harbor-<ENV_ID>.brevlab.com/jobs/<job>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
 
-Then open `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<leg-slug>__<run_id>__<date>`.
+Open the URL from that file rather than composing one: the trailing
+`<task>` is Harbor's fully-qualified `task_name`
+(`nvidia-vss/<dataset>-step-N`), not the `step-N` filter, and the
+viewer is an SPA that renders a wrong path as a **blank page**, never
+a 404.
 
 `harbor view` runs persistently on the CI runner host. If it's down:
 
