@@ -45,6 +45,12 @@ logger = logging.getLogger("sanity.provision")
 _DEPLOY_DIR = REPO_ROOT / "services/vios/deployment/stream-processing"
 _VST_CONFIG = _DEPLOY_DIR / "docker-compose/configs/vst_config.json"           # VIOS
 _NVS_CONFIG = _DEPLOY_DIR / "docker-compose/nvstreamer/configs/vst_config.json"  # NVStreamer
+_VST_NOTIFICATION_CONFIG = (
+    _DEPLOY_DIR / "docker-compose/configs/notification_config.json"
+)
+_NVS_NOTIFICATION_CONFIG = (
+    _DEPLOY_DIR / "docker-compose/nvstreamer/configs/notification_config.json"
+)
 _ADAPTOR_CONFIG = _DEPLOY_DIR / "docker-compose/configs/adaptor_config.json"   # VMS adaptors
 
 
@@ -79,7 +85,7 @@ def _find_key(d: dict, key: str):
 
 
 def _apply_config(path, overrides: dict, recreate_target: str, recreate: bool = True) -> bool:
-    """Apply {key: value} overrides to a vst_config.json. When `recreate` is True and
+    """Apply {key: value} overrides to a JSON config. When `recreate` is True and
     anything changed, recreate the given service; when False, only write the file (used
     when a clean redeploy will read the config anyway). Returns True if it wrote a change."""
     import json
@@ -118,6 +124,16 @@ def apply_vst_config(overrides: dict, recreate: bool = True) -> bool:
 def apply_nvstreamer_config(overrides: dict, recreate: bool = True) -> bool:
     """Apply overrides to the NVStreamer vst_config.json and recreate nvstreamer."""
     return _apply_config(_NVS_CONFIG, overrides, "nvstreamer", recreate)
+
+
+def apply_vst_notification_config(overrides: dict, recreate: bool = True) -> bool:
+    """Apply broker/notification overrides for VIOS and recreate streamprocessing."""
+    return _apply_config(_VST_NOTIFICATION_CONFIG, overrides, "streamprocessing", recreate)
+
+
+def apply_nvstreamer_notification_config(overrides: dict, recreate: bool = True) -> bool:
+    """Apply broker/notification overrides for NVStreamer and recreate nvstreamer."""
+    return _apply_config(_NVS_NOTIFICATION_CONFIG, overrides, "nvstreamer", recreate)
 
 
 # ---- deployment env (compose.env) so images/host/paths are set implicitly, not by hand ----
@@ -346,7 +362,13 @@ def recreate_service(target: str) -> None:
                     "recreate", target], cwd=str(_DEPLOY_DIR), check=False, timeout=400)
 
 
-_CONFIG_FILES = [_VST_CONFIG, _NVS_CONFIG, _ADAPTOR_CONFIG]
+_CONFIG_FILES = [
+    _VST_CONFIG,
+    _NVS_CONFIG,
+    _VST_NOTIFICATION_CONFIG,
+    _NVS_NOTIFICATION_CONFIG,
+    _ADAPTOR_CONFIG,
+]
 
 
 def backup_configs() -> None:
@@ -427,7 +449,7 @@ def apply_consumer(consumer: str, broker_addr: str = "172.17.0.1:9092",
             "message_broker_topic_consumer": topic}
     if consumer == "kafka":
         over["kafka_server_address"] = broker_addr
-    return apply_vst_config(over)
+    return apply_vst_notification_config(over)
 
 
 def _wait_ready(url: str, timeout: int = 90, verify_ssl: bool = False) -> bool:

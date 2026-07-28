@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,36 @@ from fake_es_server import FakeESStore
 
 
 class LifecycleTest(unittest.TestCase):
+    def test_consumer_overrides_use_notification_config(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            notification_config = Path(tempdir) / "notification_config.json"
+            notification_config.write_text(json.dumps({
+                "message_broker": {
+                    "enable_notification_consumer": False,
+                    "use_message_broker_consumer": "redis",
+                    "message_broker_topic_consumer": "",
+                    "kafka_server_address": "",
+                }
+            }))
+            original = provision._VST_NOTIFICATION_CONFIG
+            try:
+                provision._VST_NOTIFICATION_CONFIG = notification_config
+                changed = provision.apply_vst_notification_config({
+                    "enable_notification_consumer": True,
+                    "use_message_broker_consumer": "kafka",
+                    "message_broker_topic_consumer": "vst-overlay-test",
+                    "kafka_server_address": "172.17.0.1:9092",
+                }, recreate=False)
+            finally:
+                provision._VST_NOTIFICATION_CONFIG = original
+
+            config = json.loads(notification_config.read_text())["message_broker"]
+            self.assertTrue(changed)
+            self.assertTrue(config["enable_notification_consumer"])
+            self.assertEqual(config["use_message_broker_consumer"], "kafka")
+            self.assertEqual(config["message_broker_topic_consumer"], "vst-overlay-test")
+            self.assertEqual(config["kafka_server_address"], "172.17.0.1:9092")
+
     def test_cleanup_removes_only_reproducible_transients(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)

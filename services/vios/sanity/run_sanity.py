@@ -511,7 +511,9 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
     """The NVStreamer-first flow: write config, stop --clean, deploy NVStreamer, provision +
     verify its RTSP sources, then deploy VIOS against a live NVStreamer, then the recording
     gate. Provisions ctx.provisioned_streams / ctx.file_sensor. (Plans 1 & 2.)"""
-    from provision import (apply_vst_config, apply_nvstreamer_config, clean_stop, deploy_target,
+    from provision import (apply_vst_config, apply_nvstreamer_config,
+                           apply_vst_notification_config,
+                           apply_nvstreamer_notification_config, clean_stop, deploy_target,
                            wipe_nvstreamer_videos, recreate_service, _wait_ready,
                            _wait_recording_current, verify_nvstreamer_stream_count)
     import requests as _rq
@@ -520,16 +522,30 @@ def _deploy_provision_nvstreamer(ctx, name, setup, plan, sync_wall):
     # Without this VIOS never queries it, so replay/download of recorded windows draw no box
     # (the live/recent path goes through the broker and is unaffected).
     vst_over = {"video_metadata_server": _FAKE_ES}
+    notification_over = {
+        "enable_notification": True,
+        "use_message_broker": "redis",
+        "message_broker_topic": "vst_events",
+    }
     if setup.get("consumer"):
-        vst_over.update({"use_message_broker_consumer": setup["consumer"],
-                         "enable_notification_consumer": True,
-                         "message_broker_topic_consumer": "vst-overlay-test"})
+        notification_over.update({
+            "use_message_broker_consumer": setup["consumer"],
+            "enable_notification_consumer": True,
+            "message_broker_topic_consumer": "vst-overlay-test",
+        })
         if setup["consumer"] == "kafka":
-            vst_over["kafka_server_address"] = setup.get("broker_addr", "172.17.0.1:9092")
+            notification_over["kafka_server_address"] = setup.get(
+                "broker_addr", "172.17.0.1:9092"
+            )
     vst_over.update(setup.get("vst_config", {}) or {})
+    notification_over.update(setup.get("vst_notification_config", {}) or {})
     try:
         apply_vst_config(vst_over, recreate=False)
+        apply_vst_notification_config(notification_over, recreate=False)
         apply_nvstreamer_config(setup.get("nvstreamer_config", {}) or {}, recreate=False)
+        apply_nvstreamer_notification_config(
+            setup.get("nvstreamer_notification_config", {}) or {}, recreate=False
+        )
     except Exception as e:  # noqa: BLE001
         log.warning("config write failed: %s", e)
     clean_stop()
@@ -581,19 +597,30 @@ def _deploy_adaptor_plan(ctx, name, adaptor, setup):
     the adaptor: 'milestone' (Milestone server via milestone_onvif, no overlay) or 'onvif'
     (ONVIF network discovery, full overlay). For onvif, the overlay plugin is started before
     VIOS. Populates ctx.provisioned_streams with the ONLINE camera ids."""
-    from provision import (apply_vst_config, apply_adaptor_config, clean_stop, deploy_target,
+    from provision import (apply_vst_config, apply_vst_notification_config,
+                           apply_adaptor_config, clean_stop, deploy_target,
                            discover_online_cameras)
     overlay = adaptor != "milestone"
     vst_over = {"video_metadata_server": _FAKE_ES} if overlay else {}
+    notification_over = {}
     if overlay and setup.get("consumer"):
-        vst_over.update({"use_message_broker_consumer": setup["consumer"],
-                         "enable_notification_consumer": True,
-                         "message_broker_topic_consumer": "vst-overlay-test"})
+        notification_over.update({
+            "enable_notification": True,
+            "use_message_broker": "redis",
+            "message_broker_topic": "vst_events",
+            "use_message_broker_consumer": setup["consumer"],
+            "enable_notification_consumer": True,
+            "message_broker_topic_consumer": "vst-overlay-test",
+        })
         if setup["consumer"] == "kafka":
-            vst_over["kafka_server_address"] = setup.get("broker_addr", "172.17.0.1:9092")
+            notification_over["kafka_server_address"] = setup.get(
+                "broker_addr", "172.17.0.1:9092"
+            )
     vst_over.update(setup.get("vst_config", {}) or {})
+    notification_over.update(setup.get("vst_notification_config", {}) or {})
     try:
         apply_vst_config(vst_over, recreate=False)
+        apply_vst_notification_config(notification_over, recreate=False)
         apply_adaptor_config(adaptor, setup)     # enable adaptor + write server config
     except Exception as e:  # noqa: BLE001
         log.warning("adaptor config write failed: %s", e)

@@ -66,6 +66,11 @@ python3 services/vios/sanity/run_sanity.py \
 Images can instead live in `sanity_plans.yaml` under `defaults.images:` (CLI overrides them).
 If you already set the images in `compose.env`, just omit the flags.
 
+Per-plan `setup.vst_config` and `setup.nvstreamer_config` override each service's
+`vst_config.json`. Broker and notification settings belong in
+`setup.vst_notification_config` and `setup.nvstreamer_notification_config`; the harness writes
+those to the separate `notification_config.json` mounted by each service.
+
 Useful flags: `--only <case,case>` (subset), `--deploy-only`, `--no-serve` (don't auto-start the
 evidence server), `--from-json <results.json>` (re-render the PDF without re-running),
 `--es-retention-hours <hours>` (fake-ES history per sensor; default 3), `--restore-config`
