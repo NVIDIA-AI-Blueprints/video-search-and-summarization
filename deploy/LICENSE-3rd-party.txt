@@ -33,8 +33,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    curl: https://curl.se/docs/copyright.html
 
 
-3. arizephoenix/phoenix:14.15.0
-   Image: arizephoenix/phoenix:14.15.0
+3. arizephoenix/phoenix:19.8.0
+   Image: arizephoenix/phoenix:19.8.0
    License: Elastic License 2.0 (ELv2)
    Registry: https://hub.docker.com/r/arizephoenix/phoenix
    Source: https://github.com/Arize-ai/phoenix
@@ -98,8 +98,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.debian.org/legal/licenses/
 
 
-8. docker.elastic.co/elasticsearch/elasticsearch:9.4.3
-   Image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
+8. docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+   Image: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
    License: Elastic License 2.0 (ELv2)
    Registry: https://docker.elastic.co
    Source: https://github.com/elastic/elasticsearch
@@ -109,8 +109,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.elastic.co/licensing/elastic-license
 
 
-9. docker.elastic.co/kibana/kibana:9.4.3
-   Image: docker.elastic.co/kibana/kibana:9.4.3
+9. docker.elastic.co/kibana/kibana:9.4.4
+   Image: docker.elastic.co/kibana/kibana:9.4.4
    License: Elastic License 2.0 (ELv2)
    Registry: https://docker.elastic.co
    Source: https://github.com/elastic/kibana
@@ -120,8 +120,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.elastic.co/licensing/elastic-license
 
 
-10. docker.elastic.co/logstash/logstash:9.4.3
-    Image: docker.elastic.co/logstash/logstash:9.4.3
+10. docker.elastic.co/logstash/logstash:9.4.4
+    Image: docker.elastic.co/logstash/logstash:9.4.4
     License: Elastic License 2.0 (ELv2)
     Registry: https://docker.elastic.co
     Source: https://github.com/elastic/logstash

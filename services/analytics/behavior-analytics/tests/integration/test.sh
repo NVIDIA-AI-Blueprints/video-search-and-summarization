@@ -54,34 +54,38 @@ source "$SCRIPT_DIR/generate_env.sh"
 # Source the cleanup script
 source "$SCRIPT_DIR/cleanup.sh"
 
+# Containers run as non-root users and write integration artifacts through this
+# bind mount. Keep the permission contract with the test harness instead of
+# requiring CI-specific chmod setup.
+mkdir -p "$MDX_DATA_DIR"
+chmod -R a+rwX "$MDX_DATA_DIR"
+
 cd "$PROJ_ROOT_DIR"
-echo "Building Docker image..."
-# Set timeout for docker build (10 minutes)
-BUILD_TIMEOUT=900
-
-# In network-restricted CI environments github.com is unreachable, so the
-# opencv-source-build stage (which clones from GitHub) cannot run.  When the
-# standard CI=true variable is present, switch to the PyPI-based provider
-# which downloads the pre-built wheel from PyPI instead.
-OPENCV_BUILD_ARG=""
-if [[ -n "${CI:-}" ]]; then
-    OPENCV_BUILD_ARG="--build-arg OPENCV_PROVIDER=opencv-pypi-build"
-    echo "CI environment detected: using PyPI opencv wheel (OPENCV_PROVIDER=opencv-pypi-build)"
-fi
-
-if timeout $BUILD_TIMEOUT docker build $OPENCV_BUILD_ARG -t py-behavior-analytics -f docker/Dockerfile . > /dev/null 2>&1; then
-    echo "✓ Docker build completed successfully"
-else
-    EXIT_CODE=$?
-    if [[ $EXIT_CODE -eq 124 ]]; then
-        echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
+# Build the checked-out service only when its build inputs changed. Otherwise,
+# exercise the currently deployed image while still running the full integration
+# suite. Local invocation remains build-by-default.
+BUILD_SERVICE_IMAGE="${BUILD_SERVICE_IMAGE:-true}"
+if [[ "$BUILD_SERVICE_IMAGE" = "true" ]]; then
+    BEHAVIOR_ANALYTICS_IMAGE="${BEHAVIOR_ANALYTICS_IMAGE:-vss-behavior-analytics:latest}"
+    BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
+    echo "Building changed behavior-analytics source as $BEHAVIOR_ANALYTICS_IMAGE (timeout ${BUILD_TIMEOUT}s)..."
+    if timeout "$BUILD_TIMEOUT" docker build -t "$BEHAVIOR_ANALYTICS_IMAGE" -f docker/Dockerfile .; then
+        echo "✓ Docker build completed successfully"
     else
-        echo "✗ Docker build failed"
+        EXIT_CODE=$?
+        if [[ $EXIT_CODE -eq 124 ]]; then
+            echo "✗ Docker build timed out after $BUILD_TIMEOUT seconds"
+        else
+            echo "✗ Docker build failed"
+        fi
+        exit 1
     fi
-    # Show the error by running the command again without suppressing output (with shorter timeout)
-    timeout $BUILD_TIMEOUT docker build $OPENCV_BUILD_ARG -t py-behavior-analytics -f docker/Dockerfile .
-    exit 1
+else
+    BEHAVIOR_ANALYTICS_IMAGE="${CURRENT_BEHAVIOR_ANALYTICS_IMAGE:?CURRENT_BEHAVIOR_ANALYTICS_IMAGE is required when BUILD_SERVICE_IMAGE=false}"
+    echo "No behavior-analytics build-input change; pulling current image $BEHAVIOR_ANALYTICS_IMAGE"
+    docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 fi
+export BEHAVIOR_ANALYTICS_IMAGE
 
 cd "$MDX_SAMPLE_APPS_DIR"
 echo "Starting Docker Compose services..."
@@ -94,8 +98,18 @@ fi
 
 COMPOSE_CMD="$COMPOSE_BASE up -d --build --force-recreate"
 
-# Timeout for compose up (CI sets COMPOSE_TIMEOUT e.g. 1800)
-COMPOSE_TIMEOUT=${COMPOSE_TIMEOUT:-300}
+dump_compose_debug() {
+    echo "--- Docker Compose status (debug) ---"
+    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE ps -a 2>/dev/null) || true
+    echo "--- Docker Compose logs (debug) ---"
+    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE logs --tail=120 2>/dev/null) || true
+    echo "--- mdx-kafka inspect (debug) ---"
+    docker inspect mdx-kafka 2>/dev/null || true
+    echo "--- end Docker Compose debug ---"
+}
+
+# Timeout for compose up
+COMPOSE_TIMEOUT=${COMPOSE_TIMEOUT:-3600}
 echo "Running: $COMPOSE_CMD (timeout ${COMPOSE_TIMEOUT}s)..."
 $COMPOSE_CMD & COMPOSE_PID=$!
 COMPOSE_EXIT=0
@@ -111,10 +125,7 @@ done
 if kill -0 $COMPOSE_PID 2>/dev/null; then
     TIMED_OUT=1
     echo "✗ Docker Compose timed out after $COMPOSE_TIMEOUT seconds - killing process"
-    echo "--- Docker Compose status at timeout (debug) ---"
-    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE ps -a 2>/dev/null) || true
-    (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE logs --tail=80 2>/dev/null) || true
-    echo "--- end status ---"
+    dump_compose_debug
     kill -TERM $COMPOSE_PID 2>/dev/null
     sleep 60
     kill -9 $COMPOSE_PID 2>/dev/null
@@ -129,6 +140,7 @@ else
     else
         echo "✗ Docker Compose failed to start (exit $COMPOSE_EXIT)"
     fi
+    dump_compose_debug
     # Call the cleanup function based on mode
     if [[ "$MODE" = "prod" ]]; then
         cleanup_docker_environment
@@ -233,6 +245,14 @@ echo "Wait complete, continuing..."
 
 cd "$PROJ_ROOT_DIR"
 
+TEST_HOST="${TEST_HOST:-}"
+if [ -z "$TEST_HOST" ] && [ "${CI:-}" = "true" ] && [ "${DOCKER_HOST:-}" = "unix:///var/run/docker.sock" ]; then
+    TEST_HOST="$(ip -4 route show default 2>/dev/null | awk '{print $3; exit}')"
+fi
+TEST_HOST="${TEST_HOST:-localhost}"
+ES_URL="${ES_URL:-http://${TEST_HOST}:9200}"
+echo "Using Elasticsearch URL: $ES_URL"
+
 # Define which data types to dump/compare for each profile
 get_data_types_for_profile() {
     local profile=$APP_NAME$APP_MODE
@@ -292,6 +312,7 @@ extract_data_type() {
     ELASTICDUMP_TIMEOUT=180
     ELASTICDUMP_OUTPUT=$(
         timeout "$ELASTICDUMP_TIMEOUT" python3 tests/integration/dump_es_data.py \
+            --url "$ES_URL" \
             --index "$elasticsearch_index" \
             --output "tests/integration/docker_compose/apps_data/data_log/tmp/$data_type" \
             "${dump_args[@]}" 2>&1
