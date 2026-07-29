@@ -65,6 +65,10 @@ from natural-language capability requests.
   `GET /v1/ready`, models are listed at `GET /models`, summaries are requested
   with `POST /v1/summarize` using a VIOS-provided `url` or `id`, and the result
   text is in `choices[0].message.content`.
+- For generation-only LVS builds, state those LVS endpoint and response details
+  in both the architecture preview and the final proof even when no deployment
+  or live API call is requested. Do not describe `GET /models` only as an LLM
+  or RT-VLM probe; it is also the LVS model-list endpoint for this summary API.
 - In runtime LVS validation, never fabricate a direct file URL or use a sidecar
   file server for media. Register or select media through VIOS, obtain the clip
   URL/id from a VIOS API such as `/storage/file/<streamId>/url?container=mp4`,
