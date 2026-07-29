@@ -223,6 +223,7 @@ std::string ImageEnc::getImageBuffer()
                 + std::chrono::seconds(GET_CONFIG().picture_api_timeout_secs);
             if (m_imgBufferWait.wait_until(lk, until, [this]{ return (m_stop.load()); }) == false)
             {
+                m_timedOut = true;
                 LOG(error) << "Image Buffer wait timeout occured (configured picture_api_timeout_secs="
                            << GET_CONFIG().picture_api_timeout_secs << "s)" << endl;
                 return std::string();
@@ -237,6 +238,17 @@ std::string ImageEnc::getImageBuffer()
     }
     m_transcodeStats.finishProcessing();
     return m_imgBuffer;
+}
+
+void ImageEnc::onLastFrame()
+{
+    std::lock_guard<std::mutex> lock(m_imgBufferLock);
+    if (m_imgBuffer.empty())
+    {
+        LOG(warning) << "ImageEnc: playback ended with no frame to encode" << endl;
+    }
+    m_stop = true;
+    m_imgBufferWait.notify_all();
 }
 
 void ImageEnc::pushBuffer(std::shared_ptr<RawFrameParams> frameData)
