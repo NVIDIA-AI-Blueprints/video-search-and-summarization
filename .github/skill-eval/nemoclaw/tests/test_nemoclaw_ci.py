@@ -44,6 +44,10 @@ deploy_adapter = load_module(
     "vss_deploy_profile_generate",
     REPO_ROOT / ".github" / "skill-eval" / "adapters" / "vss-deploy-profile" / "generate.py",
 )
+ask_adapter = load_module(
+    "vss_ask_video_generate",
+    REPO_ROOT / ".github" / "skill-eval" / "adapters" / "vss-ask-video" / "generate.py",
+)
 orchestrator_mcp_helper = load_module(
     "orchestrator_mcp_helper",
     REPO_ROOT / "deploy" / "docker" / "scripts" / "orchestrator_mcp_helper.py",
@@ -2829,6 +2833,92 @@ class NemoClawHeadlessRunnerTest(unittest.TestCase):
         self.assertEqual(report["profile"], "lvs")
         self.assertIn("38111/v1/ready", report["message"])
         self.assertTrue(any("38111/v1/ready" in " ".join(call) for call in calls))
+
+    def test_wait_for_alerts_profile_requires_rtvlm_and_kafka(self):
+        previous = {
+            "_run": headless_runner._run,
+            "sleep": headless_runner.time.sleep,
+            "time": headless_runner.time.time,
+            "monotonic": headless_runner.time.monotonic,
+        }
+        calls: list[list[str]] = []
+        now = [0.0]
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(cmd)
+            if cmd[:2] == ["docker", "ps"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="vss-agent\nvss-agent-ui\nredis\nvss-rtvi-vlm\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            headless_runner._run = fake_run
+            headless_runner.time.sleep = lambda seconds: now.__setitem__(
+                0,
+                now[0] + seconds,
+            )
+            headless_runner.time.time = lambda: now[0]
+            headless_runner.time.monotonic = lambda: now[0]
+            try:
+                report = headless_runner.wait_for_profile("alerts", 60, Path(td))
+            finally:
+                headless_runner._run = previous["_run"]
+                headless_runner.time.sleep = previous["sleep"]
+                headless_runner.time.time = previous["time"]
+                headless_runner.time.monotonic = previous["monotonic"]
+
+        self.assertTrue(report["waited"])
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["profile"], "alerts")
+        self.assertIn("kafka", report["message"])
+        self.assertTrue(
+            any("8018/v1/health/ready" in " ".join(call) for call in calls)
+        )
+
+    def test_wait_for_alerts_profile_passes_with_shared_deadline(self):
+        previous = {
+            "_run": headless_runner._run,
+            "monotonic": headless_runner.time.monotonic,
+        }
+        calls: list[list[str]] = []
+        timeouts: list[int] = []
+
+        def fake_run(cmd, *, timeout=30):
+            calls.append(cmd)
+            timeouts.append(timeout)
+            if cmd[:2] == ["docker", "ps"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=(
+                        "vss-agent\nvss-agent-ui\nredis\n"
+                        "vss-rtvi-vlm\nkafka\n"
+                    ),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        headless_runner._run = fake_run
+        headless_runner.time.monotonic = lambda: 100.0
+        try:
+            ok, message = headless_runner._profile_ready(
+                "alerts",
+                deadline=107.0,
+            )
+        finally:
+            headless_runner._run = previous["_run"]
+            headless_runner.time.monotonic = previous["monotonic"]
+
+        self.assertTrue(ok)
+        self.assertIn("alerts readiness probes passed", message)
+        self.assertTrue(
+            any("8018/v1/health/ready" in " ".join(call) for call in calls)
+        )
+        self.assertEqual(timeouts, [7, 7, 7, 7, 7])
 
     def test_profile_wait_clamps_probe_and_sleep_to_shared_deadline(self):
         now = [100.0]
@@ -6786,6 +6876,59 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 ["brev", "exec", "vss-eval-rtx-2g-4", "echo harbor-ready"],
             ],
         )
+
+    def test_vss_ask_video_adapter_renders_platform_placeholders(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            skill_dir = root / "skill"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text("# Ask video\n", encoding="utf-8")
+            spec_path = skill_dir / "evals" / "render.json"
+            spec_path.parent.mkdir()
+            spec = {
+                "_source_path": str(spec_path),
+                "profile": "base",
+                "expects": [
+                    {
+                        "query": (
+                            "Deploy on `{{ platform }}` from `{{repo_root}}`."
+                        ),
+                        "checks": [
+                            "The selected host is `{{platform}}` and the "
+                            "repository is `{{ repo_root }}`."
+                        ],
+                    }
+                ],
+            }
+
+            output_root = root / "datasets"
+            ask_adapter.generate_task(
+                "RTXPRO6000BW",
+                "base",
+                spec,
+                output_root,
+                skill_dir,
+                None,
+                None,
+            )
+
+            task_dir = output_root / "base" / "rtxpro6000bw"
+            instruction = (task_dir / "instruction.md").read_text(
+                encoding="utf-8"
+            )
+            staged_spec = json.loads(
+                (task_dir / "tests" / "render.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertIn("RTXPRO6000BW", instruction)
+        self.assertIn("$HOME/video-search-and-summarization", instruction)
+        self.assertNotIn("{{", instruction)
+        staged_text = json.dumps(staged_spec)
+        self.assertIn("RTXPRO6000BW", staged_text)
+        self.assertIn("$HOME/video-search-and-summarization", staged_text)
+        self.assertNotIn("{{", staged_text)
 
     def test_generic_task_wrapper_creates_nemoclaw_launcher(self):
         with tempfile.TemporaryDirectory() as td:

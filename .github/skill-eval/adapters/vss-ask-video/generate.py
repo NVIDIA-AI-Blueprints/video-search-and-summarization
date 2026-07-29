@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -144,6 +145,30 @@ def _platforms_from_spec(spec: dict) -> list[str]:
     return [p for p in declared if p in PLATFORMS] or [DEFAULT_PLATFORM]
 
 
+def _substitute_spec(spec: dict, platform: str) -> dict:
+    substitutions = {
+        "platform": platform,
+        "repo_root": "$HOME/video-search-and-summarization",
+    }
+    pattern = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+    def _substitute(value):
+        if isinstance(value, str):
+            return pattern.sub(
+                lambda match: str(
+                    substitutions.get(match.group(1), match.group(0))
+                ),
+                value,
+            )
+        if isinstance(value, list):
+            return [_substitute(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _substitute(item) for key, item in value.items()}
+        return value
+
+    return _substitute(spec)
+
+
 # ---------------------------------------------------------------------------
 # Task generation
 # ---------------------------------------------------------------------------
@@ -162,7 +187,8 @@ def generate_task(
     Single-step specs collapse to a flat ``<profile>/<platform_short>/``."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
-    expects = spec.get("expects") or []
+    rendered_spec = _substitute_spec(spec, platform)
+    expects = rendered_spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
 
     for idx, expect in enumerate(expects, 1):
@@ -238,16 +264,9 @@ def generate_task(
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if not spec_src.exists():
-            legacy = skill_dir / "eval" / spec_name
-            if legacy.exists():
-                spec_src = legacy
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            # Fallback: write the in-memory spec so tests/ is complete
-            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # Stage the rendered in-memory spec so the verifier sees the same
+        # platform/repository values as the generated instruction.
+        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"

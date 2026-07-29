@@ -1645,12 +1645,47 @@ def _vss_lvs_ready(deadline: float | None = None) -> tuple[bool, str]:
     return True, "VSS lvs readiness probes passed"
 
 
+def _vss_alerts_ready(deadline: float | None = None) -> tuple[bool, str]:
+    base_ok, base_message = _vss_base_ready(deadline)
+    if not base_ok:
+        return base_ok, base_message
+
+    probe = [
+        "curl",
+        "-sf",
+        "--max-time",
+        "15",
+        "http://localhost:8018/v1/health/ready",
+    ]
+    result = _run(
+        probe,
+        timeout=_deadline_timeout(deadline, 20, "VSS alerts readiness probe"),
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or f"exit {result.returncode}")[-300:]
+        return False, f"{' '.join(probe)} failed: {detail}"
+
+    result = _run(
+        ["docker", "ps", "--format", "{{.Names}}"],
+        timeout=_deadline_timeout(deadline, 20, "VSS alerts container probe"),
+    )
+    if result.returncode != 0:
+        return False, f"docker ps failed: {(result.stderr or result.stdout)[-300:]}"
+    names = set(result.stdout.splitlines())
+    missing = sorted({"vss-rtvi-vlm", "kafka"} - names)
+    if missing:
+        return False, "missing containers: " + ", ".join(missing)
+    return True, "VSS alerts readiness probes passed"
+
+
 def _profile_ready(
     profile: str,
     deadline: float | None = None,
 ) -> tuple[bool, str]:
     if profile == "lvs":
         return _vss_lvs_ready(deadline)
+    if profile == "alerts":
+        return _vss_alerts_ready(deadline)
     return _vss_base_ready(deadline)
 
 
