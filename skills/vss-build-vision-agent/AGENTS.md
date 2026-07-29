@@ -29,7 +29,9 @@ from natural-language capability requests.
   and the HAProxy template uses `init-addr none` so missing Agent/UI backends
   do not prevent startup. Do not add a custom Kafka topic definition for
   `mdx-vlm-captions`; the default `KAFKA_TOPICS` owned by
-  `kafka-topic-init-container` already includes it.
+  `kafka-topic-init-container` already includes it. In the proposal and final
+  proof, explicitly state that `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`
+  overrides RT-VLM's default topic `vision-llm-messages`.
 - For a base-derived dense-captioning proposal, explicitly list the six added
   service keys as `kafka`, `kafka-topic-init-container`,
   `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, and
@@ -76,6 +78,17 @@ from natural-language capability requests.
   user explicitly asks for the analytics API. Do not retain Agent/UI/ingress,
   RT-VLM, Phoenix, or LLM NIM keys when the request excludes those user-facing
   orchestration layers.
+- For Search-derived ingestion + detection + embedding builds, the effective
+  profile set should retain these search storage/query peers exactly:
+  `kibana-init-container-search`, `vss-search-analytics-2d-fusion`,
+  `elasticsearch`, `elasticsearch-init-container`, `kibana`, `logstash`,
+  `kafka`, `kafka-topic-init-container`, `redis`, and `rtvi-embed`, plus the
+  RT-CV, VIOS, init, wait, and broker peers required by the Search Foundation.
+  Do not exclude `kibana` or `kibana-init-container-search`; they are part of
+  the checked-in Search composition even for generation-only builds.
+- For that ingestion + detection + embedding build, use this exact effective
+  service profile set:
+  `kibana-init-container-search,vss-search-analytics-2d-fusion,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-embed,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.
 - Generate and validate `_builds/<name>/override.env`, `compose.yml`, and
   `resolved.yml` as a unit. Never treat the label `<name>` as a Compose profile.
 - Present the architecture and data-flow summary before writing or deploying
@@ -118,9 +131,11 @@ from natural-language capability requests.
   common compositions:
   - Dense captions: state that `vss-haproxy-ingress` is retained because it
     fronts VIOS/VST plus ten non-Agent HTTP backends and uses `init-addr none`;
-    state that no custom Kafka topic definition is needed because
-    `mdx-vlm-captions` is already in `kafka-topic-init-container`'s default
-    `KAFKA_TOPICS`.
+    state that `RTVI_VLM_KAFKA_ENABLED=true` changes the `base` Foundation
+    default from `false`; state that `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions`
+    overrides RT-VLM's default topic `vision-llm-messages`; state that no
+    custom Kafka topic definition is needed because `mdx-vlm-captions` is
+    already in `kafka-topic-init-container`'s default `KAFKA_TOPICS`.
   - Search-derived RT-CV-only person detection: state the exact effective
     `COMPOSE_PROFILES`, name `kibana`, `logstash`, and
     `kibana-init-container-search` as retained search peers, and state that
