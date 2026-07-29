@@ -804,6 +804,28 @@ class NotebookSetupAdapterTest(unittest.TestCase):
         self.assertEqual(namespace["NEMOCLAW_MODEL"], "nvidia/example-model")
         self.assertEqual(namespace["COMPATIBLE_API_KEY"], "nvapi-ci")
 
+    def test_nemoclaw_docker_pin_uses_portable_sudo_environment(self):
+        notebook = json.loads(
+            (REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_nemoclaw.ipynb").read_text()
+        )
+        cells = [
+            cell
+            for cell in notebook["cells"]
+            if cell.get("id") == "cb782286-f0bd-401e-9056-39a81821e3c4"
+        ]
+
+        self.assertEqual(len(cells), 1)
+        source = "".join(cells[0].get("source", ""))
+        self.assertIn(
+            "sudo /usr/bin/env DEBIAN_FRONTEND=noninteractive "
+            "apt-get install -y",
+            source,
+        )
+        self.assertNotIn(
+            "sudo DEBIAN_FRONTEND=noninteractive apt-get",
+            source,
+        )
+
     def test_split_notebooks_use_refactored_brev_util_path(self):
         expected_parts = (
             '"packages"',
