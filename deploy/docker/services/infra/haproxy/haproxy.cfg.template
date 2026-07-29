@@ -82,6 +82,14 @@ backend bk_alert_bridge_strip
     http-request replace-path ^/alert-bridge$ /
     server s1 "${ALERT_BRIDGE_SERVICE_HOST}:${ALERT_BRIDGE_PORT}" check resolvers docker init-addr none
 
+backend bk_nvstreamer_strip
+    timeout server 3600s
+    acl websocket_upgrade hdr(Upgrade) -i websocket
+    http-request set-header Connection upgrade if websocket_upgrade
+    http-request set-header Upgrade websocket if websocket_upgrade
+    http-request replace-path ^/nvstreamer(/.*)$ \1
+    server s1 "${NVSTREAMER_SERVICE_HOST}:${NVSTREAMER_HTTP_PORT}" check resolvers docker init-addr none
+
 # Strip /phoenix like Phoenix examples/reverse-proxy (Traefik stripPrefix); keep PHOENIX_HOST_ROOT_PATH in sync.
 backend bk_phoenix_strip
     http-request replace-path ^/phoenix/(.*) /\1
@@ -128,6 +136,12 @@ frontend fe_http
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_prefixed_storage
+
+    acl p_nvstreamer_exact path /nvstreamer
+    acl q_present query -m found
+    http-request redirect code 308 location /nvstreamer/?%[query] if h_main p_nvstreamer_exact q_present
+    http-request redirect code 308 location /nvstreamer/ if h_main p_nvstreamer_exact !q_present
+
     use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api
@@ -137,6 +151,9 @@ frontend fe_http
     acl p_alert_bridge path /alert-bridge
     acl p_alert_bridge path_beg /alert-bridge/
     use_backend bk_alert_bridge_strip if h_main p_alert_bridge
+
+    acl p_nvstreamer path_beg /nvstreamer/
+    use_backend bk_nvstreamer_strip if h_main p_nvstreamer
 
     acl p_kibana path /kibana
     acl p_kibana path_beg /kibana/
