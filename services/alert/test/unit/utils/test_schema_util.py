@@ -218,10 +218,17 @@ class TestPlaceToNvPlace:
     def test_missing_name_defaults_to_empty(self):
         assert place_to_nv_place({}).name == ""
 
-    def test_none_raises_attribute_error(self):
-        """Signature says ``Optional[dict]`` but ``None`` is dereferenced."""
-        with pytest.raises(AttributeError):
-            place_to_nv_place(None)
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Open defect: the signature is Optional[dict] but None is "
+            "dereferenced, raising AttributeError. Fix: treat None like {}. "
+            "When that lands this test XPASSes — drop the marker then."
+        ),
+    )
+    def test_none_place_yields_an_empty_name(self):
+        """``Optional[dict]`` should accept ``None`` and default the name."""
+        assert place_to_nv_place(None).name == ""
 
 
 class TestMapGeoLocation:
