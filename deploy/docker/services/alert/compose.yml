@@ -54,6 +54,9 @@ services:
       ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
+      # Substituted into alert_agent.always_on by env-substitute.py.
+      # false for verification (2d_cv); true for real-time (2d_vlm).
+      ALERT_AGENT_ALWAYS_ON: ${ALERT_AGENT_ALWAYS_ON:-false}
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
