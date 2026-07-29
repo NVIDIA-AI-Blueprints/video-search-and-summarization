@@ -1,3 +1,7 @@
+# Claude Code Instructions
+
+@AGENTS.md
+
 # CLAUDE.md
 
 Agent guide for the `vss-behavior-analytics` repo (aka `behavior-analytics`) — a Python streaming pipeline for spatial AI analytics (warehouse, smartcity, video search, etc.) that consumes frames from Kafka/Redis/MQTT, processes them, and emits behaviors/events/incidents back to the stream.

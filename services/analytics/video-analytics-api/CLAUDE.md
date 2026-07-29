@@ -1,3 +1,7 @@
+# Claude Code Instructions
+
+@AGENTS.md
+
 # CLAUDE.md
 
 Agent guide for the `video-analytics-api` repo — a Node.js/Express REST API server that retrieves video analytics data (behaviors, events, incidents, tracking, alerts, and metrics) from Elasticsearch, with optional Kafka integration for notifications and real-time stream processing.
