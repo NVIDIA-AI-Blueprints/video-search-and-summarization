@@ -9,8 +9,9 @@ Load this reference for setup, environment preparation, compose launch, or redep
 - [Prerequisites](#prerequisites)
 - [Preflight Config](#preflight-config)
 - [NGC Login And Image Access](#ngc-login-and-image-access)
-- [Bundled Kafka Port Preflight](#bundled-kafka-port-preflight)
+- [Bundled Resource Preflight](#bundled-resource-preflight)
 - [Selected Output Tool Preflight](#selected-output-tool-preflight)
+- [External Kafka Topic Preflight](#external-kafka-topic-preflight)
 - [Current-Run State](#current-run-state)
 - [Support Service Helpers](#support-service-helpers)
 - [Launch Without BEV Prestart](#launch-without-bev-prestart)
@@ -152,12 +153,13 @@ for img in ${IMAGES}; do
 done
 ```
 
-## Bundled Kafka Port Preflight
+## Bundled Resource Preflight
 
-Run this before bundled-broker launch. Because the standalone services use host networking, `KAFKA_PORT` and `KAFKA_CONTROLLER_PORT` must be free on the host. If the configured/default `9092/9093` pair is occupied, select and persist a free pair such as `19092/19093`; keep `KAFKA_BOOTSTRAP=localhost:${KAFKA_PORT}` in sync. Skip this section for explicit external-broker mode.
+Run this before bundled-broker launch. If standalone RT-CV-3D containers from this app already exist, reuse them and do not rewrite broker ports. For a fresh bundled start, verify fixed container-name ownership and choose free host ports for Kafka, MQTT, and the DeepStream REST endpoint. Skip this section for explicit external-broker mode.
 
 ```bash
 cd "${RTCV3D_APP:?set RTCV3D_APP}"
+APP_COMPOSE_DIR="$(readlink -f "${RTCV3D_APP}/docker")"
 read_env() {
   awk -F= -v key="$1" '$1 == key {v=$0; sub("^[^=]*=", "", v); gsub(/^"|"$/, "", v); gsub(/^\047|\047$/, "", v); print v; exit}' "${RTCV3D_APP}/docker/.env"
 }
@@ -171,8 +173,12 @@ write_env() {
   ' "${file}" > "${tmp}"
   mv "${tmp}" "${file}"
 }
+container_owner_dir() {
+  owner="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$1" 2>/dev/null || true)"
+  readlink -f "${owner}" 2>/dev/null || printf '%s\n' "${owner}"
+}
 port_free() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" <<'PYCHECK'
 import socket, sys
 port = int(sys.argv[1])
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -180,31 +186,64 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("0.0.0.0", port))
     except OSError:
         raise SystemExit(1)
-PY
+PYCHECK
+}
+pick_port() {
+  current="$1"; shift
+  for p in "${current}" "$@"; do
+    [ -n "${p}" ] || continue
+    if port_free "${p}"; then
+      printf '%s\n' "${p}"
+      return 0
+    fi
+  done
+  return 1
 }
 USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-$(read_env USE_EXTERNAL_BROKERS)}"; USE_EXTERNAL_BROKERS="${USE_EXTERNAL_BROKERS:-0}"
 if [ "${USE_EXTERNAL_BROKERS}" != 1 ]; then
-  current_data="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"; current_data="${current_data:-9092}"
-  current_ctrl="${KAFKA_CONTROLLER_PORT:-$(read_env KAFKA_CONTROLLER_PORT)}"; current_ctrl="${current_ctrl:-9093}"
-  selected=""
-  for pair in "${current_data}:${current_ctrl}" "19092:19093" "29092:29093" "39092:39093"; do
-    data_port="${pair%%:*}"; ctrl_port="${pair##*:}"
-    if port_free "${data_port}" && port_free "${ctrl_port}"; then
-      selected="${pair}"
-      break
+  reuse_existing=0
+  for name in vss-rtvi-cv-mv3dt vss-rtvi-cv-bev-fusion vss-mosquitto-mv3dt kafka kafka-topic-init; do
+    if docker inspect "${name}" >/dev/null 2>&1; then
+      owner="$(container_owner_dir "${name}")"
+      if [ "${owner}" != "${APP_COMPOSE_DIR}" ]; then
+        echo "ERROR: fixed container name ${name} already exists and is not owned by ${APP_COMPOSE_DIR}; stop/rename the foreign container or use external brokers." >&2
+        exit 1
+      fi
+      reuse_existing=1
     fi
   done
-  test -n "${selected}" || { echo "ERROR: no free bundled Kafka port pair found; set KAFKA_PORT and KAFKA_CONTROLLER_PORT or use external Kafka" >&2; exit 1; }
-  KAFKA_PORT="${selected%%:*}"
-  KAFKA_CONTROLLER_PORT="${selected##*:}"
-  KAFKA_BOOTSTRAP="localhost:${KAFKA_PORT}"
-  if [ "${KAFKA_PORT}:${KAFKA_CONTROLLER_PORT}" != "${current_data}:${current_ctrl}" ]; then
-    echo "Bundled Kafka ports ${current_data}/${current_ctrl} are unavailable; using ${KAFKA_PORT}/${KAFKA_CONTROLLER_PORT}."
+
+  if [ "${reuse_existing}" = 1 ]; then
+    echo "Reusing existing standalone RT-CV-3D containers; preserving docker/.env broker ports and container-local Kafka state."
+    KAFKA_PORT="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"; KAFKA_PORT="${KAFKA_PORT:-9092}"
+    KAFKA_CONTROLLER_PORT="${KAFKA_CONTROLLER_PORT:-$(read_env KAFKA_CONTROLLER_PORT)}"; KAFKA_CONTROLLER_PORT="${KAFKA_CONTROLLER_PORT:-9093}"
+    MQTT_PORT="${MQTT_PORT:-$(read_env MQTT_PORT)}"; MQTT_PORT="${MQTT_PORT:-1883}"
+    DS_HTTP_PORT="${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}"; DS_HTTP_PORT="${DS_HTTP_PORT:-9000}"
+    KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-$(read_env KAFKA_BOOTSTRAP)}"; KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT}}"
+  else
+    current_data="${KAFKA_PORT:-$(read_env KAFKA_PORT)}"; current_data="${current_data:-9092}"
+    current_ctrl="${KAFKA_CONTROLLER_PORT:-$(read_env KAFKA_CONTROLLER_PORT)}"; current_ctrl="${current_ctrl:-9093}"
+    selected_pair=""
+    for pair in "${current_data}:${current_ctrl}" "19092:19093" "29092:29093" "39092:39093"; do
+      data_port="${pair%%:*}"; ctrl_port="${pair##*:}"
+      if port_free "${data_port}" && port_free "${ctrl_port}"; then
+        selected_pair="${pair}"
+        break
+      fi
+    done
+    test -n "${selected_pair}" || { echo "ERROR: no free bundled Kafka port pair found; set KAFKA_PORT/KAFKA_CONTROLLER_PORT or use external Kafka" >&2; exit 1; }
+    KAFKA_PORT="${selected_pair%%:*}"
+    KAFKA_CONTROLLER_PORT="${selected_pair##*:}"
+    KAFKA_BOOTSTRAP="localhost:${KAFKA_PORT}"
+    MQTT_PORT="$(pick_port "${MQTT_PORT:-$(read_env MQTT_PORT)}" 1883 1884 2883 3883)" || { echo "ERROR: no free bundled MQTT port found; set MQTT_PORT or use external MQTT" >&2; exit 1; }
+    DS_HTTP_PORT="$(pick_port "${DS_HTTP_PORT:-$(read_env DS_HTTP_PORT)}" 9000 9001 19000 29000)" || { echo "ERROR: no free DeepStream REST port found; set DS_HTTP_PORT" >&2; exit 1; }
+    write_env KAFKA_PORT "${KAFKA_PORT}"
+    write_env KAFKA_CONTROLLER_PORT "${KAFKA_CONTROLLER_PORT}"
+    write_env KAFKA_BOOTSTRAP "${KAFKA_BOOTSTRAP}"
+    write_env MQTT_PORT "${MQTT_PORT}"
+    write_env DS_HTTP_PORT "${DS_HTTP_PORT}"
   fi
-  write_env KAFKA_PORT "${KAFKA_PORT}"
-  write_env KAFKA_CONTROLLER_PORT "${KAFKA_CONTROLLER_PORT}"
-  write_env KAFKA_BOOTSTRAP "${KAFKA_BOOTSTRAP}"
-  export KAFKA_PORT KAFKA_CONTROLLER_PORT KAFKA_BOOTSTRAP
+  export KAFKA_PORT KAFKA_CONTROLLER_PORT KAFKA_BOOTSTRAP MQTT_PORT DS_HTTP_PORT
 fi
 ```
 
@@ -225,14 +264,21 @@ if [ "${BEV_SAVE_VIDEO:-0}" = 1 ] || [ -n "${BEV_DATASET_PATH:-}" ]; then
   # shellcheck disable=SC1091
   source "${RTCV3D_APP}/scripts/ensure-venv.sh"
   ensure_venv || { echo "ERROR: BEV visualizer Python environment could not be created; see troubleshooting for python3-venv/ensurepip/pip bootstrap" >&2; exit 1; }
-  "${VENV_PY}" - <<'PY'
+  "${VENV_PY}" - <<'PYCHECK'
 try:
-    import tkinter  # noqa: F401
+    import cv2  # noqa: F401
+    import confluent_kafka  # noqa: F401
+    import numpy  # noqa: F401
+    import yaml  # noqa: F401
 except Exception as exc:
-    raise SystemExit(f"ERROR: Python Tkinter is required by the BEV visualizer even for offline recording: {exc}")
-PY
+    raise SystemExit(f"ERROR: BEV visualizer Python dependencies are not usable: {exc}")
+PYCHECK
 fi
 ```
+
+## External Kafka Topic Preflight
+
+For explicit external-broker mode, require the selected `RAW_TOPIC` and `FUSED_TOPIC` to exist and be describable before `bev-fusion` or `perception` starts. Managed Kafka clusters commonly disable auto-topic creation; if a topic is missing, stop and ask the user to create it with the cluster's replication/auth/TLS policy, then rerun. The support-service helper below enforces this with bounded `kafka-topics --describe` calls against `KAFKA_BOOTSTRAP`.
 
 ## Current-Run State
 
@@ -327,9 +373,28 @@ wait_topic_init() {
   docker logs --tail 80 kafka-topic-init >&2 || true
   return 1
 }
+verify_external_kafka_topics() {
+  [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ] || return 0
+  bootstrap="${KAFKA_BOOTSTRAP:?set external KAFKA_BOOTSTRAP}"
+  cd "${RTCV3D_APP}/docker"
+  for topic in "${RAW_TOPIC:-mdx-raw}" "${FUSED_TOPIC:-mdx-bev}"; do
+    if ! out="$(timeout "${KAFKA_TOPIC_TIMEOUT:-30}s" docker compose --profile kafka run --rm --no-deps kafka kafka-topics --bootstrap-server "${bootstrap}" --describe --topic "${topic}" 2>&1)"; then
+      echo "ERROR: external Kafka topic ${topic} is missing or not describable on ${bootstrap}." >&2
+      printf '%s\n' "${out}" >&2
+      echo "Create the topic with the correct cluster replication/auth/TLS policy, then rerun." >&2
+      return 1
+    fi
+    printf '%s\n' "${out}" | awk -v topic="${topic}" '$0 ~ "^Topic: " topic "([[:space:]]|$)" {found=1} END {exit found ? 0 : 1}' || {
+      echo "ERROR: kafka-topics did not describe expected topic ${topic} on ${bootstrap}." >&2
+      printf '%s\n' "${out}" >&2
+      return 1
+    }
+  done
+}
 start_support_services() {
   cd "${RTCV3D_APP}/docker"
   if [ "${USE_EXTERNAL_BROKERS:-0}" = 1 ]; then
+    verify_external_kafka_topics
     docker compose up -d bev-fusion
   else
     COMPOSE_PROFILES=mosquitto,kafka docker compose up -d mosquitto kafka kafka-topic-init bev-fusion

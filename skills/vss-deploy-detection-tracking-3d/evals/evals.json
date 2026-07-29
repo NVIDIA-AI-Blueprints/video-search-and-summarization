@@ -22,6 +22,7 @@
       "Loads vss-deploy-detection-tracking-3d and the sample-dataset reference.",
       "Uses the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
       "Resolves existing app-data or asks for/downloads the NGC warehouse app-data resource without printing NGC keys.",
+      "Validates the exact sample model files required by runtime configs before launch.",
       "Uses sample videos from warehouse-4cams-20mx20m-synthetic and sample camera ids Camera, Camera_01, Camera_02, Camera_03.",
       "Uses the repo sample calibration.json and Top.png, then generates transforms.yml for BEV_DATASET_PATH.",
       "Plans saved perception grid and saved fused BEV by default for the finite file run.",
@@ -50,7 +51,8 @@
       "Runs MQTT_BROKERS=broker.example.com:1883 ./scripts/generate-configs.sh.",
       "Verifies generated pub_sub_info_config.yml contains broker.example.com:1883.",
       "Uses external-broker Compose mode without COMPOSE_PROFILES=mosquitto,kafka, while preserving file-mode baseline and BEV-prestart ordering when the input is file.",
-      "Uses configured KAFKA_BOOTSTRAP for mdx-raw/mdx-bev verification.",
+      "Requires mdx-raw and mdx-bev to be describable on the external Kafka bootstrap before launch.",
+      "Uses configured KAFKA_BOOTSTRAP for mdx-raw/mdx-bev offset verification.",
       "Does not print plaintext API tokens."
     ]
   },

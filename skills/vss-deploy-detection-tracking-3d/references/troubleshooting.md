@@ -11,7 +11,7 @@ Load this reference when setup, staging, launch, RTSP registration, Kafka flow, 
 - [No `camInfo` Or Wrong Camera Count](#no-caminfo-or-wrong-camera-count)
 - [Unsafe Or Mismatched Camera IDs](#unsafe-or-mismatched-camera-ids)
 - [RTSP Streams Do Not Start](#rtsp-streams-do-not-start)
-- [Bundled Kafka Port Conflict](#bundled-kafka-port-conflict)
+- [Bundled Resource Conflict](#bundled-resource-conflict)
 - [Bundled Or External Broker Problems](#bundled-or-external-broker-problems)
 - [Host Tool Or Python Prerequisite Missing](#host-tool-or-python-prerequisite-missing)
 - [`mdx-raw` Grows But `mdx-bev` Does Not](#mdx-raw-grows-but-mdx-bev-does-not)
@@ -25,7 +25,7 @@ Load this reference when setup, staging, launch, RTSP registration, Kafka flow, 
 
 Symptom: commands mention `MODE=mv3dt`, `BP_PROFILE`, warehouse `generated.env`, VST, ELK, Kibana, Logstash, or `deploy/docker/industry-profiles/warehouse-operations`.
 
-Fix: return to `services/rtvi/rt-cv-3d/rt-cv-mv3dt`, use `docker/compose.yml`, and launch with the standalone broker mode selected in `deploy-rtvi-cv-3d-stack.md`. Use the warehouse/profile skill only when the user explicitly asked for warehouse MV3DT or a combined warehouse deployment.
+Fix: return to `services/rtvi/rt-cv-3d/rt-cv-mv3dt`, use `docker/compose.yml`, and launch with the standalone broker mode selected in `references/deploy-rtvi-cv-3d-stack.md`. Use the warehouse/profile skill only when the user explicitly asked for warehouse MV3DT or a combined warehouse deployment.
 
 ## Runtime Image Confusion
 
@@ -53,9 +53,9 @@ Fix: download/extract app-data, set `MODELS_DIR` to its `models` directory in st
 
 ## Sample Dataset Assets Missing
 
-Symptom: a sample-dataset run cannot find `warehouse-4cams-20mx20m-synthetic`, `Camera.mp4`, `Camera_01.mp4`, `Camera_02.mp4`, `Camera_03.mp4`, sample `calibration.json`, or `Top.png`.
+Symptom: a sample-dataset run cannot find `warehouse-4cams-20mx20m-synthetic`, the four sample MP4s, `rtdetr_warehouse_v1.0.2.fp16.onnx`, `bodypose3dnet_accuracy.onnx`, sample `calibration.json`, or `Top.png`.
 
-Fix: load `sample-dataset.md`. Use an existing extracted `WAREHOUSE_APP_DATA_DIR` if available; otherwise obtain the NGC warehouse app-data resource from the user/environment/public docs and download it with the NGC CLI without printing credentials. The sample calibration and `Top.png` come from the repo sample-data path, then `transforms.yml` is generated into `generated/bev-dataset/`.
+Fix: load `sample-dataset.md`. Use an existing extracted `WAREHOUSE_APP_DATA_DIR` if available; otherwise obtain the release-compatible NGC warehouse app-data resource from the user/environment/public docs and download it with the NGC CLI without printing credentials. Validate the exact sample model files before launch. The sample calibration and `Top.png` come from the repo sample-data path, then `transforms.yml` is generated into `generated/bev-dataset/`.
 
 ## No `camInfo` Or Wrong Camera Count
 
@@ -92,11 +92,11 @@ Fixes:
 - Confirm streams are synchronized and close to 30 FPS.
 - After `add-streams.sh`, validate exact stream count and camera IDs with `configure-cameras.md`.
 
-## Bundled Kafka Port Conflict
+## Bundled Resource Conflict
 
-Symptom: bundled Kafka fails to start, or logs/compose output show bind failures on `9092` or `9093`.
+Symptom: bundled Kafka, Mosquitto, or the DeepStream REST endpoint fails to start; compose output shows bind failures; or a fixed container name such as `kafka` already exists.
 
-Fix: run the bundled Kafka port preflight in `deploy-rtvi-cv-3d-stack.md` before launch. It checks the configured `KAFKA_PORT` and `KAFKA_CONTROLLER_PORT`, selects a free pair such as `19092/19093` when needed, and persists `KAFKA_BOOTSTRAP=localhost:${KAFKA_PORT}` in standalone `docker/.env`.
+Fix: run the bundled resource preflight in `references/deploy-rtvi-cv-3d-stack.md` before launch. It reuses existing standalone containers without rewriting ports, rejects foreign fixed-name collisions, and for a fresh start selects free Kafka, MQTT, and DeepStream REST ports in standalone `docker/.env`.
 
 ## Bundled Or External Broker Problems
 
@@ -109,11 +109,15 @@ docker logs --tail 100 kafka 2>&1 | tail -30 || true
 docker logs --tail 100 vss-rtvi-cv-bev-fusion 2>&1 | tail -30
 ```
 
-For external brokers, confirm the basic endpoints and regenerated MQTT config:
+For external brokers, confirm the basic endpoints, required Kafka topics, and regenerated MQTT config:
 
 ```bash
 cd "${RTCV3D_APP}"
 MQTT_BROKERS="${MQTT_HOST}:${MQTT_PORT}" ./scripts/generate-configs.sh "${CALIBRATION_JSON}"
+cd "${RTCV3D_APP}/docker"
+timeout 30s docker compose --profile kafka run --rm --no-deps kafka kafka-topics --bootstrap-server "${KAFKA_BOOTSTRAP}" --describe --topic "${RAW_TOPIC:-mdx-raw}"
+timeout 30s docker compose --profile kafka run --rm --no-deps kafka kafka-topics --bootstrap-server "${KAFKA_BOOTSTRAP}" --describe --topic "${FUSED_TOPIC:-mdx-bev}"
+cd "${RTCV3D_APP}"
 # Use the Kafka CLI offset helpers from verify-and-view.md with KAFKA_BOOTSTRAP.
 timeout 20s ./scripts/kafka-dump.sh --bootstrap "${KAFKA_BOOTSTRAP:-localhost:${KAFKA_PORT:-9092}}" --topic "${RAW_TOPIC:-mdx-raw}" --count 5
 ```
@@ -122,19 +126,25 @@ If advanced Kafka/MQTT TLS/auth is required, use the standalone README custom-br
 
 ## Host Tool Or Python Prerequisite Missing
 
-Symptom: saved-output verification cannot parse videos because `ffprobe` is missing, `scripts/ensure-venv.sh` fails while creating `utils/venv`, or the BEV visualizer exits with `No module named '_tkinter'` / Tkinter import errors even in offline mode.
+Symptom: saved-output verification cannot parse videos because `ffprobe` is missing, `scripts/ensure-venv.sh` fails while creating `utils/venv`, or the BEV visualizer Python environment cannot import OpenCV/Kafka dependencies.
 
 Checks:
 
 ```bash
 command -v ffprobe || echo 'missing ffprobe; install/provide ffmpeg tools before saved-output verification'
-cd "${RTCV3D_APP}"
 python3 -m venv --help >/dev/null || echo 'python3 venv/ensurepip support is missing'
-python3 - <<'PY'
+cd "${RTCV3D_APP}"
+# shellcheck disable=SC1091
+source scripts/ensure-venv.sh
+ensure_venv
+"${VENV_PY}" - <<'PY'
 try:
-    import tkinter
+    import cv2
+    import confluent_kafka
+    import numpy
+    import yaml
 except Exception as exc:
-    raise SystemExit(f"missing Tkinter support for BEV visualizer: {exc}")
+    raise SystemExit(f"BEV visualizer Python dependencies are not usable: {exc}")
 PY
 ```
 
@@ -142,7 +152,7 @@ Fixes:
 
 - Install or provide `ffprobe` before saved-output runs; saved grid/BEV success requires parseable videos.
 - Install the platform Python venv/ensurepip package, then rerun `scripts/ensure-venv.sh`; if the distribution disables ensurepip, bootstrap pip according to the OS Python packaging guidance before running the BEV helper.
-- Install the platform Tkinter package for the Python used by `scripts/ensure-venv.sh` before BEV visualization/recording.
+- If OpenCV import fails because system graphics libraries are missing, install the minimal OS packages needed by the selected OpenCV wheel or provide a host image with those runtime libraries.
 
 ## `mdx-raw` Grows But `mdx-bev` Does Not
 
