@@ -192,7 +192,11 @@ rerun normalization and validation. Escaped container-shell variables such as
 ## Validate
 
 ```bash
+REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
+
+uv run "$REPO/skills/vss-build-vision-agent/scripts/validate_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 
 docker compose -f "$BUILD_DIR/resolved.yml" config --quiet
 docker compose -f "$BUILD_DIR/resolved.yml" config --services
