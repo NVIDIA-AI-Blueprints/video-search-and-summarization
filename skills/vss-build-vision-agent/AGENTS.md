@@ -79,7 +79,10 @@ from natural-language capability requests.
   text is in `choices[0].message.content`.
 - For generation-only LVS builds, state those LVS endpoint and response details
   in both the architecture preview and the final proof even when no deployment
-  or live API call is requested. Do not describe `GET /models` only as an LLM
+  or live API call is requested. Use an explicit "LVS API contract" block with
+  separate lines for `GET /v1/ready`, `GET /models`, `POST /v1/summarize`, the
+  VIOS-provided `url` or `id` request field, and
+  `choices[0].message.content`. Do not describe `GET /models` only as an LLM
   or RT-VLM probe; it is also the LVS model-list endpoint for this summary API.
 - In runtime LVS validation, never fabricate a direct file URL or use a sidecar
   file server for media. Register or select media through VIOS, obtain the clip
