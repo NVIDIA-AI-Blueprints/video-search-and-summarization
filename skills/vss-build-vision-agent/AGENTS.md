@@ -14,6 +14,37 @@ from natural-language capability requests.
 - Use `references/deployment.md`, `references/readiness.md`, and
   `references/troubleshooting.md` only after a deploy is actually requested.
 
+## Golden Decisions
+
+Use these decisions before doing generic smallest-delta reasoning for the
+current VSS developer-profile compositions:
+
+- Dense captioning with RT-VLM, VIOS retrieval, Kafka, and Elasticsearch:
+  choose `base`, not `lvs`. Add exactly `kafka`,
+  `kafka-topic-init-container`, `broker-health-check`, `elasticsearch`,
+  `elasticsearch-init-container`, and `logstash`. Retain `rtvi-vlm`, `redis`,
+  `vss-haproxy-ingress`, `centralizedb`, `vst-ingress`, `sensor-ms`, and
+  `streamprocessing-ms`. Remove `vss-agent`, `vss-ui`, `phoenix`, and LLM NIM
+  keys. Do not add `kibana`, `kibana-init-container-lvs`, or `patches/`.
+  State in the proposal and final proof that HAProxy fronts VIOS/VST plus ten
+  non-Agent HTTP backends and uses `init-addr none`; that
+  `RTVI_VLM_KAFKA_ENABLED=true` changes the `base` default from `false`; that
+  `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` overrides RT-VLM's default topic
+  `vision-llm-messages`; and that `mdx-vlm-captions` already exists in
+  `kafka-topic-init-container`'s default `KAFKA_TOPICS`.
+- RT-CV-only person detection with Kafka, Elasticsearch, and VIOS retrieval:
+  choose `search` and use exactly
+  `kibana-init-container-search,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.
+  Exclude `vss-video-analytics-api-fusion`.
+- Ingestion + detection + embeddings with Search storage/query: choose
+  `search` and use exactly
+  `kibana-init-container-search,vss-search-analytics-2d-fusion,nvstreamer-2d-fusion,perception-2d-init,perception-2d-fusion,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-embed,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms`.
+  Exclude `vss-video-analytics-api-fusion`, Agent/UI/ingress, RT-VLM,
+  Phoenix, and LLM NIM keys.
+- Stored-video LVS summarization: make the LVS API contract explicit:
+  `GET /v1/ready`, `GET /models`, `POST /v1/summarize` with a VIOS-provided
+  `url` or `id`, and response text in `choices[0].message.content`.
+
 ## Rules
 
 - Pick exactly one current developer profile as the Foundation. Ask only when
