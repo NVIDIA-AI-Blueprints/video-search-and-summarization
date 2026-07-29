@@ -60,15 +60,20 @@ capability checks. Run the mandatory check/create gate in
 [`data-directory.md`](data-directory.md), then deploy that exact file:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" up -d --build
+docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
+  && docker compose -f "$BUILD_DIR/resolved.yml" up -d --build
 ```
 
 `COMPOSE_PROFILES` has already filtered the source graph during resolution, and
 `docker compose config` baked the project `name`, each service `env_file`, and
 all interpolation into the file. Normalization removes the remaining service
 profile gates, so no Foundation env file or profile flag is needed at deployment
-time. Add `--build` so the build-backed services build from their local `build:`
-rather than the bare `image:` tag they also carry.
+time. `pull --ignore-buildable` refreshes the registry-backed images even when a
+tag already exists locally, while skipping the build-backed services — those
+carry a local-only `image:` tag with no registry manifest, so a blanket
+`--pull always` on `up` would abort with `manifest not found`. `up -d --build`
+then builds those build-backed services from their local `build:` rather than
+that bare `image:` tag, and starts everything.
 
 ## Readiness
 

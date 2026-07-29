@@ -207,7 +207,8 @@ removes their now-redundant service profile gates. It is the exact, standalone
 Compose model used directly for validation, deployment, readiness, and teardown:
 `config` bakes the `name`, `env_file`, and interpolation, so it needs no
 `--env-file`. Pass the resolve env layers only to `config`, never to `up`, `ps`,
-or `down`, and deploy with `up -d --build`.
+or `down`, and deploy with `pull --ignore-buildable && up -d --build`
+(see [`deployment.md`](deployment.md)).
 
 All three primary files are required in stock and delta mode. `_builds/` is
 gitignored because `override.env` and `resolved.yml` can contain credentials.
