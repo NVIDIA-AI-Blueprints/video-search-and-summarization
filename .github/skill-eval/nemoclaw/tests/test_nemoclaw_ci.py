@@ -7627,6 +7627,7 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         nemoclaw_plan_source, nemoclaw_eval_source = source.split(
             "\n  nemoclaw_plan:", 1
         )[1].split("\n  nemoclaw-eval:", 1)
+        nemoclaw_job_header = nemoclaw_eval_source.split("\n    steps:", 1)[0]
 
         self.assertIn("max-parallel: 1", source)
         self.assertIn("nemoclaw_instance:", source)
@@ -7642,7 +7643,8 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
             "runs-on: [self-hosted, nemoclaw-ci-runner]",
             nemoclaw_eval_source,
         )
-        self.assertIn("timeout-minutes: 180", source)
+        self.assertIn("timeout-minutes: 180", nemoclaw_job_header)
+        self.assertNotIn("timeout-minutes: 150", nemoclaw_job_header)
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=1200", source)
         self.assertIn("export NEMOCLAW_RUN_TIMEOUT_SEC=9000", source)
         self.assertIn(

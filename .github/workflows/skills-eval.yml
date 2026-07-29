@@ -416,7 +416,9 @@ jobs:
       # slots while waiting on the same warm-worker fleet.
       max-parallel: 1
       matrix: ${{ fromJSON(needs.nemoclaw_plan.outputs.matrix) }}
-    timeout-minutes: 150
+    # The smoke runner owns a 150-minute shared deadline. Reserve another
+    # 30 minutes for graceful Harbor termination, reporting, and artifacts.
+    timeout-minutes: 180
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
