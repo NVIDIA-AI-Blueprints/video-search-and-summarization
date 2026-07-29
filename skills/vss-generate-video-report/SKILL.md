@@ -154,9 +154,31 @@ Guardrails (required):
 
 ## Clip URLs: VLM input vs browser report link
 
-VST returns clip URLs using the agent-internal `${HOST_IP}:30888` host:port.
-Keep that original URL as `VIDEO_URL` for local / in-cluster VLM frame pulls.
-Do **not** rewrite the VLM input URL just to make it browser-playable.
+A clip URL has **three** distinct roles. Keep them separate:
+
+| Role | Which form | Rule |
+|---|---|---|
+| **Service-facing** — what you POST to LVS `/v1/summarize` or to a local/in-cluster VLM `video_url` block | exactly what VST returned | never rewrite |
+| **Agent-verification** — you checking the clip exists | resolve locally if you must | never send the resolved form onward |
+| **User-facing** — the `Clip URL` row in the rendered report | `BROWSER_CLIP_URL` | always rewrite |
+
+VST returns clip URLs on an agent-internal host:port — usually `${HOST_IP}:30888`,
+but in Compose deployments it is commonly the **Docker network alias**
+`http://vst-ingress:30888/...`. That alias is resolvable from LVS / RT-VLM / the
+VLM NIM, which share the Compose network, and is **not** resolvable from the
+agent's own shell. That is expected and is **not** a reason to rewrite it.
+
+Keep the original URL as `VIDEO_URL` for local / in-cluster VLM frame pulls and
+as the `url` field of a `/v1/summarize` request. Do **not** rewrite the
+service-facing URL — not to make it browser-playable, and not to make it
+resolvable from your shell. Substituting a container IP or `HOST_IP` for
+`vst-ingress` can leave the consuming service unable to fetch the media: it will
+still answer `HTTP 200` while reporting `total_chunks_processed: 0` and an empty
+`video_summary`.
+
+If you need to confirm the clip yourself, resolve the alias locally for that check
+only (e.g. `docker exec` inside the Compose network, or map the alias to its
+container IP) and still send the original URL to the service.
 
 Only create `BROWSER_CLIP_URL` for URLs shown in the rendered report. The
 deploy layer exports the browser-facing host:port as `$VSS_PUBLIC_HOST` /
@@ -182,6 +204,18 @@ Step 3 on the original internal URL when the VLM is local / in-cluster.
 ## Mode A — Report on a recorded video clip
 
 **If the VSS `lvs` profile is deployed** — `curl -sf --max-time 5 "http://${HOST_IP}:38111/v1/ready"` returns HTTP 200 — run `/vss-summarize-video` to produce the summary, then paste its output into the report template in Step 4 and skip Steps 1–3 (the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
+
+On this LVS path you still resolve a clip URL (Step 1's A1 lookup) because
+`/v1/summarize` needs it. Send that URL to LVS **exactly as VST returned it**
+(see § Clip URLs — do not substitute a container IP for `vst-ingress`), and bind
+`RAW_URL="$VIDEO_URL"` before Step 4 so the report-link rewrite still produces
+`BROWSER_CLIP_URL`. Skipping Steps 1–3 must not mean skipping that binding —
+leaving `RAW_URL` unset is what renders the report's `Clip URL` row as `N/A`.
+
+If LVS answers `HTTP 200` but the body reports `total_chunks_processed: 0` or an
+empty `video_summary`, it did not process the media — say so explicitly in the
+report instead of silently falling back to the direct-VLM path, and check the
+clip URL you sent was the unrewritten service-facing form.
 
 ### Step 1 — Resolve Mode A input (A1 clip URL or A2 local-file/base64)
 
