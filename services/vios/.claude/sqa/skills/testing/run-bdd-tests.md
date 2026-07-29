@@ -75,6 +75,7 @@ Consult `guides/decision-trees.md` if unsure. Common selections:
 | Replay stream | `tests/unit_tests/replay_stream/` | Playback/VOD changes |
 | RTSP proxy | `tests/unit_tests/rtsp_proxy/` | RTSP proxy changes |
 | Stream recorder | `tests/unit_tests/stream_recorder/` | Recording changes |
+| NVStreamer routes | Exact file under `tests/unit_tests/nvstreamer/` | Manual NVStreamer UI/API base-path validation; disabled by default |
 | MCP gateway | `tests/unit_tests/mcp_gateway/` | MCP integration changes |
 | File upload | `tests/file_upload/` | Upload API changes |
 | File download | `tests/file_download/` | Download API changes |
@@ -117,6 +118,33 @@ poetry run pytest tests/unit_tests/sensor_management/ -v \
 # All unit tests against a remote host
 poetry run pytest tests/unit_tests/ -v \
   --base-url http://<HOST>:30888 \
+  --junitxml=reports/junit.xml \
+  --html=reports/report.html \
+  --self-contained-html
+```
+
+### NVStreamer route tests
+
+The two NVStreamer route modules are disabled by default so generic test
+collection and standard CI skip them. To run one manually, set
+`RUN_NVSTREAMER_ROUTE_TESTS=1` and select the exact file matching the active
+deployment. Do not opt in while targeting the whole `nvstreamer/` directory:
+the root and prefixed suites make mutually exclusive assertions.
+
+```bash
+# Direct NVStreamer: NVSTREAMER_UI_BASE_PATH is unset or empty
+RUN_NVSTREAMER_ROUTE_TESTS=1 poetry run pytest \
+  tests/unit_tests/nvstreamer/test_nvstreamer_root_routes.py -v \
+  --base-url http://localhost:31000 \
+  --junitxml=reports/junit.xml \
+  --html=reports/report.html \
+  --self-contained-html
+
+# NVStreamer behind a prefix-stripping proxy:
+# NVSTREAMER_UI_BASE_PATH=/nvstreamer
+RUN_NVSTREAMER_ROUTE_TESTS=1 poetry run pytest \
+  tests/unit_tests/nvstreamer/test_nvstreamer_prefixed_routes.py -v \
+  --base-url http://<HAPROXY_HOST>:<HAPROXY_PORT> \
   --junitxml=reports/junit.xml \
   --html=reports/report.html \
   --self-contained-html
