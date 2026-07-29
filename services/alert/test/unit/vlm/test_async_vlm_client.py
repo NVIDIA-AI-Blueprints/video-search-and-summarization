@@ -524,3 +524,49 @@ class TestRuntimeVLMDelegation:
         rt = AsyncVLMRuntime({})
         with pytest.raises(RuntimeError, match="Async VLM client is not initialized"):
             await rt.analyze_video_with_base64_async("http://host/v.mp4", "p", None)
+
+
+class TestMalformedVlmResponses:
+    """Same unguarded ``choices[0].message`` access as the sync client."""
+
+    @pytest.mark.asyncio
+    async def test_empty_choices_raises_index_error(self, client):
+        response = MagicMock()
+        response.choices = []
+        client.client.chat.completions.create = AsyncMock(return_value=response)
+
+        with pytest.raises(IndexError):
+            await client.analyze_video_url("http://host/v.mp4", "p")
+
+    @pytest.mark.asyncio
+    async def test_a_choice_without_a_message_raises_attribute_error(self, client):
+        response = MagicMock()
+        response.choices = [object()]
+        client.client.chat.completions.create = AsyncMock(return_value=response)
+
+        with pytest.raises(AttributeError):
+            await client.analyze_video_url("http://host/v.mp4", "p")
+
+    @pytest.mark.asyncio
+    async def test_a_none_response_raises_attribute_error(self, client):
+        client.client.chat.completions.create = AsyncMock(return_value=None)
+
+        with pytest.raises(AttributeError):
+            await client.analyze_image_url("http://host/f.png", "p")
+
+    @pytest.mark.asyncio
+    async def test_empty_content_is_returned_as_is(self, client):
+        client.client.chat.completions.create = AsyncMock(
+            return_value=make_completion(content="")
+        )
+
+        assert (await client.analyze_video_url("http://host/v.mp4", "p")).content == ""
+
+    @pytest.mark.asyncio
+    async def test_the_failure_surfaces_on_the_upload_path_too(self, client, video_file):
+        response = MagicMock()
+        response.choices = []
+        client.client.chat.completions.create = AsyncMock(return_value=response)
+
+        with pytest.raises(IndexError):
+            await client.upload_media_file(video_file, "p")

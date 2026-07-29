@@ -628,3 +628,109 @@ class TestSyncAnalyzeMediaWithBase64:
         extra = client.client.chat.completions.create.call_args.kwargs["extra_body"]
         assert extra["media_io_kwargs"] == {"video": {"num_frames": 6}}
         cls.cleanup.assert_called_once_with(video_file)
+
+
+class TestMalformedVlmResponses:
+    """The client returns ``response.choices[0].message`` unguarded.
+
+    A VLM that answers with an empty ``choices`` array, a choice without a
+    message, or a body that is not a completion at all is a failure mode this
+    service has hit. The client does not absorb it — the pipeline's retry and
+    parse-failure handling does — so what matters here is that the error
+    surfaces as a plain exception rather than a silently wrong result.
+    """
+
+    @pytest.fixture
+    def client(self):
+        return make_client(max_tokens=256)
+
+    def test_empty_choices_raises_index_error(self, client):
+        response = MagicMock()
+        response.choices = []
+        client.client.chat.completions.create.return_value = response
+
+        with pytest.raises(IndexError):
+            client.analyze_video_url("http://host/v.mp4", "p")
+
+    def test_a_choice_without_a_message_raises_attribute_error(self, client):
+        choice = object()  # no .message
+        response = MagicMock()
+        response.choices = [choice]
+        client.client.chat.completions.create.return_value = response
+
+        with pytest.raises(AttributeError):
+            client.analyze_video_url("http://host/v.mp4", "p")
+
+    def test_a_none_response_raises_attribute_error(self, client):
+        client.client.chat.completions.create.return_value = None
+
+        with pytest.raises(AttributeError):
+            client.analyze_image_url("http://host/f.png", "p")
+
+    def test_a_message_without_content_is_returned_as_is(self, client):
+        """The client does not validate content — the parser owns that."""
+        message = object()
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        client.client.chat.completions.create.return_value = response
+
+        assert client.analyze_video_url("http://host/v.mp4", "p") is message
+
+    def test_empty_content_is_returned_as_is(self, client):
+        client.client.chat.completions.create.return_value = make_completion(content="")
+
+        assert client.analyze_video_url("http://host/v.mp4", "p").content == ""
+
+    def test_the_failure_surfaces_on_the_upload_path_too(self, client, video_file):
+        response = MagicMock()
+        response.choices = []
+        client.client.chat.completions.create.return_value = response
+
+        with pytest.raises(IndexError):
+            client.upload_media_file(video_file, "p")
+
+    def test_the_failure_surfaces_on_the_multi_image_path_too(self, client):
+        response = MagicMock()
+        response.choices = []
+        client.client.chat.completions.create.return_value = response
+
+        with pytest.raises(IndexError):
+            client.analyze_multiple_image_urls(["http://host/a.png"], "p")
+
+
+class TestMalformedResponseParsing:
+    """The parser is what turns a VLM body into a verdict.
+
+    Every rejection below is what drives the pipeline's parse-failure path, so
+    the boundary between "parsed" and "rejected" is worth pinning explicitly.
+    """
+
+    MODEL = "nvidia/cosmos-reason2-8b"
+
+    def _parse(self, text):
+        from schemas.vlm_responses import VLMResponse
+
+        return VLMResponse.model_validate_text(
+            text, model_name=self.MODEL, response_format="auto"
+        )
+
+    def test_a_well_formed_answer_is_parsed(self):
+        assert self._parse("<think>two cars hit</think><answer>yes</answer>").verdict == "YES"
+
+    def test_a_bare_verdict_is_accepted(self):
+        assert self._parse("yes").verdict == "yes"
+
+    @pytest.mark.parametrize(
+        "body,label",
+        [
+            ("", "empty body"),
+            ("   ", "whitespace only"),
+            ("<think>reasoning only</think>", "no verdict"),
+            ("<think>x</think><answer>yes", "truncated answer tag"),
+            ("<think>x</think><answer>maybe</answer>", "verdict outside the allowed set"),
+            ('{"verdict": "yes"}', "JSON body for a non-JSON format"),
+        ],
+    )
+    def test_malformed_bodies_are_rejected(self, body, label):
+        with pytest.raises(ValueError):
+            self._parse(body)

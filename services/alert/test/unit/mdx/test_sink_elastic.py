@@ -152,17 +152,21 @@ class TestFromConfig:
         with pytest.raises(ValueError, match="no hosts configured"):
             self._build(config)
 
-    def test_a_blank_host_string_slips_past_the_guard(self):
-        """``hosts: ""`` becomes the one-element tuple ``("",)``, which is truthy.
-
-        The guard only catches None, a non-string scalar, and an empty/blank
-        list. A blank scalar reaches ``ElasticConfig`` and fails later at
-        connection time instead of at config parse.
-        """
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            'Open defect: hosts: "" becomes the one-element tuple ("",), which '
+            "is truthy, so the guard passes and the blank host only fails later "
+            "at connection time instead of at config parse. Fix: drop blank "
+            "entries before the check. When that lands this test XPASSes — drop "
+            "the marker then."
+        ),
+    )
+    def test_a_blank_host_string_is_rejected(self):
         config = dict(self.BASE_CONFIG, elastic={"enabled": True, "hosts": ""})
-        _sink, _client_cls, config_cls = self._build(config)
 
-        assert config_cls.call_args.kwargs["hosts"] == ("",)
+        with pytest.raises(ValueError, match="no hosts configured"):
+            self._build(config)
 
     def test_null_sink_subsections_are_tolerated(self):
         config = dict(
