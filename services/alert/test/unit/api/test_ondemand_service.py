@@ -76,12 +76,19 @@ def _make_payload(media_urls=None, media_type="video", category="collision", **e
 class _ServiceContext:
     """Keeps patches active for the lifetime of a test."""
 
-    def __init__(self, user_prompt="Detect collisions", system_prompt="Be concise", max_media_count=5):
+    def __init__(
+        self,
+        user_prompt="Detect collisions",
+        system_prompt="Be concise",
+        max_media_count=5,
+        metrics_enabled=True,
+    ):
         self.prompt_mgr = MagicMock()
         self.prompt_mgr.get_prompts_for_message.return_value = (user_prompt, system_prompt)
         self.mock_handler = MagicMock()
         self.mock_sink = MagicMock()
         self.mock_completion_recorder = MagicMock()
+        self.metrics_enabled = metrics_enabled
 
         self._patches = [
             patch.object(_svc_mod, "load_config", return_value=_stub_config(max_media_count)),
@@ -95,6 +102,11 @@ class _ServiceContext:
                 "record_ondemand_event_complete",
                 self.mock_completion_recorder,
             ),
+            # The service gates every metrics call on this flag, which is
+            # driven by the PROMETHEUS_METRICS_ENABLED env var and is off by
+            # default. Pin it explicitly so the metrics assertions below do
+            # not depend on the ambient environment.
+            patch.object(_svc_mod, "PROMETHEUS_ENABLED", metrics_enabled),
         ]
 
     def start(self):
@@ -271,3 +283,57 @@ class TestInit:
             call_kwargs["vlm_duration_observer"]
             is _svc_mod.observe_ondemand_vlm_duration
         )
+
+
+# ---------------------------------------------------------------------------
+# Metrics disabled — the default deployment shape
+# ---------------------------------------------------------------------------
+
+class TestMetricsDisabled:
+    """PROMETHEUS_METRICS_ENABLED is off unless a deployment sets it.
+
+    Everything the service does for metrics is gated on that flag, so the
+    disabled path is the one most installs actually run and it must stay
+    functional — the verification itself still has to happen.
+    """
+
+    @pytest.fixture()
+    def ctx_no_metrics(self):
+        c = _ServiceContext(metrics_enabled=False).start()
+        yield c
+        c.stop()
+
+    def test_no_vlm_duration_observer_is_wired(self, ctx_no_metrics):
+        call_kwargs = _svc_mod.DirectMediaHandler.call_args.kwargs
+        assert call_kwargs["vlm_duration_observer"] is None
+
+    def test_the_handler_is_still_built(self, ctx_no_metrics):
+        assert ctx_no_metrics.svc.vlm_enhanced_event_sink is ctx_no_metrics.mock_sink
+
+    def test_prepare_still_works(self, ctx_no_metrics):
+        message, user_prompt, system_prompt = ctx_no_metrics.svc.prepare(_make_payload())
+
+        assert message["sensorId"] == "ondemand"
+        assert user_prompt == "Detect collisions"
+        assert system_prompt == "Be concise"
+
+    def test_the_verification_still_runs(self, ctx_no_metrics):
+        message, user_prompt, system_prompt = ctx_no_metrics.svc.prepare(_make_payload())
+
+        ctx_no_metrics.svc.process_and_publish(message, user_prompt, system_prompt, None)
+
+        ctx_no_metrics.mock_handler.evaluate.assert_called_once()
+
+    def test_no_completion_is_recorded(self, ctx_no_metrics):
+        message, user_prompt, system_prompt = ctx_no_metrics.svc.prepare(_make_payload())
+
+        ctx_no_metrics.svc.process_and_publish(message, user_prompt, system_prompt, None)
+
+        ctx_no_metrics.mock_completion_recorder.assert_not_called()
+
+    def test_a_background_failure_still_propagates(self, ctx_no_metrics):
+        message, user_prompt, system_prompt = ctx_no_metrics.svc.prepare(_make_payload())
+        ctx_no_metrics.mock_handler.evaluate.side_effect = RuntimeError("sink down")
+
+        with pytest.raises(RuntimeError, match="sink down"):
+            ctx_no_metrics.svc.process_and_publish(message, user_prompt, system_prompt, None)

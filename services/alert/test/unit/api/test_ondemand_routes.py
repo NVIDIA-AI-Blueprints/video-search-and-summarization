@@ -22,7 +22,7 @@ they are handled by DirectMediaHandler in the background.
 
 import os
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -82,8 +82,21 @@ def client(mock_service):
     mock_service._request_counter = MagicMock()
     routes.inc_ondemand_request = mock_service._request_counter
     app.dependency_overrides[get_ondemand_service] = lambda: mock_service
-    yield TestClient(app, raise_server_exceptions=False)
+    # The route stamps a request start time only when metrics are on. The flag
+    # comes from the PROMETHEUS_METRICS_ENABLED env var and is off by default,
+    # so pin it rather than depending on the ambient environment.
+    with patch.object(routes, "PROMETHEUS_ENABLED", True):
+        yield TestClient(app, raise_server_exceptions=False)
     app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def client_without_metrics(client):
+    """The same client with the metrics gate closed."""
+    from web.api import verification_routes as routes
+
+    with patch.object(routes, "PROMETHEUS_ENABLED", False):
+        yield client
 
 
 def _post(client, payload=None):
@@ -148,6 +161,20 @@ class TestOndemandHappyPath:
     def test_records_accepted_outcome(self, client, mock_service):
         _post(client)
         mock_service._request_counter.assert_called_once_with("accepted")
+
+    def test_no_request_start_time_when_metrics_are_disabled(
+        self, client_without_metrics, mock_service
+    ):
+        """With metrics off the route passes None instead of a timestamp."""
+        _post(client_without_metrics)
+
+        assert mock_service.process_and_publish.call_args.args[3] is None
+
+    def test_the_event_is_still_accepted_when_metrics_are_disabled(
+        self, client_without_metrics, mock_service
+    ):
+        assert _post(client_without_metrics).status_code == 202
+        mock_service.process_and_publish.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

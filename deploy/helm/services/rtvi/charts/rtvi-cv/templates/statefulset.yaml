@@ -84,7 +84,7 @@ spec:
         {{- end }}
         {{- if $engineCacheEnabled }}
         - name: prepare-engine-cache
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -109,7 +109,7 @@ spec:
               mountPath: /wdm-scripts
         {{- if $waitForKafka }}
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -265,7 +265,7 @@ spec:
               mountPath: /models-data
         {{- end }}
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c

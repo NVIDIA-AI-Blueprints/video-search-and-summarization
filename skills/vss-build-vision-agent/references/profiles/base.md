@@ -5,8 +5,11 @@
 - General VSS agent, UI, video ingest/storage, LLM, and integrated RT-VLM.
 - Choose for "deploy VSS", general video understanding, or the smallest
   developer foundation.
-- Prefer as the Foundation when the request needs agent + VIOS + inference but no
+- Prefer as the Foundation when the request needs VIOS + inference but no
   ELK-backed alerts, search, or long-video summarization.
+- The Agent and UI layer is **optional in a delta** — see
+  [Capability owners present](#capability-owners-present) before assuming a
+  request for "Q&A" requires it.
 
 ## Profile Service Set
 
@@ -19,14 +22,18 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 
 ## Capability owners present
 
-| Owner | Service profile keys |
-|---|---|
-| Agent | `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix` |
-| VIOS | `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
-| LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
-| RT-VLM | `rtvi-vlm` |
+| Owner | Service profile keys | Required in a delta? |
+|---|---|---|
+| Ingress | `vss-haproxy-ingress` | **Required** — the central place ports and service discovery are documented; fronts VIOS/VST and every other HTTP backend, not just the Agent |
+| VIOS | `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` | **Required** — video ingest, storage, and retrieval |
+| RT-VLM | `rtvi-vlm` | **Required** — captioning and VLM inference. Serves VLM Q&A directly on `POST /v1/chat/completions` (port 8018) |
+| Agent | `vss-agent`, `vss-ui`, `phoenix` | **Optional** — only when the user wants to chat through VSS-UI or needs Agent orchestration. A request for "VLM Q&A" alone does not require it |
+| LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` | **Optional** — `vss-agent` is its only consumer here; drop it whenever the Agent is dropped |
 
 `redis` is a shared peer used by this profile graph.
+
+When a request is ambiguous about whether the VSS web experience is wanted, ask
+rather than silently retaining it.
 
 ## Profile-specific environment knobs
 
@@ -42,11 +49,16 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 ## Stock readiness checks
 
 ```bash
-curl -sf "http://${HOST_IP}:8000/health"
-curl -sf "http://${HOST_IP}:8018/v1/health/ready"
-curl -sf "http://${HOST_IP}:${LLM_PORT:-30081}/v1/health/ready"
-curl -sf "http://${HOST_IP}:3000/"
+curl -sf "http://${HOST_IP}:8000/health"                        # vss-agent
+curl -sf "http://${HOST_IP}:8018/v1/health/ready"               # rtvi-vlm
+curl -sf "http://${HOST_IP}:${LLM_PORT:-30081}/v1/health/ready" # LLM NIM
+curl -sf "http://${HOST_IP}:3000/"                              # vss-ui
 ```
+
+In a delta that drops the Agent layer, skip the `:8000` and `:3000` probes and
+the LLM NIM probe — those services are absent by design, and probing them
+reports a false failure. `:8018` is the only readiness check that applies to
+every base-derived delta.
 
 For remote LLM/VLM mode, probe the selected remote `/v1/models` endpoint
 instead of the absent local service.
