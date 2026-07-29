@@ -27,7 +27,7 @@ agent, web UI, or report LLM in this integration.
   JSON pipeline `sop/sop-vlm-captions-json-logstash.conf` — a mandatory deploy-time step,
   the stock `mdx-lvs` pipeline decodes this topic as protobuf), Kibana. See `services/elk.md`.
 - **Kafka** — DS-SOP publishes per-chunk SOP JSON on `DEFAULT_TOPIC=mdx-vlm-captions`.
-- **VIOS** — records DS-SOP's annotated `:8554/ds-out` RTSP output. See `services/vios.md`.
+- **VIOS** — registers DS-SOP's annotated `:8554/ds-out` output (`sensor/add` + `camera_streaming`). Persisting it to disk needs a recorder microservice current profiles don't ship — **pending** (see `sop/deploy-ds-sop.md`). See `services/vios.md`.
 - DS-SOP occupies the perception slot — **do not also select RT-VLM** (both target
   `mdx-vlm-captions` and the GPU).
 - The report tools **reuse the existing `vss-va-mcp`** service (self-named key
