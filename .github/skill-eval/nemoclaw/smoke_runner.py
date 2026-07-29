@@ -36,6 +36,7 @@ SKILL_EVAL_MODULE_ROOT = str(Path(__file__).resolve().parents[1])
 if SKILL_EVAL_MODULE_ROOT not in sys.path:
     sys.path.insert(0, SKILL_EVAL_MODULE_ROOT)
 import remote_worker_lock  # noqa: E402
+import run_leg as worker_pool  # noqa: E402
 
 try:
     import tomllib
@@ -58,6 +59,7 @@ ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
 ATTEMPT_OWNER_FILE = "nemoclaw-attempt-owner"
 ATTEMPT_OWNER_PROBE_ATTEMPTS = 3
 ATTEMPT_OWNER_PROBE_RETRY_DELAY_S = 3
+_REGISTERED_WORKERS: set[str] = set()
 
 PLATFORM_TASK = {
     "RTXPRO6000BW": "rtxpro6000bw",
@@ -127,6 +129,7 @@ class WorkerLock(NamedTuple):
     remote_target: str | None = None
     heartbeat: RemoteLockHeartbeat | None = None
     remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
+    remote_executor: remote_worker_lock.RemoteExecutor | None = None
 
 
 def _task_dir_sort_key(task_dir: Path) -> tuple[str, int, str]:
@@ -221,7 +224,7 @@ def _instance_candidates(
 ) -> list[str]:
     name_hints = PLATFORM_NAME_HINTS.get(platform, ())
     gpu_hints = PLATFORM_GPU_HINTS.get(platform, ())
-    candidates: list[tuple[int, str]] = []
+    candidates: list[tuple[int, int, str]] = []
     for inst in instances:
         name = str(inst.get("name") or "")
         if not name.startswith("vss-eval-"):
@@ -230,15 +233,24 @@ def _instance_candidates(
         if status_text and not _status_ready(status_text):
             continue
         lowered = name.lower()
+        registered = bool(inst.get("_registered"))
         gpu_text = " ".join(
             str(inst.get(key) or "") for key in ("gpu", "instance_type", "type")
         )
         if gpu_count == 0 or platform == "ANY":
-            candidates.append((len(name), name))
+            candidates.append(
+                (0 if registered else 1, len(name), name)
+            )
             continue
         name_match = any(hint in lowered for hint in name_hints)
         gpu_match = _loose_tokens_match(gpu_hints, gpu_text) if gpu_hints else True
-        if not (name_match or gpu_match):
+        if registered:
+            if not gpu_match:
+                continue
+            count_hint = _name_gpu_count_hint(name)
+            if count_hint is not None and count_hint < gpu_count:
+                continue
+        elif not (name_match or gpu_match):
             continue
         # A 1-GPU profile can safely run on a larger 2-GPU warm worker when
         # the 1-GPU pool is stopped; prefer exact partitions below, but do not
@@ -247,13 +259,19 @@ def _instance_candidates(
             continue
 
         score = 0
-        if gpu_count == 1 and "-1g" in lowered:
-            score -= 10
-        elif gpu_count >= 2 and "-2g" in lowered:
+        count_hint = _name_gpu_count_hint(name)
+        if gpu_count > 0 and count_hint == gpu_count:
             score -= 10
         score += len(name)
-        candidates.append((score, name))
-    return [name for _, name in sorted(candidates)]
+        candidates.append(
+            (0 if registered else 1, score, name)
+        )
+    return [name for _, _, name in sorted(candidates)]
+
+
+def _name_gpu_count_hint(name: str) -> int | None:
+    """Return the operator pool's encoded GPU count when one is present."""
+    return worker_pool._name_gpu_count_hint(name)
 
 
 def _summarize_instances(instances: list[dict[str, Any]]) -> str:
@@ -272,6 +290,8 @@ def _summarize_instances(instances: list[dict[str, Any]]) -> str:
 
 def _exec_target_for_instance(instance: dict[str, Any]) -> str:
     """Prefer Brev instance ID for CLI exec while keeping names for reporting."""
+    if instance.get("_registered"):
+        return str(instance.get("name") or "")
     return str(instance.get("id") or instance.get("workspace_id") or instance.get("name") or "")
 
 
@@ -1071,16 +1091,22 @@ def _print_matrix(rows: list[dict[str, str]], blockers: list[str]) -> None:
 
 def _list_instances() -> list[dict[str, Any]]:
     try:
-        result = _run(["brev", "ls", "--json"], timeout=45)
-    except subprocess.TimeoutExpired as exc:
+        instances = worker_pool._list_pool_instances()
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
         raise InfrastructureBlocked(
-            f"brev ls --json timed out after {exc.timeout}s"
+            f"worker pool inventory failed: {type(exc).__name__}: {exc}"
         ) from exc
-    if result.returncode != 0:
-        raise InfrastructureBlocked(f"brev ls --json failed: {result.stderr[-500:]}")
-    instances = _parse_brev_json(result.stdout)
+    _REGISTERED_WORKERS.clear()
+    _REGISTERED_WORKERS.update(
+        str(instance.get("name") or "").lower()
+        for instance in instances
+        if instance.get("_registered") and instance.get("name")
+    )
     if not instances:
-        raise InfrastructureBlocked("brev ls --json returned no parseable instances")
+        raise InfrastructureBlocked(
+            "managed and registered worker inventories returned no "
+            "eligible pool instances"
+        )
     return instances
 
 
@@ -1112,10 +1138,34 @@ def _log_reachability_failure(instance: str, exec_target: str, result: CommandRe
     )
 
 
+def _worker_remote_executor(
+    instance: str,
+    exec_target: str | None = None,
+) -> remote_worker_lock.RemoteExecutor:
+    """Bind commands to Brev exec or a registered node's SSH alias."""
+    if instance.lower() in _REGISTERED_WORKERS:
+        worker_pool._WORKER_TRANSPORTS[instance.lower()] = "ssh"
+        return worker_pool._remote_lock_executor(instance)
+
+    target = exec_target or instance
+
+    def execute_managed(
+        command: str,
+        timeout: int,
+    ) -> CommandResult:
+        return _run(
+            ["brev", "exec", target, command],
+            timeout=timeout,
+        )
+
+    return execute_managed
+
+
 def _reachable(instance: str, exec_target: str | None = None) -> bool:
     target = exec_target or instance
+    run_remote = _worker_remote_executor(instance, exec_target)
     try:
-        result = _run(["brev", "exec", target, "echo harbor-ready"], timeout=45)
+        result = run_remote("echo harbor-ready", 45)
     except subprocess.TimeoutExpired:
         print(
             f"[nemoclaw-ci] candidate {instance} reachability check timed out",
@@ -1130,6 +1180,8 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
         return True
 
     _log_reachability_failure(instance, target, result)
+    if instance.lower() in _REGISTERED_WORKERS:
+        return False
     if "Could not resolve hostname" not in _reachability_failure_text(result):
         return False
 
@@ -1147,7 +1199,7 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
         return False
 
     try:
-        retry = _run(["brev", "exec", target, "echo harbor-ready"], timeout=45)
+        retry = run_remote("echo harbor-ready", 45)
     except subprocess.TimeoutExpired:
         print(
             f"[nemoclaw-ci] candidate {instance} reachability retry timed out",
@@ -1164,6 +1216,8 @@ def _reachable(instance: str, exec_target: str | None = None) -> bool:
 
 
 def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLock | None:
+    if "/" in instance or instance in {"", ".", ".."}:
+        raise ValueError(f"invalid worker name for lock file: {instance!r}")
     lock_dir = Path("/tmp/brev")
     lock_dir.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_dir / f"{instance}.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -1176,18 +1230,15 @@ def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLo
 
     remote_owner: str | None = None
     remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
+    remote_executor = _worker_remote_executor(instance, exec_target)
     try:
         remote_lock_disabled = (
             os.environ.get("NEMOCLAW_DISABLE_REMOTE_WORKER_LOCK", "").strip().lower()
             in {"1", "true", "yes"}
         )
         if not remote_lock_disabled:
-            remote_target = exec_target or instance
             remote_lease = remote_worker_lock.try_acquire_remote_worker_lock(
-                lambda command, timeout: _run(
-                    ["brev", "exec", remote_target, command],
-                    timeout=timeout,
-                ),
+                remote_executor,
                 instance,
             )
             if remote_lease is None:
@@ -1205,6 +1256,7 @@ def _try_acquire_lock(instance: str, exec_target: str | None = None) -> WorkerLo
             exec_target,
             heartbeat,
             remote_lease,
+            remote_executor,
         )
     except Exception:
         if remote_lease is not None:
@@ -1630,7 +1682,11 @@ else
 fi
 """
             try:
-                result = _run(["brev", "exec", remote_target, command], timeout=60)
+                run_remote = (
+                    lock.remote_executor
+                    or _worker_remote_executor(instance, remote_target)
+                )
+                result = run_remote(command, 60)
                 if result.returncode != 0:
                     tail = (
                         (result.stdout or "") + (result.stderr or "")
@@ -1761,7 +1817,18 @@ def _select_and_lock_instance(
             continue
 
         for candidate in candidates:
-            exec_target = _exec_target_for_instance(instances_by_name.get(candidate, {})) or candidate
+            instance_record = instances_by_name.get(candidate, {})
+            if instance_record.get("_registered"):
+                _REGISTERED_WORKERS.add(candidate.lower())
+            else:
+                _REGISTERED_WORKERS.discard(candidate.lower())
+            exec_target = _exec_target_for_instance(instance_record) or candidate
+            if instance_record.get("_registered"):
+                print(
+                    f"[nemoclaw-ci] candidate {candidate} using registered "
+                    "SSH transport",
+                    flush=True,
+                )
             if exec_target != candidate:
                 print(
                     f"[nemoclaw-ci] candidate {candidate} using Brev exec target {exec_target}",
@@ -2074,6 +2141,7 @@ def _attempt_owner_status(
 def _live_attempt_owner_status(
     remote_target: str,
     expected_token: str,
+    remote_executor: remote_worker_lock.RemoteExecutor | None = None,
 ) -> AttemptOwnerStatus:
     """Verify the owner marker on the worker after Harbor and its verifier."""
 
@@ -2092,12 +2160,13 @@ def _live_attempt_owner_status(
         f"printf '{verified_marker}\\n'"
     )
     last_failure = "live attempt owner probe did not run"
+    run_remote = (
+        remote_executor
+        or _worker_remote_executor(remote_target, remote_target)
+    )
     for attempt in range(1, ATTEMPT_OWNER_PROBE_ATTEMPTS + 1):
         try:
-            result = _run(
-                ["brev", "exec", remote_target, command],
-                timeout=45,
-            )
+            result = run_remote(command, 45)
         except (OSError, subprocess.SubprocessError) as exc:
             last_failure = (
                 f"live attempt owner probe raised {type(exc).__name__}: {exc}"
@@ -2151,6 +2220,7 @@ def _attempt_evidence_owner_status(
     since: float,
     remote_target: str,
     expected_token: str,
+    remote_executor: remote_worker_lock.RemoteExecutor | None = None,
 ) -> AttemptOwnerStatus:
     """Require an unchanged artifact epoch at collection and after verifier."""
 
@@ -2162,7 +2232,11 @@ def _attempt_evidence_owner_status(
     )
     if collected.status == "contaminated":
         return collected
-    live = _live_attempt_owner_status(remote_target, expected_token)
+    live = _live_attempt_owner_status(
+        remote_target,
+        expected_token,
+        remote_executor,
+    )
     if live.status == "contaminated":
         return live
     if collected.status == "verified" and live.status == "verified":
@@ -3037,9 +3111,14 @@ def main(argv: list[str] | None = None) -> int:
         failures: list[str] = []
         executed = 0
         scenario_index = 0
-        max_worker_failovers = max(
-            0,
-            int(os.environ.get("NEMOCLAW_MAX_WORKER_FAILOVERS", "2")),
+        configured_setup_failovers = os.environ.get(
+            "NEMOCLAW_MAX_WORKER_FAILOVERS",
+            "",
+        ).strip()
+        max_setup_failovers = (
+            max(0, int(configured_setup_failovers))
+            if configured_setup_failovers
+            else None
         )
         worker_failover_window_s = max(
             0,
@@ -3066,7 +3145,21 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
             excluded_instances: set[str] = set()
-            worker_failovers = 0
+            setup_failovers = 0
+            setup_failures_by_instance: dict[str, str] = {}
+
+            def with_setup_failure_context(reason: str) -> str:
+                if not setup_failures_by_instance:
+                    return reason
+                failure_details = "; ".join(
+                    f"{name}: {_shorten(failure, 240)}"
+                    for name, failure in setup_failures_by_instance.items()
+                )
+                return (
+                    f"{reason}; pre-agent setup failures: "
+                    f"{failure_details}"
+                )
+
             contamination_failovers = 0
             worker_failover_deadline = (
                 time.monotonic() + worker_failover_window_s
@@ -3076,22 +3169,29 @@ def main(argv: list[str] | None = None) -> int:
                 selection_deadline = (
                     run_deadline - reserved_retry_harbor_budget_s
                 )
-                selection_timeout_s = _remaining_run_timeout(
-                    selection_deadline,
-                    args.lock_timeout,
-                    (
-                        "replacement worker selection"
-                        if reserved_retry_harbor_budget_s
-                        else "worker selection"
-                    ),
-                )
-                instance, worker_lock = _select_and_lock_instance(
-                    first.platform,
-                    gpu_count,
-                    args.instance,
-                    selection_timeout_s,
-                    excluded=excluded_instances,
-                )
+                try:
+                    selection_timeout_s = _remaining_run_timeout(
+                        selection_deadline,
+                        args.lock_timeout,
+                        (
+                            "replacement worker selection"
+                            if reserved_retry_harbor_budget_s
+                            else "worker selection"
+                        ),
+                    )
+                    instance, worker_lock = _select_and_lock_instance(
+                        first.platform,
+                        gpu_count,
+                        args.instance,
+                        selection_timeout_s,
+                        excluded=excluded_instances,
+                    )
+                except InfrastructureBlocked as exc:
+                    if not setup_failures_by_instance:
+                        raise
+                    raise InfrastructureBlocked(
+                        with_setup_failure_context(str(exc))
+                    ) from exc
                 required_retry_harbor_budget_s = (
                     reserved_retry_harbor_budget_s
                 )
@@ -3110,8 +3210,10 @@ def main(argv: list[str] | None = None) -> int:
                         < required_retry_harbor_budget_s
                     ):
                         raise InfrastructureBlocked(
-                            "replacement worker selection consumed the "
-                            "Harbor retry budget"
+                            with_setup_failure_context(
+                                "replacement worker selection consumed the "
+                                "Harbor retry budget"
+                            )
                         )
                     os.environ["BREV_INSTANCE"] = brev_instance
                     for group_scenario_index, scenario in enumerate(group):
@@ -3155,9 +3257,11 @@ def main(argv: list[str] | None = None) -> int:
                             < math.ceil(required_retry_harbor_budget_s)
                         ):
                             raise InfrastructureBlocked(
-                                "replacement worker selection left "
-                                f"{harbor_timeout_s}s for Harbor; required "
-                                f"{math.ceil(required_retry_harbor_budget_s)}s"
+                                with_setup_failure_context(
+                                    "replacement worker selection left "
+                                    f"{harbor_timeout_s}s for Harbor; required "
+                                    f"{math.ceil(required_retry_harbor_budget_s)}s"
+                                )
                             )
                         required_retry_harbor_budget_s = 0.0
                         harbor_rc = _stream_command(
@@ -3188,43 +3292,90 @@ def main(argv: list[str] | None = None) -> int:
                             if reward is None
                             else None
                         )
+                        if setup_failure is not None:
+                            setup_failures_by_instance[instance] = setup_failure
                         failover_now = time.monotonic()
+                        setup_failover_limit_reached = (
+                            max_setup_failovers is not None
+                            and setup_failovers >= max_setup_failovers
+                        )
+                        setup_retry_harbor_budget_s = float(
+                            args.harbor_timeout
+                        )
+                        setup_replacement_selection_budget_s = max(
+                            0.0,
+                            min(
+                                float(args.lock_timeout),
+                                run_deadline
+                                - failover_now
+                                - setup_retry_harbor_budget_s,
+                            ),
+                        )
                         can_fail_over = (
                             setup_failure is not None
                             and group_scenario_index == 0
                             and not args.instance
-                            and worker_failovers < max_worker_failovers
+                            and not setup_failover_limit_reached
                             and failover_now < worker_failover_deadline
                             and failover_now < run_deadline
+                            and setup_replacement_selection_budget_s >= 1.0
                         )
                         if can_fail_over:
-                            worker_failovers += 1
+                            setup_failovers += 1
                             excluded_instances.add(instance)
+                            reserved_retry_harbor_budget_s = (
+                                setup_retry_harbor_budget_s
+                            )
                             retry_group = True
+                            failover_limit = (
+                                str(max_setup_failovers)
+                                if max_setup_failovers is not None
+                                else "pool"
+                            )
                             print(
                                 "[nemoclaw-ci] pre-agent worker setup failed on "
                                 f"{instance}: {_shorten(setup_failure)}; "
                                 "failing over "
-                                f"({worker_failovers}/{max_worker_failovers})",
+                                f"({setup_failovers}/{failover_limit})",
                                 flush=True,
                             )
                             break
-                        if (
-                            setup_failure is not None
-                            and group_scenario_index == 0
-                            and not args.instance
-                        ):
-                            stop_reason = (
-                                "retry limit reached"
-                                if worker_failovers >= max_worker_failovers
-                                else "failover window or run budget exhausted"
+                        if setup_failure is not None:
+                            if args.instance:
+                                stop_reason = "explicit worker is pinned"
+                            elif group_scenario_index != 0:
+                                stop_reason = (
+                                    "cannot restart a multi-step group after "
+                                    f"step {group_scenario_index + 1}"
+                                )
+                            elif setup_failover_limit_reached:
+                                stop_reason = "retry limit reached"
+                            else:
+                                stop_reason = (
+                                    "failover window, run budget, or reserved "
+                                    "Harbor budget exhausted"
+                                )
+                            reason = (
+                                f"pre-agent worker setup failed on {instance}: "
+                                f"{_shorten(setup_failure)}; failover unavailable "
+                                f"({stop_reason})"
                             )
-                            print(
-                                "[nemoclaw-ci] pre-agent worker setup failed on "
-                                f"{instance}: {_shorten(setup_failure)}; "
-                                f"not failing over ({stop_reason})",
-                                flush=True,
+                            print(f"BLOCKED: {reason}", file=sys.stderr, flush=True)
+                            _append_blocked_summary(
+                                reason=reason,
+                                scenario=(
+                                    f"{scenario.skill}/{scenario.spec_name}/"
+                                    f"{scenario.platform}/{scenario.task_name}"
+                                ),
+                                scenario_id=(
+                                    f"{_scenario_id(scenario)}-"
+                                    "worker-setup-blocked"
+                                ),
                             )
+                            executed += 1
+                            scenario_index += 1
+                            failures.append(reason)
+                            break
 
                         owner_status = _attempt_evidence_owner_status(
                             results_root,
@@ -3234,6 +3385,7 @@ def main(argv: list[str] | None = None) -> int:
                                 worker_lock.remote_target or instance
                             ),
                             expected_token=attempt_owner_token,
+                            remote_executor=worker_lock.remote_executor,
                         )
                         if owner_status.status == "contaminated":
                             contamination_now = time.monotonic()
@@ -3262,7 +3414,6 @@ def main(argv: list[str] | None = None) -> int:
                             can_retry_contamination = (
                                 group_scenario_index == 0
                                 and not args.instance
-                                and worker_failovers < max_worker_failovers
                                 and contamination_failovers
                                 < max_contamination_failovers
                                 and replacement_selection_budget >= 1.0
@@ -3278,7 +3429,6 @@ def main(argv: list[str] | None = None) -> int:
                                 can_retry_contamination and discarded
                             )
                             if can_retry_contamination:
-                                worker_failovers += 1
                                 contamination_failovers += 1
                                 excluded_instances.add(instance)
                                 reserved_retry_harbor_budget_s = (
@@ -3290,9 +3440,7 @@ def main(argv: list[str] | None = None) -> int:
                                     f"on {instance}: {owner_status.reason}; "
                                     f"{discard_reason}; "
                                     "failing over "
-                                    f"({worker_failovers}/{max_worker_failovers}, "
-                                    f"contamination "
-                                    f"{contamination_failovers}/"
+                                    f"(contamination {contamination_failovers}/"
                                     f"{max_contamination_failovers})",
                                     flush=True,
                                 )
@@ -3304,8 +3452,6 @@ def main(argv: list[str] | None = None) -> int:
                                 "retry unavailable "
                                 f"(step={group_scenario_index + 1}, "
                                 f"explicit_worker={bool(args.instance)}, "
-                                f"worker_failovers={worker_failovers}/"
-                                f"{max_worker_failovers}, "
                                 f"contamination_failovers="
                                 f"{contamination_failovers}/"
                                 f"{max_contamination_failovers}, "

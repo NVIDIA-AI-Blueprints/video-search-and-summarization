@@ -3465,6 +3465,50 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(parsed[0]["id"], "instance-explicit")
         self.assertEqual(parsed[0]["name"], "vss-eval-rtx-1g-10")
 
+    def test_inventory_tracks_registered_nodes_from_shared_pool_snapshot(self):
+        snapshot = [
+            {
+                "id": "managed-1",
+                "name": "vss-eval-rtx-1g-2",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+            },
+            {
+                "name": "vss-eval-rtx-2g-VM1b",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+                "instance_type": "registered-external-node",
+                "_registered": True,
+            },
+        ]
+
+        previous_registered = set(smoke_runner._REGISTERED_WORKERS)
+        try:
+            with mock.patch.object(
+                smoke_runner.worker_pool,
+                "_list_pool_instances",
+                return_value=snapshot,
+            ):
+                instances = smoke_runner._list_instances()
+                registered_workers = set(
+                    smoke_runner._REGISTERED_WORKERS
+                )
+        finally:
+            smoke_runner._REGISTERED_WORKERS.clear()
+            smoke_runner._REGISTERED_WORKERS.update(previous_registered)
+
+        by_name = {instance["name"]: instance for instance in instances}
+        self.assertIn("vss-eval-rtx-1g-2", by_name)
+        self.assertIn("vss-eval-rtx-2g-VM1b", by_name)
+        registered = by_name["vss-eval-rtx-2g-VM1b"]
+        self.assertTrue(registered["_registered"])
+        self.assertEqual(registered["status"], "RUNNING")
+        self.assertEqual(registered["gpu"], "RTX PRO 6000")
+        self.assertIn(
+            "vss-eval-rtx-2g-vm1b",
+            registered_workers,
+        )
+
     def test_instance_candidates_prefer_matching_gpu_partition(self):
         instances = [
             {
@@ -3495,6 +3539,62 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(candidates[0], "vss-eval-rtx-1g-2")
         self.assertNotIn("personal-rtx", candidates)
         self.assertIn("vss-eval-rtx-2g", candidates)
+
+    def test_instance_candidates_prefer_dedicated_registered_pool_tier(self):
+        instances = [
+            {
+                "name": "vss-eval-rtx-1g-2",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+            },
+            {
+                "name": "vss-eval-rtx-2g-VM1b",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+                "_registered": True,
+            },
+        ]
+
+        candidates = smoke_runner._instance_candidates(
+            instances,
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+        )
+
+        self.assertEqual(
+            candidates,
+            ["vss-eval-rtx-2g-VM1b", "vss-eval-rtx-1g-2"],
+        )
+
+    def test_registered_candidates_require_matching_gpu_type_and_count(self):
+        instances = [
+            {
+                "name": "vss-eval-geforce-rtx4090-vm1",
+                "status": "RUNNING",
+                "gpu": "GEFORCE RTX 4090",
+                "_registered": True,
+            },
+            {
+                "name": "vss-eval-rtx-1g-VM1b",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+                "_registered": True,
+            },
+            {
+                "name": "vss-eval-rtx-2g-VM2b",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+                "_registered": True,
+            },
+        ]
+
+        candidates = smoke_runner._instance_candidates(
+            instances,
+            platform="RTXPRO6000BW",
+            gpu_count=2,
+        )
+
+        self.assertEqual(candidates, ["vss-eval-rtx-2g-VM2b"])
 
     def test_instance_candidates_allow_larger_partition_for_one_gpu_smoke(self):
         instances = [
@@ -4123,6 +4223,32 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             smoke_runner.ATTEMPT_OWNER_PROBE_RETRY_DELAY_S
         )
 
+    def test_live_attempt_owner_status_uses_selected_worker_executor(self):
+        calls: list[tuple[str, int]] = []
+
+        def run_remote(command: str, timeout: int):
+            calls.append((command, timeout))
+            return smoke_runner.CommandResult(
+                0,
+                "__NEMOCLAW_ATTEMPT_OWNER_VERIFIED__\n",
+                "",
+            )
+
+        with mock.patch.object(
+            smoke_runner,
+            "_worker_remote_executor",
+        ) as default_executor:
+            status = smoke_runner._live_attempt_owner_status(
+                "vss-eval-rtx-2g-VM1b",
+                "a" * 32,
+                run_remote,
+            )
+
+        self.assertEqual(status.status, "verified")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], 45)
+        default_executor.assert_not_called()
+
     def test_live_attempt_owner_status_classifies_definite_replacement(self):
         token = "a" * 32
         for returncode, reason in (
@@ -4573,7 +4699,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                     {
                         "GITHUB_RUN_ID": "30266918843",
                         "NEMOCLAW_MAX_WORKER_FAILOVERS": "2",
-                        "NEMOCLAW_RUN_TIMEOUT_SEC": "100",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "200",
                     },
                 ),
                 mock.patch.object(
@@ -4653,8 +4779,8 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             selections,
             [set(), {"vss-eval-rtx-1g-2"}],
         )
-        self.assertEqual(selection_timeouts, [80, 30])
-        self.assertEqual(harbor_timeouts, [90, 30])
+        self.assertEqual(selection_timeouts, [80, 40])
+        self.assertEqual(harbor_timeouts, [90, 90])
         self.assertEqual(
             events,
             [
@@ -4678,6 +4804,440 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             report.call_args.kwargs["log_path"].parent,
             root / "scratch" / "30266918843" / "harbor",
         )
+
+    def test_runner_retains_third_setup_failure_after_two_failovers(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-deploy-dense-captioning",
+            spec_name="alerts_profile_api",
+            spec_path=Path("/tmp/alerts_profile_api.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/dataset/alerts/rtxpro6000bw"),
+            harbor_path=Path("/tmp/dataset/alerts"),
+            task_name="step-1",
+            deployment_profile="alerts",
+        )
+        workers = [
+            "vss-eval-rtx-1g-2",
+            "vss-eval-rtx-1g-3",
+            "vss-eval-rtx-2g-3",
+        ]
+        selections: list[set[str]] = []
+
+        def select_worker(*args, excluded=None, **kwargs):
+            selections.append(set(excluded or set()))
+            worker = workers[len(selections) - 1]
+            return worker, smoke_runner.WorkerLock(123, object(), None)
+
+        def setup_failure(*args, instance, **kwargs):
+            return (
+                f"Brev instance '{instance}' root disk is 117 GB; "
+                "task requires at least 160 GB"
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report = mock.Mock()
+            blocked = mock.Mock()
+            owner_status = mock.Mock()
+            discard = mock.Mock()
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30447047501",
+                        "NEMOCLAW_MAX_WORKER_FAILOVERS": "2",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "9000",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    side_effect=select_worker,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    return_value=(None, None),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    side_effect=setup_failure,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    owner_status,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discard_contaminated_attempt",
+                    discard,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_release_lock",
+                    release,
+                ),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-deploy-dense-captioning",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(
+            selections,
+            [
+                set(),
+                {"vss-eval-rtx-1g-2"},
+                {"vss-eval-rtx-1g-2", "vss-eval-rtx-1g-3"},
+            ],
+        )
+        self.assertEqual(release.call_count, 3)
+        blocked.assert_called_once()
+        reason = blocked.call_args.kwargs["reason"]
+        self.assertIn("vss-eval-rtx-2g-3", reason)
+        self.assertIn("root disk is 117 GB", reason)
+        self.assertIn("retry limit reached", reason)
+        owner_status.assert_not_called()
+        discard.assert_not_called()
+        report.assert_not_called()
+
+    def test_setup_failure_near_deadline_retains_capacity_reason(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-deploy-dense-captioning",
+            spec_name="alerts_profile_api",
+            spec_path=Path("/tmp/alerts_profile_api.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/dataset/alerts/rtxpro6000bw"),
+            harbor_path=Path("/tmp/dataset/alerts"),
+            task_name="step-1",
+            deployment_profile="alerts",
+        )
+        now = [0.0]
+
+        def stream_command(*args, **kwargs):
+            now[0] = 999.0
+            return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            select = mock.Mock(
+                return_value=(
+                    "vss-eval-rtx-1g-2",
+                    smoke_runner.WorkerLock(123, object(), None),
+                )
+            )
+            blocked = mock.Mock()
+            owner_status = mock.Mock()
+            report = mock.Mock()
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30447047501",
+                        "NEMOCLAW_MAX_WORKER_FAILOVERS": "",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "1000",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner.time,
+                    "monotonic",
+                    side_effect=lambda: now[0],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    select,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    side_effect=stream_command,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    return_value=(None, None),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    return_value=(
+                        "Brev instance 'vss-eval-rtx-1g-2' root disk is "
+                        "117 GB; task requires at least 160 GB"
+                    ),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    owner_status,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_release_lock",
+                    release,
+                ),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-deploy-dense-captioning",
+                        "--harbor-timeout",
+                        "900",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 1)
+        select.assert_called_once()
+        blocked.assert_called_once()
+        self.assertIn(
+            "root disk is 117 GB",
+            blocked.call_args.kwargs["reason"],
+        )
+        self.assertIn(
+            "reserved Harbor budget exhausted",
+            blocked.call_args.kwargs["reason"],
+        )
+        owner_status.assert_not_called()
+        report.assert_not_called()
+        release.assert_called_once()
+
+    def test_setup_failures_do_not_consume_contamination_retry(self):
+        scenario = smoke_runner.NemoClawScenario(
+            skill="vss-deploy-dense-captioning",
+            spec_name="alerts_profile_api",
+            spec_path=Path("/tmp/alerts_profile_api.json"),
+            platform="RTXPRO6000BW",
+            gpu_count=1,
+            task_dir=Path("/tmp/dataset/alerts/rtxpro6000bw"),
+            harbor_path=Path("/tmp/dataset/alerts"),
+            task_name="step-1",
+            deployment_profile="alerts",
+        )
+        workers = [
+            "vss-eval-rtx-1g-2",
+            "vss-eval-rtx-1g-3",
+            "vss-eval-rtx-2g-3",
+            "vss-eval-rtx-2g-VM1b",
+            "vss-eval-rtx-2g-VM2b",
+        ]
+        selections: list[set[str]] = []
+
+        def select_worker(*args, excluded=None, **kwargs):
+            selections.append(set(excluded or set()))
+            worker = workers[len(selections) - 1]
+            return worker, smoke_runner.WorkerLock(123, object(), None)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            report = mock.Mock()
+            blocked = mock.Mock()
+            owner_status = mock.Mock(
+                side_effect=[
+                    smoke_runner.AttemptOwnerStatus(
+                        "contaminated",
+                        "attempt owner marker was replaced",
+                    ),
+                    smoke_runner.AttemptOwnerStatus(
+                        "verified",
+                        "attempt owner marker verified",
+                    ),
+                ]
+            )
+            discard = mock.Mock(
+                return_value=(True, "removed untrusted trial tree")
+            )
+            release = mock.Mock()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_RUN_ID": "30447047501",
+                        "NEMOCLAW_MAX_WORKER_FAILOVERS": "",
+                        "NEMOCLAW_MAX_CONTAMINATION_FAILOVERS": "1",
+                        "NEMOCLAW_RUN_TIMEOUT_SEC": "9000",
+                    },
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discover_scenarios",
+                    return_value=([scenario], []),
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_scenario_groups",
+                    return_value=[[scenario]],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_select_and_lock_instance",
+                    side_effect=select_worker,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_harbor_command",
+                    return_value=["harbor", "run"],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_stream_command",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_latest_reward",
+                    side_effect=[
+                        (None, None),
+                        (None, None),
+                        (None, None),
+                        (1.0, Path("/tmp/reward.txt")),
+                        (1.0, Path("/tmp/reward.txt")),
+                    ],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_retryable_worker_setup_failure",
+                    side_effect=[
+                        "root disk is 117 GB",
+                        "root disk is 117 GB",
+                        "root disk is 117 GB",
+                        None,
+                        None,
+                    ],
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_attempt_evidence_owner_status",
+                    owner_status,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_discard_contaminated_attempt",
+                    discard,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_harbor_report",
+                    report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_release_lock",
+                    release,
+                ),
+            ):
+                rc = smoke_runner.main(
+                    [
+                        "--skills",
+                        "vss-deploy-dense-captioning",
+                        "--lock-timeout",
+                        "1200",
+                        "--harbor-timeout",
+                        "7800",
+                        "--dataset-root",
+                        str(root / "dataset"),
+                        "--results-root",
+                        str(root / "results"),
+                        "--scratch-root",
+                        str(root / "scratch"),
+                    ]
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(selections), 5)
+        self.assertEqual(
+            selections[-1],
+            set(workers[:4]),
+        )
+        self.assertEqual(release.call_count, 5)
+        self.assertEqual(owner_status.call_count, 2)
+        discard.assert_called_once()
+        report.assert_called_once()
+        self.assertEqual(
+            report.call_args.kwargs["instance"],
+            "vss-eval-rtx-2g-VM2b",
+        )
+        blocked.assert_not_called()
 
     def test_runner_discards_reward_from_contaminated_worker_and_retries(self):
         scenario = smoke_runner.NemoClawScenario(
@@ -4875,10 +5435,27 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
+            registered_name = "vss-eval-rtx-2g-VM1b"
+            remote_executor = mock.Mock()
             select = mock.Mock(
                 return_value=(
-                    "vss-eval-l40s",
-                    smoke_runner.WorkerLock(123, object(), None),
+                    registered_name,
+                    smoke_runner.WorkerLock(
+                        123,
+                        object(),
+                        None,
+                        registered_name,
+                        None,
+                        None,
+                        remote_executor,
+                    ),
+                )
+            )
+            stream = mock.Mock(return_value=0)
+            owner_status = mock.Mock(
+                return_value=smoke_runner.AttemptOwnerStatus(
+                    "unavailable",
+                    "artifact manifest is missing",
                 )
             )
             report = mock.Mock()
@@ -4915,7 +5492,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 mock.patch.object(
                     smoke_runner,
                     "_stream_command",
-                    return_value=0,
+                    stream,
                 ),
                 mock.patch.object(
                     smoke_runner,
@@ -4930,10 +5507,7 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 mock.patch.object(
                     smoke_runner,
                     "_attempt_evidence_owner_status",
-                    return_value=smoke_runner.AttemptOwnerStatus(
-                        "unavailable",
-                        "artifact manifest is missing",
-                    ),
+                    owner_status,
                 ),
                 mock.patch.object(
                     smoke_runner,
@@ -4966,6 +5540,18 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(rc, 1)
         select.assert_called_once()
+        self.assertEqual(
+            stream.call_args.kwargs["env"]["BREV_INSTANCE"],
+            registered_name,
+        )
+        self.assertEqual(
+            owner_status.call_args.kwargs["remote_target"],
+            registered_name,
+        )
+        self.assertIs(
+            owner_status.call_args.kwargs["remote_executor"],
+            remote_executor,
+        )
         report.assert_not_called()
         blocked.assert_called_once()
         self.assertIn(
@@ -4996,6 +5582,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 )
             )
             report = mock.Mock()
+            blocked = mock.Mock()
+            owner_status = mock.Mock(
+                return_value=smoke_runner.AttemptOwnerStatus(
+                    "verified",
+                    "attempt owner marker verified",
+                )
+            )
             release = mock.Mock()
             with (
                 mock.patch.dict(
@@ -5043,15 +5636,17 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 mock.patch.object(
                     smoke_runner,
                     "_attempt_evidence_owner_status",
-                    return_value=smoke_runner.AttemptOwnerStatus(
-                        "verified",
-                        "attempt owner marker verified",
-                    ),
+                    owner_status,
                 ),
                 mock.patch.object(
                     smoke_runner,
                     "_append_harbor_report",
                     report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
                 ),
                 mock.patch.object(smoke_runner, "_release_lock", release),
             ):
@@ -5072,7 +5667,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(rc, 1)
         select.assert_called_once()
-        report.assert_called_once()
+        report.assert_not_called()
+        blocked.assert_called_once()
+        self.assertIn(
+            "explicit worker is pinned",
+            blocked.call_args.kwargs["reason"],
+        )
+        owner_status.assert_not_called()
         release.assert_called_once()
 
     def test_runner_does_not_restart_group_after_second_step_setup_failure(self):
@@ -5110,6 +5711,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 )
             )
             report = mock.Mock()
+            blocked = mock.Mock()
+            owner_status = mock.Mock(
+                return_value=smoke_runner.AttemptOwnerStatus(
+                    "verified",
+                    "attempt owner marker verified",
+                )
+            )
             release = mock.Mock()
             with (
                 mock.patch.dict(
@@ -5157,15 +5765,17 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
                 mock.patch.object(
                     smoke_runner,
                     "_attempt_evidence_owner_status",
-                    return_value=smoke_runner.AttemptOwnerStatus(
-                        "verified",
-                        "attempt owner marker verified",
-                    ),
+                    owner_status,
                 ),
                 mock.patch.object(
                     smoke_runner,
                     "_append_harbor_report",
                     report,
+                ),
+                mock.patch.object(
+                    smoke_runner,
+                    "_append_blocked_summary",
+                    blocked,
                 ),
                 mock.patch.object(smoke_runner, "_release_lock", release),
             ):
@@ -5184,7 +5794,13 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         self.assertEqual(rc, 1)
         select.assert_called_once()
-        self.assertEqual(report.call_count, 2)
+        report.assert_called_once()
+        blocked.assert_called_once()
+        self.assertIn(
+            "cannot restart a multi-step group after step 2",
+            blocked.call_args.kwargs["reason"],
+        )
+        owner_status.assert_called_once()
         release.assert_called_once()
 
     def test_worker_selection_uses_brev_id_as_exec_target(self):
@@ -5230,6 +5846,17 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertEqual(calls["reachable"], ("vss-eval-rtx-1g-2", "instance-123"))
         self.assertEqual(calls["lock"], ("vss-eval-rtx-1g-2", "instance-123"))
         self.assertEqual(lock.remote_target, "instance-123")
+
+    def test_registered_worker_uses_human_name_instead_of_node_id(self):
+        target = smoke_runner._exec_target_for_instance(
+            {
+                "id": "registered-node-id",
+                "name": "vss-eval-rtx-2g-VM1b",
+                "_registered": True,
+            }
+        )
+
+        self.assertEqual(target, "vss-eval-rtx-2g-VM1b")
 
     def test_explicit_worker_uses_brev_id_as_exec_target_when_visible(self):
         previous = {
@@ -5554,6 +6181,17 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
 
         handle.close.assert_called_once()
 
+    def test_smoke_lock_rejects_unsafe_worker_names(self):
+        with mock.patch.object(smoke_runner.os, "open") as open_lock:
+            for worker in ("", ".", "..", "vss-eval/../../unsafe"):
+                with (
+                    self.subTest(worker=worker),
+                    self.assertRaisesRegex(ValueError, "invalid worker name"),
+                ):
+                    smoke_runner._try_acquire_lock(worker)
+
+        open_lock.assert_not_called()
+
     def test_smoke_lock_uses_and_releases_shared_remote_lease(self):
         handle = mock.Mock()
         heartbeat = smoke_runner.remote_worker_lock.RemoteLockHeartbeat(
@@ -5586,6 +6224,47 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertIs(lock.heartbeat, heartbeat)
         acquire.assert_called_once()
         self.assertEqual(acquire.call_args.args[1], "worker-name")
+        remote_lease.release.assert_called_once()
+        handle.close.assert_called_once()
+
+    def test_smoke_lock_retains_exact_executor_used_by_remote_lease(self):
+        handle = mock.Mock()
+        remote_executor = mock.Mock()
+        heartbeat = smoke_runner.remote_worker_lock.RemoteLockHeartbeat(
+            threading.Event(),
+            threading.Event(),
+            mock.Mock(),
+        )
+        remote_lease = mock.Mock(
+            owner="expected-owner",
+            heartbeat=heartbeat,
+        )
+        with (
+            mock.patch.object(smoke_runner.os, "open", return_value=123),
+            mock.patch.object(smoke_runner.os, "fdopen", return_value=handle),
+            mock.patch.object(smoke_runner.fcntl, "flock"),
+            mock.patch.object(
+                smoke_runner,
+                "_worker_remote_executor",
+                return_value=remote_executor,
+            ),
+            mock.patch.object(
+                smoke_runner.remote_worker_lock,
+                "try_acquire_remote_worker_lock",
+                return_value=remote_lease,
+            ) as acquire,
+        ):
+            lock = smoke_runner._try_acquire_lock(
+                "vss-eval-rtx-2g-VM1b"
+            )
+            assert lock is not None
+            smoke_runner._release_lock(
+                "vss-eval-rtx-2g-VM1b",
+                lock,
+            )
+
+        self.assertIs(acquire.call_args.args[0], remote_executor)
+        self.assertIs(lock.remote_executor, remote_executor)
         remote_lease.release.assert_called_once()
         handle.close.assert_called_once()
 
@@ -5833,17 +6512,144 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         self.assertNotIn("expected=", calls[0][3])
 
     def test_brev_inventory_timeout_is_infrastructure_blocked(self):
-        previous = {"_run": smoke_runner._run}
-        smoke_runner._run = lambda *args, **kwargs: (_ for _ in ()).throw(
-            subprocess.TimeoutExpired(["brev", "ls", "--json"], 45)
-        )
-        try:
-            with self.assertRaises(smoke_runner.InfrastructureBlocked) as ctx:
-                smoke_runner._list_instances()
-        finally:
-            smoke_runner._run = previous["_run"]
+        with (
+            mock.patch.object(
+                smoke_runner.worker_pool,
+                "_list_pool_instances",
+                return_value=[],
+            ),
+            self.assertRaises(smoke_runner.InfrastructureBlocked) as ctx,
+        ):
+            smoke_runner._list_instances()
 
-        self.assertIn("brev ls --json timed out after 45s", str(ctx.exception))
+        self.assertIn(
+            "managed and registered worker inventories returned no",
+            str(ctx.exception),
+        )
+
+    def test_registered_inventory_survives_managed_brev_timeout(self):
+        previous_registered = set(smoke_runner._REGISTERED_WORKERS)
+        try:
+            with (
+                mock.patch.object(
+                    smoke_runner.worker_pool,
+                    "_list_brev_instances",
+                    return_value=[],
+                ),
+                mock.patch.object(
+                    smoke_runner.worker_pool,
+                    "_list_registered_nodes",
+                    return_value=[
+                        {
+                            "name": "vss-eval-rtx-2g-VM1b",
+                            "status": "Connected",
+                        }
+                    ],
+                ),
+                mock.patch.dict(
+                    os.environ,
+                    {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b"},
+                ),
+            ):
+                instances = smoke_runner._list_instances()
+        finally:
+            smoke_runner._REGISTERED_WORKERS.clear()
+            smoke_runner._REGISTERED_WORKERS.update(previous_registered)
+
+        self.assertEqual(
+            [instance["name"] for instance in instances],
+            ["vss-eval-rtx-2g-VM1b"],
+        )
+
+    def test_registered_worker_commands_use_direct_ssh_transport(self):
+        calls: list[tuple[list[str], dict]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                "harbor-ready\n",
+                "",
+            )
+
+        previous_registered = set(smoke_runner._REGISTERED_WORKERS)
+        transport_key = "vss-eval-rtx-2g-vm1b"
+        previous_transport = smoke_runner.worker_pool._WORKER_TRANSPORTS.get(
+            transport_key
+        )
+        smoke_runner._REGISTERED_WORKERS.add("vss-eval-rtx-2g-vm1b")
+        try:
+            with mock.patch.object(
+                smoke_runner.worker_pool.subprocess,
+                "run",
+                side_effect=fake_run,
+            ):
+                executor = smoke_runner._worker_remote_executor(
+                    "vss-eval-rtx-2g-VM1b"
+                )
+                result = executor("echo harbor-ready", 45)
+        finally:
+            smoke_runner._REGISTERED_WORKERS.clear()
+            smoke_runner._REGISTERED_WORKERS.update(previous_registered)
+            if previous_transport is None:
+                smoke_runner.worker_pool._WORKER_TRANSPORTS.pop(
+                    transport_key,
+                    None,
+                )
+            else:
+                smoke_runner.worker_pool._WORKER_TRANSPORTS[
+                    transport_key
+                ] = previous_transport
+
+        self.assertEqual(result.returncode, 0)
+        command, kwargs = calls[0]
+        self.assertEqual(command[0], "ssh")
+        self.assertIn("vss-eval-rtx-2g-vm1b", command)
+        self.assertEqual(command[-1], "echo harbor-ready")
+        self.assertNotIn("brev", command)
+        self.assertEqual(kwargs["input"], "")
+
+    def test_registered_reachability_failure_never_runs_brev_refresh(self):
+        transport_key = "vss-eval-rtx-2g-vm1b"
+        previous_registered = set(smoke_runner._REGISTERED_WORKERS)
+        previous_transport = smoke_runner.worker_pool._WORKER_TRANSPORTS.get(
+            transport_key
+        )
+        smoke_runner._REGISTERED_WORKERS.add(transport_key)
+        refresh = mock.Mock()
+        try:
+            with (
+                mock.patch.object(
+                    smoke_runner.worker_pool.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        [],
+                        255,
+                        "",
+                        "ssh: Could not resolve hostname registered-worker",
+                    ),
+                ),
+                mock.patch.object(smoke_runner, "_run", refresh),
+            ):
+                reachable = smoke_runner._reachable(
+                    "vss-eval-rtx-2g-VM1b"
+                )
+        finally:
+            smoke_runner._REGISTERED_WORKERS.clear()
+            smoke_runner._REGISTERED_WORKERS.update(previous_registered)
+            if previous_transport is None:
+                smoke_runner.worker_pool._WORKER_TRANSPORTS.pop(
+                    transport_key,
+                    None,
+                )
+            else:
+                smoke_runner.worker_pool._WORKER_TRANSPORTS[
+                    transport_key
+                ] = previous_transport
+
+        self.assertFalse(reachable)
+        refresh.assert_not_called()
 
     def test_reachability_timeout_skips_candidate(self):
         previous = {"_run": smoke_runner._run}
