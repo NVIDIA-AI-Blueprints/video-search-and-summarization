@@ -53,11 +53,15 @@ from natural-language capability requests.
   Foundation. For example, a Search-derived RT-CV-only build that excludes
   embeddings, Search analytics/API, Agent/UI/ingress, tracing, RT-VLM, and LLM
   inference should keep VIOS, RT-CV, Kafka, Elasticsearch, Redis, Kibana,
-  Logstash, and required init/wait peers, while removing `rtvi-embed`,
+  Logstash, `kibana-init-container-search`, and required init/wait peers, while
+  removing `rtvi-embed`,
   `vss-search-analytics-2d-fusion`, `vss-video-analytics-api-fusion`,
   `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, `rtvi-vlm`, and
   `llm_${LLM_MODE}_${LLM_NAME_SLUG}`. Set `ENABLE_CRITIC=false` when critique
   or RT-VLM is excluded.
+- For that Search-derived RT-CV-only build, the effective profile set must
+  include `kibana-init-container-search` and the generated delta must include
+  `ENABLE_CRITIC=false`; do not omit either from the final proof.
 - For Search-derived ingestion + detection + embedding builds, keep
   `vss-search-analytics-2d-fusion` and `rtvi-embed` when indexing/search data
   is requested, but still remove `vss-video-analytics-api-fusion` unless the
