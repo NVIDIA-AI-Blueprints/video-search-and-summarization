@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import aiohttp
 import pytest
@@ -44,6 +44,13 @@ from .picture_test_utils import (
     fetch_picture_async,
     validate_jpeg_with_jpeginfo
 )
+
+SENSOR_LIST_ENDPOINT = '/vst/api/v1/sensor/list'
+FILE_SENSOR_TYPE = 'sensor_file'
+# Offsets subtracted from the timeline endTime, in milliseconds. Both land inside
+# the display interval of the last frame, which is where the picture must come from.
+LAST_FRAME_OFFSETS_MS = (0, 10)
+
 
 # Test endpoints for replay pictures
 @pytest.fixture
@@ -162,6 +169,90 @@ def select_timestamps(context):
     
     assert len(context.test_data) > 0, "No valid test data found"
     logger.info("Selected %d timestamp(s) for testing", len(context.test_data))
+
+
+@when('file sensors with recorded timelines are selected')
+def select_file_sensor_timelines(context, api_config, test_endpoints, test_params):
+    """Build test data from the end of every uploaded file sensor's timeline."""
+    base_url = api_config['base_url']
+    verify_ssl = api_config.get('verify_ssl', False)
+    timeout = test_params['timeout']
+
+    response = requests.get(f"{base_url}{SENSOR_LIST_ENDPOINT}", timeout=timeout, verify=verify_ssl)
+    response.raise_for_status()
+    file_sensor_ids = [
+        sensor['sensorId']
+        for sensor in response.json()
+        if isinstance(sensor, dict)
+        and sensor.get('type') == FILE_SENSOR_TYPE
+        and sensor.get('sensorId')
+    ]
+    if not file_sensor_ids:
+        pytest.skip("No file sensors (type=%s) available" % FILE_SENSOR_TYPE)
+
+    response = requests.get(
+        f"{base_url}{test_endpoints['timelines']}", timeout=timeout, verify=verify_ssl
+    )
+    response.raise_for_status()
+    timelines = response.json()
+
+    test_data = []
+    for sensor_id in file_sensor_ids:
+        intervals = timelines.get(sensor_id)
+        if not isinstance(intervals, list) or not intervals:
+            continue
+        end_time_str = intervals[-1].get('endTime')
+        if not end_time_str:
+            continue
+        end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+        for offset_ms in LAST_FRAME_OFFSETS_MS:
+            timestamp = end_time - timedelta(milliseconds=offset_ms)
+            test_data.append({
+                'stream_id': sensor_id,
+                'timestamp': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+            })
+
+    if not test_data:
+        pytest.skip("No file sensor has timeline data")
+
+    context.test_data = test_data
+    logger.info("Selected %d end-of-timeline timestamp(s) across %d file sensor(s)",
+                len(test_data), len(file_sensor_ids))
+
+
+@when('pictures are requested at the end of each file sensor timeline')
+def fetch_pictures_at_timeline_end(context, api_config, test_endpoints, test_params):
+    """Request each end-of-timeline picture and record the outcome."""
+    results = []
+    for index, item in enumerate(context.test_data):
+        url = f"{api_config['base_url']}{test_endpoints['picture'].format(stream_id=item['stream_id'])}"
+        result = {
+            'index': index,
+            'stream_id': item['stream_id'],
+            'start_time': item['timestamp'],
+            'content': None,
+            'status': None,
+            'success': False,
+            'error': None,
+        }
+        try:
+            response = requests.get(
+                url,
+                params={'startTime': item['timestamp']},
+                timeout=test_params['timeout'],
+                verify=api_config.get('verify_ssl', False),
+            )
+            response.raise_for_status()
+            result.update(content=response.content, status=response.status_code, success=True)
+        except Exception as exc:
+            result['error'] = str(exc)
+            logger.warning("[%s] Picture at %s failed: %s",
+                           item['stream_id'], item['timestamp'], exc)
+        results.append(result)
+
+    context.pictures = results
+    logger.info("Fetched %d/%d end-of-timeline pictures",
+                sum(1 for r in results if r['success']), len(results))
 
 
 @then('pictures for each stream and timestamp are fetched in parallel')
