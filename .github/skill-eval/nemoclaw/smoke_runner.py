@@ -2297,6 +2297,47 @@ _RETRYABLE_WORKER_SETUP_MESSAGES = (
     "Upload dir failed on ",
 )
 
+_ANSI_ESCAPE_RE = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-_])"
+)
+_SETUP_FAILURE_DETAIL_PATTERNS = (
+    re.compile(
+        r"Cannot safely release the stale OpenShell gateway: [^\r\n]+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Cannot safely migrate legacy NemoClaw state for this gateway port: "
+        r"[^\r\n]+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Could not discard DGX Station Express installer resume state: "
+        r"[^\r\n]+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Sandbox '[A-Za-z0-9._-]+' was created but did not become ready "
+        r"within [0-9]+s\.",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"reason=ContainerRestarting Container is restarting after a failure",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Active NemoClaw gateway release unavailable: [^\r\n]+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"OpenShell gateway port [0-9]+ is still busy after scoped release",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Cannot install trusted lsof(?:: [^\r\n]+)?",
+        re.IGNORECASE,
+    ),
+)
+
 
 def _worker_bound_setup_message(first_line: str, instance: str) -> bool:
     if any(
@@ -2315,6 +2356,33 @@ def _worker_bound_setup_message(first_line: str, instance: str) -> bool:
             f"Unexpected response from instance '{instance}':",
         )
     )
+
+
+def _worker_setup_failure_summary(message: str) -> str:
+    """Keep a bounded, actionable cause from a multiline setup exception."""
+    lines = [
+        " ".join(_ANSI_ESCAPE_RE.sub("", line).split())
+        for line in message.splitlines()
+    ]
+    lines = [line for line in lines if line]
+    if not lines:
+        return ""
+    first_line = lines[0]
+    details: list[str] = []
+    for line in lines[1:]:
+        for pattern in _SETUP_FAILURE_DETAIL_PATTERNS:
+            match = pattern.search(line)
+            if match is None:
+                continue
+            detail = _shorten(match.group(0), 280)
+            if detail not in details:
+                details.append(detail)
+            break
+        if len(details) == 4:
+            break
+    if not details:
+        return first_line
+    return f"{first_line}; details: {'; '.join(details)}"
 
 
 def _retryable_worker_setup_failure(
@@ -2369,7 +2437,7 @@ def _retryable_worker_setup_failure(
     first_line = message.splitlines()[0] if message else ""
     if not _worker_bound_setup_message(first_line, instance):
         return None
-    return first_line
+    return _worker_setup_failure_summary(message)
 
 
 def _parse_iso(value: str | None) -> dt.datetime | None:

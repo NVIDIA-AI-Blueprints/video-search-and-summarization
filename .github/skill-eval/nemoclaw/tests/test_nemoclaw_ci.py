@@ -60,6 +60,10 @@ readiness = load_module(
     "nemoclaw_readiness",
     REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "readiness.py",
 )
+setup_failure = load_module(
+    "nemoclaw_setup_failure",
+    REPO_ROOT / ".github" / "skill-eval" / "nemoclaw" / "setup_failure.py",
+)
 nemoclaw_deploy_profile_verifier = load_module(
     "nemoclaw_deploy_profile_verifier",
     REPO_ROOT / ".github" / "skill-eval" / "verifiers" / "nemoclaw_deploy_profile.py",
@@ -72,6 +76,70 @@ skills_eval_agent = load_module(
     "skills_eval_agent",
     REPO_ROOT / ".github" / "skill-eval" / "skills_eval_agent.py",
 )
+
+
+class SetupFailureDiagnosticTest(unittest.TestCase):
+    def test_classification_emits_only_fixed_categories(self):
+        raw_secret = "sk-secret-value"
+        diagnostic = setup_failure.classify_setup_failure(
+            "\n".join(
+                (
+                    f"Could not authenticate using {raw_secret}",
+                    "Cannot safely migrate legacy NemoClaw state for this "
+                    "gateway port: onboard-session.json conflicts with its "
+                    "sandbox registry row",
+                    "Sandbox 'demo' was created but did not become ready within 180s.",
+                    "reason=ContainerRestarting Container is restarting after a failure",
+                )
+            ),
+            1,
+        )
+
+        encoded = json.dumps(diagnostic, sort_keys=True)
+        self.assertNotIn(raw_secret, encoded)
+        self.assertEqual(
+            diagnostic["categories"],
+            [
+                "legacy_state_conflict",
+                "sandbox_container_restarting",
+                "sandbox_not_ready",
+            ],
+        )
+        self.assertEqual(
+            setup_failure.format_setup_failure(diagnostic),
+            "legacy_state_conflict,sandbox_container_restarting,sandbox_not_ready",
+        )
+
+    def test_cli_writes_owner_only_safe_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            raw_log = root / "setup.log"
+            output = root / "setup-failure.json"
+            raw_log.write_text(
+                "Could not authenticate using sk-secret-value\n"
+                "Cannot install trusted lsof for scoped gateway recovery\n",
+                encoding="utf-8",
+            )
+
+            rc = setup_failure.main(
+                [
+                    "--input",
+                    str(raw_log),
+                    "--output",
+                    str(output),
+                    "--return-code",
+                    "1",
+                ]
+            )
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            encoded = output.read_text(encoding="utf-8")
+            self.assertNotIn("sk-secret-value", encoded)
+            self.assertEqual(
+                json.loads(encoded)["categories"],
+                ["trusted_lsof_unavailable"],
+            )
 
 
 class GatewayReleaseTest(unittest.TestCase):
@@ -830,7 +898,7 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             source,
         )
 
-    def test_nemoclaw_pin_routes_exec_through_the_owning_gateway(self):
+    def test_nemoclaw_pin_includes_owning_gateway_and_first_boot_fixes(self):
         notebook = json.loads(
             (REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_nemoclaw.ipynb").read_text()
         )
@@ -838,8 +906,9 @@ class NotebookSetupAdapterTest(unittest.TestCase):
 
         self.assertEqual(len(cells), 1)
         source = "".join(cells[0].get("source", ""))
-        self.assertIn('NEMOCLAW_INSTALL_REF = "v0.0.88"', source)
-        self.assertIn("NVIDIA/NemoClaw#7113", source)
+        self.assertIn('NEMOCLAW_INSTALL_REF = "v0.0.97"', source)
+        self.assertIn("owning-gateway routing fix from v0.0.88", source)
+        self.assertIn("first-boot", source)
         self.assertNotIn('NEMOCLAW_INSTALL_REF = "v0.0.80"', source)
 
     def test_split_notebooks_use_refactored_brev_util_path(self):
@@ -4598,6 +4667,62 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
         )
         self.assertIsNone(mismatched_worker_reason)
 
+    def test_pre_agent_brev_environment_failure_keeps_actionable_detail(self):
+        result = {
+            "config": {
+                "environment": {
+                    "import_path": "envs.brev_env:BrevEnvironment",
+                }
+            },
+            "environment_setup": {
+                "started_at": "2026-07-29T18:11:36Z",
+                "finished_at": "2026-07-29T18:23:01Z",
+            },
+            "agent_setup": None,
+            "agent_execution": None,
+            "verifier": None,
+            "agent_result": None,
+            "verifier_result": None,
+            "exception_info": {
+                "exception_type": "RuntimeError",
+                "exception_message": (
+                    "NemoClaw setup failed on vss-eval-rtx-2g-2: "
+                    "exit 1; output tail:\n"
+                    "\x1b[31mAssertionError\x1b[0m: nemoclaw onboard failed\n"
+                    "Sandbox 'demo' was created but did not become ready "
+                    "within 180s.\n"
+                    "reason=ContainerRestarting Container is restarting "
+                    "after a failure\n"
+                    "Could not authenticate using sk-secret-value\n"
+                    "reason=ContainerRestarting Container is restarting "
+                    "after a failure\n"
+                ),
+                "exception_traceback": (
+                    'File "/workspace/.github/skill-eval/envs/brev_env.py", '
+                    "line 1280, in start"
+                ),
+            },
+        }
+
+        with mock.patch.object(
+            smoke_runner,
+            "_latest_trial",
+            return_value=(Path("/tmp/trial"), result),
+        ):
+            reason = smoke_runner._retryable_worker_setup_failure(
+                Path("/tmp/results"),
+                "30478078792",
+                since=1.0,
+                instance="vss-eval-rtx-2g-2",
+            )
+
+        self.assertIsNotNone(reason)
+        self.assertIn("did not become ready", reason)
+        self.assertIn("ContainerRestarting", reason)
+        self.assertNotIn("sk-secret-value", reason)
+        self.assertNotIn("\x1b", reason)
+        self.assertEqual(reason.count("ContainerRestarting"), 1)
+
     def test_worker_bound_transport_and_resource_failures_are_retryable(self):
         messages = (
             "Upload dir failed on vss-eval-rtx-1g-3: No space left on device",
@@ -7813,9 +7938,10 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("NEMOCLAW_INPUT_INSTANCE:", source)
         self.assertIn('export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"', source)
         self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=7800", source)
+        self.assertIn("export NEMOCLAW_INSTALL_REF=v0.0.97", source)
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
-        self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
+        self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=1200", source)
         self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=3300", source)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=19080", source)
         self.assertIn("unset NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR", source)
