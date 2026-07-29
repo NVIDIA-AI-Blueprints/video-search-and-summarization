@@ -3160,6 +3160,24 @@ def _version_lt(a: str, b: str) -> bool:
     return tup(a) < tup(b)
 
 
+def _parse_df_size_gb(output: str | None) -> int | None:
+    """Return the first standalone ``df -BG`` size from Brev CLI output.
+
+    Managed ``brev exec`` can append the workspace name after the remote
+    command's stdout (for example ``117G\nvss-eval-rtx-1g-2\n``).  Parsing
+    the entire buffer silently disabled the disk requirement on exactly those
+    workers.  Accept only a line containing an integer with an optional
+    trailing ``G``; ignore transport decorations and instance names.
+    """
+    for line in (output or "").splitlines():
+        value = line.strip()
+        if value.endswith("G"):
+            value = value[:-1].strip()
+        if value.isdigit():
+            return int(value)
+    return None
+
+
 async def _check_live_resources(instance_name: str, req: dict) -> None:
     """SSH into the instance and verify root disk + driver meet requirements."""
     min_disk = req.get("min_root_disk_gb", 0)
@@ -3172,24 +3190,27 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
             "df -BG / | tail -1 | awk '{print $2}'",
             timeout=30,
         )
-        if result.return_code == 0 and result.stdout.strip():
-            total = result.stdout.strip().rstrip("G").strip()
-            try:
-                total_gb = int(total)
-            except ValueError:
-                logger.warning("Could not parse df output: %r", result.stdout)
-                total_gb = None
-            if total_gb is not None and total_gb < min_disk:
-                raise RuntimeError(
-                    f"Brev instance '{instance_name}' root disk is {total_gb} GB; "
-                    f"task requires at least {min_disk} GB (for NIM images + VSS "
-                    f"containers). Delete and reprovision with a larger-root "
-                    f"instance type."
-                )
-            logger.info(
-                "Instance '%s' root disk: %s GB (>= required %s GB)",
-                instance_name, total_gb, min_disk,
+        total_gb = (
+            _parse_df_size_gb(result.stdout)
+            if result.return_code == 0
+            else None
+        )
+        if total_gb is None:
+            raise RuntimeError(
+                f"Brev instance '{instance_name}' root disk could not be "
+                "determined: df returned no standalone GB size"
             )
+        if total_gb < min_disk:
+            raise RuntimeError(
+                f"Brev instance '{instance_name}' root disk is {total_gb} GB; "
+                f"task requires at least {min_disk} GB (for NIM images + VSS "
+                f"containers). Delete and reprovision with a larger-root "
+                f"instance type."
+            )
+        logger.info(
+            "Instance '%s' root disk: %s GB (>= required %s GB)",
+            instance_name, total_gb, min_disk,
+        )
 
     if min_driver:
         result = await _run_brev_exec(
