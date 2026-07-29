@@ -728,6 +728,10 @@ _WARMUP_DROP_REASONS = EVENTS_DROPPED_REASONS
 #   VLM taxonomy — the four ``raise e`` branches in
 #   ``_process_single_message`` plus the legacy url/parse/unknown values.
 #   ``no_prompt`` — alert type has no prompt configured (C10).
+#   ``malformed_message`` — a required field the pipeline dereferences
+#     (``sensorId`` / ``timestamp`` / ``end``) is missing; the message is
+#     dropped in ``_prepare_message_context`` before the VST stage so a
+#     validation-bypassing producer cannot crash the worker with a ``KeyError``.
 #   ``redis_unavailable`` — legacy label name (kept for metric-contract
 #     back-compat); a backend failure during the confirmed-verdict skip
 #     check (C25); covered by ``_classify_pre_processing_failure``.
@@ -740,6 +744,7 @@ _WARMUP_VERIFICATION_REASONS = (
     "vlm_parse_failure", "vlm_timeout", "vlm_connection_error",
     "vlm_server_error", "vlm_invalid_payload",
     "no_prompt",
+    "malformed_message",
     "redis_unavailable",
     "unknown",
 )

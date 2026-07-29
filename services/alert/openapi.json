@@ -1398,8 +1398,19 @@
                                     "info": {
                                         "type": "object",
                                         "additionalProperties": {
-                                            "type": "string"
-                                        }
+                                            "oneOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "array"
+                                                },
+                                                {
+                                                    "type": "object"
+                                                }
+                                            ]
+                                        },
+                                        "description": "String values by default; arrays/objects (e.g. media_urls) are accepted and JSON-encoded downstream. Non-string scalars are rejected."
                                     },
                                     "event": {
                                         "type": "object"
@@ -1421,7 +1432,10 @@
                                 "category": "collision",
                                 "info": {
                                     "location": "warehouse-loading-dock",
-                                    "primaryObjectId": "worker-04"
+                                    "primaryObjectId": "worker-04",
+                                    "media_urls": [
+                                        "http://media-store/incident-67890.mp4"
+                                    ]
                                 },
                                 "event": {
                                     "id": "incident-67890",

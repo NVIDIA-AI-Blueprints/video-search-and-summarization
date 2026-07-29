@@ -20,9 +20,28 @@ Alert Agent HTTP Schemas
 Response schemas for alert submission endpoints.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, constr
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictStr, constr
+
+
+def _validate_info_value(value: Any) -> Any:
+    """Allow string or structured (array/object) ``info`` values, but reject
+    bare non-string scalars (int/float/bool).
+
+    Structured values are intentional (e.g. Mode-3 direct-media ``media_urls``)
+    and have a well-defined JSON round-trip into the protobuf ``map<string,
+    string>`` info field. Bare scalars, on the other hand, would only be
+    coerced lossily (``True`` -> ``"True"``), so they are rejected to keep the
+    contract explicit. Applied per value so each offending key surfaces as its
+    own ``info.<key>`` validation error.
+    """
+    if isinstance(value, (str, list, dict)):
+        return value
+    raise ValueError("must be a string, array, or object")
+
+
+InfoValue = Annotated[Any, BeforeValidator(_validate_info_value)]
 
 class IncidentSubmissionRequest(BaseModel):
     """NvSchema incident accepted by the HTTP JSON endpoint."""
@@ -58,9 +77,15 @@ class IncidentSubmissionRequest(BaseModel):
         max_length=256,
         description="Incident category used for prompt matching",
     )
-    info: Dict[StrictStr, StrictStr] = Field(
+    info: Dict[StrictStr, InfoValue] = Field(
         default_factory=dict,
-        description="Additional metadata as string key-value pairs",
+        description=(
+            "Additional metadata. String values are the common case, but "
+            "structured values (arrays/objects, e.g. Mode-3 direct-media "
+            "``media_urls``) are accepted and JSON-encoded into the protobuf "
+            "string map downstream. Bare non-string scalars (int/float/bool) "
+            "are rejected to prevent lossy silent coercion."
+        ),
     )
 
 
