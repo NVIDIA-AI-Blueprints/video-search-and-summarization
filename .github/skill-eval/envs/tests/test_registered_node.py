@@ -1117,7 +1117,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             'gateway-port-release.js"',
             command,
         )
-        self.assertIn('expected_nemoclaw_version="0.0.80"', command)
+        self.assertIn('expected_nemoclaw_version="0.0.88"', command)
         self.assertIn("resolve_nemoclaw_cli_root", command)
         self.assertIn("type -P nemoclaw", command)
         self.assertNotIn("npm root -g", command)
@@ -1263,7 +1263,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             package_root = npm_root / "nemoclaw"
             (package_root / "bin").mkdir()
             (package_root / "bin" / "nemoclaw.js").write_text(
-                "#!/bin/sh\nprintf 'nemoclaw v0.0.80\\n'\n",
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.88\\n'\n",
                 encoding="utf-8",
             )
             (package_root / "bin" / "nemoclaw.js").chmod(0o755)
@@ -1294,7 +1294,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             fake_node.write_text(
                 "#!/bin/sh\n"
                 "if [ \"$#\" -gt 0 ]; then "
-                "printf 'nemoclaw v0.0.80\\n'; exit 0; fi\n"
+                "printf 'nemoclaw v0.0.88\\n'; exit 0; fi\n"
                 "if [ -z \"${GATEWAY_RELEASE_PORT:-}\" ]; then exit 0; fi\n"
                 "printf '%s|%s\\n' \"$GATEWAY_RELEASE_MODULE\" "
                 "\"$GATEWAY_RELEASE_PORT\" >> \"$FAKE_NODE_LOG\"\n"
@@ -1401,7 +1401,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             (cli_package_root / "bin").mkdir()
             cli_target = cli_package_root / "bin" / "nemoclaw.js"
             cli_target.write_text(
-                "#!/bin/sh\nprintf 'nemoclaw v0.0.80\\n'\n",
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.88\\n'\n",
                 encoding="utf-8",
             )
             cli_target.chmod(0o755)
@@ -1597,7 +1597,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 blocked_listener.wait(timeout=5)
 
             fake_nemoclaw.write_text(
-                "#!/bin/sh\nprintf 'nemoclaw v0.0.80\\n'\n",
+                "#!/bin/sh\nprintf 'nemoclaw v0.0.88\\n'\n",
                 encoding="utf-8",
             )
             cli_module.unlink()

@@ -86,10 +86,10 @@ nemoclaw sandbox gateway token "$SB"
 
 ## Why the local MCP uses `mcporter`
 
-NemoClaw v0.0.80's managed MCP boundary requires an authenticated public HTTPS
+NemoClaw v0.0.88's managed MCP boundary requires an authenticated public HTTPS
 endpoint. The VSS Orchestrator is intentionally host-local and unauthenticated;
 it is reachable only through the route allowed by
 `assets/vss_nemoclaw_policy.yaml`. The notebook therefore uses the same
-`mcporter` OpenClaw adapter that NemoClaw v0.0.80 uses internally, but registers
+`mcporter` OpenClaw adapter that NemoClaw v0.0.88 uses internally, but registers
 the private URL directly. Other agent runtimes should use an authenticated
 public HTTPS MCP endpoint with the managed `nemoclaw sandbox mcp add` command.

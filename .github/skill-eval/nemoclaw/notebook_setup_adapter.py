@@ -227,7 +227,7 @@ def _prepare_ci_nemoclaw_environment() -> None:
     sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME", "demo").strip()
     confirmation_key = "NEMOCLAW_CONFIRM_LEGACY_MANAGED_RECREATE"
     if sandbox_name and not os.environ.get(confirmation_key, "").strip():
-        # NemoClaw v0.0.80 requires this exact JSON list before migrating a
+        # NemoClaw v0.0.88 requires this exact JSON list before migrating a
         # legacy managed sandbox. Confirm only CI's selected sandbox so an
         # unexpected second legacy sandbox still causes the installer to stop.
         os.environ[confirmation_key] = json.dumps([sandbox_name], separators=(",", ":"))

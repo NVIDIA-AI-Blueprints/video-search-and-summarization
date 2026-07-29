@@ -1025,7 +1025,7 @@ if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
     stage "OpenShell bridge is absent and gateway port $gateway_port is free; fresh onboarding will recreate it"
   else
     stage "OpenShell bridge is absent while gateway port $gateway_port is busy; releasing the scoped host gateway"
-    expected_nemoclaw_version="0.0.80"
+    expected_nemoclaw_version="0.0.88"
     resolve_nemoclaw_cli_root() {{
       local cli_path
       cli_path="$(type -P nemoclaw 2>/dev/null || true)"

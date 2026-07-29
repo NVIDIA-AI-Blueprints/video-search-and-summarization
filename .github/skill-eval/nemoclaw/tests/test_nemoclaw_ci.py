@@ -826,6 +826,18 @@ class NotebookSetupAdapterTest(unittest.TestCase):
             source,
         )
 
+    def test_nemoclaw_pin_routes_exec_through_the_owning_gateway(self):
+        notebook = json.loads(
+            (REPO_ROOT / "deploy" / "docker" / "scripts" / "deploy_nemoclaw.ipynb").read_text()
+        )
+        cells = [cell for cell in notebook["cells"] if cell.get("id") == "e67f6da4"]
+
+        self.assertEqual(len(cells), 1)
+        source = "".join(cells[0].get("source", ""))
+        self.assertIn('NEMOCLAW_INSTALL_REF = "v0.0.88"', source)
+        self.assertIn("NVIDIA/NemoClaw#7113", source)
+        self.assertNotIn('NEMOCLAW_INSTALL_REF = "v0.0.80"', source)
+
     def test_split_notebooks_use_refactored_brev_util_path(self):
         expected_parts = (
             '"packages"',
