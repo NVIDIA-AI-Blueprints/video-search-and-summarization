@@ -16,6 +16,14 @@
 - Use `kafka-topic-init-container` and `broker-health-check` with Kafka-backed
   capability owners.
 - Use exactly the dashboard initializer matching the selected Foundation.
+- To browse more than one capability's indices from a single Kibana, converge on
+  one merged saved-object bundle imported by a single initializer, never two:
+  importing both per-profile bundles duplicates the shared `mdx-raw-*`/`mdx-behavior-*`
+  data views and conflicts on the default-view singleton. Keep the Foundation's one
+  dashboard initializer and patch it to mount the merged bundle in place of the
+  single-profile one it imports; do not add a second profile's initializer. Where a
+  merged bundle already ships, it is the drop-in for that patch (see
+  `search-and-alerts-kibana-objects.ndjson` in Sources).
 - `logstash` requires the broker and the profile's selected `STREAM_TYPE`.
 - `redis` may be used without the full ELK/Kafka set when it is only a cache.
 
@@ -35,6 +43,7 @@
 
 - `deploy/docker/services/infra/compose.yml`
 - `deploy/docker/services/infra/elk/`
+- `deploy/docker/services/infra/elk/kibana/configs/search-and-alerts-kibana-objects.ndjson`
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-lvs/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/compose.yml`
