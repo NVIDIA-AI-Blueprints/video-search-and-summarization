@@ -24,6 +24,12 @@ from natural-language capability requests.
   Logstash, and their init/health peers; do not choose `lvs` just because it
   already includes ELK, because LVS adds unrequested summarization services and
   profile-specific Kibana machinery.
+- For base-derived dense captioning, keep `vss-haproxy-ingress` even when the
+  Agent and UI are removed: it fronts VIOS/VST and other non-Agent backends,
+  and the HAProxy template uses `init-addr none` so missing Agent/UI backends
+  do not prevent startup. Do not add a custom Kafka topic definition for
+  `mdx-vlm-captions`; the default `KAFKA_TOPICS` owned by
+  `kafka-topic-init-container` already includes it.
 - Do not route warehouse or industry-profile requests through this skill unless
   the request is explicitly for a developer-profile-derived composition.
 - In delta mode, add or remove only canonical Compose profile keys and only the
