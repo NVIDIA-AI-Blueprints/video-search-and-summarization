@@ -101,7 +101,7 @@ Do not pin the `vss-va-mcp` image here — it comes from the Foundation (stock
 |---|---|
 | `DS_SOP_IMAGE` | DS-SOP image (`ds-sop:1.0.0`, built locally — see `sop/build-ds-sop.md`; must be built before deploy). |
 | `ENABLE_MESSAGING`, `DEFAULT_TOPIC`, `SOP_MESSAGING_SCHEMA` | Kafka publication (`1` / `mdx-vlm-captions` / `JSON`). |
-| `ENABLE_RTSP_OUTPUT`, `RTSP_PORT`, `SW_ENCODER` | Annotated RTSP output that VIOS records. |
+| `ENABLE_RTSP_OUTPUT`, `RTSP_PORT`, `SW_ENCODER` | Annotated RTSP output for VIOS (recorded only on a recorder-enabled composition; recording is pending on current profiles). |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.6` on ≤48 GB GPUs (the `0.3` default is H100-tuned). |
 | `SOP_STAGE_DIR` | Absolute **build-local** dir (`_builds/<name>/sop-report`) the adapted `get_sop_*` patch + VA-MCP config stage into — never `deploy/docker/`. |
 | `VSS_VA_MCP_CONFIG_FILE` | **In-container** path `vss-va-mcp` reads via `--config_file`; `override.yml` mounts the host-staged config (`${SOP_STAGE_DIR}/configs/va_mcp_server_config.yml`) here. Adapted from the downloaded SOP release config; its `include:` list is what registers the `get_sop_*` tools (no mount → path absent in-container → tools never register). |
