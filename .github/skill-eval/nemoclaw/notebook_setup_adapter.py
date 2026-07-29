@@ -212,6 +212,31 @@ print(f"Wrote NemoClaw CI env: {_env_out}")
 print(f"Wrote NemoClaw hook token file: {_token_file}")
 '''.strip() + "\n"
 
+DIRECT_CONTAINER_PREFLIGHT_SOURCE = r'''
+# CI-only guard for NemoClaw v0.0.97's gateway-independent Docker cleanup.
+import subprocess as _ci_subprocess
+import sys as _ci_sys
+
+_ci_preflight = _ci_subprocess.run(
+    [
+        _ci_sys.executable,
+        ".github/skill-eval/nemoclaw/direct_container_preflight.py",
+        "--sandbox-name",
+        NEMOCLAW_SANDBOX_NAME,
+    ],
+    capture_output=True,
+    text=True,
+    check=False,
+    timeout=60,
+)
+if _ci_preflight.returncode != 0:
+    raise RuntimeError(
+        (_ci_preflight.stderr or _ci_preflight.stdout or
+         "NemoClaw direct-container preflight failed").strip()
+    )
+print(_ci_preflight.stdout.strip())
+'''.strip() + "\n"
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -361,7 +386,20 @@ def build_notebook(source_nb: dict[str, Any], manifest: dict[str, Any]) -> dict[
         if cell_id == insert_before and not inserted:
             output["cells"].append(_code_cell(nbformat, PARAMETER_SOURCE, "ci-parameters"))
             inserted = True
-        output["cells"].append(_patch_ci_cell(cell_id, _normalize_cell_source(cells_by_id[cell_id])))
+        output["cells"].append(
+            _patch_ci_cell(
+                cell_id,
+                _normalize_cell_source(cells_by_id[cell_id]),
+            )
+        )
+        if cell_id == "s31-code":
+            output["cells"].append(
+                _code_cell(
+                    nbformat,
+                    DIRECT_CONTAINER_PREFLIGHT_SOURCE,
+                    "ci-direct-container-preflight",
+                )
+            )
 
     if not inserted:
         output["cells"].append(_code_cell(nbformat, PARAMETER_SOURCE, "ci-parameters"))

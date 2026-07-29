@@ -3362,6 +3362,65 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         if setup_failure is not None:
                             setup_failures_by_instance[instance] = setup_failure
+                            # A setup failure can occur before brev_env.start()
+                            # resets /logs/artifacts. Treat collected-only
+                            # ownership as the publication boundary: unlike the
+                            # normal post-agent path, no live remote probe is
+                            # needed to decide whether the local Harbor tree is
+                            # safe to retain. Any unverified tree is discarded
+                            # before failover or workflow artifact collection.
+                            setup_owner_status = _attempt_owner_status(
+                                results_root,
+                                run_id,
+                                since=scenario_started,
+                                expected_token=attempt_owner_token,
+                            )
+                            if setup_owner_status.status != "verified":
+                                discarded, discard_reason = (
+                                    _discard_contaminated_attempt(
+                                        results_root,
+                                        run_id,
+                                        since=scenario_started,
+                                    )
+                                )
+                                if not discarded:
+                                    reason = (
+                                        "pre-agent worker setup evidence could "
+                                        f"not be made safe on {instance}: "
+                                        f"{setup_owner_status.reason}; "
+                                        f"{discard_reason}; setup failure: "
+                                        f"{_shorten(setup_failure)}"
+                                    )
+                                    print(
+                                        f"BLOCKED: {reason}",
+                                        file=sys.stderr,
+                                        flush=True,
+                                    )
+                                    _append_blocked_summary(
+                                        reason=reason,
+                                        scenario=(
+                                            f"{scenario.skill}/"
+                                            f"{scenario.spec_name}/"
+                                            f"{scenario.platform}/"
+                                            f"{scenario.task_name}"
+                                        ),
+                                        scenario_id=(
+                                            f"{_scenario_id(scenario)}-"
+                                            "setup-evidence-untrusted"
+                                        ),
+                                    )
+                                    executed += 1
+                                    scenario_index += 1
+                                    failures.append(reason)
+                                    break
+                                print(
+                                    "[nemoclaw-ci] discarded unverified "
+                                    "pre-agent setup evidence on "
+                                    f"{instance}: "
+                                    f"{setup_owner_status.reason}; "
+                                    f"{discard_reason}",
+                                    flush=True,
+                                )
                         failover_now = time.monotonic()
                         setup_failover_limit_reached = (
                             max_setup_failovers is not None
