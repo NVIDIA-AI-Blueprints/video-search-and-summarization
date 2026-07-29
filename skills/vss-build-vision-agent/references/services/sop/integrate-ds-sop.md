@@ -23,7 +23,7 @@ Use this service when the workflow requires **SOP compliance monitoring of a pro
 - **Video source** — DS-SOP ingests the source **directly** (the API accepts a Basler camera, an RTSP URL, or a file). It does **not** consume video via a VIOS proxy — VIOS is downstream (it records DS-SOP's annotated output, see Outputs):
   1. **Basler/Pylon industrial camera (primary / canonical)** — the SOP work-cell setup; DS-SOP reads the camera directly. For testing without hardware, **camera emulation** replays a sample video as a fake Basler camera: `PYLON_CAMEMU=1` + the in-image `configs/Emulation_0815-0000.pfs` + `CAMERA_EMULATION_DIR`.
   2. **RTSP URL** — any `rtsp://...` source as `video_url` on `/v1/chat/completions` (a real IP camera, or a local `rtsp_server.py` relay of a sample video).
-  3. **File / on-demand** — a file path or base64 `video_url` for offline evaluation (deterministic; not realtime-bound).
+  3. **File / on-demand** — a file path or base64 `video_url` for offline evaluation (deterministic; not realtime-bound). On this route DS-SOP sets `sensor_id` to the uploaded file path (`ds_sop_process.py`), so ES docs / `get_sop_report` / Mode C carry a `/tmp/...`-style sensor id — functional but not human-meaningful; a named `sensor_id` (the stream name) requires the camera/RTSP route.
 - **REST** — OpenAI-compatible API server on `:${API_SERVER_PORT:-8300}` (`GET /v1/ready` → `200`; `GET /v1/models` → `ds_sop_model`; `GET /v1/metadata` → version + model info; `POST /v1/chat/completions` with a `video_url`). This is what `VLM_BASE_URL` points at when a VSS Agent is layered on top.
 - **Action config** — `${ACTION_CONFIG_PATH}` (JSON, the ordered SOP action set) and `${VLM_PROMPT_PATH}` (VLM prompt template), bind-mounted from the host.
 

@@ -150,21 +150,3 @@ docker exec vss-va-mcp /vss-agent/.venv/bin/python3 -c "import ${VSS_AGENT_PKG:-
 
 If step 4 shows 0 docs or step 5 shows every doc as `(10) ... not belong`, the SOP JSON
 Logstash pipeline or the detection input is wrong — see § Known Deployment Issues.
-
-## Testing
-
-- **Profile evals** (split per build-vision-agent convention, both on `RTXPRO6000BW`):
-  - `eval/profile_sop_1_compliance_monitoring.json` — **build + Compose validate only** (no deploy):
-    Foundation/delta correctness, exact `COMPOSE_PROFILES`, build-local staging of the get_sop_*
-    patch + Logstash overlay under `_builds/sop-1/`, `docker compose config`, and **no file under
-    `deploy/docker/` modified**. `ds-sop:1.0.0` is validated as an image reference — not built or run,
-    so this runs anywhere without the ~50 GB image or SOP models.
-  - `eval/profile_sop_1_compliance_monitoring_runtime_harbor.json` — **build + deploy + runtime-verify**:
-    SOP detection in ELK (REAL step responses, not all `(10)`) + the skill-driven Mode C report
-    (get_sop_* + vss-generate-video-report). **Prerequisite:** a provisioned host with `ds-sop:1.0.0`
-    already built (local-build-only, no registry) + SOP models staged. Only the legacy VSS-Agent /
-    `/generate` report path stays out of scope (see `integrate-ds-sop.md` § Scope notes).
-- **Blueprint full suite (reference):** `vss-sop-skills/vss-sop-test` (`scripts/vss_sop_test.py`)
-  runs 4 phases — service health, ELK pipeline, VIOS recording/livestream, and VSS-Agent end-to-end
-  (incl. report generation). Phases 1–3 overlap this eval; Phase 4 (agent/report) only applies once
-  build-vision-agent gains an agent/LLM-NIM/report-gen flow.

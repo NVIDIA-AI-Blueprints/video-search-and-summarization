@@ -214,10 +214,6 @@ need handling:
   `sop/sop-vlm-captions-json-logstash.conf`. The `get_sop_*` patch + VA-MCP config are
   **downloaded at build time** from the public SOP repo (see § Patch specifics) — **not shipped
   in this repo**.
-- **Profile evals** (split per build-vision-agent convention): `eval/profile_sop_1_compliance_monitoring.json`
-  (build + Compose validate — no deploy, no ds-sop image needed) and
-  `eval/profile_sop_1_compliance_monitoring_runtime_harbor.json` (build + deploy + runtime detection/report —
-  requires a provisioned host with `ds-sop:1.0.0` built + SOP models staged).
 - **Report rendering**: `skills/vss-generate-video-report/` (Mode C; `references/report-templates/sop-compliance-report.md`).
 - **Upstream**: `deploy/docker/services/agent/compose.yml` (`vss-va-mcp`), ELK / Kafka / VIOS Compose.
 - **SOP source**: `NVIDIA/sop-monitoring-blueprints` (public, branch `main`, `0dd472f`) —
