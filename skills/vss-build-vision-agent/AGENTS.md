@@ -52,6 +52,12 @@ from natural-language capability requests.
   `vss-agent`, `vss-ui`, `vss-haproxy-ingress`, `phoenix`, `rtvi-vlm`, and
   `llm_${LLM_MODE}_${LLM_NAME_SLUG}`. Set `ENABLE_CRITIC=false` when critique
   or RT-VLM is excluded.
+- For Search-derived ingestion + detection + embedding builds, keep
+  `vss-search-analytics-2d-fusion` and `rtvi-embed` when indexing/search data
+  is requested, but still remove `vss-video-analytics-api-fusion` unless the
+  user explicitly asks for the analytics API. Do not retain Agent/UI/ingress,
+  RT-VLM, Phoenix, or LLM NIM keys when the request excludes those user-facing
+  orchestration layers.
 - Generate and validate `_builds/<name>/override.env`, `compose.yml`, and
   `resolved.yml` as a unit. Never treat the label `<name>` as a Compose profile.
 - Present the architecture and data-flow summary before writing or deploying
