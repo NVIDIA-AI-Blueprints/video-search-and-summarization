@@ -461,9 +461,10 @@ jobs:
           # verifier ceiling, and 18 minutes of lifecycle overhead. Together
           # with the 20-minute lock wait, it fits the shared run cap above.
           export NEMOCLAW_HARBOR_TIMEOUT_SEC=7800
+          export NEMOCLAW_INSTALL_REF=v0.0.97
           export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500
           export NEMOCLAW_SETUP_TIMEOUT_SEC=1620
-          export NEMOCLAW_SETUP_CELL_TIMEOUT=900
+          export NEMOCLAW_SETUP_CELL_TIMEOUT=1200
           # One end-to-end budget shared by gateway recovery, OpenClaw, and
           # post-agent profile readiness (not one budget per phase).
           export NEMOCLAW_AGENT_TIMEOUT_SEC=3300

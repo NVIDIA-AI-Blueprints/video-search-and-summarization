@@ -37,6 +37,7 @@ import uuid
 
 from harbor.environments.base import BaseEnvironment
 from harbor.environments.base import ExecResult
+from nemoclaw.setup_failure import classify_setup_failure, format_setup_failure
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ NEMOCLAW_ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
 NEMOCLAW_ATTEMPT_OWNER_PATH = "/logs/artifacts/nemoclaw-attempt-owner"
 NEMOCLAW_LAUNCH_STATE_ROOT = "/tmp/skill-eval/nemoclaw/launch-attempts"
 NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
+MAX_SETUP_DIAGNOSTIC_INPUT_CHARS = 4 * 1024 * 1024
 
 
 def _is_transient_brev_transport_error(message: str | None) -> bool:
@@ -590,6 +592,7 @@ class BrevEnvironment(BaseEnvironment):
             # these explicitly, or the notebook adapter can derive them from
             # the forwarded LLM_REMOTE_* + NVIDIA_API_KEY values below.
             "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
+            "NEMOCLAW_INSTALL_REF",
             "NEMOCLAW_FALLBACK_ENDPOINT_URL", "NEMOCLAW_FALLBACK_MODEL",
             "NEMOCLAW_PREFERRED_API", "OPENCLAW_DISABLE_STREAMING_TOOL_CALLS",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
@@ -1025,7 +1028,41 @@ if ! printf '%s\n' "$openshell_network_names" | grep -Fxq openshell-docker; then
     stage "OpenShell bridge is absent and gateway port $gateway_port is free; fresh onboarding will recreate it"
   else
     stage "OpenShell bridge is absent while gateway port $gateway_port is busy; releasing the scoped host gateway"
-    expected_nemoclaw_version="0.0.88"
+    if ! [ -x /usr/bin/lsof ] && ! [ -x /usr/sbin/lsof ] && \
+       ! [ -x /bin/lsof ] && ! [ -x /sbin/lsof ]; then
+      if command -v apt-get >/dev/null 2>&1 && \
+         command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        stage "installing trusted lsof for scoped gateway recovery"
+        sudo -n apt-get update -qq || sudo -n apt-get update -qq || {{
+          echo "Cannot install trusted lsof: apt update failed" >&2
+          exit 1
+        }}
+        sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive \
+          apt-get install -y -qq lsof || {{
+          echo "Cannot install trusted lsof for scoped gateway recovery" >&2
+          exit 1
+        }}
+      fi
+    fi
+    trusted_lsof=""
+    for lsof_candidate in /usr/bin/lsof /usr/sbin/lsof /bin/lsof /sbin/lsof; do
+      if [ -f "$lsof_candidate" ] && [ -x "$lsof_candidate" ]; then
+        trusted_lsof="$lsof_candidate"
+        break
+      fi
+    done
+    if [ -z "$trusted_lsof" ]; then
+      echo "Cannot install trusted lsof for scoped gateway recovery: no executable in trusted system paths" >&2
+      exit 1
+    fi
+    stage "verified trusted lsof for scoped gateway recovery: $trusted_lsof"
+    expected_nemoclaw_ref="${{NEMOCLAW_INSTALL_REF:-v0.0.97}}"
+    if [[ "$expected_nemoclaw_ref" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+      expected_nemoclaw_version="${{BASH_REMATCH[1]}}"
+    else
+      echo "Invalid NEMOCLAW_INSTALL_REF for gateway recovery: $expected_nemoclaw_ref" >&2
+      exit 1
+    fi
     resolve_nemoclaw_cli_root() {{
       local cli_path
       cli_path="$(type -P nemoclaw 2>/dev/null || true)"
@@ -1078,7 +1115,8 @@ for _ in range(3):
 raise SystemExit(1)
 __NEMOCLAW_CLI_ROOT__
     }}
-    if ! (
+    gateway_release_status=0
+    (
       cli_resolution=()
       mapfile -t cli_resolution < <(resolve_nemoclaw_cli_root 2>/dev/null || true)
       candidate_root="${{cli_resolution[0]:-}}"
@@ -1177,6 +1215,13 @@ const result = runtime.releaseManagedGatewayPort({{
   confirmTimeoutMs: 5000,
   confirmPollIntervalMs: 100,
 }});
+if (result && result.skipped === true) {{
+  console.error(
+    `Scoped NemoClaw gateway release refused for port ${{port}}: ` +
+      "the selected lifecycle authority does not permit this process to stop it",
+  );
+  process.exit(42);
+}}
 if (!result || result.released !== true) {{
   console.error(
     `Scoped NemoClaw gateway release failed for port ${{port}}: ` +
@@ -1185,7 +1230,12 @@ if (!result || result.released !== true) {{
   process.exit(1);
 }}
 __NEMOCLAW_GATEWAY_RELEASE__
-    ); then
+    ) || gateway_release_status=$?
+    if [ "$gateway_release_status" -eq 42 ]; then
+      echo "Cannot safely release the stale OpenShell gateway: lifecycle authority refused scoped release" >&2
+      exit 1
+    fi
+    if [ "$gateway_release_status" -ne 0 ]; then
       gateway_release_fallback="$(realpath -- \
         "$REPO/.github/skill-eval/nemoclaw/release_gateway_port.py" 2>/dev/null || true)"
       case "$gateway_release_fallback" in
@@ -1261,7 +1311,7 @@ if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo
   stage "installing system packages for uv sync"
   sudo -n apt-get update -qq || sudo -n apt-get update -qq || \
     stage "apt update failed; continuing with cached package indexes"
-  sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config || \
+  sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config lsof || \
     stage "apt package preflight failed; continuing and letting setup report any missing dependency"
 else
   stage "apt/sudo unavailable; skipping system package preflight"
@@ -1291,16 +1341,48 @@ set +e
 timeout --kill-after=30s "$REMOTE_SETUP_TIMEOUT" /tmp/skill-eval/nemoclaw/setup.sh
 setup_rc=$?
 set -e
-cp -a /tmp/skill-eval/nemoclaw/. /logs/artifacts/nemoclaw/ 2>/dev/null || true
+diagnostic_rc=0
+if [ "$setup_rc" -ne 0 ]; then
+  if ! python3 .github/skill-eval/nemoclaw/setup_failure.py \
+    --input /tmp/skill-eval/nemoclaw/setup.log \
+    --output /tmp/skill-eval/nemoclaw/setup-failure.json \
+    --return-code "$setup_rc"; then
+    if ! printf '{{"categories":["diagnostic_generation_failed"],"return_code":%s,"schema_version":1}}\n' \
+      "$setup_rc" > /tmp/skill-eval/nemoclaw/setup-failure.json; then
+      diagnostic_rc=1
+    fi
+    if [ -f /tmp/skill-eval/nemoclaw/setup-failure.json ] && \
+       ! chmod 600 /tmp/skill-eval/nemoclaw/setup-failure.json; then
+      diagnostic_rc=1
+    fi
+  fi
+fi
+artifact_copy_rc=0
+for artifact_name in setup.executed.ipynb setup-failure.json; do
+  artifact_path="/tmp/skill-eval/nemoclaw/$artifact_name"
+  if [ -f "$artifact_path" ] && [ ! -L "$artifact_path" ]; then
+    if ! cp -- "$artifact_path" "/logs/artifacts/nemoclaw/$artifact_name"; then
+      artifact_copy_rc=1
+      continue
+    fi
+    if ! chmod 600 "/logs/artifacts/nemoclaw/$artifact_name"; then
+      artifact_copy_rc=1
+    fi
+  fi
+done
 if [ "$setup_rc" -ne 0 ]; then
   echo "[nemoclaw-setup] setup failed with exit code $setup_rc"
-  echo "[nemoclaw-setup] artifact snapshot:"
-  find /tmp/skill-eval/nemoclaw -maxdepth 2 -type f -printf '%p\n' 2>/dev/null | sort || true
-  echo "[nemoclaw-setup] setup.log tail:"
-  tail -n 200 /tmp/skill-eval/nemoclaw/setup.log 2>/dev/null || true
-  echo "[nemoclaw-setup] pip-install.log tail:"
-  tail -n 80 /tmp/skill-eval/nemoclaw/pip-install.log 2>/dev/null || true
+  echo "[nemoclaw-setup] safe diagnostic:"
+  cat /tmp/skill-eval/nemoclaw/setup-failure.json 2>/dev/null || true
+  if [ "$diagnostic_rc" -ne 0 ] || [ "$artifact_copy_rc" -ne 0 ]; then
+    echo "[nemoclaw-setup] safe diagnostic artifact collection was incomplete" >&2
+  fi
+  echo "[nemoclaw-setup] raw setup logs remain on the worker under /tmp/skill-eval/nemoclaw"
   exit "$setup_rc"
+fi
+if [ "$artifact_copy_rc" -ne 0 ]; then
+  echo "[nemoclaw-setup] failed to collect safe setup artifacts" >&2
+  exit 1
 fi
 """
         timeout_sec = int(os.environ.get("NEMOCLAW_SETUP_TIMEOUT_SEC", str(remote_setup_timeout + 120)))
@@ -1313,10 +1395,15 @@ fi
             combined_output = "\n".join(
                 part for part in (result.stdout, result.stderr) if part
             )
-            tail = combined_output[-8000:]
+            diagnostic = classify_setup_failure(
+                combined_output[-MAX_SETUP_DIAGNOSTIC_INPUT_CHARS:],
+                result.return_code,
+            )
             raise RuntimeError(
                 f"NemoClaw setup failed on {self._instance_name}: "
-                f"exit {result.return_code}; output tail:\n{tail}"
+                f"exit {result.return_code}; "
+                f"diagnostics={format_setup_failure(diagnostic)}; "
+                "inspect setup-failure.json"
             )
         logger.info("NemoClaw/OpenClaw setup succeeded on %s", self._instance_name)
 

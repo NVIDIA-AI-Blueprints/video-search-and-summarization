@@ -48,6 +48,7 @@ sys.modules.setdefault("harbor.environments", types.ModuleType("harbor.environme
 sys.modules["harbor.environments.base"] = _base
 
 ENVS_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ENVS_DIR.parent))
 sys.path.insert(0, str(ENVS_DIR))
 
 import brev_env  # noqa: E402
@@ -1018,13 +1019,21 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(calls), 1)
         command = calls[0][1]
+        syntax = subprocess.run(
+            ["bash", "-n"],
+            input=command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
         self.assertIn("set -eo pipefail\nset +u\nsource ~/.profile", command)
         self.assertIn("source ~/.profile 2>/dev/null || true\nset -u\nexport PATH", command)
         self.assertNotIn("set -euo pipefail\nsource ~/.profile", command)
         self.assertIn("--required-tools vss_orchestrator__docker_up", command)
         self.assertIn(
             "sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive "
-            "apt-get install -y -qq libcairo2-dev pkg-config",
+            "apt-get install -y -qq libcairo2-dev pkg-config lsof",
             command,
         )
         self.assertNotIn(
@@ -1037,7 +1046,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             "nbformat nbclient ipykernel",
             command,
         )
-        apt_start = command.index("if command -v apt-get")
+        apt_start = command.rindex("if command -v apt-get")
         apt_end = command.index(
             "# Registered workers use a uv-managed Python",
             apt_start,
@@ -1116,13 +1125,38 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             'gateway-port-release.js"',
             command,
         )
-        self.assertIn('expected_nemoclaw_version="0.0.88"', command)
+        self.assertIn(
+            'expected_nemoclaw_ref="${NEMOCLAW_INSTALL_REF:-v0.0.97}"',
+            command,
+        )
+        self.assertIn(
+            "installing trusted lsof for scoped gateway recovery",
+            command,
+        )
+        self.assertLess(
+            command.index("installing trusted lsof for scoped gateway recovery"),
+            command.index("resolve_nemoclaw_cli_root"),
+        )
+        self.assertIn(
+            "verified trusted lsof for scoped gateway recovery",
+            command,
+        )
+        self.assertLess(
+            command.index("verified trusted lsof for scoped gateway recovery"),
+            command.index("resolve_nemoclaw_cli_root"),
+        )
         self.assertIn("resolve_nemoclaw_cli_root", command)
         self.assertIn("type -P nemoclaw", command)
         self.assertNotIn("npm root -g", command)
         self.assertNotIn("$HOME/NemoClaw", command)
         self.assertIn('package.get("name") != "nemoclaw"', command)
         self.assertIn("releaseManagedGatewayPort({", command)
+        self.assertIn("result.skipped === true", command)
+        self.assertIn('gateway_release_status" -eq 42', command)
+        self.assertIn(
+            "lifecycle authority refused scoped release",
+            command,
+        )
         self.assertIn("confirmTimeoutMs: 5000", command)
         self.assertIn(
             ".github/skill-eval/nemoclaw/release_gateway_port.py",
@@ -1139,6 +1173,187 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         self.assertIn("gateway_port_is_free", command)
         self.assertNotIn("docker network create", command)
         self.assertNotIn("pkill", command)
+        self.assertIn(
+            "python3 .github/skill-eval/nemoclaw/setup_failure.py",
+            command,
+        )
+        self.assertIn(
+            "for artifact_name in setup.executed.ipynb "
+            "setup-failure.json",
+            command,
+        )
+        self.assertNotIn(
+            "for artifact_name in setup.executed.ipynb "
+            "setup-failure.json readiness.json",
+            command,
+        )
+        self.assertNotIn(
+            "cp -a /tmp/skill-eval/nemoclaw/. "
+            "/logs/artifacts/nemoclaw/",
+            command,
+        )
+        self.assertNotIn("tail -n 200 /tmp/skill-eval/nemoclaw/setup.log", command)
+
+        artifact_start = command.index(
+            'set +e\ntimeout --kill-after=30s "$REMOTE_SETUP_TIMEOUT"'
+        )
+        artifact_script = command[artifact_start:]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stage_dir = root / "stage"
+            artifact_dir = root / "artifacts"
+            fake_bin = root / "bin"
+            stage_dir.mkdir()
+            artifact_dir.mkdir()
+            fake_bin.mkdir()
+            (stage_dir / "setup.log").write_text(
+                "setup exceeded its deadline\n",
+                encoding="utf-8",
+            )
+            fake_timeout = fake_bin / "timeout"
+            fake_timeout.write_text(
+                '#!/bin/sh\nexit "${FAKE_TIMEOUT_RC:-0}"\n',
+                encoding="utf-8",
+            )
+            fake_timeout.chmod(0o755)
+            cp_log = root / "cp.log"
+            fake_cp = fake_bin / "cp"
+            fake_cp.write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$*" >> "$FAKE_CP_LOG"\nexit 9\n',
+                encoding="utf-8",
+            )
+            fake_cp.chmod(0o755)
+            isolated_artifact_script = (
+                "set -e\nREMOTE_SETUP_TIMEOUT=10\n"
+                + artifact_script.replace(
+                    "/tmp/skill-eval/nemoclaw",
+                    str(stage_dir),
+                ).replace(
+                    "/logs/artifacts/nemoclaw",
+                    str(artifact_dir),
+                )
+            )
+            timeout_with_failed_copy = subprocess.run(
+                ["bash", "-c", isolated_artifact_script],
+                cwd=Path(__file__).resolve().parents[4],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "FAKE_TIMEOUT_RC": "124",
+                    "FAKE_CP_LOG": str(cp_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(
+                timeout_with_failed_copy.returncode,
+                124,
+                timeout_with_failed_copy.stderr,
+            )
+            self.assertIn(
+                "safe diagnostic artifact collection was incomplete",
+                timeout_with_failed_copy.stderr,
+            )
+            self.assertEqual(
+                json.loads(
+                    (stage_dir / "setup-failure.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["categories"],
+                ["setup_timeout"],
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stage_dir = root / "stage"
+            artifact_dir = root / "artifacts"
+            fake_bin = root / "bin"
+            stage_dir.mkdir()
+            artifact_dir.mkdir()
+            fake_bin.mkdir()
+            (stage_dir / "setup.log").write_text("ok\n", encoding="utf-8")
+            (stage_dir / "setup.executed.ipynb").write_text(
+                '{"safe":true}\n',
+                encoding="utf-8",
+            )
+            raw_secret = "sk-readiness-secret"
+            (stage_dir / "readiness.json").write_text(
+                json.dumps({"stderr_tail": f"authentication failed: {raw_secret}"}),
+                encoding="utf-8",
+            )
+            fake_timeout = fake_bin / "timeout"
+            fake_timeout.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_timeout.chmod(0o755)
+            isolated_artifact_script = (
+                "set -e\nREMOTE_SETUP_TIMEOUT=10\n"
+                + artifact_script.replace(
+                    "/tmp/skill-eval/nemoclaw",
+                    str(stage_dir),
+                ).replace(
+                    "/logs/artifacts/nemoclaw",
+                    str(artifact_dir),
+                )
+            )
+            safe_copy = subprocess.run(
+                ["bash", "-c", isolated_artifact_script],
+                cwd=Path(__file__).resolve().parents[4],
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(safe_copy.returncode, 0, safe_copy.stderr)
+            self.assertTrue((artifact_dir / "setup.executed.ipynb").is_file())
+            self.assertFalse((artifact_dir / "readiness.json").exists())
+            archived_text = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in artifact_dir.iterdir()
+                if path.is_file()
+            )
+            self.assertNotIn(raw_secret, archived_text)
+
+        lsof_preflight_start = command.index("if ! [ -x /usr/bin/lsof ]")
+        lsof_preflight_end = command.index(
+            'expected_nemoclaw_ref="',
+            lsof_preflight_start,
+        )
+        lsof_preflight = command[lsof_preflight_start:lsof_preflight_end]
+        with tempfile.TemporaryDirectory() as td:
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            for original_path, replacement_name in (
+                ("/usr/bin/lsof", "usr-bin-lsof"),
+                ("/usr/sbin/lsof", "usr-sbin-lsof"),
+                ("/bin/lsof", "bin-lsof"),
+                ("/sbin/lsof", "sbin-lsof"),
+            ):
+                lsof_preflight = lsof_preflight.replace(
+                    original_path,
+                    str(Path(td) / replacement_name),
+                )
+            missing_lsof = subprocess.run(
+                [
+                    "/bin/bash",
+                    "-c",
+                    "set -e\nstage() { :; }\n" + lsof_preflight,
+                ],
+                env={
+                    "HOME": str(Path(td) / "home"),
+                    "PATH": str(fake_bin),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(missing_lsof.returncode, 0)
+            self.assertIn(
+                "no executable in trusted system paths",
+                missing_lsof.stderr,
+            )
 
         reconcile_start = command.index(
             'gateway_port="${NEMOCLAW_GATEWAY_PORT:-8080}"'
@@ -1307,6 +1522,7 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 "HOME": str(home),
                 "PATH": f"{fake_bin}:{os.environ['PATH']}",
                 "FAKE_NODE_LOG": str(node_log),
+                "NEMOCLAW_INSTALL_REF": "v0.0.88",
             }
 
             port = unused_port()
@@ -1631,8 +1847,8 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 missing_listener.terminate()
                 missing_listener.wait(timeout=5)
 
-        repair_end = command.index("if command -v apt-get", repair_index)
         repair_start = command.index('recreate_value="', repair_index)
+        repair_end = command.index("if command -v apt-get", repair_start)
         repair_script = (
             "set -e\n"
             "stage() { :; }\n"
@@ -1737,6 +1953,44 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 "Refusing to repair through symlinked",
                 rejected_parent.stderr,
             )
+
+    async def test_nemoclaw_setup_exception_uses_secret_safe_categories(self):
+        raw_secret = "sk-secret-value"
+        raw_output = "\n".join(
+            (
+                "Could not authenticate using sk-secret-value",
+                "Cannot safely migrate legacy NemoClaw state for this gateway "
+                "port: onboard-session.json conflicts with its sandbox registry row",
+                "reason=ContainerRestarting Container is restarting after a failure",
+            )
+        )
+
+        async def fake_run_brev_exec(
+            instance,
+            command,
+            timeout=brev_env.BREV_EXEC_TIMEOUT,
+        ):
+            return brev_env.ExecResult(
+                stdout=raw_output,
+                stderr=None,
+                return_code=1,
+            )
+
+        with mock.patch.object(
+            brev_env,
+            "_run_brev_exec",
+            side_effect=fake_run_brev_exec,
+        ):
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "legacy_state_conflict,sandbox_container_restarting",
+            ) as raised:
+                await env._ensure_nemoclaw_ready({})
+
+        self.assertNotIn(raw_secret, str(raised.exception))
+        self.assertNotIn("onboard-session.json", str(raised.exception))
 
     async def test_nemoclaw_launcher_bypasses_outer_claude(self):
         calls = []
