@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check that a deploy image tag points at the current source subtree.
 
-For every ``vss-agent`` / ``vss-agent-ui`` image referenced from ``deploy/docker``
+For every configured VSS service image referenced from ``deploy/docker``
 compose + env files, fetch the image's OCI index annotations from the
 registry and compare ``com.nvidia.vss.source_tree_sha`` to the current
 checkout's tree SHA for the corresponding source folder.
@@ -79,6 +79,14 @@ IMAGE_CONFIGS = {
         image_name="vss-alert-ms",
         source_path=Path("services/alert"),
         deploy_image_names=("vss-alert-ms", "vss-alert-verification"),
+    ),
+    "vss-video-analytics-api": ImageConfig(
+        image_name="vss-video-analytics-api",
+        source_path=Path("services/analytics/video-analytics-api"),
+    ),
+    "vss-behavior-analytics": ImageConfig(
+        image_name="vss-behavior-analytics",
+        source_path=Path("services/analytics/behavior-analytics"),
     ),
 }
 

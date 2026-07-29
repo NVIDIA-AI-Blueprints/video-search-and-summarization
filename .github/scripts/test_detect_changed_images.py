@@ -204,6 +204,49 @@ class SelectImagesTest(unittest.TestCase):
             commit_change(repo, "services/ui-tools/x.js", "v1\n", "other folder")
             self.assertEqual(selected_names(repo, before), [])
 
+    def test_repository_inventory_builds_both_analytics_images(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        by_name = {entry["name"]: entry for entry in inventory["images"]}
+
+        expected = {
+            "vss-video-analytics-api": "services/analytics/video-analytics-api",
+            "vss-behavior-analytics": "services/analytics/behavior-analytics",
+        }
+        for name, context in expected.items():
+            entry = by_name[name]
+            self.assertTrue(entry["ghcr_build"])
+            self.assertEqual(entry["strategy"], "build")
+            self.assertEqual(entry["context"], context)
+            self.assertEqual(entry["source_path"], context)
+            self.assertEqual(
+                entry["platforms"], ["linux/amd64", "linux/arm64"]
+            )
+
+        va_entries, _ = dci.select_images(
+            inventory, ["services/analytics/video-analytics-api/src/app.ts"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in va_entries],
+            ["vss-video-analytics-api"],
+        )
+
+        ba_entries, _ = dci.select_images(
+            inventory, ["services/analytics/behavior-analytics/src/app.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in ba_entries],
+            ["vss-behavior-analytics"],
+        )
+
+        agent_entries, _ = dci.select_images(
+            inventory, ["services/agent/app.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in agent_entries],
+            ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
+        )
+
     def test_matrix_shape(self):
         inventory = INVENTORY
         entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
@@ -231,6 +274,69 @@ class SelectImagesTest(unittest.TestCase):
                 ]
             },
         )
+
+    def test_only_behavior_analytics_uses_arch_specific_runners(self):
+        entries = [
+            {
+                "name": "vss-behavior-analytics",
+                "context": "services/analytics/behavior-analytics",
+                "dockerfile": "services/analytics/behavior-analytics/docker/Dockerfile",
+                "platforms": ["linux/amd64", "linux/arm64"],
+                "source_path": "services/analytics/behavior-analytics",
+            },
+            {
+                "name": "vss-video-analytics-api",
+                "context": "services/analytics/video-analytics-api",
+                "dockerfile": (
+                    "services/analytics/video-analytics-api/docker/Dockerfile"
+                ),
+                "platforms": ["linux/amd64", "linux/arm64"],
+                "source_path": "services/analytics/video-analytics-api",
+            },
+            INVENTORY["images"][0],
+        ]
+
+        matrices = dci.split_build_matrices(entries)
+
+        self.assertEqual(
+            [entry["name"] for entry in matrices["standard_matrix"]["include"]],
+            ["vss-video-analytics-api", "vss-agent"],
+        )
+        self.assertEqual(
+            [entry["name"] for entry in matrices["native_matrix"]["include"]],
+            ["vss-behavior-analytics"],
+        )
+        self.assertEqual(
+            [
+                (
+                    entry["platform"],
+                    entry["arch"],
+                    entry["runner"],
+                    entry["runner_arch"],
+                    entry["kernel_arch"],
+                )
+                for entry in matrices["native_platform_matrix"]["include"]
+            ],
+            [
+                ("linux/amd64", "amd64", "ubuntu-24.04", "X64", "x86_64"),
+                ("linux/arm64", "arm64", "ubuntu-24.04-arm", "ARM64", "aarch64"),
+            ],
+        )
+
+    def test_native_matrix_rejects_platform_without_runner(self):
+        entries = [
+            {
+                "name": "vss-behavior-analytics",
+                "context": "services/analytics/behavior-analytics",
+                "dockerfile": (
+                    "services/analytics/behavior-analytics/docker/Dockerfile"
+                ),
+                "platforms": ["linux/s390x"],
+                "source_path": "services/analytics/behavior-analytics",
+            }
+        ]
+        with self.assertRaisesRegex(ValueError, "no native runner configured"):
+            dci.split_build_matrices(entries)
 
 
 if __name__ == "__main__":
