@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,10 @@ MCP_SERVER_NAME = "vss_orchestrator"
 SUMMARY_SCHEMA_VERSION = 1
 DEFAULT_GATEWAY_PORT = 8080
 MIN_GATEWAY_PORT = 1024
+GATEWAY_HEALTH_ATTEMPTS = 6
+GATEWAY_HEALTH_RETRY_SECONDS = 3
+GATEWAY_ALIVE_HTTP_CODES = frozenset({200, 401})
+GATEWAY_RECOVERY_TIMEOUT_SECONDS = 360
 _SANDBOX_MCP_ERROR_CATEGORIES = frozenset(
     {
         "sandbox_mcp_command_failed",
@@ -69,6 +74,18 @@ def _gateway_name_for_port(raw_port: str) -> str:
     return "nemoclaw" if port == DEFAULT_GATEWAY_PORT else f"nemoclaw-{port}"
 
 
+def _parse_gateway_http_code(result: subprocess.CompletedProcess[str]) -> int | None:
+    value = (result.stdout or "").strip()
+    if (
+        result.returncode != 0
+        or len(value) != 3
+        or not value.isascii()
+        or not value.isdigit()
+    ):
+        return None
+    return int(value)
+
+
 def _check_sandbox(name: str, gateway_port: str) -> dict[str, Any]:
     try:
         gateway_name = _gateway_name_for_port(gateway_port)
@@ -101,42 +118,96 @@ def _check_sandbox(name: str, gateway_port: str) -> dict[str, Any]:
     lookup_ok = sandbox_result is not None and sandbox_result.returncode == 0
 
     gateway_error = ""
-    gateway_result = None
+    gateway_http_code = None
+    gateway_ok = False
+    gateway_probe_attempts = 0
+    gateway_recovery_attempted = False
+    gateway_check_method = ""
     if lookup_ok:
-        try:
-            gateway_result = _run(
-                [
-                    "openshell",
-                    "sandbox",
-                    "exec",
-                    "--name",
-                    name,
-                    "-g",
-                    gateway_name,
-                    "--",
-                    "curl",
-                    "--noproxy",
-                    "*",
-                    "-fsS",
-                    "--connect-timeout",
-                    "3",
-                    "--max-time",
-                    "10",
-                    "-o",
-                    "/dev/null",
-                    "http://127.0.0.1:18789/health",
-                ],
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired as exc:
-            gateway_error = (
-                f"in-sandbox OpenClaw gateway health check timed out "
-                f"after {exc.timeout}s"
-            )
-    gateway_ok = gateway_result is not None and gateway_result.returncode == 0
-    gateway_detail = gateway_error
-    if gateway_result is not None:
-        gateway_detail = (gateway_result.stderr or gateway_result.stdout or "")[-1000:]
+        gateway_cmd = [
+            "openshell",
+            "sandbox",
+            "exec",
+            "--name",
+            name,
+            "-g",
+            gateway_name,
+            "--",
+            "curl",
+            "--noproxy",
+            "*",
+            "-sS",
+            "--connect-timeout",
+            "3",
+            "--max-time",
+            "10",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "http://127.0.0.1:18789/health",
+        ]
+        for attempt in range(1, GATEWAY_HEALTH_ATTEMPTS + 1):
+            gateway_probe_attempts = attempt
+            gateway_http_code = None
+            try:
+                gateway_result = _run(gateway_cmd, timeout=30)
+            except subprocess.TimeoutExpired as exc:
+                gateway_error = (
+                    f"in-sandbox OpenClaw gateway health check timed out "
+                    f"after {exc.timeout}s"
+                )
+            else:
+                gateway_http_code = _parse_gateway_http_code(gateway_result)
+                gateway_ok = gateway_http_code in GATEWAY_ALIVE_HTTP_CODES
+                if gateway_ok:
+                    gateway_error = ""
+                    break
+                if gateway_http_code is not None:
+                    gateway_error = (
+                        "in-sandbox OpenClaw gateway returned "
+                        f"HTTP {gateway_http_code}"
+                    )
+                elif gateway_result.returncode != 0:
+                    gateway_error = (
+                        gateway_result.stderr
+                        or f"gateway health curl exited {gateway_result.returncode}"
+                    )[-1000:]
+                else:
+                    gateway_error = "gateway health probe returned an invalid HTTP status"
+            if attempt < GATEWAY_HEALTH_ATTEMPTS:
+                time.sleep(GATEWAY_HEALTH_RETRY_SECONDS)
+        if not gateway_ok:
+            # OpenClaw may run in a child network namespace that an ordinary
+            # OpenShell exec cannot reach over loopback. The supported recover
+            # command is idempotent and, on success, proves the exact managed
+            # child, listener, 200/401 health response, settle window, and host
+            # forwards through NemoClaw's privileged lifecycle controller.
+            gateway_recovery_attempted = True
+            try:
+                recovery_result = _run(
+                    ["nemoclaw", "sandbox", "recover", name],
+                    timeout=GATEWAY_RECOVERY_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired as exc:
+                gateway_error = (
+                    f"managed OpenClaw gateway recovery timed out after "
+                    f"{exc.timeout}s"
+                )
+            except OSError:
+                gateway_error = "managed OpenClaw gateway recovery could not start"
+            else:
+                gateway_ok = recovery_result.returncode == 0
+                if gateway_ok:
+                    gateway_error = ""
+                    gateway_check_method = "managed_recover"
+                else:
+                    gateway_error = (
+                        "managed OpenClaw gateway recovery exited "
+                        f"{recovery_result.returncode}"
+                    )
+        else:
+            gateway_check_method = "scoped_http"
     return {
         "name": name,
         "gateway_name": gateway_name,
@@ -153,7 +224,11 @@ def _check_sandbox(name: str, gateway_port: str) -> dict[str, Any]:
             else lookup_error
         ),
         "gateway_ok": gateway_ok,
-        "gateway_stderr_tail": gateway_detail,
+        "gateway_http_code": gateway_http_code,
+        "gateway_probe_attempts": gateway_probe_attempts,
+        "gateway_recovery_attempted": gateway_recovery_attempted,
+        "gateway_check_method": gateway_check_method,
+        "gateway_stderr_tail": gateway_error,
     }
 
 

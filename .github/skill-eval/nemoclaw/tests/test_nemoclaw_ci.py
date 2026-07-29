@@ -1319,13 +1319,43 @@ class NemoClawEnvFileTest(unittest.TestCase):
         with (
             mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
             mock.patch.object(readiness, "_run", side_effect=fake_run),
+            mock.patch.object(readiness, "GATEWAY_HEALTH_ATTEMPTS", 2),
+            mock.patch.object(readiness.time, "sleep") as sleep,
         ):
             report = readiness._check_sandbox("demo", "19080")
 
         self.assertFalse(report["ok"])
         self.assertTrue(report["lookup_ok"])
         self.assertFalse(report["gateway_ok"])
-        self.assertIn("failed to connect", report["gateway_stderr_tail"])
+        self.assertIsNone(report["gateway_http_code"])
+        self.assertEqual(report["gateway_probe_attempts"], 2)
+        self.assertTrue(report["gateway_recovery_attempted"])
+        self.assertEqual(report["gateway_check_method"], "")
+        self.assertIn("recovery exited 7", report["gateway_stderr_tail"])
+        sleep.assert_called_once_with(readiness.GATEWAY_HEALTH_RETRY_SECONDS)
+        gateway_call = (
+            "openshell",
+            "sandbox",
+            "exec",
+            "--name",
+            "demo",
+            "-g",
+            "nemoclaw-19080",
+            "--",
+            "curl",
+            "--noproxy",
+            "*",
+            "-sS",
+            "--connect-timeout",
+            "3",
+            "--max-time",
+            "10",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "http://127.0.0.1:18789/health",
+        )
         self.assertEqual(
             calls,
             [
@@ -1337,26 +1367,13 @@ class NemoClawEnvFileTest(unittest.TestCase):
                     "nemoclaw-19080",
                     "demo",
                 ),
+                gateway_call,
+                gateway_call,
                 (
-                    "openshell",
+                    "nemoclaw",
                     "sandbox",
-                    "exec",
-                    "--name",
+                    "recover",
                     "demo",
-                    "-g",
-                    "nemoclaw-19080",
-                    "--",
-                    "curl",
-                    "--noproxy",
-                    "*",
-                    "-fsS",
-                    "--connect-timeout",
-                    "3",
-                    "--max-time",
-                    "10",
-                    "-o",
-                    "/dev/null",
-                    "http://127.0.0.1:18789/health",
                 ),
             ],
         )
@@ -1422,7 +1439,76 @@ class NemoClawEnvFileTest(unittest.TestCase):
             timeout=60,
         )
 
-    def test_readiness_accepts_healthy_gateway_inside_sandbox(self):
+    def test_readiness_accepts_gateway_alive_http_codes_inside_sandbox(self):
+        for http_code in ("200", "401"):
+            with self.subTest(http_code=http_code):
+                responses = [
+                    subprocess.CompletedProcess(
+                        ["openshell", "sandbox", "get"],
+                        0,
+                        stdout="sandbox exists",
+                        stderr="",
+                    ),
+                    subprocess.CompletedProcess(
+                        ["openshell", "sandbox", "exec"],
+                        0,
+                        stdout=http_code,
+                        stderr="",
+                    ),
+                ]
+                with (
+                    mock.patch.object(
+                        readiness.shutil,
+                        "which",
+                        return_value="/usr/bin/openshell",
+                    ),
+                    mock.patch.object(
+                        readiness,
+                        "_run",
+                        side_effect=responses,
+                    ) as run,
+                ):
+                    report = readiness._check_sandbox("demo", "8080")
+
+                self.assertTrue(report["ok"])
+                self.assertTrue(report["lookup_ok"])
+                self.assertTrue(report["gateway_ok"])
+                self.assertEqual(report["gateway_http_code"], int(http_code))
+                self.assertEqual(report["gateway_probe_attempts"], 1)
+                self.assertFalse(report["gateway_recovery_attempted"])
+                self.assertEqual(report["gateway_check_method"], "scoped_http")
+                self.assertEqual(run.call_count, 2)
+                self.assertEqual(
+                    run.call_args_list[1],
+                    mock.call(
+                        [
+                            "openshell",
+                            "sandbox",
+                            "exec",
+                            "--name",
+                            "demo",
+                            "-g",
+                            "nemoclaw",
+                            "--",
+                            "curl",
+                            "--noproxy",
+                            "*",
+                            "-sS",
+                            "--connect-timeout",
+                            "3",
+                            "--max-time",
+                            "10",
+                            "-o",
+                            "/dev/null",
+                            "-w",
+                            "%{http_code}",
+                            "http://127.0.0.1:18789/health",
+                        ],
+                        timeout=30,
+                    ),
+                )
+
+    def test_readiness_retries_gateway_health_until_alive(self):
         responses = [
             subprocess.CompletedProcess(
                 ["openshell", "sandbox", "get"],
@@ -1433,53 +1519,71 @@ class NemoClawEnvFileTest(unittest.TestCase):
             subprocess.CompletedProcess(
                 ["openshell", "sandbox", "exec"],
                 0,
-                stdout="healthy",
+                stdout="503",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                ["openshell", "sandbox", "exec"],
+                0,
+                stdout="401",
                 stderr="",
             ),
         ]
         with (
             mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
-            mock.patch.object(
-                readiness,
-                "_run",
-                side_effect=responses,
-            ) as run,
+            mock.patch.object(readiness, "_run", side_effect=responses),
+            mock.patch.object(readiness.time, "sleep") as sleep,
         ):
-            report = readiness._check_sandbox("demo", "8080")
+            report = readiness._check_sandbox("demo", "19080")
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["gateway_http_code"], 401)
+        self.assertEqual(report["gateway_probe_attempts"], 2)
+        self.assertFalse(report["gateway_recovery_attempted"])
+        self.assertEqual(report["gateway_check_method"], "scoped_http")
+        sleep.assert_called_once_with(readiness.GATEWAY_HEALTH_RETRY_SECONDS)
+
+    def test_readiness_accepts_managed_recovery_when_scoped_http_is_unreachable(self):
+        responses = [
+            subprocess.CompletedProcess(
+                ["openshell", "sandbox", "get"],
+                0,
+                stdout="sandbox exists",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                ["openshell", "sandbox", "exec"],
+                7,
+                stdout="000",
+                stderr="curl: failed to connect",
+            ),
+            subprocess.CompletedProcess(
+                ["nemoclaw", "sandbox", "recover"],
+                0,
+                stdout="Probe complete: OpenClaw gateway is running.",
+                stderr="",
+            ),
+        ]
+        with (
+            mock.patch.object(readiness.shutil, "which", return_value="/usr/bin/openshell"),
+            mock.patch.object(readiness, "_run", side_effect=responses) as run,
+            mock.patch.object(readiness, "GATEWAY_HEALTH_ATTEMPTS", 1),
+        ):
+            report = readiness._check_sandbox("demo", "19080")
 
         self.assertTrue(report["ok"])
         self.assertTrue(report["lookup_ok"])
         self.assertTrue(report["gateway_ok"])
-        self.assertEqual(run.call_count, 2)
-        self.assertEqual(
-            run.call_args_list[1],
-            mock.call(
-                [
-                    "openshell",
-                    "sandbox",
-                    "exec",
-                    "--name",
-                    "demo",
-                    "-g",
-                    "nemoclaw",
-                    "--",
-                    "curl",
-                    "--noproxy",
-                    "*",
-                    "-fsS",
-                    "--connect-timeout",
-                    "3",
-                    "--max-time",
-                    "10",
-                    "-o",
-                    "/dev/null",
-                    "http://127.0.0.1:18789/health",
-                ],
-                timeout=30,
-            ),
+        self.assertIsNone(report["gateway_http_code"])
+        self.assertEqual(report["gateway_probe_attempts"], 1)
+        self.assertTrue(report["gateway_recovery_attempted"])
+        self.assertEqual(report["gateway_check_method"], "managed_recover")
+        run.assert_called_with(
+            ["nemoclaw", "sandbox", "recover", "demo"],
+            timeout=readiness.GATEWAY_RECOVERY_TIMEOUT_SECONDS,
         )
 
-    def test_readiness_reports_gateway_probe_timeout(self):
+    def test_readiness_reports_managed_recovery_timeout(self):
         sandbox_result = subprocess.CompletedProcess(
             ["openshell", "sandbox", "get"],
             0,
@@ -1494,15 +1598,24 @@ class NemoClawEnvFileTest(unittest.TestCase):
                 side_effect=[
                     sandbox_result,
                     subprocess.TimeoutExpired(["openshell"], 30),
+                    subprocess.TimeoutExpired(
+                        ["nemoclaw", "sandbox", "recover"],
+                        readiness.GATEWAY_RECOVERY_TIMEOUT_SECONDS,
+                    ),
                 ],
             ),
+            mock.patch.object(readiness, "GATEWAY_HEALTH_ATTEMPTS", 1),
         ):
             report = readiness._check_sandbox("demo", "19080")
 
         self.assertFalse(report["ok"])
         self.assertTrue(report["lookup_ok"])
         self.assertFalse(report["gateway_ok"])
-        self.assertIn("timed out after 30s", report["gateway_stderr_tail"])
+        self.assertTrue(report["gateway_recovery_attempted"])
+        self.assertIn(
+            f"timed out after {readiness.GATEWAY_RECOVERY_TIMEOUT_SECONDS}s",
+            report["gateway_stderr_tail"],
+        )
 
     def test_readiness_reports_scoped_lookup_timeout(self):
         with (
