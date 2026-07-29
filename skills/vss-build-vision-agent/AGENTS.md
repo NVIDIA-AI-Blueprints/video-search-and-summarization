@@ -18,6 +18,12 @@ from natural-language capability requests.
 
 - Pick exactly one current developer profile as the Foundation. Ask only when
   two foundations have the same smallest delta.
+- Pick the Foundation by requested primary capability before counting generic
+  utility peers. For streamed/uploaded VLM Q&A and dense captioning with Kafka
+  and Elasticsearch storage, use `base` and add Kafka, Elasticsearch,
+  Logstash, and their init/health peers; do not choose `lvs` just because it
+  already includes ELK, because LVS adds unrequested summarization services and
+  profile-specific Kibana machinery.
 - Do not route warehouse or industry-profile requests through this skill unless
   the request is explicitly for a developer-profile-derived composition.
 - In delta mode, add or remove only canonical Compose profile keys and only the
@@ -44,6 +50,13 @@ from natural-language capability requests.
   `GET /v1/ready`, models are listed at `GET /models`, summaries are requested
   with `POST /v1/summarize` using a VIOS-provided `url` or `id`, and the result
   text is in `choices[0].message.content`.
+- In runtime LVS validation, never fabricate a direct file URL or use a sidecar
+  file server for media. Register or select media through VIOS, obtain the clip
+  URL/id from a VIOS API such as `/storage/file/<streamId>/url?container=mp4`,
+  then issue exactly one LVS `POST /v1/summarize` after readiness. Include
+  `model`, `scenario`, `events`, `chunk_duration`,
+  `num_frames_per_second_or_fixed_frames_chunk`, `use_fps_for_chunking`, and
+  the VIOS-provided `url` or `id` in that single request.
 
 ## Eval Behavior
 
