@@ -140,7 +140,7 @@ them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
 ## Idempotency and teardown
 
 Make add idempotent: list first (`GET /sensor/list`, RT-CV
-`GET /api/v1/stream/list`, RT-Embed `GET /v1/streams/get-stream-info`) and skip or
+`GET /api/v1/stream/get-stream-info`, RT-Embed `GET /v1/streams/get-stream-info`) and skip or
 delete-then-add on a match. To remove a source, reverse the fan-out — RT-CV
 `change:"camera_remove"`, RT-Embed `DELETE /v1/streams/delete/{id}` (or
 `DELETE /v1/generate_video_embeddings/{id}`), RT-VLM stream-delete — then delete the
