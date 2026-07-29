@@ -46,30 +46,3 @@ docker-workload-streamprocessing:
   WDM_WL_HEALTH_CHECK_URL: '/api/v1/live/version'
   WDM_ADD_CALL_DELAY: 1
   WDM_PROVISION_ASYNC: false
-
-docker-workload-rtvi-cv:
-  wl_obj_name: perception-sdr
-  port: 4004
-  enable: true
-  WDM_INITIALIZE_FROM_VST: false
-  WDM_KFK_ENABLE: false
-  WDM_PRELOAD_DELAY_FOR_DS_API: true
-  WDM_WL_THRESHOLD: ${NUM_SENSORS}
-  WDM_POD_WATCH_DOCKER_DELAY: 0.5
-  WDM_XDS_USE_POD_DNS: true
-  WDM_XDS_USE_IP_ADDRESS: false
-  WDM_WL_OBJECT_NAME: vss-rtvi-cv
-  WDM_CONSUMER_GRP_ID: sdr-deepstream-cg
-  WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
-  WDM_REDIS_MSG_KEY: vst.event
-  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-rtvi-cv.json
-  WDM_WL_ADD_URL: /api/v1/stream/add
-  WDM_WL_DELETE_URL: /api/v1/stream/remove
-  WDM_WL_CHANGE_ID_ADD: camera_streaming
-  WDM_WL_CHANGE_ID_DEL: camera_remove
-  NOHEADERTARGETROUTE: false
-  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 5
-  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
-  WDM_WL_HEALTH_CHECK_URL: '/api/v1/live'
-  WDM_ADD_CALL_DELAY: 1
-  WDM_PROVISION_ASYNC: false
