@@ -34,6 +34,7 @@
 #include "stream_monitor.h"
 #include "fps_display.h"
 #include "webrtcstreamproducer.h"
+#include "webrtc_frame_timestamper.h"
 
 #include "webrtc_headers/src/common_video/include/video_frame_buffer.h"
 #include "webrtc_headers/src/api/video/video_frame_buffer.h"
@@ -95,7 +96,6 @@ class VideoWebRTCSender : public IMediaDataConsumer
 #ifdef DUMP_BITSTREAM
         void dump_input_stream(const unsigned char *buffer, ssize_t size);
 #endif
-        int64_t nextWebrtcFrameTimestampUs();
 
 #ifdef ENABLE_FRAMEID_SUPPORT_IN_WEBRTC
     private:
@@ -119,7 +119,7 @@ class VideoWebRTCSender : public IMediaDataConsumer
         std::mutex                      m_earlyFrameMutex;
         std::condition_variable         m_earlyFrameCv;
         std::atomic<bool>               m_isShuttingDown{false};
-        std::atomic<int64_t>            m_lastWebrtcFrameTimestampUs{0};
+        WebrtcFrameTimestamper          m_frameTimestamper;
 
 #ifdef DUMP_BITSTREAM
         int                     m_frameCount = 0;
