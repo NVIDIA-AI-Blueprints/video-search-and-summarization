@@ -1261,12 +1261,15 @@ if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo
   stage "installing system packages for uv sync"
   sudo -n apt-get update -qq || sudo -n apt-get update -qq || \
     stage "apt update failed; continuing with cached package indexes"
-  sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config || \
+  sudo -n /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libcairo2-dev pkg-config || \
     stage "apt package preflight failed; continuing and letting setup report any missing dependency"
 else
   stage "apt/sudo unavailable; skipping system package preflight"
 fi
-python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-eval/nemoclaw/pip-install.log 2>&1 || {{
+# Registered workers use a uv-managed Python that enforces PEP 668.
+# --user keeps these notebook-only packages outside that interpreter while
+# the pip configuration override acknowledges the externally-managed marker.
+PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet nbformat nbclient ipykernel >/tmp/skill-eval/nemoclaw/pip-install.log 2>&1 || {{
   cat /tmp/skill-eval/nemoclaw/pip-install.log >&2
   exit 1
 }}
