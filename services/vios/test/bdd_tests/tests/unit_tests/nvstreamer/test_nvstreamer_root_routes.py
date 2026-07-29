@@ -3,7 +3,16 @@
 
 """Direct-port routing tests for NVStreamer root mode."""
 
+import os
+
+import pytest
+
 from ..unit_test_utils import api_get, validate_list_response
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_NVSTREAMER_ROUTE_TESTS") != "1",
+    reason="Set RUN_NVSTREAMER_ROUTE_TESTS=1 to run disabled NVStreamer route tests",
+)
 
 
 def _timeout(unit_test_params: dict) -> int:

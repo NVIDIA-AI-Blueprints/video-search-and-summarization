@@ -3,14 +3,20 @@
 
 """Public-route tests for NVStreamer behind a prefix-stripping proxy."""
 
+import os
 import re
 from urllib.parse import urljoin
 
+import pytest
 import requests
 
 from ..unit_test_utils import api_get, validate_list_response
 
 PREFIX = "/nvstreamer"
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_NVSTREAMER_ROUTE_TESTS") != "1",
+    reason="Set RUN_NVSTREAMER_ROUTE_TESTS=1 to run disabled NVStreamer route tests",
+)
 
 
 def _timeout(unit_test_params: dict) -> int:
