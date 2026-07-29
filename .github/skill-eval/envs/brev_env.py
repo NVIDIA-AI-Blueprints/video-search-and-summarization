@@ -61,6 +61,8 @@ BREV_UPLOAD_BACKOFF_SEC = float(os.environ.get("BREV_UPLOAD_BACKOFF_SEC", "5"))
 
 NEMOCLAW_ATTEMPT_OWNER_ENV = "NEMOCLAW_ATTEMPT_OWNER_TOKEN"
 NEMOCLAW_ATTEMPT_OWNER_PATH = "/logs/artifacts/nemoclaw-attempt-owner"
+NEMOCLAW_LAUNCH_STATE_ROOT = "/tmp/skill-eval/nemoclaw/launch-attempts"
+NEMOCLAW_LAUNCH_GUARD_FAILURE_RC = 70
 
 
 def _is_transient_brev_transport_error(message: str | None) -> bool:
@@ -133,27 +135,34 @@ def _uses_nemoclaw(meta: dict) -> bool:
     return runner == "nemoclaw" or bool(meta.get("requires_nemoclaw"))
 
 
-def _nemoclaw_attempt_owner_setup_command() -> str:
-    """Return an optional atomic owner-marker suffix for NemoClaw CI.
+def _nemoclaw_attempt_owner_token() -> str | None:
+    """Return the validated per-attempt NemoClaw owner token, if enabled.
 
     Direct Harbor invocations do not set ``SKILLS_EVAL_RUNNER`` and remain
     compatible with the provider's historical setup.  The deterministic
     NemoClaw smoke runner supplies a fresh lowercase UUID-hex token for each
-    Harbor attempt; reject anything outside that narrow format before it can
-    enter a remote shell command.
+    Harbor attempt.
     """
     runner = os.environ.get("SKILLS_EVAL_RUNNER", "").strip().lower()
     if runner != "nemoclaw":
-        return ""
+        return None
 
     token = os.environ.get(NEMOCLAW_ATTEMPT_OWNER_ENV)
     if token is None or token == "":
-        return ""
+        return None
     if len(token) != 32 or any(char not in "0123456789abcdef" for char in token):
         raise RuntimeError(
             f"{NEMOCLAW_ATTEMPT_OWNER_ENV} must be exactly 32 lowercase "
             "hexadecimal characters"
         )
+    return token
+
+
+def _nemoclaw_attempt_owner_setup_command() -> str:
+    """Return an optional atomic owner-marker suffix for NemoClaw CI."""
+    token = _nemoclaw_attempt_owner_token()
+    if token is None:
+        return ""
 
     destination = shlex.quote(NEMOCLAW_ATTEMPT_OWNER_PATH)
     return (
@@ -163,6 +172,121 @@ def _nemoclaw_attempt_owner_setup_command() -> str:
         " && chmod 600 \"$attempt_owner_tmp\""
         f" && mv -f \"$attempt_owner_tmp\" {destination}"
     )
+
+
+def _guard_nemoclaw_launcher_once(
+    command: str,
+    token: str | None,
+    *,
+    owner_path: str = NEMOCLAW_ATTEMPT_OWNER_PATH,
+    state_root: str = NEMOCLAW_LAUNCH_STATE_ROOT,
+) -> str:
+    """Run a direct NemoClaw launcher at most once for one Harbor attempt.
+
+    ``brev exec`` can replay a long-running remote command after a transport
+    deadline.  The first invocation holds a worker-local lock until all
+    launcher evidence is finalized and then atomically publishes its return
+    code.  A duplicate invocation replays that result without touching the
+    prompt, logs, or OpenClaw session.  If the first invocation dies after
+    claiming the attempt but before publishing a result, fail closed instead
+    of starting a second agent against ambiguous worker state.
+    """
+    if token is None:
+        return command
+
+    quoted_owner_path = shlex.quote(owner_path)
+    quoted_state_root = shlex.quote(state_root)
+    quoted_token = shlex.quote(token)
+    failure_rc = NEMOCLAW_LAUNCH_GUARD_FAILURE_RC
+    return rf"""set -euo pipefail
+launch_guard_fail() {{
+  printf 'NemoClaw launch guard: %s\n' "$1" >&2
+  exit {failure_rc}
+}}
+attempt_token={quoted_token}
+attempt_owner_file={quoted_owner_path}
+if [ -L "$attempt_owner_file" ] || [ ! -f "$attempt_owner_file" ]; then
+  launch_guard_fail "attempt owner marker is missing or unsafe"
+fi
+if [ "$(stat -c '%u' "$attempt_owner_file")" != "$(id -u)" ] || \
+   [ "$(stat -c '%a' "$attempt_owner_file")" != "600" ]; then
+  launch_guard_fail "attempt owner marker ownership or mode is invalid"
+fi
+if [ "$(wc -c < "$attempt_owner_file")" -ne 33 ]; then
+  launch_guard_fail "attempt owner marker length is invalid"
+fi
+IFS= read -r live_attempt_token < "$attempt_owner_file" || \
+  launch_guard_fail "attempt owner marker is unreadable"
+if [ "$live_attempt_token" != "$attempt_token" ]; then
+  launch_guard_fail "attempt owner marker does not match this launcher"
+fi
+if ! command -v flock >/dev/null 2>&1; then
+  launch_guard_fail "flock is unavailable"
+fi
+launch_state_root={quoted_state_root}
+launch_state_parent=$(dirname -- "$launch_state_root")
+if [ -L "$launch_state_parent" ] || [ -L "$launch_state_root" ]; then
+  launch_guard_fail "launch state path is symlinked"
+fi
+umask 077
+mkdir -p "$launch_state_root"
+chmod 700 "$launch_state_root"
+launch_state="$launch_state_root/$attempt_token"
+if [ -L "$launch_state" ]; then
+  launch_guard_fail "attempt launch state is symlinked"
+fi
+mkdir -p "$launch_state"
+chmod 700 "$launch_state"
+lock_file="$launch_state/lock"
+if [ -L "$lock_file" ] || {{ [ -e "$lock_file" ] && [ ! -f "$lock_file" ]; }}; then
+  launch_guard_fail "attempt launch lock is unsafe"
+fi
+exec 9>>"$lock_file"
+flock -x 9 || launch_guard_fail "attempt launch lock failed"
+terminal_rc="$launch_state/rc"
+terminal_output="$launch_state/output"
+started_marker="$launch_state/started"
+if [ -e "$terminal_rc" ] || [ -L "$terminal_rc" ]; then
+  if [ -L "$terminal_rc" ] || [ ! -f "$terminal_rc" ]; then
+    launch_guard_fail "cached launcher result is unsafe"
+  fi
+  IFS= read -r rc < "$terminal_rc" || \
+    launch_guard_fail "cached launcher result is unreadable"
+  case "$rc" in
+    ""|*[!0-9]*) launch_guard_fail "cached launcher result is invalid" ;;
+  esac
+  if [ "$rc" -gt 255 ]; then
+    launch_guard_fail "cached launcher result is out of range"
+  fi
+  if [ -L "$terminal_output" ] || [ ! -f "$terminal_output" ]; then
+    launch_guard_fail "cached launcher output is missing or unsafe"
+  fi
+  cat "$terminal_output"
+  exit "$rc"
+fi
+if [ -e "$started_marker" ] || [ -L "$started_marker" ]; then
+  launch_guard_fail "prior launcher stopped without a terminal result"
+fi
+started_tmp="$launch_state/.started.$$"
+printf '%s\n' "$$" > "$started_tmp"
+chmod 600 "$started_tmp"
+mv -f "$started_tmp" "$started_marker"
+output_tmp="$launch_state/.output.$$"
+set +e
+(
+{command}
+) > "$output_tmp" 2>&1
+rc=$?
+set -e
+chmod 600 "$output_tmp"
+mv -f "$output_tmp" "$terminal_output"
+rc_tmp="$launch_state/.rc.$$"
+printf '%s\n' "$rc" > "$rc_tmp"
+chmod 600 "$rc_tmp"
+mv -f "$rc_tmp" "$terminal_rc"
+cat "$terminal_output"
+exit "$rc"
+"""
 
 
 class BrevEnvironmentType(str, Enum):
@@ -1970,7 +2094,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             "mkdir -p /tmp/skill-eval/nemoclaw\n"
             f"printf %s {shlex.quote(prompt_b64)} | base64 -d > {shlex.quote(prompt_arg)}\n"
         )
-        return rf"""set -euo pipefail
+        launcher_command = rf"""set -euo pipefail
 REPO="$HOME/video-search-and-summarization"
 cd "$REPO"
 mkdir -p /logs/agent /logs/artifacts/nemoclaw
@@ -1997,6 +2121,10 @@ printf '\nNemoClaw direct launcher exit code: %s\n' "$rc" >> /logs/agent/claude-
 cat /logs/agent/nemoclaw-headless-runner.stdout >> /logs/agent/claude-code.txt
 exit "$rc"
 """
+        return _guard_nemoclaw_launcher_once(
+            launcher_command,
+            _nemoclaw_attempt_owner_token(),
+        )
 
 
 # ---------------------------------------------------------------------------

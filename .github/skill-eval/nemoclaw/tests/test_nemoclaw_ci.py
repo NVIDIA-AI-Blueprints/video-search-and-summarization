@@ -3397,6 +3397,48 @@ class NemoClawSmokeRunnerTest(unittest.TestCase):
             1,
         )
 
+    def test_report_adapter_receives_query_analytics_dependency(self):
+        with tempfile.TemporaryDirectory() as td:
+            output_root = Path(td) / "dataset"
+            run = mock.Mock(
+                return_value=subprocess.CompletedProcess(
+                    args=[],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                )
+            )
+            with (
+                mock.patch.object(
+                    smoke_runner,
+                    "_adapter_help",
+                    return_value=(
+                        "--spec --platform --deploy-skill-dir "
+                        "--video-io-skill-dir --query-analytics-skill-dir"
+                    ),
+                ),
+                mock.patch.object(smoke_runner, "_run", run),
+            ):
+                smoke_runner._run_adapter(
+                    skill="vss-generate-video-report",
+                    spec_path=(
+                        REPO_ROOT
+                        / "skills"
+                        / "vss-generate-video-report"
+                        / "evals"
+                        / "base_profile_report.json"
+                    ),
+                    platform="RTXPRO6000BW",
+                    output_root=output_root,
+                )
+
+        command = run.call_args.args[0]
+        dependency_index = command.index("--query-analytics-skill-dir")
+        self.assertEqual(
+            command[dependency_index + 1],
+            "skills/vss-query-analytics",
+        )
+
     def test_brev_json_parser_ignores_trailing_cli_text(self):
         raw = '[{"name":"vss-eval-rtx-1g-2","status":"RUNNING READY"}]\nNext steps...'
 
@@ -6742,9 +6784,9 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         self.assertIn("max-parallel: 1", source)
         self.assertIn("nemoclaw_instance:", source)
         self.assertIn("runs-on: [self-hosted, nemoclaw-ci-runner]", source)
-        self.assertIn("timeout-minutes: 150", source)
+        self.assertIn("timeout-minutes: 180", source)
         self.assertIn("export NEMOCLAW_LOCK_TIMEOUT_SEC=1200", source)
-        self.assertIn("export NEMOCLAW_RUN_TIMEOUT_SEC=7800", source)
+        self.assertIn("export NEMOCLAW_RUN_TIMEOUT_SEC=9000", source)
         self.assertIn(
             "export NEMOCLAW_REMOTE_LOCK_HEARTBEAT_SEC=180",
             source,
@@ -6767,11 +6809,11 @@ class SkillsEvalWorkflowTimeoutTest(unittest.TestCase):
         )
         self.assertIn("NEMOCLAW_INPUT_INSTANCE:", source)
         self.assertIn('export NEMOCLAW_BREV_INSTANCE="$NEMOCLAW_INPUT_INSTANCE"', source)
-        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=6600", source)
+        self.assertIn("export NEMOCLAW_HARBOR_TIMEOUT_SEC=7800", source)
         self.assertIn("export NEMOCLAW_REMOTE_SETUP_TIMEOUT_SEC=1500", source)
         self.assertIn("export NEMOCLAW_SETUP_TIMEOUT_SEC=1620", source)
         self.assertIn("export NEMOCLAW_SETUP_CELL_TIMEOUT=900", source)
-        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=2400", source)
+        self.assertIn("export NEMOCLAW_AGENT_TIMEOUT_SEC=3300", source)
         self.assertIn("export NEMOCLAW_GATEWAY_PORT=19080", source)
         self.assertIn("unset NEMOCLAW_OPENSHELL_GATEWAY_STATE_DIR", source)
         self.assertIn(

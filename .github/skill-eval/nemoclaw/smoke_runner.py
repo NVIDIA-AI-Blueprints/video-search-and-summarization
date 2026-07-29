@@ -592,6 +592,7 @@ def _run_adapter(
     dependency_args = {
         "--deploy-skill-dir": "vss-deploy-profile",
         "--video-io-skill-dir": "vss-manage-video-io-storage",
+        "--query-analytics-skill-dir": "vss-query-analytics",
     }
     for arg, dependency_skill in dependency_args.items():
         dependency_dir = SKILLS_ROOT / dependency_skill

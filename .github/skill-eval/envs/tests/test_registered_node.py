@@ -263,6 +263,141 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             ):
                 brev_env._nemoclaw_attempt_owner_setup_command()
 
+    def test_launcher_guard_runs_payload_once_across_concurrent_replays(self):
+        token = "a" * 32
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner = root / "owner"
+            state_root = root / "launch-state"
+            stdout = root / "headless.stdout"
+            count = root / "payload-count"
+            owner.write_text(token + "\n", encoding="utf-8")
+            owner.chmod(0o600)
+            payload = textwrap.dedent(
+                f"""
+                set -euo pipefail
+                printf 'run\\n' >> {shlex.quote(str(count))}
+                sleep 0.2
+                printf 'payload output\\n' > {shlex.quote(str(stdout))}
+                cat {shlex.quote(str(stdout))}
+                exit 7
+                """
+            ).strip()
+            guarded = brev_env._guard_nemoclaw_launcher_once(
+                payload,
+                token,
+                owner_path=str(owner),
+                state_root=str(state_root),
+            )
+
+            first = subprocess.Popen(
+                ["bash", "-c", guarded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(100):
+                if count.exists():
+                    break
+                if first.poll() is not None:
+                    self.fail("first guarded launcher exited before its payload ran")
+                time.sleep(0.01)
+            else:
+                self.fail("first guarded launcher did not start its payload")
+            second = subprocess.Popen(
+                ["bash", "-c", guarded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            first_stdout, first_stderr = first.communicate(timeout=5)
+            second_stdout, second_stderr = second.communicate(timeout=5)
+            replay = subprocess.run(
+                ["bash", "-c", guarded],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+
+            self.assertEqual(first.returncode, 7, first_stderr)
+            self.assertEqual(second.returncode, 7, second_stderr)
+            self.assertEqual(replay.returncode, 7, replay.stderr)
+            self.assertEqual(first_stdout, "payload output\n")
+            self.assertEqual(second_stdout, first_stdout)
+            self.assertEqual(replay.stdout, first_stdout)
+            self.assertEqual(count.read_text(encoding="utf-8"), "run\n")
+
+    def test_launcher_guard_fails_closed_after_unfinished_claim(self):
+        token = "b" * 32
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner = root / "owner"
+            state_root = root / "launch-state"
+            state = state_root / token
+            count = root / "payload-count"
+            owner.write_text(token + "\n", encoding="utf-8")
+            owner.chmod(0o600)
+            state.mkdir(parents=True)
+            (state / "started").write_text("prior\n", encoding="utf-8")
+            guarded = brev_env._guard_nemoclaw_launcher_once(
+                f"touch {shlex.quote(str(count))}",
+                token,
+                owner_path=str(owner),
+                state_root=str(state_root),
+            )
+
+            result = subprocess.run(
+                ["bash", "-c", guarded],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                brev_env.NEMOCLAW_LAUNCH_GUARD_FAILURE_RC,
+            )
+            self.assertIn(
+                "prior launcher stopped without a terminal result",
+                result.stderr,
+            )
+            self.assertFalse(count.exists())
+
+    def test_launcher_guard_rejects_a_stale_attempt_owner(self):
+        current_token = "c" * 32
+        stale_token = "d" * 32
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owner = root / "owner"
+            state_root = root / "launch-state"
+            count = root / "payload-count"
+            owner.write_text(current_token + "\n", encoding="utf-8")
+            owner.chmod(0o600)
+            guarded = brev_env._guard_nemoclaw_launcher_once(
+                f"touch {shlex.quote(str(count))}",
+                stale_token,
+                owner_path=str(owner),
+                state_root=str(state_root),
+            )
+
+            result = subprocess.run(
+                ["bash", "-c", guarded],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                brev_env.NEMOCLAW_LAUNCH_GUARD_FAILURE_RC,
+            )
+            self.assertIn("does not match this launcher", result.stderr)
+            self.assertFalse(state_root.exists())
+            self.assertFalse(count.exists())
+
     async def test_stray_reap_covers_direct_nemoclaw_launcher_exactly(self):
         command = brev_env._stray_agent_reap_command()
         syntax = subprocess.run(
@@ -1487,7 +1622,12 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
         brev_env._run_brev_exec = fake_run_brev_exec
         previous_fast = os.environ.pop("NEMOCLAW_FAST_READINESS_MODE", None)
         previous_timeout = os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC")
-        os.environ["NEMOCLAW_AGENT_TIMEOUT_SEC"] = "2400"
+        previous_runner = os.environ.get("SKILLS_EVAL_RUNNER")
+        previous_owner = os.environ.get("NEMOCLAW_ATTEMPT_OWNER_TOKEN")
+        attempt_owner_token = "e" * 32
+        os.environ["NEMOCLAW_AGENT_TIMEOUT_SEC"] = "3300"
+        os.environ["SKILLS_EVAL_RUNNER"] = "nemoclaw"
+        os.environ["NEMOCLAW_ATTEMPT_OWNER_TOKEN"] = attempt_owner_token
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 task_dir = Path(tmp) / "rtxpro6000bw"
@@ -1528,6 +1668,14 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop("NEMOCLAW_AGENT_TIMEOUT_SEC", None)
             else:
                 os.environ["NEMOCLAW_AGENT_TIMEOUT_SEC"] = previous_timeout
+            if previous_runner is None:
+                os.environ.pop("SKILLS_EVAL_RUNNER", None)
+            else:
+                os.environ["SKILLS_EVAL_RUNNER"] = previous_runner
+            if previous_owner is None:
+                os.environ.pop("NEMOCLAW_ATTEMPT_OWNER_TOKEN", None)
+            else:
+                os.environ["NEMOCLAW_ATTEMPT_OWNER_TOKEN"] = previous_owner
 
         self.assertEqual(len(calls), 1)
         command = calls[0][1]
@@ -1545,9 +1693,25 @@ class NemoClawBrevCommands(unittest.IsolatedAsyncioTestCase):
             "base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md",
             command,
         )
+        self.assertIn(f"attempt_token={attempt_owner_token}", command)
+        self.assertIn("flock -x 9", command)
+        self.assertLess(
+            command.index("flock -x 9"),
+            command.index("NemoClaw direct Harbor launcher"),
+        )
+        self.assertLess(
+            command.index("flock -x 9"),
+            command.index("base64 -d > /tmp/skill-eval/nemoclaw/current_prompt.md"),
+        )
+        self.assertLess(
+            command.index("flock -x 9"),
+            command.index(
+                "python3 .github/skill-eval/nemoclaw/headless_runner.py"
+            ),
+        )
         self.assertNotIn("| claude --verbose --print", command)
         self.assertNotIn("--prompt-file /tests/nemoclaw_prompt.md", command)
-        self.assertEqual(calls[0][2], 2520)
+        self.assertEqual(calls[0][2], 3420)
 
     async def test_nemoclaw_launcher_can_opt_into_fast_readiness_mode(self):
         calls = []
