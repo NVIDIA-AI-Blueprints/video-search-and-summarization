@@ -158,6 +158,11 @@ def generate_task(
     Single-step specs collapse to a flat ``<profile>/<platform_short>/``."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
+    # Spec-declared GPU need for this platform; default 1 matches run_leg.py.
+    gpu_count = int(
+        (((spec.get("resources") or {}).get("platforms") or {}).get(platform) or {})
+        .get("gpu_count", 1)
+    )
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
 
@@ -209,8 +214,11 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-            "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vss-generate-video-report",
-            "# exercises POST /generate only, so there is no benefit to local NIMs.",
+            # gpu_count is owned by the spec — run_leg.py reads it from here to
+            # size the worker, and defaults to 1 when absent. Omitting it made a
+            # spec's `gpu_count: 2` decorative and let a 2-GPU trial be scheduled
+            # onto a 1-GPU box.
+            f"gpu_count = {gpu_count}",
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
