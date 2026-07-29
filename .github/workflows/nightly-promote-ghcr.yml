@@ -19,6 +19,12 @@ on:
       alert_artifacts_config:
         description: "Optional alert artifacts-promotion config path"
         required: false
+      video_analytics_api_artifacts_config:
+        description: "Optional video analytics API artifacts-promotion config path"
+        required: false
+      behavior_analytics_artifacts_config:
+        description: "Optional behavior analytics artifacts-promotion config path"
+        required: false
 concurrency:
   group: nightly-validate-ghcr
   cancel-in-progress: false
@@ -46,6 +52,8 @@ jobs:
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
       AGENT_UI_CONFIG: ${{ inputs.agent_ui_artifacts_config || vars.VSS_AGENT_UI_ARTIFACTS_PROMOTION_CONFIG_PATH }}
       ALERT_CONFIG: ${{ inputs.alert_artifacts_config || vars.VSS_ALERT_ARTIFACTS_PROMOTION_CONFIG_PATH }}
+      VIDEO_ANALYTICS_API_CONFIG: ${{ inputs.video_analytics_api_artifacts_config || vars.VSS_VIDEO_ANALYTICS_API_ARTIFACTS_PROMOTION_CONFIG_PATH }}
+      BEHAVIOR_ANALYTICS_CONFIG: ${{ inputs.behavior_analytics_artifacts_config || vars.VSS_BEHAVIOR_ANALYTICS_ARTIFACTS_PROMOTION_CONFIG_PATH }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -81,7 +89,9 @@ jobs:
           python3 .github/scripts/prepare_promotion_trigger.py \
             --test-pipeline-id "${{ steps.trigger.outputs.pipeline_id }}" \
             --agent-ui-config "$AGENT_UI_CONFIG" \
-            --alert-config "$ALERT_CONFIG"
+            --alert-config "$ALERT_CONFIG" \
+            --video-analytics-api-config "$VIDEO_ANALYTICS_API_CONFIG" \
+            --behavior-analytics-config "$BEHAVIOR_ANALYTICS_CONFIG"
 
       - name: Trigger GitLab promotion pipeline
         id: promotion-trigger
