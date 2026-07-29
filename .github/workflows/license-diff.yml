@@ -168,7 +168,8 @@ jobs:
             echo '```'
             echo "</details>"
             echo
-            echo "_This check is informational. CODEOWNERS still gates merge — get approval from \`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers\` for the touched lockfile/manifest paths._"
+            echo "_The trusted **OSRB Review** follow-up sends this artifact to the protected compliance pipeline."
+            echo "It approves already-cleared changes or blocks with the missing evidence. CODEOWNERS remains the final merge gate._"
           } > comment.md
           existing=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
             --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id")
@@ -181,10 +182,9 @@ jobs:
             echo "$payload" | gh api -X POST "repos/${REPO}/issues/${PR}/comments" --input - > /dev/null
           fi
 
-      - name: Fail when license diff is non-empty
+      - name: Hand off non-empty diff to OSRB Review
         if: steps.ctx.outputs.skip != 'true' && steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
         env:
           ROWS: ${{ steps.gen.outputs.rows }}
         run: |
-          echo "::error title=License diff non-empty::${ROWS} packages changed; requires OSRB review."
-          exit 1
+          echo "::notice title=OSRB review queued::${ROWS} package changes will be evaluated by the trusted OSRB Review workflow."

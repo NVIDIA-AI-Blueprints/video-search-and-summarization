@@ -1,0 +1,144 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Trusted follow-up to License Diff. `workflow_run` loads this workflow and its
+# scripts from the default branch, not from the PR mirror. It creates the
+# public check, then triggers and polls the isolated private GitLab pipeline.
+# Internal compliance systems and credentials are used only in that pipeline.
+name: OSRB Review
+
+on:
+  workflow_run:
+    workflows: ["License Diff"]
+    types: [completed]
+
+permissions:
+  actions: read
+  checks: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: osrb-review-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  review:
+    name: Trigger private OSRB review
+    if: startsWith(github.event.workflow_run.head_branch, 'pull-request/')
+    runs-on: [self-hosted, downstream-pipeline]
+    timeout-minutes: 45
+    env:
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+      EXTERNAL_ID: gitlab-osrb:${{ github.event.workflow_run.id }}
+
+    steps:
+      - name: Checkout trusted dispatch implementation
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Resolve source PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          pr="${HEAD_BRANCH##pull-request/}"
+          base="$(gh pr view "$pr" --repo "$REPO" --json baseRefName --jq .baseRefName)"
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          case "$base" in
+            dev/*|release/*) echo "skip=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "skip=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Mark release-branch review as not applicable
+        if: steps.pr.outputs.skip == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/osrb_check.py skip \
+            --repo "$REPO" \
+            --sha "$HEAD_SHA" \
+            --run-url "$RUN_URL" \
+            --external-id "$EXTERNAL_ID" \
+            --summary "PR targets ${{ steps.pr.outputs.base }}; OSRB was already enforced on the develop-targeted PR."
+
+      - name: Start OSRB check
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/osrb_check.py start \
+            --repo "$REPO" \
+            --sha "$HEAD_SHA" \
+            --run-url "$RUN_URL" \
+            --external-id "$EXTERNAL_ID"
+
+      - name: Trigger private OSRB pipeline
+        if: steps.pr.outputs.skip != 'true'
+        id: trigger
+        continue-on-error: true
+        env:
+          DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
+          DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
+          DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
+          DOWNSTREAM_REF: osrb-review-trigger
+          DOWNSTREAM_SUBMODULE_HASH_VARIABLE: GITHUB_MIRROR_SHA
+          GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
+          GITHUB_REF_NAME: ${{ github.event.workflow_run.head_branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DOWNSTREAM_EXTRA_VARIABLES_JSON: >-
+            {"OSRB_REVIEW":"true",
+            "GITHUB_REPOSITORY":"${{ github.repository }}",
+            "GITHUB_PR_NUMBER":"${{ steps.pr.outputs.number }}",
+            "GITHUB_LICENSE_RUN_ID":"${{ github.event.workflow_run.id }}",
+            "GITHUB_OSRB_RUN_URL":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+        run: |
+          python3 .github/scripts/trigger-downstream-pipeline.sh
+
+      - name: Poll private OSRB pipeline
+        if: steps.pr.outputs.skip != 'true' && steps.trigger.outcome == 'success'
+        id: poll
+        continue-on-error: true
+        env:
+          DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
+          DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
+          DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+          POLL_INTERVAL_SECONDS: "30"
+          MAX_POLL_DURATION_SECONDS: "2400"
+        run: python3 .github/scripts/poll-downstream-pipeline.py
+
+      - name: Complete OSRB check
+        if: always() && steps.pr.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TRIGGER_OUTCOME: ${{ steps.trigger.outcome }}
+          POLL_OUTCOME: ${{ steps.poll.outcome }}
+        run: |
+          set -euo pipefail
+          success=()
+          summary="The protected downstream OSRB review did not approve this change. See the PR review."
+          if [[ "$TRIGGER_OUTCOME" == "success" && "$POLL_OUTCOME" == "success" ]]; then
+            success=(--success)
+            summary="The protected downstream OSRB review approved this change."
+          fi
+          python3 .github/scripts/osrb_check.py complete \
+            --repo "$REPO" \
+            --sha "$HEAD_SHA" \
+            --run-url "$RUN_URL" \
+            --external-id "$EXTERNAL_ID" \
+            --summary "$summary" \
+            "${success[@]}"
+          [[ "$TRIGGER_OUTCOME" == "success" && "$POLL_OUTCOME" == "success" ]]
