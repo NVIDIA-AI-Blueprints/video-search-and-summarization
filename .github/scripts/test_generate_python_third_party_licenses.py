@@ -71,6 +71,39 @@ second text
 
 
 class RenderTest(unittest.TestCase):
+    def test_documents_only_final_image_packages_and_runtime_opencv(self) -> None:
+        python_component = generator.Component(
+            license_name="MIT",
+            license_url="https://example.com/license",
+            name="sample",
+            notes=(),
+            scope="Installed in the default image",
+            texts=(generator.NoticeText(source="LICENSE", text="license text"),),
+            version="1.0.0",
+        )
+        existing = {
+            "opencv-python-headless": generator.ExistingSection(
+                license_name="Apache-2.0",
+                license_url="https://example.com/opencv",
+                text="opencv license text",
+                version="4.13.0.92",
+            )
+        }
+
+        components = generator.documented_components([python_component], existing)
+
+        self.assertEqual(
+            ["sample", "opencv-python-headless"],
+            [component.name for component in components],
+        )
+        self.assertNotIn(
+            "FFmpeg source archive", {component.name for component in components}
+        )
+        self.assertEqual(
+            "Runtime optional; downloaded on the operator system",
+            components[1].scope,
+        )
+
     def test_renders_inventory_scope_and_every_notice_path(self) -> None:
         component = generator.Component(
             license_name="MIT",

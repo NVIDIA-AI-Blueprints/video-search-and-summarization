@@ -1056,17 +1056,23 @@ jobs:
 
       # Cheap, always-runs guard so the protection can't be silently removed
       # even if the published-image pull below is skipped (e.g. missing NGC key).
-      - name: Assert Dockerfile strips codecs and wires the build-time guard
+      - name: Assert Dockerfile strips codecs and excludes FFmpeg source
         run: |
           DF=services/agent/docker/Dockerfile
           fail() { echo "ERROR: $1 (see $DF)"; exit 1; }
+          if grep -qE '^[[:space:]]*COPY .*([3]rdparty/ffmpeg|third_party/ffmpeg|verify_ffmpeg_tarball)' "$DF"; then
+            fail "FFmpeg source or its verifier must not be copied into any image stage"
+          fi
+          if grep -qF 'verify_ffmpeg_tarball' "$DF"; then
+            fail "obsolete FFmpeg source verification step remains"
+          fi
           grep -qF 'opencv_python_headless.libs' "$DF" \
             || fail "OpenCV/FFmpeg removal step missing"
           grep -qF 'libav*.so*' "$DF" \
             || fail "FFmpeg shared-library removal glob missing"
           grep -qF 'patent-encumbered codec libraries present in image' "$DF" \
             || fail "build-time codec guard missing"
-          echo "OK: Dockerfile removes bundled codecs and enforces the build-time guard."
+          echo "OK: Dockerfile excludes FFmpeg source, removes codecs, and enforces the build-time guard."
 
       # The committed deploy coordinate may target GHCR or NGC.
       - name: Log in to GHCR

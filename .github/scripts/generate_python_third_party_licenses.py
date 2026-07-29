@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import re
-import tarfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -358,53 +357,13 @@ def optional_opencv_component(existing: dict[str, ExistingSection]) -> Component
     )
 
 
-def ffmpeg_source_component(archive: Path) -> Component:
-    """Read the licenses from the FFmpeg source archive shipped in the image."""
+def documented_components(
+    python_components: Iterable[Component],
+    existing: dict[str, ExistingSection],
+) -> list[Component]:
+    """Combine final-image Python distributions with runtime-only notices."""
 
-    if not archive.is_file():
-        raise RuntimeError(f"FFmpeg source archive not found: {archive}")
-    texts: list[NoticeText] = []
-    with tarfile.open(archive, "r:gz") as tar:
-        members = {
-            Path(member.name).name: member
-            for member in tar.getmembers()
-            if member.isfile()
-        }
-        for basename in (
-            "LICENSE.md",
-            "COPYING.LGPLv2.1",
-            "COPYING.LGPLv3",
-            "COPYING.GPLv2",
-            "COPYING.GPLv3",
-        ):
-            member = members.get(basename)
-            if member is None:
-                raise RuntimeError(f"{archive} does not contain {basename}")
-            extracted = tar.extractfile(member)
-            if extracted is None:
-                raise RuntimeError(f"could not read {member.name} from {archive}")
-            texts.append(
-                NoticeText(
-                    source=f"{archive.name}:{member.name}",
-                    text=normalize_notice_text(
-                        extracted.read().decode(errors="replace")
-                    ),
-                )
-            )
-    return Component(
-        license_name=(
-            "Mixed source tree: LGPL-2.1-or-later (default), GPL-2.0-or-later/GPL-3.0-or-later, "
-            "MIT/BSD-style and other file-level licenses"
-        ),
-        license_url="https://github.com/FFmpeg/FFmpeg/blob/n8.0.1/LICENSE.md",
-        name="FFmpeg source archive",
-        notes=(
-            "Source-only compliance artifact; no FFmpeg or codec binary is present in the default image.",
-        ),
-        scope="FFmpeg-n8.0.1.tar.gz is included in the default image",
-        texts=tuple(texts),
-        version="n8.0.1",
-    )
+    return [*python_components, optional_opencv_component(existing)]
 
 
 def render(
@@ -461,7 +420,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--existing-notice", type=Path, required=True)
     parser.add_argument("--expected-python-packages", type=int, required=True)
-    parser.add_argument("--ffmpeg-archive", type=Path, required=True)
     parser.add_argument("--inventory-basis", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--overrides-dir", type=Path)
@@ -477,11 +435,7 @@ def main() -> None:
             f"expected {args.expected_python_packages} installed third-party Python distributions, "
             f"found {len(python_components)}"
         )
-    components = [
-        *python_components,
-        optional_opencv_component(existing),
-        ffmpeg_source_component(args.ffmpeg_archive),
-    ]
+    components = documented_components(python_components, existing)
     args.output.write_text(
         render(components, len(python_components), args.inventory_basis),
         encoding="utf-8",
