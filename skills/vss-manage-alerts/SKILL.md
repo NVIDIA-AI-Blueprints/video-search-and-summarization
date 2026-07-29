@@ -114,10 +114,10 @@ passes, detect the mode per Step 1.
 
 | Mode | Deploy flag | Env (`.env`) | What runs | What is available |
 |---|---|---|---|---|
-| **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
-| **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `-m real-time`). No static CV pipeline. |
+| **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). Agent `rtvi_cv_base_url` is enabled so UI-managed streams are registered with RT-CV. Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
+| **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `-m real-time`). No static CV pipeline; Agent `rtvi_cv_base_url` is omitted so ingest skips RT-CV. |
 
-**Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag (VLM → CV adds the CV pipeline; CV → VLM tears it down). `rtvi-vlm` runs in both modes.
+**Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag. The deploy script selects `config.yml` for CV or `config-real-time.yml` for real-time; only the CV config contains the Agent RT-CV endpoint. `rtvi-vlm` runs in both modes.
 
 **`RTVI_VLM_KAFKA_ENABLED` is mode-specific.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false` for verification (`2d_cv`), where nothing consumes RT-VLM's Kafka output and leaving it on makes RT-VLM publish duplicate incidents that Logstash indexes under `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) alerts depend on RT-VLM publishing to Kafka, so the line must be commented out in that mode — `dev-profile.sh` does this automatically for `-m real-time`. If a real-time deployment produces no alerts, check that this override is not still active in `generated.env`.
 
