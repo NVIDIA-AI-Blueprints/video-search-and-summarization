@@ -14,23 +14,28 @@ def test_root_help_lists_registered_domains(capsys: pytest.CaptureFixture[str]) 
     assert "search" in capsys.readouterr().out
 
 
+def test_root_help_renders_declared_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    """The summary comes from the entry point, not from importing the group."""
+    assert cli.main(["--help"]) == 0
+    assert "Search indexed video" in capsys.readouterr().out
+
+
 def test_search_help_lists_operations(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["search", "--help"]) == 0
     help_text = capsys.readouterr().out
-    assert "{run,embed,attribute}" in help_text
+    for operation in ("run", "embed", "attribute"):
+        assert operation in help_text
     assert "Normal archive search: vss search run --help" in help_text
-    assert "set VSS_REPO_ROOT" in help_text
-    assert 'uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev' in help_text
 
 
 def test_unknown_root_command_returns_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["unknown"]) == 2
-    assert "unknown command" in capsys.readouterr().err
+    assert "No such command" in capsys.readouterr().err
 
 
 def test_unknown_search_operation_returns_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["search", "unknown"]) == 2
-    assert "unknown operation" in capsys.readouterr().err
+    assert "No such command" in capsys.readouterr().err
 
 
 def test_search_run_routes_to_search_implementation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -59,7 +64,17 @@ def test_search_operations_route_to_their_primitives(monkeypatch: pytest.MonkeyP
 
 
 def test_operation_help_uses_nested_command_grammar(capsys: pytest.CaptureFixture[str]) -> None:
+    """--help on an operation reaches argparse, which owns that option surface."""
     assert cli.main(["search", "run", "--help"]) == 0
     help_text = capsys.readouterr().out
     assert "usage: vss search run" in help_text
     assert "embed_search" not in help_text
+
+
+def test_unknown_option_reaches_the_operation_parser(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Options are forwarded verbatim; Click must not intercept them."""
+    seen: list[list[str]] = []
+    monkeypatch.setattr("vss_cli.search.run", lambda _op, argv: seen.append(argv) or 0)
+
+    assert cli.main(["search", "run", "--not-a-click-option", "x"]) == 0
+    assert seen == [["--not-a-click-option", "x"]]

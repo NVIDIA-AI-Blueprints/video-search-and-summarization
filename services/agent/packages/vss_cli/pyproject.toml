@@ -26,12 +26,24 @@ license = "Apache-2.0"
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 # cli only touches vss_core (search_core, _foundation) -- no agent/NAT deps.
+# click is the one third-party addition: it supplies the lazy command-group
+# resolution (Group.list_commands / Group.get_command) that entry-point plugin
+# discovery needs, and as of 8.5 it has no runtime dependencies of its own.
 dependencies = [
   "nvidia-vss-core",
+  "click>=8.1",
 ]
 
 [project.scripts]
 vss = "vss_cli:main"
+
+# First-party groups register through the same contract third parties use.
+[project.entry-points."vss.commands"]
+search = "vss_cli.entrypoint:SEARCH"
+
+# Values here are read as raw strings for `vss --help` and are never imported.
+[project.entry-points."vss.command_summaries"]
+search = "Search indexed video"
 
 [tool.uv.sources]
 nvidia-vss-core = { workspace = true }
