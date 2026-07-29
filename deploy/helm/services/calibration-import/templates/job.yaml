@@ -37,7 +37,7 @@ spec:
       {{- end }}
       containers:
         - name: calibration-import
-          image: "{{ $image.repository | default "alpine" }}:{{ $image.tag | default "3.24.1" }}"
+          image: "{{ $image.repository | default "docker.io/library/alpine" }}:{{ $image.tag | default "3.24.1" }}"
           imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
           {{- with .Values.securityContext }}
           securityContext:
