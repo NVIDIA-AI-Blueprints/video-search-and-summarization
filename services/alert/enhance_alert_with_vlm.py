@@ -1553,6 +1553,28 @@ class AnomalyEnhancer(
         Returns ``(user_prompt, system_prompt)``, or ``None`` when the message
         was fully handled (skipped or recorded as a pre-processing failure).
         """
+        # Reject messages missing fields the downstream VST stage dereferences
+        # directly (``message['timestamp']`` / ``message['end']``). The HTTP JSON
+        # endpoint validates these, but producers that bypass it — the protobuf
+        # endpoint, a raw Kafka producer, or replay tooling — can still enqueue a
+        # malformed message. Without this guard those raise ``KeyError`` deep in
+        # ``_resolve_video_url``; record it as a first-class failure instead.
+        missing_fields = [
+            field for field in ("sensorId", "timestamp", "end") if not message.get(field)
+        ]
+        if missing_fields:
+            logger.error(
+                "Dropping malformed message missing required field(s) %s [sensor=%s]",
+                missing_fields, message.get('sensorId', 'N/A'),
+            )
+            record_event_complete(
+                worker_start_time,
+                message,
+                latency,
+                failure_reason="malformed_message",
+            )
+            return None
+
         # C25: wrap the skip check so state-backend failures surface as a
         # ``VERIFICATION_FAILURES`` event instead of bubbling to
         # ``process_batch_vlm``'s generic ``except Exception`` (which logs

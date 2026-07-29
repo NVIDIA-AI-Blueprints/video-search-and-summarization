@@ -73,6 +73,24 @@ def test_non_string_info_values_are_rejected(client, mock_service, valid_inciden
     mock_service.submit_nvschema_incident.assert_not_awaited()
 
 
+def test_structured_info_values_are_accepted(client, mock_service, valid_incident):
+    """Mode-3 direct-media producers send structured ``info`` values (a
+    ``media_urls`` list, an object). These must remain accepted — they are
+    JSON-encoded into the protobuf string map downstream and decoded back by
+    the Mode-3 pass-through branch. Only bare non-string scalars are rejected."""
+    valid_incident["info"] = {
+        "media_urls": ["http://media-store/a.mp4", "http://media-store/b.mp4"],
+        "media_type": "video",
+        "location": "warehouse",
+        "meta": {"nested": "object"},
+    }
+
+    response = client.post("/api/v1/incidents", json=valid_incident)
+
+    assert response.status_code == 202
+    mock_service.submit_nvschema_incident.assert_awaited_once_with(valid_incident)
+
+
 @pytest.mark.parametrize("field", ["sensorId", "timestamp", "end", "category"])
 def test_missing_required_field_is_rejected(
     client,

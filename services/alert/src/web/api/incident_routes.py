@@ -59,7 +59,7 @@ def get_incident_service() -> AlertSubmissionService:
     responses={
         202: {"description": "Incident accepted and queued", "model": IncidentSubmissionResponse},
         400: {"description": "Invalid Protobuf payload", "model": ErrorResponse},
-        422: {"description": "Invalid JSON body", "model": ErrorResponse},
+        422: {"description": "Invalid JSON body or missing required field(s)", "model": ErrorResponse},
         500: {"description": "Internal server error", "model": ErrorResponse},
     },
     openapi_extra={
@@ -77,7 +77,18 @@ def get_incident_service() -> AlertSubmissionService:
                             "category": {"type": "string"},
                             "info": {
                                 "type": "object",
-                                "additionalProperties": {"type": "string"},
+                                "additionalProperties": {
+                                    "oneOf": [
+                                        {"type": "string"},
+                                        {"type": "array"},
+                                        {"type": "object"},
+                                    ]
+                                },
+                                "description": (
+                                    "String values by default; arrays/objects "
+                                    "(e.g. media_urls) are accepted and JSON-encoded "
+                                    "downstream. Non-string scalars are rejected."
+                                ),
                             },
                             "event": {"type": "object"},
                         },
@@ -92,6 +103,7 @@ def get_incident_service() -> AlertSubmissionService:
                         "info": {
                             "location": "warehouse-loading-dock",
                             "primaryObjectId": "worker-04",
+                            "media_urls": ["http://media-store/incident-67890.mp4"],
                         },
                         "event": {
                             "id": "incident-67890",
