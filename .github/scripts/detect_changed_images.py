@@ -46,6 +46,29 @@ BUILD_CONTRACT_PATHS = (
     "deploy/docker/container-inventory.json",
 )
 
+# Agent, UI, and alert share VSS_CONTAINER_TAG and must move as one set.
+# Analytics images have independent tag variables and build only when their
+# own service source changes.
+SHARED_TAG_IMAGE_NAMES = frozenset({"vss-agent", "vss-agent-ui", "vss-alert-ms"})
+
+# Behavior analytics compiles architecture-sensitive native dependencies and
+# must not build arm64 through QEMU on an amd64 runner. The build workflow
+# expands it into one job per platform, then combines the native results into
+# the same multiarch candidate expected by the release-set flow.
+NATIVE_PLATFORM_IMAGE_NAMES = frozenset({"vss-behavior-analytics"})
+RUNNER_BY_PLATFORM = {
+    "linux/amd64": "ubuntu-24.04",
+    "linux/arm64": "ubuntu-24.04-arm",
+}
+RUNNER_ARCH_BY_PLATFORM = {
+    "linux/amd64": "X64",
+    "linux/arm64": "ARM64",
+}
+KERNEL_ARCH_BY_PLATFORM = {
+    "linux/amd64": "x86_64",
+    "linux/arm64": "aarch64",
+}
+
 
 def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -116,30 +139,73 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
         if any(path.startswith(entry["source_path"] + "/") for path in changed)
     ]
     if changed_images:
-        # The managed agent/UI/alert set shares one VSS_CONTAINER_TAG. Publish
-        # every member under that tag so the shared develop/QA coordinate can
-        # switch the managed set with one environment variable.
-        names = ", ".join(entry["name"] for entry in changed_images)
+        selected_names = {entry["name"] for entry in changed_images}
+        if selected_names & SHARED_TAG_IMAGE_NAMES:
+            selected_names.update(
+                entry["name"]
+                for entry in buildable
+                if entry["name"] in SHARED_TAG_IMAGE_NAMES
+            )
+        selected = [
+            entry for entry in buildable if entry["name"] in selected_names
+        ]
+        changed_names = ", ".join(entry["name"] for entry in changed_images)
+        selected_names_text = ", ".join(entry["name"] for entry in selected)
         return (
-            buildable,
-            f"managed image(s) changed ({names}); building complete shared-tag set",
+            selected,
+            f"managed image(s) changed ({changed_names}); building "
+            f"{selected_names_text}",
         )
     return [], f"0 of {len(buildable)} images changed"
 
 
-def to_matrix(entries: list[dict]) -> dict:
+def matrix_entry(entry: dict) -> dict:
     return {
-        "include": [
-            {
-                "name": entry["name"],
-                "context": entry["context"],
-                "dockerfile": entry["dockerfile"],
-                "lfs_include": entry.get("lfs_include", ""),
-                "platforms": ",".join(entry["platforms"]),
-                "source_path": entry["source_path"],
-            }
-            for entry in entries
-        ]
+        "name": entry["name"],
+        "context": entry["context"],
+        "dockerfile": entry["dockerfile"],
+        "lfs_include": entry.get("lfs_include", ""),
+        "platforms": ",".join(entry["platforms"]),
+        "source_path": entry["source_path"],
+    }
+
+
+def to_matrix(entries: list[dict]) -> dict:
+    return {"include": [matrix_entry(entry) for entry in entries]}
+
+
+def split_build_matrices(entries: list[dict]) -> dict[str, dict]:
+    """Partition selected images and expand native builds by platform."""
+    standard = [
+        entry for entry in entries if entry["name"] not in NATIVE_PLATFORM_IMAGE_NAMES
+    ]
+    native = [
+        entry for entry in entries if entry["name"] in NATIVE_PLATFORM_IMAGE_NAMES
+    ]
+    native_platforms: list[dict] = []
+    for entry in native:
+        base = matrix_entry(entry)
+        for platform in entry["platforms"]:
+            try:
+                runner = RUNNER_BY_PLATFORM[platform]
+            except KeyError as exc:
+                raise ValueError(
+                    f"{entry['name']}: no native runner configured for {platform}"
+                ) from exc
+            native_platforms.append(
+                {
+                    **base,
+                    "platform": platform,
+                    "arch": platform.rsplit("/", 1)[-1],
+                    "runner": runner,
+                    "runner_arch": RUNNER_ARCH_BY_PLATFORM[platform],
+                    "kernel_arch": KERNEL_ARCH_BY_PLATFORM[platform],
+                }
+            )
+    return {
+        "standard_matrix": to_matrix(standard),
+        "native_matrix": to_matrix(native),
+        "native_platform_matrix": {"include": native_platforms},
     }
 
 
@@ -163,12 +229,16 @@ def main() -> int:
 
     entries, selection_reason = select_images(inventory, changed)
     matrix = to_matrix(entries)
+    split_matrices = split_build_matrices(entries)
     print(
         json.dumps(
             {
                 "reason": f"{reason}; {selection_reason}",
                 "count": len(entries),
                 "matrix": matrix,
+                "standard_count": len(split_matrices["standard_matrix"]["include"]),
+                "native_count": len(split_matrices["native_matrix"]["include"]),
+                **split_matrices,
             },
             indent=2,
         )

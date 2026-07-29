@@ -91,7 +91,7 @@ services:
 
   phoenix:
     container_name: phoenix
-    image: 'arizephoenix/phoenix:14.15.0'
+    image: 'arizephoenix/phoenix:19.8.0'
     profiles: ["phoenix"]
     environment:
       PHOENIX_WORKING_DIR: '/.phoenix/'
@@ -248,7 +248,7 @@ services:
       - $VSS_DATA_DIR/data_log/redis/log:/log
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.4.3
+    image: docker.elastic.co/kibana/kibana:9.4.4
     profiles: ["kibana"]
     volumes:
       - $VSS_APPS_DIR/services/infra/elk/kibana/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
@@ -267,7 +267,7 @@ services:
       start_period: 60s
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.4.3
+    image: docker.elastic.co/logstash/logstash:9.4.4
     profiles: ["logstash"]
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs

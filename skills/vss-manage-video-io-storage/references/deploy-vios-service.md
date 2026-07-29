@@ -118,6 +118,9 @@ mkdir -p ${SDR_CONTROLLER_CONFIG_PATH}/configs
 
 These env vars MUST be set in the consumer `.env` (or `vst.env` must be loaded into the patched VIOS compose include) before deploying — they affect runtime correctness, not just configuration. The skill's Step 6 `.env` generation must emit them.
 
+`HOST_IP` is the VST-specific public host setting for this standalone Compose
+bring-up. It is not a profile-level endpoint setting.
+
 > **Set `HOST_IP` first.** `VST_INGRESS_ENDPOINT=${HOST_IP}:30888/vst` (`compose.env:59`) is the host VIOS mints into every **shareable media URL** (`/picture/url` → `imageUrl`, clip URLs, etc.). SDRC mode fails fast if `HOST_IP` is unset. Auto-detect the routable IP before deploying — the SAME method the profile orchestrator uses (`orchestrator/network_util.py:detect_internal_ip` = `ip route get 1.1.1.1` → the `src` token; `/vss-deploy-profile` always resolves `HOST_IP` this way or fails fast):
 >
 > ```bash
