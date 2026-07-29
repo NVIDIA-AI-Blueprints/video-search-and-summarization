@@ -57,7 +57,7 @@ spec:
       initContainers:
         {{- if .Values.downloadNgcAppData }}
         - name: wait-for-ngc-app-data
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -80,7 +80,7 @@ spec:
               mountPath: /models-data
         {{- else }}
         - name: wait-for-warehouse-models
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -101,7 +101,7 @@ spec:
               mountPath: /models-data
         {{- end }}
         - name: prepare-mv3dt-models
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c
@@ -123,7 +123,7 @@ spec:
               mountPath: /opt/storage
         {{- if eq ($sw.streamType | default "none") "kafka" }}
         - name: wait-for-kafka
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - sh
             - -c

@@ -35,7 +35,7 @@ spec:
       {{- end }}
       initContainers:
         - name: prepare-ds-config
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - /bin/sh
             - -c

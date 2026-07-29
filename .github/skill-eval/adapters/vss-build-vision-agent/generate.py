@@ -69,7 +69,7 @@ PLATFORMS: dict[str, dict] = {
     "RTXPRO6000BW": {
         "short_name":       "rtxpro6000bw",
         "gpu_type":         "RTX PRO 6000",
-        "gpu_count":        2,
+        "gpu_count":        1,
         "min_vram_per_gpu": 96,
         "brev_search":      "RTX PRO",
         "min_root_disk_gb": 220,
@@ -216,12 +216,12 @@ def generate_task(
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'].
     Multi-step specs produce step-N/ subdirs; single-step specs are flat."""
-    pspec = dict(PLATFORMS[platform])  # mutable copy
-    # Override gpu_count from spec's resources.platforms when declared — the
-    # spec is authoritative for per-platform hardware requirements.
-    spec_plat_meta = (spec.get("resources") or {}).get("platforms", {}).get(platform)
-    if spec_plat_meta and "gpu_count" in spec_plat_meta:
-        pspec["gpu_count"] = int(spec_plat_meta["gpu_count"])
+    pspec = dict(PLATFORMS[platform])  # copy so we can override per-spec
+    # Let the spec's resources.platforms[platform].gpu_count override the
+    # adapter default — the spec is authoritative for fleet sizing.
+    spec_platform_res = (spec.get("resources") or {}).get("platforms", {}).get(platform, {})
+    if "gpu_count" in spec_platform_res:
+        pspec["gpu_count"] = int(spec_platform_res["gpu_count"])
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
