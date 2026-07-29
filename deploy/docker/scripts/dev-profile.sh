@@ -235,6 +235,42 @@ function set_alerts_rtvi_vlm_kafka_from_mode() {
   esac
 }
 
+# Derive alerts always-on from MODE, then enable/disable the custom VIOS
+# notification override from ALERT_AGENT_ALWAYS_ON:
+# - true  (2d_vlm): uncomment VST_NOTIFICATION_CONFIG_PATH (alerts webhooks)
+# - false (2d_cv):  keep/comment VST_NOTIFICATION_CONFIG_PATH (shared VIOS default)
+function set_alerts_always_on_from_mode() {
+  local _generated_env="${1}"
+  local _mode _always_on
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  case "${_mode}" in
+    2d_vlm)
+      _always_on="true"
+      ;;
+    *)
+      _always_on="false"
+      ;;
+  esac
+  sed -i "s|^ALERT_AGENT_ALWAYS_ON=.*|ALERT_AGENT_ALWAYS_ON=${_always_on}|" "${_generated_env}"
+
+  case "${_always_on}" in
+    true)
+      # Uncomment the profile override (value already points at the custom file).
+      if grep -Eq '^#[[:space:]]*VST_NOTIFICATION_CONFIG_PATH=' "${_generated_env}"; then
+        sed -i -E 's|^#[[:space:]]*(VST_NOTIFICATION_CONFIG_PATH=.*)|\1|' "${_generated_env}"
+      fi
+      echo "[INFO] Set ALERT_AGENT_ALWAYS_ON=true and uncommented VST_NOTIFICATION_CONFIG_PATH for alerts (MODE=${_mode})"
+      ;;
+    false)
+      # Comment the override so Compose falls back to the shared VIOS default.
+      if grep -q '^VST_NOTIFICATION_CONFIG_PATH=' "${_generated_env}"; then
+        sed -i -E 's|^(VST_NOTIFICATION_CONFIG_PATH=.*)|# \1|' "${_generated_env}"
+      fi
+      echo "[INFO] Set ALERT_AGENT_ALWAYS_ON=false and commented VST_NOTIFICATION_CONFIG_PATH for alerts (MODE=${_mode:-2d_cv})"
+      ;;
+  esac
+}
+
 # Gets model name from remote API endpoint (works for both LLM and VLM).
 # Auto-select is only safe when the endpoint serves exactly one model
 # (e.g., a deployed NIM). For aggregate endpoints like
@@ -1335,6 +1371,7 @@ function state_up() {
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
+    set_alerts_always_on_from_mode "${_generated_env}"
     # Alerts VLM mode uses a different explicit service list than CV mode.
     if [[ "${mode_env}" == "2d_vlm" ]]; then
       set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"

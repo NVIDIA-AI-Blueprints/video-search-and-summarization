@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Rules started automatically for each VIOS camera_streaming event.
+# camera_remove events stop these rules and remove the corresponding RTVI stream.
+always_on_rules:
+  - rule_id: ladder_ppe
+    description: "Detect missing PPE for workers using ladders"
+    alert_type: "Ladder PPE Violation"
+    always_on_params:
+      system_prompt: "You are a helpful assistant."
+      prompt: "Is anyone on the ladder without a hardhat or safety vest? Answer yes or no."
+      model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"

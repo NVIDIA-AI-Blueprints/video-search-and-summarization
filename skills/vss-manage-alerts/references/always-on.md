@@ -2,7 +2,7 @@
 
 Operational reference for **Workflow G**: checking whether always-on alerting is active, querying its incidents, and troubleshooting missing always-on alerts.
 
-> **Operate, don't author.** This workflow never creates, edits, or deletes always-on rule configuration. Authoring `always_on_rules` entries, rule lifecycle redesign, and enabling the feature on a user's behalf are **out of scope in this pass** — when asked, say so and describe the enable path instead of performing it.
+> **Operate, don't author.** This workflow never creates, edits, or deletes always-on rule configuration. Authoring `always_on_rules` entries and rule lifecycle redesign are **out of scope in this pass** — when asked, say so. Enabling/disabling the feature is a **deploy-mode choice** (`-m real-time` vs `-m verification`), not a runtime config edit.
 
 ## How always-on works
 
@@ -22,11 +22,15 @@ SDR event ──POST /api/v1/realtime/always-on──▶ Alert Bridge
 
 There is **no `/always-on/health` endpoint** — never invent one. Two signals, in preference order:
 
-1. **Config gate (zero side effects).** The feature is opt-in via `alert_agent.always_on` in the Alert Bridge `config.yaml` (default **false**). On a **Docker** compose deploy, check the mounted config or the container (skip `docker exec` on Kubernetes — ask the operator or use the endpoint probe below):
+1. **Config gate (zero side effects).** The feature is gated by `ALERT_AGENT_ALWAYS_ON` in the alerts profile env (substituted into `alert_agent.always_on` in the mounted verifier config). On a Docker compose deploy via `dev-profile.sh`, real-time (`MODE=2d_vlm`) sets it **true** and uncomments `VST_NOTIFICATION_CONFIG_PATH` (alerts VIOS webhook override); verification (`MODE=2d_cv`) sets it **false** and keeps that path commented (shared VIOS default). Check the env or the resolved config. On Kubernetes, skip these local-file and `docker exec` checks; ask the operator or use the endpoint probe below.
    ```bash
    if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-     docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/config.yaml' 2>/dev/null \
-       || grep -rn "always_on" deploy/docker/developer-profiles/dev-profile-alerts/ 2>/dev/null | grep -v sample
+     grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env 2>/dev/null \
+       || grep -E '^ALERT_AGENT_ALWAYS_ON=' deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
+     # Real-time: uncommented override. Verification: line stays commented (#VST_NOTIFICATION_CONFIG_PATH=...).
+     grep -E '^#?[[:space:]]*VST_NOTIFICATION_CONFIG_PATH=' deploy/docker/developer-profiles/dev-profile-alerts/generated.env 2>/dev/null \
+       || grep -E '^#?[[:space:]]*VST_NOTIFICATION_CONFIG_PATH=' deploy/docker/developer-profiles/dev-profile-alerts/overrides.env
+     docker exec vss-alert-bridge sh -c 'grep -A1 -E "^\s*always_on" /app/runtime/config.yml' 2>/dev/null
    fi
    ```
 2. **Endpoint probe (benign POST).** A `camera_remove` for a nonexistent camera is a no-op when enabled and returns the gate response when disabled. Use `$AB` from the parent skill (Kubernetes `${VSS_PUBLIC_URL}/alert-bridge`, Docker `http://${HOST_IP}:9080`):
@@ -35,15 +39,11 @@ There is **no `/always-on/health` endpoint** — never invent one. Two signals, 
    curl -s -o /tmp/ao.json -w '%{http_code}\n' -X POST "$AB/api/v1/realtime/always-on" \
      -H 'Content-Type: application/json' \
      -d '{"source":"vst","event":{"camera_id":"00000000-0000-0000-0000-0000000000aa","change":"camera_remove"}}'
-   # 503 + {"reason":"ALWAYS_ON_DISABLED"} → feature off (the default)
-   # 200-range / REMOVE_* reason           → feature on (no-op for an unknown camera)
+   # 503 + {"reason":"ALWAYS_ON_DISABLED"} → feature off (verification / 2d_cv default)
+   # 200-range / REMOVE_* reason           → feature on (real-time / 2d_vlm)
    ```
 
-Report the state you actually observed. If the user wants it enabled, describe the path as information only — do **not** perform it. All three steps are required:
-
-1. Set `alert_agent.always_on: true` in Alert Bridge `config.yaml`.
-2. Provide a non-empty `always_on_rules` YAML through `ALWAYS_ON_RULES_CONFIG` or a rules file such as `realtime-config.yaml`.
-3. Restart `alert-bridge` so it validates and loads both the gate and the rules.
+Report the state you actually observed. If the user wants it enabled on a Docker verification deploy, tell them to redeploy with `/vss-deploy-profile -p alerts -m real-time` (do **not** hand-edit config and restart). That redeploy sets `ALERT_AGENT_ALWAYS_ON=true` and uncomments `VST_NOTIFICATION_CONFIG_PATH`. On Kubernetes, describe the operator-managed enable path as information only: set `alert_agent.always_on: true`, provide a non-empty `always_on_rules` YAML, and restart `alert-bridge` so it validates and loads both the gate and the rules; do **not** perform those changes.
 
 ## Response envelope & reason codes
 
@@ -68,7 +68,7 @@ Resolution order (first match wins): `$ALWAYS_ON_RULES_CONFIG` → `./realtime-c
 
 Walk the chain top-down; stop at the first broken link and report it:
 
-1. **Feature gate** — `alert_agent.always_on` false (the default) explains everything; see Status above.
+1. **Feature gate** — `ALERT_AGENT_ALWAYS_ON=false` / `alert_agent.always_on: false` (verification / 2d_cv) explains everything; see Status above. Real-time deploys should show `ALERT_AGENT_ALWAYS_ON=true` and an **uncommented** `VST_NOTIFICATION_CONFIG_PATH` pointing at the alerts VIOS webhook config.
 2. **Rules YAML** — resolves via the chain above and validated at boot; a `CONFIG_ERROR` in `alert-bridge` startup logs means no rule can ever start: `docker logs vss-alert-bridge 2>&1 | grep -i "always"`.
 3. **SDR events reaching Alert Bridge** — the same logs show each incoming `POST /api/v1/realtime/always-on`; no log lines = SDR never announced the camera (VIOS/SDR side, hand off to `vss-manage-video-io-storage`).
 4. **Stream registered on rtvi-vlm** — the fan-out `details` entries carry per-rule upstream errors; a 502-class `error` means `rtvi-vlm` rejected the stream.

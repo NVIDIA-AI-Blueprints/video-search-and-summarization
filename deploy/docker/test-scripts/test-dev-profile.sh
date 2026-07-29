@@ -693,6 +693,14 @@ run_dry_run_test "up base dry-run" up -p base -i 127.0.0.1 -d
 run_dry_run_test "up search dry-run" up -p search -i 127.0.0.1 --dry-run
 run_dry_run_test "up lvs dry-run" up -p lvs -i 127.0.0.1 -d
 run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.0.0.1 -m verification -d
+run_dry_run_up_and_check_generated_env "alerts verification disables always-on and keeps VIOS notification override commented" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "ALERT_AGENT_ALWAYS_ON" "false" \
+  "VST_NOTIFICATION_CONFIG_PATH" ""
+run_dry_run_up_and_check_generated_env "alerts real-time enables always-on and uncomments custom VIOS notifications" "alerts" \
+  -i 127.0.0.1 -m real-time -d -- \
+  "ALERT_AGENT_ALWAYS_ON" "true" \
+  "VST_NOTIFICATION_CONFIG_PATH" '${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/vios/configs/notification_config.json'
 run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
